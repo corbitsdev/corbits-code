@@ -7,7 +7,11 @@
  */
 
 import { getLogger } from "@intx/log";
-import { loadSettings, listFavoriteModels, listRecentModels } from "../../config/settings.js";
+import {
+  loadSettings,
+  listFavoriteModels,
+  listRecentModels,
+} from "../../config/settings.js";
 import { refreshLiveProviderCatalog } from "../../config/index.js";
 import type { ResolvedProvider } from "../../config/settings.js";
 import { prefetchGoModels } from "../../provider/opencode-go-models.js";
@@ -30,7 +34,10 @@ import { hydrateTasksFromTurns } from "../../agent/director.js";
 import { cycleReasoningEffort } from "../../provider/reasoning-effort.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
 import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
-import { RESUME_TRANSCRIPT_BLOCK_LIMIT, turnsToContentBlocks } from "../turns-to-blocks.js";
+import {
+  RESUME_TRANSCRIPT_BLOCK_LIMIT,
+  turnsToContentBlocks,
+} from "../turns-to-blocks.js";
 import { setPluginNeedsAttention, setStatusFlash } from "../shell/chrome.js";
 import {
   setEffortCycleHandler,
@@ -48,7 +55,12 @@ import type { MCPConnectCallbacks } from "../../agent/tools.js";
 import { createRuntimeShutdown } from "./shutdown.js";
 import { resumeTranscriptLoadErrorBlock } from "./exit.js";
 import { userInboundMessage } from "./submit.js";
-import { hostOf, liveAgent, type RunnerServices, type RunnerState } from "./state.js";
+import {
+  hostOf,
+  liveAgent,
+  type RunnerServices,
+  type RunnerState,
+} from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 import { buildFleetDryContinuationMessage } from "../../session/runtime-assembly.js";
 
@@ -61,7 +73,8 @@ export function createFleetWakePublisher(
   let lastLiveFleet = 0;
   let suspended = false;
   const publish = (): { previousRunning: number; running: number } => {
-    if (suspended) return { previousRunning: lastLiveFleet, running: lastLiveFleet };
+    if (suspended)
+      return { previousRunning: lastLiveFleet, running: lastLiveFleet };
     const lanes = sessions.list();
     // Reconcile even an empty snapshot before a fleet drop can settle the parent.
     const asks = pendingAskSnapshot(lanes, (id) => sessions.peekAsk(id));
@@ -105,9 +118,14 @@ export function wirePostStartup(
           baseURL: state.config.baseURL,
           model: state.config.model,
           providerName: state.config.providerName,
-          ...(state.config.keyless !== undefined ? { keyless: state.config.keyless } : {}),
+          ...(state.config.keyless !== undefined
+            ? { keyless: state.config.keyless }
+            : {}),
         };
-        const providers = await refreshLiveProviderCatalog(onDisk, resolvedForCatalog);
+        const providers = await refreshLiveProviderCatalog(
+          onDisk,
+          resolvedForCatalog,
+        );
         state.config = {
           ...state.config,
           providers,
@@ -159,12 +177,20 @@ export function wirePostStartup(
   const sessionBridge = hostOf(state).bridge;
   let fleetWatch = createFleetWatch();
   const reportFleet = (): void => {
-    const observation = observeFleet(fleetWatch, services.subAgentSessions.list(), Date.now());
+    const observation = observeFleet(
+      fleetWatch,
+      services.subAgentSessions.list(),
+      Date.now(),
+    );
     fleetWatch = observation.watch;
-    for (const update of observation.updates) surfaceSystemNotice(hostOf(state).shell, update);
+    for (const update of observation.updates)
+      surfaceSystemNotice(hostOf(state).shell, update);
   };
   let fleetSettle: ReturnType<typeof setTimeout> | null = null;
-  const fleetWakePublisher = createFleetWakePublisher(services.subAgentSessions, services.emitter);
+  const fleetWakePublisher = createFleetWakePublisher(
+    services.subAgentSessions,
+    services.emitter,
+  );
   state.withFleetPublicationSuspended = fleetWakePublisher.withSuspended;
   sessionBridge.setDryOpenTaskDriver(() => {
     const send = state.sendWithAttemptIdentity;
@@ -216,9 +242,13 @@ export function wirePostStartup(
       isCodexProviderName(state.config.providerName),
     );
     if (next === undefined) {
-      setStatusFlash(hostOf(state).shell, "this model has no reasoning effort levels", {
-        ttlMs: RUNTIME_FLASH_MS,
-      });
+      setStatusFlash(
+        hostOf(state).shell,
+        "this model has no reasoning effort levels",
+        {
+          ttlMs: RUNTIME_FLASH_MS,
+        },
+      );
       return;
     }
     state.config = { ...state.config, reasoningEffort: next };
@@ -242,7 +272,9 @@ export function wirePostStartup(
   if (!state.resumeSkipInitialTask && state.config.task.trim().length > 0) {
     // The operator's initial task, typed as a CLI argument before launch —
     // same provenance as a prompt submit.
-    void state.sendWithAttemptIdentity?.(userInboundMessage(state.config.task.trim(), []));
+    void state.sendWithAttemptIdentity?.(
+      userInboundMessage(state.config.task.trim(), []),
+    );
   }
 
   // Hydrate a resumed session's transcript after first paint. Reading history and
@@ -253,12 +285,15 @@ export function wirePostStartup(
   // that itself caps how much it displays.
   void loadRecentTurns(state.workdir, RESUME_TRANSCRIPT_BLOCK_LIMIT)
     .then((turns) => {
-      const blocks = turnsToContentBlocks(turns, { maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT });
+      const blocks = turnsToContentBlocks(turns, {
+        maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT,
+      });
       const tasks = hydrateTasksFromTurns(turns);
       // Restored tasks go to the panel only. They are live state, not something
       // that happened in the conversation, so putting them in scrollback as well
       // renders the same list twice on one screen.
-      if (tasks.length > 0) services.directorHolder.instance?.restoreTasks(tasks);
+      if (tasks.length > 0)
+        services.directorHolder.instance?.restoreTasks(tasks);
       if (blocks.length > 0) services.emitter.emit("history.hydrate", blocks);
     })
     .catch((err: unknown) => {
@@ -266,10 +301,13 @@ export function wirePostStartup(
       // transcript looks like a brand-new session. Log and surface a one-line
       // error block so the operator knows history failed to load.
       const block = resumeTranscriptLoadErrorBlock(err);
-      tuiLogger.warn("Failed to load resume transcript from {workdir}: {error}", {
-        workdir: state.workdir,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      tuiLogger.warn(
+        "Failed to load resume transcript from {workdir}: {error}",
+        {
+          workdir: state.workdir,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
       services.emitter.emit("history.hydrate", [block]);
     });
 
@@ -284,7 +322,10 @@ export function wirePostStartup(
   void services.toolset
     .connectMCP(mcpConnectCallbacks, services.mcpConnectController.signal)
     .then(async () => {
-      if (services.toolset.dynamicRunner.currentDefinitions().length > services.baseToolCount) {
+      if (
+        services.toolset.dynamicRunner.currentDefinitions().length >
+        services.baseToolCount
+      ) {
         state.pendingReload = true;
         state.reloadIfIdle?.();
       }
@@ -296,16 +337,21 @@ export function wirePostStartup(
       // Fire-and-forget: an aborted connect on exit is expected and ignored;
       // any other failure is logged rather than raised as an unhandled rejection.
       if (err instanceof Error && err.name === "AbortError") return;
-      getLogger([LOG_NAMESPACE_ROOT, "tui", "mcp"]).error("MCP connect failed: {error}", {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      getLogger([LOG_NAMESPACE_ROOT, "tui", "mcp"]).error(
+        "MCP connect failed: {error}",
+        {
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
     });
 
   // Surface fire-and-forget startup notices now that there is a shell (queued
   // above, before `host` existed). Plugin load warnings are NOT notices — they
   // drive `plugin !` and `/plugins` instead.
-  for (const notice of state.startupPluginNotices) surfaceSystemNotice(hostOf(state).shell, notice);
-  state.paintPluginAttention = (needs) => setPluginNeedsAttention(hostOf(state).shell, needs);
+  for (const notice of state.startupPluginNotices)
+    surfaceSystemNotice(hostOf(state).shell, notice);
+  state.paintPluginAttention = (needs) =>
+    setPluginNeedsAttention(hostOf(state).shell, needs);
   state.paintPluginAttention(state.standingPluginWarnings.length > 0);
 
   // The persisted /yolo default is otherwise silent: nothing on screen would

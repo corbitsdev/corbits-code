@@ -40,7 +40,9 @@ function formatDateDDMMYYYY(date: Date): string {
   return `${day}/${month}/${year}`;
 }
 
-export function buildChatRole(_sessionMode: SessionMode = "orchestrator"): string {
+export function buildChatRole(
+  _sessionMode: SessionMode = "orchestrator",
+): string {
   // Primary session identity is the closed Skywalker director package (CL-5817).
   // Harness facts / guidelines still append after this role in baseSection.
   return createSkywalkerSystemPrompt();
@@ -106,7 +108,11 @@ export function buildHarnessFacts(
 }
 
 export function buildGuidelines(
-  opts: { subAgent?: boolean; sessionMode?: SessionMode; askDirector?: boolean } = {},
+  opts: {
+    subAgent?: boolean;
+    sessionMode?: SessionMode;
+    askDirector?: boolean;
+  } = {},
 ): string {
   const subAgent = opts.subAgent ?? false;
   const askDirector = opts.askDirector === true;
@@ -181,7 +187,9 @@ export function buildGuidelines(
 // appended exactly once per built prompt. Prohibition form throughout: these
 // are the failure modes observed across shipped agents (OpenCode, Codex CLI,
 // Gemini CLI, Claude Code, Warp, Aider, Cline), not general advice.
-export function buildPromptDisciplineBlock(opts: { subAgent?: boolean } = {}): string {
+export function buildPromptDisciplineBlock(
+  opts: { subAgent?: boolean } = {},
+): string {
   const subAgent = opts.subAgent ?? false;
   const toolsOverShell = subAgent
     ? "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes."
@@ -238,26 +246,36 @@ const TOOL_SUMMARIES: Record<string, string> = {
     "wait for spawned workers by agent_id; returns awaiting_director when a worker asks, without collecting that session",
   search_agents:
     "find agent profiles by role or team before spawning with spawn_agent(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
-  manage_tasks: "maintain your work checklist — create/replace, update status, append, cancel",
+  manage_tasks:
+    "maintain your work checklist — create/replace, update status, append, cancel",
   ask_director:
     "pause and ask the spawning parent (not the human) a short clarifying question with short option labels; parent answers via send_input; after the cap, proceed with best judgment or put remaining questions in Blockers",
-  submit_output: "signal the task is complete, or complete a workflow step by passing its step id",
+  submit_output:
+    "signal the task is complete, or complete a workflow step by passing its step id",
   ask_operator:
     "pause and ask the user when blocked or genuinely ambiguous; put long rationale in a transcript reply first, then call with a short question and short option labels only",
   present:
     "dynamically render aligned/structured output using the layout primitives (stack/row/grid/text etc)",
   tool_search: "load more tools by capability when you need them",
-  use_skill: "load a listed skill's full instructions before doing work it covers",
+  use_skill:
+    "load a listed skill's full instructions before doing work it covers",
   skill_search:
     "look up skill descriptions by capability (catalog — call directly, do not tool_search for this)",
 };
 
-export function buildAvailableTools(tools: readonly string[] = CORE_TOOL_NAMES): string {
-  const lines = tools.map((tool) => `- ${tool}: ${TOOL_SUMMARIES[tool] ?? "available"}`);
+export function buildAvailableTools(
+  tools: readonly string[] = CORE_TOOL_NAMES,
+): string {
+  const lines = tools.map(
+    (tool) => `- ${tool}: ${TOOL_SUMMARIES[tool] ?? "available"}`,
+  );
   return ["Tools:", ...lines].join("\n");
 }
 
-export function buildActiveContext(date = new Date(), cwd = process.cwd()): string {
+export function buildActiveContext(
+  date = new Date(),
+  cwd = process.cwd(),
+): string {
   return [
     "Active context:",
     `Current Date: ${formatDateDDMMYYYY(date)} (prompt cache survives for <=24hr)`,
@@ -281,7 +299,9 @@ export function buildEnvironmentContext(env: EnvironmentInfo): string {
   if (!env.isGitRepo) {
     lines.push("Git: not a git repository");
   } else if ((env.gitDirtyCount ?? 0) === 0) {
-    lines.push(`Git: on ${env.gitBranch ?? "(detached HEAD)"}, working tree clean`);
+    lines.push(
+      `Git: on ${env.gitBranch ?? "(detached HEAD)"}, working tree clean`,
+    );
   } else {
     lines.push(
       `Git: on ${env.gitBranch ?? "(detached HEAD)"}, ${env.gitDirtyCount} uncommitted change(s):`,
@@ -301,7 +321,10 @@ function contextSection(env?: EnvironmentInfo): string {
 // The static base — role, harness facts, guidelines. A SYSTEM.md override
 // keeps custom text but still appends mode-specific harness + guidelines; tools,
 // env, and appended extensions attach after that.
-function baseSection(baseOverride: string | undefined, sessionMode: SessionMode): string {
+function baseSection(
+  baseOverride: string | undefined,
+  sessionMode: SessionMode,
+): string {
   if (baseOverride !== undefined && baseOverride.trim().length > 0) {
     const custom = baseOverride.trim();
     // SYSTEM.md can describe the role; orchestrator harness rules always apply on the wire.
@@ -340,7 +363,9 @@ export function buildChatSystemPrompt(
 ): string {
   const sections = [
     baseSection(baseOverride, sessionMode),
-    buildAvailableTools(coreToolNamesForSessionMode(sessionMode, toolAvailability)),
+    buildAvailableTools(
+      coreToolNamesForSessionMode(sessionMode, toolAvailability),
+    ),
   ];
   if (skills.length > 0) sections.push(buildSkillsSection(skills));
   sections.push(contextSection(env));
@@ -391,7 +416,9 @@ export function buildSubAgentAppendix(
 // Final-reply envelope the parent can parse. Free-form prose is allowed inside
 // each field; the headings are the structure. When the brief carries Success
 // criteria / Do not, those are the completion gate and scope fence.
-export function buildSubAgentReportContract(opts: { askDirector?: boolean } = {}): string {
+export function buildSubAgentReportContract(
+  opts: { askDirector?: boolean } = {},
+): string {
   const askDirector = opts.askDirector === true;
   return [
     "Reporting back:",
@@ -443,19 +470,29 @@ export function buildSubAgentSystemPrompt(
   } = {},
 ): string {
   const toolListForPrompt =
-    opts.toolNames && opts.toolNames.length > 0 ? opts.toolNames : defaultChatTools;
+    opts.toolNames && opts.toolNames.length > 0
+      ? opts.toolNames
+      : defaultChatTools;
   const askDirector = toolListForPrompt.includes("ask_director");
   const base =
     baseOverride !== undefined && baseOverride.trim().length > 0
       ? baseOverride.trim()
       : joinSections([
           `You are a fleet agent — a worker dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
-          buildHarnessFacts({ dynamicTools: false, subAgent: true, askDirector }),
+          buildHarnessFacts({
+            dynamicTools: false,
+            subAgent: true,
+            askDirector,
+          }),
           buildGuidelines({ subAgent: true, askDirector }),
           buildPromptDisciplineBlock({ subAgent: true }),
           buildSubAgentReportContract({ askDirector }),
         ]);
-  const sections = [base, buildAvailableTools(toolListForPrompt), contextSection(env)];
+  const sections = [
+    base,
+    buildAvailableTools(toolListForPrompt),
+    contextSection(env),
+  ];
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
   }

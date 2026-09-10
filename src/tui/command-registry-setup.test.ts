@@ -59,7 +59,11 @@ describe("session command registry setup", () => {
     );
 
     expect(getCommand("live-config-command")?.description).toBe("enabled");
-    expect(getCommand("live-config-command")?.handler("", { signalClear: () => undefined })).toEqual({
+    expect(
+      getCommand("live-config-command")?.handler("", {
+        signalClear: () => undefined,
+      }),
+    ).toEqual({
       type: "message",
       text: "enabled",
     });
@@ -77,6 +81,8 @@ describe("session command registry setup", () => {
       "disabled-command-plugin": { enabled: false },
     };
     expect(getCommand("live-config-command")).toBeUndefined();
-    expect(listCommands().map((command) => command.name)).not.toContain("live-config-command");
+    expect(listCommands().map((command) => command.name)).not.toContain(
+      "live-config-command",
+    );
   });
 });

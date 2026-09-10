@@ -4,7 +4,10 @@
 // rather than simulate-crash.ts's scenario of a crash escaping before any
 // terminal write is issued at all.
 import { installCrashHandlers } from "../../../src/index.js";
-import { setActiveRun, setTestWriteGate } from "../../../src/session/active-run.js";
+import {
+  setActiveRun,
+  setTestWriteGate,
+} from "../../../src/session/active-run.js";
 import { sessionDir } from "../../../src/session/index.js";
 import { finalizeRunState, saveState } from "../../../src/session/state.js";
 

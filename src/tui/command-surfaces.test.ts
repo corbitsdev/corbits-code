@@ -27,7 +27,11 @@ import { withTestRenderer, type Harness } from "./harness";
 import { projectPluginsRoot, userPluginsRoot } from "../plugins/uninstall.js";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
-import { acceptOverlaySelection, closeInsetOverlay, openListOverlay } from "./shell/overlay-host";
+import {
+  acceptOverlaySelection,
+  closeInsetOverlay,
+  openListOverlay,
+} from "./shell/overlay-host";
 import {
   cycleOverlaySelection,
   moveOverlaySelection,
@@ -44,7 +48,9 @@ function baseSnapshot(): SettingsSnapshot {
   };
 }
 
-async function withShell(fn: (shell: AppShell) => Promise<void> | void): Promise<void> {
+async function withShell(
+  fn: (shell: AppShell) => Promise<void> | void,
+): Promise<void> {
   await withTestRenderer(
     async (h) => {
       const shell = createAppShell(h.renderer, {
@@ -89,7 +95,9 @@ describe("surface labels", () => {
       pattern: "git status",
       providerModel: "anthropic/opus",
     };
-    expect(grantRowLabel(entry)).toBe("This project · shell git status (anthropic/opus)");
+    expect(grantRowLabel(entry)).toBe(
+      "This project · shell git status (anthropic/opus)",
+    );
   });
 
   test("plugin label reports trust before enablement", () => {
@@ -116,7 +124,9 @@ describe("surface labels", () => {
   });
 
   test("mcp label reports disabled without a tool count", () => {
-    expect(mcpRowLabel({ name: "linear", state: "disabled" })).toBe("linear — disabled");
+    expect(mcpRowLabel({ name: "linear", state: "disabled" })).toBe(
+      "linear — disabled",
+    );
   });
 
   test("plugin label surfaces standing load warnings", () => {
@@ -128,7 +138,9 @@ describe("surface labels", () => {
         credentials: [],
         credentialValues: {},
         origin: "user",
-        warnings: ['agent a: skill "style" referenced but not found in skill search path'],
+        warnings: [
+          'agent a: skill "style" referenced but not found in skill search path',
+        ],
       }),
     ).toBe("agents — enabled — has warnings");
   });
@@ -185,7 +197,9 @@ describe("settings surface", () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(shell.overlayItems.some((l) => l.includes("summarize"))).toBe(true);
+      expect(shell.overlayItems.some((l) => l.includes("summarize"))).toBe(
+        true,
+      );
       expect(shell.overlayItems.some((l) => l.includes("off"))).toBe(true);
     });
   });
@@ -234,7 +248,9 @@ describe("settings surface", () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(shell.overlayItems.some((l) => l.includes("session mode"))).toBe(false);
+      expect(shell.overlayItems.some((l) => l.includes("session mode"))).toBe(
+        false,
+      );
       expect(shell.overlayItems.some((l) => l.includes("scope"))).toBe(false);
     });
   });
@@ -246,7 +262,9 @@ describe("settings surface", () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(shell.overlayItems.some((l) => l.includes("show cost"))).toBe(true);
+      expect(shell.overlayItems.some((l) => l.includes("show cost"))).toBe(
+        true,
+      );
 
       // compaction, approval wait, telemetry, show cost
       moveOverlaySelection(shell, 3);
@@ -254,7 +272,9 @@ describe("settings surface", () => {
       await Promise.resolve();
       await Promise.resolve();
       expect(calls.showPromptCost).toEqual([true]);
-      expect(shell.overlayItems.some((l) => l.includes("show cost"))).toBe(true);
+      expect(shell.overlayItems.some((l) => l.includes("show cost"))).toBe(
+        true,
+      );
     });
   });
 
@@ -267,8 +287,20 @@ describe("settings surface", () => {
         // not to this arrow-navigation scoping test.
         plugins: {
           list: () => [
-            { id: "linear", name: "linear", enabled: false, credentials: [], credentialValues: {} },
-            { id: "exa", name: "exa", enabled: true, credentials: [], credentialValues: {} },
+            {
+              id: "linear",
+              name: "linear",
+              enabled: false,
+              credentials: [],
+              credentialValues: {},
+            },
+            {
+              id: "exa",
+              name: "exa",
+              enabled: true,
+              credentials: [],
+              credentialValues: {},
+            },
           ],
           setEnabled: () => Promise.resolve(undefined),
         } as unknown as PluginsSurfaceDeps,
@@ -289,7 +321,12 @@ describe("permissions surface", () => {
     await withShell(async (shell) => {
       let grants: GrantEntry[] = [
         { id: "0", scopeLabel: "Global", tool: "shell", pattern: "ls" },
-        { id: "1", scopeLabel: "This project", tool: "read", pattern: "src/**" },
+        {
+          id: "1",
+          scopeLabel: "This project",
+          tool: "read",
+          pattern: "src/**",
+        },
       ];
       const revoked: string[] = [];
       const deps: CommandSurfaceDeps = {
@@ -319,7 +356,10 @@ describe("permissions surface", () => {
     await withShell(async (shell) => {
       const deps: CommandSurfaceDeps = {
         notify: () => undefined,
-        permissions: { list: () => Promise.resolve([]), revoke: () => Promise.resolve() },
+        permissions: {
+          list: () => Promise.resolve([]),
+          revoke: () => Promise.resolve(),
+        },
       };
       openCommandSurface(shell, "permissions", deps);
       await Promise.resolve();
@@ -330,7 +370,9 @@ describe("permissions surface", () => {
   test("no permissions dep notifies instead of opening", async () => {
     await withShell((shell) => {
       const notes: string[] = [];
-      openCommandSurface(shell, "permissions", { notify: (t) => notes.push(t) });
+      openCommandSurface(shell, "permissions", {
+        notify: (t) => notes.push(t),
+      });
       expect(shell.overlayList).toBeNull();
       expect(notes).toHaveLength(1);
     });
@@ -375,16 +417,34 @@ describe("plugins surface", () => {
 });
 
 function key(name: string): KeyEvent {
-  return { name, ctrl: false, meta: false, option: false, sequence: name } as KeyEvent;
+  return {
+    name,
+    ctrl: false,
+    meta: false,
+    option: false,
+    sequence: name,
+  } as KeyEvent;
 }
 
 /** Alt+<name>, for the plugins surface's row actions (c/v/t/a/w). */
 function altKey(name: string): KeyEvent {
-  return { name, ctrl: false, meta: false, option: true, sequence: name } as KeyEvent;
+  return {
+    name,
+    ctrl: false,
+    meta: false,
+    option: true,
+    sequence: name,
+  } as KeyEvent;
 }
 
 function charKey(seq: string): KeyEvent {
-  return { name: seq, ctrl: false, meta: false, option: false, sequence: seq } as KeyEvent;
+  return {
+    name: seq,
+    ctrl: false,
+    meta: false,
+    option: false,
+    sequence: seq,
+  } as KeyEvent;
 }
 
 /** Full-featured fake for the admin-action tests: one secret credential field. */
@@ -405,7 +465,10 @@ function pluginActionDeps(
 } {
   const calls = {
     setEnabled: [] as { id: string; enabled: boolean }[],
-    saveCredentials: [] as { id: string; credentials: Record<string, string> }[],
+    saveCredentials: [] as {
+      id: string;
+      credentials: Record<string, string>;
+    }[],
     verify: [] as { id: string; credentials: Record<string, string> }[],
     addPath: [] as string[],
     remove: [] as string[],
@@ -492,8 +555,12 @@ describe("plugins surface admin actions", () => {
         },
       };
       openCommandSurface(shell, "plugins", withWarnings);
-      expect(shell.overlayItems.some((l) => l.includes("2 skills missing"))).toBe(true);
-      expect(shell.overlayItems.some((l) => l.includes("has warnings"))).toBe(true);
+      expect(
+        shell.overlayItems.some((l) => l.includes("2 skills missing")),
+      ).toBe(true);
+      expect(shell.overlayItems.some((l) => l.includes("has warnings"))).toBe(
+        true,
+      );
     });
   });
 
@@ -511,22 +578,29 @@ describe("plugins surface admin actions", () => {
         expect(runOverlayAction(shell, charKey(ch))).toBe(true);
       }
       // The secret is never painted in the clear anywhere in the rendered row.
-      for (const line of shell.overlayItems) expect(line).not.toContain(longKey);
+      for (const line of shell.overlayItems)
+        expect(line).not.toContain(longKey);
 
       acceptOverlaySelection(shell); // commit the field edit
       expect(runOverlayAction(shell, key("s"))).toBe(true);
       await Promise.resolve();
-      expect(calls.saveCredentials).toEqual([{ id: "exa", credentials: { apiKey: longKey } }]);
+      expect(calls.saveCredentials).toEqual([
+        { id: "exa", credentials: { apiKey: longKey } },
+      ]);
     });
   });
 
   test("v verifies the currently saved credentials", async () => {
     await withShell(async (shell) => {
-      const { deps, calls } = pluginActionDeps({ credentialValues: { apiKey: "saved-key" } });
+      const { deps, calls } = pluginActionDeps({
+        credentialValues: { apiKey: "saved-key" },
+      });
       openCommandSurface(shell, "plugins", deps);
       expect(runOverlayAction(shell, altKey("v"))).toBe(true);
       await Promise.resolve();
-      expect(calls.verify).toEqual([{ id: "exa", credentials: { apiKey: "saved-key" } }]);
+      expect(calls.verify).toEqual([
+        { id: "exa", credentials: { apiKey: "saved-key" } },
+      ]);
     });
   });
 
@@ -558,7 +632,10 @@ describe("plugins surface admin actions", () => {
 
   test("an untrusted plugin cannot be enabled before it is trusted", async () => {
     await withShell(async (shell) => {
-      const { deps, calls, notes } = pluginActionDeps({ needsTrust: true, enabled: false });
+      const { deps, calls, notes } = pluginActionDeps({
+        needsTrust: true,
+        enabled: false,
+      });
       openCommandSurface(shell, "plugins", deps);
 
       acceptOverlaySelection(shell); // Enter while untrusted
@@ -612,7 +689,9 @@ describe("plugins surface admin actions", () => {
       await Promise.resolve();
       expect(calls.remove).toEqual([]);
       expect(shell.overlayKind).toBe("plugins");
-      expect(shell.overlayItems.some((l) => l.includes("exa-search"))).toBe(true);
+      expect(shell.overlayItems.some((l) => l.includes("exa-search"))).toBe(
+        true,
+      );
     });
   });
 
@@ -722,7 +801,8 @@ describe("plugins surface admin actions", () => {
       };
       openCommandSurface(shell, "plugins", withWarnings);
       expect(runOverlayAction(shell, altKey("a"))).toBe(true);
-      for (const ch of "/tmp/from-warnings") runOverlayAction(shell, charKey(ch));
+      for (const ch of "/tmp/from-warnings")
+        runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
       await Promise.resolve();
       expect(calls.addPath).toEqual(["/tmp/from-warnings"]);
@@ -837,7 +917,9 @@ describe("plugins surface admin actions", () => {
         credentials: [],
         credentialValues: {},
         origin: "user",
-        warnings: ['agent a: skill "style" referenced but not found in skill search path'],
+        warnings: [
+          'agent a: skill "style" referenced but not found in skill search path',
+        ],
       },
       plugins,
     );
@@ -883,7 +965,11 @@ describe("hooks surface", () => {
 describe("mcp surface", () => {
   const entries = [
     { name: "linear", state: "connected" as const, toolCount: 12 },
-    { name: "notion", state: "needs-auth" as const, authURL: "https://notion.test/auth" },
+    {
+      name: "notion",
+      state: "needs-auth" as const,
+      authURL: "https://notion.test/auth",
+    },
     { name: "sentry", state: "failed" as const, error: "ECONNREFUSED" },
   ];
 
@@ -1046,7 +1132,9 @@ describe("mcp surface", () => {
 
   test("status refreshes the MCP surface while a palette is stacked over it", async () => {
     await withShell((shell) => {
-      let liveEntries: readonly McpEntry[] = [{ name: "linear", state: "connecting" }];
+      let liveEntries: readonly McpEntry[] = [
+        { name: "linear", state: "connecting" },
+      ];
       const listeners = new Set<() => void>();
       openCommandSurface(shell, "mcp", {
         notify: () => undefined,
@@ -1062,7 +1150,11 @@ describe("mcp surface", () => {
       openPalette(shell, { catalog: [{ id: "help", label: "help" }] });
 
       liveEntries = [
-        { name: "linear", state: "needs-auth", authURL: "https://linear.test/authorize" },
+        {
+          name: "linear",
+          state: "needs-auth",
+          authURL: "https://linear.test/authorize",
+        },
       ];
       for (const listener of [...listeners]) listener();
       expect(shell.overlayKind).toBe("palette");
@@ -1106,7 +1198,11 @@ describe("mcp surface", () => {
 
       liveEntries = [
         { name: "exa", state: "connected", toolCount: 2 },
-        { name: "linear", state: "needs-auth", authURL: "https://linear.test/authorize" },
+        {
+          name: "linear",
+          state: "needs-auth",
+          authURL: "https://linear.test/authorize",
+        },
       ];
       for (const listener of [...listeners]) listener();
 
@@ -1262,7 +1358,9 @@ describe("mcp surface", () => {
       openCommandSurface(shell, "mcp", {
         notify: (note) => notes.push(note),
         mcp: {
-          list: () => [{ name: "sentry", state: "failed" as const, error: "offline" }],
+          list: () => [
+            { name: "sentry", state: "failed" as const, error: "offline" },
+          ],
           openAuthURL: () => undefined,
           addServer: async (name, url) => {
             added.push({ name, url });
@@ -1281,12 +1379,15 @@ describe("mcp surface", () => {
       expect(runOverlayAction(shell, altKey("a"))).toBe(true);
       for (const ch of "sentry") runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
-      for (const ch of "https://sentry.test/mcp") runOverlayAction(shell, charKey(ch));
+      for (const ch of "https://sentry.test/mcp")
+        runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(added).toEqual([{ name: "sentry", url: "https://sentry.test/mcp" }]);
+      expect(added).toEqual([
+        { name: "sentry", url: "https://sentry.test/mcp" },
+      ]);
       expect(retried).toEqual([]);
       expect(notes.at(-1)).toContain("already exists");
     });
@@ -1312,12 +1413,15 @@ describe("mcp surface", () => {
       expect(runOverlayAction(shell, altKey("a"))).toBe(true);
       for (const ch of "linear") runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
-      for (const ch of "https://mcp.linear.app/mcp") runOverlayAction(shell, charKey(ch));
+      for (const ch of "https://mcp.linear.app/mcp")
+        runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(added).toEqual([{ name: "linear", url: "https://mcp.linear.app/mcp" }]);
+      expect(added).toEqual([
+        { name: "linear", url: "https://mcp.linear.app/mcp" },
+      ]);
       expect(shell.overlayItems).toContain("linear — connecting");
     });
   });
@@ -1388,10 +1492,14 @@ describe("mcp surface", () => {
 
   test("deferred add completion does not displace a newer gate overlay", async () => {
     await withShell(async (shell) => {
-      let resolveAdd: ((result: { ok: boolean; message: string }) => void) | undefined;
-      const deferredAdd = new Promise<{ ok: boolean; message: string }>((resolve) => {
-        resolveAdd = resolve;
-      });
+      let resolveAdd:
+        | ((result: { ok: boolean; message: string }) => void)
+        | undefined;
+      const deferredAdd = new Promise<{ ok: boolean; message: string }>(
+        (resolve) => {
+          resolveAdd = resolve;
+        },
+      );
       let gateCancellations = 0;
       openCommandSurface(shell, "mcp", {
         notify: () => undefined,
@@ -1405,7 +1513,8 @@ describe("mcp surface", () => {
       expect(runOverlayAction(shell, altKey("a"))).toBe(true);
       for (const ch of "linear") runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
-      for (const ch of "https://mcp.linear.app/mcp") runOverlayAction(shell, charKey(ch));
+      for (const ch of "https://mcp.linear.app/mcp")
+        runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
 
       openListOverlay(shell, {
@@ -1430,10 +1539,14 @@ describe("mcp surface", () => {
 
   test("a resolved MCP add cannot continue into a disposed shell", async () => {
     await withShell(async (shell) => {
-      let resolveAdd: ((result: { ok: boolean; message: string }) => void) | undefined;
-      const deferredAdd = new Promise<{ ok: boolean; message: string }>((resolve) => {
-        resolveAdd = resolve;
-      });
+      let resolveAdd:
+        | ((result: { ok: boolean; message: string }) => void)
+        | undefined;
+      const deferredAdd = new Promise<{ ok: boolean; message: string }>(
+        (resolve) => {
+          resolveAdd = resolve;
+        },
+      );
       const notes: string[] = [];
       const listeners = new Set<() => void>();
       let subscribeCalls = 0;
@@ -1462,7 +1575,8 @@ describe("mcp surface", () => {
         runOverlayAction(shell, altKey("a"));
         for (const ch of "linear") runOverlayAction(shell, charKey(ch));
         acceptOverlaySelection(shell);
-        for (const ch of "https://mcp.linear.app/mcp") runOverlayAction(shell, charKey(ch));
+        for (const ch of "https://mcp.linear.app/mcp")
+          runOverlayAction(shell, charKey(ch));
         acceptOverlaySelection(shell);
 
         shell.dispose();
@@ -1488,9 +1602,11 @@ describe("mcp surface", () => {
   test("a rejected MCP add cannot continue into a disposed shell", async () => {
     await withShell(async (shell) => {
       let rejectAdd: ((reason: unknown) => void) | undefined;
-      const deferredAdd = new Promise<{ ok: boolean; message: string }>((_resolve, reject) => {
-        rejectAdd = reject;
-      });
+      const deferredAdd = new Promise<{ ok: boolean; message: string }>(
+        (_resolve, reject) => {
+          rejectAdd = reject;
+        },
+      );
       const notes: string[] = [];
       const listeners = new Set<() => void>();
       let subscribeCalls = 0;
@@ -1519,7 +1635,8 @@ describe("mcp surface", () => {
         runOverlayAction(shell, altKey("a"));
         for (const ch of "linear") runOverlayAction(shell, charKey(ch));
         acceptOverlaySelection(shell);
-        for (const ch of "https://mcp.linear.app/mcp") runOverlayAction(shell, charKey(ch));
+        for (const ch of "https://mcp.linear.app/mcp")
+          runOverlayAction(shell, charKey(ch));
         acceptOverlaySelection(shell);
 
         shell.dispose();
@@ -1570,11 +1687,14 @@ describe("mcp surface", () => {
       for (let i = 0; i < 7; i++) runOverlayAction(shell, key("backspace"));
       for (const ch of "-admin") runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
-      for (const ch of "https://linear.test/mcp") runOverlayAction(shell, charKey(ch));
+      for (const ch of "https://linear.test/mcp")
+        runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
       await Promise.resolve();
       await Promise.resolve();
-      expect(added).toEqual([{ name: "linear-admin", url: "https://linear.test/mcp" }]);
+      expect(added).toEqual([
+        { name: "linear-admin", url: "https://linear.test/mcp" },
+      ]);
     });
   });
 
@@ -1605,12 +1725,16 @@ describe("mcp surface", () => {
       expect(shell.overlayItems[0]).toBe(`${invalidURL}▏`);
       expect(focusOwner(shell.focus)).toBe("overlay");
 
-      for (const _character of invalidURL) runOverlayAction(shell, key("backspace"));
-      for (const ch of "https://linear.test/mcp") runOverlayAction(shell, charKey(ch));
+      for (const _character of invalidURL)
+        runOverlayAction(shell, key("backspace"));
+      for (const ch of "https://linear.test/mcp")
+        runOverlayAction(shell, charKey(ch));
       acceptOverlaySelection(shell);
       await Promise.resolve();
       await Promise.resolve();
-      expect(added).toEqual([{ name: "linear", url: "https://linear.test/mcp" }]);
+      expect(added).toEqual([
+        { name: "linear", url: "https://linear.test/mcp" },
+      ]);
     });
   });
 
@@ -1678,10 +1802,14 @@ describe("mcp surface", () => {
           openAuthURL: () => undefined,
           setEnabled: async (name, enabled) => {
             toggled.push({ name, enabled });
-            liveEntries = [{ name, state: enabled ? "connecting" : "disabled" }];
+            liveEntries = [
+              { name, state: enabled ? "connecting" : "disabled" },
+            ];
             return {
               ok: true,
-              message: enabled ? `Enabled ${name}; connecting now.` : `Disabled ${name}.`,
+              message: enabled
+                ? `Enabled ${name}; connecting now.`
+                : `Disabled ${name}.`,
             };
           },
         },
@@ -1700,7 +1828,9 @@ describe("mcp surface", () => {
     await withShell(async (shell) => {
       const toggled: { name: string; enabled: boolean }[] = [];
       const notes: string[] = [];
-      let liveEntries: readonly McpEntry[] = [{ name: "linear", state: "disabled" }];
+      let liveEntries: readonly McpEntry[] = [
+        { name: "linear", state: "disabled" },
+      ];
       openCommandSurface(shell, "mcp", {
         notify: (note) => notes.push(note),
         mcp: {
@@ -1708,10 +1838,14 @@ describe("mcp surface", () => {
           openAuthURL: () => undefined,
           setEnabled: async (name, enabled) => {
             toggled.push({ name, enabled });
-            liveEntries = [{ name, state: enabled ? "connecting" : "disabled" }];
+            liveEntries = [
+              { name, state: enabled ? "connecting" : "disabled" },
+            ];
             return {
               ok: true,
-              message: enabled ? `Enabled ${name}; connecting now.` : `Disabled ${name}.`,
+              message: enabled
+                ? `Enabled ${name}; connecting now.`
+                : `Disabled ${name}.`,
             };
           },
         },
@@ -1739,11 +1873,15 @@ describe("mcp surface", () => {
           openAuthURL: () => undefined,
           setEnabled: async (name, enabled) => {
             liveEntries = liveEntries.map((entry) =>
-              entry.name === name ? { name, state: enabled ? "connecting" : "disabled" } : entry,
+              entry.name === name
+                ? { name, state: enabled ? "connecting" : "disabled" }
+                : entry,
             );
             return {
               ok: true,
-              message: enabled ? `Enabled ${name}; connecting now.` : `Disabled ${name}.`,
+              message: enabled
+                ? `Enabled ${name}; connecting now.`
+                : `Disabled ${name}.`,
             };
           },
         },
@@ -1791,7 +1929,9 @@ describe("mcp surface", () => {
       await Promise.resolve();
 
       expect(shell.overlayItems[0]).toBe("linear — connected · 12 tools");
-      expect(shell.overlayItems.some((item) => item.startsWith("notion"))).toBe(false);
+      expect(shell.overlayItems.some((item) => item.startsWith("notion"))).toBe(
+        false,
+      );
       expect(shell.overlayList?.activeIndex).toBe(0);
     });
   });
@@ -1901,7 +2041,9 @@ describe("mcp surface", () => {
       openCommandSurface(shell, "mcp", {
         notify: (note) => notes.push(note),
         mcp: {
-          list: () => [{ name: "exa", state: "connected", toolCount: 1, builtin: true }],
+          list: () => [
+            { name: "exa", state: "connected", toolCount: 1, builtin: true },
+          ],
           openAuthURL: () => undefined,
           removeServer: async (name) => {
             removed.push(name);
@@ -1979,10 +2121,15 @@ describe("model surface", () => {
     await withShell((shell) => {
       let opened = 0;
       expect(
-        openCommandSurface(shell, "models", { notify: () => undefined, openModels: () => opened++ }),
+        openCommandSurface(shell, "models", {
+          notify: () => undefined,
+          openModels: () => opened++,
+        }),
       ).toBe(true);
       expect(opened).toBe(1);
-      expect(openCommandSurface(shell, "models", { notify: () => undefined })).toBe(false);
+      expect(
+        openCommandSurface(shell, "models", { notify: () => undefined }),
+      ).toBe(false);
     });
   });
 });
@@ -1998,7 +2145,9 @@ describe("add-provider surface", () => {
         }),
       ).toBe(true);
       expect(opened).toBe(1);
-      expect(openCommandSurface(shell, "add-provider", { notify: () => undefined })).toBe(false);
+      expect(
+        openCommandSurface(shell, "add-provider", { notify: () => undefined }),
+      ).toBe(false);
     });
   });
 });
@@ -2006,7 +2155,9 @@ describe("add-provider surface", () => {
 describe("help surface", () => {
   test("opens the keymap overlay", async () => {
     await withShell((shell) => {
-      expect(openCommandSurface(shell, "help", { notify: () => undefined })).toBe(true);
+      expect(
+        openCommandSurface(shell, "help", { notify: () => undefined }),
+      ).toBe(true);
       expect(shell.overlayKind).toBe("help");
     });
   });

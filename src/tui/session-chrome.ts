@@ -12,7 +12,13 @@ import type { RampPhase } from "./ramp.js";
 
 /** Agent lifecycle status the progress label reads (mirrors the stream state). */
 export type TurnStatus =
-  "idle" | "running" | "done" | "failed" | "blocked" | "stopping" | "stopped";
+  | "idle"
+  | "running"
+  | "done"
+  | "failed"
+  | "blocked"
+  | "stopping"
+  | "stopped";
 
 export interface TurnLabelInput {
   readonly isProcessing: boolean;
@@ -101,7 +107,8 @@ export function resolveTurnLabel(
   // Parent silence is still work-in-progress from the operator's POV; nudge
   // paths handle recovery without renaming the ticker.
   void isStalled;
-  if (input.currentToolName !== null) return activityStateForTool(input.currentToolName);
+  if (input.currentToolName !== null)
+    return activityStateForTool(input.currentToolName);
   if (input.streamingType === "thinking") return "thinking";
   return "working";
 }
@@ -179,13 +186,18 @@ export function shouldSettleUiAfterSendFailure(kind: SendFailureKind): boolean {
 }
 
 /** Report which provider rejected the stored credentials; silent otherwise. */
-export function captureAuthFailure(telemetry: Telemetry, failure: ClassifiedSendFailure): void {
+export function captureAuthFailure(
+  telemetry: Telemetry,
+  failure: ClassifiedSendFailure,
+): void {
   if (failure.kind !== "auth" || failure.authProvider === null) return;
   telemetry.capture("auth_failure", { auth_provider: failure.authProvider });
 }
 
 /** Same classification as `classifyAgentSendFailure`, from the message alone. */
-export function classifySendFailureMessage(message: string): ClassifiedSendFailure {
+export function classifySendFailureMessage(
+  message: string,
+): ClassifiedSendFailure {
   const authProvider = authProviderFromMessage(message);
   if (authProvider !== null) return { kind: "auth", authProvider };
   return { kind: "error", authProvider: null };
@@ -194,7 +206,8 @@ export function classifySendFailureMessage(message: string): ClassifiedSendFailu
 const AUTH_FAILURE_TEXT: Record<AuthProviderId, string> = {
   codex: "your chatgpt sign-in expired — /model to sign in again",
   xai: "your x.ai sign-in expired — /model to sign in again",
-  anthropic: "your anthropic api key was rejected — /model to update credentials",
+  anthropic:
+    "your anthropic api key was rejected — /model to update credentials",
   other: "provider credentials were rejected — /model to sign in again",
 };
 

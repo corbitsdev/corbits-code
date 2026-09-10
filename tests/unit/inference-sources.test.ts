@@ -46,7 +46,11 @@ test("buildInferenceSourceForRef uses bifrost provider when flag set", () => {
 test("buildInferenceSourceForRef applies leg reasoning effort", () => {
   const settings: Settings = {
     providers: {
-      openai: { baseURL: "https://api.openai.com/v1", apiKey: "k", models: ["gpt-5"] },
+      openai: {
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "k",
+        models: ["gpt-5"],
+      },
     },
   };
   const source = buildInferenceSourceForRef(
@@ -54,13 +58,19 @@ test("buildInferenceSourceForRef applies leg reasoning effort", () => {
     { sessionId: "s1", catalog: [...catalog] },
     settings,
   );
-  expect(source?.defaults?.providerOptions).toEqual({ reasoning_effort: "high" });
+  expect(source?.defaults?.providerOptions).toEqual({
+    reasoning_effort: "high",
+  });
 });
 
 test("leftover xhigh on gpt-5 inference source sends medium, not xhigh", () => {
   const settings: Settings = {
     providers: {
-      openai: { baseURL: "https://api.openai.com/v1", apiKey: "k", models: ["gpt-5"] },
+      openai: {
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "k",
+        models: ["gpt-5"],
+      },
     },
   };
   const source = buildInferenceSourceForRef(
@@ -68,13 +78,19 @@ test("leftover xhigh on gpt-5 inference source sends medium, not xhigh", () => {
     { sessionId: "s1", catalog: [...catalog] },
     settings,
   );
-  expect(source?.defaults?.providerOptions).toEqual({ reasoning_effort: "medium" });
+  expect(source?.defaults?.providerOptions).toEqual({
+    reasoning_effort: "medium",
+  });
 });
 
 test("unset still omits reasoning_effort", () => {
   const settings: Settings = {
     providers: {
-      openai: { baseURL: "https://api.openai.com/v1", apiKey: "k", models: ["gpt-5"] },
+      openai: {
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "k",
+        models: ["gpt-5"],
+      },
     },
   };
   const source = buildInferenceSourceForRef(
@@ -82,7 +98,9 @@ test("unset still omits reasoning_effort", () => {
     { sessionId: "s1", catalog: [...catalog] },
     settings,
   );
-  expect(source?.defaults?.providerOptions).not.toHaveProperty("reasoning_effort");
+  expect(source?.defaults?.providerOptions).not.toHaveProperty(
+    "reasoning_effort",
+  );
 });
 
 test("buildInferenceSourceForRef forwards reasoning effort on xAI sources", () => {
@@ -102,21 +120,27 @@ test("buildInferenceSourceForRef forwards reasoning effort on xAI sources", () =
     undefined,
   );
   expect(withLeg?.provider).toBe("grok-responses");
-  expect(withLeg?.defaults?.providerOptions).toMatchObject({ reasoning_effort: "low" });
+  expect(withLeg?.defaults?.providerOptions).toMatchObject({
+    reasoning_effort: "low",
+  });
 
   const withCtx = buildInferenceSourceForRef(
     { provider: "xai/work", model: "grok-4.6" },
     { sessionId: "s1", catalog: xaiCatalog, reasoningEffort: "medium" },
     undefined,
   );
-  expect(withCtx?.defaults?.providerOptions).toMatchObject({ reasoning_effort: "medium" });
+  expect(withCtx?.defaults?.providerOptions).toMatchObject({
+    reasoning_effort: "medium",
+  });
 
   const unset = buildInferenceSourceForRef(
     { provider: "xai/work", model: "grok-4.6" },
     { sessionId: "s1", catalog: xaiCatalog },
     undefined,
   );
-  expect(unset?.defaults?.providerOptions).not.toHaveProperty("reasoning_effort");
+  expect(unset?.defaults?.providerOptions).not.toHaveProperty(
+    "reasoning_effort",
+  );
 });
 
 test("buildMainSessionSources includes only the selected provider and model", () => {
@@ -127,7 +151,11 @@ test("buildMainSessionSources includes only the selected provider and model", ()
         apiKey: "k",
         models: ["gpt-4o", "gpt-4o-mini"],
       },
-      local: { baseURL: "http://localhost:11434/v1", keyless: true, models: ["llama"] },
+      local: {
+        baseURL: "http://localhost:11434/v1",
+        keyless: true,
+        models: ["llama"],
+      },
     },
   };
   const bundle = buildMainSessionSources({
@@ -145,8 +173,16 @@ test("buildMainSessionSources includes only the selected provider and model", ()
 test("buildSubagentSources includes only the selected provider and model", () => {
   const settings: Settings = {
     providers: {
-      openai: { baseURL: "https://api.openai.com/v1", apiKey: "k", models: ["gpt-4o"] },
-      local: { baseURL: "http://localhost:11434/v1", keyless: true, models: ["llama"] },
+      openai: {
+        baseURL: "https://api.openai.com/v1",
+        apiKey: "k",
+        models: ["gpt-4o"],
+      },
+      local: {
+        baseURL: "http://localhost:11434/v1",
+        keyless: true,
+        models: ["llama"],
+      },
     },
   };
   const bundle = buildSubagentSources({

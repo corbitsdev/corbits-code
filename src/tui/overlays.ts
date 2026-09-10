@@ -42,7 +42,10 @@ export interface OpenPermissionsOpts {
   readonly echoChoice?: boolean;
 }
 
-export function openPermissionsOverlay(shell: AppShell, opts: OpenPermissionsOpts): void {
+export function openPermissionsOverlay(
+  shell: AppShell,
+  opts: OpenPermissionsOpts,
+): void {
   openListOverlay(shell, {
     kind: "permissions",
     title: "permissions",
@@ -51,7 +54,9 @@ export function openPermissionsOverlay(shell: AppShell, opts: OpenPermissionsOpt
     frameId: "overlay-permissions",
     ...(opts?.body !== undefined ? { body: opts.body } : {}),
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
-    ...(opts?.onToggleExpand !== undefined ? { onToggleExpand: opts.onToggleExpand } : {}),
+    ...(opts?.onToggleExpand !== undefined
+      ? { onToggleExpand: opts.onToggleExpand }
+      : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
     ...(opts?.isGate !== undefined ? { isGate: opts.isGate } : {}),
@@ -91,7 +96,10 @@ export interface OpenOperatorOpts {
 const NO_WAY_TO_ANSWER =
   "No options were offered and this question takes no typed answer. Press Esc to cancel it.";
 
-export function openOperatorOverlay(shell: AppShell, opts: OpenOperatorOpts): void {
+export function openOperatorOverlay(
+  shell: AppShell,
+  opts: OpenOperatorOpts,
+): void {
   const stranded = opts.choices.length === 0 && opts.onTextAnswer === undefined;
   openListOverlay(shell, {
     kind: "operator",
@@ -103,7 +111,9 @@ export function openOperatorOverlay(shell: AppShell, opts: OpenOperatorOpts): vo
     // Chat-first: keep the transcript visible while the operator answers.
     ...(opts?.itemIds !== undefined ? { itemIds: opts.itemIds } : {}),
     ...(opts?.onAccept !== undefined ? { onAccept: opts.onAccept } : {}),
-    ...(opts?.onTextAnswer !== undefined ? { onTextAnswer: opts.onTextAnswer } : {}),
+    ...(opts?.onTextAnswer !== undefined
+      ? { onTextAnswer: opts.onTextAnswer }
+      : {}),
     ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
     ...(opts?.isGate !== undefined ? { isGate: opts.isGate } : {}),
     ...(opts?.echoChoice !== undefined ? { echoChoice: opts.echoChoice } : {}),
@@ -135,7 +145,10 @@ export interface OpenModelPickerOpts {
   readonly setDefaultHint?: boolean;
 }
 
-export function openModelPickerOverlay(shell: AppShell, opts: OpenModelPickerOpts): void {
+export function openModelPickerOverlay(
+  shell: AppShell,
+  opts: OpenModelPickerOpts,
+): void {
   const release = reserveOverlayHost(shell);
   try {
     closeReplaceableOverlay(shell);
@@ -150,9 +163,15 @@ export function openModelPickerOverlay(shell: AppShell, opts: OpenModelPickerOpt
       ...(opts?.describe !== undefined ? { describe: opts.describe } : {}),
       ...(opts?.onAction !== undefined ? { onAction: opts.onAction } : {}),
       ...(opts?.onCancel !== undefined ? { onCancel: opts.onCancel } : {}),
-      ...(opts?.typeToFilter !== undefined ? { typeToFilter: opts.typeToFilter } : {}),
-      ...(opts?.addProviderHint !== undefined ? { addProviderHint: opts.addProviderHint } : {}),
-      ...(opts?.setDefaultHint !== undefined ? { setDefaultHint: opts.setDefaultHint } : {}),
+      ...(opts?.typeToFilter !== undefined
+        ? { typeToFilter: opts.typeToFilter }
+        : {}),
+      ...(opts?.addProviderHint !== undefined
+        ? { addProviderHint: opts.addProviderHint }
+        : {}),
+      ...(opts?.setDefaultHint !== undefined
+        ? { setDefaultHint: opts.setDefaultHint }
+        : {}),
       deferIfBusy: true,
     });
   } finally {
@@ -174,7 +193,10 @@ export interface OpenAddProviderOpts {
 }
 
 /** Alt+A from the model picker: every first-class provider kind, no already-connected filtering. */
-export function openAddProviderOverlay(shell: AppShell, opts?: OpenAddProviderOpts): void {
+export function openAddProviderOverlay(
+  shell: AppShell,
+  opts?: OpenAddProviderOpts,
+): void {
   const release = reserveOverlayHost(shell);
   try {
     closeReplaceableOverlay(shell);

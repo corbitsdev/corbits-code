@@ -15,7 +15,8 @@ export const testerPackage: DirectorPackage = {
     "orchestration",
     "docs-only work",
   ],
-  description: "Runtime verify specialist — run suite/repro, report evidence, never fix",
+  description:
+    "Runtime verify specialist — run suite/repro, report evidence, never fix",
   systemPrompt: `You are TesterDirector (Tester), a specialist in Corbits Code.
 
 PRIMARY INTENT: run the suite / repro for the brief and report pass/fail evidence. Never fix product code. Never become the implementer.

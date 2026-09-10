@@ -107,7 +107,10 @@ export function teardownSurface(
   }
 }
 
-export function createSurface(state: SetupState, selectors: SetupSelectors): Surface {
+export function createSurface(
+  state: SetupState,
+  selectors: SetupSelectors,
+): Surface {
   const { renderer, margin, config } = state;
 
   const root = new BoxRenderable(renderer, {
@@ -298,7 +301,12 @@ export function createSurface(state: SetupState, selectors: SetupSelectors): Sur
   renderer.root.add(root);
 
   const paintSummary = (): void => {
-    const rows = summaryRows(selectors.steps(), state.stepIndex, state.values, state.choice);
+    const rows = summaryRows(
+      selectors.steps(),
+      state.stepIndex,
+      state.values,
+      state.choice,
+    );
     summarySlots.forEach((slot, i) => {
       const row = rows[i];
       if (row === undefined) {
@@ -363,7 +371,11 @@ export function createSurface(state: SetupState, selectors: SetupSelectors): Sur
   };
 
   const paintStatus = (): void => {
-    if (!state.submitting && selectors.isOllamaModelStep() && state.ollamaDiscovery !== "idle") {
+    if (
+      !state.submitting &&
+      selectors.isOllamaModelStep() &&
+      state.ollamaDiscovery !== "idle"
+    ) {
       if (state.ollamaDiscovery === "loading") {
         const ramp = rampFor({ phase: "working", nowMs: Date.now() });
         statusLine.content = rampLine(ramp, "checking installed Ollama models");
@@ -375,7 +387,10 @@ export function createSurface(state: SetupState, selectors: SetupSelectors): Sur
         const empty = state.ollamaDiscovery.status === "empty";
         const malformed = state.ollamaDiscovery.status === "malformed";
         const ramp = rampFor({ phase: "blocked", nowMs: 0 });
-        statusLine.content = rampLine(ramp, ollamaDiscoveryFailureLine(state.ollamaDiscovery));
+        statusLine.content = rampLine(
+          ramp,
+          ollamaDiscoveryFailureLine(state.ollamaDiscovery),
+        );
         statusLine.fg = ramp.fg;
         guidance.content = empty
           ? "pull a model, then press enter to retry · esc to edit url"
@@ -412,7 +427,10 @@ export function createSurface(state: SetupState, selectors: SetupSelectors): Sur
     if (!state.submitting && isLoginStep()) {
       if (state.loginStatus === "failed") {
         const ramp = rampFor({ phase: "blocked", nowMs: 0 });
-        statusLine.content = rampLine(ramp, (state.loginError ?? "").toLowerCase());
+        statusLine.content = rampLine(
+          ramp,
+          (state.loginError ?? "").toLowerCase(),
+        );
         statusLine.fg = ramp.fg;
         guidance.content = loginGuidance();
         guidance.fg = UI.textDim;
@@ -432,7 +450,8 @@ export function createSurface(state: SetupState, selectors: SetupSelectors): Sur
       const ramp = rampFor({ phase: "working", nowMs: Date.now() });
       statusLine.content = rampLine(ramp, LOGIN_WAITING_LABEL);
       statusLine.fg = ramp.fg;
-      guidance.content = "the browser should have opened — paste the url if not";
+      guidance.content =
+        "the browser should have opened — paste the url if not";
       guidance.fg = UI.textDim;
       return;
     }
@@ -446,7 +465,10 @@ export function createSurface(state: SetupState, selectors: SetupSelectors): Sur
     }
     if (state.submitting) {
       const ramp = rampFor({ phase: "working", nowMs: Date.now() });
-      statusLine.content = rampLine(ramp, SUBMIT_PHASE_LABEL[state.submitPhase]);
+      statusLine.content = rampLine(
+        ramp,
+        SUBMIT_PHASE_LABEL[state.submitPhase],
+      );
       statusLine.fg = ramp.fg;
       guidance.content = "";
       return;
@@ -455,7 +477,11 @@ export function createSurface(state: SetupState, selectors: SetupSelectors): Sur
       const ramp = rampFor({ phase: "blocked", nowMs: 0 });
       statusLine.content = rampLine(ramp, state.submitError.toLowerCase());
       statusLine.fg = ramp.fg;
-      guidance.content = failureGuidance(state.submitPhase, state.choice, state.saveAnywayOffered);
+      guidance.content = failureGuidance(
+        state.submitPhase,
+        state.choice,
+        state.saveAnywayOffered,
+      );
       guidance.fg = UI.textDim;
       return;
     }
@@ -490,7 +516,11 @@ export function createSurface(state: SetupState, selectors: SetupSelectors): Sur
 
   const paint = (): void => {
     const active = selectors.currentStep();
-    step.content = stepHeadline(selectors.steps(), state.stepIndex, state.choice);
+    step.content = stepHeadline(
+      selectors.steps(),
+      state.stepIndex,
+      state.choice,
+    );
     instruction.content =
       selectors.isAccountNameStep() && state.choice !== null
         ? accountNamePrompt(state.choice)

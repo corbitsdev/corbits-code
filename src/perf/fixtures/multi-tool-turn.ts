@@ -39,7 +39,13 @@ function span(partial: {
 /** Synthetic multi-tool turn tree for rollup / assertion regression tests. */
 export function multiToolTurnFixture(): PerfSpan[] {
   return [
-    span({ id: "t1", name: "turn", startNs: 0n, endNs: 5000n, tags: { turn_id: "turn-1" } }),
+    span({
+      id: "t1",
+      name: "turn",
+      startNs: 0n,
+      endNs: 5000n,
+      tags: { turn_id: "turn-1" },
+    }),
     span({
       id: "i1",
       name: "inference",

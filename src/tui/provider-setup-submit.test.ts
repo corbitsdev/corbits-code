@@ -36,9 +36,17 @@ await withMockedModule(
 const { buildProviderSubmitHandler } = await import("./provider/submit.js");
 const { createGlobalSettingsWriter, persistGlobalHTTPMCPServer } =
   await import("../mcp/add-server.js");
-const { loadLocalSettings, loadSettings, localSettingsPath, resolveLocalSettingsPath } =
-  await import("../config/settings.js");
-import type { OAuthResult, ProviderFormValues, SubmitPhase } from "./provider/types.js";
+const {
+  loadLocalSettings,
+  loadSettings,
+  localSettingsPath,
+  resolveLocalSettingsPath,
+} = await import("../config/settings.js");
+import type {
+  OAuthResult,
+  ProviderFormValues,
+  SubmitPhase,
+} from "./provider/types.js";
 
 const noopSetPhase = (_phase: SubmitPhase): void => undefined;
 const stagedCodexTokens = {
@@ -48,7 +56,9 @@ const stagedCodexTokens = {
   accountId: "staged-account",
 };
 
-function stagedCodexOAuth(commit: () => Promise<void> = async () => undefined): OAuthResult {
+function stagedCodexOAuth(
+  commit: () => Promise<void> = async () => undefined,
+): OAuthResult {
   return {
     kind: "codex",
     providerName: "codex/work",
@@ -79,11 +89,16 @@ describe("buildProviderSubmitHandler", () => {
         model: "gpt-5",
         oauthProfile: "",
       };
-      const preset = { id: "openai", models: ["gpt-5"], anthropic: false, opencodeGo: false };
+      const preset = {
+        id: "openai",
+        models: ["gpt-5"],
+        anthropic: false,
+        opencodeGo: false,
+      };
 
-      await expect(submit(values, noopSetPhase, { skipValidation: false, preset })).rejects.toThrow(
-        /api key/i,
-      );
+      await expect(
+        submit(values, noopSetPhase, { skipValidation: false, preset }),
+      ).rejects.toThrow(/api key/i);
 
       expect(await loadSettings(path)).toBeNull();
       expect(await loadLocalSettings(localPath)).toBeNull();
@@ -93,7 +108,11 @@ describe("buildProviderSubmitHandler", () => {
   test("allows an empty key on the manual/custom path (no preset)", async () => {
     await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
-      const submit = buildProviderSubmitHandler(path, null, localSettingsPath(dir));
+      const submit = buildProviderSubmitHandler(
+        path,
+        null,
+        localSettingsPath(dir),
+      );
       const values: ProviderFormValues = {
         name: "local",
         baseURL: "http://localhost:11434/v1",
@@ -114,7 +133,11 @@ describe("buildProviderSubmitHandler", () => {
     await withTempDir(async (dir) => {
       connectionChecks.length = 0;
       const path = join(dir, "settings.json");
-      const submit = buildProviderSubmitHandler(path, null, localSettingsPath(dir));
+      const submit = buildProviderSubmitHandler(
+        path,
+        null,
+        localSettingsPath(dir),
+      );
       const values: ProviderFormValues = {
         name: "ollama/default",
         baseURL: "http://remote:11434/",
@@ -131,7 +154,9 @@ describe("buildProviderSubmitHandler", () => {
 
       await submit(values, noopSetPhase, { skipValidation: false, preset });
 
-      expect(connectionChecks).toEqual([{ baseURL: "http://remote:11434/v1", apiKey: undefined }]);
+      expect(connectionChecks).toEqual([
+        { baseURL: "http://remote:11434/v1", apiKey: undefined },
+      ]);
       const provider = (await loadSettings(path))?.providers["ollama/default"];
       expect(provider).toMatchObject({
         baseURL: "http://remote:11434",
@@ -146,7 +171,11 @@ describe("buildProviderSubmitHandler", () => {
     await withTempDir(async (dir) => {
       connectionChecks.length = 0;
       const path = join(dir, "settings.json");
-      const submit = buildProviderSubmitHandler(path, null, localSettingsPath(dir));
+      const submit = buildProviderSubmitHandler(
+        path,
+        null,
+        localSettingsPath(dir),
+      );
       const values: ProviderFormValues = {
         name: "ollama/default",
         baseURL: "http://localhost:11434/v1",
@@ -181,7 +210,11 @@ describe("buildProviderSubmitHandler", () => {
     await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       const writer = createGlobalSettingsWriter(path);
-      await persistGlobalHTTPMCPServer(writer, "linear", "https://mcp.linear.app/mcp");
+      await persistGlobalHTTPMCPServer(
+        writer,
+        "linear",
+        "https://mcp.linear.app/mcp",
+      );
       const staleRunnerSettings = { providers: {} };
       const submit = buildProviderSubmitHandler(
         path,
@@ -208,7 +241,9 @@ describe("buildProviderSubmitHandler", () => {
 
       expect(await loadSettings(path)).toMatchObject({
         providers: { local: { keyless: true } },
-        mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+        mcpServers: [
+          { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+        ],
       });
     });
   });
@@ -216,7 +251,11 @@ describe("buildProviderSubmitHandler", () => {
   test("marks a save-anyway submit as unverified", async () => {
     await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
-      const submit = buildProviderSubmitHandler(path, null, localSettingsPath(dir));
+      const submit = buildProviderSubmitHandler(
+        path,
+        null,
+        localSettingsPath(dir),
+      );
       const values: ProviderFormValues = {
         name: "openai",
         baseURL: "https://api.openai.com/v1",
@@ -224,7 +263,12 @@ describe("buildProviderSubmitHandler", () => {
         model: "gpt-5",
         oauthProfile: "",
       };
-      const preset = { id: "openai", models: ["gpt-5"], anthropic: false, opencodeGo: false };
+      const preset = {
+        id: "openai",
+        models: ["gpt-5"],
+        anthropic: false,
+        opencodeGo: false,
+      };
 
       await submit(values, noopSetPhase, { skipValidation: true, preset });
 
@@ -245,7 +289,12 @@ describe("buildProviderSubmitHandler", () => {
       },
       options: {
         skipValidation: true,
-        preset: { id: "openai", models: ["gpt-5"], anthropic: false, opencodeGo: false },
+        preset: {
+          id: "openai",
+          models: ["gpt-5"],
+          anthropic: false,
+          opencodeGo: false,
+        },
       },
       provider: "openai",
     },
@@ -276,35 +325,46 @@ describe("buildProviderSubmitHandler", () => {
       },
       provider: "codex/work",
     },
-  ])("$name setup preserves global settings when local path aliases it", async (testCase) => {
-    await withTempDir(async (home) => {
-      const settingsPath = localSettingsPath(home);
-      const localTarget = resolveLocalSettingsPath(home, settingsPath);
-      const existing = {
-        defaultProvider: "existing",
-        providers: {
-          existing: {
-            baseURL: "https://example.test/v1",
-            apiKey: "existing-key",
-            models: ["existing-model"],
+  ])(
+    "$name setup preserves global settings when local path aliases it",
+    async (testCase) => {
+      await withTempDir(async (home) => {
+        const settingsPath = localSettingsPath(home);
+        const localTarget = resolveLocalSettingsPath(home, settingsPath);
+        const existing = {
+          defaultProvider: "existing",
+          providers: {
+            existing: {
+              baseURL: "https://example.test/v1",
+              apiKey: "existing-key",
+              models: ["existing-model"],
+            },
           },
-        },
-      };
-      const submit = buildProviderSubmitHandler(settingsPath, existing, localTarget);
+        };
+        const submit = buildProviderSubmitHandler(
+          settingsPath,
+          existing,
+          localTarget,
+        );
 
-      await submit(testCase.values, noopSetPhase, testCase.options);
+        await submit(testCase.values, noopSetPhase, testCase.options);
 
-      const settings = await loadSettings(settingsPath);
-      expect(settings?.defaultProvider).toBe(testCase.provider);
-      expect(settings?.providers.existing?.apiKey).toBe("existing-key");
-      if (testCase.provider === "codex/work") {
-        expect(settings?.providers[testCase.provider]?.defaultModel).toBe(testCase.values.model);
-        expect(settings?.providers[testCase.provider]?.apiKey).toBeUndefined();
-      } else {
-        expect(settings?.providers[testCase.provider]).toBeDefined();
-      }
-    });
-  });
+        const settings = await loadSettings(settingsPath);
+        expect(settings?.defaultProvider).toBe(testCase.provider);
+        expect(settings?.providers.existing?.apiKey).toBe("existing-key");
+        if (testCase.provider === "codex/work") {
+          expect(settings?.providers[testCase.provider]?.defaultModel).toBe(
+            testCase.values.model,
+          );
+          expect(
+            settings?.providers[testCase.provider]?.apiKey,
+          ).toBeUndefined();
+        } else {
+          expect(settings?.providers[testCase.provider]).toBeDefined();
+        }
+      });
+    },
+  );
 
   test("API-key connect persists project-local selection like OAuth", async () => {
     // CL-5900: API-key path must write the same local selection OAuth writes,
@@ -320,7 +380,12 @@ describe("buildProviderSubmitHandler", () => {
         model: "gpt-5",
         oauthProfile: "",
       };
-      const preset = { id: "openai", models: ["gpt-5"], anthropic: false, opencodeGo: false };
+      const preset = {
+        id: "openai",
+        models: ["gpt-5"],
+        anthropic: false,
+        opencodeGo: false,
+      };
 
       await submit(values, noopSetPhase, { skipValidation: true, preset });
 
@@ -411,7 +476,8 @@ describe("buildProviderSubmitHandler", () => {
       expect(global?.providers.anthropic?.defaultModel).toBe("claude-sonnet-4");
       // Local selection is what wins on restart when present.
       const resolvedProvider = local?.provider ?? global?.defaultProvider;
-      const resolvedModel = local?.model ?? global?.providers[resolvedProvider ?? ""]?.defaultModel;
+      const resolvedModel =
+        local?.model ?? global?.providers[resolvedProvider ?? ""]?.defaultModel;
       expect(resolvedProvider).toBe("anthropic");
       expect(resolvedModel).toBe("claude-sonnet-4");
     });
@@ -461,7 +527,8 @@ describe("buildProviderSubmitHandler", () => {
       await withTempDir(async (dir) => {
         scopeCheckResult = {
           status: "blocked",
-          message: "Your Codex sign-in doesn't carry API access. Reconnect Codex and try again.",
+          message:
+            "Your Codex sign-in doesn't carry API access. Reconnect Codex and try again.",
         };
         const path = join(dir, "settings.json");
         const localPath = localSettingsPath(dir);
@@ -497,7 +564,8 @@ describe("buildProviderSubmitHandler", () => {
       await withTempDir(async (dir) => {
         scopeCheckResult = {
           status: "blocked",
-          message: "Codex sign-in expired or was revoked. Reconnect Codex, then try again.",
+          message:
+            "Codex sign-in expired or was revoked. Reconnect Codex, then try again.",
         };
         const path = join(dir, "settings.json");
         const localPath = localSettingsPath(dir);
@@ -534,7 +602,11 @@ describe("buildProviderSubmitHandler", () => {
         scopeCheckResult = { status: "blocked", message: "Reconnect Codex." };
         const oldProfile = {
           name: "work",
-          tokens: { access: "old-access", refresh: "old-refresh", expiresAt: 500 },
+          tokens: {
+            access: "old-access",
+            refresh: "old-refresh",
+            expiresAt: 500,
+          },
           createdAt: 10,
         };
         let durableProfile = structuredClone(oldProfile);
@@ -578,7 +650,11 @@ describe("buildProviderSubmitHandler", () => {
           message: "Couldn't confirm Codex API access right now.",
         };
         const localPath = localSettingsPath(dir);
-        const submit = buildProviderSubmitHandler(join(dir, "settings.json"), null, localPath);
+        const submit = buildProviderSubmitHandler(
+          join(dir, "settings.json"),
+          null,
+          localPath,
+        );
         let commits = 0;
 
         await submit(
@@ -608,9 +684,16 @@ describe("buildProviderSubmitHandler", () => {
 
     test("explicit save-anyway skips the scope probe and commits exactly once", async () => {
       await withTempDir(async (dir) => {
-        scopeCheckResult = { status: "blocked", message: "should never be thrown" };
+        scopeCheckResult = {
+          status: "blocked",
+          message: "should never be thrown",
+        };
         const localPath = localSettingsPath(dir);
-        const submit = buildProviderSubmitHandler(join(dir, "settings.json"), null, localPath);
+        const submit = buildProviderSubmitHandler(
+          join(dir, "settings.json"),
+          null,
+          localPath,
+        );
         let commits = 0;
 
         await submit(

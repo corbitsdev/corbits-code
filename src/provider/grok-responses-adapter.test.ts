@@ -17,7 +17,10 @@ describe("createGrokResponsesAdapter", () => {
         timestamp: 0,
         content: [
           { type: "text", text: "what is this?" },
-          { type: "image", source: { kind: "base64", mimeType: "image/png", data: "aW1hZ2U=" } },
+          {
+            type: "image",
+            source: { kind: "base64", mimeType: "image/png", data: "aW1hZ2U=" },
+          },
         ],
       },
     ];
@@ -105,8 +108,16 @@ describe("createGrokResponsesAdapter", () => {
         role: "user",
         timestamp: 0,
         content: [
-          { type: "tool_result", callId: "call_1", content: [{ type: "text", text: "stale" }] },
-          { type: "tool_result", callId: "call_1", content: [{ type: "text", text: "fresh" }] },
+          {
+            type: "tool_result",
+            callId: "call_1",
+            content: [{ type: "text", text: "stale" }],
+          },
+          {
+            type: "tool_result",
+            callId: "call_1",
+            content: [{ type: "text", text: "fresh" }],
+          },
         ],
       },
     ] as unknown as ConversationTurn[];
@@ -115,7 +126,9 @@ describe("createGrokResponsesAdapter", () => {
     const body = JSON.parse(request.body) as {
       input: { type: string; call_id?: string; output?: string }[];
     };
-    const outputs = body.input.filter((item) => item.type === "function_call_output");
+    const outputs = body.input.filter(
+      (item) => item.type === "function_call_output",
+    );
 
     expect(outputs).toHaveLength(1);
     expect(outputs[0]?.output).toBe("fresh");
@@ -128,8 +141,18 @@ describe("createGrokResponsesAdapter", () => {
         role: "assistant",
         timestamp: 0,
         content: [
-          { type: "tool_call", id: "call_1", name: "shell", arguments: { a: 1 } },
-          { type: "tool_call", id: "call_1", name: "shell", arguments: { a: 2 } },
+          {
+            type: "tool_call",
+            id: "call_1",
+            name: "shell",
+            arguments: { a: 1 },
+          },
+          {
+            type: "tool_call",
+            id: "call_1",
+            name: "shell",
+            arguments: { a: 2 },
+          },
         ],
       },
     ] as unknown as ConversationTurn[];
@@ -165,8 +188,12 @@ describe("createGrokResponsesAdapter", () => {
 
   test("extracts Retry-After pacing from response headers", () => {
     const adapter = createGrokResponsesAdapter(source);
-    expect(adapter.extractRetryAfterMs?.(new Headers({ "retry-after": "7" }))).toBe(7_000);
-    expect(adapter.extractRetryAfterMs?.(new Headers({ "retry-after-ms": "1500" }))).toBe(1_500);
+    expect(
+      adapter.extractRetryAfterMs?.(new Headers({ "retry-after": "7" })),
+    ).toBe(7_000);
+    expect(
+      adapter.extractRetryAfterMs?.(new Headers({ "retry-after-ms": "1500" })),
+    ).toBe(1_500);
     expect(adapter.extractRetryAfterMs?.(new Headers({}))).toBeUndefined();
   });
 });

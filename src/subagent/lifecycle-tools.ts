@@ -47,7 +47,10 @@ export const closeAgentToolDefinition: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      target: { type: "string", description: "agent_id of the session to close." },
+      target: {
+        type: "string",
+        description: "agent_id of the session to close.",
+      },
     },
     required: ["target"],
   },
@@ -69,7 +72,10 @@ export const resumeAgentToolDefinition: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      target: { type: "string", description: "agent_id of the retained session to resume." },
+      target: {
+        type: "string",
+        description: "agent_id of the retained session to resume.",
+      },
       message: {
         type: "string",
         description: `The new instruction/message for the worker (non-empty, max ${DEFAULT_MAX_ENTRY_CHARS} characters).`,
@@ -168,7 +174,10 @@ export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
     handler: async (call, _signal): Promise<ToolResult> => {
       const parsed = CloseAgentArgs(call.arguments);
       if (parsed instanceof type.errors) {
-        return lifecycleResult(call.id, `Error: close_agent arguments invalid: ${parsed.summary}`);
+        return lifecycleResult(
+          call.id,
+          `Error: close_agent arguments invalid: ${parsed.summary}`,
+        );
       }
       const target = parsed.target.trim();
       const denied = gateTarget(deps, "close_agent", target, call.id);
@@ -176,7 +185,10 @@ export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
       if (deps.sessions.get(target) === undefined) {
         return lifecycleResult(
           call.id,
-          JSON.stringify({ agent_id: target, status: "not_found" satisfies AgentLifecycleStatus }),
+          JSON.stringify({
+            agent_id: target,
+            status: "not_found" satisfies AgentLifecycleStatus,
+          }),
         );
       }
       const nodes = deps.sessions
@@ -192,7 +204,10 @@ export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
         // wait_agents hangs until timeout.
         deps.fleetRecords.interrupt(id);
         try {
-          const status = await deps.sessions.closeOne(id, DEFAULT_CLOSE_DEADLINE_MS);
+          const status = await deps.sessions.closeOne(
+            id,
+            DEFAULT_CLOSE_DEADLINE_MS,
+          );
           closed.push({ agent_id: id, status });
         } catch (err: unknown) {
           failures.push(err);
@@ -205,7 +220,10 @@ export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
       }
       if (failures.length === 1) throw failures[0];
       if (failures.length > 1) {
-        throw new AggregateError(failures, "close_agent leftover dispose failed");
+        throw new AggregateError(
+          failures,
+          "close_agent leftover dispose failed",
+        );
       }
       const own = closed.find((c) => c.agent_id === target);
       return lifecycleResult(
@@ -226,14 +244,20 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
     handler: async (call, _signal): Promise<ToolResult> => {
       const parsed = ResumeAgentArgs(call.arguments);
       if (parsed instanceof type.errors) {
-        return lifecycleResult(call.id, `Error: resume_agent arguments invalid: ${parsed.summary}`);
+        return lifecycleResult(
+          call.id,
+          `Error: resume_agent arguments invalid: ${parsed.summary}`,
+        );
       }
       const target = parsed.target.trim();
       const denied = gateTarget(deps, "resume_agent", target, call.id);
       if (denied !== undefined) return denied;
       const message = parsed.message.trim();
       if (message.length === 0) {
-        return lifecycleResult(call.id, "Error: resume_agent requires a non-empty message.");
+        return lifecycleResult(
+          call.id,
+          "Error: resume_agent requires a non-empty message.",
+        );
       }
       if (message.length > DEFAULT_MAX_ENTRY_CHARS) {
         return lifecycleResult(
@@ -256,7 +280,10 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
           deps.sessions.complete(target, reply);
         },
         onFail: (err) => {
-          deps.sessions.fail(target, err instanceof Error ? err.message : String(err));
+          deps.sessions.fail(
+            target,
+            err instanceof Error ? err.message : String(err),
+          );
         },
       });
       if (!outcome.ok) {
@@ -270,7 +297,10 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
         deps.fleetRecords.register(target);
         deps.fleetRecords.markQueued(target);
       }
-      return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: outcome.status }));
+      return lifecycleResult(
+        call.id,
+        JSON.stringify({ agent_id: target, status: outcome.status }),
+      );
     },
   });
 }
@@ -293,13 +323,18 @@ export const interruptAgentToolDefinition: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      target: { type: "string", description: "agent_id of the session to interrupt." },
+      target: {
+        type: "string",
+        description: "agent_id of the session to interrupt.",
+      },
     },
     required: ["target"],
   },
 };
 
-export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentTool {
+export function createInterruptAgentTool(
+  deps: InterruptAgentToolDeps,
+): AgentTool {
   return tool({
     definition: interruptAgentToolDefinition,
     handler: async (call, _signal): Promise<ToolResult> => {
@@ -326,7 +361,10 @@ export function createInterruptAgentTool(deps: InterruptAgentToolDeps): AgentToo
       deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,
-        JSON.stringify({ agent_id: target, status: "interrupted" satisfies AgentLifecycleStatus }),
+        JSON.stringify({
+          agent_id: target,
+          status: "interrupted" satisfies AgentLifecycleStatus,
+        }),
       );
     },
   });
@@ -353,7 +391,10 @@ export const sendInputToolDefinition: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      target: { type: "string", description: "agent_id of the running session to steer." },
+      target: {
+        type: "string",
+        description: "agent_id of the running session to steer.",
+      },
       message: {
         type: "string",
         description: `Instruction to inject (non-empty, max ${DEFAULT_MAX_ENTRY_CHARS} characters).`,
@@ -375,14 +416,20 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
     handler: async (call, _signal): Promise<ToolResult> => {
       const parsed = SendInputArgs(call.arguments);
       if (parsed instanceof type.errors) {
-        return lifecycleResult(call.id, `Error: send_input arguments invalid: ${parsed.summary}`);
+        return lifecycleResult(
+          call.id,
+          `Error: send_input arguments invalid: ${parsed.summary}`,
+        );
       }
       const target = parsed.target.trim();
       const denied = gateTarget(deps, "send_input", target, call.id);
       if (denied !== undefined) return denied;
       const message = parsed.message.trim();
       if (message.length === 0) {
-        return lifecycleResult(call.id, "Error: send_input requires a non-empty message.");
+        return lifecycleResult(
+          call.id,
+          "Error: send_input requires a non-empty message.",
+        );
       }
       if (message.length > DEFAULT_MAX_ENTRY_CHARS) {
         return lifecycleResult(
@@ -422,9 +469,13 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
       if (interrupt && deps.fleetRecords !== undefined) {
         deps.fleetRecords.noteFollowup(target);
         const after = deps.sessions.get(target);
-        if (after?.lifecycle.state === "pending_init") deps.fleetRecords.markQueued(target);
+        if (after?.lifecycle.state === "pending_init")
+          deps.fleetRecords.markQueued(target);
       }
-      return lifecycleResult(call.id, JSON.stringify({ agent_id: target, status: outcome.status }));
+      return lifecycleResult(
+        call.id,
+        JSON.stringify({ agent_id: target, status: outcome.status }),
+      );
     },
   });
 }

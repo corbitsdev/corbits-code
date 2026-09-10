@@ -60,7 +60,10 @@ export function spanDurationNs(span: PerfSpan): number | undefined {
   return Number(d);
 }
 
-function percentileNearestRank(sortedAsc: readonly number[], p: number): number {
+function percentileNearestRank(
+  sortedAsc: readonly number[],
+  p: number,
+): number {
   if (sortedAsc.length === 0) return 0;
   // Nearest-rank: ceil(p * n), 1-indexed → 0-indexed clamp.
   const rank = Math.ceil(p * sortedAsc.length) - 1;
@@ -75,7 +78,10 @@ function percentileNearestRank(sortedAsc: readonly number[], p: number): number 
  * but not to totalNs or percentiles.
  */
 export function rollupByPhase(spans: readonly PerfSpan[]): PhaseSummary[] {
-  const byName = new Map<SpanName, { durations: number[]; openCount: number; count: number }>();
+  const byName = new Map<
+    SpanName,
+    { durations: number[]; openCount: number; count: number }
+  >();
 
   for (const span of spans) {
     let bucket = byName.get(span.name);
@@ -117,7 +123,9 @@ export function rollupByPhase(spans: readonly PerfSpan[]): PhaseSummary[] {
  * still appear as roots for by-phase; by-turn only lists actual turn spans.
  * Shared with attribution-report (exclusive shares walk the same tree).
  */
-export function childrenOf(spans: readonly PerfSpan[]): Map<string, PerfSpan[]> {
+export function childrenOf(
+  spans: readonly PerfSpan[],
+): Map<string, PerfSpan[]> {
   const byParent = new Map<string, PerfSpan[]>();
   for (const span of spans) {
     if (span.parentId === undefined) continue;
@@ -162,7 +170,9 @@ export function rollupByTurn(spans: readonly PerfSpan[]): TurnSummary[] {
   const turns = spans
     .filter((s) => s.name === "turn")
     .slice()
-    .sort((a, b) => (a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0));
+    .sort((a, b) =>
+      a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0,
+    );
 
   return turns.map((turn) => {
     let inferenceNs = 0;

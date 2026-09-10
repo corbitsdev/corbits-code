@@ -41,7 +41,12 @@ export const MAX_TRACE_TOTAL_CHARS = 20_000;
 const MAX_SEARCH_DIRS = 4_000;
 const MAX_SEARCH_DEPTH = 16;
 
-export type TraceEntryKind = "text" | "thinking" | "tool_call" | "tool_result" | "error";
+export type TraceEntryKind =
+  | "text"
+  | "thinking"
+  | "tool_call"
+  | "tool_result"
+  | "error";
 
 export interface TraceEntry {
   turn: number;
@@ -180,7 +185,10 @@ function isRawTurn(value: unknown): value is RawTurn {
  * a stale truncate-past-EOF are stripped first for the same reason
  * optimized-context-store.ts strips them on resume.
  */
-function parseTurnsTolerant(text: string): { turns: RawTurn[]; warnings: number } {
+function parseTurnsTolerant(text: string): {
+  turns: RawTurn[];
+  warnings: number;
+} {
   const cleaned = text.includes("\0") ? text.replaceAll("\0", "") : text;
   if (cleaned.length === 0) return { turns: [], warnings: 0 };
   const lines = cleaned.split("\n");
@@ -213,7 +221,9 @@ function parseTurnsTolerant(text: string): { turns: RawTurn[]; warnings: number 
  * streaming reader, which is a larger change than this fix; tracked as a
  * follow-up rather than expanding this one.
  */
-async function readAllTurns(dir: string): Promise<{ turns: RawTurn[]; warnings: number }> {
+async function readAllTurns(
+  dir: string,
+): Promise<{ turns: RawTurn[]; warnings: number }> {
   const segments = await listSegmentFiles(dir, TURNS_FILE);
   const turns: RawTurn[] = [];
   let warnings = 0;
@@ -231,8 +241,12 @@ async function readAllTurns(dir: string): Promise<{ turns: RawTurn[]; warnings: 
   return { turns, warnings };
 }
 
-function truncateContent(text: string): { content: string; truncated: boolean } {
-  if (text.length <= MAX_TRACE_ENTRY_CHARS) return { content: text, truncated: false };
+function truncateContent(text: string): {
+  content: string;
+  truncated: boolean;
+} {
+  if (text.length <= MAX_TRACE_ENTRY_CHARS)
+    return { content: text, truncated: false };
   return { content: text.slice(0, MAX_TRACE_ENTRY_CHARS), truncated: true };
 }
 
@@ -255,12 +269,24 @@ function toolResultText(content: unknown): string {
     .join("\n");
 }
 
-function blockToEntry(turnIndex: number, role: string, block: unknown): TraceEntry | null {
+function blockToEntry(
+  turnIndex: number,
+  role: string,
+  block: unknown,
+): TraceEntry | null {
   const b = block as { type?: unknown } & Record<string, unknown>;
   switch (b?.type) {
     case "text": {
-      const { content, truncated } = truncateContent(typeof b.text === "string" ? b.text : "");
-      return { turn: turnIndex, role, kind: "text", content, ...(truncated && { truncated }) };
+      const { content, truncated } = truncateContent(
+        typeof b.text === "string" ? b.text : "",
+      );
+      return {
+        turn: turnIndex,
+        role,
+        kind: "text",
+        content,
+        ...(truncated && { truncated }),
+      };
     }
     case "thinking": {
       const { content, truncated } = truncateContent(
@@ -275,7 +301,9 @@ function blockToEntry(turnIndex: number, role: string, block: unknown): TraceEnt
       };
     }
     case "tool_call": {
-      const { content, truncated } = truncateContent(safeStringify(b.arguments));
+      const { content, truncated } = truncateContent(
+        safeStringify(b.arguments),
+      );
       return {
         turn: turnIndex,
         role,
@@ -300,8 +328,16 @@ function blockToEntry(turnIndex: number, role: string, block: unknown): TraceEnt
       };
     }
     case "refusal": {
-      const { content, truncated } = truncateContent(typeof b.reason === "string" ? b.reason : "");
-      return { turn: turnIndex, role, kind: "error", content, ...(truncated && { truncated }) };
+      const { content, truncated } = truncateContent(
+        typeof b.reason === "string" ? b.reason : "",
+      );
+      return {
+        turn: turnIndex,
+        role,
+        kind: "error",
+        content,
+        ...(truncated && { truncated }),
+      };
     }
     default:
       return null;
@@ -326,15 +362,22 @@ export async function readAgentTrace(
   const { turns, warnings } = await readAllTurns(dir);
   const totalTurns = turns.length;
 
-  const toTurn = Math.min(Math.max(options.toTurn ?? totalTurns, 0), totalTurns);
+  const toTurn = Math.min(
+    Math.max(options.toTurn ?? totalTurns, 0),
+    totalTurns,
+  );
   let fromTurn = Math.min(
-    Math.max(options.fromTurn ?? Math.max(0, toTurn - DEFAULT_TRACE_TURN_WINDOW), 0),
+    Math.max(
+      options.fromTurn ?? Math.max(0, toTurn - DEFAULT_TRACE_TURN_WINDOW),
+      0,
+    ),
     toTurn,
   );
   const maxWindow = MAX_TRACE_TURN_WINDOW;
   if (toTurn - fromTurn > maxWindow) fromTurn = toTurn - maxWindow;
 
-  const kindsFilter = options.kinds !== undefined ? new Set(options.kinds) : null;
+  const kindsFilter =
+    options.kinds !== undefined ? new Set(options.kinds) : null;
   const limit = Math.min(
     Math.max(options.limit ?? DEFAULT_TRACE_ENTRY_LIMIT, 1),
     MAX_TRACE_ENTRY_LIMIT,

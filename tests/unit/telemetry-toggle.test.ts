@@ -14,7 +14,10 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
   fetchCalls: () => number;
 } {
   let instance: Telemetry = createTelemetry({
-    settings: { providers: {}, telemetry: { enabled: true, installationId: "id" } },
+    settings: {
+      providers: {},
+      telemetry: { enabled: true, installationId: "id" },
+    },
     env: {},
     apiKey: "test-key",
   });
@@ -42,7 +45,12 @@ function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
     // env is pinned to {} (matching telemetry.test.ts) so a developer's real
     // DO_NOT_TRACK / CORBITS_TELEMETRY never bleeds into these tests.
     createTelemetry: (opts) =>
-      createTelemetry({ ...opts, env: opts.env ?? {}, apiKey: opts.apiKey ?? "test-key", fetchFn }),
+      createTelemetry({
+        ...opts,
+        env: opts.env ?? {},
+        apiKey: opts.apiKey ?? "test-key",
+        fetchFn,
+      }),
     ...overrides,
   };
   return { deps, getInstance: () => instance, fetchCalls: () => calls };
@@ -71,14 +79,20 @@ test("queued enable cannot publish after a later opt-out while disable load is b
       await new Promise<void>((resolve) => {
         releaseEnable = resolve;
       });
-      return { providers: {}, telemetry: { enabled: true, installationId: "id" } };
+      return {
+        providers: {},
+        telemetry: { enabled: true, installationId: "id" },
+      };
     },
     loadSettings: async () => {
       signalDisableLoadStarted?.();
       await new Promise<void>((resolve) => {
         releaseDisableLoad = resolve;
       });
-      return { providers: {}, telemetry: { enabled: true, installationId: "id" } };
+      return {
+        providers: {},
+        telemetry: { enabled: true, installationId: "id" },
+      };
     },
   });
   let current = getInstance();
@@ -294,14 +308,20 @@ test("toggle on re-enables after settings load/save resolve", async () => {
 });
 
 test("session_id on captured payloads stays constant across an enable/disable/enable toggle cycle", async () => {
-  const capturedBodies: { batch: { properties: Record<string, unknown> }[] }[] = [];
+  const capturedBodies: { batch: { properties: Record<string, unknown> }[] }[] =
+    [];
   const fetchFn = ((_url: string, init: RequestInit) => {
     capturedBodies.push(JSON.parse(init.body as string));
     return Promise.resolve(new Response("1", { status: 200 }));
   }) as unknown as typeof fetch;
   const { deps, getInstance } = fakeDeps({
     createTelemetry: (opts) =>
-      createTelemetry({ ...opts, env: opts.env ?? {}, apiKey: opts.apiKey ?? "test-key", fetchFn }),
+      createTelemetry({
+        ...opts,
+        env: opts.env ?? {},
+        apiKey: opts.apiKey ?? "test-key",
+        fetchFn,
+      }),
   });
   const handler = createTelemetryToggleHandler("/fake/path", deps);
 
@@ -332,8 +352,8 @@ test("session_id on captured payloads stays constant across an enable/disable/en
   expect(typeof sessionId).toBe("string");
   expect((sessionId as string).length).toBeGreaterThan(0);
   expect(
-    defined(defined(capturedBodies[1], "second body").batch[0], "second event").properties
-      .session_id,
+    defined(defined(capturedBodies[1], "second body").batch[0], "second event")
+      .properties.session_id,
   ).toBe(sessionId);
   expect(sessionId).toBe(getSessionId());
 });

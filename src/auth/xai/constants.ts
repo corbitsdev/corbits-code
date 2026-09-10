@@ -30,7 +30,11 @@ export const XAI_BASE_URL = "https://cli-chat-proxy.grok.com/v1";
 // Keep the catalog aligned with Grok Build / xAI listings; default stays the
 // last CLI-advertised coding model until the proxy is confirmed to accept a
 // newer flagship as the session default.
-export const XAI_DEFAULT_MODELS = ["grok-4.5", "grok-4.6", "grok-composer-2.5-fast"] as const;
+export const XAI_DEFAULT_MODELS = [
+  "grok-4.5",
+  "grok-4.6",
+  "grok-composer-2.5-fast",
+] as const;
 
 // The CLI chat proxy speaks the OpenAI Responses API at /v1/responses and
 // authenticates the caller by client headers in addition to the bearer token.

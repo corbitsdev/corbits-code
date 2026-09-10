@@ -4,7 +4,10 @@
 // crash handlers), then throws asynchronously so it surfaces as a genuine
 // uncaughtException rather than a synchronous throw the caller could catch.
 import { installCrashHandlers } from "../../../src/index.js";
-import { setActiveRun, setTestWriteGate } from "../../../src/session/active-run.js";
+import {
+  setActiveRun,
+  setTestWriteGate,
+} from "../../../src/session/active-run.js";
 import { sessionDir } from "../../../src/session/index.js";
 import { finalizeRunState, saveState } from "../../../src/session/state.js";
 import { clearsActiveRun } from "../../../src/tui/runner/exit.js";
@@ -80,8 +83,20 @@ setTestWriteGate(gate);
 // Two unawaited straggler snapshot writes, chained behind each other in
 // state.ts's per-session queue — what persistRunSnapshot fires on every
 // turn/model-switch/MCP-connect event. Both are parked at the gate.
-void saveState(cwd, activeSessionId, { status: "running", turnsUsed: 1, task, startedAt, model });
-void saveState(cwd, activeSessionId, { status: "running", turnsUsed: 2, task, startedAt, model });
+void saveState(cwd, activeSessionId, {
+  status: "running",
+  turnsUsed: 1,
+  task,
+  startedAt,
+  model,
+});
+void saveState(cwd, activeSessionId, {
+  status: "running",
+  turnsUsed: 2,
+  task,
+  startedAt,
+  model,
+});
 
 // Throws inside setImmediate so it surfaces as a real uncaughtException.
 // Node/Bun run the exception's own uncaughtException dispatch — including

@@ -52,7 +52,13 @@ beforeEach(() => {
   // or write into the real home cache directory.
   resetPricingMetadataRefreshForTests();
   schedulePricingMetadataRefresh({
-    cachePath: join(sandbox, "home", ".corbits", "cache", "models-pricing.json"),
+    cachePath: join(
+      sandbox,
+      "home",
+      ".corbits",
+      "cache",
+      "models-pricing.json",
+    ),
     fetchImpl: () => Promise.reject(new Error("network disabled in tests")),
   });
 });
@@ -62,7 +68,10 @@ afterEach(() => {
 });
 
 // The subcommand must stay at argv[0]; flags go after it.
-function sandboxArgs(subcommand: readonly string[], rest: readonly string[] = []): string[] {
+function sandboxArgs(
+  subcommand: readonly string[],
+  rest: readonly string[] = [],
+): string[] {
   return [
     ...subcommand,
     "--cwd",

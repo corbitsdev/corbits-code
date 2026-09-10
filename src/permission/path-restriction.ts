@@ -87,7 +87,9 @@ export function realpathNearestOr(path: string): string {
 // containment into allow-all. A root of exactly `sep` itself is not this bug
 // — `startsWith(sep + sep)` correctly rejects unrelated absolute paths.
 const inKnownRoots = (real: string, roots: readonly string[]): boolean =>
-  roots.some((root) => root.length > 0 && (real === root || real.startsWith(root + sep)));
+  roots.some(
+    (root) => root.length > 0 && (real === root || real.startsWith(root + sep)),
+  );
 
 // Resolves `path` (relative or absolute, possibly traversing `..`) against
 // `cwd` and checks it against the workspace boundary: `cwd` itself plus every
@@ -196,7 +198,8 @@ export function createPathRestriction(
   const cache = new Map<string, { realpath: string; verdict: boolean }>();
 
   const underStateDir = (real: string): boolean =>
-    underResolvedRoot(real, legacyStateDir) || underResolvedRoot(real, globalStateDir);
+    underResolvedRoot(real, legacyStateDir) ||
+    underResolvedRoot(real, globalStateDir);
 
   return {
     isRestricted: (path: string, isWrite: boolean): boolean => {
@@ -222,8 +225,15 @@ export function createPathRestriction(
         return isWrite;
       }
 
-      const outsideWorkspace = !isResolvedPathInWorkspace(cwd, currentRealpath, rootsProvider);
-      cache.set(cacheKey, { realpath: currentRealpath, verdict: outsideWorkspace });
+      const outsideWorkspace = !isResolvedPathInWorkspace(
+        cwd,
+        currentRealpath,
+        rootsProvider,
+      );
+      cache.set(cacheKey, {
+        realpath: currentRealpath,
+        verdict: outsideWorkspace,
+      });
       return outsideWorkspace;
     },
   };

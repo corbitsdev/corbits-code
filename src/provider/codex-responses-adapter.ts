@@ -16,7 +16,10 @@ import type {
   PartialMessage,
   TokenUsage,
 } from "@intx/types/runtime";
-import { CODEX_RESPONSES_PATH, CODEX_AUTHORIZE_EXTRA_PARAMS } from "../auth/codex/constants.js";
+import {
+  CODEX_RESPONSES_PATH,
+  CODEX_AUTHORIZE_EXTRA_PARAMS,
+} from "../auth/codex/constants.js";
 
 // Adapter for the OpenAI Responses API as served by the Codex backend
 // (chatgpt.com/backend-api/codex/responses). The Codex backend does NOT speak
@@ -46,7 +49,10 @@ export const CODEX_SESSION_ID_OPTION = "codexSessionId";
 
 const EMPTY_PARTIAL: PartialMessage = { text: "" };
 
-type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type FetchLike = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
 
 function requestURL(input: string | URL | Request): string {
   if (typeof input === "string") return input;
@@ -75,8 +81,10 @@ function acceptedContentType(
   const supported = new Set<string>();
   for (const entry of accept.toLowerCase().split(",")) {
     const media = entry.trim();
-    if (media.startsWith("text/event-stream")) supported.add("text/event-stream");
-    else if (media.startsWith("application/json")) supported.add("application/json");
+    if (media.startsWith("text/event-stream"))
+      supported.add("text/event-stream");
+    else if (media.startsWith("application/json"))
+      supported.add("application/json");
   }
   if (supported.size !== 1) return null;
   return [...supported][0] ?? null;
@@ -147,7 +155,10 @@ type ResponsesInputItem =
 // self-heals on the next request instead of being replayed forever.
 const SIGNATURE_TAG_SEPARATOR = ":";
 
-export function tagSignature(provider: string, encryptedContent: string): string {
+export function tagSignature(
+  provider: string,
+  encryptedContent: string,
+): string {
   return `${provider}${SIGNATURE_TAG_SEPARATOR}${encryptedContent}`;
 }
 
@@ -156,7 +167,10 @@ function untagSignature(
 ): { provider: string; encryptedContent: string } | undefined {
   const idx = tagged.indexOf(SIGNATURE_TAG_SEPARATOR);
   if (idx === -1) return undefined;
-  return { provider: tagged.slice(0, idx), encryptedContent: tagged.slice(idx + 1) };
+  return {
+    provider: tagged.slice(0, idx),
+    encryptedContent: tagged.slice(idx + 1),
+  };
 }
 
 export function signatureForModel(
@@ -172,7 +186,9 @@ export function signatureForModel(
   if (turn.model !== undefined && turn.model !== requestModel) return undefined;
   const tagged = untagSignature(signature);
   if (tagged === undefined) return undefined;
-  return tagged.provider === requestProvider ? tagged.encryptedContent : undefined;
+  return tagged.provider === requestProvider
+    ? tagged.encryptedContent
+    : undefined;
 }
 
 // Map one internal turn to zero or more Responses items. Assistant text uses
@@ -219,7 +235,10 @@ function toResponsesItems(
 
   for (const block of turn.content) {
     if (block.type === "text") {
-      textParts.push({ type: textKind, text: block.text } as ResponsesContentPart);
+      textParts.push({
+        type: textKind,
+        text: block.text,
+      } as ResponsesContentPart);
     } else if (block.type === "image") {
       if (block.source.kind === "base64") {
         textParts.push({
@@ -264,7 +283,11 @@ function toResponsesItems(
         block.signature,
       );
       if (encryptedContent !== undefined) {
-        items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
+        items.push({
+          type: "reasoning",
+          summary: [],
+          encrypted_content: encryptedContent,
+        });
         suppressOrphanedCalls = false;
       } else {
         suppressOrphanedCalls = true;
@@ -279,7 +302,9 @@ function toResponsesItems(
 // the text parts; non-text content (images, etc.) is not representable here and
 // is dropped with a marker so the model is not misled into thinking it is
 // missing silently.
-function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): string {
+function toolResultText(
+  block: Extract<ContentBlock, { type: "tool_result" }>,
+): string {
   const parts: string[] = [];
   for (const c of block.content) {
     if (c.type === "text") parts.push(c.text);
@@ -289,7 +314,8 @@ function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): 
 }
 
 function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
-  if (options.tools === undefined || options.tools.length === 0) return undefined;
+  if (options.tools === undefined || options.tools.length === 0)
+    return undefined;
   // Responses function tools are FLAT — name/description/parameters sit beside
   // `type`, not nested under a `function` key (unlike Chat Completions).
   return options.tools.map((t) => ({
@@ -300,7 +326,10 @@ function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
   }));
 }
 
-function optionString(options: InferenceOptions, key: string): string | undefined {
+function optionString(
+  options: InferenceOptions,
+  key: string,
+): string | undefined {
   const value = options.providerOptions?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -311,7 +340,9 @@ function buildRequest(
   options: InferenceOptions,
   requestProvider: string,
 ): BuiltRequest {
-  const input = messages.flatMap((turn) => toResponsesItems(turn, model, requestProvider));
+  const input = messages.flatMap((turn) =>
+    toResponsesItems(turn, model, requestProvider),
+  );
   const tools = toResponsesTools(options);
   const accountId = optionString(options, CODEX_ACCOUNT_ID_OPTION);
   const sessionId = optionString(options, CODEX_SESSION_ID_OPTION);
@@ -384,10 +415,17 @@ export interface CodexBlockIndexer {
 // Both the Codex and grok backends speak the same Responses SSE protocol, so
 // the parser is shared. Each adapter creates its own indexer per request.
 export function createResponsesBlockIndexer(): CodexBlockIndexer {
-  return { nextIndex: 0, items: new Map<string, { index: number; kind: CodexBlockKind }>() };
+  return {
+    nextIndex: 0,
+    items: new Map<string, { index: number; kind: CodexBlockKind }>(),
+  };
 }
 
-function blockIndexFor(state: CodexBlockIndexer, itemId: string, kind: CodexBlockKind): number {
+function blockIndexFor(
+  state: CodexBlockIndexer,
+  itemId: string,
+  kind: CodexBlockKind,
+): number {
   const existing = state.items.get(itemId);
   if (existing !== undefined) return existing.index;
   const index = state.nextIndex;
@@ -396,13 +434,19 @@ function blockIndexFor(state: CodexBlockIndexer, itemId: string, kind: CodexBloc
   return index;
 }
 
-function usageFromResponse(response: Record<string, unknown>): TokenUsage | undefined {
+function usageFromResponse(
+  response: Record<string, unknown>,
+): TokenUsage | undefined {
   const usage = response["usage"];
   if (typeof usage !== "object" || usage === null) return undefined;
   const u = usage as Record<string, unknown>;
   const num = (v: unknown): number => (typeof v === "number" ? v : 0);
-  const inputDetails = u["input_tokens_details"] as Record<string, unknown> | undefined;
-  const outputDetails = u["output_tokens_details"] as Record<string, unknown> | undefined;
+  const inputDetails = u["input_tokens_details"] as
+    | Record<string, unknown>
+    | undefined;
+  const outputDetails = u["output_tokens_details"] as
+    | Record<string, unknown>
+    | undefined;
   // Responses-API `input_tokens` counts the full prompt and `cached_tokens`
   // is a subset of it. Downstream consumers (context meter, compaction
   // governor, faremeter) treat the TokenUsage fields as non-overlapping and
@@ -452,12 +496,18 @@ export function parseResponse(
     case "response.output_text.delta": {
       const token = event["delta"];
       const itemId =
-        typeof event["item_id"] === "string" ? (event["item_id"] as string) : "__text__";
+        typeof event["item_id"] === "string"
+          ? (event["item_id"] as string)
+          : "__text__";
       if (typeof token === "string" && token.length > 0) {
         events.push({
           type: "inference.text.delta",
           seq,
-          data: { token, partial: EMPTY_PARTIAL, index: blockIndexFor(indexer, itemId, "text") },
+          data: {
+            token,
+            partial: EMPTY_PARTIAL,
+            index: blockIndexFor(indexer, itemId, "text"),
+          },
         });
       }
       return events;
@@ -470,7 +520,9 @@ export function parseResponse(
       // summary may be empty or delivered only via the done envelope.
       const token = event["delta"];
       const itemId =
-        typeof event["item_id"] === "string" ? (event["item_id"] as string) : "__thinking__";
+        typeof event["item_id"] === "string"
+          ? (event["item_id"] as string)
+          : "__thinking__";
       const index = blockIndexFor(indexer, itemId, "thinking");
       const tok = typeof token === "string" ? token : "";
       events.push({
@@ -488,7 +540,11 @@ export function parseResponse(
           const itemId = typeof it["id"] === "string" ? it["id"] : undefined;
           const callId = it["call_id"];
           const name = it["name"];
-          if (itemId !== undefined && typeof callId === "string" && typeof name === "string") {
+          if (
+            itemId !== undefined &&
+            typeof callId === "string" &&
+            typeof name === "string"
+          ) {
             events.push({
               type: "inference.tool_call.start",
               seq,
@@ -503,7 +559,8 @@ export function parseResponse(
         } else if (it["type"] === "reasoning") {
           // Pre-register reasoning items on added so the index is stable
           // even if no text deltas follow (pure-encrypted case).
-          const itemId = typeof it["id"] === "string" ? (it["id"] as string) : undefined;
+          const itemId =
+            typeof it["id"] === "string" ? (it["id"] as string) : undefined;
           if (itemId !== undefined) {
             const index = blockIndexFor(indexer, itemId, "thinking");
             events.push({
@@ -543,7 +600,10 @@ export function parseResponse(
           type: "inference.block.signature",
           seq,
           data: {
-            signature: tagSignature(source.provider, item["encrypted_content"] as string),
+            signature: tagSignature(
+              source.provider,
+              item["encrypted_content"] as string,
+            ),
             index,
           },
         });
@@ -553,7 +613,11 @@ export function parseResponse(
     case "response.function_call_arguments.delta": {
       const itemId = event["item_id"];
       const fragment = event["delta"];
-      if (typeof itemId === "string" && typeof fragment === "string" && fragment.length > 0) {
+      if (
+        typeof itemId === "string" &&
+        typeof fragment === "string" &&
+        fragment.length > 0
+      ) {
         const blockIndex = blockIndexFor(indexer, itemId, "tool_call");
         events.push({
           type: "inference.tool_call.delta",
@@ -575,7 +639,11 @@ export function parseResponse(
       if (typeof response === "object" && response !== null) {
         const usage = usageFromResponse(response as Record<string, unknown>);
         if (usage !== undefined) {
-          events.push({ type: "inference.usage", seq, data: { usage, source } });
+          events.push({
+            type: "inference.usage",
+            seq,
+            data: { usage, source },
+          });
         }
       }
       return events;
@@ -583,11 +651,17 @@ export function parseResponse(
     case "response.failed": {
       const response = event["response"] as Record<string, unknown> | undefined;
       const error = response?.["error"] as Record<string, unknown> | undefined;
-      const message = typeof error?.["message"] === "string" ? error["message"] : "response failed";
+      const message =
+        typeof error?.["message"] === "string"
+          ? error["message"]
+          : "response failed";
       throw new ProtocolMismatchError(`${label}: ${message}`, parsed);
     }
     case "error": {
-      const message = typeof event["message"] === "string" ? event["message"] : "stream error";
+      const message =
+        typeof event["message"] === "string"
+          ? event["message"]
+          : "stream error";
       throw new ProtocolMismatchError(`${label}: ${message}`, parsed);
     }
     default:
@@ -632,7 +706,9 @@ export function isResponsesStreamTerminal(sseData: string): boolean {
   }
   if (typeof parsed !== "object" || parsed === null) return false;
   const eventType = (parsed as Record<string, unknown>)["type"];
-  return typeof eventType === "string" && RESPONSES_TERMINAL_EVENTS.has(eventType);
+  return (
+    typeof eventType === "string" && RESPONSES_TERMINAL_EVENTS.has(eventType)
+  );
 }
 
 // Responses backends (Codex, Grok, OpenAI) signal 429 pacing with the same
@@ -640,7 +716,9 @@ export function isResponsesStreamTerminal(sseData: string): boolean {
 // already reads. The shared Responses adapters never extracted them, so
 // every 429 arrived with retryAfterMs undefined and the retry policy fell
 // back to blind fixed backoff instead of waiting out the server's window.
-export function extractResponsesRetryAfterMs(headers: Headers): number | undefined {
+export function extractResponsesRetryAfterMs(
+  headers: Headers,
+): number | undefined {
   const retryMs = headers.get("retry-after-ms");
   if (retryMs !== null) {
     const ms = Number(retryMs);
@@ -656,7 +734,9 @@ export function extractResponsesRetryAfterMs(headers: Headers): number | undefin
   return undefined;
 }
 
-export function createCodexResponsesAdapter(source: LastCycleSource): ProviderAdapter {
+export function createCodexResponsesAdapter(
+  source: LastCycleSource,
+): ProviderAdapter {
   // Re-created per request in buildRequest, not just once here — otherwise
   // block indices accumulate across every request the adapter instance ever
   // serves, growing the map for the life of the conversation.

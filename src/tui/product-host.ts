@@ -57,7 +57,10 @@ import {
   type PaletteOnObserveRequest,
 } from "./shell/internals.js";
 import { setOwnedOverlayItems } from "./shell/overlay-host.js";
-import { isAddProviderShortcutKey, setPaletteCatalog } from "./shell/palette.js";
+import {
+  isAddProviderShortcutKey,
+  setPaletteCatalog,
+} from "./shell/palette.js";
 import { surfaceSystemNotice } from "./shell/prompt.js";
 import type { QueueKind } from "./session-queue.js";
 import { hydrateHistoryRows } from "./history-hydrate.js";
@@ -71,7 +74,9 @@ function annotateCurrent(
   activeId: string | undefined,
 ): ProductHostModelOption[] {
   if (activeId === undefined) return [...rows];
-  return rows.map((r) => (r.id === activeId ? { ...r, label: `${r.label} (current)` } : r));
+  return rows.map((r) =>
+    r.id === activeId ? { ...r, label: `${r.label} (current)` } : r,
+  );
 }
 
 export type ProductHostSend = (
@@ -152,7 +157,9 @@ export interface ProductHostConfig {
    */
   readonly addProviderChoices?: () => readonly ProductHostAddProviderChoice[];
   /** Command palette catalog (registry-backed). */
-  readonly commands?: readonly PaletteCommand[] | (() => readonly PaletteCommand[]);
+  readonly commands?:
+    | readonly PaletteCommand[]
+    | (() => readonly PaletteCommand[]);
   readonly onCommand?: (name: string) => void;
   /** Optional initial chrome snapshot. */
   readonly chrome?: ChromeLiveState | null;
@@ -244,7 +251,9 @@ export function operatorResultFromSelection(
  * Mount the OpenTUI shell as the production interactive UI.
  * Caller owns session lifecycle (agent, MCP, hooks); host owns paint + input.
  */
-export async function mountProductHost(config: ProductHostConfig): Promise<ProductHost> {
+export async function mountProductHost(
+  config: ProductHostConfig,
+): Promise<ProductHost> {
   const renderer = config.createRenderer
     ? await config.createRenderer()
     : await createCliRenderer({
@@ -284,10 +293,16 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     },
     ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
     run: "idle",
-    ...(config.commands !== undefined ? { paletteCatalog: config.commands } : {}),
+    ...(config.commands !== undefined
+      ? { paletteCatalog: config.commands }
+      : {}),
     ...(config.onCommand !== undefined ? { onCommand: config.onCommand } : {}),
-    ...(config.onObserveRequest !== undefined ? { onObserveRequest: config.onObserveRequest } : {}),
-    ...(config.telemetryNotice !== undefined ? { telemetryNotice: config.telemetryNotice } : {}),
+    ...(config.onObserveRequest !== undefined
+      ? { onObserveRequest: config.onObserveRequest }
+      : {}),
+    ...(config.telemetryNotice !== undefined
+      ? { telemetryNotice: config.telemetryNotice }
+      : {}),
     ...(config.reducedMotion === true ? { reducedMotion: true } : {}),
   });
 
@@ -305,7 +320,9 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     send: config.send,
     interrupt: config.interrupt,
     deliver: config.deliver,
-    ...(config.classifySubmit !== undefined ? { classifySubmit: config.classifySubmit } : {}),
+    ...(config.classifySubmit !== undefined
+      ? { classifySubmit: config.classifySubmit }
+      : {}),
   });
   // Empty options accept the defaults (real clock, 250 ms tick, 15 min stall)
   // while still opting this host into the quota-retry / stall timers.
@@ -342,7 +359,8 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   // Track sticky so a true→false falling edge still paints once — otherwise the
   // strip never clears when linger expires without a store notify.
   let stickyWasNeeded =
-    chromeState !== null && agentsChromeNeedsSticky(chromeState.agents, Date.now());
+    chromeState !== null &&
+    agentsChromeNeedsSticky(chromeState.agents, Date.now());
   const stickyPoll = setInterval(() => {
     if (disposed) return;
     try {
@@ -351,7 +369,8 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
       // whole point of the poll is the strip, not the chrome. True→false and
       // false→true edges both paint via the stickyWasNeeded latch below.
       const stickyNeeded =
-        chromeState !== null && agentsChromeNeedsSticky(chromeState.agents, Date.now());
+        chromeState !== null &&
+        agentsChromeNeedsSticky(chromeState.agents, Date.now());
       if (stickyNeeded || stickyWasNeeded) {
         paintChrome(shell);
       }
@@ -516,7 +535,9 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
   let currentModels = config.models ?? [];
   let currentDescribeModel = config.describeModel;
   let openModels: ((focusId?: string) => void) | undefined;
-  let openAddProvider: ((opts?: { returnToModels?: boolean }) => void) | undefined;
+  let openAddProvider:
+    | ((opts?: { returnToModels?: boolean }) => void)
+    | undefined;
   if (config.onModelSelect) {
     const onSelect = config.onModelSelect;
     const onConnect = config.onConnectProvider;
@@ -537,7 +558,8 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
             const rows = addProviderChoices();
             openAddProviderOverlay(shell, {
               items: rows.map(
-                (r) => `${r.label} — ${r.accountCount} account${r.accountCount === 1 ? "" : "s"}`,
+                (r) =>
+                  `${r.label} — ${r.accountCount} account${r.accountCount === 1 ? "" : "s"}`,
               ),
               itemIds: rows.map((r) => r.id),
               onAccept: (sel) => {
@@ -550,7 +572,9 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
                 if (row === undefined) return null;
                 return {
                   what:
-                    row.hint.length > 0 ? row.hint : "Opens the connect flow for this provider.",
+                    row.hint.length > 0
+                      ? row.hint
+                      : "Opens the connect flow for this provider.",
                   impact: `${row.accountCount} account${row.accountCount === 1 ? "" : "s"} connected today.`,
                   tone: "plain",
                 };
@@ -558,7 +582,9 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
               // Alt+A from the model picker: Esc returns through the same entry
               // point Alt+A itself, /model, and a completed connect all use.
               // /connect from a closed prompt omits this so Esc dismisses.
-              ...(opts?.returnToModels === true ? { onCancel: () => openModels?.() } : {}),
+              ...(opts?.returnToModels === true
+                ? { onCancel: () => openModels?.() }
+                : {}),
             });
           }
         : undefined;
@@ -566,7 +592,8 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
     openModels = (focusId?: string): void => {
       const activeId = config.activeModelId?.();
       const items = annotateCurrent(currentModels, activeId);
-      const focusIndex = focusId !== undefined ? items.findIndex((m) => m.id === focusId) : -1;
+      const focusIndex =
+        focusId !== undefined ? items.findIndex((m) => m.id === focusId) : -1;
       openModelPickerOverlay(shell, {
         items: items.map((m) => m.label),
         itemIds: items.map((m) => m.id),
@@ -592,12 +619,16 @@ export async function mountProductHost(config: ProductHostConfig): Promise<Produ
                 if (key.ctrl) return false;
                 // Alt+A / composed Option+A (å/Å) — never bare ASCII `a`;
                 // type-to-filter claims ordinary printables.
-                if (openAddProvider !== undefined && isAddProviderShortcutKey(key)) {
+                if (
+                  openAddProvider !== undefined &&
+                  isAddProviderShortcutKey(key)
+                ) {
                   openAddProvider({ returnToModels: true });
                   return true;
                 }
                 if (!(key.meta || key.option)) return false;
-                const name = typeof key.name === "string" ? key.name.toLowerCase() : "";
+                const name =
+                  typeof key.name === "string" ? key.name.toLowerCase() : "";
                 // Alt+F / Alt+D, never bare — type-to-filter claims printable keys.
                 if (name === "f" && onFavoriteToggle !== undefined) {
                   // Empty id is the "(no matches)" filter sentinel — not a model.

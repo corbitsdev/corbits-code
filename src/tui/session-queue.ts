@@ -57,7 +57,10 @@ export function queueCount(state: SessionQueueState): number {
   return state.items.filter((i) => i.kind === "queue").length;
 }
 
-export function setRunState(state: SessionQueueState, run: RunState): SessionQueueState {
+export function setRunState(
+  state: SessionQueueState,
+  run: RunState,
+): SessionQueueState {
   if (state.run === run) return state;
   return { ...state, run };
 }
@@ -75,7 +78,10 @@ export function enqueue(
   attachments?: readonly PendingImageAttachment[],
 ): SessionQueueState {
   const t = text.trim();
-  if (t.length === 0 && (attachments === undefined || attachments.length === 0)) {
+  if (
+    t.length === 0 &&
+    (attachments === undefined || attachments.length === 0)
+  ) {
     return state;
   }
   const item: QueueItem = {
@@ -83,7 +89,9 @@ export function enqueue(
     text: t,
     kind,
     enqueuedAt: now,
-    ...(attachments !== undefined && attachments.length > 0 ? { attachments } : {}),
+    ...(attachments !== undefined && attachments.length > 0
+      ? { attachments }
+      : {}),
   };
   return {
     ...state,
@@ -118,7 +126,9 @@ export function interrupt(state: SessionQueueState): SessionQueueState {
   };
 }
 
-export function clearInterruptFlash(state: SessionQueueState): SessionQueueState {
+export function clearInterruptFlash(
+  state: SessionQueueState,
+): SessionQueueState {
   if (!state.interruptFlash) return state;
   return { ...state, interruptFlash: false };
 }
@@ -155,7 +165,10 @@ export function drainOne(
   state: SessionQueueState,
   kind?: QueueKind,
 ): { state: SessionQueueState; item: QueueItem | null } {
-  const order = kind === undefined ? drainOrder(state) : state.items.filter((i) => i.kind === kind);
+  const order =
+    kind === undefined
+      ? drainOrder(state)
+      : state.items.filter((i) => i.kind === kind);
   const item = order[0] ?? null;
   if (!item) return { state, item: null };
   return {

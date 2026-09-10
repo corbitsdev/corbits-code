@@ -66,7 +66,10 @@ export class FleetAuthorityError extends Error {
  * prompt instruction — a leaf must never even hold the tool; a nested
  * orchestrator must never hold fleet-discovery verbs.
  */
-export function assertTierMayMountFleetVerb(tier: SubagentTier, toolName: string): void {
+export function assertTierMayMountFleetVerb(
+  tier: SubagentTier,
+  toolName: string,
+): void {
   if (!isFleetVerb(toolName)) return;
   if (tier === "leaf") {
     throw new FleetAuthorityError(

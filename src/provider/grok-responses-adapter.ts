@@ -40,7 +40,8 @@ export const GROK_USER_ID_OPTION = "grokUserId";
 export const GROK_SESSION_ID_OPTION = "grokSessionId";
 
 type ResponsesInputContentPart =
-  { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
+  | { type: "input_text"; text: string }
+  | { type: "input_image"; image_url: string };
 
 type ResponsesInputItem =
   | {
@@ -52,7 +53,9 @@ type ResponsesInputItem =
   | { type: "function_call_output"; call_id: string; output: string }
   | { type: "reasoning"; summary: never[]; encrypted_content: string };
 
-function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): string {
+function toolResultText(
+  block: Extract<ContentBlock, { type: "tool_result" }>,
+): string {
   const parts: string[] = [];
   for (const c of block.content) {
     if (c.type === "text") parts.push(c.text);
@@ -84,7 +87,9 @@ function toResponsesItems(
       role,
       content: hasImage
         ? [...parts]
-        : parts.map((part) => (part.type === "input_text" ? part.text : "")).join(""),
+        : parts
+            .map((part) => (part.type === "input_text" ? part.text : ""))
+            .join(""),
     });
     parts.length = 0;
     hasImage = false;
@@ -140,7 +145,11 @@ function toResponsesItems(
         block.signature,
       );
       if (encryptedContent !== undefined) {
-        items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
+        items.push({
+          type: "reasoning",
+          summary: [],
+          encrypted_content: encryptedContent,
+        });
         suppressOrphanedCalls = false;
       } else {
         suppressOrphanedCalls = true;
@@ -152,7 +161,8 @@ function toResponsesItems(
 }
 
 function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
-  if (options.tools === undefined || options.tools.length === 0) return undefined;
+  if (options.tools === undefined || options.tools.length === 0)
+    return undefined;
   return options.tools.map((t) => ({
     type: "function",
     name: encodeToolName(t.name, RESPONSES_TOOL_NAME_LIMIT),
@@ -161,7 +171,10 @@ function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
   }));
 }
 
-function optionString(options: InferenceOptions, key: string): string | undefined {
+function optionString(
+  options: InferenceOptions,
+  key: string,
+): string | undefined {
   const value = options.providerOptions?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -199,10 +212,15 @@ function buildRequest(
     options.systemPrompt !== undefined
       ? { type: "message", role: "system", content: options.systemPrompt }
       : undefined;
-  const input = systemMessage !== undefined ? [systemMessage, ...conversation] : conversation;
+  const input =
+    systemMessage !== undefined
+      ? [systemMessage, ...conversation]
+      : conversation;
   const tools = toResponsesTools(options);
 
-  const reasoning: { summary: "detailed"; effort?: string } = { summary: "detailed" };
+  const reasoning: { summary: "detailed"; effort?: string } = {
+    summary: "detailed",
+  };
   const effort = optionString(options, "reasoning_effort");
   if (effort !== undefined) reasoning.effort = effort;
 
@@ -242,7 +260,9 @@ function buildRequest(
   return { url: XAI_RESPONSES_PATH, headers, body: JSON.stringify(body) };
 }
 
-export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAdapter {
+export function createGrokResponsesAdapter(
+  source: LastCycleSource,
+): ProviderAdapter {
   // Re-created per request in buildRequest — see codex-responses-adapter.ts.
   let indexer = createResponsesBlockIndexer();
   return {
@@ -250,7 +270,8 @@ export function createGrokResponsesAdapter(source: LastCycleSource): ProviderAda
       indexer = createResponsesBlockIndexer();
       return buildRequest(messages, model, options, source.provider);
     },
-    parseResponse: (sseData) => parseResponse(sseData, indexer, source, GROK_RESPONSES_PROVIDER),
+    parseResponse: (sseData) =>
+      parseResponse(sseData, indexer, source, GROK_RESPONSES_PROVIDER),
     parseJSONResponse,
     extractRetryAfterMs: extractResponsesRetryAfterMs,
   };

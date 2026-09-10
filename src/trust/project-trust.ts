@@ -91,7 +91,10 @@ function canonicalizeCwd(cwd: string): string {
 // user's home, in a file keyed by the resolved repo path, so only prior
 // interactive consent on THIS machine can populate them. Path-origin plugins
 // use a separate global store (`path-trust.ts`); do not OR the two lists.
-export function projectTrustPath(cwd: string, home: string = homedir()): string {
+export function projectTrustPath(
+  cwd: string,
+  home: string = homedir(),
+): string {
   const repo = canonicalizeCwd(cwd);
   const key = createHash("sha256").update(repo).digest("hex").slice(0, 32);
   return join(home, SETTINGS_DIR_NAME, "trust", `${key}.json`);
@@ -106,7 +109,10 @@ export function projectTrustPath(cwd: string, home: string = homedir()): string 
 export async function readProjectTrustStore(
   cwd: string,
   home: string = homedir(),
-): Promise<{ state: "missing" | "invalid" | "valid"; store: ProjectTrustStore }> {
+): Promise<{
+  state: "missing" | "invalid" | "valid";
+  store: ProjectTrustStore;
+}> {
   const path = projectTrustPath(cwd, home);
   let raw: string;
   try {
@@ -278,7 +284,10 @@ export function mcpServerFingerprint(server: MCPServerConfig): string {
   return createHash("sha256").update(payload).digest("hex");
 }
 
-export function isMcpServerTrusted(store: ProjectTrustStore, server: MCPServerConfig): boolean {
+export function isMcpServerTrusted(
+  store: ProjectTrustStore,
+  server: MCPServerConfig,
+): boolean {
   return store.trustedMcpFingerprints.includes(mcpServerFingerprint(server));
 }
 

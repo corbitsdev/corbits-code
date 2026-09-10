@@ -20,7 +20,12 @@ export interface AgentProgressSession {
   readonly status: "running" | "done" | "failed" | "cancelled";
   /** Present when the strip knows lifecycle independently of TUI status. */
   readonly lifecycleStatus?:
-    "pending_init" | "running" | "interrupted" | "completed" | "shutdown" | "not_found";
+    | "pending_init"
+    | "running"
+    | "interrupted"
+    | "completed"
+    | "shutdown"
+    | "not_found";
   readonly currentToolName: string | null;
   /**
    * Bounded subject of the oldest outstanding call (command, path, pattern…),
@@ -117,7 +122,10 @@ export function laneState(
 ): LaneState {
   // Waiting on the director is work, not silence — never trip IN_TOOL_STALL_MS.
   if (session.currentToolName === "ask_director") return "in_tool";
-  if (session.lifecycleStatus === "pending_init" && session.runInFlight === false) {
+  if (
+    session.lifecycleStatus === "pending_init" &&
+    session.runInFlight === false
+  ) {
     return "queued";
   }
   if (nowMs - session.lastActivityAt < stallMs) return "working";
@@ -139,9 +147,13 @@ export function laneState(
  */
 export function agentLaneIsLive(session: {
   readonly status: AgentProgressSession["status"];
-  readonly lifecycleStatus?: AgentProgressSession["lifecycleStatus"] | undefined;
+  readonly lifecycleStatus?:
+    | AgentProgressSession["lifecycleStatus"]
+    | undefined;
 }): boolean {
-  return session.status === "running" && session.lifecycleStatus !== "interrupted";
+  return (
+    session.status === "running" && session.lifecycleStatus !== "interrupted"
+  );
 }
 
 /**
@@ -159,7 +171,10 @@ export function agentProgress(
   stallMs: number = DEFAULT_STALL_MS,
 ): AgentProgress | null {
   if (session.status !== "running") return null;
-  if (session.lifecycleStatus === "pending_init" && session.runInFlight === false) {
+  if (
+    session.lifecycleStatus === "pending_init" &&
+    session.runInFlight === false
+  ) {
     return {
       stat: "queued",
       state: "queued",
@@ -183,7 +198,9 @@ export function agentProgress(
 
   if (session.lifecycleStatus === "interrupted") {
     const toolBit =
-      hasSubject && session.currentToolName !== null ? ` · ${subject} still running` : "";
+      hasSubject && session.currentToolName !== null
+        ? ` · ${subject} still running`
+        : "";
     return {
       stat: `interrupted${toolBit}`,
       state,
@@ -192,7 +209,8 @@ export function agentProgress(
     };
   }
 
-  const liveSubject = tool === "ask_director" ? "ask_director · waiting on director" : subject;
+  const liveSubject =
+    tool === "ask_director" ? "ask_director · waiting on director" : subject;
   const hasLiveSubject = liveSubject !== null;
   const base = hasLiveSubject ? `${elapsed} · ${liveSubject}` : elapsed;
   // Never render "quiet" — operator chrome only shows motion (elapsed / tool).

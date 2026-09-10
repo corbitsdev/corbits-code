@@ -1,4 +1,9 @@
-import { createAgent, type Agent, type AgentDefinition, type BaseEnv } from "@intx/agent";
+import {
+  createAgent,
+  type Agent,
+  type AgentDefinition,
+  type BaseEnv,
+} from "@intx/agent";
 
 // XXX — @intx/agent resolveTools snapshots `byName` from each bundle's
 // definitions at createAgent and never consults a live getter. MCP tools
@@ -37,7 +42,9 @@ export function fallbackLiveToolBundle<V>(map: Map<unknown, V>): V | undefined {
   return found;
 }
 
-function createLiveDispatchMap<K, V>(iterable?: Iterable<readonly [K, V]> | null): Map<K, V> {
+function createLiveDispatchMap<K, V>(
+  iterable?: Iterable<readonly [K, V]> | null,
+): Map<K, V> {
   const map = new OriginalMap<K, V>(iterable ?? undefined);
   const protoGet = OriginalMap.prototype.get.bind(map);
   map.get = (key: K) => {
@@ -51,7 +58,9 @@ function createLiveDispatchMap<K, V>(iterable?: Iterable<readonly [K, V]> | null
 // Compatible with `new Map()` inside published @intx/agent. Not a class —
 // we only need a constructable that returns a Map with a live get().
 const LiveDispatchMap = Object.assign(
-  function LiveDispatchMap<K, V>(iterable?: Iterable<readonly [K, V]> | null): Map<K, V> {
+  function LiveDispatchMap<K, V>(
+    iterable?: Iterable<readonly [K, V]> | null,
+  ): Map<K, V> {
     return createLiveDispatchMap(iterable);
   },
   { prototype: OriginalMap.prototype },

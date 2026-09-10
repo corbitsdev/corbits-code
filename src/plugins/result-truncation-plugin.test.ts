@@ -1,7 +1,11 @@
 import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { createSizeCapTransform } from "@intx/inference";
-import { createBlobReader, type StrategyContext, type ToolResult } from "@intx/types/runtime";
+import {
+  createBlobReader,
+  type StrategyContext,
+  type ToolResult,
+} from "@intx/types/runtime";
 import {
   MAX_RESULT_CHARS,
   resultTruncationPlugin,
@@ -60,10 +64,14 @@ describe("truncateToolResultContent", () => {
     test("a result over the cap is fully recoverable by following the notice's read_file instructions verbatim", async () => {
       const store = fakeBlobStore();
       const original = `${"x".repeat(MAX_RESULT_CHARS)}TAIL-MARKER-${"y".repeat(500)}`;
-      const truncated = await truncateToolResultContent(original, MAX_RESULT_CHARS, {
-        callId: "call-42",
-        writeBlob: store.writeBlob,
-      });
+      const truncated = await truncateToolResultContent(
+        original,
+        MAX_RESULT_CHARS,
+        {
+          callId: "call-42",
+          writeBlob: store.writeBlob,
+        },
+      );
 
       // Inline content is within the reactor cap and does not itself contain the discarded tail.
       expect(truncated).not.toContain("TAIL-MARKER");
@@ -101,11 +109,15 @@ describe("truncateToolResultContent", () => {
       expect(minified.length).toBeGreaterThan(MAX_RESULT_CHARS);
       const pretty = JSON.stringify(obj, null, 2);
 
-      const truncated = await truncateToolResultContent(minified, MAX_RESULT_CHARS, {
-        callId: "call-json",
-        writeBlob: store.writeBlob,
-        contextDir: "/tmp/session/context",
-      });
+      const truncated = await truncateToolResultContent(
+        minified,
+        MAX_RESULT_CHARS,
+        {
+          callId: "call-json",
+          writeBlob: store.writeBlob,
+          contextDir: "/tmp/session/context",
+        },
+      );
 
       const key = spillBlobKey("call-json");
       const entry = store.blobs.get(key);
@@ -114,7 +126,11 @@ describe("truncateToolResultContent", () => {
       expect(new TextDecoder().decode(defined(entry).bytes)).toBe(pretty);
 
       const uri = `tool-output:///${key}`;
-      const abs = toolOutputAbsolutePath("/tmp/session/context", key, "application/json");
+      const abs = toolOutputAbsolutePath(
+        "/tmp/session/context",
+        key,
+        "application/json",
+      );
       expect(truncated).toContain(uri);
       expect(truncated).toContain(abs);
       expect(truncated).toContain("application/json");
@@ -127,10 +143,14 @@ describe("truncateToolResultContent", () => {
       const minified = `{"secret":"${escapedSecret}","pad":"${"x".repeat(MAX_RESULT_CHARS)}"}`;
       expect(minified).not.toContain("sk-live-");
 
-      const truncated = await truncateToolResultContent(minified, MAX_RESULT_CHARS, {
-        callId: "call-json-secret",
-        writeBlob: store.writeBlob,
-      });
+      const truncated = await truncateToolResultContent(
+        minified,
+        MAX_RESULT_CHARS,
+        {
+          callId: "call-json-secret",
+          writeBlob: store.writeBlob,
+        },
+      );
 
       const spilled = new TextDecoder().decode(
         defined(store.blobs.get(spillBlobKey("call-json-secret"))).bytes,
@@ -150,10 +170,14 @@ describe("truncateToolResultContent", () => {
       const ndjson = `${lines.join("\n")}\n`;
       expect(ndjson.length).toBeGreaterThan(MAX_RESULT_CHARS);
 
-      const truncated = await truncateToolResultContent(ndjson, MAX_RESULT_CHARS, {
-        callId: "call-ndjson",
-        writeBlob: store.writeBlob,
-      });
+      const truncated = await truncateToolResultContent(
+        ndjson,
+        MAX_RESULT_CHARS,
+        {
+          callId: "call-ndjson",
+          writeBlob: store.writeBlob,
+        },
+      );
 
       const key = spillBlobKey("call-ndjson");
       const entry = store.blobs.get(key);
@@ -178,11 +202,15 @@ describe("truncateToolResultContent", () => {
         const store = fakeBlobStore();
         const contextDir = "/tmp/session/context";
         const original = "p".repeat(50_000);
-        const truncated = await truncateToolResultContent(original, MAX_RESULT_CHARS, {
-          callId: "call-1",
-          writeBlob: store.writeBlob,
-          contextDir,
-        });
+        const truncated = await truncateToolResultContent(
+          original,
+          MAX_RESULT_CHARS,
+          {
+            callId: "call-1",
+            writeBlob: store.writeBlob,
+            contextDir,
+          },
+        );
 
         const key = spillBlobKey("call-1");
         const uri = `tool-output:///${key}`;
@@ -196,7 +224,11 @@ describe("truncateToolResultContent", () => {
           maxChars: 10_000,
           contextStore: { writeBlob: store.writeBlob },
         });
-        const result: ToolResult = { callId: "call-1", content: truncated, isError: false };
+        const result: ToolResult = {
+          callId: "call-1",
+          content: truncated,
+          isError: false,
+        };
         const capped = await reactorCap.apply(
           { call: { id: "call-1", name: "run_shell", arguments: {} }, result },
           {} as StrategyContext,
@@ -226,14 +258,20 @@ describe("truncateToolResultContent", () => {
       });
 
       // Simulate a lossy same-id write the reactor would do on an over-cap result.
-      await store.writeBlob("call-1", new TextEncoder().encode("LOSSY"), "text/plain");
+      await store.writeBlob(
+        "call-1",
+        new TextEncoder().encode("LOSSY"),
+        "text/plain",
+      );
 
       const blobReader = createBlobReader(store);
       const recovered = new TextDecoder().decode(
         await blobReader.read(`tool-output:///${spillBlobKey("call-1")}`),
       );
       expect(recovered).toBe(original);
-      expect(new TextDecoder().decode(defined(store.blobs.get("call-1")).bytes)).toBe("LOSSY");
+      expect(
+        new TextDecoder().decode(defined(store.blobs.get("call-1")).bytes),
+      ).toBe("LOSSY");
     });
   });
 });
@@ -260,9 +298,15 @@ describe("resultTruncationPlugin", () => {
     const uri = `tool-output:///${spillBlobKey("call-99")}`;
     expect(result.content).toContain(uri);
     expect(result.content).toContain(
-      toolOutputAbsolutePath("/session/context", spillBlobKey("call-99"), "text/plain"),
+      toolOutputAbsolutePath(
+        "/session/context",
+        spillBlobKey("call-99"),
+        "text/plain",
+      ),
     );
-    const recovered = new TextDecoder().decode(await createBlobReader(store).read(uri));
+    const recovered = new TextDecoder().decode(
+      await createBlobReader(store).read(uri),
+    );
     expect(recovered).toBe(original);
   });
 
@@ -288,7 +332,9 @@ describe("resultTruncationPlugin", () => {
     }
     expect(JSON.stringify(record).length).toBeGreaterThan(MAX_RESULT_CHARS);
 
-    const plugin = resultTruncationPlugin({ getBlobWriter: () => store.writeBlob });
+    const plugin = resultTruncationPlugin({
+      getBlobWriter: () => store.writeBlob,
+    });
     if (plugin.middleware === undefined) throw new Error("expected middleware");
     const middleware = plugin.middleware(async (call) => ({
       callId: call.id,
@@ -304,13 +350,17 @@ describe("resultTruncationPlugin", () => {
     const key = spillBlobKey("call-rec");
     const entry = store.blobs.get(key);
     expect(entry?.contentType).toBe("application/json");
-    expect(new TextDecoder().decode(defined(entry).bytes)).toBe(JSON.stringify(record, null, 2));
+    expect(new TextDecoder().decode(defined(entry).bytes)).toBe(
+      JSON.stringify(record, null, 2),
+    );
   });
 
   test("under-gate Record content is left unchanged", async () => {
     const store = fakeBlobStore();
     const record = { ok: true, n: 1 };
-    const plugin = resultTruncationPlugin({ getBlobWriter: () => store.writeBlob });
+    const plugin = resultTruncationPlugin({
+      getBlobWriter: () => store.writeBlob,
+    });
     if (plugin.middleware === undefined) throw new Error("expected middleware");
     const middleware = plugin.middleware(async (call) => ({
       callId: call.id,
@@ -334,7 +384,9 @@ describe("scrub-before-spill", () => {
     // ran; a secret past the cut would only show up in the spill.
     const secret = `prefix sk-live-${"a".repeat(24)} ${"x".repeat(MAX_RESULT_CHARS)} suffix`;
     const scrub: ToolPlugin = toolResultSecretScrubPlugin();
-    const trunc: ToolPlugin = resultTruncationPlugin({ getBlobWriter: () => store.writeBlob });
+    const trunc: ToolPlugin = resultTruncationPlugin({
+      getBlobWriter: () => store.writeBlob,
+    });
     if (scrub.middleware === undefined || trunc.middleware === undefined) {
       throw new Error("expected middleware");
     }
@@ -353,7 +405,9 @@ describe("scrub-before-spill", () => {
     expect(String(result.content)).toContain(CREDENTIAL_REDACTION);
     expect(String(result.content)).not.toContain("sk-live-");
 
-    const spilled = new TextDecoder().decode(defined(store.blobs.get(spillBlobKey("call-scrub"))).bytes);
+    const spilled = new TextDecoder().decode(
+      defined(store.blobs.get(spillBlobKey("call-scrub"))).bytes,
+    );
     expect(spilled).toContain(CREDENTIAL_REDACTION);
     expect(spilled).not.toContain("sk-live-");
   });

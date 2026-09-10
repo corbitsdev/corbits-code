@@ -18,7 +18,10 @@ import {
  * Host passes live rows + agent label (`ObserveSession`); fixture via
  * `makeObserveFixture()` is only for demo/tests. Esc restores parent lease.
  */
-export function enterSubagentObserve(shell: AppShell, session: ObserveSession): void {
+export function enterSubagentObserve(
+  shell: AppShell,
+  session: ObserveSession,
+): void {
   if (shell.observe) {
     leaveSubagentObserve(shell);
   }

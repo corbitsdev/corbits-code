@@ -6,7 +6,11 @@ import { type } from "arktype";
 import { loadDataOnlyAgentPlugin } from "../../src/plugins/data-only-agent.js";
 import type { DataOnlyAgentPlugin } from "../../src/plugins/data-only-agent.js";
 import { AgentProfileSchema } from "../../src/agent/profiles.js";
-import type { CapabilityFilter, InferenceLeg, InferenceSpec } from "../../src/agent/profile-types.js";
+import type {
+  CapabilityFilter,
+  InferenceLeg,
+  InferenceSpec,
+} from "../../src/agent/profile-types.js";
 import { defined } from "../helpers/defined.js";
 
 let root: string;
@@ -30,15 +34,22 @@ afterEach(async () => {
 });
 
 async function mkdtemp(): Promise<string> {
-  const dir = join(tmpdir(), `ic-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `ic-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   await mkdir(dir, { recursive: true });
   return dir;
 }
 
 function firstAgent(plugin: DataOnlyAgentPlugin) {
-  const parsed = AgentProfileSchema(defined(plugin.agentPlugin.agents[0], "agent"));
+  const parsed = AgentProfileSchema(
+    defined(plugin.agentPlugin.agents[0], "agent"),
+  );
   if (parsed instanceof type.errors) {
-    throw new Error(`expected agent to match AgentProfileSchema: ${parsed.summary}`);
+    throw new Error(
+      `expected agent to match AgentProfileSchema: ${parsed.summary}`,
+    );
   }
   return parsed;
 }
@@ -82,7 +93,10 @@ describe("loadDataOnlyAgentPlugin", () => {
     const dir = await makePlugin({
       "agents/foo.md": "---\nname: bar\ndescription: d\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const agent = firstAgent(plugin);
     expect(agent.id).toBe("bar");
     expect(agent.description).toBe("d");
@@ -93,13 +107,23 @@ describe("loadDataOnlyAgentPlugin", () => {
       "agents/neckbeard.md":
         "---\nname: neckbeard\nmode: subagent\npermission:\n  read: allow\n  glob: allow\n  grep: allow\n  bash: deny\n  write: deny\n  edit: deny\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const agent = firstAgent(plugin);
-    const capabilities = defined<CapabilityFilter>(agent.capabilities, "capabilities");
+    const capabilities = defined<CapabilityFilter>(
+      agent.capabilities,
+      "capabilities",
+    );
     // No wildcard deny, both allowed and denied lists non-empty — shorter wins.
     // allowed=3, denied=3 — pick exclude (smaller-or-equal rule).
     expect(capabilities.mode).toBe("exclude");
-    expect(capabilities.tools.sort()).toEqual(["edit_file", "run_shell", "write_file"]);
+    expect(capabilities.tools.sort()).toEqual([
+      "edit_file",
+      "run_shell",
+      "write_file",
+    ]);
   });
 
   test("mode: primary with all-allow permission = no restriction", async () => {
@@ -107,16 +131,23 @@ describe("loadDataOnlyAgentPlugin", () => {
       "agents/karen.md":
         "---\nname: karen\nmode: primary\npermission:\n  read: allow\n  bash: allow\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const agent = firstAgent(plugin);
     expect(agent.capabilities).toBeUndefined();
   });
 
   test("Claude Code tools[] allowlist is aliased to Corbits Code tool names", async () => {
     const dir = await makePlugin({
-      "agents/scout.md": "---\nname: scout\ntools: [Read, Grep, Glob, Bash]\n---\nbody\n",
+      "agents/scout.md":
+        "---\nname: scout\ntools: [Read, Grep, Glob, Bash]\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const capabilities = defined<CapabilityFilter>(
       firstAgent(plugin).capabilities,
       "capabilities",
@@ -132,15 +163,23 @@ describe("loadDataOnlyAgentPlugin", () => {
 
   test("Claude Code disallowedTools produces exclude mode", async () => {
     const dir = await makePlugin({
-      "agents/w.md": "---\nname: w\ndisallowedTools: [Bash, Write, Edit]\n---\nbody\n",
+      "agents/w.md":
+        "---\nname: w\ndisallowedTools: [Bash, Write, Edit]\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const capabilities = defined<CapabilityFilter>(
       firstAgent(plugin).capabilities,
       "capabilities",
     );
     expect(capabilities.mode).toBe("exclude");
-    expect(capabilities.tools.sort()).toEqual(["edit_file", "run_shell", "write_file"]);
+    expect(capabilities.tools.sort()).toEqual([
+      "edit_file",
+      "run_shell",
+      "write_file",
+    ]);
   });
 
   test("OpenCode nested permission with wildcard deny becomes allowlist", async () => {
@@ -148,7 +187,10 @@ describe("loadDataOnlyAgentPlugin", () => {
       "agents/r.md":
         '---\nname: r\npermission:\n  tool:\n    "*": deny\n    read: allow\n    grep: allow\n---\nbody\n',
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const capabilities = defined<CapabilityFilter>(
       firstAgent(plugin).capabilities,
       "capabilities",
@@ -159,9 +201,13 @@ describe("loadDataOnlyAgentPlugin", () => {
 
   test("OpenCode legacy tools: {read: true, bash: false} mixed picks shorter", async () => {
     const dir = await makePlugin({
-      "agents/m.md": "---\nname: m\ntools:\n  read: true\n  grep: true\n  bash: false\n---\nbody\n",
+      "agents/m.md":
+        "---\nname: m\ntools:\n  read: true\n  grep: true\n  bash: false\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const capabilities = defined<CapabilityFilter>(
       firstAgent(plugin).capabilities,
       "capabilities",
@@ -175,7 +221,10 @@ describe("loadDataOnlyAgentPlugin", () => {
     const dir = await makePlugin({
       "agents/a.md": "---\ntier: clever\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const agent = firstAgent(plugin);
     expect(agent.inference).toBeUndefined();
   });
@@ -184,7 +233,10 @@ describe("loadDataOnlyAgentPlugin", () => {
     const dir = await makePlugin({
       "agents/a.md": "---\neffort: high\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const agent = firstAgent(plugin);
     expect(agent.inference).toBeUndefined();
   });
@@ -194,7 +246,10 @@ describe("loadDataOnlyAgentPlugin", () => {
       "agents/a.md":
         "---\ninference:\n  order:\n    - { provider: anthropic, model: claude-sonnet-4, reasoningEffort: medium }\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const inference = defined<InferenceSpec>(
       firstAgent(plugin).inference,
       "inference",
@@ -212,20 +267,30 @@ describe("loadDataOnlyAgentPlugin", () => {
       "agents/a.md":
         "---\ninference:\n  order:\n    - { provider: anthropic, model: claude-sonnet-4 }\n    - { provider: xai }\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const inference = defined<InferenceSpec>(
       firstAgent(plugin).inference,
       "inference",
     );
     expect(inference.order).toHaveLength(1);
-    expect(inference.order[0]).toEqual({ provider: "anthropic", model: "claude-sonnet-4" });
+    expect(inference.order[0]).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+    });
   });
 
   test("native capabilities block with a non-boolean mode falls through instead of restricting", async () => {
     const dir = await makePlugin({
-      "agents/a.md": "---\ncapabilities:\n  mode: sometimes\n  tools: [read_file]\n---\nbody\n",
+      "agents/a.md":
+        "---\ncapabilities:\n  mode: sometimes\n  tools: [read_file]\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const agent = firstAgent(plugin);
     expect(agent.capabilities).toBeUndefined();
   });
@@ -235,7 +300,10 @@ describe("loadDataOnlyAgentPlugin", () => {
       "agents/a.md":
         "---\ncapabilities:\n  mode: allow\n  tools: [read_file, 42, grep]\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const capabilities = defined<CapabilityFilter>(
       firstAgent(plugin).capabilities,
       "capabilities",
@@ -249,16 +317,22 @@ describe("loadDataOnlyAgentPlugin", () => {
       "agents/a.md":
         "---\nmodel:\n  - { provider: anthropic, model: claude-sonnet-4 }\n  - { provider: xai, model: grok-4 }\n---\nbody\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const inference = defined<InferenceSpec>(
       firstAgent(plugin).inference,
       "inference",
     );
     expect(inference.order.length).toBe(2);
-    expect(defined<InferenceLeg>(inference.order[0], "first inference leg").provider).toBe(
-      "anthropic",
-    );
-    expect(defined<InferenceLeg>(inference.order[1], "second inference leg").provider).toBe("xai");
+    expect(
+      defined<InferenceLeg>(inference.order[0], "first inference leg").provider,
+    ).toBe("anthropic");
+    expect(
+      defined<InferenceLeg>(inference.order[1], "second inference leg")
+        .provider,
+    ).toBe("xai");
   });
 
   test("frontmatter skills list bundles skill text into the prompt", async () => {
@@ -266,7 +340,10 @@ describe("loadDataOnlyAgentPlugin", () => {
       "agents/a.md": "---\nskills: [style]\n---\nagent body\n",
       "skills/style/SKILL.md": "---\nname: style\n---\nBe clean.\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const agent = firstAgent(plugin);
     expect(agent.systemPromptRole).toContain("Bundled skill: style");
     expect(agent.systemPromptRole).toContain("Be clean.");
@@ -278,7 +355,10 @@ describe("loadDataOnlyAgentPlugin", () => {
       "agents/a.md": '---\nskills: ["./skills/style"]\n---\nagent body\n',
       "skills/style/SKILL.md": "---\nname: style\n---\nRelative clean.\n",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const agent = firstAgent(plugin);
     expect(agent.systemPromptRole).toContain("Bundled skill: ./skills/style");
     expect(agent.systemPromptRole).toContain("Relative clean.");
@@ -308,7 +388,10 @@ describe("loadDataOnlyAgentPlugin", () => {
       "skills/style/SKILL.md": "Be clean.",
       "skills/philosophy/SKILL.md": "Be principled.",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "p" }),
+      "plugin",
+    );
     const agent = firstAgent(plugin);
     expect(agent.systemPromptRole).toContain("Bundled skill: style");
     expect(agent.systemPromptRole).toContain("Bundled skill: philosophy");
@@ -359,7 +442,10 @@ describe("loadDataOnlyAgentPlugin", () => {
     const dir = await makePlugin({
       "alpha.md": "---\nid: alpha\ndescription: direct\n---\nDirect agent body",
     });
-    const plugin = defined(await loadDataOnlyAgentPlugin(dir, { pluginId: "flat" }), "plugin");
+    const plugin = defined(
+      await loadDataOnlyAgentPlugin(dir, { pluginId: "flat" }),
+      "plugin",
+    );
     expect(plugin.manifest.id).toBe("flat");
     expect(plugin.agentPlugin.agents.length).toBe(1);
     const agent = firstAgent(plugin);
@@ -369,7 +455,8 @@ describe("loadDataOnlyAgentPlugin", () => {
 
   test("supports pointing at agents/ subdir directly; id comes from parent; skills resolve from sibling", async () => {
     const dir = await makePlugin({
-      "agents/beta.md": "---\nname: beta\n---\nLoad the `style` skill\n\nbeta body here",
+      "agents/beta.md":
+        "---\nname: beta\n---\nLoad the `style` skill\n\nbeta body here",
       "skills/style/SKILL.md": "Style rules: be concise.",
     });
     const agentsSub = join(dir, "agents");

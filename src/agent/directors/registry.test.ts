@@ -95,7 +95,9 @@ describe("director registry", () => {
     const explorer = packageToProfile(DIRECTOR_REGISTRY.explorer);
     expect(explorer.id).toBe("explorer");
     expect(explorer.systemPromptRole).toContain("agent id `explorer`");
-    expect(explorer.systemPromptRole).toContain(DIRECTOR_REGISTRY.explorer.systemPrompt);
+    expect(explorer.systemPromptRole).toContain(
+      DIRECTOR_REGISTRY.explorer.systemPrompt,
+    );
     expect(explorer.description).toContain("agent id: explorer");
     expect(explorer.capabilities?.mode).toBe("allow");
     expect(explorer.capabilities?.tools).toContain("read_file");
@@ -123,7 +125,11 @@ describe("director registry", () => {
   test("greybeard spawn allowlist is intern/explorer/critic only", () => {
     const g = DIRECTOR_REGISTRY.greybeard;
     expect(g.spawn.maySpawn).toBe(true);
-    expect(g.spawn.allowlist?.slice().sort()).toEqual(["critic", "explorer", "intern"]);
+    expect(g.spawn.allowlist?.slice().sort()).toEqual([
+      "critic",
+      "explorer",
+      "intern",
+    ]);
     expect(packageToProfile(g).orchestrator).toBe(true);
   });
 
@@ -155,7 +161,12 @@ describe("director registry", () => {
 
   test("builder mounts product writes + apply_patch; intern mounts writes without apply_patch; other leaves do not spawn", () => {
     expect(DIRECTOR_REGISTRY.builder.tools?.allow).toEqual(
-      expect.arrayContaining(["write_file", "edit_file", "delete_file", "apply_patch"]),
+      expect.arrayContaining([
+        "write_file",
+        "edit_file",
+        "delete_file",
+        "apply_patch",
+      ]),
     );
     const internAllow = DIRECTOR_REGISTRY.intern.tools?.allow ?? [];
     expect(internAllow).toContain("run_shell");

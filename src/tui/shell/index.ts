@@ -44,7 +44,11 @@ import {
   shellInternals,
   type ShellRenderer,
 } from "./internals.js";
-import { defaultVisibility, terminalForGeometry, terminalOf } from "./layout.js";
+import {
+  defaultVisibility,
+  terminalForGeometry,
+  terminalOf,
+} from "./layout.js";
 import { relayoutOverlayHost } from "./overlay-list.js";
 import {
   abortOverlayHostReservations,
@@ -63,8 +67,15 @@ import {
   syncPromptRows,
   syncTranscriptSpacer,
 } from "./chrome.js";
-import { clearPendingAttachments, submitPrompt, syncPromptHighlights } from "./prompt.js";
-import { createShellKeyHandlers, routePromptWheelToTranscript } from "./keys.js";
+import {
+  clearPendingAttachments,
+  submitPrompt,
+  syncPromptHighlights,
+} from "./prompt.js";
+import {
+  createShellKeyHandlers,
+  routePromptWheelToTranscript,
+} from "./keys.js";
 
 const DEFAULT_TITLE = "corbits";
 
@@ -79,7 +90,10 @@ const DEFAULT_OVERLAY_ITEMS = [
  * Build the app shell frame on an OpenTUI renderer.
  * Mounts sticky transcript / overlay host / transient notice / prompt box.
  */
-export function createAppShell(renderer: ShellRenderer, options?: AppShellOptions): AppShell {
+export function createAppShell(
+  renderer: ShellRenderer,
+  options?: AppShellOptions,
+): AppShell {
   const title = options?.title ?? DEFAULT_TITLE;
   const visibility = defaultVisibility(options?.visibility);
   const promptContentRows = options?.promptContentRows ?? PROMPT_IDLE_ROWS;
@@ -218,7 +232,11 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   const landingBelow = createLandingBelow(ctx, landingBelowState);
 
   const overlayView = createOverlayView(ctx);
-  const { host: overlayHost, title: overlayTitle, body: overlayBody } = overlayView;
+  const {
+    host: overlayHost,
+    title: overlayTitle,
+    body: overlayBody,
+  } = overlayView;
 
   // Transient only: the resolver gives it a row when paintChrome asks for one.
   const notice = new TextRenderable(ctx, {
@@ -348,7 +366,9 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
       columns: width,
       rows: height,
       overlayMode: bag?.overlayMode ?? "closed",
-      ...(bag?.overlayBodyRows !== undefined ? { overlayBodyRows: bag.overlayBodyRows } : {}),
+      ...(bag?.overlayBodyRows !== undefined
+        ? { overlayBodyRows: bag.overlayBodyRows }
+        : {}),
     });
   };
 
@@ -362,7 +382,8 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
     copyFinishedSelection(
       {
         clipboard: shell.clipboard,
-        flash: (text) => setStatusFlash(shell, text, { ttlMs: RUNTIME_FLASH_MS }),
+        flash: (text) =>
+          setStatusFlash(shell, text, { ttlMs: RUNTIME_FLASH_MS }),
         clearSelection: () => {
           renderer.clearSelection();
         },
@@ -435,7 +456,8 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
       // Unwind a stacked palette first, then let the primary overlay's owner
       // release subscriptions or settle awaited cancellation exactly once.
       let overlayGuard = 4;
-      while (shell.overlayList !== null && overlayGuard-- > 0) closeInsetOverlay(shell);
+      while (shell.overlayList !== null && overlayGuard-- > 0)
+        closeInsetOverlay(shell);
       abortOverlayHostReservations(shell);
       disposed = true;
       shell.disposed = true;
@@ -552,7 +574,9 @@ export function createAppShell(renderer: ShellRenderer, options?: AppShellOption
   if (onObserveRequestOpt) {
     setPaletteOnObserveRequest(shell, onObserveRequestOpt);
   }
-  const { onKey, onPaste } = createShellKeyHandlers(shell, { isDisposed: () => disposed });
+  const { onKey, onPaste } = createShellKeyHandlers(shell, {
+    isDisposed: () => disposed,
+  });
   if (wireKeys) {
     renderer.keyInput.on("keypress", onKey);
     renderer.keyInput.on("paste", onPaste);

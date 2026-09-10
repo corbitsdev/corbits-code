@@ -1,5 +1,12 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,7 +30,9 @@ const nextHandler = async (call: ToolCall): Promise<ToolResult> => ({
 describe("pathEscapePlugin", () => {
   test("allows paths inside cwd", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("read_file", { path: "src/index.ts" }),
       new AbortController().signal,
@@ -33,7 +42,9 @@ describe("pathEscapePlugin", () => {
 
   test("blocks paths that escape cwd", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("read_file", { path: "../secret.txt" }),
       new AbortController().signal,
@@ -44,7 +55,9 @@ describe("pathEscapePlugin", () => {
 
   test("blocks absolute paths outside cwd", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("read_file", { path: "/etc/passwd" }),
       new AbortController().signal,
@@ -55,7 +68,9 @@ describe("pathEscapePlugin", () => {
 
   test("allows cwd path itself", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("read_file", { path: "." }),
       new AbortController().signal,
@@ -65,7 +80,9 @@ describe("pathEscapePlugin", () => {
 
   test("blocks escape via cwd key", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("run_shell", { cwd: "../secret" }),
       new AbortController().signal,
@@ -76,7 +93,9 @@ describe("pathEscapePlugin", () => {
 
   test("blocks escape via directory key", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("list_dir", { directory: "/etc" }),
       new AbortController().signal,
@@ -87,7 +106,9 @@ describe("pathEscapePlugin", () => {
 
   test("blocks escape via source key", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("copy", { source: "/etc/passwd" }),
       new AbortController().signal,
@@ -98,7 +119,9 @@ describe("pathEscapePlugin", () => {
 
   test("blocks escape via filename key", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("write_file", { filename: "../secret.txt" }),
       new AbortController().signal,
@@ -108,7 +131,9 @@ describe("pathEscapePlugin", () => {
   });
 
   test("allowOutside passes outside paths through as absolute", async () => {
-    const plugin = pathEscapePlugin("/project", () => [], { allowOutside: true });
+    const plugin = pathEscapePlugin("/project", () => [], {
+      allowOutside: true,
+    });
     const next = async (call: ToolCall): Promise<ToolResult> => ({
       callId: call.id,
       content: JSON.stringify(call.arguments),
@@ -124,7 +149,9 @@ describe("pathEscapePlugin", () => {
   });
 
   test("allowOutside still leaves in-bounds paths absolute under cwd", async () => {
-    const plugin = pathEscapePlugin("/project", () => [], { allowOutside: true });
+    const plugin = pathEscapePlugin("/project", () => [], {
+      allowOutside: true,
+    });
     const next = async (call: ToolCall): Promise<ToolResult> => ({
       callId: call.id,
       content: JSON.stringify(call.arguments),
@@ -141,7 +168,9 @@ describe("pathEscapePlugin", () => {
 
   test("allowOutside getter is resolved per call", async () => {
     let allow = false;
-    const plugin = pathEscapePlugin("/project", () => [], { allowOutside: () => allow });
+    const plugin = pathEscapePlugin("/project", () => [], {
+      allowOutside: () => allow,
+    });
     const next = async (call: ToolCall): Promise<ToolResult> => ({
       callId: call.id,
       content: JSON.stringify(call.arguments),
@@ -189,7 +218,10 @@ describe("pathEscapePlugin", () => {
       const handler = plugin.middleware ? plugin.middleware(next) : next;
 
       const result = await handler(
-        makeCall("write_file", { path: join("link", "note.txt"), content: "hi" }),
+        makeCall("write_file", {
+          path: join("link", "note.txt"),
+          content: "hi",
+        }),
         new AbortController().signal,
       );
       const args = JSON.parse(String(result.content)) as { path: string };
@@ -200,7 +232,9 @@ describe("pathEscapePlugin", () => {
       // An attacker retargets the symlink after the allow check. A writer
       // that (correctly) uses the path it was given above is unaffected —
       // it never re-traverses "link".
-      const outside = await mkdtemp(join(tmpdir(), "corbits-path-escape-outside-"));
+      const outside = await mkdtemp(
+        join(tmpdir(), "corbits-path-escape-outside-"),
+      );
       await rm(link);
       await symlink(outside, link);
       expect(args.path).not.toContain(outside);

@@ -23,7 +23,9 @@ describe("blind tool dispatch", () => {
     // The on-demand tool is intentionally absent from the advertised wire set,
     // yet dispatch resolves it — this is how tool_search discovery stays usable
     // without growing the cached tools prefix.
-    const advertised = advertisedTools(runner.currentDefinitions()).map((d) => d.name);
+    const advertised = advertisedTools(runner.currentDefinitions()).map(
+      (d) => d.name,
+    );
     expect(advertised).not.toContain("mcp__acme__do");
 
     const result = await runner.run(
@@ -38,7 +40,9 @@ describe("blind tool dispatch", () => {
 describe("terminal control stripping", () => {
   test("strips escape sequences from any tool's result, including MCP", async () => {
     const payload = "before\x1b]52;c;ZXZpbA==\x07\x1b[31mred\x1b[0m\x07after";
-    const runner = createDynamicToolRunner([stringTool("mcp__acme__do", payload)]);
+    const runner = createDynamicToolRunner([
+      stringTool("mcp__acme__do", payload),
+    ]);
 
     const result = await runner.run(
       { id: "1", name: "mcp__acme__do", arguments: {} },

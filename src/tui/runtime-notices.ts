@@ -19,7 +19,10 @@
 
 import { type } from "arktype";
 
-import type { LifecycleHookEvent, LifecycleHookStatus } from "../session/hooks.js";
+import type {
+  LifecycleHookEvent,
+  LifecycleHookStatus,
+} from "../session/hooks.js";
 import type { MCPServerState } from "../agent/tools.js";
 import type { Approval } from "../permission/types.js";
 

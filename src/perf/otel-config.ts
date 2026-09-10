@@ -57,7 +57,9 @@ export interface DisabledOtelExportConfig {
   enabled: false;
 }
 
-export type OtelExportConfig = EnabledOtelExportConfig | DisabledOtelExportConfig;
+export type OtelExportConfig =
+  | EnabledOtelExportConfig
+  | DisabledOtelExportConfig;
 
 /**
  * Dump-safe view: never includes header values or other secrets.
@@ -103,7 +105,9 @@ function isNonEmptyString(value: unknown): value is string {
 export function parseOtelKeyValueList(
   raw: string,
   label: string,
-): { ok: true; value: Record<string, string> } | { ok: false; message: string } {
+):
+  | { ok: true; value: Record<string, string> }
+  | { ok: false; message: string } {
   const out: Record<string, string> = {};
   const trimmed = raw.trim();
   if (trimmed.length === 0) return { ok: true, value: out };
@@ -112,7 +116,10 @@ export function parseOtelKeyValueList(
   for (const part of parts) {
     const segment = part.trim();
     if (segment.length === 0) {
-      return { ok: false, message: `Invalid ${label}: empty entry in comma-separated list` };
+      return {
+        ok: false,
+        message: `Invalid ${label}: empty entry in comma-separated list`,
+      };
     }
     const eq = segment.indexOf("=");
     if (eq <= 0) {
@@ -145,7 +152,10 @@ function validateEndpoint(
 ): { ok: true; endpoint: string } | { ok: false; message: string } {
   const endpoint = raw.trim();
   if (endpoint.length === 0) {
-    return { ok: false, message: "OTEL endpoint must be a non-empty http(s) URL" };
+    return {
+      ok: false,
+      message: "OTEL endpoint must be a non-empty http(s) URL",
+    };
   }
 
   let url: URL;
@@ -181,7 +191,9 @@ function validateEndpoint(
 function validateStringMap(
   map: Record<string, string> | undefined,
   label: string,
-): { ok: true; value: Record<string, string> } | { ok: false; message: string } {
+):
+  | { ok: true; value: Record<string, string> }
+  | { ok: false; message: string } {
   if (map === undefined) return { ok: true, value: {} };
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(map)) {
@@ -223,8 +235,11 @@ export function resolveOtelExportConfig(
   const envServiceNameRaw = trimOrEmpty(env[OTEL_ENV.serviceName]);
   const envResourceAttrsRaw = env[OTEL_ENV.resourceAttributes];
 
-  const settingsEndpoint = isNonEmptyString(otel?.endpoint) ? otel.endpoint.trim() : "";
-  const endpointRaw = envEndpointRaw.length > 0 ? envEndpointRaw : settingsEndpoint;
+  const settingsEndpoint = isNonEmptyString(otel?.endpoint)
+    ? otel.endpoint.trim()
+    : "";
+  const endpointRaw =
+    envEndpointRaw.length > 0 ? envEndpointRaw : settingsEndpoint;
 
   // settings.otel.enabled === false forces off unless env explicitly sets an endpoint.
   if (otel?.enabled === false && envEndpointRaw.length === 0) {
@@ -232,8 +247,10 @@ export function resolveOtelExportConfig(
   }
 
   if (endpointRaw.length === 0) {
-    const settingsHeaders = otel?.headers !== undefined && Object.keys(otel.headers).length > 0;
-    const envHeadersSet = envHeadersRaw !== undefined && trimOrEmpty(envHeadersRaw).length > 0;
+    const settingsHeaders =
+      otel?.headers !== undefined && Object.keys(otel.headers).length > 0;
+    const envHeadersSet =
+      envHeadersRaw !== undefined && trimOrEmpty(envHeadersRaw).length > 0;
     if (settingsHeaders || envHeadersSet) {
       return {
         ok: false,
@@ -256,7 +273,11 @@ export function resolveOtelExportConfig(
 
   const endpointResult = validateEndpoint(endpointRaw);
   if (!endpointResult.ok) {
-    return { ok: false, code: OTEL_CONFIG_INVALID, message: endpointResult.message };
+    return {
+      ok: false,
+      code: OTEL_CONFIG_INVALID,
+      message: endpointResult.message,
+    };
   }
 
   let headers: Record<string, string> = {};
@@ -267,9 +288,16 @@ export function resolveOtelExportConfig(
     }
     headers = parsed.value;
   } else {
-    const settingsHeaders = validateStringMap(otel?.headers, "settings.otel.headers");
+    const settingsHeaders = validateStringMap(
+      otel?.headers,
+      "settings.otel.headers",
+    );
     if (!settingsHeaders.ok) {
-      return { ok: false, code: OTEL_CONFIG_INVALID, message: settingsHeaders.message };
+      return {
+        ok: false,
+        code: OTEL_CONFIG_INVALID,
+        message: settingsHeaders.message,
+      };
     }
     headers = settingsHeaders.value;
   }
@@ -280,12 +308,19 @@ export function resolveOtelExportConfig(
     "settings.otel.resourceAttributes",
   );
   if (!settingsAttrs.ok) {
-    return { ok: false, code: OTEL_CONFIG_INVALID, message: settingsAttrs.message };
+    return {
+      ok: false,
+      code: OTEL_CONFIG_INVALID,
+      message: settingsAttrs.message,
+    };
   }
   resourceAttributes = { ...settingsAttrs.value };
 
   if (envResourceAttrsRaw !== undefined) {
-    const parsed = parseOtelKeyValueList(envResourceAttrsRaw, OTEL_ENV.resourceAttributes);
+    const parsed = parseOtelKeyValueList(
+      envResourceAttrsRaw,
+      OTEL_ENV.resourceAttributes,
+    );
     if (!parsed.ok) {
       return { ok: false, code: OTEL_CONFIG_INVALID, message: parsed.message };
     }
@@ -365,13 +400,17 @@ export function redactResourceAttributesForDump(
  * Resource attribute values for high-risk keys are redacted; prefer non-secret
  * labels in resourceAttributes (auth belongs in headers/env).
  */
-export function otelConfigForDump(config: OtelExportConfig): OtelExportConfigDumpView {
+export function otelConfigForDump(
+  config: OtelExportConfig,
+): OtelExportConfigDumpView {
   if (!config.enabled) return { enabled: false };
   return {
     enabled: true,
     endpoint: config.endpoint,
     serviceName: config.serviceName,
-    resourceAttributes: redactResourceAttributesForDump(config.resourceAttributes),
+    resourceAttributes: redactResourceAttributesForDump(
+      config.resourceAttributes,
+    ),
     headerNames: Object.freeze(Object.keys(config.headers).sort()),
   };
 }

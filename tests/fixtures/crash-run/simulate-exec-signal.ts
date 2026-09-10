@@ -23,7 +23,9 @@ async function waitForRunningRunJson(): Promise<void> {
   for (;;) {
     if (existsSync(runJsonPath)) {
       try {
-        const state = JSON.parse(readFileSync(runJsonPath, "utf8")) as { status?: string };
+        const state = JSON.parse(readFileSync(runJsonPath, "utf8")) as {
+          status?: string;
+        };
         if (state.status === "running") return;
       } catch {
         // rename/parse race on the first persist

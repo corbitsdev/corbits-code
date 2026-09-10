@@ -10,12 +10,16 @@ export interface ProviderFailureAttempt {
 
 const presentationSuppressedEvents = new WeakSet<object>();
 
-export function suppressProviderFailurePresentation<T extends object>(event: T): T {
+export function suppressProviderFailurePresentation<T extends object>(
+  event: T,
+): T {
   presentationSuppressedEvents.add(event);
   return event;
 }
 
-export function isProviderFailurePresentationSuppressed(event: object): boolean {
+export function isProviderFailurePresentationSuppressed(
+  event: object,
+): boolean {
   return presentationSuppressedEvents.has(event);
 }
 
@@ -32,7 +36,10 @@ export function createProviderFailureAttemptTracker() {
   };
 
   return {
-    begin(identity?: { providerId: string; displayLabel?: string }): ProviderFailureAttempt {
+    begin(identity?: {
+      providerId: string;
+      displayLabel?: string;
+    }): ProviderFailureAttempt {
       const attempt = {
         observed: false,
         presented: false,
@@ -62,7 +69,8 @@ export function createProviderFailureAttemptTracker() {
       attempt.presented = true;
     },
     consumeConnectorReply():
-      { attempt: ProviderFailureAttempt; suppressPresentation: boolean } | undefined {
+      | { attempt: ProviderFailureAttempt; suppressPresentation: boolean }
+      | undefined {
       const active = attempts[0];
       if (active === undefined) return undefined;
       const suppressPresentation = active.presented;
@@ -81,7 +89,12 @@ export function createProviderFailureAttemptTracker() {
     },
     advanceToNextMessage(): void {
       const active = attempts[0];
-      if (attempts.length > 1 && active !== undefined && settledSends.has(active)) remove(active);
+      if (
+        attempts.length > 1 &&
+        active !== undefined &&
+        settledSends.has(active)
+      )
+        remove(active);
     },
     settle(attempt: ProviderFailureAttempt): void {
       remove(attempt);

@@ -30,7 +30,10 @@ interface DiffOp {
 function lcsDiff(oldLines: string[], newLines: string[]): DiffOp[] {
   const n = oldLines.length;
   const m = newLines.length;
-  const dp: Uint32Array[] = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  const dp: Uint32Array[] = Array.from(
+    { length: n + 1 },
+    () => new Uint32Array(m + 1),
+  );
   for (let i = n - 1; i >= 0; i--) {
     const row = dp[i];
     const nextRow = dp[i + 1];

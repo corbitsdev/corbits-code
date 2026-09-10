@@ -41,14 +41,22 @@ function overlayInterior(frame: string): readonly string[] {
   const lines = frame.split("\n");
   const top = lines.findIndex((l) => l.trimStart().startsWith("┌"));
   if (top < 0) throw new Error("no overlay border found in frame");
-  const bottom = lines.findIndex((l, i) => i > top && l.trimStart().startsWith("└"));
+  const bottom = lines.findIndex(
+    (l, i) => i > top && l.trimStart().startsWith("└"),
+  );
   if (bottom < 0) throw new Error("unterminated overlay border in frame");
-  return lines
-    .slice(top + 1, bottom)
-    .map((l) => l.replace(/^\s*│/, "").replace(/│\s*$/, "").trimEnd());
+  return lines.slice(top + 1, bottom).map((l) =>
+    l
+      .replace(/^\s*│/, "")
+      .replace(/│\s*$/, "")
+      .trimEnd(),
+  );
 }
 
-function frameLine(frame: string, predicate: (line: string) => boolean): string[] {
+function frameLine(
+  frame: string,
+  predicate: (line: string) => boolean,
+): string[] {
   return frame.split("\n").filter(predicate);
 }
 
@@ -76,7 +84,10 @@ async function paintOverlay(
  * Every interior row must be either blank or exactly one expected overlay row.
  * Two renderables sharing cells produces a hybrid string that matches nothing.
  */
-function expectCleanInterior(interior: readonly string[], expected: readonly string[]): void {
+function expectCleanInterior(
+  interior: readonly string[],
+  expected: readonly string[],
+): void {
   const allowed = new Set(expected.map((e) => e.trimEnd()));
   for (const row of interior) {
     if (row.trim().length === 0) continue;
@@ -129,7 +140,12 @@ describe("overlay host never shares cells with the prompt border", () => {
 
   test("overlay rows do not spill past the host's bottom border", async () => {
     const { frame } = await paintOverlay(
-      (shell) => openListOverlay(shell, { kind: "model_picker", title: "model", items: ITEMS }),
+      (shell) =>
+        openListOverlay(shell, {
+          kind: "model_picker",
+          title: "model",
+          items: ITEMS,
+        }),
       { width: 100, height: 20 },
     );
     // A border rule interrupted by list text is the overflow signature.
@@ -147,13 +163,17 @@ describe("overlay host never shares cells with the prompt border", () => {
   ] as const) {
     test(`mention popup with matches clears the prompt border at ${size.width}x${size.height}`, async () => {
       const { frame } = await paintOverlay(
-        (shell) => openMentionsOverlay(shell, { items: ["@src/file.ts", "@AGENTS.md"] }),
+        (shell) =>
+          openMentionsOverlay(shell, { items: ["@src/file.ts", "@AGENTS.md"] }),
         size,
       );
 
       // Every border rule stays a border rule: no list text glued onto it, and
       // the overlay host's own rules never share a row with the prompt box's.
-      const promptRuleRows = frameLine(frame, (l) => l.includes("─╮") || l.includes("─╯"));
+      const promptRuleRows = frameLine(
+        frame,
+        (l) => l.includes("─╮") || l.includes("─╯"),
+      );
       for (const line of frame.split("\n")) {
         const trimmed = line.trimStart();
         if (!trimmed.startsWith("└") && !trimmed.startsWith("┌")) continue;
@@ -165,7 +185,8 @@ describe("overlay host never shares cells with the prompt border", () => {
 });
 
 describe("plugins title how-to", () => {
-  const expected = " plugins · Esc cancel · Enter toggle · Alt+A add path · Alt+X remove";
+  const expected =
+    " plugins · Esc cancel · Enter toggle · Alt+A add path · Alt+X remove";
   for (const size of [
     { width: 80, height: 24 },
     { width: 100, height: 24 },
@@ -197,13 +218,19 @@ describe("web search provider how-to", () => {
       { width: 80, height: 24 },
     );
     expect(interior[0]).not.toContain("Alt+X");
-    expect(interior[0]).toBe(" web search provider · Esc cancel · Enter choose");
+    expect(interior[0]).toBe(
+      " web search provider · Esc cancel · Enter choose",
+    );
   });
 });
 
 describe("every overlay kind paints clean rows", () => {
   const openers: readonly [string, (shell: AppShell) => void][] = [
-    ["settings", (s) => openSettingsOverlay(s, { items: ["Compaction", "Close settings"] })],
+    [
+      "settings",
+      (s) =>
+        openSettingsOverlay(s, { items: ["Compaction", "Close settings"] }),
+    ],
     ["help", (s) => openHelpOverlay(s)],
     [
       "plugins",
@@ -223,7 +250,11 @@ describe("every overlay kind paints clean rows", () => {
           items: ["Fix permissions overflow · 2h ago · idle", "Close resume"],
         }),
     ],
-    ["mentions", (s) => openMentionsOverlay(s, { items: ["@src/file.ts", "Close mentions"] })],
+    [
+      "mentions",
+      (s) =>
+        openMentionsOverlay(s, { items: ["@src/file.ts", "Close mentions"] }),
+    ],
     ["palette", (s) => openPalette(s)],
     [
       "permissions",

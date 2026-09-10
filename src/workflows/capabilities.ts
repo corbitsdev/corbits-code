@@ -15,11 +15,23 @@ export const CAPABILITIES: Record<
 > = {
   "ticket-tracker": {
     description: "Read and update issues in a ticket tracker (Linear, Jira)",
-    requiredTools: ["linear", "jira", "save_issue", "list_issues", "get_issue", "create_issue"],
+    requiredTools: [
+      "linear",
+      "jira",
+      "save_issue",
+      "list_issues",
+      "get_issue",
+      "create_issue",
+    ],
   },
   "code-host": {
     description: "Open and review pull requests on a code host (GitHub)",
-    requiredTools: ["create_pull_request", "get_pull_request", "pull_request", "create_pr"],
+    requiredTools: [
+      "create_pull_request",
+      "get_pull_request",
+      "pull_request",
+      "create_pr",
+    ],
   },
   "doc-search": {
     description: "Search and fetch external documentation",
@@ -85,7 +97,10 @@ export function detectCapabilities(
 // Decide whether a step can run against the detected capabilities. Steps with
 // no capability requirement always run. A required-but-unsatisfied capability
 // makes the step non-runnable (the runtime then skips it).
-export function resolveStep(step: WorkflowStep, capabilities: CapabilityMap): StepResolution {
+export function resolveStep(
+  step: WorkflowStep,
+  capabilities: CapabilityMap,
+): StepResolution {
   if (step.capability === undefined) {
     // No capability requirement — the step always runs and has no relevant tools.
     return { runnable: true, tools: undefined };

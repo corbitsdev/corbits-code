@@ -6,7 +6,11 @@ import {
   createAttachmentRehydrateTransform,
   rehydrateAttachmentImages,
 } from "./attachment-store.js";
-import { attachmentUri, formatAgedImageMarker, parseAgedImageMarker } from "./attachment-uri.js";
+import {
+  attachmentUri,
+  formatAgedImageMarker,
+  parseAgedImageMarker,
+} from "./attachment-uri.js";
 
 const PNG_B64 = "iVBORw0KGgo=";
 
@@ -36,7 +40,9 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
     expect(JSON.stringify(aged.turn)).not.toContain(PNG_B64);
     expect(aged.blobs).toHaveLength(1);
     expect(defined(aged.blobs[0]).contentType).toBe("image/png");
-    expect(new TextDecoder().decode(defined(aged.blobs[0]).bytes)).toBe(PNG_B64);
+    expect(new TextDecoder().decode(defined(aged.blobs[0]).bytes)).toBe(
+      PNG_B64,
+    );
 
     const markerText = aged.turn.content.find(
       (b) => b.type === "text" && b.text.includes("attachment:///"),
@@ -44,12 +50,18 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
     expect(markerText?.type).toBe("text");
 
     const blobMap = new Map(aged.blobs.map((b) => [b.key, b.bytes]));
-    const rehydrated = await rehydrateAttachmentImages([aged.turn], async (key) => {
-      const bytes = blobMap.get(key);
-      if (bytes === undefined) throw new Error(`Blob not found for key: ${key}`);
-      return bytes;
-    });
-    const image = defined(rehydrated[0]).content.find((b) => b.type === "image");
+    const rehydrated = await rehydrateAttachmentImages(
+      [aged.turn],
+      async (key) => {
+        const bytes = blobMap.get(key);
+        if (bytes === undefined)
+          throw new Error(`Blob not found for key: ${key}`);
+        return bytes;
+      },
+    );
+    const image = defined(rehydrated[0]).content.find(
+      (b) => b.type === "image",
+    );
     expect(image).toEqual({
       type: "image",
       source: { kind: "base64", mimeType: "image/png", data: PNG_B64 },
@@ -78,7 +90,9 @@ describe("ageImageBlocks / rehydrateAttachmentImages", () => {
       state: {} as never,
       trigger: "test",
     });
-    expect(defined(result.output[0]).content.some((b) => b.type === "image")).toBe(true);
+    expect(
+      defined(result.output[0]).content.some((b) => b.type === "image"),
+    ).toBe(true);
     expect(JSON.stringify(result.output)).toContain(PNG_B64);
     expect(result.record.decisions.restoredImageCount).toBe(1);
     // Input turn is not mutated — durable history keeps the marker.

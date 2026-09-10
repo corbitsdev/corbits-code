@@ -43,15 +43,18 @@ describe("turnStateFromEvent", () => {
 
   test("text and thinking deltas set the streaming phase", () => {
     expect(
-      fold([{ type: "inference.start" }, { type: "inference.text.delta" }]).streamingType,
+      fold([{ type: "inference.start" }, { type: "inference.text.delta" }])
+        .streamingType,
     ).toBe("text");
     expect(
-      fold([{ type: "inference.start" }, { type: "inference.thinking.delta" }]).streamingType,
+      fold([{ type: "inference.start" }, { type: "inference.thinking.delta" }])
+        .streamingType,
     ).toBe("thinking");
     // Canonical bridge alias — fixtures may emit thinking.delta directly.
-    expect(fold([{ type: "inference.start" }, { type: "thinking.delta" }]).streamingType).toBe(
-      "thinking",
-    );
+    expect(
+      fold([{ type: "inference.start" }, { type: "thinking.delta" }])
+        .streamingType,
+    ).toBe("thinking");
   });
 
   test("text deltas accumulate a live token count, thinking deltas do not", () => {
@@ -65,7 +68,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("a new submit resets the token count", () => {
-    const midTurn = fold([{ type: "inference.start" }, { type: "inference.text.delta" }]);
+    const midTurn = fold([
+      { type: "inference.start" },
+      { type: "inference.text.delta" },
+    ]);
     expect(midTurn.streamTokenCount).toBe(1);
     const next = turnStateOnSubmit(midTurn, 10);
     expect(next.streamTokenCount).toBe(0);
@@ -85,9 +91,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("tool.start reads the nested call name", () => {
-    expect(fold([{ type: "tool.start", data: { call: { name: "grep" } } }]).currentToolName).toBe(
-      "grep",
-    );
+    expect(
+      fold([{ type: "tool.start", data: { call: { name: "grep" } } }])
+        .currentToolName,
+    ).toBe("grep");
   });
 
   test("a call's own name-only start and end announcements do not double-count", () => {
@@ -203,7 +210,10 @@ describe("turnStateFromEvent", () => {
     const secondRunning = [
       { type: "inference.tool_call.start", data: { name: "bash" } },
       { type: "tool.start", data: { call: { id: "call_2", name: "bash" } } },
-    ].reduce((state, event, i) => turnStateFromEvent(state, event, 100 + i), firstDone);
+    ].reduce(
+      (state, event, i) => turnStateFromEvent(state, event, 100 + i),
+      firstDone,
+    );
     expect(secondRunning.activeToolCalls).toEqual(["call_2"]);
 
     const secondDone = turnStateFromEvent(
@@ -245,7 +255,10 @@ describe("turnStateFromEvent", () => {
   });
 
   test("activity clock advances with every event", () => {
-    const s = fold([{ type: "inference.start" }, { type: "inference.text.delta" }]);
+    const s = fold([
+      { type: "inference.start" },
+      { type: "inference.text.delta" },
+    ]);
     expect(s.lastActivityAt).toBe(2);
   });
 
@@ -381,7 +394,8 @@ describe("turn transitions", () => {
 });
 
 describe("repetition tracking", () => {
-  const line1 = "I'll verify callId emission and remaining edges, then write the ranked findings.";
+  const line1 =
+    "I'll verify callId emission and remaining edges, then write the ranked findings.";
   const line2 = "Confirming callId emission, then writing the ranked findings.";
   // The captured incident shape: the two sentences run together with no
   // separator, each delta landing as one full cycle.

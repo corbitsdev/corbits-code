@@ -15,7 +15,8 @@ import { COMMAND_NAME, PRODUCT_NAME } from "../branding.js";
 import pkg from "../../package.json" with { type: "json" };
 
 /** Public releases page (human-facing). */
-export const RELEASES_URL = "https://github.com/corbitsdev/corbits-code/releases";
+export const RELEASES_URL =
+  "https://github.com/corbitsdev/corbits-code/releases";
 
 /** GitHub API endpoint for the latest published release. */
 export const RELEASES_LATEST_API =
@@ -30,7 +31,12 @@ export const DEB_PACKAGE = "corbits";
 /** Bound the network probe so a hung API cannot stall the session. */
 export const UPGRADE_FETCH_TIMEOUT_MS = 4_000;
 
-export type InstallMethod = "homebrew" | "deb" | "binary" | "source" | "unknown";
+export type InstallMethod =
+  | "homebrew"
+  | "deb"
+  | "binary"
+  | "source"
+  | "unknown";
 
 export interface UpgradeNotice {
   readonly current: string;
@@ -100,7 +106,10 @@ export function detectInstallMethod(probe: InstallProbe): InstallMethod {
   const execBase = basename(probe.execPath).toLowerCase();
 
   // Definite Homebrew formula install (Cellar layout).
-  if (markers.includes("/cellar/corbits-code/") || markers.includes("/cellar/corbits/")) {
+  if (
+    markers.includes("/cellar/corbits-code/") ||
+    markers.includes("/cellar/corbits/")
+  ) {
     return "homebrew";
   }
 
@@ -234,13 +243,15 @@ export async function checkForUpgrade(
 ): Promise<UpgradeCheckResult> {
   try {
     const currentRaw =
-      options.currentVersion ?? (typeof pkg.version === "string" ? pkg.version : "0.0.0");
+      options.currentVersion ??
+      (typeof pkg.version === "string" ? pkg.version : "0.0.0");
     const current = normalizeVersion(currentRaw);
     if (current === null) {
       return { kind: "skipped", reason: "unparseable current version" };
     }
 
-    const fetchLatest = options.fetchLatest ?? (() => fetchLatestReleaseVersion());
+    const fetchLatest =
+      options.fetchLatest ?? (() => fetchLatestReleaseVersion());
     const latest = await fetchLatest();
     if (latest === null) {
       return { kind: "skipped", reason: "latest version unavailable" };
@@ -254,7 +265,8 @@ export async function checkForUpgrade(
       return { kind: "current" };
     }
 
-    const method = options.method ?? detectInstallMethod(options.probe ?? defaultProbe());
+    const method =
+      options.method ?? detectInstallMethod(options.probe ?? defaultProbe());
     const message = formatUpgradeMessage({ current, latest, method });
     return {
       kind: "available",

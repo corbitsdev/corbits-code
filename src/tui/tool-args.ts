@@ -131,7 +131,10 @@ function isScalar(value: unknown): boolean {
  * Nested objects recurse one level so a task brief expands as fields rather than
  * a JSON dump; deeper nesting collapses to a compact token.
  */
-function fieldDetail(args: Record<string, unknown>, indent = 0): readonly StyledBodyLine[] {
+function fieldDetail(
+  args: Record<string, unknown>,
+  indent = 0,
+): readonly StyledBodyLine[] {
   const pad = " ".repeat(indent);
   const lines: StyledBodyLine[] = [];
   for (const [key, value] of Object.entries(args)) {
@@ -145,7 +148,12 @@ function fieldDetail(args: Record<string, unknown>, indent = 0): readonly Styled
                 { text: `${pad}${key}: `, fg: UI.textDim },
                 { text: row, fg: UI.text },
               ]
-            : [{ text: `${pad}${" ".repeat(key.length + 2)}${row}`, fg: UI.text }],
+            : [
+                {
+                  text: `${pad}${" ".repeat(key.length + 2)}${row}`,
+                  fg: UI.text,
+                },
+              ],
         );
       });
       continue;
@@ -171,7 +179,9 @@ function fieldDetail(args: Record<string, unknown>, indent = 0): readonly Styled
       // One level of nesting is enough for a spawn brief; deeper stays compact.
       if (indent === 0) {
         lines.push([{ text: `${pad}${key}:`, fg: UI.textDim }]);
-        lines.push(...fieldDetail(value as Record<string, unknown>, indent + 2));
+        lines.push(
+          ...fieldDetail(value as Record<string, unknown>, indent + 2),
+        );
       } else {
         lines.push([
           { text: `${pad}${key}: `, fg: UI.textDim },
@@ -243,7 +253,9 @@ function primarySubject(args: Record<string, unknown>): string | null {
   const first = Object.entries(args).find(
     ([, value]) => typeof value === "string" && flatten(value).length > 0,
   );
-  return first === undefined ? null : flatten(first[1] as string).slice(0, SUBJECT_MAX);
+  return first === undefined
+    ? null
+    : flatten(first[1] as string).slice(0, SUBJECT_MAX);
 }
 
 /**
@@ -251,12 +263,19 @@ function primarySubject(args: Record<string, unknown>): string | null {
  * Its per-tool cases (a shortened path, a task description) are better subjects
  * than anything picked here, and they never lead with `key: `.
  */
-function isArgumentList(args: Record<string, unknown>, summary: string): boolean {
+function isArgumentList(
+  args: Record<string, unknown>,
+  summary: string,
+): boolean {
   return Object.keys(args).some((key) => summary.startsWith(`${key}: `));
 }
 
 /** The subject a summarised call paints: one argument, without its key. */
-function subjectFor(name: string, raw: string, args: Record<string, unknown>): string {
+function subjectFor(
+  name: string,
+  raw: string,
+  args: Record<string, unknown>,
+): string {
   const { summary } = summarizeToolArgs(name, raw);
   // An empty formatter summary is not a subject — fall through to primarySubject
   // so a task without description still paints its prompt rather than raw JSON.
@@ -269,7 +288,10 @@ function subjectFor(name: string, raw: string, args: Record<string, unknown>): s
  * has nothing worth hiding — short literal arguments read better as themselves
  * than as a summary with an expand hint attached.
  */
-export function toolArgsView(name: string, rawArgs: string): ToolArgsView | null {
+export function toolArgsView(
+  name: string,
+  rawArgs: string,
+): ToolArgsView | null {
   const raw = rawArgs.trim();
   if (raw.length === 0) return null;
   const args = parseObject(raw);
@@ -288,7 +310,8 @@ export function toolArgsView(name: string, rawArgs: string): ToolArgsView | null
     return withDetail("", fieldDetail(args));
   }
 
-  if (args === null && raw.length <= INLINE_MAX && !raw.includes("\n")) return null;
+  if (args === null && raw.length <= INLINE_MAX && !raw.includes("\n"))
+    return null;
 
   if (args === null) {
     const { summary } = summarizeToolArgs(name, raw);
@@ -306,7 +329,10 @@ export function toolArgsView(name: string, rawArgs: string): ToolArgsView | null
  * not. An expansion that restates its own collapsed line earns an arrow that
  * leads nowhere, which is worse than showing nothing.
  */
-function withDetail(summary: string, detail: readonly StyledBodyLine[]): ToolArgsView {
+function withDetail(
+  summary: string,
+  detail: readonly StyledBodyLine[],
+): ToolArgsView {
   const plain = detail
     .map((line) =>
       line
@@ -318,6 +344,8 @@ function withDetail(summary: string, detail: readonly StyledBodyLine[]): ToolArg
     .trim();
   // A one-argument call whose subject *is* that argument reveals nothing but
   // the key it was already named by, so it earns no arrow.
-  const bare = plain.includes("\n") ? plain : plain.replace(/^[A-Za-z_][\w.-]*:\s*/, "");
+  const bare = plain.includes("\n")
+    ? plain
+    : plain.replace(/^[A-Za-z_][\w.-]*:\s*/, "");
   return bare === summary.trim() ? { summary } : { summary, detail };
 }

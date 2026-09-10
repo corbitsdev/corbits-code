@@ -64,7 +64,9 @@ describe("listPathSuggestions", () => {
   });
 
   test("returns [] for a nonexistent path", async () => {
-    expect(await listPathSuggestions("/nonexistent-path-12345/", fixture)).toEqual([]);
+    expect(
+      await listPathSuggestions("/nonexistent-path-12345/", fixture),
+    ).toEqual([]);
   });
 
   test("browses absolute paths", async () => {
@@ -89,7 +91,9 @@ describe("listPathSuggestions", () => {
       await writeFile(join(outside, "secret.txt"), "");
       await symlink(outside, join(fixture, "escape"));
 
-      expect(await listPathSuggestions("escape/", fixture)).toContain("escape/secret.txt");
+      expect(await listPathSuggestions("escape/", fixture)).toContain(
+        "escape/secret.txt",
+      );
     } finally {
       await rm(outside, { recursive: true, force: true });
       await rm(join(fixture, "escape"), { force: true });

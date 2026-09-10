@@ -11,7 +11,10 @@ describe("stringWidth", () => {
 
 describe("wrapRanges narrow path is unchanged", () => {
   test("breaks on the last space within the budget", () => {
-    expect(wrapLines("the quick brown fox", 9)).toEqual(["the quick", "brown fox"]);
+    expect(wrapLines("the quick brown fox", 9)).toEqual([
+      "the quick",
+      "brown fox",
+    ]);
   });
 
   test("hard-breaks a word longer than the budget", () => {

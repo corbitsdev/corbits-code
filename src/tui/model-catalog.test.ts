@@ -42,7 +42,9 @@ describe("buildModelCatalog", () => {
   });
 
   test("dedupes by provider:model id", () => {
-    const options = buildModelCatalog([{ name: "xai", models: ["grok-4", "grok-4"] }]);
+    const options = buildModelCatalog([
+      { name: "xai", models: ["grok-4", "grok-4"] },
+    ]);
     expect(options).toEqual([{ id: "xai:grok-4", label: "grok-4 * [xai]" }]);
   });
 
@@ -104,7 +106,9 @@ describe("buildModelsFirstCatalog", () => {
       favorites: [],
     });
 
-    expect(list.filter((r) => r.section === "recent").map((r) => r.id)).toEqual(["xai:grok-4"]);
+    expect(list.filter((r) => r.section === "recent").map((r) => r.id)).toEqual(
+      ["xai:grok-4"],
+    );
   });
 
   test("skips favorites and provider rows already covered by recent", () => {

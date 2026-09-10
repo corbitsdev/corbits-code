@@ -12,7 +12,8 @@ function captureStderr(): { output: () => string; restore: () => void } {
   const original = process.stderr.write.bind(process.stderr);
   let wrote = "";
   process.stderr.write = ((chunk: string | Uint8Array) => {
-    wrote += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    wrote +=
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
     return true;
   }) as typeof process.stderr.write;
   return {

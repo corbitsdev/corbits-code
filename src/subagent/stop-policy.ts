@@ -6,7 +6,11 @@
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import { demoteNestedReportHeadings, formatSubAgentReport, hasReportEnvelope } from "./report.js";
+import {
+  demoteNestedReportHeadings,
+  formatSubAgentReport,
+  hasReportEnvelope,
+} from "./report.js";
 import type { ThrashState } from "./thrash.js";
 
 // Minimum gap kept between an opt-in internal deadline and the outer
@@ -46,11 +50,16 @@ export function resolveSubAgentDeadlineMs(
  * salvage from lastPartialText / tools rather than inventing a "no textual result"
  * success over a cancelled run.
  */
-export function preferCompletedSubAgentReply(reply: string): "keep-reply" | "honor-abort" {
+export function preferCompletedSubAgentReply(
+  reply: string,
+): "keep-reply" | "honor-abort" {
   return reply.trim().length > 0 ? "keep-reply" : "honor-abort";
 }
 
-export type SubAgentCatchOutcome = "salvage-deadline" | "salvage-cancelled" | "rethrow";
+export type SubAgentCatchOutcome =
+  | "salvage-deadline"
+  | "salvage-cancelled"
+  | "rethrow";
 
 /**
  * Decide what a cancelled/aborted sub-agent run should return to the parent.
@@ -69,7 +78,10 @@ export function resolveSubAgentCatchOutcome(input: {
   return "rethrow";
 }
 
-export type SubAgentStopReason = "complete" | "incomplete-report" | "incomplete-report-stop";
+export type SubAgentStopReason =
+  | "complete"
+  | "incomplete-report"
+  | "incomplete-report-stop";
 
 /**
  * Consecutive tool-less narration turns (no four-heading envelope) before
@@ -84,7 +96,9 @@ export type ToolLessNarrationSpiral = "nudge" | "stop";
  * once more or salvage. `cycles` is the 1-based count of consecutive tool-less
  * narration turns so far (including the current one).
  */
-export function evaluateToolLessNarrationSpiral(cycles: number): ToolLessNarrationSpiral {
+export function evaluateToolLessNarrationSpiral(
+  cycles: number,
+): ToolLessNarrationSpiral {
   return cycles >= MAX_TOOLLESS_NARRATION_CYCLES ? "stop" : "nudge";
 }
 
@@ -130,7 +144,8 @@ export function evaluateSubAgentStop(input: {
   incompleteReportNudgeFired?: boolean;
 }): SubAgentStopReason | null {
   const spiralCycles =
-    input.toolLessNarrationCycles ?? (input.incompleteReportNudgeFired === true ? 2 : 1);
+    input.toolLessNarrationCycles ??
+    (input.incompleteReportNudgeFired === true ? 2 : 1);
   const spiralStop = (): SubAgentStopReason =>
     evaluateToolLessNarrationSpiral(spiralCycles) === "stop"
       ? "incomplete-report-stop"
@@ -144,7 +159,8 @@ export function evaluateSubAgentStop(input: {
     }
     if (
       input.requireEvidence === true &&
-      (input.thrashState === undefined || input.thrashState.readCounts.size === 0)
+      (input.thrashState === undefined ||
+        input.thrashState.readCounts.size === 0)
     ) {
       return spiralStop();
     }
@@ -171,7 +187,9 @@ export function lastText(content: readonly { type: string }[]): string {
 }
 
 /** Best-effort partial assistant text from a stream event (inference.done). */
-export function partialTextFromEvent(event: ReactorEmittedEvent): string | null {
+export function partialTextFromEvent(
+  event: ReactorEmittedEvent,
+): string | null {
   if (!onTurnBoundary(event)) return null;
   // Stream events nest the turn under data (same shape as hooks/renderer).
   // Guard data.turn so a malformed event cannot throw in the stream sink.
@@ -182,7 +200,11 @@ export function partialTextFromEvent(event: ReactorEmittedEvent): string | null 
 }
 
 export type ForcedStopReason =
-  "cancelled" | "deadline" | "stalled" | "incomplete-report" | "interrupted";
+  | "cancelled"
+  | "deadline"
+  | "stalled"
+  | "incomplete-report"
+  | "interrupted";
 
 /** Optional detail / Paths payload for a forced-stop salvage envelope. */
 export interface ForcedStopReportOptions {
@@ -201,7 +223,8 @@ const FORCED_STOP_SUMMARIES: Record<ForcedStopReason, string> = {
   deadline: "Stopped: wall-clock deadline reached before finishing.",
   stalled:
     "Stopped after a long silence with no tool activity. The parent can re-dispatch or check the background work directly.",
-  "incomplete-report": "Stopped: worker narrated instead of writing a report envelope.",
+  "incomplete-report":
+    "Stopped: worker narrated instead of writing a report envelope.",
   interrupted: "Stopped: interrupted before finishing.",
 };
 
@@ -226,7 +249,9 @@ function forcedStopBlockers(reason: ForcedStopReason): string {
   }
 }
 
-function normalizeSalvagePaths(paths: ForcedStopReportOptions["paths"]): string {
+function normalizeSalvagePaths(
+  paths: ForcedStopReportOptions["paths"],
+): string {
   if (paths === undefined) return "";
   if (typeof paths === "string") return paths.trim();
   return paths
@@ -266,7 +291,10 @@ export function forcedStopReport(
     findings,
     blockers,
     paths: pathText,
-    stopped: detail !== undefined && detail.length > 0 ? `${reason} — ${detail}` : reason,
+    stopped:
+      detail !== undefined && detail.length > 0
+        ? `${reason} — ${detail}`
+        : reason,
   });
 }
 

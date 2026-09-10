@@ -38,7 +38,13 @@ describe("internPackage", () => {
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
     expect(allow).toContain("delete_file");
-    for (const name of ["grep", "search_files", "spawn_agent", "wait_agents", "apply_patch"]) {
+    for (const name of [
+      "grep",
+      "search_files",
+      "spawn_agent",
+      "wait_agents",
+      "apply_patch",
+    ]) {
       expect(allow).not.toContain(name);
     }
   });
@@ -52,7 +58,9 @@ describe("internPackage", () => {
   });
 
   test("primaryIntent and description", () => {
-    expect(internPackage.primaryIntent).toMatch(/mechanical|exact|zero judgment/i);
+    expect(internPackage.primaryIntent).toMatch(
+      /mechanical|exact|zero judgment/i,
+    );
     expect(internPackage.description).toBe("Mechanical intern");
   });
 

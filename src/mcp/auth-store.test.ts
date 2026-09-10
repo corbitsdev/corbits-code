@@ -2,9 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { deleteAuthState, loadAuthState, saveAuthState, updateAuthState } from "./auth-store.js";
+import {
+  deleteAuthState,
+  loadAuthState,
+  saveAuthState,
+  updateAuthState,
+} from "./auth-store.js";
 
-const linear = { serverName: "linear", serverURL: "https://mcp.linear.app/mcp" };
+const linear = {
+  serverName: "linear",
+  serverURL: "https://mcp.linear.app/mcp",
+};
 
 async function tempHome(): Promise<string> {
   return mkdtemp(join(tmpdir(), "mcp-auth-"));
@@ -55,7 +63,8 @@ describe("mcp auth-store", () => {
     expect(final.codeVerifier).toBe("verifier-from-other-session");
     expect(final.clientInformation?.client_id).toBe("c1");
     expect(
-      writes[0].tokens?.access_token === "tok" || writes[1].tokens?.access_token === "tok",
+      writes[0].tokens?.access_token === "tok" ||
+        writes[1].tokens?.access_token === "tok",
     ).toBe(true);
   });
 
@@ -101,19 +110,27 @@ describe("mcp auth-store", () => {
       );
     `;
     const processes = [
-      Bun.spawn([process.execPath, "-e", script, "--", home, "tokens", barrier], {
-        stdout: "ignore",
-        stderr: "pipe",
-      }),
-      Bun.spawn([process.execPath, "-e", script, "--", home, "verifier", barrier], {
-        stdout: "ignore",
-        stderr: "pipe",
-      }),
+      Bun.spawn(
+        [process.execPath, "-e", script, "--", home, "tokens", barrier],
+        {
+          stdout: "ignore",
+          stderr: "pipe",
+        },
+      ),
+      Bun.spawn(
+        [process.execPath, "-e", script, "--", home, "verifier", barrier],
+        {
+          stdout: "ignore",
+          stderr: "pipe",
+        },
+      ),
     ];
     await Bun.sleep(50);
     await writeFile(barrier, "go");
     const exitCodes = await Promise.all(processes.map((child) => child.exited));
-    const errors = await Promise.all(processes.map((child) => new Response(child.stderr).text()));
+    const errors = await Promise.all(
+      processes.map((child) => new Response(child.stderr).text()),
+    );
     expect(exitCodes, errors.join("\n")).toEqual([0, 0]);
 
     const final = await loadAuthState(linear, home);
@@ -133,7 +150,9 @@ describe("mcp auth-store", () => {
     expect(final.codeVerifier?.startsWith("v")).toBe(true);
     // No leftover temp files from failed renames.
     const dir = join(home, ".corbits", "mcp-auth");
-    const files = await Array.fromAsync(new Bun.Glob("linear-*.json").scan(dir));
+    const files = await Array.fromAsync(
+      new Bun.Glob("linear-*.json").scan(dir),
+    );
     expect(files).toHaveLength(1);
     const raw = await readFile(join(dir, files[0] ?? "missing"), "utf8");
     expect(JSON.parse(raw).codeVerifier).toBe(final.codeVerifier);
@@ -143,9 +162,18 @@ describe("mcp auth-store", () => {
     const home = await tempHome();
     const originA = { serverName: "exa", serverURL: "https://one.example/mcp" };
     const originB = { serverName: "exa", serverURL: "https://two.example/mcp" };
-    const pathB = { serverName: "exa", serverURL: "https://one.example/other?mode=full" };
-    const queryB = { serverName: "exa", serverURL: "https://one.example/mcp?mode=full" };
-    const equivalent = { serverName: "exa", serverURL: "https://ONE.example:443/mcp#ignored" };
+    const pathB = {
+      serverName: "exa",
+      serverURL: "https://one.example/other?mode=full",
+    };
+    const queryB = {
+      serverName: "exa",
+      serverURL: "https://one.example/mcp?mode=full",
+    };
+    const equivalent = {
+      serverName: "exa",
+      serverURL: "https://ONE.example:443/mcp#ignored",
+    };
 
     await saveAuthState(originA, { codeVerifier: "only-a" }, home);
 
@@ -160,10 +188,16 @@ describe("mcp auth-store", () => {
     const home = await tempHome();
     const dir = join(home, ".corbits", "mcp-auth");
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "exa.json"), JSON.stringify({ codeVerifier: "legacy-secret" }));
+    await writeFile(
+      join(dir, "exa.json"),
+      JSON.stringify({ codeVerifier: "legacy-secret" }),
+    );
 
     expect(
-      await loadAuthState({ serverName: "exa", serverURL: "https://mcp.exa.ai/mcp" }, home),
+      await loadAuthState(
+        { serverName: "exa", serverURL: "https://mcp.exa.ai/mcp" },
+        home,
+      ),
     ).toEqual({});
     expect(JSON.parse(await readFile(join(dir, "exa.json"), "utf8"))).toEqual({
       codeVerifier: "legacy-secret",
@@ -181,7 +215,9 @@ describe("mcp auth-store", () => {
       home,
     );
 
-    const scopedFiles = await Array.fromAsync(new Bun.Glob(`${prefixName}-*.json`).scan(dir));
+    const scopedFiles = await Array.fromAsync(
+      new Bun.Glob(`${prefixName}-*.json`).scan(dir),
+    );
     expect(scopedFiles).toEqual([
       `${prefixName}-825ce19c43a3d0135fa8efda61d61c23a13e6917eb90ea42a6cc43744c0b8b5d.json`,
     ]);
@@ -219,6 +255,8 @@ describe("mcp auth-store", () => {
     ]);
 
     const final = await loadAuthState(linear, home);
-    expect(final.codeVerifier === undefined || final.codeVerifier === "v1").toBe(true);
+    expect(
+      final.codeVerifier === undefined || final.codeVerifier === "v1",
+    ).toBe(true);
   });
 });

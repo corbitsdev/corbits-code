@@ -277,10 +277,16 @@ export interface CallbackPage {
 export function callbackPageHtml(page: CallbackPage = {}): string {
   const failed = page.error !== undefined;
   const subject =
-    page.subject === undefined ? undefined : escapeHtml(humanizeIdentifier(page.subject));
+    page.subject === undefined
+      ? undefined
+      : escapeHtml(humanizeIdentifier(page.subject));
   const pendingSetup = !failed && page.pendingSetup === true;
   const tone = failed ? "var(--accent)" : "var(--ok)";
-  const label = failed ? "not connected" : pendingSetup ? "authorization received" : "connected";
+  const label = failed
+    ? "not connected"
+    : pendingSetup
+      ? "authorization received"
+      : "connected";
   const heading = failed
     ? subject === undefined
       ? "Authorization did not complete"

@@ -59,7 +59,8 @@ describe("a call and its answer", () => {
     });
     pushToolResult(rows, {
       name: "fetch",
-      content: "# Apple\n[Apple](/) - [Store](/us/shop/goto/store)\nmore page\nand more",
+      content:
+        "# Apple\n[Apple](/) - [Store](/us/shop/goto/store)\nmore page\nand more",
     });
     expect(rows.length).toBe(1);
     expect(rows[0]?.summary).toContain("https://www.apple.com");
@@ -71,7 +72,10 @@ describe("a call and its answer", () => {
 
   test("take a short factual answer as an addendum", () => {
     const rows: StreamRow[] = [];
-    pushToolCall(rows, { name: "grep", arguments: JSON.stringify({ pattern: "legacy_token" }) });
+    pushToolCall(rows, {
+      name: "grep",
+      arguments: JSON.stringify({ pattern: "legacy_token" }),
+    });
     pushToolResult(rows, { name: "grep", content: "no matches" });
     expect(rows[0]?.stat).toBe("no matches");
     expect(rows[0]?.detail).toBeUndefined();
@@ -79,8 +83,15 @@ describe("a call and its answer", () => {
 
   test("mark the row failed, keeping the failure out of the collapsed line", () => {
     const rows: StreamRow[] = [];
-    pushToolCall(rows, { name: "fetch", arguments: JSON.stringify({ url: "https://x.dev" }) });
-    pushToolResult(rows, { name: "fetch", content: "connection refused", isError: true });
+    pushToolCall(rows, {
+      name: "fetch",
+      arguments: JSON.stringify({ url: "https://x.dev" }),
+    });
+    pushToolResult(rows, {
+      name: "fetch",
+      content: "connection refused",
+      isError: true,
+    });
     expect(rows.length).toBe(1);
     expect(rows[0]?.failed).toBe(true);
     expect(painted(defined(rows[0]))).toContain("×");
@@ -131,9 +142,15 @@ describe("a run of identical calls", () => {
 
   test("does not swallow a different call by the same tool", () => {
     const rows: StreamRow[] = [];
-    pushToolCall(rows, { name: "read_file", arguments: JSON.stringify({ path: "a.ts" }) });
+    pushToolCall(rows, {
+      name: "read_file",
+      arguments: JSON.stringify({ path: "a.ts" }),
+    });
     pushToolResult(rows, { name: "read_file", content: "a" });
-    pushToolCall(rows, { name: "read_file", arguments: JSON.stringify({ path: "b.ts" }) });
+    pushToolCall(rows, {
+      name: "read_file",
+      arguments: JSON.stringify({ path: "b.ts" }),
+    });
     pushToolResult(rows, { name: "read_file", content: "b" });
     expect(rows.length).toBe(2);
   });
@@ -149,25 +166,46 @@ describe("parallel calls to the same tool", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
       name: "spawn_agent",
-      arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5559 heading shake" }),
+      arguments: JSON.stringify({
+        agent: "intern",
+        description: "Fix CL-5559 heading shake",
+      }),
       callId: "c1",
     });
     pushToolCall(rows, {
       name: "spawn_agent",
-      arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5560 approval UI" }),
+      arguments: JSON.stringify({
+        agent: "intern",
+        description: "Fix CL-5560 approval UI",
+      }),
       callId: "c2",
     });
     pushToolCall(rows, {
       name: "spawn_agent",
-      arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5561 scroll/history" }),
+      arguments: JSON.stringify({
+        agent: "intern",
+        description: "Fix CL-5561 scroll/history",
+      }),
       callId: "c3",
     });
     expect(rows.length).toBe(3);
 
     // Results land out of dispatch order, as real sub-agent completion does.
-    pushToolResult(rows, { name: "spawn_agent", content: "done c2", callId: "c2" });
-    pushToolResult(rows, { name: "spawn_agent", content: "done c1", callId: "c1" });
-    pushToolResult(rows, { name: "spawn_agent", content: "done c3", callId: "c3" });
+    pushToolResult(rows, {
+      name: "spawn_agent",
+      content: "done c2",
+      callId: "c2",
+    });
+    pushToolResult(rows, {
+      name: "spawn_agent",
+      content: "done c1",
+      callId: "c1",
+    });
+    pushToolResult(rows, {
+      name: "spawn_agent",
+      content: "done c3",
+      callId: "c3",
+    });
 
     expect(rows.length).toBe(3);
     expect(rows.every((r) => r.pending !== true)).toBe(true);
@@ -187,12 +225,30 @@ describe("parallel calls to the same tool", () => {
   // here means the id genuinely does not belong to anything on the log.
   test("an id that matches nothing on the log answers nothing, not the newest pending call", () => {
     const rows: StreamRow[] = [
-      { role: "tool", text: "", meta: "spawn_agent", pending: true, callId: "a1" },
-      { role: "tool", text: "", meta: "spawn_agent", pending: true, callId: "b1" },
+      {
+        role: "tool",
+        text: "",
+        meta: "spawn_agent",
+        pending: true,
+        callId: "a1",
+      },
+      {
+        role: "tool",
+        text: "",
+        meta: "spawn_agent",
+        pending: true,
+        callId: "b1",
+      },
     ];
-    expect(pendingCallIndex(rows, "spawn_agent", "zzz-does-not-exist")).toBe(-1);
+    expect(pendingCallIndex(rows, "spawn_agent", "zzz-does-not-exist")).toBe(
+      -1,
+    );
 
-    pushToolResult(rows, { name: "spawn_agent", content: "orphan", callId: "zzz-does-not-exist" });
+    pushToolResult(rows, {
+      name: "spawn_agent",
+      content: "orphan",
+      callId: "zzz-does-not-exist",
+    });
     // Answers nothing on the log — appended as its own row rather than
     // resolving (and thereby corrupting) an unrelated in-flight call.
     expect(rows.length).toBe(3);
@@ -209,7 +265,10 @@ describe("parallel calls to the same tool", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
       name: "spawn_agent",
-      arguments: JSON.stringify({ agent: "intern", description: "Fix CL-5559 heading shake" }),
+      arguments: JSON.stringify({
+        agent: "intern",
+        description: "Fix CL-5559 heading shake",
+      }),
       callId: "c1",
     });
     pushToolResult(rows, {
@@ -235,7 +294,9 @@ describe("a long subject", () => {
     });
     const lines = toolSentenceLines(row, 40);
     expect(lines.length).toBe(1);
-    const text = defined(lines[0]).map((segment) => segment.text).join("");
+    const text = defined(lines[0])
+      .map((segment) => segment.text)
+      .join("");
     expect(text.length).toBeLessThanOrEqual(40);
     expect(text).toContain("…");
   });

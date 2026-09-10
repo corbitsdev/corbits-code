@@ -14,7 +14,11 @@ export const SENT_MESSAGE_HISTORY_LIMIT = 20;
 // head simply fails to parse and is skipped.
 const TAIL_BYTES = 64_000;
 
-function sentMessagesPath(cwd: string, sessionId: string, home?: string): string {
+function sentMessagesPath(
+  cwd: string,
+  sessionId: string,
+  home?: string,
+): string {
   return join(sessionDir(cwd, sessionId, home), "sent-messages.ndjson");
 }
 
@@ -30,7 +34,10 @@ export async function loadSentMessages(
   let raw: string;
   try {
     const size = file.size;
-    raw = size > TAIL_BYTES ? await file.slice(size - TAIL_BYTES).text() : await file.text();
+    raw =
+      size > TAIL_BYTES
+        ? await file.slice(size - TAIL_BYTES).text()
+        : await file.text();
   } catch {
     return [];
   }
@@ -57,5 +64,8 @@ export async function appendSentMessage(
 ): Promise<void> {
   const trimmed = message.trim();
   if (trimmed.length === 0) return;
-  await appendFile(sentMessagesPath(cwd, sessionId, home), JSON.stringify(trimmed) + "\n");
+  await appendFile(
+    sentMessagesPath(cwd, sessionId, home),
+    JSON.stringify(trimmed) + "\n",
+  );
 }

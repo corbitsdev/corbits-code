@@ -1,6 +1,9 @@
 import { test, expect, describe, afterEach } from "bun:test";
 import { startCodexCallbackServer } from "../../src/auth/codex/callback-server.js";
-import { CODEX_CALLBACK_PORT, CODEX_CALLBACK_PATH } from "../../src/auth/codex/constants.js";
+import {
+  CODEX_CALLBACK_PORT,
+  CODEX_CALLBACK_PATH,
+} from "../../src/auth/codex/constants.js";
 
 // These tests bind the fixed Codex callback port (1455). Each closes its server
 // in afterEach so the port is free for the next case.
@@ -16,7 +19,10 @@ const base = `http://127.0.0.1:${String(CODEX_CALLBACK_PORT)}${CODEX_CALLBACK_PA
 // Resolve the wait into a discriminated result so the rejection handler is
 // attached immediately (no unhandled rejection) and the test can assert on the
 // settled outcome without coupling to fetch timing.
-function settle(server: { waitForCode: (s: AbortSignal) => Promise<string> }, signal: AbortSignal) {
+function settle(
+  server: { waitForCode: (s: AbortSignal) => Promise<string> },
+  signal: AbortSignal,
+) {
   return server.waitForCode(signal).then(
     (code) => ({ ok: true as const, code }),
     (err: unknown) => ({
@@ -31,7 +37,9 @@ describe("startCodexCallbackServer", () => {
     const server = await startCodexCallbackServer("good-state");
     active = server;
     const result = settle(server, new AbortController().signal);
-    await fetch(`${base}?code=the-code&state=good-state`).catch(() => undefined);
+    await fetch(`${base}?code=the-code&state=good-state`).catch(
+      () => undefined,
+    );
     const r = await result;
     expect(r).toEqual({ ok: true, code: "the-code" });
   });
@@ -40,7 +48,9 @@ describe("startCodexCallbackServer", () => {
     const server = await startCodexCallbackServer("expected-state");
     active = server;
     const result = settle(server, new AbortController().signal);
-    await fetch(`${base}?code=the-code&state=attacker-state`).catch(() => undefined);
+    await fetch(`${base}?code=the-code&state=attacker-state`).catch(
+      () => undefined,
+    );
     const r = await result;
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.message).toMatch(/state did not match/i);

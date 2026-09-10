@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { runBoundedGrep, runBoundedSearchFiles } from "./bounded-grep-fallback.js";
+import {
+  runBoundedGrep,
+  runBoundedSearchFiles,
+} from "./bounded-grep-fallback.js";
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "bounded-grep-"));
@@ -20,7 +23,10 @@ describe("runBoundedGrep", () => {
       await mkdir(join(dir, "src"), { recursive: true });
       await mkdir(join(dir, "node_modules", "pkg"), { recursive: true });
       await writeFile(join(dir, "src", "a.ts"), "export const visible = 1;\n");
-      await writeFile(join(dir, "node_modules", "pkg", "b.ts"), "export const visible = 2;\n");
+      await writeFile(
+        join(dir, "node_modules", "pkg", "b.ts"),
+        "export const visible = 2;\n",
+      );
 
       const out = await runBoundedGrep(
         { pattern: "visible", path: ".", max_results: 50 },
@@ -83,7 +89,11 @@ describe("runBoundedGrep", () => {
       const controller = new AbortController();
       controller.abort();
       await expect(
-        runBoundedGrep({ pattern: "needle", path: "." }, controller.signal, dir),
+        runBoundedGrep(
+          { pattern: "needle", path: "." },
+          controller.signal,
+          dir,
+        ),
       ).rejects.toThrow();
     });
   });

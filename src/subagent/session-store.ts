@@ -46,7 +46,12 @@ export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
  * only — never stored.
  */
 export type AgentLifecycleStatus =
-  "pending_init" | "running" | "interrupted" | "completed" | "shutdown" | "not_found";
+  | "pending_init"
+  | "running"
+  | "interrupted"
+  | "completed"
+  | "shutdown"
+  | "not_found";
 
 export type { WorkerLifecycle };
 
@@ -56,7 +61,13 @@ export type SubAgentTranscriptEntry =
   | { kind: "text"; content: string }
   | { kind: "thinking"; content: string }
   | { kind: "tool"; callId: string; name: string; arguments: string }
-  | { kind: "tool_result"; callId: string; name: string; content: string; isError: boolean }
+  | {
+      kind: "tool_result";
+      callId: string;
+      name: string;
+      content: string;
+      isError: boolean;
+    }
   | { kind: "report"; content: string };
 
 export interface OutstandingToolCall {
@@ -221,7 +232,10 @@ export interface SubAgentSessionStore {
   // Registers the bounded close function close_agent will call later. Only
   // one is kept per id (a later call replaces an earlier one, matching
   // start()'s replace-on-reuse behavior for cancelHandles).
-  registerClose(id: string, close: (deadlineMs?: number) => Promise<void>): void;
+  registerClose(
+    id: string,
+    close: (deadlineMs?: number) => Promise<void>,
+  ): void;
   // Runs the registered close for one session (bounded by deadlineMs) and
   // marks it "shutdown" — terminal, and no longer exempt from pruneCompleted.
   // Idempotent: closing an already-shutdown session is a no-op. Resolves
@@ -252,12 +266,17 @@ export interface SubAgentSessionStore {
   // hands back via onAgentReady. Distinct maps from registerClose/closeOne
   // above (interrupt must never route through close's codepath).
   registerInterrupt(id: string, interrupt: () => void): void;
-  registerFollowup(id: string, followup: (message: string) => Promise<string>): void;
+  registerFollowup(
+    id: string,
+    followup: (message: string) => Promise<string>,
+  ): void;
   // Fires the registered interrupt handle and flips lifecycleStatus to
   // "interrupted" synchronously — the caller does not wait for the aborted
   // run's promise to settle. Fails closed on anything not currently running
   // or with no interrupt handle registered (e.g. a session past init).
-  interruptOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus };
+  interruptOne(
+    id: string,
+  ): { ok: true } | { ok: false; status: AgentLifecycleStatus };
   registerDeliver(id: string, deliver: (message: string) => void): void;
   sendInputOne(
     id: string,
@@ -268,7 +287,9 @@ export interface SubAgentSessionStore {
       onStart?: () => void;
       onFail?: (error: unknown) => void;
     },
-  ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus };
+  ):
+    | { ok: true; status: AgentLifecycleStatus }
+    | { ok: false; status: AgentLifecycleStatus };
   /**
    * One pending ask_director per session. `sendInputOne` (soft) resolves it;
    * interrupt/settle/close cancel it. Wait JSON projects this, not lifecycle.
@@ -299,7 +320,11 @@ export interface SubAgentSessionStore {
    * flip to interrupted rather than completed. Clears the in-flight-run bit
    * and notifies waiters.
    */
-  attachReport(id: string, report: string, opts?: { stopReason?: ForcedStopReason }): void;
+  attachReport(
+    id: string,
+    report: string,
+    opts?: { stopReason?: ForcedStopReason },
+  ): void;
   /** True while a run or followup has not settled. */
   isRunInFlight(id: string): boolean;
   /**
@@ -360,7 +385,8 @@ function defaultCreateId(): string {
 function syncCurrentTool(session: StoredSession): void {
   let oldest: OutstandingToolCall | undefined;
   for (const call of session.outstandingTools) {
-    if (oldest === undefined || call.startedAt < oldest.startedAt) oldest = call;
+    if (oldest === undefined || call.startedAt < oldest.startedAt)
+      oldest = call;
   }
   session.currentToolName = oldest?.name ?? null;
   session.currentToolPreview = oldest?.preview ?? null;
@@ -383,7 +409,9 @@ function beginToolCall(
 ): void {
   const existing = session.outstandingTools.find((c) => c.callId === callId);
   const preview =
-    rawArgs !== undefined ? toolCallPreview(name, rawArgs) : (existing?.preview ?? null);
+    rawArgs !== undefined
+      ? toolCallPreview(name, rawArgs)
+      : (existing?.preview ?? null);
   if (existing !== undefined) {
     existing.name = name;
     if (restartClock) existing.startedAt = nowMs;
@@ -470,11 +498,17 @@ export function createSubAgentSessionStore(
   // CL-6943: bounded close functions keyed by session id, for close_agent.
   // Distinct from cancelHandles (a synchronous abort() signal) because
   // closing must be awaitable and bounded by a deadline.
-  const closeHandles = new Map<string, (deadlineMs?: number) => Promise<void>>();
+  const closeHandles = new Map<
+    string,
+    (deadlineMs?: number) => Promise<void>
+  >();
   // CL-6997: interrupt/followup handles, kept separate from closeHandles so
   // an interrupt can never accidentally resolve to the close codepath.
   const interruptHandles = new Map<string, () => void>();
-  const followupHandles = new Map<string, (message: string) => Promise<string>>();
+  const followupHandles = new Map<
+    string,
+    (message: string) => Promise<string>
+  >();
   const deliverHandles = new Map<string, (message: string) => void>();
   const pendingAsks = new Map<
     string,
@@ -510,7 +544,10 @@ export function createSubAgentSessionStore(
   // only one session changed. Caching a clone keyed by the revision it was
   // taken at lets unrelated sessions reuse their last snapshot instead.
   const revisions = new Map<string, number>();
-  const snapshotCache = new Map<string, { revision: number; snapshot: SubAgentSession }>();
+  const snapshotCache = new Map<
+    string,
+    { revision: number; snapshot: SubAgentSession }
+  >();
 
   const bumpRevision = (id: string): void => {
     revisions.set(id, (revisions.get(id) ?? 0) + 1);
@@ -570,7 +607,8 @@ export function createSubAgentSessionStore(
   const cancelDescendantAsks = (ancestorId: string, reason: string): void => {
     for (const session of sessions.values()) {
       if (session.id === ancestorId) continue;
-      if (isSessionUnder(session.id, ancestorId)) cancelAskInternal(session.id, reason);
+      if (isSessionUnder(session.id, ancestorId))
+        cancelAskInternal(session.id, reason);
     }
   };
 
@@ -586,7 +624,8 @@ export function createSubAgentSessionStore(
     session.lastActivityAt = now();
     clearToolCalls(session);
     session.error = reason;
-    session.stopReason = reason === DEFAULT_CANCEL_REASON ? "cancelled" : `cancelled — ${reason}`;
+    session.stopReason =
+      reason === DEFAULT_CANCEL_REASON ? "cancelled" : `cancelled — ${reason}`;
     pushEntry(session, {
       kind: "report",
       content: capText(`Cancelled: ${reason}`, maxEntryChars),
@@ -617,7 +656,10 @@ export function createSubAgentSessionStore(
     return true;
   };
 
-  const pushEntry = (session: StoredSession, entry: SubAgentTranscriptEntry): void => {
+  const pushEntry = (
+    session: StoredSession,
+    entry: SubAgentTranscriptEntry,
+  ): void => {
     session.entries.push(entry);
     if (session.entries.length > maxEntries) {
       session.entries.splice(0, session.entries.length - maxEntries);
@@ -729,7 +771,9 @@ export function createSubAgentSessionStore(
     return new Promise((resolve) => {
       let settled = false;
       const listener = (): void => check();
-      const finish = (value: ((deadlineMs?: number) => Promise<void>) | undefined): void => {
+      const finish = (
+        value: ((deadlineMs?: number) => Promise<void>) | undefined,
+      ): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -778,9 +822,15 @@ export function createSubAgentSessionStore(
       delete s.stopReason;
     });
   };
-  const endFollowupTurn = (id: string, restore: "completed" | "interrupted"): void => {
+  const endFollowupTurn = (
+    id: string,
+    restore: "completed" | "interrupted",
+  ): void => {
     mutate(id, (s) => {
-      if (s.lifecycle.state !== "running" && s.lifecycle.state !== "pending_init") {
+      if (
+        s.lifecycle.state !== "running" &&
+        s.lifecycle.state !== "pending_init"
+      ) {
         s.finishedAt = s.finishedAt ?? now();
         if (restore === "interrupted" && s.stopReason === undefined) {
           s.stopReason = "interrupted";
@@ -841,7 +891,10 @@ export function createSubAgentSessionStore(
             s.finishedAt = now();
             s.report = reply;
             delete s.stopReason;
-            pushEntry(s, { kind: "report", content: capText(reply, maxEntryChars) });
+            pushEntry(s, {
+              kind: "report",
+              content: capText(reply, maxEntryChars),
+            });
           });
           runInFlight.delete(id);
           opts?.onReply?.(reply);
@@ -906,7 +959,8 @@ export function createSubAgentSessionStore(
     },
 
     start(input: StartSessionInput): SubAgentSession {
-      const id = input.id !== undefined && input.id.length > 0 ? input.id : createId();
+      const id =
+        input.id !== undefined && input.id.length > 0 ? input.id : createId();
       // Replacing an existing id (e.g. parent reuses a callId) keeps the strip
       // from growing duplicates when a tool call is retried.
       cancelAskInternal(id, "session replaced");
@@ -933,7 +987,9 @@ export function createSubAgentSessionStore(
         startedAt: now(),
         lastActivityAt: now(),
         ...(input.retained === true ? { retained: true } : {}),
-        ...(input.parentSessionId !== undefined ? { parentSessionId: input.parentSessionId } : {}),
+        ...(input.parentSessionId !== undefined
+          ? { parentSessionId: input.parentSessionId }
+          : {}),
         ...(input.provider !== undefined ? { provider: input.provider } : {}),
       };
       sessions.set(id, session);
@@ -953,7 +1009,10 @@ export function createSubAgentSessionStore(
             if (last?.kind === "text") {
               last.content = appendCapped(last.content, token, maxEntryChars);
             } else {
-              pushEntry(session, { kind: "text", content: capText(token, maxEntryChars) });
+              pushEntry(session, {
+                kind: "text",
+                content: capText(token, maxEntryChars),
+              });
             }
             return;
           }
@@ -964,7 +1023,10 @@ export function createSubAgentSessionStore(
             if (last?.kind === "thinking") {
               last.content = appendCapped(last.content, token, maxEntryChars);
             } else {
-              pushEntry(session, { kind: "thinking", content: capText(token, maxEntryChars) });
+              pushEntry(session, {
+                kind: "thinking",
+                content: capText(token, maxEntryChars),
+              });
             }
             return;
           }
@@ -972,14 +1034,19 @@ export function createSubAgentSessionStore(
             const data = event.data as { name?: unknown; callId?: unknown };
             const name = typeof data.name === "string" ? data.name : "tool";
             const callId =
-              typeof data.callId === "string" ? data.callId : `${name}-${session.entries.length}`;
+              typeof data.callId === "string"
+                ? data.callId
+                : `${name}-${session.entries.length}`;
             beginToolCall(session, callId, name, now());
             if (!session.toolNames.includes(name)) session.toolNames.push(name);
             pushEntry(session, { kind: "tool", callId, name, arguments: "" });
             return;
           }
           case "inference.tool_call.delta": {
-            const data = event.data as { argumentFragment?: unknown; callId?: unknown };
+            const data = event.data as {
+              argumentFragment?: unknown;
+              callId?: unknown;
+            };
             const fragment = data.argumentFragment;
             if (typeof fragment !== "string" || fragment.length === 0) return;
             // Parallel tool calls interleave their deltas; match the owning
@@ -989,16 +1056,29 @@ export function createSubAgentSessionStore(
               const entry = session.entries[i];
               if (entry?.kind !== "tool") continue;
               if (callId !== null && entry.callId !== callId) continue;
-              entry.arguments = appendCapped(entry.arguments, fragment, maxEntryChars);
+              entry.arguments = appendCapped(
+                entry.arguments,
+                fragment,
+                maxEntryChars,
+              );
               // Preview tracks the same args the transcript holds so the lane
               // and the body never disagree about what is running.
-              refreshToolPreview(session, entry.callId, entry.name, entry.arguments);
+              refreshToolPreview(
+                session,
+                entry.callId,
+                entry.name,
+                entry.arguments,
+              );
               return;
             }
             return;
           }
           case "inference.tool_call.end": {
-            const data = event.data as { name?: unknown; callId?: unknown; arguments?: unknown };
+            const data = event.data as {
+              name?: unknown;
+              callId?: unknown;
+              arguments?: unknown;
+            };
             const callId = typeof data.callId === "string" ? data.callId : null;
             const name = typeof data.name === "string" ? data.name : null;
             const args =
@@ -1013,14 +1093,29 @@ export function createSubAgentSessionStore(
               if (args !== null && args.length > 0) entry.arguments = args;
               // Arguments finished streaming; the call itself is still in
               // flight, so this renames it rather than restarting its clock.
-              beginToolCall(session, entry.callId, entry.name, now(), false, entry.arguments);
+              beginToolCall(
+                session,
+                entry.callId,
+                entry.name,
+                now(),
+                false,
+                entry.arguments,
+              );
               return;
             }
             // No matching start — record a complete tool entry.
             if (name !== null) {
               const idForEntry = callId ?? `${name}-${session.entries.length}`;
-              if (!session.toolNames.includes(name)) session.toolNames.push(name);
-              beginToolCall(session, idForEntry, name, now(), false, args ?? "");
+              if (!session.toolNames.includes(name))
+                session.toolNames.push(name);
+              beginToolCall(
+                session,
+                idForEntry,
+                name,
+                now(),
+                false,
+                args ?? "",
+              );
               pushEntry(session, {
                 kind: "tool",
                 callId: idForEntry,
@@ -1035,7 +1130,9 @@ export function createSubAgentSessionStore(
             // Prefer inference events for the transcript; only fill gaps.
             const call = (
               event as {
-                data?: { call?: { name?: unknown; id?: unknown; arguments?: unknown } };
+                data?: {
+                  call?: { name?: unknown; id?: unknown; arguments?: unknown };
+                };
               }
             ).data?.call;
             const name = typeof call?.name === "string" ? call.name : null;
@@ -1057,7 +1154,11 @@ export function createSubAgentSessionStore(
           case "tool.done": {
             const result = (
               event.data as {
-                result?: { callId?: unknown; content?: unknown; isError?: unknown };
+                result?: {
+                  callId?: unknown;
+                  content?: unknown;
+                  isError?: unknown;
+                };
               }
             )?.result;
             if (result === undefined) return;
@@ -1073,9 +1174,18 @@ export function createSubAgentSessionStore(
                 break;
               }
             }
-            const content = capText(stringifyUnknown(result.content ?? ""), maxEntryChars);
+            const content = capText(
+              stringifyUnknown(result.content ?? ""),
+              maxEntryChars,
+            );
             const isError = result.isError === true;
-            pushEntry(session, { kind: "tool_result", callId, name, content, isError });
+            pushEntry(session, {
+              kind: "tool_result",
+              callId,
+              name,
+              content,
+              isError,
+            });
             endToolCall(session, callId);
             return;
           }
@@ -1118,8 +1228,12 @@ export function createSubAgentSessionStore(
         session.finishedAt = now();
         clearToolCalls(session);
         session.report = report;
-        if (opts?.stopReason !== undefined) session.stopReason = opts.stopReason;
-        pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
+        if (opts?.stopReason !== undefined)
+          session.stopReason = opts.stopReason;
+        pushEntry(session, {
+          kind: "report",
+          content: capText(report, maxEntryChars),
+        });
         // A disposed salvage has nothing left for its close handle to do —
         // release it now rather than leaving a stale reference around.
         cancelHandles.delete(id);
@@ -1133,7 +1247,11 @@ export function createSubAgentSessionStore(
     fail(id: string, error: string): void {
       settleCancelsAsks(id, "session failed");
       mutate(id, (session) => {
-        if (!isLiveStrip(session.lifecycle) || session.lifecycle.state === "cancelled") return;
+        if (
+          !isLiveStrip(session.lifecycle) ||
+          session.lifecycle.state === "cancelled"
+        )
+          return;
         // Spawn-path throws already dispose in run.ts's finally. Resume of a
         // persisted agent does not: the live close handle is the only teardown.
         // Invoke it fire-and-forget (same as prune/evict) without marking
@@ -1162,7 +1280,8 @@ export function createSubAgentSessionStore(
 
     markRunning(id: string): void {
       mutate(id, (session) => {
-        if (session.lifecycle.state === "pending_init") session.lifecycle = { state: "running" };
+        if (session.lifecycle.state === "pending_init")
+          session.lifecycle = { state: "running" };
       });
     },
 
@@ -1173,7 +1292,10 @@ export function createSubAgentSessionStore(
       notify();
     },
 
-    registerClose(id: string, close: (deadlineMs?: number) => Promise<void>): void {
+    registerClose(
+      id: string,
+      close: (deadlineMs?: number) => Promise<void>,
+    ): void {
       if (!sessions.has(id)) return;
       closeHandles.set(id, close);
       // CL-7001: wake anything blocked in closeOne's waitForCloseHandle below —
@@ -1183,7 +1305,10 @@ export function createSubAgentSessionStore(
       notify();
     },
 
-    async closeOne(id: string, deadlineMs: number): Promise<AgentLifecycleStatus> {
+    async closeOne(
+      id: string,
+      deadlineMs: number,
+    ): Promise<AgentLifecycleStatus> {
       const session = sessions.get(id);
       if (session === undefined) {
         // CL-7007: an id evicted by pruneRetained already had its handles
@@ -1199,7 +1324,10 @@ export function createSubAgentSessionStore(
         return projectLifecycleStatus(session.lifecycle);
       }
       if (close === undefined) {
-        if (session.lifecycle.state === "pending_init" && !runInFlight.has(id)) {
+        if (
+          session.lifecycle.state === "pending_init" &&
+          !runInFlight.has(id)
+        ) {
           const abort = cancelHandles.get(id);
           try {
             abort?.();
@@ -1238,7 +1366,9 @@ export function createSubAgentSessionStore(
           return projectLifecycleStatus(stillHere.lifecycle);
         }
       }
-      const keepFailed = isAlreadyClosed((sessions.get(id) ?? session).lifecycle);
+      const keepFailed = isAlreadyClosed(
+        (sessions.get(id) ?? session).lifecycle,
+      );
       closeHandles.delete(id);
       // Bounded here too, defense-in-depth against a caller-registered
       // close that does not honor its own deadline argument — a wedged
@@ -1260,11 +1390,14 @@ export function createSubAgentSessionStore(
         pruneCompleted();
         if (closeError !== undefined) throw closeError;
         const after = sessions.get(id);
-        return after === undefined ? "not_found" : projectLifecycleStatus(after.lifecycle);
+        return after === undefined
+          ? "not_found"
+          : projectLifecycleStatus(after.lifecycle);
       }
       mutate(id, (s) => {
         const wasLive = isLiveStrip(s.lifecycle);
-        const error = s.error ?? (wasLive ? "Closed by close_agent" : undefined);
+        const error =
+          s.error ?? (wasLive ? "Closed by close_agent" : undefined);
         if (wasLive) {
           s.finishedAt = s.finishedAt ?? now();
           if (error !== undefined) s.error = error;
@@ -1291,7 +1424,10 @@ export function createSubAgentSessionStore(
       interruptHandles.set(id, interrupt);
     },
 
-    registerFollowup(id: string, followup: (message: string) => Promise<string>): void {
+    registerFollowup(
+      id: string,
+      followup: (message: string) => Promise<string>,
+    ): void {
       if (!sessions.has(id)) return;
       followupHandles.set(id, followup);
     },
@@ -1310,7 +1446,9 @@ export function createSubAgentSessionStore(
         onStart?: () => void;
         onFail?: (error: unknown) => void;
       },
-    ): { ok: true; status: AgentLifecycleStatus } | { ok: false; status: AgentLifecycleStatus } {
+    ):
+      | { ok: true; status: AgentLifecycleStatus }
+      | { ok: false; status: AgentLifecycleStatus } {
       const session = sessions.get(id);
       if (session === undefined) return { ok: false, status: "not_found" };
       if (session.lifecycle.state !== "running") {
@@ -1321,13 +1459,18 @@ export function createSubAgentSessionStore(
         const interrupt = interruptHandles.get(id);
         const followup = followupHandles.get(id);
         if (interrupt === undefined || followup === undefined) {
-          return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
+          return {
+            ok: false,
+            status: projectLifecycleStatus(session.lifecycle),
+          };
         }
         settleCancelsAsks(id, "cancelled by send_input interrupt");
         interrupt();
         queueFollowupTurn(id, message, "interrupted", {
           ...(opts.onStart !== undefined ? { onStart: opts.onStart } : {}),
-          ...(opts.onFollowupReply !== undefined ? { onReply: opts.onFollowupReply } : {}),
+          ...(opts.onFollowupReply !== undefined
+            ? { onReply: opts.onFollowupReply }
+            : {}),
           ...(opts.onFail !== undefined ? { onFail: opts.onFail } : {}),
         });
         // After beginFollowupTurn, which clears leftover stopReason. Stamp
@@ -1399,7 +1542,9 @@ export function createSubAgentSessionStore(
       return { question: pending.question, questionId: pending.questionId };
     },
 
-    interruptOne(id: string): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
+    interruptOne(
+      id: string,
+    ): { ok: true } | { ok: false; status: AgentLifecycleStatus } {
       const session = sessions.get(id);
       if (session === undefined) return { ok: false, status: "not_found" };
       if (!isLiveStrip(session.lifecycle)) {
@@ -1456,7 +1601,11 @@ export function createSubAgentSessionStore(
       if (session === undefined) {
         const tombstone = evicted.get(id);
         if (tombstone !== undefined) {
-          return { ok: false, status: tombstone.lifecycleStatus, hint: tombstone.hint };
+          return {
+            ok: false,
+            status: tombstone.lifecycleStatus,
+            hint: tombstone.hint,
+          };
         }
         return { ok: false, status: "not_found" };
       }
@@ -1505,7 +1654,9 @@ export function createSubAgentSessionStore(
       const retainedIds = [...sessions.values()]
         .filter((s) => s.retained === true && s.lifecycle.state !== "shutdown")
         .map((s) => s.id);
-      const running = [...sessions.values()].filter((s) => isLiveStrip(s.lifecycle));
+      const running = [...sessions.values()].filter((s) =>
+        isLiveStrip(s.lifecycle),
+      );
       const cancelled: string[] = [];
       for (const session of running) {
         if (cancelSession(session.id, reason)) cancelled.push(session.id);
@@ -1513,7 +1664,8 @@ export function createSubAgentSessionStore(
       const pendingCloses: Promise<void>[] = [];
       for (const id of retainedIds) {
         const session = sessions.get(id);
-        if (session === undefined || session.lifecycle.state === "shutdown") continue;
+        if (session === undefined || session.lifecycle.state === "shutdown")
+          continue;
         const close = closeHandles.get(id);
         cancelAskInternal(id, "session handles released");
         closeHandles.delete(id);
@@ -1530,11 +1682,15 @@ export function createSubAgentSessionStore(
           s.retained = false;
         });
         if (close !== undefined) {
-          pendingCloses.push(invokeCloseBounded(close, DEFAULT_CLOSE_DEADLINE_MS));
+          pendingCloses.push(
+            invokeCloseBounded(close, DEFAULT_CLOSE_DEADLINE_MS),
+          );
         }
       }
       const results = await Promise.allSettled(pendingCloses);
-      const failures = results.flatMap((r) => (r.status === "rejected" ? [r.reason] : []));
+      const failures = results.flatMap((r) =>
+        r.status === "rejected" ? [r.reason] : [],
+      );
       if (failures.length === 1) throw failures[0];
       if (failures.length > 1) {
         throw new AggregateError(failures, "session cancelAll close failed");
@@ -1555,7 +1711,11 @@ export function createSubAgentSessionStore(
       } else pinCounts.set(id, next);
     },
 
-    attachReport(id: string, report: string, opts?: { stopReason?: ForcedStopReason }): void {
+    attachReport(
+      id: string,
+      report: string,
+      opts?: { stopReason?: ForcedStopReason },
+    ): void {
       mutate(id, (session) => {
         const state = session.lifecycle.state;
         if (state === "completed" || state === "failed") {
@@ -1566,16 +1726,26 @@ export function createSubAgentSessionStore(
           session.lifecycle = { state: "interrupted", report };
           session.report = report;
           session.finishedAt = session.finishedAt ?? now();
-          if (opts?.stopReason !== undefined) session.stopReason = opts.stopReason;
-          pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
+          if (opts?.stopReason !== undefined)
+            session.stopReason = opts.stopReason;
+          pushEntry(session, {
+            kind: "report",
+            content: capText(report, maxEntryChars),
+          });
         } else if (
-          (state === "cancelled" || state === "interrupted" || state === "shutdown") &&
+          (state === "cancelled" ||
+            state === "interrupted" ||
+            state === "shutdown") &&
           session.report === undefined
         ) {
           session.report = report;
           session.lifecycle = { ...session.lifecycle, report };
-          if (opts?.stopReason !== undefined) session.stopReason = opts.stopReason;
-          pushEntry(session, { kind: "report", content: capText(report, maxEntryChars) });
+          if (opts?.stopReason !== undefined)
+            session.stopReason = opts.stopReason;
+          pushEntry(session, {
+            kind: "report",
+            content: capText(report, maxEntryChars),
+          });
         }
         runInFlight.delete(id);
         pruneCompleted();
@@ -1608,7 +1778,8 @@ export function createSubAgentSessionStore(
       // CL-7001: invoke every registered close (best-effort, fire-and-forget)
       // before dropping the maps — this used to drop closeHandles without
       // calling them, leaking every retained session's agent permanently.
-      for (const id of pendingAsks.keys()) cancelAskInternal(id, "store cleared");
+      for (const id of pendingAsks.keys())
+        cancelAskInternal(id, "store cleared");
       for (const id of closeHandles.keys()) releaseHandles(id);
       cancelHandles.clear();
       closeHandles.clear();
@@ -1626,7 +1797,10 @@ export function createSubAgentSessionStore(
   };
 }
 
-function cloneSession(session: StoredSession, inFlight: boolean): SubAgentSession {
+function cloneSession(
+  session: StoredSession,
+  inFlight: boolean,
+): SubAgentSession {
   return {
     id: session.id,
     description: session.description,
@@ -1645,11 +1819,17 @@ function cloneSession(session: StoredSession, inFlight: boolean): SubAgentSessio
     lifecycleStatus: projectLifecycleStatus(session.lifecycle),
     runInFlight: inFlight,
     ...(session.retained !== undefined ? { retained: session.retained } : {}),
-    ...(session.finishedAt !== undefined ? { finishedAt: session.finishedAt } : {}),
+    ...(session.finishedAt !== undefined
+      ? { finishedAt: session.finishedAt }
+      : {}),
     ...(session.report !== undefined ? { report: session.report } : {}),
     ...(session.error !== undefined ? { error: session.error } : {}),
-    ...(session.stopReason !== undefined ? { stopReason: session.stopReason } : {}),
-    ...(session.parentSessionId !== undefined ? { parentSessionId: session.parentSessionId } : {}),
+    ...(session.stopReason !== undefined
+      ? { stopReason: session.stopReason }
+      : {}),
+    ...(session.parentSessionId !== undefined
+      ? { parentSessionId: session.parentSessionId }
+      : {}),
     ...(session.provider !== undefined ? { provider: session.provider } : {}),
   };
 }

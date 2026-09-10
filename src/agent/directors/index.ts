@@ -28,4 +28,7 @@ export {
   formatDirectorSystemPrompt,
 } from "./identity.js";
 
-export { formatBakedOptionalSkills, loadBakedSkillBody } from "./bake-skills.js";
+export {
+  formatBakedOptionalSkills,
+  loadBakedSkillBody,
+} from "./bake-skills.js";

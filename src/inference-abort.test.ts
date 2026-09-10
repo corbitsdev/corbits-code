@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { isNonTerminalInferenceError } from "./inference-abort.js";
 
-const HTML_503 = "<!DOCTYPE html><html><body>503 Service Unavailable</body></html>";
+const HTML_503 =
+  "<!DOCTYPE html><html><body>503 Service Unavailable</body></html>";
 
 describe("isNonTerminalInferenceError", () => {
   test("gateway HTML protocol_mismatch is non-terminal", () => {

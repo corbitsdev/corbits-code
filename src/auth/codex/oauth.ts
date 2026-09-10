@@ -39,7 +39,9 @@ export function buildAuthorizeUrl(pkce: Pkce, state: string): string {
 // Only the payload segment is read; the signature is not verified here because
 // the token came straight from the authorization server over TLS and is used
 // solely to label the account, not to authorize anything.
-export function accountIdFromIdToken(idToken: string | undefined): string | undefined {
+export function accountIdFromIdToken(
+  idToken: string | undefined,
+): string | undefined {
   if (idToken === undefined) return undefined;
   const payload = idToken.split(".")[1];
   if (payload === undefined) return undefined;
@@ -83,12 +85,18 @@ export async function exchangeCode(
   verifier: string,
   now: number,
 ): Promise<CodexTokens> {
-  return tokensFromResponse(await exchangeSharedCode(codexOAuthConfig, code, verifier), now);
+  return tokensFromResponse(
+    await exchangeSharedCode(codexOAuthConfig, code, verifier),
+    now,
+  );
 }
 
 // Mint a fresh access token from a refresh token. Carries the prior refresh
 // token forward if the server does not rotate it.
-export async function refreshTokens(refreshToken: string, now: number): Promise<CodexTokens> {
+export async function refreshTokens(
+  refreshToken: string,
+  now: number,
+): Promise<CodexTokens> {
   return tokensFromResponse(
     await refreshTokenRequest(codexOAuthConfig, refreshToken),
     now,

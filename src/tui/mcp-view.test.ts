@@ -11,7 +11,12 @@ import { withTestRenderer, type Harness } from "./harness";
 import { mcpStructuredView, toolResultRow } from "./mcp-view";
 import { appendStreamRow } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
-import { isCollapsibleRow, isMarkdownRow, isStructuredRow, type StreamRow } from "./stream";
+import {
+  isCollapsibleRow,
+  isMarkdownRow,
+  isStructuredRow,
+  type StreamRow,
+} from "./stream";
 
 const WIDE = { width: 100, height: 24 } as const;
 
@@ -67,8 +72,18 @@ describe("mcpStructuredView", () => {
     const view = mcpStructuredView("mcp__linear__list_projects", LIST);
     expect(view).not.toBeNull();
     const cells = view?.cells ?? [];
-    expect(cells[0]?.map((c) => c.text)).toEqual(["#", "Name", "Status", "Priority"]);
-    expect(cells[1]?.map((c) => c.text)).toEqual(["1", "Alpha", "In Progress", "urgent"]);
+    expect(cells[0]?.map((c) => c.text)).toEqual([
+      "#",
+      "Name",
+      "Status",
+      "Priority",
+    ]);
+    expect(cells[1]?.map((c) => c.text)).toEqual([
+      "1",
+      "Alpha",
+      "In Progress",
+      "urgent",
+    ]);
     expect(cells[2]?.[2]).toEqual({ text: "Done", tone: "success" });
     expect(cells[1]?.[3]?.tone).toBe("danger");
   });
@@ -86,7 +101,8 @@ describe("mcpStructuredView", () => {
     expect(mcpStructuredView("bash", LIST)).toBeNull();
     expect(mcpStructuredView("mcp__linear__ping", "just text")).toBeNull();
     expect(
-      toolResultRow({ name: "mcp__linear__x", content: LIST, isError: true }).structured,
+      toolResultRow({ name: "mcp__linear__x", content: LIST, isError: true })
+        .structured,
     ).toBeUndefined();
   });
 
@@ -134,7 +150,9 @@ describe("structured transcript rows", () => {
       expect(frame).toContain("2026-01-31");
       expect(frame).not.toContain("abc123");
       expect(columnOf(frame, "Status")).toBe(columnOf(frame, "Target Date"));
-      expect(columnOf(frame, "In Progress")).toBe(columnOf(frame, "2026-01-31"));
+      expect(columnOf(frame, "In Progress")).toBe(
+        columnOf(frame, "2026-01-31"),
+      );
     }, WIDE);
   });
 });
@@ -154,9 +172,16 @@ const SCHEMA = JSON.stringify(
 const CATALOGUE = [
   "These tools are available — you can call them now:",
   "",
-  ...["mcp__linear__list_issues", "mcp__linear__get_issue", "mcp__railway__deploy"].flatMap(
-    (name) => [`- ${name}: does a thing`, "  input schema:", SCHEMA, ""],
-  ),
+  ...[
+    "mcp__linear__list_issues",
+    "mcp__linear__get_issue",
+    "mcp__railway__deploy",
+  ].flatMap((name) => [
+    `- ${name}: does a thing`,
+    "  input schema:",
+    SCHEMA,
+    "",
+  ]),
 ].join("\n");
 
 /** Plain text of whatever a row hides behind the expand key. */
@@ -190,14 +215,20 @@ describe("collapsed tool results", () => {
   });
 
   test("an MCP list collapses to the count and the noun, not the query", () => {
-    const row = toolResultRow({ name: "mcp__linear__list_projects", content: LIST });
+    const row = toolResultRow({
+      name: "mcp__linear__list_projects",
+      content: LIST,
+    });
     expect(row.summary).toBe("Grabbed 2 Linear projects");
     expect(isCollapsibleRow(row)).toBe(true);
     expect(row.structured).toBeDefined();
   });
 
   test("a single record collapses to the thing, named", () => {
-    const row = toolResultRow({ name: "mcp__linear__get_project", content: RECORD });
+    const row = toolResultRow({
+      name: "mcp__linear__get_project",
+      content: RECORD,
+    });
     expect(row.summary).toBe("Read Linear project Alpha");
   });
 
@@ -263,7 +294,11 @@ describe("collapsed tool results", () => {
   test("an MCP call's arguments live behind the expand key, not in its header", () => {
     const row = toolCallRow({
       name: "mcp__linear__list_issues",
-      arguments: JSON.stringify({ assignee: "me", limit: 30, orderBy: "updatedAt" }),
+      arguments: JSON.stringify({
+        assignee: "me",
+        limit: 30,
+        orderBy: "updatedAt",
+      }),
     });
     expect(row.verb).toBe("Linear: List Issues");
     expect(row.summary).toBe("");

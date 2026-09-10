@@ -16,9 +16,11 @@
 /** True when `event` is the turn boundary — fires once per turn, every turn. */
 export const onTurnBoundary = <E extends { type: string }>(
   event: E,
-): event is Extract<E, { type: "inference.done" }> => event.type === "inference.done";
+): event is Extract<E, { type: "inference.done" }> =>
+  event.type === "inference.done";
 
 /** True when `event` is reactor shutdown — fires once, at the end of the run. */
 export const onReactorShutdown = <E extends { type: string }>(
   event: E,
-): event is Extract<E, { type: "reactor.done" }> => event.type === "reactor.done";
+): event is Extract<E, { type: "reactor.done" }> =>
+  event.type === "reactor.done";

@@ -17,7 +17,9 @@ export function mcpToolName(serverName: string, toolName: string): string {
   return `${mcpToolPrefix(serverName)}${toolName}`;
 }
 
-export function parseMcpToolName(name: string): { server: string; tool: string } | null {
+export function parseMcpToolName(
+  name: string,
+): { server: string; tool: string } | null {
   if (!isMcpToolName(name)) return null;
   const rest = name.slice(MCP_PREFIX.length);
   const sep = rest.indexOf("__");
@@ -41,9 +43,17 @@ export function mcpToolWords(server: string, tool: string): string[] {
   const words = tool.split("_").filter((word) => word.length > 0);
   const last = words[words.length - 1];
   const first = words[0];
-  if (words.length > 1 && last !== undefined && last.toLowerCase() === server.toLowerCase()) {
+  if (
+    words.length > 1 &&
+    last !== undefined &&
+    last.toLowerCase() === server.toLowerCase()
+  ) {
     words.pop();
-  } else if (words.length > 1 && first !== undefined && first.toLowerCase() === server.toLowerCase()) {
+  } else if (
+    words.length > 1 &&
+    first !== undefined &&
+    first.toLowerCase() === server.toLowerCase()
+  ) {
     words.shift();
   }
   return words;
@@ -55,7 +65,9 @@ export function humanizeMcpTool(name: string): string {
   const parsed = parseMcpToolName(name);
   if (parsed === null) return name;
   const server = titleCase(parsed.server);
-  const tool = mcpToolWords(parsed.server, parsed.tool).map(titleCase).join(" ");
+  const tool = mcpToolWords(parsed.server, parsed.tool)
+    .map(titleCase)
+    .join(" ");
   return `${server}: ${tool}`;
 }
 
@@ -101,7 +113,10 @@ const MCP_READ_ONLY_TOOL_PREFIXES = [
   "fetch_",
 ] as const;
 
-function mcpToolSegmentMatchesPrefix(segment: string, prefixes: readonly string[]): boolean {
+function mcpToolSegmentMatchesPrefix(
+  segment: string,
+  prefixes: readonly string[],
+): boolean {
   return prefixes.some((prefix) => segment.startsWith(prefix));
 }
 
@@ -110,6 +125,7 @@ export function isReadOnlyMcpTool(name: string): boolean {
   const parsed = parseMcpToolName(name);
   if (parsed === null) return false;
   const segment = parsed.tool;
-  if (mcpToolSegmentMatchesPrefix(segment, MCP_MUTATING_TOOL_PREFIXES)) return false;
+  if (mcpToolSegmentMatchesPrefix(segment, MCP_MUTATING_TOOL_PREFIXES))
+    return false;
   return mcpToolSegmentMatchesPrefix(segment, MCP_READ_ONLY_TOOL_PREFIXES);
 }

@@ -5,8 +5,14 @@ import { join } from "node:path";
 import { type Agent } from "@intx/agent";
 import { getLogger } from "@intx/log";
 import { type Config } from "../config/index.js";
-import { shellTimeoutFromSettings, toolWatchdogFromSettings } from "../config/settings.js";
-import { codexProfileFromProviderName, isCodexProviderName } from "../config/codex-providers.js";
+import {
+  shellTimeoutFromSettings,
+  toolWatchdogFromSettings,
+} from "../config/settings.js";
+import {
+  codexProfileFromProviderName,
+  isCodexProviderName,
+} from "../config/codex-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
@@ -15,7 +21,10 @@ import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import { type ToolAvailability } from "../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
-import { resolveSessionMode, type SessionMode } from "../config/session-mode.js";
+import {
+  resolveSessionMode,
+  type SessionMode,
+} from "../config/session-mode.js";
 import {
   createSubAgentSessionStore,
   type SubAgentProvider,
@@ -23,11 +32,22 @@ import {
 } from "../subagent/index.js";
 import { getProcessAdmissionQueue } from "../subagent/admission.js";
 import { awaitCloseWithoutHidingLeftover } from "../subagent/dispose.js";
-import type { ContextStore, InferenceSource, InboundMessage } from "@intx/types/runtime";
+import type {
+  ContextStore,
+  InferenceSource,
+  InboundMessage,
+} from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
-import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js";
-import { createAgentToolset, type AgentToolset, type OperatorResult } from "../agent/tools.js";
+import type {
+  ApprovalOutcome,
+  PermissionRequest,
+} from "../permission/types.js";
+import {
+  createAgentToolset,
+  type AgentToolset,
+  type OperatorResult,
+} from "../agent/tools.js";
 import { liveTelemetry } from "../telemetry/singleton.js";
 import {
   CREDENTIAL_FAILURE_USER_MESSAGE,
@@ -35,8 +55,14 @@ import {
   terminalProviderFailureMessage,
 } from "../inference-error-message.js";
 import type { InferenceErrorLike } from "../inference-gateway-error.js";
-import { collectToolPlugins, resolveToolPlugins } from "../plugins/tool-plugins.js";
-import { formatExpandSkip, type ExpandPluginPathSkip } from "../plugins/loader.js";
+import {
+  collectToolPlugins,
+  resolveToolPlugins,
+} from "../plugins/tool-plugins.js";
+import {
+  formatExpandSkip,
+  type ExpandPluginPathSkip,
+} from "../plugins/loader.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import {
   generateSessionId,
@@ -45,8 +71,15 @@ import {
   sessionDir,
 } from "../session/index.js";
 import { setActiveRun } from "../session/active-run.js";
-import { setActiveDisposeHost, clearActiveDisposeHost } from "../session/active-host.js";
-import { finalizeRunState, saveState, type ConnectedMcpServer } from "../session/state.js";
+import {
+  setActiveDisposeHost,
+  clearActiveDisposeHost,
+} from "../session/active-host.js";
+import {
+  finalizeRunState,
+  saveState,
+  type ConnectedMcpServer,
+} from "../session/state.js";
 import { resolveExecRunStatus, type RunSink } from "../session/run-sink.js";
 import { createRunSummary } from "../session/hooks.js";
 import {
@@ -86,7 +119,9 @@ export function formatCaughtError(err: unknown): string {
 
 const SELECTED_PROVIDER_FAILURE = "SelectedProviderFailure";
 
-export async function refreshSelectedProviderCredential<T>(refresh: () => Promise<T>): Promise<T> {
+export async function refreshSelectedProviderCredential<T>(
+  refresh: () => Promise<T>,
+): Promise<T> {
   try {
     return await refresh();
   } catch (cause) {
@@ -117,7 +152,8 @@ export function execUserFailureMessage(
   if (err instanceof Error && err.name === SELECTED_PROVIDER_FAILURE) {
     return CREDENTIAL_FAILURE_USER_MESSAGE;
   }
-  if (providerError === undefined && isResolvedProviderFailureError(err)) return err.message;
+  if (providerError === undefined && isResolvedProviderFailureError(err))
+    return err.message;
   if (providerFailureObserved || isResolvedProviderFailureError(err)) {
     const diagnostic = providerError ?? {
       category: "fatal",
@@ -207,7 +243,9 @@ export interface ExecDirectorOverlay {
   mountFleet: boolean;
 }
 
-export function resolveExecDirectorOverlay(director: DirectorId | undefined): ExecDirectorOverlay {
+export function resolveExecDirectorOverlay(
+  director: DirectorId | undefined,
+): ExecDirectorOverlay {
   if (director === undefined || director === "skywalker") {
     return { mountFleet: true };
   }
@@ -309,13 +347,20 @@ export async function runExec(config: Config): Promise<ExecResult> {
       durationMs: 0,
       turnsUsed: 0,
       toolCallCount: 0,
-      tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      tokenUsage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
       provider: config.providerName,
       model: config.model,
     };
   }
 
-  const sessionId = config.sessionId.length > 0 ? config.sessionId : generateSessionId();
+  const sessionId =
+    config.sessionId.length > 0 ? config.sessionId : generateSessionId();
   const startedAt = Date.now();
   const workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
@@ -365,11 +410,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
     await write.catch((err: unknown) => {
       // Persistence failure must not fail the run, but dropping it silently
       // hides disk/permission problems that leave run.json stale.
-      logger.warn("saveState failed for session {sessionId} status={status}: {error}", {
-        sessionId,
-        status,
-        error: formatCaughtError(err),
-      });
+      logger.warn(
+        "saveState failed for session {sessionId} status={status}: {error}",
+        {
+          sessionId,
+          status,
+          error: formatCaughtError(err),
+        },
+      );
     });
   };
 
@@ -400,7 +448,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const pluginLoadDiag = sessionTrust.diagnostics;
     emitPluginWarningSummary(pluginLoadDiag, (line) => logger.warn(line));
     // Metadata-only (untrusted) modules stay out of executable plugins.
-    const executablePlugins = () => pluginModules.filter((m) => m.metadataOnly !== true);
+    const executablePlugins = () =>
+      pluginModules.filter((m) => m.metadataOnly !== true);
     const pluginConfig = config.settings?.plugins ?? {};
 
     const toolPluginCandidates = collectToolPlugins(executablePlugins());
@@ -409,7 +458,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
       pluginConfig,
     });
 
-    const skillDirs = skillDirsFromEnabledPlugins(executablePlugins(), pluginConfig);
+    const skillDirs = skillDirsFromEnabledPlugins(
+      executablePlugins(),
+      pluginConfig,
+    );
 
     const profilesDir = join(config.cwd, ".agents", "agents");
     const liveAgentProfiles = await loadAgentProfiles(profilesDir);
@@ -425,7 +477,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       },
     });
     const sessionMode: SessionMode =
-      resolveSessionMode(config.settings, localSettingsForMode) ?? "orchestrator";
+      resolveSessionMode(config.settings, localSettingsForMode) ??
+      "orchestrator";
 
     const interactive = input.isTTY === true && output.isTTY === true;
 
@@ -484,7 +537,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       isCodex: isCodexProviderName(config.providerName),
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
-      ...(localSettingsForMode?.env !== undefined ? { shellEnv: localSettingsForMode.env } : {}),
+      ...(localSettingsForMode?.env !== undefined
+        ? { shellEnv: localSettingsForMode.env }
+        : {}),
       getBlobWriter: () => currentStorage?.writeBlob,
       getContextDir: () => workdir,
       // Background run_shell completions re-enter the reactor on a later turn.
@@ -500,10 +555,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
       isWorkflowActive: () => workflowHostHolder.instance?.isActive() === true,
       completeWorkflowStep: (stepId) =>
         workflowHostHolder.instance?.complete(stepId) ?? "not-current",
-      onOperatorGate: (question, options) => promptOperator(question, options, interactive),
+      onOperatorGate: (question, options) =>
+        promptOperator(question, options, interactive),
       sessionMode,
       toolAvailability,
-      ...(config.mcpServers !== undefined ? { mcpServers: config.mcpServers } : {}),
+      ...(config.mcpServers !== undefined
+        ? { mcpServers: config.mcpServers }
+        : {}),
       mcpServersSource: config.mcpServersSource ?? "none",
       projectTrust,
       requestMcpTrust: async (server) => {
@@ -527,7 +585,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
               sessions: fleetSessions,
               getWorkdirBase: () => sessionDir(config.cwd, sessionId),
               onProgress: () => undefined,
-              ...(subAgentSettings !== undefined ? { settings: () => subAgentSettings } : {}),
+              ...(subAgentSettings !== undefined
+                ? { settings: () => subAgentSettings }
+                : {}),
               catalog: () => config.providers,
               profiles: () => liveAgentProfiles,
             },
@@ -536,7 +596,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     });
     toolset = agentToolset;
-    setActiveDisposeHost(() => disposeExecRuntime({ agent, toolset, subAgentSessions }));
+    setActiveDisposeHost(() =>
+      disposeExecRuntime({ agent, toolset, subAgentSessions }),
+    );
 
     const systemPrompt =
       overlay.systemPrompt ??
@@ -553,7 +615,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
         })
       ).systemPrompt;
 
-    const initialCodexProfile = codexProfileFromProviderName(config.providerName);
+    const initialCodexProfile = codexProfileFromProviderName(
+      config.providerName,
+    );
     const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
     const initialBundle = resolveLiveSessionSources(config, sessionId);
     const liveSources = initialBundle.sources;
@@ -589,12 +653,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     });
     const liveCompactionMode = config.settings?.compactionMode ?? "llm";
 
-    const { activated: activatedToolNames, computeAdvertised } = createAdvertisedToolset({
-      sessionMode,
-      toolAvailability,
-      getProvider: () => config,
-      builtInPrefix: overlay.advertisedAllow,
-    });
+    const { activated: activatedToolNames, computeAdvertised } =
+      createAdvertisedToolset({
+        sessionMode,
+        toolAvailability,
+        getProvider: () => config,
+        builtInPrefix: overlay.advertisedAllow,
+      });
 
     const { directorHolder, buildAgent } = assembleChatAgent({
       toolsId: `${ID_PREFIX}/exec-tools`,
@@ -629,7 +694,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
           s.id === liveSource.id ? { ...s, apiKey: liveSource.apiKey } : s,
         );
       },
-      getDefaultSource: () => (liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id),
+      getDefaultSource: () =>
+        liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id,
       getCompactor: () =>
         createSessionPruningCompactor({
           compactionMode: liveCompactionMode,
@@ -686,7 +752,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
             }
           },
           onToolsChanged: (definitions) =>
-            directorHolder.instance?.updateToolDefinitions(computeAdvertised(definitions)),
+            directorHolder.instance?.updateToolDefinitions(
+              computeAdvertised(definitions),
+            ),
         })
         .catch((err: unknown) => {
           logger.warn("MCP connect failed: {error}", {
@@ -710,7 +778,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
         providerError = {
           category: error.category,
           ...(error.message !== undefined ? { message: error.message } : {}),
-          ...(error.statusCode !== undefined ? { statusCode: error.statusCode } : {}),
+          ...(error.statusCode !== undefined
+            ? { statusCode: error.statusCode }
+            : {}),
           ...("providerId" in error && typeof error.providerId === "string"
             ? { providerId: error.providerId }
             : {}),
@@ -777,14 +847,20 @@ export async function runExec(config: Config): Promise<ExecResult> {
         // dispose is a no-op on success and a real record only if a cycle
         // died without a terminal event.
         await activeAgent.close().catch((err: unknown) => {
-          logger.debug("agent.close during successful-send teardown failed: {error}", {
-            error: formatCaughtError(err),
-          });
+          logger.debug(
+            "agent.close during successful-send teardown failed: {error}",
+            {
+              error: formatCaughtError(err),
+            },
+          );
         });
         await streamPromise.catch((err: unknown) => {
-          logger.debug("stream drain during successful-send teardown failed: {error}", {
-            error: formatCaughtError(err),
-          });
+          logger.debug(
+            "stream drain during successful-send teardown failed: {error}",
+            {
+              error: formatCaughtError(err),
+            },
+          );
         });
         await cycleRecorder.dispose("cancelled");
       } else {
@@ -792,16 +868,24 @@ export async function runExec(config: Config): Promise<ExecResult> {
         // the dead cycle's inference.error is delivered, so dispose (which
         // snapshots the buffer at entry) runs before closing or the text is
         // lost.
-        await cycleRecorder.dispose(sendCompleted ? "cancelled" : "send-failed");
+        await cycleRecorder.dispose(
+          sendCompleted ? "cancelled" : "send-failed",
+        );
         await activeAgent.close().catch((err: unknown) => {
-          logger.debug("agent.close during failed-send teardown failed: {error}", {
-            error: formatCaughtError(err),
-          });
+          logger.debug(
+            "agent.close during failed-send teardown failed: {error}",
+            {
+              error: formatCaughtError(err),
+            },
+          );
         });
         await streamPromise.catch((err: unknown) => {
-          logger.debug("stream drain during failed-send teardown failed: {error}", {
-            error: formatCaughtError(err),
-          });
+          logger.debug(
+            "stream drain during failed-send teardown failed: {error}",
+            {
+              error: formatCaughtError(err),
+            },
+          );
         });
       }
     }
@@ -840,19 +924,29 @@ export async function runExec(config: Config): Promise<ExecResult> {
       stderr.write(`Warning: post-run hook failed: ${message}\n`);
     });
 
-    if (!sendCompleted || runError !== undefined || summaryStatus === "failed") {
+    if (
+      !sendCompleted ||
+      runError !== undefined ||
+      summaryStatus === "failed"
+    ) {
       const diagnosticMessage =
         runError ??
-        (summaryStatus === "cancelled" ? "run cancelled before completion" : "run failed");
+        (summaryStatus === "cancelled"
+          ? "run cancelled before completion"
+          : "run failed");
       const userMessage =
         summaryStatus === "failed"
           ? execTerminalProviderFailureMessage(
               config,
-              providerError ?? { category: "unknown", message: diagnosticMessage },
+              providerError ?? {
+                category: "unknown",
+                message: diagnosticMessage,
+              },
             )
           : diagnosticMessage;
       stderr.write(`Error: ${userMessage}\n`);
-      const persistStatus = summaryStatus === "cancelled" ? "cancelled" : "failed";
+      const persistStatus =
+        summaryStatus === "cancelled" ? "cancelled" : "failed";
       await persist(persistStatus, { error: diagnosticMessage });
       result = {
         exitCode: 1,
@@ -887,7 +981,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
   } catch (err) {
     const diagnosticMessage = formatCaughtError(err);
     logger.error("exec failed: {error}", { error: diagnosticMessage });
-    const userMessage = execUserFailureMessage(config, err, providerFailureObserved, providerError);
+    const userMessage = execUserFailureMessage(
+      config,
+      err,
+      providerFailureObserved,
+      providerError,
+    );
     stderr.write(`Error: ${userMessage}\n`);
     await persist("failed", { error: diagnosticMessage });
     result = {
@@ -899,7 +998,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
       durationMs: Date.now() - startedAt,
       turnsUsed: runSink?.getTurnCount() ?? turnsUsed,
       toolCallCount: 0,
-      tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      tokenUsage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
       provider: config.providerName,
       model: config.model,
     };
@@ -957,9 +1062,12 @@ async function promptPermission(
   if (budget === undefined) {
     // Every exec tool call runs under the watchdog ALS; an absent store means
     // the gate fired outside a tool run or the ALS context was lost.
-    logger.warn("permission prompt reached with no tool budget in ALS for {tool}", {
-      tool: request.tool,
-    });
+    logger.warn(
+      "permission prompt reached with no tool budget in ALS for {tool}",
+      {
+        tool: request.tool,
+      },
+    );
   }
   const pauseToken = budget?.waitForApproval ? budget.pause() : undefined;
   const summary = `${request.tool}: ${request.subject}`;

@@ -21,7 +21,10 @@ function agentModule(
 const validProfile = {
   id: "scout",
   description: "Repository exploration sub-agent",
-  capabilities: { mode: "allow" as const, tools: ["read_file", "search_files", "grep"] },
+  capabilities: {
+    mode: "allow" as const,
+    tools: ["read_file", "search_files", "grep"],
+  },
   systemPromptRole: "You explore repositories.",
 };
 
@@ -34,7 +37,9 @@ describe("resolveAgentPluginProfiles", () => {
   });
 
   test("skips profiles from disabled plugins", async () => {
-    const { mod, config } = agentModule("p1", [validProfile], { enabled: false });
+    const { mod, config } = agentModule("p1", [validProfile], {
+      enabled: false,
+    });
     expect(await resolveAgentPluginProfiles([mod], config)).toEqual([]);
   });
 
@@ -43,14 +48,18 @@ describe("resolveAgentPluginProfiles", () => {
       manifest: { id: "cmd", name: "cmd", kind: "command" },
       agentPlugin: { agents: [validProfile] },
     };
-    expect(await resolveAgentPluginProfiles([mod], { cmd: { enabled: true } })).toEqual([]);
+    expect(
+      await resolveAgentPluginProfiles([mod], { cmd: { enabled: true } }),
+    ).toEqual([]);
   });
 
   test("ignores agent-kind modules with no agentPlugin export", async () => {
     const mod: PluginModule = {
       manifest: { id: "empty", name: "empty", kind: "agent" },
     };
-    expect(await resolveAgentPluginProfiles([mod], { empty: { enabled: true } })).toEqual([]);
+    expect(
+      await resolveAgentPluginProfiles([mod], { empty: { enabled: true } }),
+    ).toEqual([]);
   });
 
   test("skips malformed profiles, keeps valid ones", async () => {
@@ -67,18 +76,29 @@ describe("resolveAgentPluginProfiles", () => {
   test("collects from multiple plugins and flattens", async () => {
     const a = agentModule("p1", [validProfile]);
     const b = agentModule("p2", [
-      { id: "reviewer", description: "Code reviewer", systemPromptRole: "You review code." },
+      {
+        id: "reviewer",
+        description: "Code reviewer",
+        systemPromptRole: "You review code.",
+      },
     ]);
-    const profiles = await resolveAgentPluginProfiles([a.mod, b.mod], { ...a.config, ...b.config });
+    const profiles = await resolveAgentPluginProfiles([a.mod, b.mod], {
+      ...a.config,
+      ...b.config,
+    });
     expect(profiles.map((p) => p.id).sort()).toEqual(["reviewer", "scout"]);
   });
 
   test("profiles from a non-array agents field are skipped", async () => {
     const mod: PluginModule = {
       manifest: { id: "bad", name: "bad", kind: "agent" },
-      agentPlugin: { agents: "not-an-array" } as unknown as { agents: unknown[] },
+      agentPlugin: { agents: "not-an-array" } as unknown as {
+        agents: unknown[];
+      },
     };
-    expect(await resolveAgentPluginProfiles([mod], { bad: { enabled: true } })).toEqual([]);
+    expect(
+      await resolveAgentPluginProfiles([mod], { bad: { enabled: true } }),
+    ).toEqual([]);
   });
 
   test("stamps plugin:<id> source for ordinary plugins", async () => {
@@ -121,7 +141,9 @@ describe("resolveAgentPluginProfiles", () => {
       agentPlugin: { agents: [validProfile] },
       origin: "repo",
     };
-    expect(await resolveAgentPluginProfiles([mod], { p1: { enabled: false } })).toEqual([]);
+    expect(
+      await resolveAgentPluginProfiles([mod], { p1: { enabled: false } }),
+    ).toEqual([]);
   });
 
   test("skips profiles whose id collides with a closed DIRECTOR_IDS entry", async () => {
@@ -139,13 +161,19 @@ describe("resolveAgentPluginProfiles", () => {
         systemPromptRole: "Should be skipped.",
       },
     ]);
-    const profiles = await resolveAgentPluginProfiles([mod], config, (msg) => warnings.push(msg));
+    const profiles = await resolveAgentPluginProfiles([mod], config, (msg) =>
+      warnings.push(msg),
+    );
     expect(profiles.map((p) => p.id)).toEqual(["scout"]);
-    expect(warnings.some((w) => w.includes('agent "explorer"') && w.includes("reserved"))).toBe(
-      true,
-    );
-    expect(warnings.some((w) => w.includes('agent "builder"') && w.includes("reserved"))).toBe(
-      true,
-    );
+    expect(
+      warnings.some(
+        (w) => w.includes('agent "explorer"') && w.includes("reserved"),
+      ),
+    ).toBe(true);
+    expect(
+      warnings.some(
+        (w) => w.includes('agent "builder"') && w.includes("reserved"),
+      ),
+    ).toBe(true);
   });
 });

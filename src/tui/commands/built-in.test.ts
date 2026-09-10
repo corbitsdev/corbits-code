@@ -48,7 +48,9 @@ describe("/connect command", () => {
   });
 
   it("requests the add-provider overlay", () => {
-    expect(defined(getCommand("connect"), "connect").handler("", makeCtx())).toEqual({
+    expect(
+      defined(getCommand("connect"), "connect").handler("", makeCtx()),
+    ).toEqual({
       type: "overlay",
       overlay: "add-provider",
     });
@@ -57,7 +59,10 @@ describe("/connect command", () => {
 
 describe("MCP commands", () => {
   it("registers /mcp for the overlay and does not register /mcps", () => {
-    expect(getCommand("mcp")?.handler("", makeCtx())).toEqual({ type: "overlay", overlay: "mcp" });
+    expect(getCommand("mcp")?.handler("", makeCtx())).toEqual({
+      type: "overlay",
+      overlay: "mcp",
+    });
     expect(getCommand("mcps")).toBeUndefined();
   });
 });
@@ -75,7 +80,9 @@ describe("/status command", () => {
   });
 
   it("says so rather than throwing when no fleet source is wired", () => {
-    expect(defined(getCommand("status"), "status").handler("", makeCtx())).toEqual({
+    expect(
+      defined(getCommand("status"), "status").handler("", makeCtx()),
+    ).toEqual({
       type: "message",
       text: "Fleet status is not available in this session.",
     });
@@ -166,7 +173,9 @@ describe("/model command", () => {
   });
 
   it("opens the agent configuration modal", () => {
-    expect(defined(getCommand("model"), "model").handler("", makeCtx())).toEqual({ type: "modal", modal: "agent" });
+    expect(
+      defined(getCommand("model"), "model").handler("", makeCtx()),
+    ).toEqual({ type: "modal", modal: "agent" });
   });
 
   it("/agent alias is not registered", () => {
@@ -178,7 +187,10 @@ describe("/clear command", () => {
   it("returns a local message and does not send to the agent", () => {
     const ctx = makeCtx();
     const result = defined(getCommand("clear"), "clear").handler("", ctx);
-    expect(result).toEqual({ type: "message", text: "Started a fresh session." });
+    expect(result).toEqual({
+      type: "message",
+      text: "Started a fresh session.",
+    });
   });
 
   it("calls signalClear", () => {
@@ -196,7 +208,10 @@ describe("/new command", () => {
   it("returns a local message and does not send to the agent", () => {
     const ctx = makeCtx();
     const result = defined(getCommand("new"), "new").handler("", ctx);
-    expect(result).toEqual({ type: "message", text: "Started a fresh session." });
+    expect(result).toEqual({
+      type: "message",
+      text: "Started a fresh session.",
+    });
   });
 
   it("calls signalClear", () => {
@@ -261,7 +276,9 @@ describe("/feedback command", () => {
         armed = true;
       },
     };
-    expect(defined(getCommand("feedback"), "feedback").handler("", ctx)).toEqual({
+    expect(
+      defined(getCommand("feedback"), "feedback").handler("", ctx),
+    ).toEqual({
       type: "message",
       text: "Please share your feedback. When done please hit enter. (Empty Enter cancels.)",
     });
@@ -277,7 +294,9 @@ describe("/feedback command", () => {
         return "Thanks — feedback sent.";
       },
     };
-    expect(defined(getCommand("feedback"), "feedback").handler("love the TUI", ctx)).toEqual({
+    expect(
+      defined(getCommand("feedback"), "feedback").handler("love the TUI", ctx),
+    ).toEqual({
       type: "message",
       text: "Thanks — feedback sent.",
     });
@@ -285,14 +304,18 @@ describe("/feedback command", () => {
   });
 
   it("fails closed for bare /feedback when capture is not wired", () => {
-    expect(defined(getCommand("feedback"), "feedback").handler("", makeCtx())).toEqual({
+    expect(
+      defined(getCommand("feedback"), "feedback").handler("", makeCtx()),
+    ).toEqual({
       type: "message",
       text: "Feedback is not available in this mode.",
     });
   });
 
   it("explains when the feedback path is not wired", () => {
-    expect(defined(getCommand("feedback"), "feedback").handler("x", makeCtx())).toEqual({
+    expect(
+      defined(getCommand("feedback"), "feedback").handler("x", makeCtx()),
+    ).toEqual({
       type: "message",
       text: "Feedback is not available in this mode.",
     });

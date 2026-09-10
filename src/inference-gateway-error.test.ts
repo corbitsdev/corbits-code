@@ -26,7 +26,8 @@ describe("isGatewayOverloadInferenceError", () => {
     expect(
       isGatewayOverloadInferenceError({
         category: "protocol_mismatch",
-        message: "openai parseResponse: malformed JSON in SSE data payload: Unexpected token '<'",
+        message:
+          "openai parseResponse: malformed JSON in SSE data payload: Unexpected token '<'",
         raw: CLOUDFLARE_503_HTML,
       }),
     ).toBe(true);
@@ -78,7 +79,10 @@ describe("normalizeInferenceErrorForRetry", () => {
       statusCode: 429,
       raw: {
         type: "error",
-        error: { type: "GoUsageLimitError", message: "subscription quota exceeded" },
+        error: {
+          type: "GoUsageLimitError",
+          message: "subscription quota exceeded",
+        },
       },
       retryAfterMs: 60_000,
     });
@@ -93,7 +97,8 @@ describe("normalizeInferenceErrorForRetry", () => {
       statusCode: 400,
       raw: {
         error: {
-          message: "Error from provider (Console Go): Provider rate limit exceeded",
+          message:
+            "Error from provider (Console Go): Provider rate limit exceeded",
           type: "rate_limit_error",
           code: "provider_rate_limit_exceeded",
         },
@@ -151,7 +156,9 @@ describe("normalizeInferenceErrorForRetry", () => {
     });
     expect(viaRequestURL.category).toBe("retryable");
     // Bare 429 keeps the original message and appends a short retry hint.
-    expect(viaRequestURL.message.toLowerCase()).toMatch(/too many requests|rate limit/);
+    expect(viaRequestURL.message.toLowerCase()).toMatch(
+      /too many requests|rate limit/,
+    );
 
     const viaProviderId = normalizeInferenceErrorForRetry({
       ...bare,
@@ -173,7 +180,10 @@ describe("normalizeInferenceErrorForRetry", () => {
       statusCode: 403,
       raw: {
         type: "error",
-        error: { type: "GoUsageLimitError", message: "subscription usage limit reached" },
+        error: {
+          type: "GoUsageLimitError",
+          message: "subscription usage limit reached",
+        },
       },
     });
     expect(normalized.category).toBe("quota_exhausted");
@@ -224,18 +234,22 @@ describe("normalizeInferenceErrorForRetry", () => {
     });
     expect(normalized.category).toBe("quota_exhausted");
     expect(normalized.retryAfterMs).toBe(120_000);
-    expect(normalized.message.startsWith("Codex usage limit reached")).toBe(true);
+    expect(normalized.message.startsWith("Codex usage limit reached")).toBe(
+      true,
+    );
     expect(normalized.message).toContain("~2m");
   });
 
   test("does not rebrand OpenAI insufficient_quota as Codex", () => {
     const error = {
       category: "quota_exhausted" as const,
-      message: "You exceeded your current quota, please check your plan and billing details.",
+      message:
+        "You exceeded your current quota, please check your plan and billing details.",
       statusCode: 429,
       raw: {
         error: {
-          message: "You exceeded your current quota, please check your plan and billing details.",
+          message:
+            "You exceeded your current quota, please check your plan and billing details.",
           type: "insufficient_quota",
           code: "insufficient_quota",
         },
@@ -297,7 +311,8 @@ describe("normalizeInferenceErrorForRetry", () => {
       retryAfterMs: 86_400_000,
       raw: {
         error: {
-          message: "You exceeded your current quota, please check your plan and billing details.",
+          message:
+            "You exceeded your current quota, please check your plan and billing details.",
           type: "insufficient_quota",
           code: "insufficient_quota",
         },
@@ -337,7 +352,9 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(viaProviderId.category).toBe("retryable");
     expect(viaProviderId.retryAfterMs).toBe(5_000);
     expect(viaProviderId.message.toLowerCase()).toMatch(/rate limit/);
-    expect(viaProviderId.message.toLowerCase()).not.toMatch(/quota exhausted|usage limit reached/);
+    expect(viaProviderId.message.toLowerCase()).not.toMatch(
+      /quota exhausted|usage limit reached/,
+    );
   });
 
   test("known-Codex 429 with ChatGPT usage-limit prose remaps to retryable", () => {
@@ -350,7 +367,9 @@ describe("normalizeInferenceErrorForRetry", () => {
     });
     expect(normalized.category).toBe("retryable");
     expect(normalized.message.toLowerCase()).toMatch(/rate limit/);
-    expect(normalized.message.toLowerCase()).not.toMatch(/quota exhausted|usage limit reached/);
+    expect(normalized.message.toLowerCase()).not.toMatch(
+      /quota exhausted|usage limit reached/,
+    );
   });
 
   test("known-Codex 429 with empty body remaps to retryable", () => {

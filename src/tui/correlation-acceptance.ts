@@ -33,7 +33,11 @@ function correlatedMessage(data: unknown): {
   receivedCorrelationId: string | undefined;
 } {
   if (data === null || typeof data !== "object") {
-    return { correlationId: undefined, content: undefined, receivedCorrelationId: undefined };
+    return {
+      correlationId: undefined,
+      content: undefined,
+      receivedCorrelationId: undefined,
+    };
   }
   const record = data as {
     correlationId?: unknown;
@@ -43,8 +47,14 @@ function correlatedMessage(data: unknown): {
     };
   };
   return {
-    correlationId: typeof record.correlationId === "string" ? record.correlationId : undefined,
-    content: typeof record.message?.content === "string" ? record.message.content : undefined,
+    correlationId:
+      typeof record.correlationId === "string"
+        ? record.correlationId
+        : undefined,
+    content:
+      typeof record.message?.content === "string"
+        ? record.message.content
+        : undefined,
     receivedCorrelationId:
       typeof record.message?.headers?.interchangeCorrelationId === "string"
         ? record.message.headers.interchangeCorrelationId
@@ -90,7 +100,8 @@ export function createCorrelationAcceptance() {
       }
       const fields = correlatedMessage(event.data);
       if (event.type === "message.received") {
-        if (fields.receivedCorrelationId !== undefined) settle(fields.receivedCorrelationId);
+        if (fields.receivedCorrelationId !== undefined)
+          settle(fields.receivedCorrelationId);
         return;
       }
       if (event.type === "message.correlated") {

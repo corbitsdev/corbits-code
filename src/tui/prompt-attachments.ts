@@ -83,5 +83,8 @@ export function spliceMentionCompletion(
 ): MentionSplice {
   const head = value.slice(0, atStart + 1);
   const tail = value.slice(Math.max(cursor, atStart + 1));
-  return { value: `${head}${completion}${tail}`, cursor: head.length + completion.length };
+  return {
+    value: `${head}${completion}${tail}`,
+    cursor: head.length + completion.length,
+  };
 }

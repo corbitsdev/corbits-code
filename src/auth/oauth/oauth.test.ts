@@ -3,7 +3,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { baseTokensFromResponse, postToken, type OAuthClientConfig } from "./client.js";
+import {
+  baseTokensFromResponse,
+  postToken,
+  type OAuthClientConfig,
+} from "./client.js";
 import { startOAuthLogin } from "./login.js";
 import { createTokenSession } from "./session.js";
 import { createAuthStore, type AuthProfile, type BaseTokens } from "./store.js";
@@ -36,7 +40,11 @@ describe("postToken response validation", () => {
     // Regression guard: the pre-shared Codex client only checked access_token
     // was a string, so `expires_in: "soon"` survived and produced a NaN expiry
     // that never read as expired. The shared client must reject the payload.
-    stubFetch({ access_token: "tok", refresh_token: "ref", expires_in: "soon" });
+    stubFetch({
+      access_token: "tok",
+      refresh_token: "ref",
+      expires_in: "soon",
+    });
     await expect(postToken(config, new URLSearchParams())).rejects.toThrow(
       /Codex token endpoint returned an unexpected payload/,
     );
@@ -44,7 +52,9 @@ describe("postToken response validation", () => {
 
   test("rejects a payload with no access_token", async () => {
     stubFetch({ refresh_token: "ref" });
-    await expect(postToken(config, new URLSearchParams())).rejects.toThrow(/unexpected payload/);
+    await expect(postToken(config, new URLSearchParams())).rejects.toThrow(
+      /unexpected payload/,
+    );
   });
 
   test("accepts a minimal valid payload", async () => {
@@ -73,27 +83,37 @@ describe("baseTokensFromResponse", () => {
   });
 
   test("defaults the lifetime when expires_in is omitted and carries the prior refresh forward", () => {
-    const tokens = baseTokensFromResponse({ access_token: "a" }, 0, "prior-refresh", "Codex");
+    const tokens = baseTokensFromResponse(
+      { access_token: "a" },
+      0,
+      "prior-refresh",
+      "Codex",
+    );
     expect(tokens.refresh).toBe("prior-refresh");
     expect(tokens.expiresAt).toBe(3_600_000);
   });
 
   test("throws when no refresh token exists anywhere", () => {
-    expect(() => baseTokensFromResponse({ access_token: "a" }, 0, undefined, "Codex")).toThrow(
-      /no refresh_token/,
-    );
+    expect(() =>
+      baseTokensFromResponse({ access_token: "a" }, 0, undefined, "Codex"),
+    ).toThrow(/no refresh_token/);
   });
 });
 
 type TestTokens = BaseTokens & { accountId?: string };
 
-const authStoreWriter = join(import.meta.dirname, "../../../tests/fixtures/auth-store-writer.ts");
+const authStoreWriter = join(
+  import.meta.dirname,
+  "../../../tests/fixtures/auth-store-writer.ts",
+);
 
 function isTestTokens(value: unknown): value is TestTokens {
   if (typeof value !== "object" || value === null) return false;
   const t = value as Record<string, unknown>;
   return (
-    typeof t.access === "string" && typeof t.refresh === "string" && typeof t.expiresAt === "number"
+    typeof t.access === "string" &&
+    typeof t.refresh === "string" &&
+    typeof t.expiresAt === "number"
   );
 }
 
@@ -115,39 +135,67 @@ describe("createAuthStore", () => {
       );
 
       const barrier = join(home, "start");
-      const names = Array.from({ length: 16 }, (_, index) => `profile-${index}`);
+      const names = Array.from(
+        { length: 16 },
+        (_, index) => `profile-${index}`,
+      );
       const processes = [
         ...names.map((name) =>
-          Bun.spawn([process.execPath, authStoreWriter, home, barrier, "save", name], {
+          Bun.spawn(
+            [process.execPath, authStoreWriter, home, barrier, "save", name],
+            {
+              stdout: "ignore",
+              stderr: "pipe",
+            },
+          ),
+        ),
+        Bun.spawn(
+          [
+            process.execPath,
+            authStoreWriter,
+            home,
+            barrier,
+            "update",
+            "new-access",
+          ],
+          {
             stdout: "ignore",
             stderr: "pipe",
-          }),
+          },
         ),
-        Bun.spawn([process.execPath, authStoreWriter, home, barrier, "update", "new-access"], {
-          stdout: "ignore",
-          stderr: "pipe",
-        }),
       ];
 
       await Bun.sleep(50);
       await writeFile(barrier, "go");
-      const exitCodes = await Promise.all(processes.map((process) => process.exited));
+      const exitCodes = await Promise.all(
+        processes.map((process) => process.exited),
+      );
       const errors = await Promise.all(
         processes.map((process) => new Response(process.stderr).text()),
       );
       expect(exitCodes, errors.join("\n")).toEqual(processes.map(() => 0));
 
       const profiles = await store.listProfiles(home);
-      expect(profiles.map((profile) => profile.name)).toEqual(["existing", ...names].sort());
+      expect(profiles.map((profile) => profile.name)).toEqual(
+        ["existing", ...names].sort(),
+      );
       expect(profiles.find((profile) => profile.name === "existing")).toEqual({
         name: "existing",
-        tokens: { access: "new-access", refresh: "refresh-new-access", expiresAt: 2 },
+        tokens: {
+          access: "new-access",
+          refresh: "refresh-new-access",
+          expiresAt: 2,
+        },
         createdAt: 10,
       });
       for (const name of names) {
         expect(profiles.find((profile) => profile.name === name)).toEqual({
           name,
-          tokens: { access: `access-${name}`, refresh: `refresh-${name}`, expiresAt: 1 },
+          tokens: {
+            access: `access-${name}`,
+            refresh: `refresh-${name}`,
+            expiresAt: 1,
+          },
           createdAt: 1,
         });
       }
@@ -163,7 +211,9 @@ describe("createAuthStore", () => {
         filename: "test-auth.json",
         isTokens: isTestTokens,
       });
-      expect(store.authPath(home)).toBe(join(home, ".corbits", "test-auth.json"));
+      expect(store.authPath(home)).toBe(
+        join(home, ".corbits", "test-auth.json"),
+      );
       expect(await store.listProfiles(home)).toEqual([]);
 
       const profile = {
@@ -174,13 +224,21 @@ describe("createAuthStore", () => {
       await store.saveProfile(profile, home);
       expect(await store.loadProfile("work", home)).toEqual(profile);
 
-      await store.updateTokens("work", { access: "a2", refresh: "r2", expiresAt: 2 }, home);
+      await store.updateTokens(
+        "work",
+        { access: "a2", refresh: "r2", expiresAt: 2 },
+        home,
+      );
       const updated = await store.loadProfile("work", home);
       expect(updated?.tokens.access).toBe("a2");
       expect(updated?.createdAt).toBe(10);
 
       // updateTokens is a no-op for a profile that no longer exists.
-      await store.updateTokens("gone", { access: "x", refresh: "x", expiresAt: 0 }, home);
+      await store.updateTokens(
+        "gone",
+        { access: "x", refresh: "x", expiresAt: 0 },
+        home,
+      );
       expect(await store.loadProfile("gone", home)).toBeUndefined();
 
       expect(await store.removeProfile("work", home)).toEqual(["work"]);
@@ -214,9 +272,13 @@ describe("createAuthStore", () => {
           throw new Error("validator failed");
         },
       });
-      await expect(failingStore.saveProfile(profile, home)).rejects.toThrow("validator failed");
+      await expect(failingStore.saveProfile(profile, home)).rejects.toThrow(
+        "validator failed",
+      );
 
-      await expect(store.updateTokens("work", profile.tokens, home)).resolves.toBeUndefined();
+      await expect(
+        store.updateTokens("work", profile.tokens, home),
+      ).resolves.toBeUndefined();
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -260,14 +322,24 @@ describe("createAuthStore", () => {
         isTokens: isTestTokens,
       });
       await store.saveProfile(
-        { name: "good", tokens: { access: "a", refresh: "r", expiresAt: 1 }, createdAt: 1 },
+        {
+          name: "good",
+          tokens: { access: "a", refresh: "r", expiresAt: 1 },
+          createdAt: 1,
+        },
         home,
       );
       const raw = JSON.parse(await readFile(store.authPath(home), "utf8")) as {
         profiles: Record<string, unknown>;
       };
-      raw.profiles.bad = { name: "bad", tokens: { access: 42 }, createdAt: "nope" };
-      await writeFile(store.authPath(home), JSON.stringify(raw), { mode: 0o600 });
+      raw.profiles.bad = {
+        name: "bad",
+        tokens: { access: 42 },
+        createdAt: "nope",
+      };
+      await writeFile(store.authPath(home), JSON.stringify(raw), {
+        mode: 0o600,
+      });
       const names = (await store.listProfiles(home)).map((p) => p.name);
       expect(names).toEqual(["good"]);
     } finally {
@@ -280,7 +352,11 @@ describe("startOAuthLogin", () => {
   test("stages the exchanged profile until commit is invoked", async () => {
     const saved: AuthProfile<TestTokens>[] = [];
     let closed = 0;
-    const tokens = { access: "new-access", refresh: "new-refresh", expiresAt: 10_000 };
+    const tokens = {
+      access: "new-access",
+      refresh: "new-refresh",
+      expiresAt: 10_000,
+    };
     const handle = await startOAuthLogin(
       {
         profile: "work",
@@ -327,7 +403,11 @@ describe("startOAuthLogin", () => {
           close: () => undefined,
         }),
         buildAuthorizeUrl: () => "https://auth.example.com/authorize",
-        exchangeCode: async () => ({ access: "new", refresh: "refresh", expiresAt: 10_000 }),
+        exchangeCode: async () => ({
+          access: "new",
+          refresh: "refresh",
+          expiresAt: 10_000,
+        }),
         saveProfile: async () => {
           saveAttempts += 1;
           if (saveAttempts === 1) throw new Error("transient save failure");
@@ -345,7 +425,10 @@ describe("startOAuthLogin", () => {
 describe("createTokenSession", () => {
   function makeSession(overrides?: {
     refreshTokens?: (refreshToken: string, now: number) => Promise<TestTokens>;
-    mergeRefreshed?: (refreshed: TestTokens, previous: TestTokens) => TestTokens;
+    mergeRefreshed?: (
+      refreshed: TestTokens,
+      previous: TestTokens,
+    ) => TestTokens;
     profile?: { tokens: TestTokens };
   }) {
     const calls = { refresh: 0, updates: [] as TestTokens[] };
@@ -370,7 +453,8 @@ describe("createTokenSession", () => {
         ? { mergeRefreshed: overrides.mergeRefreshed }
         : {}),
       missingError: (name) => new Error(`missing ${name}`),
-      refreshFailedError: (name, cause) => new Error(`refresh failed ${name}: ${String(cause)}`),
+      refreshFailedError: (name, cause) =>
+        new Error(`refresh failed ${name}: ${String(cause)}`),
     });
     return { session, calls };
   }
@@ -424,17 +508,28 @@ describe("createTokenSession", () => {
         return { access: "new", refresh: "ref2", expiresAt: 10_000 };
       },
     });
-    await expect(session.getValidToken("p", 2_000)).rejects.toThrow(/refresh failed p/);
+    await expect(session.getValidToken("p", 2_000)).rejects.toThrow(
+      /refresh failed p/,
+    );
     expect(await session.getValidToken("p", 2_000)).toBe("new");
     expect(attempts).toBe(2);
   });
 
   test("applies mergeRefreshed so provider fields survive a refresh", async () => {
     const { session, calls } = makeSession({
-      profile: { tokens: { access: "old", refresh: "ref", expiresAt: 1_000, accountId: "acct" } },
+      profile: {
+        tokens: {
+          access: "old",
+          refresh: "ref",
+          expiresAt: 1_000,
+          accountId: "acct",
+        },
+      },
       mergeRefreshed: (refreshed, previous) => ({
         ...refreshed,
-        ...(previous.accountId !== undefined ? { accountId: previous.accountId } : {}),
+        ...(previous.accountId !== undefined
+          ? { accountId: previous.accountId }
+          : {}),
       }),
     });
     await session.getValidToken("p", 2_000);
@@ -453,7 +548,9 @@ describe("createTokenSession", () => {
       missingError: (name) => new Error(`missing ${name}`),
       refreshFailedError: (name) => new Error(`refresh failed ${name}`),
     });
-    await expect(empty.getValidToken("nope", 0)).rejects.toThrow("missing nope");
+    await expect(empty.getValidToken("nope", 0)).rejects.toThrow(
+      "missing nope",
+    );
     void session;
   });
 });

@@ -7,8 +7,12 @@ import {
 } from "../../src/inference-abort.js";
 
 test("isInternalRecoveryAbortRaw matches internal-recovery origin", () => {
-  expect(isInternalRecoveryAbortRaw({ origin: INFERENCE_ABORT_INTERNAL_RECOVERY })).toBe(true);
-  expect(isInternalRecoveryAbortRaw({ origin: INFERENCE_ABORT_USER_STOP })).toBe(false);
+  expect(
+    isInternalRecoveryAbortRaw({ origin: INFERENCE_ABORT_INTERNAL_RECOVERY }),
+  ).toBe(true);
+  expect(
+    isInternalRecoveryAbortRaw({ origin: INFERENCE_ABORT_USER_STOP }),
+  ).toBe(false);
   expect(isInternalRecoveryAbortRaw(undefined)).toBe(false);
 });
 

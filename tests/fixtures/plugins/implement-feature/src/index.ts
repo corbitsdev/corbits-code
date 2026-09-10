@@ -10,10 +10,14 @@ export const commandPlugin: CommandPlugin = {
   commands: [
     {
       name: "implement-feature",
-      description: "Plan, implement, test, and multi-agent review for a feature",
+      description:
+        "Plan, implement, test, and multi-agent review for a feature",
       handler: (args, ctx) => {
         if (ctx.startWorkflow === undefined) {
-          return { type: "message", text: "Workflows are not available in this session." };
+          return {
+            type: "message",
+            text: "Workflows are not available in this session.",
+          };
         }
 
         const msg = ctx.startWorkflow("implement-feature");

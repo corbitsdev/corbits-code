@@ -38,7 +38,10 @@ export function evaluateSubmitResult(input: SubmitResultInput): {
   message: string;
 } {
   const cap = input.maxCorrections ?? SUBMIT_RESULT_MAX_CORRECTIONS;
-  if (typeof input.submittedToken !== "string" || input.submittedToken !== input.turnToken) {
+  if (
+    typeof input.submittedToken !== "string" ||
+    input.submittedToken !== input.turnToken
+  ) {
     return {
       ok: false,
       message:

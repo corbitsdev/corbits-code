@@ -12,11 +12,13 @@ import type { AgentProfile } from "./profiles.js";
 const fixtures: AgentProfile[] = [
   {
     id: "greybeard",
-    description: "Seasoned architect — reviews for design and backwards compatibility",
+    description:
+      "Seasoned architect — reviews for design and backwards compatibility",
   },
   {
     id: "critique",
-    description: "Code quality reviewer — tests assumptions and security smells",
+    description:
+      "Code quality reviewer — tests assumptions and security smells",
   },
   {
     id: "scout",
@@ -80,7 +82,9 @@ describe("formatAgentSearchResults", () => {
   });
 
   test("omits body section when systemPromptRole is absent", () => {
-    const text = formatAgentSearchResults([{ id: "no-body", description: "Metadata only" }]);
+    const text = formatAgentSearchResults([
+      { id: "no-body", description: "Metadata only" },
+    ]);
     expect(text).toContain("### no-body");
     expect(text).toContain("Metadata only");
     expect(text).not.toContain("System prompt / body:");
@@ -101,7 +105,9 @@ describe("formatAgentSearchResults", () => {
     const bodySection = text.split("System prompt / body:\n")[1] ?? "";
     const injected = bodySection.split("\n\nSpawn with")[0] ?? bodySection;
     expect(injected.length).toBeLessThan(body.length);
-    expect(injected.startsWith("x".repeat(MAX_AGENT_SEARCH_BODY_CHARS))).toBe(true);
+    expect(injected.startsWith("x".repeat(MAX_AGENT_SEARCH_BODY_CHARS))).toBe(
+      true,
+    );
   });
 
   test("redacts secret-shaped content in profile body at format layer", () => {
@@ -140,7 +146,10 @@ describe("createSearchAgentsTool", () => {
       },
     ]);
     if (tool.kind !== "string") throw new Error("expected string tool");
-    const text = await tool.handler({ query: "emil product" }, new AbortController().signal);
+    const text = await tool.handler(
+      { query: "emil product" },
+      new AbortController().signal,
+    );
     expect(text).toContain("emil");
     expect(text).toContain("System prompt / body:");
     expect(text).toContain(body);
@@ -155,7 +164,10 @@ describe("createSearchAgentsTool", () => {
     }));
     const tool = createSearchAgentsTool(() => many);
     if (tool.kind !== "string") throw new Error("expected string tool");
-    const text = await tool.handler({ query: "" }, new AbortController().signal);
+    const text = await tool.handler(
+      { query: "" },
+      new AbortController().signal,
+    );
     const headers = [...text.matchAll(/^### (agent-\d+)/gm)].map((m) => m[1]);
     expect(headers).toHaveLength(12);
     expect(headers[0]).toBe("agent-00");
@@ -166,7 +178,10 @@ describe("createSearchAgentsTool", () => {
   test("empty catalog + empty query returns loaded-none message", async () => {
     const tool = createSearchAgentsTool(() => []);
     if (tool.kind !== "string") throw new Error("expected string tool");
-    const text = await tool.handler({ query: "   " }, new AbortController().signal);
+    const text = await tool.handler(
+      { query: "   " },
+      new AbortController().signal,
+    );
     expect(text).toBe("No agent profiles are loaded.");
   });
 
@@ -183,7 +198,10 @@ describe("createSearchAgentsTool", () => {
       },
     ]);
     if (tool.kind !== "string") throw new Error("expected string tool");
-    const text = await tool.handler({ query: "leaky" }, new AbortController().signal);
+    const text = await tool.handler(
+      { query: "leaky" },
+      new AbortController().signal,
+    );
     expect(text).toContain("### leaky");
     expect(text).toContain(CREDENTIAL_REDACTION);
     expect(text).not.toContain(secret);

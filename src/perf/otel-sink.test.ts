@@ -40,12 +40,15 @@ const baseSettings = (otel?: Settings["otel"]): Settings => ({
   ...(otel !== undefined ? { otel } : {}),
 });
 
-const mockFetch = (impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) =>
-  impl as unknown as typeof fetch;
+const mockFetch = (
+  impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+) => impl as unknown as typeof fetch;
 
 describe("otlpTracesUrl", () => {
   test("appends /v1/traces to base endpoint", () => {
-    expect(otlpTracesUrl("http://localhost:4318")).toBe("http://localhost:4318/v1/traces");
+    expect(otlpTracesUrl("http://localhost:4318")).toBe(
+      "http://localhost:4318/v1/traces",
+    );
   });
 
   test("does not double-append when path already ends with /v1/traces", () => {
@@ -55,7 +58,9 @@ describe("otlpTracesUrl", () => {
   });
 
   test("strips trailing slash before appending", () => {
-    expect(otlpTracesUrl("http://localhost:4318/")).toBe("http://localhost:4318/v1/traces");
+    expect(otlpTracesUrl("http://localhost:4318/")).toBe(
+      "http://localhost:4318/v1/traces",
+    );
   });
 });
 
@@ -89,14 +94,19 @@ describe("tagsToOtlpAttributes", () => {
       prompt: "secret",
       path: "/tmp/x",
     } as never);
-    expect(attrs).toEqual([{ key: "provider_id", value: { stringValue: "xai" } }]);
+    expect(attrs).toEqual([
+      { key: "provider_id", value: { stringValue: "xai" } },
+    ]);
   });
 });
 
 describe("buildOtlpPayload", () => {
   test("maps parent links, names, and times", () => {
     const turnId = start("turn");
-    const infId = start("inference", { parentId: turnId, tags: { model_id: "m1" } });
+    const infId = start("inference", {
+      parentId: turnId,
+      tags: { model_id: "m1" },
+    });
     end(infId);
     end(turnId);
     const spans: PerfSpan[] = [
@@ -122,7 +132,9 @@ describe("buildOtlpPayload", () => {
       traceId: "a".repeat(32),
     });
 
-    const otlpSpans = defined(defined(payload.resourceSpans[0]).scopeSpans[0]).spans;
+    const otlpSpans = defined(
+      defined(payload.resourceSpans[0]).scopeSpans[0],
+    ).spans;
     expect(otlpSpans).toHaveLength(2);
 
     const turn = defined(otlpSpans.find((s) => s.name === "turn"));
@@ -130,11 +142,15 @@ describe("buildOtlpPayload", () => {
     expect(turn.traceId).toBe("a".repeat(32));
     expect(turn.spanId).toBe(otelSpanId(turnId));
     expect(turn.parentSpanId).toBeUndefined();
-    expect(turn.startTimeUnixNano).toBe(monoToUnixNano(1000n, anchor).toString());
+    expect(turn.startTimeUnixNano).toBe(
+      monoToUnixNano(1000n, anchor).toString(),
+    );
     expect(turn.endTimeUnixNano).toBe(monoToUnixNano(5000n, anchor).toString());
 
     expect(inf.parentSpanId).toBe(otelSpanId(turnId));
-    expect(inf.attributes).toEqual([{ key: "model_id", value: { stringValue: "m1" } }]);
+    expect(inf.attributes).toEqual([
+      { key: "model_id", value: { stringValue: "m1" } },
+    ]);
 
     const resource = defined(payload.resourceSpans[0]).resource.attributes;
     expect(
@@ -155,7 +171,9 @@ describe("buildOtlpPayload", () => {
       nowMonoNs: () => 99n,
       traceId: "b".repeat(32),
     });
-    const span = defined(defined(defined(payload.resourceSpans[0]).scopeSpans[0]).spans[0]);
+    const span = defined(
+      defined(defined(payload.resourceSpans[0]).scopeSpans[0]).spans[0],
+    );
     expect(span.startTimeUnixNano).toBe("10");
     expect(span.endTimeUnixNano).toBe("99");
   });
@@ -169,14 +187,20 @@ describe("flushToOtel", () => {
       return new Response(null, { status: 200 });
     });
 
-    const spans: PerfSpan[] = [{ id: "1", name: "turn", startNs: 1n, endNs: 2n }];
+    const spans: PerfSpan[] = [
+      { id: "1", name: "turn", startNs: 1n, endNs: 2n },
+    ];
     await flushToOtel(
       spans,
       enabledConfig({
         endpoint: "https://collector.example",
         headers: { Authorization: "Bearer secret" },
       }),
-      { fetchFn, traceId: "c".repeat(32), wallAnchor: { monoNs: 0n, unixNs: 0n } },
+      {
+        fetchFn,
+        traceId: "c".repeat(32),
+        wallAnchor: { monoNs: 0n, unixNs: 0n },
+      },
     );
 
     expect(calls).toHaveLength(1);
@@ -206,18 +230,28 @@ describe("flushToOtel", () => {
       throw new Error("ECONNREFUSED");
     });
     await expect(
-      flushToOtel([{ id: "1", name: "turn", startNs: 1n, endNs: 2n }], enabledConfig(), {
-        fetchFn,
-      }),
+      flushToOtel(
+        [{ id: "1", name: "turn", startNs: 1n, endNs: 2n }],
+        enabledConfig(),
+        {
+          fetchFn,
+        },
+      ),
     ).resolves.toBeUndefined();
   });
 
   test("non-2xx responses are swallowed", async () => {
-    const fetchFn = mockFetch(async () => new Response("nope", { status: 503 }));
+    const fetchFn = mockFetch(
+      async () => new Response("nope", { status: 503 }),
+    );
     await expect(
-      flushToOtel([{ id: "1", name: "turn", startNs: 1n, endNs: 2n }], enabledConfig(), {
-        fetchFn,
-      }),
+      flushToOtel(
+        [{ id: "1", name: "turn", startNs: 1n, endNs: 2n }],
+        enabledConfig(),
+        {
+          fetchFn,
+        },
+      ),
     ).resolves.toBeUndefined();
   });
 });
@@ -277,7 +311,13 @@ describe("flushPerfToOtel", () => {
     // Ring has a session span — should be ignored when spans is provided.
     start("session");
     const only: PerfSpan[] = [
-      { id: "only", name: "tool", startNs: 1n, endNs: 2n, tags: { tool_id: "t1" } },
+      {
+        id: "only",
+        name: "tool",
+        startNs: 1n,
+        endNs: 2n,
+        tags: { tool_id: "t1" },
+      },
     ];
     await flushPerfToOtel(
       baseSettings({ endpoint: "http://localhost:4318" }),
@@ -295,7 +335,9 @@ describe("flushPerfToOtel", () => {
         scopeSpans: { spans: { name: string }[] }[];
       }[];
     };
-    const names = defined(defined(parsed.resourceSpans[0]).scopeSpans[0]).spans.map((s) => s.name);
+    const names = defined(
+      defined(parsed.resourceSpans[0]).scopeSpans[0],
+    ).spans.map((s) => s.name);
     expect(names).toEqual(["tool"]);
   });
 });

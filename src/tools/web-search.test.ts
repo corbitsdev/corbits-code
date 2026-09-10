@@ -44,7 +44,9 @@ const { createPermissionGate } = await import("../permission/gate.js");
 
 const BUILTIN_EXA_MCP = createExaMCPServerConfig();
 
-async function connectConfiguredMCP(mcpServers?: ResolvedMCPServerConfig[]): Promise<void> {
+async function connectConfiguredMCP(
+  mcpServers?: ResolvedMCPServerConfig[],
+): Promise<void> {
   const toolset = await createAgentToolset({
     cwd: process.cwd(),
     permissionGate: createPermissionGate({
@@ -87,10 +89,14 @@ describe("Exa MCP preset connection boundary", () => {
     expect(connectConfigs).toEqual([BUILTIN_EXA_MCP]);
 
     connectConfigs = [];
-    await connectConfiguredMCP(resolveMcpServers([{ name: "exa", enabled: false }], undefined));
+    await connectConfiguredMCP(
+      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+    );
     expect(connectConfigs).toHaveLength(0);
 
-    await connectConfiguredMCP(resolveMcpServers([{ name: "exa", enabled: true }], undefined));
+    await connectConfiguredMCP(
+      resolveMcpServers([{ name: "exa", enabled: true }], undefined),
+    );
     expect(connectConfigs).toEqual([BUILTIN_EXA_MCP]);
   });
 });
@@ -100,10 +106,14 @@ describe("resolveWebSearchProvider", () => {
     expect(resolveWebSearchProvider({})).toBe("exa");
   });
   test("selects parallel via env override", () => {
-    expect(resolveWebSearchProvider({ CORBITS_WEB_SEARCH_PROVIDER: "parallel" })).toBe("parallel");
+    expect(
+      resolveWebSearchProvider({ CORBITS_WEB_SEARCH_PROVIDER: "parallel" }),
+    ).toBe("parallel");
   });
   test("falls back to exa on an unrecognized value", () => {
-    expect(resolveWebSearchProvider({ CORBITS_WEB_SEARCH_PROVIDER: "bing" })).toBe("exa");
+    expect(
+      resolveWebSearchProvider({ CORBITS_WEB_SEARCH_PROVIDER: "bing" }),
+    ).toBe("exa");
   });
 });
 
@@ -111,7 +121,10 @@ describe("createWebSearchTool", () => {
   test("calls web_search_exa on the Exa endpoint by default with request defaults", async () => {
     const tool = createWebSearchTool();
     if (tool.kind !== "string") throw new Error("expected a string tool");
-    const result = await tool.handler({ query: "corbits code" }, new AbortController().signal);
+    const result = await tool.handler(
+      { query: "corbits code" },
+      new AbortController().signal,
+    );
     expect(result).toBe("mock result");
     expect(connectConfigs[0]?.url).toBe(EXA_MCP_URL);
     expect(calls[0]?.toolName).toBe("web_search_exa");
@@ -158,7 +171,10 @@ describe("createWebSearchTool", () => {
   test("rejects an empty query before ever connecting", async () => {
     const tool = createWebSearchTool();
     if (tool.kind !== "string") throw new Error("expected a string tool");
-    const result = await tool.handler({ query: "" }, new AbortController().signal);
+    const result = await tool.handler(
+      { query: "" },
+      new AbortController().signal,
+    );
     expect(result).toContain("Error");
     expect(connectConfigs.length).toBe(0);
   });

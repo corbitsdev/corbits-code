@@ -14,7 +14,10 @@
 
 import { stringWidth } from "./view/height.js";
 import { formatContextPercentLabel } from "../cost/cost-summary.js";
-import { contextMeterBand, type ContextMeterBand } from "../provider/context-window.js";
+import {
+  contextMeterBand,
+  type ContextMeterBand,
+} from "../provider/context-window.js";
 
 /** Rounded box drawing, all single-cell. */
 export const BORDER = {
@@ -107,7 +110,11 @@ export function composeAttentionLabel(opts: {
 }
 
 /** The meter, attention mark, and label — in that order, joined by a fixed dash run. */
-function buildRightBlock(meterCell: string, attentionCell: string, labelCell: string): RightBlock {
+function buildRightBlock(
+  meterCell: string,
+  attentionCell: string,
+  labelCell: string,
+): RightBlock {
   const cells: readonly { readonly text: string; readonly role: RuleRole }[] = [
     { text: meterCell, role: "meter" },
     { text: attentionCell, role: "attention" },
@@ -216,7 +223,11 @@ export function composeRule(input: RuleInput): readonly RulePart[] {
   const attentionCell = padCell(input.attention?.trim() ?? "");
 
   const withCost = buildRightBlock(meterFullCell, attentionCell, labelCell);
-  const withoutCost = buildRightBlock(meterCompactCell, attentionCell, labelCell);
+  const withoutCost = buildRightBlock(
+    meterCompactCell,
+    attentionCell,
+    labelCell,
+  );
   const withoutContext = buildRightBlock("", attentionCell, labelCell);
   const withoutAttention = buildRightBlock("", "", labelCell);
 
@@ -272,9 +283,14 @@ export interface CostContextMeter {
  * there is nothing to show — an unknown context window is worse than useless
  * as a percentage, so the run is omitted rather than showing `--%`.
  */
-export function composeCostContextMeter(input: CostContextInput): CostContextMeter | null {
+export function composeCostContextMeter(
+  input: CostContextInput,
+): CostContextMeter | null {
   if (input.contextPercentUsed === null) return null;
-  const percent = Math.max(0, Math.min(100, Math.round(input.contextPercentUsed)));
+  const percent = Math.max(
+    0,
+    Math.min(100, Math.round(input.contextPercentUsed)),
+  );
   const cost = input.costLabel?.trim() ?? "";
   return {
     percentLabel: formatContextPercentLabel(percent, input.contextIsEstimate),
@@ -288,12 +304,20 @@ export function composeCostContextMeter(input: CostContextInput): CostContextMet
  * ramp: the bottom-left slot is where this border moves, and a second animated
  * run competing with it made the rule read as two indicators rather than one.
  */
-export function costContextText(meter: CostContextMeter, includeCost: boolean): string {
+export function costContextText(
+  meter: CostContextMeter,
+  includeCost: boolean,
+): string {
   const base = meter.percentLabel;
-  return includeCost && meter.costLabel !== null ? `${base} · ${meter.costLabel}` : base;
+  return includeCost && meter.costLabel !== null
+    ? `${base} · ${meter.costLabel}`
+    : base;
 }
 
-export function meterEquals(a: CostContextMeter | null, b: CostContextMeter | null): boolean {
+export function meterEquals(
+  a: CostContextMeter | null,
+  b: CostContextMeter | null,
+): boolean {
   if (a === null || b === null) return a === b;
   return a.percentLabel === b.percentLabel && a.costLabel === b.costLabel;
 }

@@ -10,7 +10,11 @@
 // Never logs or persists the token or any response body — only the HTTP
 // status is inspected to classify the result.
 
-import { CODEX_BASE_URL, CODEX_MODELS_PATH, CODEX_CLIENT_VERSION } from "./codex/constants.js";
+import {
+  CODEX_BASE_URL,
+  CODEX_MODELS_PATH,
+  CODEX_CLIENT_VERSION,
+} from "./codex/constants.js";
 import { refreshStagedCodexTokens } from "./codex/session.js";
 import type { CodexTokens } from "./codex/store.js";
 import { codexAuthHeadersForToken } from "./codex/usage.js";
@@ -63,7 +67,9 @@ export class OAuthProviderScopeError extends Error {
   }
 }
 
-export function isOAuthProviderScopeError(err: unknown): err is OAuthProviderScopeError {
+export function isOAuthProviderScopeError(
+  err: unknown,
+): err is OAuthProviderScopeError {
   return err instanceof OAuthProviderScopeError;
 }
 
@@ -83,15 +89,22 @@ function isDefinitiveRefreshAuthRejection(err: unknown): boolean {
 // treated as a real scope failure. Anything else (429, 5xx, a malformed
 // response) is inconclusive: it says nothing about whether the token has
 // scope, only that this particular check didn't get a clean answer.
-function classifyStatus(status: number, providerLabel: string): OAuthScopeCheckResult {
+function classifyStatus(
+  status: number,
+  providerLabel: string,
+): OAuthScopeCheckResult {
   if (status === 401 || status === 403) return insufficientScope(providerLabel);
   return unavailable(providerLabel);
 }
 
-async function checkCodexScope(tokens: CodexTokens): Promise<OAuthScopeCheckResult> {
+async function checkCodexScope(
+  tokens: CodexTokens,
+): Promise<OAuthScopeCheckResult> {
   const providerLabel = "Codex";
   try {
-    const headers = codexAuthHeadersForToken(await refreshStagedCodexTokens(tokens));
+    const headers = codexAuthHeadersForToken(
+      await refreshStagedCodexTokens(tokens),
+    );
     const url = `${CODEX_BASE_URL}${CODEX_MODELS_PATH}?client_version=${encodeURIComponent(CODEX_CLIENT_VERSION)}`;
     const res = await fetch(url, {
       headers,
@@ -100,15 +113,20 @@ async function checkCodexScope(tokens: CodexTokens): Promise<OAuthScopeCheckResu
     if (res.ok) return { status: "ok" };
     return classifyStatus(res.status, providerLabel);
   } catch (err) {
-    if (isDefinitiveRefreshAuthRejection(err)) return invalidCredentials(providerLabel);
+    if (isDefinitiveRefreshAuthRejection(err))
+      return invalidCredentials(providerLabel);
     return unavailable(providerLabel);
   }
 }
 
-async function checkXaiScope(tokens: XaiTokens): Promise<OAuthScopeCheckResult> {
+async function checkXaiScope(
+  tokens: XaiTokens,
+): Promise<OAuthScopeCheckResult> {
   const providerLabel = "Grok";
   try {
-    const headers = xaiAuthHeadersForToken(await refreshStagedXaiTokens(tokens));
+    const headers = xaiAuthHeadersForToken(
+      await refreshStagedXaiTokens(tokens),
+    );
     const res = await fetch(`${XAI_BASE_URL}/models`, {
       headers,
       signal: AbortSignal.timeout(XAI_TOKEN_TIMEOUT_MS),
@@ -116,7 +134,8 @@ async function checkXaiScope(tokens: XaiTokens): Promise<OAuthScopeCheckResult> 
     if (res.ok) return { status: "ok" };
     return classifyStatus(res.status, providerLabel);
   } catch (err) {
-    if (isDefinitiveRefreshAuthRejection(err)) return invalidCredentials(providerLabel);
+    if (isDefinitiveRefreshAuthRejection(err))
+      return invalidCredentials(providerLabel);
     return unavailable(providerLabel);
   }
 }

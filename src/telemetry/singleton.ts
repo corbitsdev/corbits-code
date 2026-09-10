@@ -31,7 +31,8 @@ export const liveTelemetry: Telemetry = {
     return instance.installationId;
   },
   capture: (event, properties) => instance.capture(event, properties),
-  captureIntentional: (event, properties) => instance.captureIntentional(event, properties),
+  captureIntentional: (event, properties) =>
+    instance.captureIntentional(event, properties),
   flush: () => instance.flush(),
   discard: () => instance.discard(),
 };

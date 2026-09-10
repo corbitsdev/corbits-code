@@ -3,7 +3,9 @@ import { XaiAuthError } from "../auth/xai/session.js";
 
 export type SubAgentAuthFailureKind = "codex" | "xai";
 
-export function classifySubAgentInferenceAuthFailure(err: unknown): SubAgentAuthFailureKind | null {
+export function classifySubAgentInferenceAuthFailure(
+  err: unknown,
+): SubAgentAuthFailureKind | null {
   if (err instanceof CodexAuthError) return "codex";
   if (err instanceof XaiAuthError) return "xai";
   return null;
@@ -17,7 +19,9 @@ export function formatSubAgentSpawnAuthFailureMessage(
   const kind = classifySubAgentInferenceAuthFailure(err);
   if (kind === null) return null;
   const profile =
-    err instanceof CodexAuthError || err instanceof XaiAuthError ? err.profile : "default";
+    err instanceof CodexAuthError || err instanceof XaiAuthError
+      ? err.profile
+      : "default";
   const detail = err instanceof Error ? err.message : String(err);
   const detailSentence = detail.endsWith(".") ? detail : `${detail}.`;
   const providerLabel = kind === "codex" ? "Codex" : "xAI";

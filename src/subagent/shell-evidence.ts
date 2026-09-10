@@ -53,7 +53,9 @@ export interface ShellFileEvidence {
 }
 
 function evidenceKey(program: string, operand: string | undefined): string {
-  return operand !== undefined && operand.length > 0 ? operand : `shell:${program}`;
+  return operand !== undefined && operand.length > 0
+    ? operand
+    : `shell:${program}`;
 }
 
 /**
@@ -72,7 +74,10 @@ const EVIDENCE_VALUE_FLAGS: ReadonlySet<string> = new Set([
 ]);
 
 /** First operand that is not a flag or a flag value, skipping `skip` of them. */
-function firstOperand(args: readonly string[], skip: number): string | undefined {
+function firstOperand(
+  args: readonly string[],
+  skip: number,
+): string | undefined {
   let skipped = 0;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -102,7 +107,8 @@ function classifySegment(segment: string, evidence: ShellFileEvidence): void {
 
   if (SHELL_READ_PROGRAMS.has(program)) {
     // grep-likes take the pattern first, so their file operand is the second.
-    const skip = program === "grep" || program === "egrep" || program === "fgrep" ? 1 : 0;
+    const skip =
+      program === "grep" || program === "egrep" || program === "fgrep" ? 1 : 0;
     evidence.reads.push(evidenceKey(program, firstOperand(args, skip)));
   }
 }

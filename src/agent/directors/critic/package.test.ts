@@ -43,7 +43,9 @@ describe("criticPackage", () => {
   test("systemPrompt is correctness plus this-diff hygiene", () => {
     const p = criticPackage.systemPrompt;
     expect(p).toMatch(/Correctness and this-diff hygiene/i);
-    expect(p).toMatch(/correctness or the stated requirements\/success_criteria/i);
+    expect(p).toMatch(
+      /correctness or the stated requirements\/success_criteria/i,
+    );
     expect(p).toMatch(/hygiene this diff introduced/i);
     expect(p).toMatch(/dead code/i);
     expect(p).toMatch(/file-for-later/i);
@@ -54,15 +56,21 @@ describe("criticPackage", () => {
 
   test("systemPrompt flags API contract / sync→async as blocking", () => {
     expect(criticPackage.systemPrompt).toMatch(/API contract check/i);
-    expect(criticPackage.systemPrompt).toMatch(/blocking when brief specifies signatures/i);
+    expect(criticPackage.systemPrompt).toMatch(
+      /blocking when brief specifies signatures/i,
+    );
     expect(criticPackage.systemPrompt).toMatch(/public exports/i);
     expect(criticPackage.systemPrompt).toMatch(/Sync\s*→\s*async/i);
     expect(criticPackage.systemPrompt).toMatch(
       /returning Promise when callers expect a plain value/i,
     );
     expect(criticPackage.systemPrompt).toMatch(/blocking correctness defect/i);
-    expect(criticPackage.systemPrompt).toMatch(/parameter order\/optionality\/return-type drift/i);
-    expect(criticPackage.systemPrompt).toMatch(/Rank these as blocking, not style nits/i);
+    expect(criticPackage.systemPrompt).toMatch(
+      /parameter order\/optionality\/return-type drift/i,
+    );
+    expect(criticPackage.systemPrompt).toMatch(
+      /Rank these as blocking, not style nits/i,
+    );
   });
 
   test("systemPrompt has no tool-schema restatement or fake caps", () => {
@@ -109,7 +117,9 @@ describe("criticPackage", () => {
       "Evidence-based code review including hygiene the diff introduced; never fix product code",
     );
     expect(criticPackage.outOfLane).toContain("implementing fixes");
-    expect(criticPackage.outOfLane).toContain("architecture portfolio without code evidence");
+    expect(criticPackage.outOfLane).toContain(
+      "architecture portfolio without code evidence",
+    );
     expect(criticPackage.outOfLane).toContain("visual brand");
     expect(criticPackage.outOfLane).toContain("DESIGN.md");
     expect(criticPackage.outOfLane).toContain("pedantic fun without evidence");

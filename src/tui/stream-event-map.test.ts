@@ -27,11 +27,17 @@ describe("mapProductionEvent", () => {
   test("text deltas stream as assistant.delta", () => {
     const ctx = createStreamMapContext();
     expect(
-      mapProductionEvent({ type: "inference.text.delta", data: { token: "Hi" } }, ctx),
+      mapProductionEvent(
+        { type: "inference.text.delta", data: { token: "Hi" } },
+        ctx,
+      ),
     ).toEqual([{ type: "assistant.delta", text: "Hi" }]);
-    expect(mapProductionEvent({ type: "inference.text.delta", data: { token: "!" } }, ctx)).toEqual(
-      [{ type: "assistant.delta", text: "!" }],
-    );
+    expect(
+      mapProductionEvent(
+        { type: "inference.text.delta", data: { token: "!" } },
+        ctx,
+      ),
+    ).toEqual([{ type: "assistant.delta", text: "!" }]);
   });
 
   test("tool_call.start+end paints once with args (stateful)", () => {
@@ -93,9 +99,15 @@ describe("mapProductionEvent", () => {
 
   test("connector.reply after deltas is skipped (already painted)", () => {
     const ctx = createStreamMapContext();
-    mapProductionEvent({ type: "inference.text.delta", data: { token: "partial" } }, ctx);
+    mapProductionEvent(
+      { type: "inference.text.delta", data: { token: "partial" } },
+      ctx,
+    );
     expect(
-      mapProductionEvent({ type: "connector.reply", data: { content: "final answer" } }, ctx),
+      mapProductionEvent(
+        { type: "connector.reply", data: { content: "final answer" } },
+        ctx,
+      ),
     ).toEqual([]);
   });
 
@@ -159,18 +171,26 @@ describe("stream sanitization", () => {
   });
   const joined = (events: readonly { type: string; data?: unknown }[]) =>
     mapProductionSequence(events)
-      .filter((e) => e.type === "assistant.delta" || e.type === "thinking.delta")
+      .filter(
+        (e) => e.type === "assistant.delta" || e.type === "thinking.delta",
+      )
       .map((e) => (e as { text: string }).text)
       .join("");
 
   test("strips an escape sequence contained in one delta", () => {
-    expect(joined([textDelta("hi \x1b[31mred\x1b[0m"), { type: "reactor.done" }])).toBe("hi red");
+    expect(
+      joined([textDelta("hi \x1b[31mred\x1b[0m"), { type: "reactor.done" }]),
+    ).toBe("hi red");
   });
 
   test("strips a CSI sequence split across two deltas", () => {
-    expect(joined([textDelta("hi \x1b["), textDelta("31mred"), { type: "reactor.done" }])).toBe(
-      "hi red",
-    );
+    expect(
+      joined([
+        textDelta("hi \x1b["),
+        textDelta("31mred"),
+        { type: "reactor.done" },
+      ]),
+    ).toBe("hi red");
   });
 
   test("strips an OSC 52 payload split across three deltas", () => {
@@ -212,10 +232,9 @@ describe("stream sanitization", () => {
     expect(mapProductionEvent(textDelta("x\x1b["), ctx)).toEqual([
       { type: "assistant.delta", text: "x" },
     ]);
-    expect(mapProductionEvent({ type: "reactor.done" }, ctx).map((e) => e.type)).toEqual([
-      "run",
-      "tool.boundary",
-    ]);
+    expect(
+      mapProductionEvent({ type: "reactor.done" }, ctx).map((e) => e.type),
+    ).toEqual(["run", "tool.boundary"]);
   });
 
   test("sanitizes non-streamed connector replies", () => {
@@ -231,12 +250,19 @@ describe("stream sanitization", () => {
 describe("inference.retry", () => {
   const actions = (events: readonly { type: string }[]) =>
     events
-      .filter((e): e is { type: "attempt"; action: string } => e.type === "attempt")
+      .filter(
+        (e): e is { type: "attempt"; action: string } => e.type === "attempt",
+      )
       .map((e) => e.action);
 
   test("a harness pre-commit retry retracts nothing", () => {
     const ctx = createStreamMapContext();
-    expect(mapProductionEvent({ type: "inference.retry", data: { attempt: 1 } }, ctx)).toEqual([]);
+    expect(
+      mapProductionEvent(
+        { type: "inference.retry", data: { attempt: 1 } },
+        ctx,
+      ),
+    ).toEqual([]);
   });
 
   test("a committed retry after a streamed attempt rolls back", () => {
@@ -266,7 +292,10 @@ describe("inference.retry", () => {
       {
         type: "inference.error",
         data: {
-          error: { category: "quota_exhausted", message: "The usage limit has been reached" },
+          error: {
+            category: "quota_exhausted",
+            message: "The usage limit has been reached",
+          },
         },
       },
       { type: "inference.start" },
@@ -279,7 +308,9 @@ describe("inference.retry", () => {
       { type: "inference.start" },
       {
         type: "inference.error",
-        data: { error: { category: "credential_failure", message: "Forbidden" } },
+        data: {
+          error: { category: "credential_failure", message: "Forbidden" },
+        },
       },
       { type: "inference.start" },
     ]);
@@ -339,7 +370,9 @@ describe("inference.error text", () => {
     const rawDiagnostic = "upstream 401: secret response body";
     const out = mapProductionEvent({
       type: "inference.error",
-      data: { error: { category: "credential_failure", message: rawDiagnostic } },
+      data: {
+        error: { category: "credential_failure", message: rawDiagnostic },
+      },
     });
 
     expect(out).toEqual([]);
@@ -359,7 +392,10 @@ describe("inference.error text", () => {
             },
           },
         },
-        { type: "connector.reply", data: { content: "generic director reply" } },
+        {
+          type: "connector.reply",
+          data: { content: "generic director reply" },
+        },
       ],
       createStreamMapContext({ providerId: "openai", providerLabel: "OpenAI" }),
     );
@@ -373,11 +409,16 @@ describe("inference.error text", () => {
   });
 
   test("does not repeat a fallback diagnostic on the terminal connector reply", () => {
-    const ctx = createStreamMapContext({ providerId: "openai", providerLabel: "OpenAI" });
+    const ctx = createStreamMapContext({
+      providerId: "openai",
+      providerLabel: "OpenAI",
+    });
     mapProductionEvent(
       {
         type: "inference.error",
-        data: { error: { category: "retryable", message: "upstream unavailable" } },
+        data: {
+          error: { category: "retryable", message: "upstream unavailable" },
+        },
       },
       ctx,
     );
@@ -391,8 +432,14 @@ describe("inference.error text", () => {
   });
 
   test("latches the executing provider when selection changes mid-cycle", () => {
-    const ctx = createStreamMapContext({ providerId: "xai/work", providerLabel: "Work" });
-    mapProductionEvent({ type: "inference.start", data: { model: "grok" } }, ctx);
+    const ctx = createStreamMapContext({
+      providerId: "xai/work",
+      providerLabel: "Work",
+    });
+    mapProductionEvent(
+      { type: "inference.start", data: { model: "grok" } },
+      ctx,
+    );
 
     ctx.providerId = "openai";
     ctx.providerLabel = "OpenAI";
@@ -418,7 +465,10 @@ describe("inference.error text", () => {
       raw: { requestId: "req-1" },
     });
     expect(
-      mapProductionEvent({ type: "connector.reply", data: { content: "generic reply" } }, ctx),
+      mapProductionEvent(
+        { type: "connector.reply", data: { content: "generic reply" } },
+        ctx,
+      ),
     ).toContainEqual({
       type: "assistant",
       text: "Work Provider failed (retryable): Rate limited. Wait a moment and try again.",
@@ -438,7 +488,10 @@ describe("inference.error text", () => {
             },
           },
         },
-        { type: "connector.reply", data: { content: "generic director reply" } },
+        {
+          type: "connector.reply",
+          data: { content: "generic director reply" },
+        },
       ],
       createStreamMapContext({ providerId: "openai", providerLabel: "OpenAI" }),
     );

@@ -30,21 +30,33 @@ function fakeDeps(overrides: Partial<FirstRunDeps> = {}): {
     markTelemetryNoticeShown: async () => {
       marks++;
     },
-    createTelemetry: (opts) => createTelemetry({ ...opts, env: {}, apiKey: "test-key", fetchFn }),
+    createTelemetry: (opts) =>
+      createTelemetry({ ...opts, env: {}, apiKey: "test-key", fetchFn }),
     setTelemetry: (t) => {
       instance = t;
     },
     ...overrides,
   };
-  return { deps, getInstance: () => instance, fetchCalls: () => calls, markCalls: () => marks };
+  return {
+    deps,
+    getInstance: () => instance,
+    fetchCalls: () => calls,
+    markCalls: () => marks,
+  };
 }
 
 test("telemetryFirstRunPending is true only when enabled and notice never shown", () => {
   expect(telemetryFirstRunPending(settingsWith(), {})).toBe(true);
-  expect(telemetryFirstRunPending(settingsWith({ noticeShown: true }), {})).toBe(false);
-  expect(telemetryFirstRunPending(settingsWith({ enabled: false }), {})).toBe(false);
+  expect(
+    telemetryFirstRunPending(settingsWith({ noticeShown: true }), {}),
+  ).toBe(false);
+  expect(telemetryFirstRunPending(settingsWith({ enabled: false }), {})).toBe(
+    false,
+  );
   expect(telemetryFirstRunPending({ providers: {} }, {})).toBe(false);
-  expect(telemetryFirstRunPending(settingsWith(), { DO_NOT_TRACK: "1" })).toBe(false);
+  expect(telemetryFirstRunPending(settingsWith(), { DO_NOT_TRACK: "1" })).toBe(
+    false,
+  );
 });
 
 test("an opt-out during activation's async window wins: no swap, no send", async () => {

@@ -26,7 +26,10 @@ import {
 } from "../../provider/ollama.js";
 import { prefetchGoModels as prefetchGoModelsRequest } from "../../provider/opencode-go-models.js";
 import { resolveSideMargin } from "../geometry/margins.js";
-import { residualIdFromSelection, residualListFromCatalog } from "../residuals.js";
+import {
+  residualIdFromSelection,
+  residualListFromCatalog,
+} from "../residuals.js";
 import { createOverlayList } from "../shell/overlay-list.js";
 import {
   chooseProviderRow,
@@ -39,7 +42,12 @@ import {
   TYPE_MODEL_ID,
 } from "./choices.js";
 import { createDiscoveryFlows } from "./discovery.js";
-import { maskEcho, PROVIDER_FIELD_HINTS, secretFromMaskedEdit, stepReady } from "./form.js";
+import {
+  maskEcho,
+  PROVIDER_FIELD_HINTS,
+  secretFromMaskedEdit,
+  stepReady,
+} from "./form.js";
 import {
   createAccountNameFlow,
   createLoginFlow,
@@ -47,7 +55,12 @@ import {
   defaultProfileLister,
   LOGIN_TIMEOUT_MS,
 } from "./oauth.js";
-import { createSurface, RAMP_TICK_MS, stopRamp, teardownSurface } from "./surface.js";
+import {
+  createSurface,
+  RAMP_TICK_MS,
+  stopRamp,
+  teardownSurface,
+} from "./surface.js";
 import { stepsFor, type ProviderField, type SetupStep } from "./steps.js";
 import type {
   ProviderPreset,
@@ -61,7 +74,9 @@ import type {
  * Mount the setup surface. Resolves true once `onSubmit` completes, false when
  * the operator cancels (Ctrl+C / Ctrl+D) without a successful submit.
  */
-export async function runProviderSetup(config: ProviderSetupConfig): Promise<boolean> {
+export async function runProviderSetup(
+  config: ProviderSetupConfig,
+): Promise<boolean> {
   // A caller-supplied renderer (a headless test harness, or a live session's
   // renderer reused for a mid-session reconnect) is owned by that caller —
   // teardown here must not destroy it out from under them.
@@ -117,7 +132,8 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     oauthProfileConfirmPending: false,
     confirmedSlug: null,
     oauthNameAttempt: 0,
-    discoverOllamaModels: config.discoverOllamaModels ?? discoverOllamaModelsRequest,
+    discoverOllamaModels:
+      config.discoverOllamaModels ?? discoverOllamaModelsRequest,
     ollamaDiscovery: "idle",
     ollamaDiscoveryAttempt: 0,
     ollamaDiscoveryAbort: null,
@@ -133,7 +149,9 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
   };
 
   if (config.initialProviderId !== undefined) {
-    const preselected = state.choices.find((c) => c.id === config.initialProviderId);
+    const preselected = state.choices.find(
+      (c) => c.id === config.initialProviderId,
+    );
     if (preselected !== undefined) {
       state.choice = preselected;
       state.stepIndex = 1;
@@ -144,16 +162,27 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
   }
 
   const steps = (): readonly SetupStep[] => stepsFor(state.choice);
-  const currentStep = (): SetupStep => steps()[state.stepIndex] ?? ("provider" as SetupStep);
+  const currentStep = (): SetupStep =>
+    steps()[state.stepIndex] ?? ("provider" as SetupStep);
   const isOllamaModelStep = (): boolean =>
-    currentStep() === "model" && state.choice !== null && isOllamaProviderId(state.choice.id);
+    currentStep() === "model" &&
+    state.choice !== null &&
+    isOllamaProviderId(state.choice.id);
   const isListStep = (): boolean => {
     const step = currentStep();
     if (step === "provider") return true;
     if (isOllamaModelStep()) {
-      return typeof state.ollamaDiscovery === "object" && state.ollamaDiscovery.status === "models";
+      return (
+        typeof state.ollamaDiscovery === "object" &&
+        state.ollamaDiscovery.status === "models"
+      );
     }
-    return step === "model" && state.choice !== null && !state.choice.custom && !state.typedModel;
+    return (
+      step === "model" &&
+      state.choice !== null &&
+      !state.choice.custom &&
+      !state.typedModel
+    );
   };
   // The "name" step means two different things depending on the path: a
   // free-text provider name (custom) or a multi-instance account slug (OAuth
@@ -178,9 +207,17 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
   const isLoginStep = (): boolean => currentStep() === "login";
 
   const surface = createSurface(state, selectors);
-  const login = createLoginFlow(state, surface, selectors, { showStep, back, enterModelList });
+  const login = createLoginFlow(state, surface, selectors, {
+    showStep,
+    back,
+    enterModelList,
+  });
   const discovery = createDiscoveryFlows(state, surface, selectors);
-  const accountName = createAccountNameFlow(state, surface, { showStep, back, enterModelList });
+  const accountName = createAccountNameFlow(state, surface, {
+    showStep,
+    back,
+    enterModelList,
+  });
 
   const done = new Promise<boolean>((resolve) => {
     state.resolveDone = resolve;
@@ -208,7 +245,8 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     if (isListStep() || isLoginStep() || isOllamaModelStep()) {
       surface.input.blur();
       surface.paint();
-      if (isOllamaModelStep() && state.ollamaDiscovery === "idle") discovery.beginOllamaDiscovery();
+      if (isOllamaModelStep() && state.ollamaDiscovery === "idle")
+        discovery.beginOllamaDiscovery();
       // Arriving on the sign-in step is the trigger: there is nothing to type,
       // so the flow starts itself rather than waiting for a keystroke.
       if (isLoginStep() && state.loginStatus === "idle") login.beginLogin();
@@ -220,7 +258,8 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
     }
     const field = active as ProviderField;
     surface.input.placeholder = PROVIDER_FIELD_HINTS[field];
-    surface.input.value = field === "apiKey" ? maskEcho(state.values.apiKey) : state.values[field];
+    surface.input.value =
+      field === "apiKey" ? maskEcho(state.values.apiKey) : state.values[field];
     // Paint first: focus is refused while the input is still hidden.
     surface.paint();
     surface.input.focus();
@@ -267,7 +306,8 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
           state.submitting = false;
           state.submitPhase = phase;
           state.submitError = err instanceof Error ? err.message : String(err);
-          state.saveAnywayOffered = phase === "testing" && !isOAuthProviderScopeError(err);
+          state.saveAnywayOffered =
+            phase === "testing" && !isOAuthProviderScopeError(err);
           surface.paint();
         },
       );
@@ -288,7 +328,10 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
 
   const acceptListRow = (): void => {
     const { itemIds } = residualListFromCatalog(state.listRows);
-    const id = residualIdFromSelection({ index: state.list.activeIndex }, itemIds);
+    const id = residualIdFromSelection(
+      { index: state.list.activeIndex },
+      itemIds,
+    );
     if (id === undefined) return;
     clearError();
     if (currentStep() === "provider") {
@@ -364,7 +407,8 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       // An edit invalidates whatever the last submit attempt found — the
       // confirm applies to one exact slug, and any inline error is stale
       // the moment the text it described changes.
-      const hadFeedback = state.oauthProfileError !== null || state.oauthProfileConfirmPending;
+      const hadFeedback =
+        state.oauthProfileError !== null || state.oauthProfileConfirmPending;
       state.oauthProfileError = null;
       state.oauthProfileConfirmPending = false;
       state.confirmedSlug = null;
@@ -429,7 +473,11 @@ export async function runProviderSetup(config: ProviderSetupConfig): Promise<boo
       }
       return;
     }
-    if (isOllamaModelStep() && !isListStep() && (key.name === "return" || key.name === "enter")) {
+    if (
+      isOllamaModelStep() &&
+      !isListStep() &&
+      (key.name === "return" || key.name === "enter")
+    ) {
       key.preventDefault();
       advance();
       return;

@@ -26,11 +26,14 @@ async function runScopeScript(
 
 async function initGitRepo(dir: string): Promise<void> {
   const run = (args: string[]) =>
-    Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" }).exited.then(
-      (code) => {
-        if (code !== 0) throw new Error(`git ${args.join(" ")} failed with ${code}`);
-      },
-    );
+    Bun.spawn(["git", ...args], {
+      cwd: dir,
+      stdout: "pipe",
+      stderr: "pipe",
+    }).exited.then((code) => {
+      if (code !== 0)
+        throw new Error(`git ${args.join(" ")} failed with ${code}`);
+    });
   initTemporaryGitRepo(dir);
   await writeFile(join(dir, "README.md"), "ok\n");
   await run(["add", "README.md"]);

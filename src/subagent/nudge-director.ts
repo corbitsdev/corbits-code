@@ -3,7 +3,10 @@
  * recovery for quiet leaves.
  */
 
-import { DefaultDirector, type ExtendedInferenceOptions } from "@intx/inference";
+import {
+  DefaultDirector,
+  type ExtendedInferenceOptions,
+} from "@intx/inference";
 import type {
   ReactorInboundEvent,
   ReactorState,
@@ -14,7 +17,10 @@ import type {
   InferenceOptions,
   RetryPolicy,
 } from "@intx/types/runtime";
-import { createCompactionGovernor, type CompactionGovernor } from "../agent/compaction.js";
+import {
+  createCompactionGovernor,
+  type CompactionGovernor,
+} from "../agent/compaction.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
 import {
@@ -23,7 +29,10 @@ import {
   salvagePathsFromThrash,
   type ThrashState,
 } from "./thrash.js";
-import { NOOP_INTERVENTION_SINK, type InterventionSink } from "./intervention-log.js";
+import {
+  NOOP_INTERVENTION_SINK,
+  type InterventionSink,
+} from "./intervention-log.js";
 import {
   evaluateSubAgentStop,
   forcedStopReport,
@@ -51,9 +60,18 @@ const SUBAGENT_STALL_NUDGE =
   "background command, check its status now; otherwise continue working or " +
   "write your report.";
 
-function inferWithSubAgentNudge(capabilities: ReactorCapabilities, text: string): ReactorAction {
+function inferWithSubAgentNudge(
+  capabilities: ReactorCapabilities,
+  text: string,
+): ReactorAction {
   const options: ExtendedInferenceOptions = {
-    ephemeralTurns: [{ role: "user", content: [{ type: "text", text }], timestamp: Date.now() }],
+    ephemeralTurns: [
+      {
+        role: "user",
+        content: [{ type: "text", text }],
+        timestamp: Date.now(),
+      },
+    ],
   };
   return capabilities.infer(options);
 }
@@ -179,7 +197,11 @@ export class SubAgentDirector extends DefaultDirector {
   ) {
     super(systemPrompt, toolDefinitions, {});
     this._systemPrompt = systemPrompt;
-    this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
+    this.compaction = createCompactionGovernor(
+      requestContinuation,
+      systemPrompt,
+      toolDefinitions,
+    );
     this.stallTimeoutMs = stallTimeoutMs;
     this.now = now;
     this.lastActivityAt = now();
@@ -215,17 +237,24 @@ export class SubAgentDirector extends DefaultDirector {
       // Idle empty compact only needed the decide re-entry to sync the meter;
       // stay idle rather than starting an unprompted inference. Same for any
       // post-compact resume after this leaf already replied its report.
-      if (afterCompact === "meter" || this.reportReplied) return capabilities.wait();
+      if (afterCompact === "meter" || this.reportReplied)
+        return capabilities.wait();
       return this.applyPendingNudge([capabilities.infer()], capabilities);
     }
-    const idleCompact = this.compaction.interceptIdleContinuation(event, capabilities);
+    const idleCompact = this.compaction.interceptIdleContinuation(
+      event,
+      capabilities,
+    );
     if (idleCompact !== null) return idleCompact;
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) {
       // The infer that consumed pending never completed, so the model did not
       // see the nudge. Re-arm it for resumeAfterCompact unless a newer wrap-up
       // (or other pending) is already waiting.
-      if (this.pendingNudgeText === null && this.lastConsumedNudgeText !== null) {
+      if (
+        this.pendingNudgeText === null &&
+        this.lastConsumedNudgeText !== null
+      ) {
         this.pendingNudgeText = this.lastConsumedNudgeText;
       }
       return recovery;
@@ -277,7 +306,11 @@ export class SubAgentDirector extends DefaultDirector {
           capabilities.reply(lastText(content)),
         ];
         this.compaction.noteIdleTurn(event, terminal);
-        const compacted = this.compaction.interceptActions(event, terminal, capabilities);
+        const compacted = this.compaction.interceptActions(
+          event,
+          terminal,
+          capabilities,
+        );
         if (compacted !== null) return compacted;
         return terminal;
       }
@@ -315,7 +348,11 @@ export class SubAgentDirector extends DefaultDirector {
           ),
         ];
         this.compaction.noteIdleTurn(event, terminal);
-        const compacted = this.compaction.interceptActions(event, terminal, capabilities);
+        const compacted = this.compaction.interceptActions(
+          event,
+          terminal,
+          capabilities,
+        );
         if (compacted !== null) return compacted;
         return terminal;
       }
@@ -335,7 +372,11 @@ export class SubAgentDirector extends DefaultDirector {
     }
     const base = await super.decide(event, state, capabilities);
     const baseActions = Array.isArray(base) ? base : [base];
-    const compacted = this.compaction.interceptActions(event, baseActions, capabilities);
+    const compacted = this.compaction.interceptActions(
+      event,
+      baseActions,
+      capabilities,
+    );
     if (compacted !== null) return compacted;
     return this.applyPendingNudge(baseActions, capabilities);
   }
@@ -372,7 +413,11 @@ export class SubAgentDirector extends DefaultDirector {
       this.interventions({
         id: "stall-nudge",
         class: "nudge",
-        measurement: { metric: "silenceMs", value: elapsed, threshold: this.stallTimeoutMs },
+        measurement: {
+          metric: "silenceMs",
+          value: elapsed,
+          threshold: this.stallTimeoutMs,
+        },
         state: this.interventionState(),
       });
       return [
@@ -383,7 +428,11 @@ export class SubAgentDirector extends DefaultDirector {
     this.interventions({
       id: "stalled",
       class: "stop",
-      measurement: { metric: "silenceMs", value: elapsed, threshold: this.stallTimeoutMs },
+      measurement: {
+        metric: "silenceMs",
+        value: elapsed,
+        threshold: this.stallTimeoutMs,
+      },
       state: this.interventionState(),
       detail: `no activity for ${Math.round(elapsed / 1000)}s after stall nudge`,
     });
@@ -416,9 +465,14 @@ export class SubAgentDirector extends DefaultDirector {
     const text = this.pendingNudgeText;
     this.pendingNudgeText = null;
     this.lastConsumedNudgeText = text;
-    const existing = actions[inferIndex] as Extract<ReactorAction, { type: "infer" }>;
+    const existing = actions[inferIndex] as Extract<
+      ReactorAction,
+      { type: "infer" }
+    >;
     const rewritten = [...actions];
-    rewritten[inferIndex] = capabilities.infer(withEphemeralNudge(existing.options, text));
+    rewritten[inferIndex] = capabilities.infer(
+      withEphemeralNudge(existing.options, text),
+    );
     return rewritten;
   }
 }

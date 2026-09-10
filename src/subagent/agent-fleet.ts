@@ -39,7 +39,10 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import { runtimeSettingsWithCatalog, type ProviderCatalogEntry } from "../config/index.js";
+import {
+  runtimeSettingsWithCatalog,
+  type ProviderCatalogEntry,
+} from "../config/index.js";
 import { generateSessionId } from "../session/index.js";
 import {
   INTENT_DEFAULT_DIRECTOR,
@@ -66,7 +69,11 @@ import {
   type AgentLifecycleStatus,
   type SubAgentSessionStore,
 } from "./session-store.js";
-import { isLiveWaitStatus, projectWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
+import {
+  isLiveWaitStatus,
+  projectWaitStatus,
+  type WaitJSONStatus,
+} from "./lifecycle.js";
 import { getProcessAdmissionQueue, type AdmissionQueue } from "./admission.js";
 import type {
   NestedDispatchDeps,
@@ -76,7 +83,11 @@ import type {
   SubAgentSandboxDeps,
   SubAgentRunSettlement,
 } from "./types.js";
-import { cleanupSubAgentWorktree, createSubAgentWorktree, WorktreeError } from "./worktree.js";
+import {
+  cleanupSubAgentWorktree,
+  createSubAgentWorktree,
+  WorktreeError,
+} from "./worktree.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { classifyAgentName } from "../telemetry/classify.js";
 import { captureSubagentEnd } from "../telemetry/product-events.js";
@@ -93,7 +104,10 @@ import {
 import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.js";
 import { isResolvedProviderFailureError } from "../inference-error-message.js";
 import { isSubAgentCancelError } from "./dispose.js";
-import { createInterventionLog, type InterventionSink } from "./intervention-log.js";
+import {
+  createInterventionLog,
+  type InterventionSink,
+} from "./intervention-log.js";
 import { takeAndProjectMailboxRecord } from "./fleet-dry-drive.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "agent-fleet"]);
@@ -183,7 +197,11 @@ class FleetMailbox {
 
   hasUncollectedTerminal(id: string): boolean {
     const record = this.peek(id);
-    return record !== undefined && !isLiveWaitStatus(record.status) && record.collected !== true;
+    return (
+      record !== undefined &&
+      !isLiveWaitStatus(record.status) &&
+      record.collected !== true
+    );
   }
 
   markProviderFailure(id: string): void {
@@ -322,7 +340,10 @@ class FleetMailbox {
   private sessionWaitStatus(id: string): WaitJSONStatus | undefined {
     const session = this.sessions?.get(id);
     if (session === undefined) return undefined;
-    return projectWaitStatus(session.lifecycle, this.sessions?.isRunInFlight(id) === true);
+    return projectWaitStatus(
+      session.lifecycle,
+      this.sessions?.isRunInFlight(id) === true,
+    );
   }
 
   private projectedStatus(id: string, overlay: FleetOverlay): WaitJSONStatus {
@@ -368,24 +389,31 @@ class FleetMailbox {
     const status = this.projectedStatus(id, overlay);
     const sessionWait = this.sessionWaitStatus(id);
     const payload =
-      overlay.tombstoned !== true && session !== undefined && sessionWait === status
+      overlay.tombstoned !== true &&
+      session !== undefined &&
+      sessionWait === status
         ? session
         : undefined;
     const stopReason =
       overlay.tombstoned !== true && !isLiveWaitStatus(status)
         ? (payload?.stopReason ?? session?.stopReason)
         : payload?.stopReason;
-    const ask = status === "awaiting_director" ? this.sessions.peekAsk(id) : undefined;
+    const ask =
+      status === "awaiting_director" ? this.sessions.peekAsk(id) : undefined;
     return {
       status,
       ...(overlay.collected === true ? { collected: true } : {}),
       ...(overlay.tombstoned === true ? { tombstoned: true } : {}),
       ...(overlay.hint !== undefined ? { hint: overlay.hint } : {}),
       ...(payload?.report !== undefined ? { report: payload.report } : {}),
-      ...(payload?.error !== undefined && status === "failed" ? { error: payload.error } : {}),
+      ...(payload?.error !== undefined && status === "failed"
+        ? { error: payload.error }
+        : {}),
       ...(stopReason !== undefined ? { stopReason } : {}),
       ...(overlay.providerFailure === true ? { providerFailure: true } : {}),
-      ...(ask !== undefined ? { question: ask.question, questionId: ask.questionId } : {}),
+      ...(ask !== undefined
+        ? { question: ask.question, questionId: ask.questionId }
+        : {}),
       ...(status === "awaiting_director" && session !== undefined
         ? { description: session.description }
         : {}),
@@ -427,7 +455,9 @@ class FleetMailbox {
 // wait_agents tool instances), not a module singleton — created in
 // createSpawnAgentTool and threaded to createWaitAgentsTool by the caller.
 export type FleetMailboxHandle = FleetMailbox;
-export function createFleetMailbox(sessions: SubAgentSessionStore): FleetMailboxHandle {
+export function createFleetMailbox(
+  sessions: SubAgentSessionStore,
+): FleetMailboxHandle {
   return new FleetMailbox(sessions);
 }
 
@@ -450,18 +480,26 @@ export const spawnAgentToolDefinition: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      description: { type: "string", description: "A short label for the worker job." },
-      prompt: { type: "string", description: "The actionable goal for the worker." },
+      description: {
+        type: "string",
+        description: "A short label for the worker job.",
+      },
+      prompt: {
+        type: "string",
+        description: "The actionable goal for the worker.",
+      },
       context: { type: "string", description: "Optional durable background." },
       goals: {
         type: "array",
         items: { type: "string" },
-        description: "Optional ordered checklist seeds for the worker's own manage_tasks list.",
+        description:
+          "Optional ordered checklist seeds for the worker's own manage_tasks list.",
       },
       intent: {
         type: "string",
         enum: ["explore", "implement", "review", "plan", "general"],
-        description: "Optional spawn intent; selects a closed director when agent= is omitted.",
+        description:
+          "Optional spawn intent; selects a closed director when agent= is omitted.",
       },
       success_criteria: {
         type: "array",
@@ -474,10 +512,14 @@ export const spawnAgentToolDefinition: ToolDefinition = {
         items: { type: "string" },
         description: "Optional explicit out-of-scope actions.",
       },
-      report_focus: { type: "string", description: "Optional hint for what Findings must cover." },
+      report_focus: {
+        type: "string",
+        description: "Optional hint for what Findings must cover.",
+      },
       agent: {
         type: "string",
-        description: "Optional director id (e.g. from search_agents). Alternative to intent=.",
+        description:
+          "Optional director id (e.g. from search_agents). Alternative to intent=.",
       },
     },
     required: ["description", "prompt"],
@@ -557,7 +599,9 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   /** When false, tear the worker down on completion. Default true. */
   persist?: boolean;
   settings?: Settings | (() => Settings | undefined);
-  catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
+  catalog?:
+    | readonly ProviderCatalogEntry[]
+    | (() => readonly ProviderCatalogEntry[]);
   profiles?: AgentProfile[] | (() => AgentProfile[]);
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
@@ -597,7 +641,8 @@ export function resolveDirectorDispatch(
       };
     }
     const resolved = resolveDirector({ agentId });
-    if (!resolved.ok) return { ok: false, error: `Error: ${resolved.error} ${resolved.hint}` };
+    if (!resolved.ok)
+      return { ok: false, error: `Error: ${resolved.error} ${resolved.hint}` };
     const pkg = resolved.package;
     return {
       ok: true,
@@ -610,7 +655,8 @@ export function resolveDirectorDispatch(
   }
   if (intent !== undefined) {
     const resolved = resolveDirector({ intent });
-    if (!resolved.ok) return { ok: false, error: `Error: ${resolved.error} ${resolved.hint}` };
+    if (!resolved.ok)
+      return { ok: false, error: `Error: ${resolved.error} ${resolved.hint}` };
     const pkg = resolved.package;
     return {
       ok: true,
@@ -648,15 +694,27 @@ function resolveAgentDispatch(input: {
   allowOrchestrator: boolean;
   settings: Settings | undefined;
   applyResolvedProvider: (
-    resolved: { provider: string; model: string; reasoningEffort?: ReasoningEffort },
+    resolved: {
+      provider: string;
+      model: string;
+      reasoningEffort?: ReasoningEffort;
+    },
     label: string,
   ) => string | null;
 }): ResolvedAgentDispatch | { error: string } {
-  const { agentId, intent, profiles, allowOrchestrator, settings, applyResolvedProvider } = input;
+  const {
+    agentId,
+    intent,
+    profiles,
+    allowOrchestrator,
+    settings,
+    applyResolvedProvider,
+  } = input;
   if (agentId !== undefined && agentId.length > 0) {
     if (isDirectorId(agentId)) {
       const resolved = resolveDirector({ agentId });
-      if (!resolved.ok) return { error: `Error: ${resolved.error} ${resolved.hint}` };
+      if (!resolved.ok)
+        return { error: `Error: ${resolved.error} ${resolved.hint}` };
       const pkg = resolved.package;
       const profile = profiles?.find((p) => p.id === agentId);
       let effortPin: ReasoningEffort | undefined;
@@ -668,7 +726,10 @@ function resolveAgentDispatch(input: {
           };
         }
         if (outcome.kind === "resolved") {
-          const err = applyResolvedProvider(outcome.value, `agent "${agentId}"`);
+          const err = applyResolvedProvider(
+            outcome.value,
+            `agent "${agentId}"`,
+          );
           if (err !== null) return { error: err };
           effortPin = outcome.value.reasoningEffort;
         }
@@ -684,7 +745,9 @@ function resolveAgentDispatch(input: {
         pkg,
         orchestrator,
         ...(orchestrator ? { orchestratorTier: pkg.tier } : {}),
-        ...(orchestrator && pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0
+        ...(orchestrator &&
+        pkg.spawn.allowlist !== undefined &&
+        pkg.spawn.allowlist.length > 0
           ? { nestedSpawnAllowlist: pkg.spawn.allowlist }
           : {}),
         ...(effortPin !== undefined ? { effortPin } : {}),
@@ -733,7 +796,9 @@ function resolveAgentDispatch(input: {
       ...(profile.systemPromptRole !== undefined
         ? { systemPromptRole: profile.systemPromptRole }
         : {}),
-      ...(profile.capabilities !== undefined ? { capabilities: profile.capabilities } : {}),
+      ...(profile.capabilities !== undefined
+        ? { capabilities: profile.capabilities }
+        : {}),
       orchestrator: false,
       ...(effortPin !== undefined ? { effortPin } : {}),
     };
@@ -741,7 +806,8 @@ function resolveAgentDispatch(input: {
 
   if (intent !== undefined) {
     const resolved = resolveDirector({ intent });
-    if (!resolved.ok) return { error: `Error: ${resolved.error} ${resolved.hint}` };
+    if (!resolved.ok)
+      return { error: `Error: ${resolved.error} ${resolved.hint}` };
     const pkg = resolved.package;
     const capabilities = packageToCapabilities(pkg);
     const orchestrator = pkg.spawn.maySpawn === true && allowOrchestrator;
@@ -754,7 +820,9 @@ function resolveAgentDispatch(input: {
       pkg,
       orchestrator,
       ...(orchestrator ? { orchestratorTier: pkg.tier } : {}),
-      ...(orchestrator && pkg.spawn.allowlist !== undefined && pkg.spawn.allowlist.length > 0
+      ...(orchestrator &&
+      pkg.spawn.allowlist !== undefined &&
+      pkg.spawn.allowlist.length > 0
         ? { nestedSpawnAllowlist: pkg.spawn.allowlist }
         : {}),
     };
@@ -794,7 +862,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   const activeLanes = new Map<string, { description: string; cwd: string }>();
   let conflictLog: InterventionSink | null = null;
   const recordConflict = (event: Parameters<InterventionSink>[0]): void => {
-    conflictLog ??= createInterventionLog(deps.getWorkdirBase(), { role: "parent" });
+    conflictLog ??= createInterventionLog(deps.getWorkdirBase(), {
+      role: "parent",
+    });
     conflictLog(event);
   };
   return tool({
@@ -803,7 +873,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const args = call.arguments;
       const parsed = SpawnAgentArgs(args);
       if (parsed instanceof type.errors) {
-        return fleetResult(call.id, `Error: spawn_agent arguments invalid: ${parsed.summary}`);
+        return fleetResult(
+          call.id,
+          `Error: spawn_agent arguments invalid: ${parsed.summary}`,
+        );
       }
       const {
         description: rawDesc,
@@ -825,22 +898,34 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         );
       }
       const context = rawCtx?.trim();
-      const goals = rawGoals?.map((g) => g.trim()).filter((g) => g.length > 0) ?? [];
+      const goals =
+        rawGoals?.map((g) => g.trim()).filter((g) => g.length > 0) ?? [];
       const intent = rawIntent as TaskIntent | undefined;
       const successCriteria =
-        rawSuccessCriteria?.map((c) => c.trim()).filter((c) => c.length > 0) ?? [];
-      const doNot = rawDoNot?.map((d) => d.trim()).filter((d) => d.length > 0) ?? [];
+        rawSuccessCriteria?.map((c) => c.trim()).filter((c) => c.length > 0) ??
+        [];
+      const doNot =
+        rawDoNot?.map((d) => d.trim()).filter((d) => d.length > 0) ?? [];
       const reportFocus = rawReportFocus?.trim();
 
       let provider: SubAgentProvider = resolveDep(deps.provider);
       const parentEffort = provider.reasoningEffort;
-      const diskSettings = deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
-      const catalog = deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
+      const diskSettings =
+        deps.settings !== undefined ? resolveDep(deps.settings) : undefined;
+      const catalog =
+        deps.catalog !== undefined ? resolveDep(deps.catalog) : undefined;
       const settings =
-        catalog !== undefined ? runtimeSettingsWithCatalog(diskSettings, catalog) : diskSettings;
-      const profiles = deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
+        catalog !== undefined
+          ? runtimeSettingsWithCatalog(diskSettings, catalog)
+          : diskSettings;
+      const profiles =
+        deps.profiles !== undefined ? resolveDep(deps.profiles) : undefined;
       const applyResolvedProvider = (
-        resolved: { provider: string; model: string; reasoningEffort?: ReasoningEffort },
+        resolved: {
+          provider: string;
+          model: string;
+          reasoningEffort?: ReasoningEffort;
+        },
         label: string,
       ): string | null => {
         if (settings === undefined) {
@@ -864,8 +949,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           providerName: resolved.provider,
           baseURL: providerSettings.baseURL,
           ...(providerSettings.keyless === true ? { keyless: true } : {}),
-          ...(providerSettings.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
-          ...(providerSettings.apiKey !== undefined ? { apiKey: providerSettings.apiKey } : {}),
+          ...(providerSettings.bifrostVirtualKey === true
+            ? { bifrostVirtualKey: true }
+            : {}),
+          ...(providerSettings.apiKey !== undefined
+            ? { apiKey: providerSettings.apiKey }
+            : {}),
           model: resolved.model,
         };
         return null;
@@ -908,8 +997,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const nestedSpawnAllowlist = resolved.nestedSpawnAllowlist;
       const effort = resolveEffortForRole({
         orchestrator,
-        ...(resolved.effortPin !== undefined ? { pin: resolved.effortPin } : {}),
-        ...(resolved.roleDefault !== undefined ? { roleDefault: resolved.roleDefault } : {}),
+        ...(resolved.effortPin !== undefined
+          ? { pin: resolved.effortPin }
+          : {}),
+        ...(resolved.roleDefault !== undefined
+          ? { roleDefault: resolved.roleDefault }
+          : {}),
         ...(parentEffort !== undefined ? { parentEffort } : {}),
         model: provider.model,
         isCodex: isCodexProviderName(provider.providerName),
@@ -929,7 +1022,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         ...(intent !== undefined ? { intent } : {}),
         ...(successCriteria.length > 0 ? { successCriteria } : {}),
         ...(doNot.length > 0 ? { doNot } : {}),
-        ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
+        ...(reportFocus !== undefined && reportFocus.length > 0
+          ? { reportFocus }
+          : {}),
       });
 
       const session = deps.sessions.start({
@@ -942,7 +1037,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // governs it from here on.
         retained: true,
         provider: provider.providerName,
-        ...(deps.parentSessionId !== undefined ? { parentSessionId: deps.parentSessionId } : {}),
+        ...(deps.parentSessionId !== undefined
+          ? { parentSessionId: deps.parentSessionId }
+          : {}),
       });
       deps.fleetRecords.register(session.id);
       const agentName = classifyAgentName(resolved.directorId);
@@ -959,7 +1056,8 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         const status =
           terminalSession?.status === "cancelled"
             ? "cancelled"
-            : runInterrupted || terminalSession?.lifecycleStatus === "interrupted"
+            : runInterrupted ||
+                terminalSession?.lifecycleStatus === "interrupted"
               ? "interrupted"
               : (terminalSession?.status ?? "completed");
         captureSubagentEnd(telemetry, {
@@ -967,7 +1065,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           status: setupFailed ? "failed" : status,
           durationMs: Date.now() - startedAt,
           model: settlement?.model ?? provider.model,
-          stopReason: setupFailed ? "setup_error" : (settlement?.terminal_reason ?? "error"),
+          stopReason: setupFailed
+            ? "setup_error"
+            : (settlement?.terminal_reason ?? "error"),
           rollup: settlement ?? {
             turn_count: 0,
             input_tokens: 0,
@@ -991,7 +1091,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
       let providerFailureObserved = false;
       const onEvent = (event: ReactorEmittedEvent): void => {
-        if (event.type === "inference.start" || event.type === "inference.done") {
+        if (
+          event.type === "inference.start" ||
+          event.type === "inference.done"
+        ) {
           providerFailureObserved = false;
         } else if (event.type === "inference.error") {
           providerFailureObserved = true;
@@ -1006,23 +1109,33 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(deps.inheritMcpTools !== undefined
               ? { inheritMcpTools: deps.inheritMcpTools }
               : {}),
-            ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
+            ...(deps.shellTimeout !== undefined
+              ? { shellTimeout: deps.shellTimeout }
+              : {}),
             ...(deps.shellEnv !== undefined ? { shellEnv: deps.shellEnv } : {}),
             ...(deps.extraToolPlugins !== undefined
               ? { extraToolPlugins: deps.extraToolPlugins }
               : {}),
-            ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
+            ...(deps.getBlobReader !== undefined
+              ? { getBlobReader: deps.getBlobReader }
+              : {}),
             getWorkdirBase: deps.getWorkdirBase,
             provider: deps.provider,
             ...(deps.onEvent !== undefined ? { onEvent: deps.onEvent } : {}),
-            ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
+            ...(deps.onProgress !== undefined
+              ? { onProgress: deps.onProgress }
+              : {}),
             sessions: deps.sessions,
             ...(settings !== undefined ? { settings } : {}),
             ...(catalog !== undefined ? { catalog } : {}),
             ...(deps.profiles !== undefined ? { profiles: deps.profiles } : {}),
             parentSessionId: session.id,
-            ...(deps.useWorktree !== undefined ? { useWorktree: deps.useWorktree } : {}),
-            ...(nestedSpawnAllowlist !== undefined ? { spawnAllowlist: nestedSpawnAllowlist } : {}),
+            ...(deps.useWorktree !== undefined
+              ? { useWorktree: deps.useWorktree }
+              : {}),
+            ...(nestedSpawnAllowlist !== undefined
+              ? { spawnAllowlist: nestedSpawnAllowlist }
+              : {}),
             admission,
           }
         : undefined;
@@ -1041,7 +1154,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         try {
           await cleanupSubAgentWorktree(deps.cwd, path, {
             stashBaseline: worktreeStashBaseline,
-            ...(worktreeHeadAtCreate !== undefined ? { headAtCreate: worktreeHeadAtCreate } : {}),
+            ...(worktreeHeadAtCreate !== undefined
+              ? { headAtCreate: worktreeHeadAtCreate }
+              : {}),
           });
         } catch (err: unknown) {
           log.error("spawn_agent worktree cleanup failed: {error}", {
@@ -1072,9 +1187,16 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           }
 
           if (deps.useWorktree === true) {
-            const worktreePath = join(deps.getWorkdirBase(), "worktrees", generateSessionId());
+            const worktreePath = join(
+              deps.getWorkdirBase(),
+              "worktrees",
+              generateSessionId(),
+            );
             try {
-              const worktree = await createSubAgentWorktree(deps.cwd, worktreePath);
+              const worktree = await createSubAgentWorktree(
+                deps.cwd,
+                worktreePath,
+              );
               worktreeCwd = worktree.path;
               worktreeStashBaseline = worktree.stashBaseline;
               worktreeHeadAtCreate = worktree.headAtCreate;
@@ -1083,7 +1205,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 err instanceof WorktreeError
                   ? err.message
                   : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
-              log.error("spawn_agent worktree setup failed: {error}", { error: message });
+              log.error("spawn_agent worktree setup failed: {error}", {
+                error: message,
+              });
               deps.sessions.fail(session.id, message);
               finalizeEnd(true);
               admission.release(session.id);
@@ -1127,12 +1251,16 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(deps.inheritMcpTools !== undefined
               ? { inheritMcpTools: deps.inheritMcpTools }
               : {}),
-            ...(deps.shellTimeout !== undefined ? { shellTimeout: deps.shellTimeout } : {}),
+            ...(deps.shellTimeout !== undefined
+              ? { shellTimeout: deps.shellTimeout }
+              : {}),
             ...(deps.shellEnv !== undefined ? { shellEnv: deps.shellEnv } : {}),
             ...(deps.extraToolPlugins !== undefined
               ? { extraToolPlugins: deps.extraToolPlugins }
               : {}),
-            ...(deps.getBlobReader !== undefined ? { getBlobReader: deps.getBlobReader } : {}),
+            ...(deps.getBlobReader !== undefined
+              ? { getBlobReader: deps.getBlobReader }
+              : {}),
             cwd: worktreeCwd ?? deps.cwd,
             workdirBase: deps.getWorkdirBase(),
             provider,
@@ -1145,15 +1273,21 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(intent !== undefined ? { intent } : {}),
             ...(successCriteria.length > 0 ? { successCriteria } : {}),
             ...(doNot.length > 0 ? { doNot } : {}),
-            ...(reportFocus !== undefined && reportFocus.length > 0 ? { reportFocus } : {}),
+            ...(reportFocus !== undefined && reportFocus.length > 0
+              ? { reportFocus }
+              : {}),
             signal: childCtl.signal,
             admission,
             onEvent,
             onRunSettled: (summary) => {
               settlement = summary;
             },
-            ...(deps.onProgress !== undefined ? { onProgress: deps.onProgress } : {}),
-            ...(resolved.capabilities !== undefined ? { capabilities: resolved.capabilities } : {}),
+            ...(deps.onProgress !== undefined
+              ? { onProgress: deps.onProgress }
+              : {}),
+            ...(resolved.capabilities !== undefined
+              ? { capabilities: resolved.capabilities }
+              : {}),
             ...(resolved.systemPromptRole !== undefined
               ? { systemPromptRole: resolved.systemPromptRole }
               : {}),
@@ -1167,7 +1301,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                   nestedDispatch,
                 }
               : {}),
-            ...(deps.deadlineMs !== undefined ? { deadlineMs: deps.deadlineMs } : {}),
+            ...(deps.deadlineMs !== undefined
+              ? { deadlineMs: deps.deadlineMs }
+              : {}),
             ...(resolved.pkg !== undefined
               ? { tier: resolved.pkg.tier }
               : orchestrator
@@ -1188,7 +1324,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                   hold.reject = reject;
                 });
                 if (hold.resolve === undefined || hold.reject === undefined) {
-                  const err = new Error("ask_director could not register a pending question");
+                  const err = new Error(
+                    "ask_director could not register a pending question",
+                  );
                   hold.reject?.(err);
                   void answer.catch(() => undefined);
                   throw err;
@@ -1200,7 +1338,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                   reject: hold.reject,
                 });
                 if (!ok) {
-                  const err = new Error("ask_director could not register a pending question");
+                  const err = new Error(
+                    "ask_director could not register a pending question",
+                  );
                   hold.reject(err);
                   void answer.catch(() => undefined);
                   throw err;
@@ -1242,15 +1382,20 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 // queued followup both read pending_init.
                 if (!deps.fleetRecords.hasLiveFollowup(session.id)) {
                   deps.sessions.attachReport(session.id, result.report, {
-                    ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+                    ...(result.stopReason !== undefined
+                      ? { stopReason: result.stopReason }
+                      : {}),
                   });
                 }
                 return;
               }
-              const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
+              const alreadyCancelled =
+                deps.sessions.get(session.id)?.status === "cancelled";
               if (alreadyCancelled) {
                 deps.sessions.attachReport(session.id, result.report, {
-                  ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+                  ...(result.stopReason !== undefined
+                    ? { stopReason: result.stopReason }
+                    : {}),
                 });
                 return;
               }
@@ -1258,12 +1403,18 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               if (agentRetained) keepWorktreeAlive = true;
               deps.sessions.complete(session.id, result.report, {
                 agentRetained,
-                ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+                ...(result.stopReason !== undefined
+                  ? { stopReason: result.stopReason }
+                  : {}),
               });
             })
             .catch((err) => {
-              const alreadyCancelled = deps.sessions.get(session.id)?.status === "cancelled";
-              if (alreadyCancelled || isSubAgentCancelError(err, childCtl.signal)) {
+              const alreadyCancelled =
+                deps.sessions.get(session.id)?.status === "cancelled";
+              if (
+                alreadyCancelled ||
+                isSubAgentCancelError(err, childCtl.signal)
+              ) {
                 if (!alreadyCancelled) {
                   deps.sessions.cancel(session.id, DEFAULT_CANCEL_REASON);
                 }
@@ -1271,8 +1422,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 return;
               }
               const isProviderFailure = isResolvedProviderFailureError(err);
-              const diagnosticMessage = err instanceof Error ? err.message : String(err);
-              const authMessage = formatSubAgentSpawnAuthFailureMessage(description, err);
+              const diagnosticMessage =
+                err instanceof Error ? err.message : String(err);
+              const authMessage = formatSubAgentSpawnAuthFailureMessage(
+                description,
+                err,
+              );
               const failReason = authMessage ?? diagnosticMessage;
               if (isProviderFailure || providerFailureObserved) {
                 deps.fleetRecords.markProviderFailure(session.id);
@@ -1295,7 +1450,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         start,
       });
       if (status === "queued") deps.fleetRecords.markQueued(session.id);
-      return fleetResult(call.id, JSON.stringify({ agent_id: session.id, status }));
+      return fleetResult(
+        call.id,
+        JSON.stringify({ agent_id: session.id, status }),
+      );
     },
   });
 }
@@ -1333,7 +1491,12 @@ async function waitForTerminal(
   signal?: AbortSignal,
 ): Promise<boolean> {
   const ready = (): boolean => {
-    if (targets.some((id) => fleetRecords.peek(id)?.status === "awaiting_director")) return true;
+    if (
+      targets.some(
+        (id) => fleetRecords.peek(id)?.status === "awaiting_director",
+      )
+    )
+      return true;
     return mode === "all"
       ? targets.every((id) => isWaitTerminal(id, fleetRecords))
       : targets.some((id) => isWaitTerminal(id, fleetRecords));
@@ -1368,10 +1531,16 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
     handler: async (call, signal): Promise<ToolResult> => {
       const parsed = WaitAgentsArgs(call.arguments);
       if (parsed instanceof type.errors) {
-        return fleetResult(call.id, `Error: wait_agents arguments invalid: ${parsed.summary}`);
+        return fleetResult(
+          call.id,
+          `Error: wait_agents arguments invalid: ${parsed.summary}`,
+        );
       }
       const requestedTimeout = parsed.timeout_ms ?? DEFAULT_WAIT_TIMEOUT_MS;
-      const timeoutMs = Math.min(Math.max(requestedTimeout, 0), MAX_WAIT_TIMEOUT_MS);
+      const timeoutMs = Math.min(
+        Math.max(requestedTimeout, 0),
+        MAX_WAIT_TIMEOUT_MS,
+      );
       const mode = parsed.mode ?? "any";
 
       const targets =
@@ -1380,7 +1549,10 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
           : deps.fleetRecords.uncollectedIds();
 
       if (targets.length === 0) {
-        return fleetResult(call.id, JSON.stringify({ results: [], timed_out: false }));
+        return fleetResult(
+          call.id,
+          JSON.stringify({ results: [], timed_out: false }),
+        );
       }
 
       if (deps.authority !== undefined) {
@@ -1426,9 +1598,15 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
           return {
             agent_id: id,
             status: record.status,
-            ...(record.question !== undefined ? { question: record.question } : {}),
-            ...(record.questionId !== undefined ? { question_id: record.questionId } : {}),
-            ...(record.description !== undefined ? { description: record.description } : {}),
+            ...(record.question !== undefined
+              ? { question: record.question }
+              : {}),
+            ...(record.questionId !== undefined
+              ? { question_id: record.questionId }
+              : {}),
+            ...(record.description !== undefined
+              ? { description: record.description }
+              : {}),
           };
         }
         if (isLiveWaitStatus(record.status)) {
@@ -1440,12 +1618,19 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         }
         return {
           ...projected,
-          ...(record.question !== undefined ? { question: record.question } : {}),
-          ...(record.questionId !== undefined ? { question_id: record.questionId } : {}),
+          ...(record.question !== undefined
+            ? { question: record.question }
+            : {}),
+          ...(record.questionId !== undefined
+            ? { question_id: record.questionId }
+            : {}),
         };
       });
 
-      return fleetResult(call.id, JSON.stringify({ results, timed_out: timedOut }));
+      return fleetResult(
+        call.id,
+        JSON.stringify({ results, timed_out: timedOut }),
+      );
     },
   });
 }
@@ -1483,10 +1668,12 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
               }
             : {}),
           ...(stopReason !== undefined ? { stop_reason: stopReason } : {}),
-          ...(record?.status === "awaiting_director" && record.question !== undefined
+          ...(record?.status === "awaiting_director" &&
+          record.question !== undefined
             ? { question: record.question }
             : {}),
-          ...(record?.status === "awaiting_director" && record.questionId !== undefined
+          ...(record?.status === "awaiting_director" &&
+          record.questionId !== undefined
             ? { question_id: record.questionId }
             : {}),
         };

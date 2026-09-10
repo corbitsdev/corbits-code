@@ -73,7 +73,9 @@ describe("compareVersions / getNewEntries", () => {
   test("returns only newer entries", () => {
     const entries = parseChangelogText(SAMPLE);
     const newer = getNewEntries(entries, "0.2.85");
-    expect(newer.map((e) => `${e.major}.${e.minor}.${e.patch}`)).toEqual(["0.2.86"]);
+    expect(newer.map((e) => `${e.major}.${e.minor}.${e.patch}`)).toEqual([
+      "0.2.86",
+    ]);
   });
 });
 
@@ -174,8 +176,13 @@ describe("formatStartupChangelog", () => {
     const big = parseChangelogText(
       `## [9.0.0]\n\n${"x".repeat(200)}\n\n## [8.0.0]\n\n${"y".repeat(200)}\n`,
     );
-    const formatted = formatStartupChangelog(big, { maxEntries: 5, maxBytes: 120 });
-    expect(Buffer.byteLength(formatted.markdown, "utf8")).toBeLessThanOrEqual(120);
+    const formatted = formatStartupChangelog(big, {
+      maxEntries: 5,
+      maxBytes: 120,
+    });
+    expect(Buffer.byteLength(formatted.markdown, "utf8")).toBeLessThanOrEqual(
+      120,
+    );
     expect(formatted.truncated).toBe(true);
   });
 });

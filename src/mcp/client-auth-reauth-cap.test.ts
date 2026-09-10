@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
@@ -70,7 +77,9 @@ async function saveThenRedirect(
   );
 }
 
-async function emitRedirects(provider: MockAuthProvider | undefined): Promise<void> {
+async function emitRedirects(
+  provider: MockAuthProvider | undefined,
+): Promise<void> {
   if (overlappingSDKSaves) {
     const first = saveThenRedirect(provider, "v1");
     while (saveStarted === 0) await Promise.resolve();
@@ -130,7 +139,9 @@ await withMockedModule(
   (real: typeof import("@modelcontextprotocol/sdk/client/index.js")) => ({
     ...real,
     Client: class {
-      async connect(transport?: { provider?: MockAuthProvider }): Promise<void> {
+      async connect(transport?: {
+        provider?: MockAuthProvider;
+      }): Promise<void> {
         liveProvider = transport?.provider;
         if (connectFailuresLeft > 0) {
           connectFailuresLeft -= 1;
@@ -142,7 +153,9 @@ await withMockedModule(
         if (listFailuresLeft > 0) {
           listFailuresLeft -= 1;
           if (redirectOnListFailure) {
-            await liveProvider?.redirectToAuthorization?.(new URL("https://auth.test/authorize"));
+            await liveProvider?.redirectToAuthorization?.(
+              new URL("https://auth.test/authorize"),
+            );
           }
           throw new UnauthorizedError("authorization required");
         }
@@ -170,15 +183,21 @@ await withMockedModule(
 
 await withMockedModule(
   import.meta.resolve("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-  (real: typeof import("@modelcontextprotocol/sdk/client/streamableHttp.js")) => ({
+  (
+    real: typeof import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
+  ) => ({
     ...real,
     StreamableHTTPClientTransport: class {
       provider?: MockAuthProvider;
       constructor(
         _url: URL,
-        options?: { authProvider?: MockAuthProvider; requestInit?: RequestInit },
+        options?: {
+          authProvider?: MockAuthProvider;
+          requestInit?: RequestInit;
+        },
       ) {
-        if (options?.authProvider !== undefined) this.provider = options.authProvider;
+        if (options?.authProvider !== undefined)
+          this.provider = options.authProvider;
         const signal = options?.requestInit?.signal;
         if (signal !== undefined && signal !== null) lastRequestSignal = signal;
       }
@@ -238,9 +257,16 @@ const {
   BROWSER_AUTH_COOLDOWN_MS,
 } = await import("./client.js");
 
-const config = { name: "linear", type: "http" as const, url: "https://mcp.linear.app/mcp" };
+const config = {
+  name: "linear",
+  type: "http" as const,
+  url: "https://mcp.linear.app/mcp",
+};
 
-async function connectWithAuthPrompt(): Promise<{ ok: boolean; error?: string }> {
+async function connectWithAuthPrompt(): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
   const result = await connectMCPServer(config, {
     onAuthURL: () => {
       authURLCount += 1;
@@ -320,9 +346,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     callFailuresLeft = 1;
     listFailuresLeft = 1;
 
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-      "authorization required",
-    );
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).rejects.toThrow("authorization required");
 
     expect(refreshCalls).toBe(1);
     expect(authURLCount).toBe(0);
@@ -344,8 +370,16 @@ describe("HTTP MCP re-auth loop prevention", () => {
     redirectOnListFailure = true;
 
     const calls = [
-      connected.client.call("first", { value: 1 }, new AbortController().signal),
-      connected.client.call("second", { value: 2 }, new AbortController().signal),
+      connected.client.call(
+        "first",
+        { value: 1 },
+        new AbortController().signal,
+      ),
+      connected.client.call(
+        "second",
+        { value: 2 },
+        new AbortController().signal,
+      ),
     ];
 
     await expect(Promise.all(calls)).resolves.toEqual(["", ""]);
@@ -358,7 +392,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
   });
 
   test("does not start browser fallback while shared refresh is pending", async () => {
-    const connected = await connectMCPServer(config, { onAuthURL: () => (authURLCount += 1) });
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+    });
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
     refreshGate = new Promise((resolve) => {
@@ -366,17 +402,27 @@ describe("HTTP MCP re-auth loop prevention", () => {
     });
     redirectsPerFailure = 0;
     callFailuresLeft = 1;
-    const first = connected.client.call("first", {}, new AbortController().signal);
+    const first = connected.client.call(
+      "first",
+      {},
+      new AbortController().signal,
+    );
     while (refreshCalls === 0) await Promise.resolve();
 
     redirectsPerFailure = 1;
     callFailuresLeft = 1;
-    const second = connected.client.call("second", {}, new AbortController().signal);
+    const second = connected.client.call(
+      "second",
+      {},
+      new AbortController().signal,
+    );
     await Promise.resolve();
     expect(authURLCount).toBe(0);
 
     releaseRefresh?.();
-    await expect(Promise.all([first, second])).rejects.toThrow("finishAuth exploded");
+    await expect(Promise.all([first, second])).rejects.toThrow(
+      "finishAuth exploded",
+    );
     expect(refreshCalls).toBe(1);
     expect(authURLCount).toBe(1);
     expect(waitForCodeCalls).toBe(1);
@@ -387,13 +433,19 @@ describe("HTTP MCP re-auth loop prevention", () => {
     callbackGate = new Promise((resolve) => {
       releaseCallback = resolve;
     });
-    const connected = await connectMCPServer(config, { onAuthURL: () => (authURLCount += 1) });
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+    });
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
     callFailuresLeft = 2;
     const firstAbort = new AbortController();
     const first = connected.client.call("first", {}, firstAbort.signal);
-    const second = connected.client.call("second", {}, new AbortController().signal);
+    const second = connected.client.call(
+      "second",
+      {},
+      new AbortController().signal,
+    );
     while (waitForCodeCalls === 0) await Promise.resolve();
 
     firstAbort.abort(new Error("caller stopped"));
@@ -420,7 +472,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
     callFailuresLeft = 1;
     const abort = new AbortController();
     const call = connected.client.call("ping", {}, abort.signal);
-    while (authURLCount === 0 || waitForCodeCalls === 0) await Promise.resolve();
+    while (authURLCount === 0 || waitForCodeCalls === 0)
+      await Promise.resolve();
 
     abort.abort(new Error("caller stopped"));
     await expect(call).rejects.toThrow("caller stopped");
@@ -428,22 +481,23 @@ describe("HTTP MCP re-auth loop prevention", () => {
 
     releaseCallback?.();
     while (finishAuthCalls === 0) await Promise.resolve();
-    for (let tick = 0; tick < 20 && authorizedCount === 0; tick += 1) await Promise.resolve();
+    for (let tick = 0; tick < 20 && authorizedCount === 0; tick += 1)
+      await Promise.resolve();
     expect(authorizedCount).toBe(1);
     expect(finishAuthCalls).toBe(1);
 
     finishAuthError = new Error("finishAuth exploded");
     for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
       callFailuresLeft = 1;
-      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-        "finishAuth exploded",
-      );
+      await expect(
+        connected.client.call("ping", {}, new AbortController().signal),
+      ).rejects.toThrow("finishAuth exploded");
     }
     expect(authURLCount).toBe(1 + MAX_BROWSER_AUTH_ATTEMPTS);
     callFailuresLeft = 1;
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-      "retrying paused",
-    );
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).rejects.toThrow("retrying paused");
     expect(authURLCount).toBe(1 + MAX_BROWSER_AUTH_ATTEMPTS);
   });
 
@@ -456,9 +510,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     if (!connected.ok) return;
 
     callFailuresLeft = 1;
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-      "finishAuth exploded",
-    );
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).rejects.toThrow("finishAuth exploded");
     expect(authURLCount).toBe(1);
     expect(authorizedCount).toBe(0);
 
@@ -466,7 +520,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     finishAuthError = undefined;
     redirectsPerFailure = 0;
     callFailuresLeft = 1;
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).resolves.toBe("");
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).resolves.toBe("");
     expect(authorizedCount).toBe(1);
     expect(authURLCount).toBe(1);
 
@@ -475,16 +531,16 @@ describe("HTTP MCP re-auth loop prevention", () => {
     redirectsPerFailure = 1;
     for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
       callFailuresLeft = 1;
-      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-        "finishAuth exploded",
-      );
+      await expect(
+        connected.client.call("ping", {}, new AbortController().signal),
+      ).rejects.toThrow("finishAuth exploded");
     }
     expect(authURLCount).toBe(1 + MAX_BROWSER_AUTH_ATTEMPTS);
 
     callFailuresLeft = 1;
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-      "retrying paused",
-    );
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).rejects.toThrow("retrying paused");
     expect(authURLCount).toBe(1 + MAX_BROWSER_AUTH_ATTEMPTS);
   });
 
@@ -493,11 +549,17 @@ describe("HTTP MCP re-auth loop prevention", () => {
     callbackGate = new Promise((resolve) => {
       releaseCallback = resolve;
     });
-    const connected = await connectMCPServer(config, { onAuthURL: () => (authURLCount += 1) });
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+    });
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
     callFailuresLeft = 1;
-    const call = connected.client.call("ping", {}, new AbortController().signal);
+    const call = connected.client.call(
+      "ping",
+      {},
+      new AbortController().signal,
+    );
     while (waitForCodeCalls === 0) await Promise.resolve();
 
     await connected.client.close();
@@ -507,13 +569,19 @@ describe("HTTP MCP re-auth loop prevention", () => {
   });
 
   test("client close during hung refresh does not emit a browser prompt", async () => {
-    const connected = await connectMCPServer(config, { onAuthURL: () => (authURLCount += 1) });
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+    });
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
     refreshGate = new Promise(() => undefined);
     redirectsPerFailure = 0;
     callFailuresLeft = 1;
-    const call = connected.client.call("ping", {}, new AbortController().signal);
+    const call = connected.client.call(
+      "ping",
+      {},
+      new AbortController().signal,
+    );
     while (refreshCalls === 0) await Promise.resolve();
 
     await connected.client.close();
@@ -533,7 +601,11 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(connected.ok).toBe(true);
     if (!connected.ok) return;
     callFailuresLeft = 1;
-    const call = connected.client.call("ping", {}, new AbortController().signal);
+    const call = connected.client.call(
+      "ping",
+      {},
+      new AbortController().signal,
+    );
     while (finishAuthCalls === 0 || callToolCalls < 2) await Promise.resolve();
     expect(authorizedCount).toBe(0);
 
@@ -556,15 +628,27 @@ describe("HTTP MCP re-auth loop prevention", () => {
       releaseRetry = resolve;
     });
     callFailuresLeft = 2;
-    const first = connected.client.call("first", {}, new AbortController().signal);
-    const second = connected.client.call("second", {}, new AbortController().signal);
+    const first = connected.client.call(
+      "first",
+      {},
+      new AbortController().signal,
+    );
+    const second = connected.client.call(
+      "second",
+      {},
+      new AbortController().signal,
+    );
     while (callToolCalls < 4) await Promise.resolve();
 
     retryGate = undefined;
     refreshSucceeds = true;
     redirectsPerFailure = 0;
     callFailuresLeft = 1;
-    const third = connected.client.call("third", {}, new AbortController().signal);
+    const third = connected.client.call(
+      "third",
+      {},
+      new AbortController().signal,
+    );
     await expect(third).resolves.toBe("");
     expect(authorizedCount).toBe(1);
     expect(authURLCount).toBe(1);
@@ -597,7 +681,8 @@ describe("HTTP MCP re-auth loop prevention", () => {
       onAuthURL: () => (authURLCount += 1),
       signal: firstAbort.signal,
     });
-    while (authURLCount === 0 || waitForCodeCalls === 0) await Promise.resolve();
+    while (authURLCount === 0 || waitForCodeCalls === 0)
+      await Promise.resolve();
     expect(authURLCount).toBe(1);
 
     const second = await connectWithAuthPrompt();
@@ -622,16 +707,16 @@ describe("HTTP MCP re-auth loop prevention", () => {
 
     for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
       callFailuresLeft = 1;
-      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-        "finishAuth exploded",
-      );
+      await expect(
+        connected.client.call("ping", {}, new AbortController().signal),
+      ).rejects.toThrow("finishAuth exploded");
     }
     expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
 
     callFailuresLeft = 1;
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-      "retrying paused",
-    );
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).rejects.toThrow("retrying paused");
     expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
   });
 
@@ -647,9 +732,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     redirectConcurrently = true;
     callFailuresLeft = 1;
 
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-      "finishAuth exploded",
-    );
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).rejects.toThrow("finishAuth exploded");
 
     expect(authURLCount).toBe(1);
     expect(finishAuthCalls).toBe(1);
@@ -756,7 +841,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     if (!connected.ok) return;
     callFailuresLeft = 1;
 
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).resolves.toBe("");
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).resolves.toBe("");
 
     expect(authURLCount).toBe(1);
     expect(waitForCodeCalls).toBe(1);
@@ -781,7 +868,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     if (!connected.ok) return;
     callFailuresLeft = 1;
 
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).resolves.toBe("");
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).resolves.toBe("");
 
     expect(authURLCount).toBe(1);
     expect(waitForCodeCalls).toBe(1);
@@ -807,7 +896,11 @@ describe("HTTP MCP re-auth loop prevention", () => {
     });
     redirectsPerFailure = 0;
     callFailuresLeft = 1;
-    const first = connected.client.call("first", {}, new AbortController().signal);
+    const first = connected.client.call(
+      "first",
+      {},
+      new AbortController().signal,
+    );
     while (refreshCalls === 0) await Promise.resolve();
 
     const skipped = saveThenRedirect(liveProvider, "v-refresh");
@@ -825,9 +918,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     redirectVerifier = "v-later";
     redirectsPerFailure = 1;
     callFailuresLeft = 1;
-    await expect(connected.client.call("second", {}, new AbortController().signal)).resolves.toBe(
-      "",
-    );
+    await expect(
+      connected.client.call("second", {}, new AbortController().signal),
+    ).resolves.toBe("");
 
     expect(authURLCount).toBe(1);
     expect(waitForCodeCalls).toBe(1);
@@ -850,9 +943,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
 
     callFailuresLeft = 2;
     callRedirectsLeft = 1;
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-      "authorization required",
-    );
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).rejects.toThrow("authorization required");
     expect(authorizedCount).toBe(0);
     expect(authURLCount).toBe(1);
     expect(waitForCodeCalls).toBe(1);
@@ -861,9 +954,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     finishAuthError = new Error("finishAuth exploded");
     callRedirectsLeft = Number.POSITIVE_INFINITY;
     callFailuresLeft = 1;
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-      "retrying paused",
-    );
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).rejects.toThrow("retrying paused");
     expect(authURLCount).toBe(1);
     expect(authorizedCount).toBe(0);
   });
@@ -883,7 +976,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
 
     callFailuresLeft = 1;
     callRedirectsLeft = 1;
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).resolves.toBe("");
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).resolves.toBe("");
     expect(authorizedCount).toBe(1);
     expect(authURLCount).toBe(1);
 
@@ -891,16 +986,16 @@ describe("HTTP MCP re-auth loop prevention", () => {
     callRedirectsLeft = Number.POSITIVE_INFINITY;
     for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
       callFailuresLeft = 1;
-      await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-        "finishAuth exploded",
-      );
+      await expect(
+        connected.client.call("ping", {}, new AbortController().signal),
+      ).rejects.toThrow("finishAuth exploded");
     }
     expect(authURLCount).toBe(1 + MAX_BROWSER_AUTH_ATTEMPTS);
 
     callFailuresLeft = 1;
-    await expect(connected.client.call("ping", {}, new AbortController().signal)).rejects.toThrow(
-      "retrying paused",
-    );
+    await expect(
+      connected.client.call("ping", {}, new AbortController().signal),
+    ).rejects.toThrow("retrying paused");
     expect(authURLCount).toBe(1 + MAX_BROWSER_AUTH_ATTEMPTS);
     expect(authorizedCount).toBe(1);
   });

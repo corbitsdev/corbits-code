@@ -66,7 +66,10 @@ describe("command registry", () => {
     });
     const def = getCommand("first-wins-cmd");
     expect(def?.description).toBe("built-in");
-    expect(def?.handler("", ctx)).toEqual({ type: "message", text: "built-in" });
+    expect(def?.handler("", ctx)).toEqual({
+      type: "message",
+      text: "built-in",
+    });
   });
 
   it("keeps command-specific availability visibility-only", () => {
@@ -77,7 +80,9 @@ describe("command registry", () => {
       handler: () => ({ type: "noop" }),
     });
 
-    expect(listCommands().map((command) => command.name)).not.toContain("unavailable-but-callable");
+    expect(listCommands().map((command) => command.name)).not.toContain(
+      "unavailable-but-callable",
+    );
     expect(getCommand("unavailable-but-callable")).toBeDefined();
   });
 
@@ -107,8 +112,16 @@ describe("registerCommandPlugin", () => {
   it("registers all commands from a plugin", () => {
     registerCommandPlugin({
       commands: [
-        { name: "plugin-cmd-a", description: "a", handler: () => ({ type: "noop" }) },
-        { name: "plugin-cmd-b", description: "b", handler: () => ({ type: "noop" }) },
+        {
+          name: "plugin-cmd-a",
+          description: "a",
+          handler: () => ({ type: "noop" }),
+        },
+        {
+          name: "plugin-cmd-b",
+          description: "b",
+          handler: () => ({ type: "noop" }),
+        },
       ],
     });
     expect(getCommand("plugin-cmd-a")).toBeDefined();
@@ -130,18 +143,24 @@ describe("registerCommandPlugin", () => {
       () => active,
     );
 
-    expect(listCommands().map((command) => command.name)).toContain("live-plugin-cmd");
+    expect(listCommands().map((command) => command.name)).toContain(
+      "live-plugin-cmd",
+    );
     expect(getCommand("live-plugin-cmd")?.handler("", ctx)).toEqual({
       type: "message",
       text: "ran",
     });
 
     active = false;
-    expect(listCommands().map((command) => command.name)).not.toContain("live-plugin-cmd");
+    expect(listCommands().map((command) => command.name)).not.toContain(
+      "live-plugin-cmd",
+    );
     expect(getCommand("live-plugin-cmd")).toBeUndefined();
 
     active = true;
-    expect(listCommands().map((command) => command.name)).toContain("live-plugin-cmd");
+    expect(listCommands().map((command) => command.name)).toContain(
+      "live-plugin-cmd",
+    );
     expect(getCommand("live-plugin-cmd")).toBeDefined();
   });
 
@@ -171,13 +190,15 @@ describe("registerCommandPlugin", () => {
 
     expect(getCommand("plugin-live-fallback")?.description).toBe("first");
     expect(
-      listCommands().find((command) => command.name === "plugin-live-fallback")?.description,
+      listCommands().find((command) => command.name === "plugin-live-fallback")
+        ?.description,
     ).toBe("first");
 
     firstActive = false;
     expect(getCommand("plugin-live-fallback")?.description).toBe("second");
     expect(
-      listCommands().find((command) => command.name === "plugin-live-fallback")?.description,
+      listCommands().find((command) => command.name === "plugin-live-fallback")
+        ?.description,
     ).toBe("second");
   });
 
@@ -228,7 +249,9 @@ describe("registerCommandPlugin", () => {
       () => true,
     );
 
-    expect(getCommand("plugin-candidate-collision")?.description).toBe("enabled candidate");
+    expect(getCommand("plugin-candidate-collision")?.description).toBe(
+      "enabled candidate",
+    );
   });
 
   it("never lets a plugin collision replace a built-in command", () => {
@@ -247,7 +270,9 @@ describe("registerCommandPlugin", () => {
       ],
     });
 
-    expect(getCommand("built-in-plugin-collision")?.description).toBe("built-in");
+    expect(getCommand("built-in-plugin-collision")?.description).toBe(
+      "built-in",
+    );
   });
 });
 
@@ -282,7 +307,11 @@ describe("setHiddenCommands", () => {
   });
 
   it("clearing hidden set restores visibility", () => {
-    registerCommand({ name: "restore-cmd", description: "x", handler: () => ({ type: "noop" }) });
+    registerCommand({
+      name: "restore-cmd",
+      description: "x",
+      handler: () => ({ type: "noop" }),
+    });
     setHiddenCommands(["restore-cmd"]);
     expect(listCommands().map((c) => c.name)).not.toContain("restore-cmd");
 

@@ -16,10 +16,16 @@ const noBareMockModule = {
         const callee = node.callee;
         if (callee.type !== "MemberExpression") return;
         if (callee.computed) return;
-        if (callee.object.type !== "Identifier" || callee.object.name !== "mock") {
+        if (
+          callee.object.type !== "Identifier" ||
+          callee.object.name !== "mock"
+        ) {
           return;
         }
-        if (callee.property.type !== "Identifier" || callee.property.name !== "module") {
+        if (
+          callee.property.type !== "Identifier" ||
+          callee.property.name !== "module"
+        ) {
           return;
         }
         context.report({ node, messageId: "noBare" });

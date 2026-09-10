@@ -1,12 +1,19 @@
 import type { BaseTokens } from "./store.js";
 
-export function isTokenExpired(tokens: BaseTokens, now: number, skewMs: number): boolean {
+export function isTokenExpired(
+  tokens: BaseTokens,
+  now: number,
+  skewMs: number,
+): boolean {
   return now >= tokens.expiresAt - skewMs;
 }
 
 export interface TokenSessionDeps<TTokens extends BaseTokens, TAccess> {
   skewMs: number;
-  loadProfile: (name: string, home?: string) => Promise<{ tokens: TTokens } | undefined>;
+  loadProfile: (
+    name: string,
+    home?: string,
+  ) => Promise<{ tokens: TTokens } | undefined>;
   updateTokens: (name: string, tokens: TTokens, home?: string) => Promise<void>;
   refreshTokens: (refreshToken: string, now: number) => Promise<TTokens>;
   // Project stored tokens into the access shape returned to callers.
@@ -20,7 +27,11 @@ export interface TokenSessionDeps<TTokens extends BaseTokens, TAccess> {
 
 export interface TokenSession<TTokens extends BaseTokens, TAccess> {
   isExpired: (tokens: TTokens, now: number) => boolean;
-  getValidToken: (name: string, now?: number, home?: string) => Promise<TAccess>;
+  getValidToken: (
+    name: string,
+    now?: number,
+    home?: string,
+  ) => Promise<TAccess>;
 }
 
 // Resolve a valid access token for a named profile, refreshing transparently
@@ -39,7 +50,11 @@ export function createTokenSession<TTokens extends BaseTokens, TAccess>(
   const isExpired = (tokens: TTokens, now: number): boolean =>
     isTokenExpired(tokens, now, deps.skewMs);
 
-  async function doRefresh(name: string, now: number, home?: string): Promise<TAccess> {
+  async function doRefresh(
+    name: string,
+    now: number,
+    home?: string,
+  ): Promise<TAccess> {
     const profile = await deps.loadProfile(name, home);
     if (profile === undefined) throw deps.missingError(name);
     // Re-check expiry after the I/O; another caller may have refreshed already.
@@ -66,7 +81,8 @@ export function createTokenSession<TTokens extends BaseTokens, TAccess>(
     // Fast path: check expiry without a refresh when we already hold a fresh token.
     const existingProfile = await deps.loadProfile(name, home);
     if (existingProfile === undefined) throw deps.missingError(name);
-    if (!isExpired(existingProfile.tokens, now)) return deps.toAccess(existingProfile.tokens);
+    if (!isExpired(existingProfile.tokens, now))
+      return deps.toAccess(existingProfile.tokens);
 
     // Slow path: a refresh is needed. Deduplicate via the in-flight map so that
     // concurrent callers share the same refresh rather than racing.

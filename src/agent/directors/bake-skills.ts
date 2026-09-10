@@ -28,7 +28,9 @@ function skillsRootCandidates(): string[] {
   out.push(join(here, "plugins", "corbits-skills", "skills"));
   // Compiled binary: plugins next to execPath
   if (process.execPath.length > 0) {
-    out.push(join(dirname(process.execPath), "plugins", "corbits-skills", "skills"));
+    out.push(
+      join(dirname(process.execPath), "plugins", "corbits-skills", "skills"),
+    );
   }
   return out;
 }

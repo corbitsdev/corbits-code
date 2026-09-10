@@ -26,27 +26,39 @@ describe("Ollama provider identity", () => {
 
 describe("ollamaOpenAIBaseURL", () => {
   test("projects a root URL to exactly one /v1", () => {
-    expect(ollamaOpenAIBaseURL("http://localhost:11434")).toBe("http://localhost:11434/v1");
-    expect(ollamaOpenAIBaseURL("http://localhost:11434/")).toBe("http://localhost:11434/v1");
+    expect(ollamaOpenAIBaseURL("http://localhost:11434")).toBe(
+      "http://localhost:11434/v1",
+    );
+    expect(ollamaOpenAIBaseURL("http://localhost:11434/")).toBe(
+      "http://localhost:11434/v1",
+    );
   });
 
   test("strips a pasted or legacy /v1 before re-appending once", () => {
-    expect(normalizeOllamaRootURL("http://localhost:11434/v1")).toBe("http://localhost:11434");
-    expect(normalizeOllamaRootURL("http://localhost:11434/v1/")).toBe("http://localhost:11434");
-    expect(ollamaOpenAIBaseURL("http://localhost:11434/v1")).toBe("http://localhost:11434/v1");
-    expect(ollamaOpenAIBaseURL("http://localhost:11434/v1/")).toBe("http://localhost:11434/v1");
+    expect(normalizeOllamaRootURL("http://localhost:11434/v1")).toBe(
+      "http://localhost:11434",
+    );
+    expect(normalizeOllamaRootURL("http://localhost:11434/v1/")).toBe(
+      "http://localhost:11434",
+    );
+    expect(ollamaOpenAIBaseURL("http://localhost:11434/v1")).toBe(
+      "http://localhost:11434/v1",
+    );
+    expect(ollamaOpenAIBaseURL("http://localhost:11434/v1/")).toBe(
+      "http://localhost:11434/v1",
+    );
   });
 
   test("rejects non-root paths other than /v1", () => {
     expect(() => ollamaOpenAIBaseURL("http://localhost:11434/team")).toThrow(
       "expected a server root without a path",
     );
-    expect(() => ollamaOpenAIBaseURL("http://localhost:11434/api/tags")).toThrow(
-      "expected a server root without a path",
-    );
-    expect(() => normalizeOllamaRootURL("http://localhost:11434/api/tags")).toThrow(
-      "expected a server root without a path",
-    );
+    expect(() =>
+      ollamaOpenAIBaseURL("http://localhost:11434/api/tags"),
+    ).toThrow("expected a server root without a path");
+    expect(() =>
+      normalizeOllamaRootURL("http://localhost:11434/api/tags"),
+    ).toThrow("expected a server root without a path");
   });
 });
 
@@ -56,13 +68,22 @@ describe("ollamaDiscoveryFailureLine", () => {
       "Ollama is running, but no models are installed",
     );
     expect(
-      ollamaDiscoveryFailureLine({ status: "unavailable", message: "connection refused" }),
+      ollamaDiscoveryFailureLine({
+        status: "unavailable",
+        message: "connection refused",
+      }),
     ).toBe("Ollama is not running");
     expect(
-      ollamaDiscoveryFailureLine({ status: "unavailable", message: "Ollama returned HTTP 503" }),
+      ollamaDiscoveryFailureLine({
+        status: "unavailable",
+        message: "Ollama returned HTTP 503",
+      }),
     ).toBe("Ollama returned HTTP 503");
     expect(
-      ollamaDiscoveryFailureLine({ status: "malformed", message: "data must be an array" }),
+      ollamaDiscoveryFailureLine({
+        status: "malformed",
+        message: "data must be an array",
+      }),
     ).toBe("Ollama returned an invalid models response");
     expect(
       ollamaDiscoveryFailureLine({
@@ -83,7 +104,9 @@ describe("discoverOllamaModels", () => {
     };
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await expect(discoverOllamaModels({ rootURL: "http://localhost:11434/" })).resolves.toEqual({
+    await expect(
+      discoverOllamaModels({ rootURL: "http://localhost:11434/" }),
+    ).resolves.toEqual({
       status: "models",
       models: ["qwen3", "deepseek-r1"],
     });
@@ -96,7 +119,9 @@ describe("discoverOllamaModels", () => {
     };
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await expect(discoverOllamaModels({ rootURL: "http://localhost:11434/v1" })).resolves.toEqual({
+    await expect(
+      discoverOllamaModels({ rootURL: "http://localhost:11434/v1" }),
+    ).resolves.toEqual({
       status: "models",
       models: ["llama3"],
     });
@@ -108,22 +133,30 @@ describe("discoverOllamaModels", () => {
       expected: OllamaDiscoveryState["status"];
     }[] = [
       { response: async () => Response.json({ data: [] }), expected: "empty" },
-      { response: async () => new Response("no", { status: 503 }), expected: "unavailable" },
-      { response: async () => Response.json({ models: [] }), expected: "malformed" },
+      {
+        response: async () => new Response("no", { status: 503 }),
+        expected: "unavailable",
+      },
+      {
+        response: async () => Response.json({ models: [] }),
+        expected: "malformed",
+      },
     ];
 
     for (const item of cases) {
       globalThis.fetch = item.response as unknown as typeof fetch;
-      expect((await discoverOllamaModels({ rootURL: "http://localhost:11434" })).status).toBe(
-        item.expected,
-      );
+      expect(
+        (await discoverOllamaModels({ rootURL: "http://localhost:11434" }))
+          .status,
+      ).toBe(item.expected);
     }
 
     globalThis.fetch = (async () => {
       throw new Error("connection refused");
     }) as unknown as typeof fetch;
-    expect((await discoverOllamaModels({ rootURL: "http://localhost:11434" })).status).toBe(
-      "unavailable",
-    );
+    expect(
+      (await discoverOllamaModels({ rootURL: "http://localhost:11434" }))
+        .status,
+    ).toBe("unavailable");
   });
 });

@@ -174,10 +174,11 @@ describe("attachSessionBridge", () => {
           expect(shell.session.run).toBe("idle");
           // Handed over, not thrown away — and handed over here rather than
           // left waiting on an idle event the stop may never produce.
-          expect(port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : []))).toEqual([
-            "b",
-            "a",
-          ]);
+          expect(
+            port.calls.flatMap((c) =>
+              c.op === "deliver" ? [c.item.text] : [],
+            ),
+          ).toEqual(["b", "a"]);
           expect(badgeCount(shell.session)).toBe(0);
         } finally {
           bridge.dispose();
@@ -203,7 +204,9 @@ describe("attachSessionBridge", () => {
         try {
           bridge.submit("/feedback quick test", "immediate");
           await h.renderOnce();
-          expect(port.calls).toEqual([{ op: "sendImmediate", text: "/feedback quick test" }]);
+          expect(port.calls).toEqual([
+            { op: "sendImmediate", text: "/feedback quick test" },
+          ]);
           expect(shell.session.run).toBe("idle");
           expect(badgeCount(shell.session)).toBe(0);
         } finally {
@@ -230,7 +233,9 @@ describe("attachSessionBridge", () => {
         try {
           bridge.submit("/feedback note", "queue");
           await h.renderOnce();
-          expect(port.calls).toEqual([{ op: "sendImmediate", text: "/feedback note" }]);
+          expect(port.calls).toEqual([
+            { op: "sendImmediate", text: "/feedback note" },
+          ]);
           expect(port.calls.some((c) => c.op === "enqueue")).toBe(false);
           expect(shell.session.run).toBe("busy");
           expect(badgeCount(shell.session)).toBe(0);
@@ -271,7 +276,9 @@ describe("attachSessionBridge", () => {
           });
           // Soft steer drained; follow-up still pending.
           expect(badgeCount(shell.session)).toBe(1);
-          expect(defined(shell.session.items[0], "queued item").kind).toBe("queue");
+          expect(defined(shell.session.items[0], "queued item").kind).toBe(
+            "queue",
+          );
           const deliver = port.calls.find((c) => c.op === "deliver");
           expect(deliver).toEqual({
             op: "deliver",
@@ -386,10 +393,11 @@ describe("attachSessionBridge", () => {
           port.clear();
           bridge.handle({ type: "run", state: "idle" });
           expect(badgeCount(shell.session)).toBe(0);
-          expect(port.calls.flatMap((c) => (c.op === "deliver" ? [c.item.text] : []))).toEqual([
-            "late steer",
-            "follow up",
-          ]);
+          expect(
+            port.calls.flatMap((c) =>
+              c.op === "deliver" ? [c.item.text] : [],
+            ),
+          ).toEqual(["late steer", "follow up"]);
           await h.renderOnce();
           const frame = h.captureCharFrame();
           expect(frame).toContain("following up");
@@ -474,7 +482,9 @@ describe("attachSessionBridge", () => {
 
           port.clear();
           bridge.submit("are you still there", "queue");
-          expect(port.calls).toEqual([{ op: "sendImmediate", text: "are you still there" }]);
+          expect(port.calls).toEqual([
+            { op: "sendImmediate", text: "are you still there" },
+          ]);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -575,9 +585,13 @@ describe("attachSessionBridge", () => {
           bridge.handle({ type: "inference.done", data: {} });
           bridge.handle({ type: "reactor.done", data: {} });
 
-          const assistant = shell.streamLog.filter((r) => r.role === "assistant");
+          const assistant = shell.streamLog.filter(
+            (r) => r.role === "assistant",
+          );
           expect(assistant).toHaveLength(1);
-          expect(assistant[0]?.text.trim()).toBe("Hello there, this is one streamed reply.");
+          expect(assistant[0]?.text.trim()).toBe(
+            "Hello there, this is one streamed reply.",
+          );
           expect(assistant[0]?.streaming).toBe(false);
         } finally {
           bridge.dispose();
@@ -623,12 +637,16 @@ describe("attachSessionBridge", () => {
           // frame, not per token.
           await h.renderOnce();
 
-          const assistant = shell.streamLog.filter((r) => r.role === "assistant");
+          const assistant = shell.streamLog.filter(
+            (r) => r.role === "assistant",
+          );
           expect(assistant).toHaveLength(1);
           expect(assistant[0]?.streaming).toBe(true);
           expect(assistant[0]?.text).toBe("Here is the answer.");
           // Still one thinking row for the turn — no third mid-turn stream lane.
-          expect(shell.streamLog.filter((r) => r.meta === "thinking")).toHaveLength(1);
+          expect(
+            shell.streamLog.filter((r) => r.meta === "thinking"),
+          ).toHaveLength(1);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -655,7 +673,10 @@ describe("attachSessionBridge", () => {
               data: { token },
             });
           }
-          bridge.handle({ type: "inference.text.delta", data: { token: "Hi!" } });
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "Hi!" },
+          });
           bridge.handle({ type: "reactor.done", data: {} });
 
           const system = shell.streamLog.filter((r) => r.role === "system");
@@ -663,7 +684,9 @@ describe("attachSessionBridge", () => {
           const thinking = system.filter((r) => r.meta === "thinking");
           expect(thinking).toHaveLength(1);
           expect(thinking[0]?.text).toBe("The user said hi.");
-          expect(shell.streamLog.filter((r) => r.role === "assistant")).toHaveLength(1);
+          expect(
+            shell.streamLog.filter((r) => r.role === "assistant"),
+          ).toHaveLength(1);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -689,9 +712,9 @@ describe("attachSessionBridge", () => {
             type: "message.received",
             data: { message: { content: "hi" } },
           });
-          expect(shell.streamLog.filter((r) => r.role === "user" && r.text === "hi")).toHaveLength(
-            1,
-          );
+          expect(
+            shell.streamLog.filter((r) => r.role === "user" && r.text === "hi"),
+          ).toHaveLength(1);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -739,24 +762,39 @@ describe("failed sends", () => {
         });
         const port = createRecordingPort();
         const bridge = attachSessionBridge(shell, port);
-        const rawDiagnostic = "\u001b[31mupstream 401:\n secret response body\u001b[0m";
+        const rawDiagnostic =
+          "\u001b[31mupstream 401:\n secret response body\u001b[0m";
         const normalReply = "The next request worked.";
         try {
           bridge.setInferenceProviderId("codex/default", "Codex");
           bridge.handle({ type: "inference.start", data: { model: "gpt" } });
           bridge.handle({
             type: "inference.error",
-            data: { error: { category: "credential_failure", message: rawDiagnostic } },
+            data: {
+              error: { category: "credential_failure", message: rawDiagnostic },
+            },
           });
-          bridge.handle({ type: "connector.reply", data: { content: rawDiagnostic } });
+          bridge.handle({
+            type: "connector.reply",
+            data: { content: rawDiagnostic },
+          });
           bridge.handle({ type: "inference.start", data: { model: "gpt" } });
-          bridge.handle({ type: "connector.reply", data: { content: normalReply } });
+          bridge.handle({
+            type: "connector.reply",
+            data: { content: normalReply },
+          });
 
           const safeMessage =
             "Codex Provider failed (credential_failure): upstream 401: secret response body. Authentication failed — log in again.";
-          expect(shell.streamLog.filter((row) => row.text === safeMessage)).toHaveLength(1);
-          expect(shell.streamLog.filter((row) => row.text === normalReply)).toHaveLength(1);
-          expect(shell.streamLog.map((row) => row.text).join("\n")).not.toContain("\u001b");
+          expect(
+            shell.streamLog.filter((row) => row.text === safeMessage),
+          ).toHaveLength(1);
+          expect(
+            shell.streamLog.filter((row) => row.text === normalReply),
+          ).toHaveLength(1);
+          expect(
+            shell.streamLog.map((row) => row.text).join("\n"),
+          ).not.toContain("\u001b");
           expect(port.calls).toEqual([]);
         } finally {
           bridge.dispose();
@@ -854,7 +892,9 @@ describe("same-turn retry after inference.error", () => {
           }
 
           expect(errorRows(shell)).toEqual([]);
-          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain("recovered");
+          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain(
+            "recovered",
+          );
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -879,7 +919,11 @@ describe("same-turn retry after inference.error", () => {
             {
               type: "inference.error",
               data: {
-                error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+                error: {
+                  category: "credential_failure",
+                  message: "Forbidden",
+                  statusCode: 403,
+                },
               },
             },
             { type: "inference.start", data: {} },
@@ -891,7 +935,9 @@ describe("same-turn retry after inference.error", () => {
           }
 
           expect(errorRows(shell)).toEqual([]);
-          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain("recovered");
+          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain(
+            "recovered",
+          );
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -913,7 +959,10 @@ describe("same-turn retry after inference.error", () => {
         const bridge = attachSessionBridge(shell, port);
         try {
           bridge.submit("retry this", "immediate");
-          bridge.handle({ type: "message.received", data: { message: { content: "retry this" } } });
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: "retry this" } },
+          });
           bridge.handle({ type: "inference.start", data: {} });
           bridge.handle({
             type: "inference.error",
@@ -926,18 +975,26 @@ describe("same-turn retry after inference.error", () => {
             },
           });
           bridge.submit("retry this", "immediate");
-          bridge.handle({ type: "message.received", data: { message: { content: "retry this" } } });
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: "retry this" } },
+          });
           bridge.handle({ type: "inference.start", data: {} });
-          bridge.handle({ type: "inference.text.delta", data: { token: "recovered" } });
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "recovered" },
+          });
           bridge.handle({ type: "inference.done", data: {} });
           bridge.handle({ type: "reactor.done", data: {} });
 
           expect(errorRows(shell)).toEqual([]);
-          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain("recovered");
+          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain(
+            "recovered",
+          );
           // The replay duplicates the operator's prompt; rollback drops the copy.
-          expect(shell.streamLog.filter((r) => r.role === "user").map((r) => r.text)).toEqual([
-            "retry this",
-          ]);
+          expect(
+            shell.streamLog.filter((r) => r.role === "user").map((r) => r.text),
+          ).toEqual(["retry this"]);
           // Same-turn retry, not an operator stop — recovery must not borrow interrupt.
           expect(port.calls.some((c) => c.op === "interrupt")).toBe(false);
           expect(shell.streamLog.some((r) => r.meta === "stop")).toBe(false);
@@ -966,7 +1023,10 @@ describe("same-turn retry after inference.error", () => {
             data: { message: { content: "first prompt" } },
           });
           bridge.handle({ type: "inference.start", data: {} });
-          bridge.handle({ type: "inference.thinking.delta", data: { token: "planning" } });
+          bridge.handle({
+            type: "inference.thinking.delta",
+            data: { token: "planning" },
+          });
           bridge.handle({
             type: "inference.tool_call.end",
             data: { name: "run_shell", callId: "c1", arguments: "{}" },
@@ -977,12 +1037,23 @@ describe("same-turn retry after inference.error", () => {
             type: "tool.done",
             data: { result: { callId: "c1", content: "ok", isError: false } },
           });
-          bridge.handle({ type: "message.received", data: { message: { content: "steer this" } } });
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: "steer this" } },
+          });
           bridge.handle({ type: "inference.start", data: {} });
-          bridge.handle({ type: "inference.thinking.delta", data: { token: "after steer" } });
-          bridge.handle({ type: "inference.text.delta", data: { token: "done" } });
+          bridge.handle({
+            type: "inference.thinking.delta",
+            data: { token: "after steer" },
+          });
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "done" },
+          });
 
-          const rows = shell.streamLog.map((r) => `${r.meta ?? r.role}:${r.text}`);
+          const rows = shell.streamLog.map(
+            (r) => `${r.meta ?? r.role}:${r.text}`,
+          );
           expect(rows.indexOf("thinking:planning")).toBeGreaterThan(-1);
           expect(rows.indexOf("steering:steer this")).toBeGreaterThan(
             rows.indexOf("thinking:planning"),
@@ -990,7 +1061,9 @@ describe("same-turn retry after inference.error", () => {
           expect(rows.indexOf("thinking:after steer")).toBeGreaterThan(
             rows.indexOf("steering:steer this"),
           );
-          expect(shell.streamLog.filter((r) => r.meta === "thinking")).toHaveLength(2);
+          expect(
+            shell.streamLog.filter((r) => r.meta === "thinking"),
+          ).toHaveLength(2);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1015,7 +1088,11 @@ describe("same-turn retry after inference.error", () => {
           bridge.handle({
             type: "inference.error",
             data: {
-              error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+              error: {
+                category: "credential_failure",
+                message: "Forbidden",
+                statusCode: 403,
+              },
             },
           });
           bridge.interrupt();
@@ -1052,12 +1129,19 @@ describe("same-turn retry after inference.error", () => {
           bridge.handle({
             type: "inference.error",
             data: {
-              error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+              error: {
+                category: "credential_failure",
+                message: "Forbidden",
+                statusCode: 403,
+              },
             },
           });
           bridge.submit("steer this", "steer");
           bridge.handle({ type: "inference.start", data: {} });
-          bridge.handle({ type: "inference.text.delta", data: { token: "recovered" } });
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "recovered" },
+          });
           bridge.handle({ type: "inference.done", data: {} });
           bridge.handle({ type: "reactor.done", data: {} });
 
@@ -1088,12 +1172,19 @@ describe("same-turn retry after inference.error", () => {
           bridge.handle({
             type: "inference.error",
             data: {
-              error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+              error: {
+                category: "credential_failure",
+                message: "Forbidden",
+                statusCode: 403,
+              },
             },
           });
           bridge.submit("restart from here", "reinject");
           bridge.handle({ type: "inference.start", data: {} });
-          bridge.handle({ type: "inference.text.delta", data: { token: "recovered" } });
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "recovered" },
+          });
           bridge.handle({ type: "inference.done", data: {} });
           bridge.handle({ type: "reactor.done", data: {} });
 
@@ -1125,7 +1216,11 @@ describe("same-turn retry after inference.error", () => {
             {
               type: "inference.error",
               data: {
-                error: { category: "credential_failure", message: "Forbidden", statusCode: 403 },
+                error: {
+                  category: "credential_failure",
+                  message: "Forbidden",
+                  statusCode: 403,
+                },
               },
             },
             { type: "reactor.error", data: { error: "failed" } },
@@ -1188,21 +1283,48 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
               },
             },
             { type: "inference.done", data: {} },
-            { type: "tool.start", data: { call: { id: "c1", name: "spawn_agent" } } },
-            { type: "tool.start", data: { call: { id: "c2", name: "spawn_agent" } } },
-            { type: "tool.start", data: { call: { id: "c3", name: "spawn_agent" } } },
+            {
+              type: "tool.start",
+              data: { call: { id: "c1", name: "spawn_agent" } },
+            },
+            {
+              type: "tool.start",
+              data: { call: { id: "c2", name: "spawn_agent" } },
+            },
+            {
+              type: "tool.start",
+              data: { call: { id: "c3", name: "spawn_agent" } },
+            },
             // Completion order does not follow dispatch order.
             {
               type: "tool.done",
-              data: { result: { callId: "c2", name: "spawn_agent", content: "done c2" } },
+              data: {
+                result: {
+                  callId: "c2",
+                  name: "spawn_agent",
+                  content: "done c2",
+                },
+              },
             },
             {
               type: "tool.done",
-              data: { result: { callId: "c1", name: "spawn_agent", content: "done c1" } },
+              data: {
+                result: {
+                  callId: "c1",
+                  name: "spawn_agent",
+                  content: "done c1",
+                },
+              },
             },
             {
               type: "tool.done",
-              data: { result: { callId: "c3", name: "spawn_agent", content: "done c3" } },
+              data: {
+                result: {
+                  callId: "c3",
+                  name: "spawn_agent",
+                  content: "done c3",
+                },
+              },
             },
             { type: "reactor.done", data: {} },
           ] as const;
@@ -1212,7 +1334,11 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
           expect(toolRows.length).toBe(3);
           expect(toolRows.every((r) => r.pending !== true)).toBe(true);
           expect(toolRows.every((r) => r.failed !== true)).toBe(true);
-          expect(toolRows.map((r) => r.text)).toEqual(["done c1", "done c2", "done c3"]);
+          expect(toolRows.map((r) => r.text)).toEqual([
+            "done c1",
+            "done c2",
+            "done c3",
+          ]);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1225,7 +1351,9 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
 
 describe("idle-with-fleet (CL-7057)", () => {
   /** A tool-less turn settles on inference.done — the spawn_agent dispatch shape. */
-  function settleToollessTurn(bridge: ReturnType<typeof attachSessionBridge>): void {
+  function settleToollessTurn(
+    bridge: ReturnType<typeof attachSessionBridge>,
+  ): void {
     bridge.handle({ type: "inference.start", data: {} });
     bridge.handle({ type: "inference.done", data: {} });
   }
@@ -1324,7 +1452,10 @@ describe("idle-with-fleet (CL-7057)", () => {
           const deliver = port.calls.find((c) => c.op === "deliver");
           expect(deliver).toEqual({
             op: "deliver",
-            item: expect.objectContaining({ text: "when it finishes, summarize", kind: "queue" }),
+            item: expect.objectContaining({
+              text: "when it finishes, summarize",
+              kind: "queue",
+            }),
           });
         } finally {
           bridge.dispose();
@@ -1360,7 +1491,10 @@ describe("idle-with-fleet (CL-7057)", () => {
           const deliver = port.calls.find((c) => c.op === "deliver");
           expect(deliver).toEqual({
             op: "deliver",
-            item: expect.objectContaining({ text: "one more worker", kind: "steer" }),
+            item: expect.objectContaining({
+              text: "one more worker",
+              kind: "steer",
+            }),
           });
         } finally {
           bridge.dispose();
@@ -1401,7 +1535,9 @@ describe("idle-with-fleet (CL-7057)", () => {
 });
 
 describe("fleet-dry open-task drive (CL-7540)", () => {
-  function settleToollessTurn(bridge: ReturnType<typeof attachSessionBridge>): void {
+  function settleToollessTurn(
+    bridge: ReturnType<typeof attachSessionBridge>,
+  ): void {
     bridge.handle({ type: "inference.start", data: {} });
     bridge.handle({ type: "inference.done", data: {} });
   }
@@ -1417,7 +1553,8 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
         const port = createRecordingPort();
         const bridge = attachSessionBridge(shell, port);
         try {
-          const prompt = "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          const prompt =
+            "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
           let drives = 0;
           bridge.setDryOpenTaskDriver(() => {
             drives += 1;
@@ -1429,7 +1566,9 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
           settleToollessTurn(bridge);
           expect(shell.session.run).toBe("busy");
           port.clear();
-          const userRowsBefore = shell.streamLog.filter((r) => r.role === "user").length;
+          const userRowsBefore = shell.streamLog.filter(
+            (r) => r.role === "user",
+          ).length;
           bridge.handle({ type: "fleet", running: 0 });
           expect(drives).toBe(1);
           expect(shell.session.run).toBe("busy");
@@ -1438,7 +1577,9 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
             type: "message.received",
             data: { message: { content: prompt } },
           });
-          expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(userRowsBefore);
+          expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
+            userRowsBefore,
+          );
           settleToollessTurn(bridge);
           expect(drives).toBe(1);
         } finally {
@@ -1461,7 +1602,8 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
         const port = createRecordingPort();
         const bridge = attachSessionBridge(shell, port);
         try {
-          const prompt = "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          const prompt =
+            "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
           let drives = 0;
           bridge.setDryOpenTaskDriver(() => {
             drives += 1;
@@ -1578,7 +1720,8 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
         const port = createRecordingPort();
         const bridge = attachSessionBridge(shell, port);
         try {
-          const prompt = "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          const prompt =
+            "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
           let drives = 0;
           bridge.setDryOpenTaskDriver(() => {
             drives += 1;
@@ -1642,7 +1785,9 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
             "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
           const operator = "dispatch workers";
           bridge.submit(operator, "immediate");
-          const userRowsAfterSubmit = shell.streamLog.filter((r) => r.role === "user").length;
+          const userRowsAfterSubmit = shell.streamLog.filter(
+            (r) => r.role === "user",
+          ).length;
           bridge.beginSystemContinuation(occupancy);
           bridge.abortSystemContinuation();
           expect(shell.session.run).toBe("idle");
@@ -1651,7 +1796,9 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
             type: "message.received",
             data: { message: { content: operator } },
           });
-          expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(userRowsAfterSubmit);
+          expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
+            userRowsAfterSubmit,
+          );
 
           bridge.handle({
             type: "message.received",
@@ -1680,7 +1827,8 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
         const port = createRecordingPort();
         const nowMs = 0;
         let tick: (() => void) | undefined;
-        const prompt = "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+        const prompt =
+          "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
         const bridge = attachSessionBridge(shell, port, {
           now: () => nowMs,
           stallNoticeMs: 400,
@@ -1755,11 +1903,15 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
           port.clear();
           bridge.handle({
             type: "inference.error",
-            data: { error: { category: "quota_exhausted", retryAfterMs: 1_000 } },
+            data: {
+              error: { category: "quota_exhausted", retryAfterMs: 1_000 },
+            },
           });
           nowMs += 10_000;
           tick?.();
-          expect(port.calls).toEqual([{ op: "sendImmediate", text: continuation.trim() }]);
+          expect(port.calls).toEqual([
+            { op: "sendImmediate", text: continuation.trim() },
+          ]);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1771,7 +1923,9 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
 });
 
 describe("syncAgentProgress", () => {
-  function taskSession(over: Partial<TaskProgressSession>): TaskProgressSession {
+  function taskSession(
+    over: Partial<TaskProgressSession>,
+  ): TaskProgressSession {
     return {
       id: "task-1",
       status: "running",
@@ -1821,7 +1975,10 @@ describe("syncAgentProgress", () => {
           expect(streamRowCount(shell)).toBe(rowCountBefore);
           expect(removeSpy.mock.calls.length).toBeLessThanOrEqual(2);
 
-          const row = defined(shell.streamLog[rowCountBefore - 1], "progress row");
+          const row = defined(
+            shell.streamLog[rowCountBefore - 1],
+            "progress row",
+          );
           expect(row.pending).toBe(true);
           expect(row.agentWorking).toBe(true);
           expect(row.stat).toContain("grep");
@@ -1831,7 +1988,10 @@ describe("syncAgentProgress", () => {
             taskSession({ currentToolName: "grep", lastActivityAt: 42_000 }),
           ]);
           await h.renderOnce();
-          const stalledRow = defined(shell.streamLog[rowCountBefore - 1], "stalled row");
+          const stalledRow = defined(
+            shell.streamLog[rowCountBefore - 1],
+            "stalled row",
+          );
           expect(stalledRow.agentWorking).toBe(false);
 
           removeSpy.mockRestore();
@@ -1865,13 +2025,22 @@ describe("syncAgentProgress", () => {
           bridge.handle({
             type: "tool.done",
             data: {
-              result: { callId: "task-1", name: "spawn_agent", content: "done", isError: false },
+              result: {
+                callId: "task-1",
+                name: "spawn_agent",
+                content: "done",
+                isError: false,
+              },
             },
           });
           const index = shell.streamLog.length - 1;
           bridge.syncAgentProgress([taskSession({ status: "done" })]);
-          expect(defined(shell.streamLog[index], "finished row").pending).not.toBe(true);
-          expect(defined(shell.streamLog[index], "finished row").agentWorking).toBeUndefined();
+          expect(
+            defined(shell.streamLog[index], "finished row").pending,
+          ).not.toBe(true);
+          expect(
+            defined(shell.streamLog[index], "finished row").agentWorking,
+          ).toBeUndefined();
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1908,7 +2077,10 @@ describe("syncAgentProgress", () => {
               result: {
                 callId: "task-1",
                 name: "spawn_agent",
-                content: JSON.stringify({ agent_id: "task-1", status: "running" }),
+                content: JSON.stringify({
+                  agent_id: "task-1",
+                  status: "running",
+                }),
                 isError: false,
               },
             },
@@ -1957,7 +2129,9 @@ describe("in-flight tool row elapsed time", () => {
             data: { name: "run_shell", callId: "c1", arguments: "sleep 30" },
           });
           const index = streamRowCount(shell) - 1;
-          expect(defined(shell.streamLog[index], "tool row").stat).toBeUndefined();
+          expect(
+            defined(shell.streamLog[index], "tool row").stat,
+          ).toBeUndefined();
 
           nowMs = 65_000;
           tick?.();
@@ -1966,11 +2140,20 @@ describe("in-flight tool row elapsed time", () => {
 
           bridge.handle({
             type: "tool.done",
-            data: { result: { callId: "c1", name: "run_shell", content: "ok", isError: false } },
+            data: {
+              result: {
+                callId: "c1",
+                name: "run_shell",
+                content: "ok",
+                isError: false,
+              },
+            },
           });
           // The elapsed clock was scaffolding for the wait, not a fact worth
           // keeping — the answer's own addendum takes the row over.
-          expect(defined(shell.streamLog[index], "tool row").stat).not.toBe("1:05");
+          expect(defined(shell.streamLog[index], "tool row").stat).not.toBe(
+            "1:05",
+          );
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -2037,7 +2220,10 @@ describe("task checklist calls stay out of the transcript", () => {
         });
         const bridge = attachSessionBridge(shell, createRecordingPort());
         try {
-          appendStreamRow(shell, { role: "assistant", text: "planning the sweep" });
+          appendStreamRow(shell, {
+            role: "assistant",
+            text: "planning the sweep",
+          });
           const before = streamRowCount(shell);
 
           bridge.handle({
@@ -2045,13 +2231,21 @@ describe("task checklist calls stay out of the transcript", () => {
             data: {
               name: "manage_tasks",
               callId: "mt-1",
-              arguments: { action: "create", tasks: [{ title: "audit", status: "todo" }] },
+              arguments: {
+                action: "create",
+                tasks: [{ title: "audit", status: "todo" }],
+              },
             },
           });
           bridge.handle({
             type: "tool.done",
             data: {
-              result: { callId: "mt-1", name: "manage_tasks", content: "ok", isError: false },
+              result: {
+                callId: "mt-1",
+                name: "manage_tasks",
+                content: "ok",
+                isError: false,
+              },
             },
           });
 
@@ -2080,12 +2274,21 @@ describe("task checklist calls stay out of the transcript", () => {
           const before = streamRowCount(shell);
           bridge.handle({
             type: "inference.tool_call.end",
-            data: { name: "manage_tasks", callId: "mt-2", arguments: { action: "update" } },
+            data: {
+              name: "manage_tasks",
+              callId: "mt-2",
+              arguments: { action: "update" },
+            },
           });
           bridge.handle({
             type: "tool.done",
             data: {
-              result: { callId: "mt-2", name: "manage_tasks", content: "boom", isError: true },
+              result: {
+                callId: "mt-2",
+                name: "manage_tasks",
+                content: "boom",
+                isError: true,
+              },
             },
           });
           expect(streamRowCount(shell)).toBe(before);
@@ -2111,7 +2314,11 @@ describe("task checklist calls stay out of the transcript", () => {
           const before = streamRowCount(shell);
           bridge.handle({
             type: "inference.tool_call.end",
-            data: { name: "grep", callId: "g-1", arguments: { pattern: "zones" } },
+            data: {
+              name: "grep",
+              callId: "g-1",
+              arguments: { pattern: "zones" },
+            },
           });
           expect(streamRowCount(shell)).toBeGreaterThan(before);
         } finally {

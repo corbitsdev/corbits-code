@@ -96,7 +96,8 @@ export function wrapRanges(line: string, width: number): RowRange[] {
   // Pure single-column text (no wide glyphs, no surrogate pairs) takes the code
   // unit path, where an index is a column — the common case and the one every
   // wrap test pins.
-  if (displayWidth === line.length && !SURROGATE_RE.test(line)) return wrapNarrow(line, w);
+  if (displayWidth === line.length && !SURROGATE_RE.test(line))
+    return wrapNarrow(line, w);
   return wrapWide(line, w);
 }
 
@@ -180,5 +181,7 @@ export function wrapLines(line: string, width: number): string[] {
 
 export function wrapCount(text: string, width: number): number {
   const w = Math.max(1, width);
-  return text.split("\n").reduce((n, line) => n + wrapRanges(line, w).length, 0);
+  return text
+    .split("\n")
+    .reduce((n, line) => n + wrapRanges(line, w).length, 0);
 }

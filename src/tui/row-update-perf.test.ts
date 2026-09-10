@@ -10,7 +10,11 @@ import {
   type TaskProgressSession,
 } from "./runtime-bridge";
 import { createAppShell } from "./shell/index";
-import { transcriptRowChildren, streamRowCount, streamRowAt } from "./shell/transcript";
+import {
+  transcriptRowChildren,
+  streamRowCount,
+  streamRowAt,
+} from "./shell/transcript";
 import { toolResultRow } from "./mcp-view";
 import { withTestRenderer } from "./harness";
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
@@ -31,7 +35,9 @@ interface WorkCounts {
  * (createStreamRowRenderable) and row retexts (replaceStreamRowAt) — the
  * seams a destroy-rebuild would have to pass through.
  */
-async function withCountedWork<R>(run: (work: WorkCounts) => Promise<R>): Promise<R> {
+async function withCountedWork<R>(
+  run: (work: WorkCounts) => Promise<R>,
+): Promise<R> {
   const work: WorkCounts = { destroys: 0, builds: 0, replaces: 0 };
   return withMockedModuleDuring<TeardownModule, R>(
     import.meta.resolve("./teardown.js"),
@@ -47,7 +53,11 @@ async function withCountedWork<R>(run: (work: WorkCounts) => Promise<R>): Promis
         import.meta.resolve("./shell/chrome.js"),
         (real) => ({
           ...real,
-          replaceStreamRowAt: (shell: AppShell, index: number, row: StreamRow) => {
+          replaceStreamRowAt: (
+            shell: AppShell,
+            index: number,
+            row: StreamRow,
+          ) => {
             work.replaces++;
             real.replaceStreamRowAt(shell, index, row);
           },
@@ -99,7 +109,11 @@ describe("row update perf gates (J3)", () => {
             for (let i = 0; i < 5; i++) {
               bridge.handle({
                 type: "inference.tool_call.end",
-                data: { name: "edit_file", callId: `c${i}`, arguments: arguments_ },
+                data: {
+                  name: "edit_file",
+                  callId: `c${i}`,
+                  arguments: arguments_,
+                },
               });
             }
             // The first call appends; the four repeats only fold into the
@@ -147,7 +161,11 @@ describe("row update perf gates (J3)", () => {
             bridge.handle({ type: "inference.start", data: {} });
             bridge.handle({
               type: "inference.tool_call.end",
-              data: { name: "bash", callId: "b1", arguments: { command: "sleep 5" } },
+              data: {
+                name: "bash",
+                callId: "b1",
+                arguments: { command: "sleep 5" },
+              },
             });
             await h.renderOnce();
             const baseline = work.replaces;
@@ -205,7 +223,9 @@ describe("row update perf gates (J3)", () => {
             const destroys = work.destroys;
 
             for (let i = 0; i < 4; i++) {
-              bridge.syncAgentProgress([taskSession({ lastActivityAt: nowMs })]);
+              bridge.syncAgentProgress([
+                taskSession({ lastActivityAt: nowMs }),
+              ]);
             }
             await h.renderOnce();
             expect(work.replaces).toBe(baseline + 1);
@@ -234,12 +254,17 @@ describe("row update perf gates (J3)", () => {
         async (h) => {
           const shell = createAppShell(h.renderer, SHELL_OPTS);
           const { toolCallRow } = await import("./diff.js");
-          const { appendStreamRow, replaceStreamRowAt } = await import("./shell/chrome.js");
+          const { appendStreamRow, replaceStreamRowAt } =
+            await import("./shell/chrome.js");
           try {
             const diffRow = (newText: string): StreamRow => ({
               ...toolCallRow({
                 name: "edit_file",
-                arguments: JSON.stringify({ path: "src/a.ts", oldText: "x", newText }),
+                arguments: JSON.stringify({
+                  path: "src/a.ts",
+                  oldText: "x",
+                  newText,
+                }),
               }),
               expanded: true,
             });
@@ -278,7 +303,8 @@ describe("row update perf gates (J3)", () => {
             ],
           });
           try {
-            const { appendStreamRow, replaceStreamRowAt } = await import("./shell/chrome.js");
+            const { appendStreamRow, replaceStreamRowAt } =
+              await import("./shell/chrome.js");
             const expandedRow = (content: string): StreamRow => ({
               ...toolResultRow({ name: "mcp__linear__list_projects", content }),
               expanded: true,
@@ -290,7 +316,11 @@ describe("row update perf gates (J3)", () => {
             const destroys = work.destroys;
 
             for (let i = 0; i < 5; i++) {
-              replaceStreamRowAt(shell, 0, expandedRow(LIST_1.replace("Alpha", `Alpha ${i}`)));
+              replaceStreamRowAt(
+                shell,
+                0,
+                expandedRow(LIST_1.replace("Alpha", `Alpha ${i}`)),
+              );
             }
             // Five updates, zero destroy-rebuilds: the same paint node
             // carries the new content, and only its cells changed.

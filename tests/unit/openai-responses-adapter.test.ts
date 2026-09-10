@@ -5,7 +5,11 @@ import {
   OPENCODE_SESSION_ID_OPTION,
 } from "../../src/provider/openai-responses-adapter.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
-import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
+import type {
+  ConversationTurn,
+  InferenceOptions,
+  LastCycleSource,
+} from "@intx/types/runtime";
 
 const SOURCE: LastCycleSource = {
   sourceId: "go/default",
@@ -93,8 +97,14 @@ describe("openai-responses x-opencode-session header", () => {
 describe("openai-responses Retry-After extraction", () => {
   test("extracts Retry-After pacing from response headers", () => {
     const responses = adapter();
-    expect(responses.extractRetryAfterMs?.(new Headers({ "retry-after": "7" }))).toBe(7_000);
-    expect(responses.extractRetryAfterMs?.(new Headers({ "retry-after-ms": "1500" }))).toBe(1_500);
+    expect(
+      responses.extractRetryAfterMs?.(new Headers({ "retry-after": "7" })),
+    ).toBe(7_000);
+    expect(
+      responses.extractRetryAfterMs?.(
+        new Headers({ "retry-after-ms": "1500" }),
+      ),
+    ).toBe(1_500);
     expect(responses.extractRetryAfterMs?.(new Headers({}))).toBeUndefined();
   });
 });

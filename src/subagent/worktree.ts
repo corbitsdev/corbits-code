@@ -15,7 +15,8 @@ export type WorktreeExec = (
   options: { cwd: string },
 ) => Promise<{ stdout: string; stderr: string }>;
 
-const defaultExec: WorktreeExec = (args, options) => execFileAsync("git", args, options);
+const defaultExec: WorktreeExec = (args, options) =>
+  execFileAsync("git", args, options);
 
 export class WorktreeError extends Error {}
 
@@ -37,7 +38,10 @@ export interface SubAgentWorktree {
 // The repo's stash list as an array of "stash@{N}: <message>" lines, or null
 // when the lookup itself fails. A failed lookup must never make cleanup more
 // willing to remove a worktree, so callers treat null as "unknown → preserve".
-async function stashList(repoCwd: string, exec: WorktreeExec): Promise<string[] | null> {
+async function stashList(
+  repoCwd: string,
+  exec: WorktreeExec,
+): Promise<string[] | null> {
   try {
     const { stdout } = await exec(["stash", "list"], { cwd: repoCwd });
     return stdout.split("\n").filter((line) => line.trim().length > 0);
@@ -86,7 +90,8 @@ export async function createSubAgentWorktree(
 }
 
 export type WorktreeCleanupResult =
-  { status: "removed"; path: string } | { status: "preserved"; path: string; notice: string };
+  | { status: "removed"; path: string }
+  | { status: "preserved"; path: string; notice: string };
 
 export interface CleanupSubAgentWorktreeOpts {
   // From createSubAgentWorktree.stashBaseline. `null` means unknown → preserve.
@@ -112,7 +117,8 @@ export async function cleanupSubAgentWorktree(
   opts: CleanupSubAgentWorktreeOpts = {},
   exec: WorktreeExec = defaultExec,
 ): Promise<WorktreeCleanupResult> {
-  const stashBaseline = opts.stashBaseline === undefined ? [] : opts.stashBaseline;
+  const stashBaseline =
+    opts.stashBaseline === undefined ? [] : opts.stashBaseline;
   const headAtCreate = opts.headAtCreate;
 
   let dirty: boolean;
@@ -120,7 +126,9 @@ export async function cleanupSubAgentWorktree(
     // --ignored counts gitignored-but-present files (e.g. dist/, logs) as
     // content worth preserving — a worktree holding only ignored output is
     // not "clean" just because git status ignores it by default.
-    const { stdout } = await exec(["status", "--porcelain", "--ignored"], { cwd: path });
+    const { stdout } = await exec(["status", "--porcelain", "--ignored"], {
+      cwd: path,
+    });
     dirty = stdout.trim().length > 0;
   } catch {
     // Cannot inspect the worktree's status — preserve it rather than risk
@@ -174,7 +182,9 @@ export async function cleanupSubAgentWorktree(
       status: "preserved",
       path,
       notice: `Sub-agent worktree at ${path} was left in place: it created ${
-        newStashes.length === 1 ? "a stash entry" : `${newStashes.length} stash entries`
+        newStashes.length === 1
+          ? "a stash entry"
+          : `${newStashes.length} stash entries`
       } that would otherwise go unrecovered (${newStashes.join("; ")}).`,
     };
   }

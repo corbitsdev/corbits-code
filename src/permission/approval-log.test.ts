@@ -4,7 +4,11 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { APPROVAL_LOG_FILE, NOOP_APPROVAL_LOG, createApprovalLog } from "./approval-log.js";
+import {
+  APPROVAL_LOG_FILE,
+  NOOP_APPROVAL_LOG,
+  createApprovalLog,
+} from "./approval-log.js";
 import { createPermissionGate } from "./gate.js";
 import type { ToolCall } from "@intx/types/runtime";
 
@@ -23,7 +27,10 @@ function readRecords(dir: string): Record<string, unknown>[] {
 
 describe("createApprovalLog", () => {
   test("NOOP never throws and never writes", () => {
-    const ask = NOOP_APPROVAL_LOG.ask({ tool: "run_shell", mode: "interactive" });
+    const ask = NOOP_APPROVAL_LOG.ask({
+      tool: "run_shell",
+      mode: "interactive",
+    });
     expect(() => {
       ask.markDisplayed();
       ask.settle("allow-once");
@@ -36,7 +43,11 @@ describe("createApprovalLog", () => {
     const clock = () => new Date(now);
     const log = createApprovalLog(dir, clock);
 
-    const ask = log.ask({ tool: "run_shell", mode: "interactive", segments: 3 });
+    const ask = log.ask({
+      tool: "run_shell",
+      mode: "interactive",
+      segments: 3,
+    });
     now += 50; // sat behind another overlay
     ask.markDisplayed();
     now += 100; // operator decides
@@ -89,7 +100,9 @@ describe("approval-log wiring through the permission gate", () => {
       cwd,
       approvalLog: createApprovalLog(dir),
     });
-    const verdict = await gate.evaluate(shellCall("echo hunter2 > /tmp/leaked-secret-file.txt"));
+    const verdict = await gate.evaluate(
+      shellCall("echo hunter2 > /tmp/leaked-secret-file.txt"),
+    );
     expect(verdict.allowed).toBe(false);
 
     await new Promise((r) => setTimeout(r, 10));
@@ -118,7 +131,9 @@ describe("approval-log wiring through the permission gate", () => {
         return { allow: true };
       },
     });
-    const verdict = await gate.evaluate(shellCall("curl https://example.com/super-secret-token"));
+    const verdict = await gate.evaluate(
+      shellCall("curl https://example.com/super-secret-token"),
+    );
     expect(verdict.allowed).toBe(true);
 
     await new Promise((r) => setTimeout(r, 10));
@@ -161,7 +176,8 @@ describe("approval-log wiring through the permission gate", () => {
   // path, a token, or secret content it just read into its own summary of the
   // sub-task.
   test("never logs a sub-agent's free-text dispatch description, even with a secret embedded", async () => {
-    const { runWithSubAgentIdentity } = await import("../subagent/identity-context.js");
+    const { runWithSubAgentIdentity } =
+      await import("../subagent/identity-context.js");
     const dir = mkdtempSync(join(tmpdir(), "approval-log-gate-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
     const gate = createPermissionGate({
@@ -178,7 +194,10 @@ describe("approval-log wiring through the permission gate", () => {
     });
     const secret = "sk-live-9f2c7a1e4b6d8f0a";
     const verdict = await runWithSubAgentIdentity(
-      { description: `fetch the token ${secret} from the vault and cache it`, cwd },
+      {
+        description: `fetch the token ${secret} from the vault and cache it`,
+        cwd,
+      },
       () => gate.evaluate(shellCall("curl https://example.com")),
     );
     expect(verdict.allowed).toBe(true);

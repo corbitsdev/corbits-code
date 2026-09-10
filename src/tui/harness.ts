@@ -99,7 +99,13 @@ export interface KeyModifiers {
 }
 
 /** Named chords used by Corbits steering / interrupt design. */
-export type NamedKey = "Enter" | "Alt+Enter" | "Ctrl+C" | "Escape" | "Tab" | "Backspace";
+export type NamedKey =
+  | "Enter"
+  | "Alt+Enter"
+  | "Ctrl+C"
+  | "Escape"
+  | "Tab"
+  | "Backspace";
 
 export interface Harness {
   readonly renderer: TestRenderer;
@@ -131,7 +137,9 @@ const DEFAULT_HEIGHT = 20;
  * Create a headless test renderer + helpers. Caller must `destroy()` (prefer
  * `withTestRenderer` which always cleans up).
  */
-export async function createHarness(opts: HarnessOptions = {}): Promise<Harness> {
+export async function createHarness(
+  opts: HarnessOptions = {},
+): Promise<Harness> {
   const width = opts.width ?? DEFAULT_WIDTH;
   const height = opts.height ?? DEFAULT_HEIGHT;
   const exitOnCtrlC = opts.exitOnCtrlC ?? false;

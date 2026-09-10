@@ -16,7 +16,8 @@ function captureStderr(): { output: () => string; restore: () => void } {
   const original = process.stderr.write.bind(process.stderr);
   let wrote = "";
   process.stderr.write = ((chunk: string | Uint8Array) => {
-    wrote += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    wrote +=
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
     return true;
   }) as typeof process.stderr.write;
   return {
@@ -52,7 +53,11 @@ test("gatherEnvironment detects a git work tree and lists its top level", async 
     await mkdir(join(dir, "src"));
     await writeFile(join(dir, "src", "seed.ts"), "export const seed = 1;\n");
     await run("git", ["add", "."], { cwd: dir });
-    await run("git", ["-c", "core.hooksPath=/dev/null", "commit", "-m", "seed"], { cwd: dir });
+    await run(
+      "git",
+      ["-c", "core.hooksPath=/dev/null", "commit", "-m", "seed"],
+      { cwd: dir },
+    );
 
     const env = await gatherEnvironment(dir);
     expect(env.isGitRepo).toBe(true);
@@ -70,7 +75,11 @@ test("gatherEnvironment gathers branch and dirty status from the same work tree"
     await run("git", ["checkout", "-b", "trunk"], { cwd: dir });
     await writeFile(join(dir, "seed.txt"), "seed");
     await run("git", ["add", "."], { cwd: dir });
-    await run("git", ["-c", "core.hooksPath=/dev/null", "commit", "-m", "seed"], { cwd: dir });
+    await run(
+      "git",
+      ["-c", "core.hooksPath=/dev/null", "commit", "-m", "seed"],
+      { cwd: dir },
+    );
     await writeFile(join(dir, "a.txt"), "one");
     await writeFile(join(dir, "b.txt"), "two");
 

@@ -22,7 +22,10 @@ function turn(over: Partial<CapturedTurn> = {}): CapturedTurn {
   };
 }
 
-function shellTurn(command: string, over: Partial<CapturedTurn> = {}): CapturedTurn {
+function shellTurn(
+  command: string,
+  over: Partial<CapturedTurn> = {},
+): CapturedTurn {
   return turn({
     toolCalls: [{ name: "run_shell", arguments: { command } }],
     ...over,
@@ -35,7 +38,13 @@ function summary(turns: CapturedTurn[]): CapturedRunSummary {
 
 describe("splitChainSegments", () => {
   test("splits on unquoted operators", () => {
-    expect(splitChainSegments("a && b || c ; d | e")).toEqual(["a", "b", "c", "d", "e"]);
+    expect(splitChainSegments("a && b || c ; d | e")).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+    ]);
   });
 
   test("respects quotes", () => {
@@ -68,7 +77,9 @@ describe("segmentHasEnvAssignment", () => {
   });
 
   test("equals sign in an argument does not count", () => {
-    expect(segmentHasEnvAssignment("grep mode=release dist/output.txt")).toBe(false);
+    expect(segmentHasEnvAssignment("grep mode=release dist/output.txt")).toBe(
+      false,
+    );
   });
 });
 
@@ -78,7 +89,9 @@ describe("segmentCommandWord / segmentIsNetworkCommand", () => {
   });
 
   test("detects curl and wget", () => {
-    expect(segmentIsNetworkCommand("curl -s http://127.0.0.1:8080/")).toBe(true);
+    expect(segmentIsNetworkCommand("curl -s http://127.0.0.1:8080/")).toBe(
+      true,
+    );
     expect(segmentIsNetworkCommand("wget http://x")).toBe(true);
     expect(segmentIsNetworkCommand("echo curl")).toBe(false);
   });
@@ -132,7 +145,9 @@ describe("deriveBehaviorMetrics", () => {
   });
 
   test("counts chain segments per command and in total", () => {
-    const metrics = deriveBehaviorMetrics(summary([shellTurn("a && b && c"), shellTurn("d")]));
+    const metrics = deriveBehaviorMetrics(
+      summary([shellTurn("a && b && c"), shellTurn("d")]),
+    );
     expect(metrics.chainSegmentCount).toBe(4);
     expect(metrics.maxChainSegmentsPerCommand).toBe(3);
   });
@@ -141,7 +156,9 @@ describe("deriveBehaviorMetrics", () => {
     const metrics = deriveBehaviorMetrics(
       summary([
         shellTurn("curl -s http://127.0.0.1:8080/ | grep code"),
-        turn({ toolCalls: [{ name: "web_fetch", arguments: { url: "http://x" } }] }),
+        turn({
+          toolCalls: [{ name: "web_fetch", arguments: { url: "http://x" } }],
+        }),
       ]),
     );
     expect(metrics.networkCommandCount).toBe(1);
@@ -158,10 +175,15 @@ describe("deriveBehaviorMetrics", () => {
       summary([
         turn({
           toolCalls: [
-            { name: "spawn_agent", arguments: { intent: "implement", prompt: "add /readyz" } },
+            {
+              name: "spawn_agent",
+              arguments: { intent: "implement", prompt: "add /readyz" },
+            },
           ],
         }),
-        turn({ toolCalls: [{ name: "web_fetch", arguments: { url: "http://x" } }] }),
+        turn({
+          toolCalls: [{ name: "web_fetch", arguments: { url: "http://x" } }],
+        }),
       ]),
     );
     expect(metrics.spawnAgentToolCallCount).toBe(1);
@@ -186,7 +208,9 @@ describe("deriveBehaviorMetrics", () => {
 
   test("counts shell edits via sed -i and heredoc", () => {
     const metrics = deriveBehaviorMetrics(
-      summary([shellTurn("sed -i '' 's/-/=/g' src/banner.ts && cat > note.md << EOF")]),
+      summary([
+        shellTurn("sed -i '' 's/-/=/g' src/banner.ts && cat > note.md << EOF"),
+      ]),
     );
     expect(metrics.editViaShellCount).toBe(2);
   });
@@ -195,7 +219,12 @@ describe("deriveBehaviorMetrics", () => {
     const grep = (pattern: string): CapturedTurn =>
       turn({ toolCalls: [{ name: "grep", arguments: { pattern } }] });
     const metrics = deriveBehaviorMetrics(
-      summary([grep("formatCurrency"), grep("FormatCurrency  "), grep("other"), grep("other")]),
+      summary([
+        grep("formatCurrency"),
+        grep("FormatCurrency  "),
+        grep("other"),
+        grep("other"),
+      ]),
     );
     expect(metrics.repeatedSearchCount).toBe(2);
   });
@@ -206,7 +235,13 @@ describe("deriveBehaviorMetrics", () => {
       assistantTurn: { content: [{ type: "text", text: "found it" }] },
     });
     const metrics = deriveBehaviorMetrics(
-      summary([shellTurn("a"), shellTurn("b"), shellTurn("c"), textTurn, shellTurn("d")]),
+      summary([
+        shellTurn("a"),
+        shellTurn("b"),
+        shellTurn("c"),
+        textTurn,
+        shellTurn("d"),
+      ]),
     );
     expect(metrics.longestToolOnlyStreak).toBe(3);
   });
@@ -225,7 +260,10 @@ describe("deriveBehaviorMetrics", () => {
       summary([
         shellTurn("a", { durationMs: 500 }),
         shellTurn("b", { durationMs: 21000 }),
-        turn({ toolCalls: [{ name: "read_file", arguments: { path: "x" } }], durationMs: 40 }),
+        turn({
+          toolCalls: [{ name: "read_file", arguments: { path: "x" } }],
+          durationMs: 40,
+        }),
       ]),
     );
     expect(metrics.maxTurnDurationMs).toBe(21000);
@@ -257,14 +295,18 @@ describe("parseCapturedRunSummary", () => {
   });
 
   test("rejects a payload without turns", () => {
-    expect(() => parseCapturedRunSummary({ nope: true })).toThrow(/captured run summary/);
+    expect(() => parseCapturedRunSummary({ nope: true })).toThrow(
+      /captured run summary/,
+    );
   });
 });
 
 describe("parseBehaviorMetrics", () => {
   test("round-trips a derived metrics object", () => {
     const metrics = deriveBehaviorMetrics(summary([shellTurn("ls")]));
-    expect(parseBehaviorMetrics(JSON.parse(JSON.stringify(metrics)))).toEqual(metrics);
+    expect(parseBehaviorMetrics(JSON.parse(JSON.stringify(metrics)))).toEqual(
+      metrics,
+    );
   });
 
   test("returns null for absent or malformed input", () => {
@@ -289,8 +331,9 @@ describe("parseBehaviorMetrics", () => {
   test("accepts legacy taskToolCallCount reports", () => {
     const metrics = deriveBehaviorMetrics(summary([shellTurn("ls")]));
     const { spawnAgentToolCallCount: _dropped, ...legacy } = metrics;
-    expect(parseBehaviorMetrics({ ...legacy, taskToolCallCount: 2 })?.spawnAgentToolCallCount).toBe(
-      2,
-    );
+    expect(
+      parseBehaviorMetrics({ ...legacy, taskToolCallCount: 2 })
+        ?.spawnAgentToolCallCount,
+    ).toBe(2);
   });
 });

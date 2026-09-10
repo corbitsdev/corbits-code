@@ -75,7 +75,11 @@ async function collectMarkers(pkgDir: string): Promise<Marker[]> {
     while ((match = MARKER_RE.exec(text)) !== null) {
       const before = text.slice(0, match.index);
       const line = before.split("\n").length;
-      markers.push({ file: rel, anchor: defined(match[2], "marker anchor"), line });
+      markers.push({
+        file: rel,
+        anchor: defined(match[2], "marker anchor"),
+        line,
+      });
     }
   }
   return markers;

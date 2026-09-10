@@ -3,11 +3,17 @@ import { isAutoAllowedShellCall } from "./classify.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { createPermissionGate } from "./gate.js";
 
-const shellCall = (command: string) => ({ id: "c", name: "run_shell", arguments: { command } });
+const shellCall = (command: string) => ({
+  id: "c",
+  name: "run_shell",
+  arguments: { command },
+});
 
 describe("critique permission lane", () => {
   test("grep --file=.env should not auto-allow", () => {
-    expect(isAutoAllowedShellCall(shellCall("grep --file=.env foo"), process.cwd())).toBe(false);
+    expect(
+      isAutoAllowedShellCall(shellCall("grep --file=.env foo"), process.cwd()),
+    ).toBe(false);
   });
 
   test("commandReferencesSensitivePath still sees glued flag .env", () => {

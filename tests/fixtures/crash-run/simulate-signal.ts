@@ -10,7 +10,11 @@
 // the signal's terminal "failed" write — the same race the crash path already
 // fences.
 import { installSignalHandlers } from "../../../src/index.js";
-import { isCrashed, setActiveRun, setTestWriteGate } from "../../../src/session/active-run.js";
+import {
+  isCrashed,
+  setActiveRun,
+  setTestWriteGate,
+} from "../../../src/session/active-run.js";
 import { sessionDir } from "../../../src/session/index.js";
 import { saveState } from "../../../src/session/state.js";
 
@@ -40,8 +44,20 @@ const gate = new Promise<void>((resolve) => {
   releaseGate = resolve;
 });
 setTestWriteGate(gate);
-void saveState(cwd, sessionId, { status: "running", turnsUsed: 1, task, startedAt, model });
-void saveState(cwd, sessionId, { status: "running", turnsUsed: 2, task, startedAt, model });
+void saveState(cwd, sessionId, {
+  status: "running",
+  turnsUsed: 1,
+  task,
+  startedAt,
+  model,
+});
+void saveState(cwd, sessionId, {
+  status: "running",
+  turnsUsed: 2,
+  task,
+  startedAt,
+  model,
+});
 
 process.stdout.write(`${sessionDir(cwd, sessionId)}\n`);
 process.stdout.write("ready\n");

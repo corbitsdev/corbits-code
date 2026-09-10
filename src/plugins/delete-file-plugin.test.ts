@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
@@ -34,9 +42,13 @@ describe("deleteFilePlugin", () => {
     await rm(cwd, { recursive: true, force: true });
   });
 
-  function handler(): (call: ToolCall, signal: AbortSignal) => Promise<ToolResult> {
+  function handler(): (
+    call: ToolCall,
+    signal: AbortSignal,
+  ) => Promise<ToolResult> {
     const tool = deleteFilePlugin(cwd).tools?.[0];
-    if (tool === undefined) throw new Error("delete_file tool was not registered");
+    if (tool === undefined)
+      throw new Error("delete_file tool was not registered");
     return tool.handler;
   }
 
@@ -44,7 +56,10 @@ describe("deleteFilePlugin", () => {
     const path = join(cwd, "old.txt");
     await writeFile(path, "old");
 
-    const result = await handler()(call("old.txt"), new AbortController().signal);
+    const result = await handler()(
+      call("old.txt"),
+      new AbortController().signal,
+    );
 
     // Match on the parts that matter (callId, deletion message, removed
     // content) rather than the exact hunk header text, which is a
@@ -56,7 +71,10 @@ describe("deleteFilePlugin", () => {
   });
 
   test("reports an absent file as a successful no-op", async () => {
-    const result = await handler()(call("missing.txt"), new AbortController().signal);
+    const result = await handler()(
+      call("missing.txt"),
+      new AbortController().signal,
+    );
 
     expect(result).toEqual({
       callId: "delete-call",
@@ -67,7 +85,10 @@ describe("deleteFilePlugin", () => {
   test("refuses to delete directories", async () => {
     await mkdir(join(cwd, "folder"));
 
-    const result = await handler()(call("folder"), new AbortController().signal);
+    const result = await handler()(
+      call("folder"),
+      new AbortController().signal,
+    );
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("is a directory");
@@ -90,12 +111,17 @@ describe("deleteFilePlugin", () => {
   });
 
   test("refuses files reached through a directory symlink outside the workspace", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "corbits-delete-symlink-outside-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "corbits-delete-symlink-outside-"),
+    );
     const path = join(outside, "keep.txt");
     await writeFile(path, "keep");
     await symlink(outside, join(cwd, "linked-outside"));
 
-    const result = await handler()(call("linked-outside/keep.txt"), new AbortController().signal);
+    const result = await handler()(
+      call("linked-outside/keep.txt"),
+      new AbortController().signal,
+    );
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("resolves outside the working directory");
@@ -108,7 +134,8 @@ describe("deleteFilePlugin", () => {
     const path = join(outside, "gone.txt");
     await writeFile(path, "gone");
     const tool = deleteFilePlugin(cwd, { allowOutside: true }).tools?.[0];
-    if (tool === undefined) throw new Error("delete_file tool was not registered");
+    if (tool === undefined)
+      throw new Error("delete_file tool was not registered");
 
     const result = await tool.handler(call(path), new AbortController().signal);
 
@@ -120,16 +147,25 @@ describe("deleteFilePlugin", () => {
   });
 
   test("allowOutside getter is resolved per call", async () => {
-    const outside = await mkdtemp(join(tmpdir(), "corbits-delete-yolo-getter-"));
+    const outside = await mkdtemp(
+      join(tmpdir(), "corbits-delete-yolo-getter-"),
+    );
     const path = join(outside, "gone.txt");
     await writeFile(path, "gone");
     let allow = false;
-    const tool = deleteFilePlugin(cwd, { allowOutside: () => allow }).tools?.[0];
-    if (tool === undefined) throw new Error("delete_file tool was not registered");
+    const tool = deleteFilePlugin(cwd, { allowOutside: () => allow })
+      .tools?.[0];
+    if (tool === undefined)
+      throw new Error("delete_file tool was not registered");
 
-    const blocked = await tool.handler(call(path), new AbortController().signal);
+    const blocked = await tool.handler(
+      call(path),
+      new AbortController().signal,
+    );
     expect(blocked.isError).toBe(true);
-    expect(String(blocked.content)).toContain("resolves outside the working directory");
+    expect(String(blocked.content)).toContain(
+      "resolves outside the working directory",
+    );
     expect(await exists(path)).toBe(true);
 
     allow = true;
@@ -155,7 +191,10 @@ describe("deleteFilePlugin", () => {
     });
     const guarded = permissionPlugin(gate).middleware?.(next) ?? next;
 
-    const result = await guarded(call("keep.txt"), new AbortController().signal);
+    const result = await guarded(
+      call("keep.txt"),
+      new AbortController().signal,
+    );
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Operator declined");
@@ -167,7 +206,10 @@ describe("deleteFilePlugin", () => {
     await writeFile(path, "keep");
     await chmod(cwd, 0o500);
 
-    const result = await handler()(call("locked.txt"), new AbortController().signal);
+    const result = await handler()(
+      call("locked.txt"),
+      new AbortController().signal,
+    );
     await chmod(cwd, 0o700);
 
     expect(result.isError).toBe(true);

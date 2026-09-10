@@ -41,7 +41,8 @@ function oversizeMessage(kind: "bytes" | "models"): string {
 async function readCatalogJson(
   response: Response,
 ): Promise<
-  { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly message: string }
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false; readonly message: string }
 > {
   const declared = declaredCatalogBytes(response);
   if (declared !== undefined && declared > MAX_GO_CATALOG_BYTES) {
@@ -59,7 +60,10 @@ async function readCatalogJson(
       const value: unknown = JSON.parse(text);
       return { ok: true, value };
     } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -79,7 +83,10 @@ async function readCatalogJson(
       chunks.push(value);
     }
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
 
   const buffer = new Uint8Array(total);
@@ -93,7 +100,10 @@ async function readCatalogJson(
     const value: unknown = JSON.parse(new TextDecoder().decode(buffer));
     return { ok: true, value };
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
@@ -134,7 +144,11 @@ export async function discoverGoModels(args?: {
   if (parsed.data.length > MAX_GO_CATALOG_MODELS) {
     return { status: "malformed", message: oversizeMessage("models") };
   }
-  const models = [...new Set(parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0))];
+  const models = [
+    ...new Set(
+      parsed.data.map(({ id }) => id.trim()).filter((id) => id.length > 0),
+    ),
+  ];
   return models.length > 0 ? { status: "models", models } : { status: "empty" };
 }
 

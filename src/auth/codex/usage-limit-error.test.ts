@@ -31,7 +31,9 @@ describe("parseCodexUsageLimitError", () => {
   });
 
   test("parses a JSON string of the same shape", () => {
-    const parsed = parseCodexUsageLimitError(JSON.stringify(LIVE_USAGE_LIMIT_BODY));
+    const parsed = parseCodexUsageLimitError(
+      JSON.stringify(LIVE_USAGE_LIMIT_BODY),
+    );
     expect(parsed?.code).toBe("usage_limit_reached");
     expect(parsed?.resetsInSeconds).toBe(3435);
   });
@@ -67,7 +69,8 @@ describe("parseCodexUsageLimitError", () => {
     expect(
       parseCodexUsageLimitError({
         error: {
-          message: "You exceeded your current quota, please check your plan and billing details.",
+          message:
+            "You exceeded your current quota, please check your plan and billing details.",
           type: "insufficient_quota",
           code: "insufficient_quota",
         },
@@ -79,7 +82,8 @@ describe("parseCodexUsageLimitError", () => {
     expect(
       parseCodexUsageLimitError({
         error: {
-          message: "Rate limit reached for gpt-4 in organization org-x on tokens per min",
+          message:
+            "Rate limit reached for gpt-4 in organization org-x on tokens per min",
           type: "tokens",
           code: "rate_limit_exceeded",
         },
@@ -100,7 +104,9 @@ describe("formatCodexUsageLimitMessage", () => {
   test("names plan, reset ETA, and profile switch path", () => {
     const parsed = parseCodexUsageLimitError(LIVE_USAGE_LIMIT_BODY);
     expect(parsed).toBeDefined();
-    const line = formatCodexUsageLimitMessage(defined(parsed), { profile: "abk-labs" });
+    const line = formatCodexUsageLimitMessage(defined(parsed), {
+      profile: "abk-labs",
+    });
     expect(line).toContain('Codex profile "abk-labs"');
     expect(line).toContain("workspace member");
     expect(line).toMatch(/Resets in ~/);

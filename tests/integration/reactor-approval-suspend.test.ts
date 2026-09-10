@@ -16,11 +16,16 @@ import {
 } from "./harness.js";
 import { defined } from "../helpers/defined.js";
 
-const CURL_CALL = { name: "run_shell", args: { command: "curl -sS https://example.com" } };
+const CURL_CALL = {
+  name: "run_shell",
+  args: { command: "curl -sS https://example.com" },
+};
 
 function gateWithDeferredApproval() {
   const asks: string[] = [];
-  let release: ((outcome: { allow: boolean; message?: string }) => void) | undefined;
+  let release:
+    | ((outcome: { allow: boolean; message?: string }) => void)
+    | undefined;
   return {
     asks,
     gate: createPermissionGate({
@@ -37,17 +42,23 @@ function gateWithDeferredApproval() {
       },
     }),
     approve: () => release?.({ allow: true }),
-    reject: (message?: string) => release?.({ allow: false, ...(message ? { message } : {}) }),
+    reject: (message?: string) =>
+      release?.({ allow: false, ...(message ? { message } : {}) }),
   };
 }
 
 function openWith(gate: ReturnType<typeof gateWithDeferredApproval>["gate"]) {
-  return openIntegrationSession({ permissionGate: gate, authorize: createReactorAuthorize(gate) });
+  return openIntegrationSession({
+    permissionGate: gate,
+    authorize: createReactorAuthorize(gate),
+  });
 }
 
 // The resume path reads history (async) before raising the approval surface,
 // so tests must wait for the ask rather than yielding a single microtask.
-async function waitForAsk(ctx: ReturnType<typeof gateWithDeferredApproval>): Promise<void> {
+async function waitForAsk(
+  ctx: ReturnType<typeof gateWithDeferredApproval>,
+): Promise<void> {
   for (let i = 0; i < 100 && ctx.asks.length === 0; i++) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
@@ -60,10 +71,15 @@ describe("integration — reactor approval suspend/resume", () => {
       const ctx = gateWithDeferredApproval();
       const session = await openWith(ctx.gate);
       try {
-        session.harness.scenario.replyOnce("anthropic", { toolCalls: [CURL_CALL] });
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [CURL_CALL],
+        });
         session.harness.scenario.replyOnce("anthropic", { text: "Fetched." });
 
-        const turn = await runUntilSuspended(session, "Please fetch example.com with curl.");
+        const turn = await runUntilSuspended(
+          session,
+          "Please fetch example.com with curl.",
+        );
         const { result } = turn;
         expect(result.type).toBe("suspended");
         if (result.type !== "suspended") return;
@@ -74,7 +90,8 @@ describe("integration — reactor approval suspend/resume", () => {
         expect(
           turn.events.some(
             (e) =>
-              e.type === "reactor.gate.blocked" && e.data.correlationId === result.correlationId,
+              e.type === "reactor.gate.blocked" &&
+              e.data.correlationId === result.correlationId,
           ),
         ).toBe(true);
         // No tool ran, and no approval surface was raised yet — raising it is
@@ -86,10 +103,17 @@ describe("integration — reactor approval suspend/resume", () => {
         // snapshot, settle it through the gate's requestApproval seam (which
         // mints grants), deliver the decision on the correlation channel.
         const snapshot = result.approvalSnapshot;
-        if (snapshot === undefined) throw new Error("suspension carried no approval snapshot");
-        const request = requestFromApprovalSnapshot(snapshot, result.correlationId);
+        if (snapshot === undefined)
+          throw new Error("suspension carried no approval snapshot");
+        const request = requestFromApprovalSnapshot(
+          snapshot,
+          result.correlationId,
+        );
         expect(request?.subject).toBe("curl -sS https://example.com");
-        const resume = createApprovalResume({ getAgent: () => session.agent, gate: ctx.gate });
+        const resume = createApprovalResume({
+          getAgent: () => session.agent,
+          gate: ctx.gate,
+        });
         const handling = resume.handle(result);
         await waitForAsk(ctx);
         expect(ctx.asks.length).toBe(1);
@@ -104,14 +128,18 @@ describe("integration — reactor approval suspend/resume", () => {
         // a permission denial.
         expect(ctx.asks.length).toBe(1);
         expect(
-          turn.events.some((e) => e.type === "tool.start" && e.data.call.name === "run_shell"),
+          turn.events.some(
+            (e) => e.type === "tool.start" && e.data.call.name === "run_shell",
+          ),
         ).toBe(true);
         const dones = toolDoneEvents(turn.events);
         const firstDone = dones[0];
-        if (firstDone === undefined) throw new Error("re-dispatch produced no tool.done");
+        if (firstDone === undefined)
+          throw new Error("re-dispatch produced no tool.done");
         const firstResult = firstDone.data.result;
         expect(
-          firstResult.isError !== true || !String(firstResult.content).includes("Denied by policy"),
+          firstResult.isError !== true ||
+            !String(firstResult.content).includes("Denied by policy"),
         ).toBe(true);
         expect(reply.length).toBeGreaterThan(0);
       } finally {
@@ -120,66 +148,93 @@ describe("integration — reactor approval suspend/resume", () => {
     },
   );
 
-  test.serial("rejected decision answers the parked call with an error result", async () => {
-    const ctx = gateWithDeferredApproval();
-    const session = await openWith(ctx.gate);
-    try {
-      session.harness.scenario.replyOnce("anthropic", { toolCalls: [CURL_CALL] });
-      session.harness.scenario.replyOnce("anthropic", { text: "Understood." });
+  test.serial(
+    "rejected decision answers the parked call with an error result",
+    async () => {
+      const ctx = gateWithDeferredApproval();
+      const session = await openWith(ctx.gate);
+      try {
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [CURL_CALL],
+        });
+        session.harness.scenario.replyOnce("anthropic", {
+          text: "Understood.",
+        });
 
-      const turn = await runUntilSuspended(session, "Please fetch example.com.");
-      const { result } = turn;
-      expect(result.type).toBe("suspended");
-      if (result.type !== "suspended") return;
-
-      const resume = createApprovalResume({ getAgent: () => session.agent, gate: ctx.gate });
-      const handling = resume.handle(result);
-      await waitForAsk(ctx);
-      const started = Date.now();
-      ctx.reject("not today");
-      expect(await handling).toBe(true);
-
-      await turn.reply();
-      expect(Date.now() - started).toBeLessThan(1000);
-      // resume.tool_result answers the parked call by committing the result
-      // turn directly (upstream does not emit tool.done for it), so the
-      // approver's reason reaches the model through history.
-      const history = await session.agent.history();
-      const denied = history
-        .flatMap((t) => t.content)
-        .some(
-          (b) =>
-            b.type === "tool_result" &&
-            b.content.some((c) => c.type === "text" && c.text.includes("denied by approver")),
+        const turn = await runUntilSuspended(
+          session,
+          "Please fetch example.com.",
         );
-      expect(denied).toBe(true);
-    } finally {
-      await closeIntegrationSession(session);
-    }
-  });
+        const { result } = turn;
+        expect(result.type).toBe("suspended");
+        if (result.type !== "suspended") return;
 
-  test.serial("rebuild-then-approve fails loud when the parked agent is closed", async () => {
-    const ctx = gateWithDeferredApproval();
-    const session = await openWith(ctx.gate);
-    try {
-      session.harness.scenario.replyOnce("anthropic", { toolCalls: [CURL_CALL] });
-      const turn = await runUntilSuspended(session, "Please fetch example.com.");
-      const { result } = turn;
-      expect(result.type).toBe("suspended");
-      if (result.type !== "suspended") return;
+        const resume = createApprovalResume({
+          getAgent: () => session.agent,
+          gate: ctx.gate,
+        });
+        const handling = resume.handle(result);
+        await waitForAsk(ctx);
+        const started = Date.now();
+        ctx.reject("not today");
+        expect(await handling).toBe(true);
 
-      const resume = createApprovalResume({ getAgent: () => session.agent, gate: ctx.gate });
-      const handling = resume.handle(result);
-      await waitForAsk(ctx);
-      await session.agent.close();
-      const started = Date.now();
-      ctx.approve();
-      await expect(handling).rejects.toThrow();
-      expect(Date.now() - started).toBeLessThan(1000);
-    } finally {
-      await closeIntegrationSession(session);
-    }
-  });
+        await turn.reply();
+        expect(Date.now() - started).toBeLessThan(1000);
+        // resume.tool_result answers the parked call by committing the result
+        // turn directly (upstream does not emit tool.done for it), so the
+        // approver's reason reaches the model through history.
+        const history = await session.agent.history();
+        const denied = history
+          .flatMap((t) => t.content)
+          .some(
+            (b) =>
+              b.type === "tool_result" &&
+              b.content.some(
+                (c) =>
+                  c.type === "text" && c.text.includes("denied by approver"),
+              ),
+          );
+        expect(denied).toBe(true);
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
+
+  test.serial(
+    "rebuild-then-approve fails loud when the parked agent is closed",
+    async () => {
+      const ctx = gateWithDeferredApproval();
+      const session = await openWith(ctx.gate);
+      try {
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [CURL_CALL],
+        });
+        const turn = await runUntilSuspended(
+          session,
+          "Please fetch example.com.",
+        );
+        const { result } = turn;
+        expect(result.type).toBe("suspended");
+        if (result.type !== "suspended") return;
+
+        const resume = createApprovalResume({
+          getAgent: () => session.agent,
+          gate: ctx.gate,
+        });
+        const handling = resume.handle(result);
+        await waitForAsk(ctx);
+        await session.agent.close();
+        const started = Date.now();
+        ctx.approve();
+        await expect(handling).rejects.toThrow();
+        expect(Date.now() - started).toBeLessThan(1000);
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
 
   test.serial(
     "headless runs deny ask-tier calls as a block without any approval surface",
@@ -195,47 +250,66 @@ describe("integration — reactor approval suspend/resume", () => {
         authorize: createReactorAuthorize(gate),
       });
       try {
-        session.harness.scenario.replyOnce("anthropic", { toolCalls: [CURL_CALL] });
-        session.harness.scenario.replyOnce("anthropic", { text: "Understood." });
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [CURL_CALL],
+        });
+        session.harness.scenario.replyOnce("anthropic", {
+          text: "Understood.",
+        });
 
-        const turn = await runUntilSuspended(session, "Please fetch example.com.");
+        const turn = await runUntilSuspended(
+          session,
+          "Please fetch example.com.",
+        );
         await turn.reply();
         const dones = toolDoneEvents(turn.events);
         expect(dones.length).toBeGreaterThanOrEqual(1);
         const denied = defined(dones[0], "tool done event");
         expect(denied.data.result.isError).toBe(true);
-        expect(denied.data.result.content).toContain("Denied by policy: tool:run_shell/invoke");
+        expect(denied.data.result.content).toContain(
+          "Denied by policy: tool:run_shell/invoke",
+        );
       } finally {
         await closeIntegrationSession(session);
       }
     },
   );
 
-  test.serial("chained hard-deny blocks before any approval surface", async () => {
-    const ctx = gateWithDeferredApproval();
-    const session = await openWith(ctx.gate);
-    try {
-      session.harness.scenario.replyOnce("anthropic", {
-        toolCalls: [{ name: "run_shell", args: { command: "echo ok && sudo rm -rf /etc" } }],
-      });
-      session.harness.scenario.replyOnce("anthropic", { text: "Understood." });
+  test.serial(
+    "chained hard-deny blocks before any approval surface",
+    async () => {
+      const ctx = gateWithDeferredApproval();
+      const session = await openWith(ctx.gate);
+      try {
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [
+            {
+              name: "run_shell",
+              args: { command: "echo ok && sudo rm -rf /etc" },
+            },
+          ],
+        });
+        session.harness.scenario.replyOnce("anthropic", {
+          text: "Understood.",
+        });
 
-      const turn = await runUntilSuspended(session, "Run that for me.");
-      await turn.reply();
-      const dones = toolDoneEvents(turn.events);
-      expect(dones.length).toBeGreaterThanOrEqual(1);
-      const denied = defined(dones[0], "tool done event");
-      expect(denied.data.result.isError).toBe(true);
-      // Assert the block text: this deny is a policy deny, not an operator
-      // decline, so the director's classification must leave it unmatched.
-      expect(denied.data.result.content).toContain("Denied by policy:");
-      // Stricter-than-authz command deny is preserved as a block effect; the
-      // approval surface was never raised.
-      expect(ctx.asks.length).toBe(0);
-    } finally {
-      await closeIntegrationSession(session);
-    }
-  });
+        const turn = await runUntilSuspended(session, "Run that for me.");
+        await turn.reply();
+        const dones = toolDoneEvents(turn.events);
+        expect(dones.length).toBeGreaterThanOrEqual(1);
+        const denied = defined(dones[0], "tool done event");
+        expect(denied.data.result.isError).toBe(true);
+        // Assert the block text: this deny is a policy deny, not an operator
+        // decline, so the director's classification must leave it unmatched.
+        expect(denied.data.result.content).toContain("Denied by policy:");
+        // Stricter-than-authz command deny is preserved as a block effect; the
+        // approval surface was never raised.
+        expect(ctx.asks.length).toBe(0);
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
 
   test.serial(
     "rejected decision with a reason re-infers on the reason, not the canned decline",
@@ -243,15 +317,25 @@ describe("integration — reactor approval suspend/resume", () => {
       const ctx = gateWithDeferredApproval();
       const session = await openWith(ctx.gate);
       try {
-        session.harness.scenario.replyOnce("anthropic", { toolCalls: [CURL_CALL] });
-        session.harness.scenario.replyOnce("anthropic", { text: "I'll skip the fetch, then." });
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [CURL_CALL],
+        });
+        session.harness.scenario.replyOnce("anthropic", {
+          text: "I'll skip the fetch, then.",
+        });
 
-        const turn = await runUntilSuspended(session, "Please fetch example.com.");
+        const turn = await runUntilSuspended(
+          session,
+          "Please fetch example.com.",
+        );
         const { result } = turn;
         expect(result.type).toBe("suspended");
         if (result.type !== "suspended") return;
 
-        const resume = createApprovalResume({ getAgent: () => session.agent, gate: ctx.gate });
+        const resume = createApprovalResume({
+          getAgent: () => session.agent,
+          gate: ctx.gate,
+        });
         const handling = resume.handle(result);
         await waitForAsk(ctx);
         ctx.reject("never touch the network");
@@ -289,7 +373,9 @@ describe("authz seam carries the ToolCall context", () => {
       name: "run_shell",
       arguments: { command: "ls" },
     });
-    expect(defined(seen[0], "seen tool call").arguments).toEqual({ command: "ls" });
+    expect(defined(seen[0], "seen tool call").arguments).toEqual({
+      command: "ls",
+    });
   });
 
   test("parallel batch keeps per-call attribution", async () => {
@@ -299,14 +385,16 @@ describe("authz seam carries the ToolCall context", () => {
       { id: "p1", name: "run_shell", arguments: { command: "one" } },
       { id: "p2", name: "run_shell", arguments: { command: "two" } },
     ];
-    await Promise.all(calls.map((call) => authorize(`tool:${call.name}`, "invoke", call)));
+    await Promise.all(
+      calls.map((call) => authorize(`tool:${call.name}`, "invoke", call)),
+    );
     expect(ctxs.map((c) => c.arguments.command).sort()).toEqual(["one", "two"]);
   });
 
   test("non-ToolCall context fails loud", async () => {
     const authorize = extWith(() => undefined);
-    await expect(authorize("tool:run_shell", "invoke", { nope: true })).rejects.toThrow(
-      /not a ToolCall/,
-    );
+    await expect(
+      authorize("tool:run_shell", "invoke", { nope: true }),
+    ).rejects.toThrow(/not a ToolCall/);
   });
 });

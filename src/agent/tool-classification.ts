@@ -29,7 +29,9 @@ import { READ_TOOLS as DIRECTOR_READ_TOOLS } from "./directors/tool-sets.js";
  * compaction's re-read dedup and thrash's read-count bookkeeping — both are
  * asking the same question ("was this path already read?").
  */
-export const PATH_KEYED_READ_TOOLS: ReadonlySet<string> = new Set(["read_file"]);
+export const PATH_KEYED_READ_TOOLS: ReadonlySet<string> = new Set([
+  "read_file",
+]);
 
 /**
  * grep / search_files: pattern-keyed query tools whose repeated identical
@@ -37,7 +39,10 @@ export const PATH_KEYED_READ_TOOLS: ReadonlySet<string> = new Set(["read_file"])
  * both compaction and thrash build on; each adds/omits list_dir for its own
  * reason (see compactor.ts's QUERY_TOOLS and thrash.ts's SEARCH_TOOLS).
  */
-export const SEARCH_QUERY_TOOLS: ReadonlySet<string> = new Set(["grep", "search_files"]);
+export const SEARCH_QUERY_TOOLS: ReadonlySet<string> = new Set([
+  "grep",
+  "search_files",
+]);
 
 /**
  * Tools that never need an approval prompt because they cannot change the

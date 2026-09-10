@@ -6,7 +6,10 @@ import { randomUUID } from "node:crypto";
 
 import { describe, expect, test } from "bun:test";
 
-const FIXTURE = join(import.meta.dirname, "../fixtures/exec-shutdown-reap/simulate-reap.ts");
+const FIXTURE = join(
+  import.meta.dirname,
+  "../fixtures/exec-shutdown-reap/simulate-reap.ts",
+);
 
 async function readLine(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader();
@@ -71,7 +74,11 @@ describe.skipIf(process.platform === "win32")(
             );
           }
 
-          if (signal === "SIGINT" || signal === "SIGTERM" || signal === "SIGHUP") {
+          if (
+            signal === "SIGINT" ||
+            signal === "SIGTERM" ||
+            signal === "SIGHUP"
+          ) {
             proc.kill(signal);
           }
           const exitCode = await proc.exited;

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { AdmissionQueue } from "../subagent/admission.js";
-import { createCorbitsRetryPolicy, type CorbitsRetryPolicyOptions } from "./retry-policy.js";
+import {
+  createCorbitsRetryPolicy,
+  type CorbitsRetryPolicyOptions,
+} from "./retry-policy.js";
 
 const HTML_503 = `<!DOCTYPE html><html><body>503 Service Unavailable Cloudflare</body></html>`;
 
@@ -209,7 +212,10 @@ describe("createCorbitsRetryPolicy", () => {
       error: { category: "retryable" as const, message: "gateway timeout" },
     });
     expect(await decide(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
-    expect(await decide(situation(2))).toEqual({ kind: "retry", delayMs: 1000 });
+    expect(await decide(situation(2))).toEqual({
+      kind: "retry",
+      delayMs: 1000,
+    });
     expect(await decide(situation(3))).toEqual({ kind: "abort" });
   });
 
@@ -225,7 +231,10 @@ describe("createCorbitsRetryPolicy", () => {
       },
     });
     expect(await decide(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
-    expect(await decide(situation(2))).toEqual({ kind: "retry", delayMs: 1000 });
+    expect(await decide(situation(2))).toEqual({
+      kind: "retry",
+      delayMs: 1000,
+    });
     expect(await decide(situation(3))).toEqual({ kind: "abort" });
   });
 
@@ -312,8 +321,14 @@ describe("createCorbitsRetryPolicy", () => {
         retryAfterMs: 5_000,
       },
     });
-    expect(await decide(situation(1))).toEqual({ kind: "retry", delayMs: 5_000 });
-    expect(await decide(situation(2))).toEqual({ kind: "retry", delayMs: 5_000 });
+    expect(await decide(situation(1))).toEqual({
+      kind: "retry",
+      delayMs: 5_000,
+    });
+    expect(await decide(situation(2))).toEqual({
+      kind: "retry",
+      delayMs: 5_000,
+    });
     expect(await decide(situation(3))).toEqual({ kind: "abort" });
   });
 
@@ -352,10 +367,17 @@ describe("createCorbitsRetryPolicy", () => {
     const situation = (attempt: number) => ({
       attempt,
       elapsedMs: 0,
-      error: { category: "retryable" as const, message: "boom", statusCode: 429 },
+      error: {
+        category: "retryable" as const,
+        message: "boom",
+        statusCode: 429,
+      },
     });
     expect(await decide(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
-    expect(await decide(situation(2))).toEqual({ kind: "retry", delayMs: 1000 });
+    expect(await decide(situation(2))).toEqual({
+      kind: "retry",
+      delayMs: 1000,
+    });
     expect(await decide(situation(3))).toEqual({ kind: "abort" });
   });
 });

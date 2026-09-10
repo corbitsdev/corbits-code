@@ -1,5 +1,8 @@
 import type { ToolPlugin } from "@intx/tools-posix";
-import { parseEditFileMode, runEditFileLineRange } from "./edit-file-line-range.js";
+import {
+  parseEditFileMode,
+  runEditFileLineRange,
+} from "./edit-file-line-range.js";
 
 /**
  * Short-circuits stock tools-posix edit_file for line-range mode (shell-guard pattern).

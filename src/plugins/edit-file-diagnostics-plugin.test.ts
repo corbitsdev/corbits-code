@@ -18,7 +18,11 @@ import { pathEscapePlugin } from "./path-escape-plugin.js";
 import { verifyPlugin } from "./verify-plugin.js";
 import { composeMiddleware, type Middleware } from "@intx/tools-posix";
 
-function editCall(path: string, old_string: string, new_string = "x"): ToolCall {
+function editCall(
+  path: string,
+  old_string: string,
+  new_string = "x",
+): ToolCall {
   return {
     id: "edit-call",
     name: "edit_file",
@@ -48,23 +52,37 @@ describe("normalizeLine / near-miss helpers", () => {
   });
 
   test("findWhitespaceNearMiss returns unique indent-drift span", () => {
-    const file = ["function f() {", "  const bareKey = 1;", "    const entry = 2;", "}"].join("\n");
+    const file = [
+      "function f() {",
+      "  const bareKey = 1;",
+      "    const entry = 2;",
+      "}",
+    ].join("\n");
     const old = ["const bareKey = 1;", "  const entry = 2;"].join("\n");
     const miss = findWhitespaceNearMiss(file, old);
     expect(miss).not.toBeNull();
-    expect(defined(miss).text).toBe("  const bareKey = 1;\n    const entry = 2;");
+    expect(defined(miss).text).toBe(
+      "  const bareKey = 1;\n    const entry = 2;",
+    );
     expect(defined(miss).startLine).toBe(2);
     expect(defined(miss).endLine).toBe(3);
   });
 
   test("findWhitespaceNearMiss ignores trailing and leading newlines on the needle", () => {
-    const file = ["function f() {", "  const bareKey = 1;", "    const entry = 2;", "}"].join("\n");
+    const file = [
+      "function f() {",
+      "  const bareKey = 1;",
+      "    const entry = 2;",
+      "}",
+    ].join("\n");
     const trailing = "const bareKey = 1;\n  const entry = 2;\n";
     const leading = "\nconst bareKey = 1;\n  const entry = 2;";
     for (const old of [trailing, leading]) {
       const miss = findWhitespaceNearMiss(file, old);
       expect(miss).not.toBeNull();
-      expect(defined(miss).text).toBe("  const bareKey = 1;\n    const entry = 2;");
+      expect(defined(miss).text).toBe(
+        "  const bareKey = 1;\n    const entry = 2;",
+      );
     }
   });
 
@@ -85,7 +103,9 @@ describe("normalizeLine / near-miss helpers", () => {
 
   test("stripLineNumberPrefixes detects read_file decoration", () => {
     const decorated = "   166\t  const x = 1;\n   167\t  return x;";
-    expect(stripLineNumberPrefixes(decorated)).toBe("  const x = 1;\n  return x;");
+    expect(stripLineNumberPrefixes(decorated)).toBe(
+      "  const x = 1;\n  return x;",
+    );
     expect(stripLineNumberPrefixes("  const x = 1;")).toBeNull();
   });
 
@@ -105,7 +125,9 @@ describe("normalizeLine / near-miss helpers", () => {
   });
 
   test("closestLines ranks by token overlap", () => {
-    const file = ["foo bar", "alpha beta gamma", "const bareKey = entry"].join("\n");
+    const file = ["foo bar", "alpha beta gamma", "const bareKey = entry"].join(
+      "\n",
+    );
     const closest = closestLines(file, "const bareKey = something");
     expect(closest[0]?.lineNumber).toBe(3);
   });
@@ -151,7 +173,12 @@ describe("editFileDiagnosticsPlugin", () => {
     const path = join(cwd, "a.ts");
     await writeFile(
       path,
-      ["function f() {", "  const bareKey = 1;", "    const entry = 2;", "}"].join("\n"),
+      [
+        "function f() {",
+        "  const bareKey = 1;",
+        "    const entry = 2;",
+        "}",
+      ].join("\n"),
     );
 
     const next = async (): Promise<ToolResult> => stockNotFound(path);
@@ -191,11 +218,17 @@ describe("editFileDiagnosticsPlugin", () => {
     const path = join(cwd, "prefix-indent.ts");
     await writeFile(
       path,
-      ["function f() {", "  const bareKey = 1;", "    const entry = 2;", "}"].join("\n"),
+      [
+        "function f() {",
+        "  const bareKey = 1;",
+        "    const entry = 2;",
+        "}",
+      ].join("\n"),
     );
 
     // Decorated AND wrong indent — both dominant failure modes at once.
-    const contaminated = "     2\tconst bareKey = 1;\n     3\t  const entry = 2;";
+    const contaminated =
+      "     2\tconst bareKey = 1;\n     3\t  const entry = 2;";
     const next = async (): Promise<ToolResult> => stockNotFound(path);
     const handler = wrap(next);
     const result = await handler(
@@ -216,7 +249,10 @@ describe("editFileDiagnosticsPlugin", () => {
 
     const next = async (): Promise<ToolResult> => stockNotUnique(path, 3);
     const handler = wrap(next);
-    const result = await handler(editCall("c.ts", "foo"), new AbortController().signal);
+    const result = await handler(
+      editCall("c.ts", "foo"),
+      new AbortController().signal,
+    );
 
     expect(result.isError).toBe(true);
     expect(String(result.content)).toContain("old_string is not unique");
@@ -233,7 +269,10 @@ describe("editFileDiagnosticsPlugin", () => {
 
     const next = async (): Promise<ToolResult> => stockNotUnique(path, 25);
     const handler = wrap(next);
-    const result = await handler(editCall("many.ts", "hit"), new AbortController().signal);
+    const result = await handler(
+      editCall("many.ts", "hit"),
+      new AbortController().signal,
+    );
 
     expect(String(result.content)).toContain("showing 10 of 25");
     expect(String(result.content)).toContain("and 15 more");
@@ -246,7 +285,10 @@ describe("editFileDiagnosticsPlugin", () => {
     const next = async (call: ToolCall): Promise<ToolResult> => {
       // Simulate a successful stock edit.
       await writeFile(String(call.arguments.path), "hello there\n");
-      return { callId: call.id, content: "replaced 1 occurrence(s) in " + call.arguments.path };
+      return {
+        callId: call.id,
+        content: "replaced 1 occurrence(s) in " + call.arguments.path,
+      };
     };
     const handler = wrap(next);
     const result = await handler(
@@ -279,7 +321,10 @@ describe("editFileDiagnosticsPlugin", () => {
     const missing = join(cwd, "gone.ts");
     const next = async (): Promise<ToolResult> => stockNotFound(missing);
     const handler = wrap(next);
-    const result = await handler(editCall("gone.ts", "x"), new AbortController().signal);
+    const result = await handler(
+      editCall("gone.ts", "x"),
+      new AbortController().signal,
+    );
     expect(result.content).toBe(`old_string not found in ${missing}`);
   });
 
@@ -304,7 +349,12 @@ describe("editFileDiagnosticsPlugin", () => {
     const path = join(cwd, "trail.ts");
     await writeFile(
       path,
-      ["function f() {", "  const bareKey = 1;", "    const entry = 2;", "}"].join("\n"),
+      [
+        "function f() {",
+        "  const bareKey = 1;",
+        "    const entry = 2;",
+        "}",
+      ].join("\n"),
     );
 
     const next = async (): Promise<ToolResult> => stockNotFound(path);

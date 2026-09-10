@@ -29,7 +29,9 @@ describe("parseCodexApplyPatch", () => {
 *** Add File: empty.txt
 *** End Patch
 `);
-    expect(patch.ops).toEqual([{ type: "add", path: "empty.txt", content: "" }]);
+    expect(patch.ops).toEqual([
+      { type: "add", path: "empty.txt", content: "" },
+    ]);
   });
 
   test("parses Delete File", () => {
@@ -158,7 +160,11 @@ describe("extractAffectedPaths", () => {
 *** Delete File: obsolete.txt
 *** End Patch
 `);
-    expect(extractAffectedPaths(patch)).toEqual(["hello.txt", "src/app.py", "obsolete.txt"]);
+    expect(extractAffectedPaths(patch)).toEqual([
+      "hello.txt",
+      "src/app.py",
+      "obsolete.txt",
+    ]);
   });
 
   test("move path extraction includes source and destination", () => {

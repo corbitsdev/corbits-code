@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AttachImageResult, PendingImageAttachment } from "./image-attachments.js";
+import type {
+  AttachImageResult,
+  PendingImageAttachment,
+} from "./image-attachments.js";
 import {
   ingestOperatorPrompt,
   ingestPathMentions,
@@ -31,13 +34,20 @@ describe("ingestPathMentions", () => {
       ok: true,
       attachment: { ...attachment("shot.png"), path },
     });
-    const result = await ingestPathMentions("look at ./shot.png please", "/repo", load);
+    const result = await ingestPathMentions(
+      "look at ./shot.png please",
+      "/repo",
+      load,
+    );
     expect(result.text).toBe("look at [Attached image: shot.png] please");
     expect(result.attachments).toHaveLength(1);
   });
 
   test("keeps the raw path when loading fails", async () => {
-    const load = async (): Promise<AttachImageResult> => ({ ok: false, reason: "nope" });
+    const load = async (): Promise<AttachImageResult> => ({
+      ok: false,
+      reason: "nope",
+    });
     const result = await ingestPathMentions("./shot.png", "/repo", load);
     expect(result.text).toBe("./shot.png");
     expect(result.attachments).toEqual([]);
@@ -55,10 +65,16 @@ describe("ingestPathMentions", () => {
         contentHash: "same-bytes",
       },
     });
-    const result = await ingestPathMentions("see ./shot.png and ./alias.png", "/repo", load);
+    const result = await ingestPathMentions(
+      "see ./shot.png and ./alias.png",
+      "/repo",
+      load,
+    );
     expect(result.attachments).toHaveLength(1);
     expect(result.attachments[0]?.name).toBe("shot.png");
-    expect(result.text).toBe("see [Attached image: shot.png] and [Attached image: shot.png]");
+    expect(result.text).toBe(
+      "see [Attached image: shot.png] and [Attached image: shot.png]",
+    );
   });
 
   test("pending plus a unique mention and a duplicate mention returns only the unique as new", async () => {
@@ -67,14 +83,21 @@ describe("ingestPathMentions", () => {
       if (path.endsWith("dup.png")) {
         return {
           ok: true,
-          attachment: { ...attachment("dup.png"), path, contentHash: pending.contentHash },
+          attachment: {
+            ...attachment("dup.png"),
+            path,
+            contentHash: pending.contentHash,
+          },
         };
       }
       return { ok: true, attachment: { ...attachment("unique.png"), path } };
     };
-    const result = await ingestPathMentions("see ./unique.png and ./dup.png", "/repo", load, [
-      pending,
-    ]);
+    const result = await ingestPathMentions(
+      "see ./unique.png and ./dup.png",
+      "/repo",
+      load,
+      [pending],
+    );
     expect(result.attachments).toHaveLength(1);
     expect(result.attachments[0]?.name).toBe("unique.png");
     expect(result.text).toBe(
@@ -99,9 +122,13 @@ describe("ingestOperatorPrompt", () => {
   });
 
   test("does not send — only returns ingested text and attachments", async () => {
-    const result = await ingestOperatorPrompt("just words", "/repo", async () => {
-      throw new Error("must not load");
-    });
+    const result = await ingestOperatorPrompt(
+      "just words",
+      "/repo",
+      async () => {
+        throw new Error("must not load");
+      },
+    );
     expect(result.text).toBe("just words");
     expect(result.attachments).toEqual([]);
   });
@@ -113,7 +140,9 @@ describe("ingestOperatorPrompt", () => {
       ok: true,
       attachment: { ...attachment("shot.png"), path, contentHash: pendingHash },
     });
-    const result = await ingestOperatorPrompt("see ./shot.png", "/repo", load, [pending]);
+    const result = await ingestOperatorPrompt("see ./shot.png", "/repo", load, [
+      pending,
+    ]);
     expect(result.attachments).toHaveLength(1);
     expect(result.attachments[0]).toEqual(pending);
     expect(result.text).toBe("see [Attached image: clipboard.png]");
@@ -125,7 +154,9 @@ describe("ingestOperatorPrompt", () => {
       ok: true,
       attachment: { ...attachment("shot.png"), path },
     });
-    const result = await ingestOperatorPrompt("see ./shot.png", "/repo", load, [pending]);
+    const result = await ingestOperatorPrompt("see ./shot.png", "/repo", load, [
+      pending,
+    ]);
     expect(result.attachments).toHaveLength(2);
     expect(result.attachments[0]).toEqual(pending);
     expect(result.attachments[1]?.name).toBe("shot.png");

@@ -14,7 +14,9 @@ import type { StreamRow } from "./stream";
 
 describe("classifyCopy", () => {
   test("tool role", () => {
-    expect(classifyCopy({ role: "tool", text: "ls", meta: "bash" })).toBe("tool");
+    expect(classifyCopy({ role: "tool", text: "ls", meta: "bash" })).toBe(
+      "tool",
+    );
   });
 
   test("diff body", () => {
@@ -84,10 +86,14 @@ describe("writeClipboard", () => {
 
   test("async reject runs onFailure", async () => {
     const events: string[] = [];
-    writeClipboard({ writeText: () => Promise.reject(new Error("nope")) }, "hi", {
-      onSuccess: () => events.push("ok"),
-      onFailure: () => events.push("fail"),
-    });
+    writeClipboard(
+      { writeText: () => Promise.reject(new Error("nope")) },
+      "hi",
+      {
+        onSuccess: () => events.push("ok"),
+        onFailure: () => events.push("fail"),
+      },
+    );
     expect(events).toEqual([]);
     await Promise.resolve();
     await Promise.resolve();
@@ -98,7 +104,9 @@ describe("writeClipboard", () => {
 describe("formatCopyText / copyStreamRow", () => {
   test("writes plain text and summary", () => {
     const port = createRecordingClipboard();
-    const payload = defined(copyStreamRow({ role: "assistant", text: "hello world" }, port));
+    const payload = defined(
+      copyStreamRow({ role: "assistant", text: "hello world" }, port),
+    );
     expect(payload.kind).toBe("message");
     expect(payload.text).toBe("hello world");
     expect(port.writes).toEqual(["hello world"]);
@@ -107,7 +115,9 @@ describe("formatCopyText / copyStreamRow", () => {
 
   test("tool includes meta", () => {
     const port = createRecordingClipboard();
-    const payload = defined(copyStreamRow({ role: "tool", text: "ok", meta: "bash" }, port));
+    const payload = defined(
+      copyStreamRow({ role: "tool", text: "ok", meta: "bash" }, port),
+    );
     expect(payload.text).toBe("[bash] ok");
     expect(payload.kind).toBe("tool");
   });
@@ -149,7 +159,11 @@ describe("buildCopyTargets", () => {
       { role: "tool", text: "out", meta: "bash" },
     ];
     const targets = buildCopyTargets(log);
-    expect(targets.map((t) => t.text)).toEqual(["first", "second", "[bash] out"]);
+    expect(targets.map((t) => t.text)).toEqual([
+      "first",
+      "second",
+      "[bash] out",
+    ]);
     expect(targets[0]?.label).toBe("your message");
     expect(targets[2]?.label).toBe("bash output");
     // Ink default: last target

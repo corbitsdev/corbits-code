@@ -28,7 +28,10 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-async function fixture(name: string, content: string | Buffer): Promise<string> {
+async function fixture(
+  name: string,
+  content: string | Buffer,
+): Promise<string> {
   const p = join(dir, name);
   await writeFile(p, content);
   return p;
@@ -37,7 +40,12 @@ async function fixture(name: string, content: string | Buffer): Promise<string> 
 describe("readFileBounded", () => {
   test("reads a small file fully with 1-indexed line numbers", async () => {
     const p = await fixture("small.txt", "alpha\nbeta\ngamma");
-    const { content, isError } = await readFileBounded(p, 0, 2000, neverAbort());
+    const { content, isError } = await readFileBounded(
+      p,
+      0,
+      2000,
+      neverAbort(),
+    );
     expect(isError).toBeUndefined();
     expect(content).toBe("     1\talpha\n     2\tbeta\n     3\tgamma");
   });
@@ -46,8 +54,15 @@ describe("readFileBounded", () => {
     // Long lines so the byte cap trips before the 2000-line cap.
     const big = Array.from({ length: 5_000 }, () => "x".repeat(200)).join("\n");
     const p = await fixture("big.txt", big);
-    const { content } = await readFileBounded(p, 0, READ_FILE_DEFAULT_MAX_LINES, neverAbort());
-    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(READ_FILE_MAX_BYTES);
+    const { content } = await readFileBounded(
+      p,
+      0,
+      READ_FILE_DEFAULT_MAX_LINES,
+      neverAbort(),
+    );
+    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(
+      READ_FILE_MAX_BYTES,
+    );
     expect(content).toContain("output limit");
     expect(content).toContain("Use offset=");
   });
@@ -55,7 +70,12 @@ describe("readFileBounded", () => {
   test("default line cap stops at DEFAULT_MAX_LINES for short lines", async () => {
     const many = Array.from({ length: 5_000 }, () => "x").join("\n");
     const p = await fixture("many.txt", many);
-    const { content } = await readFileBounded(p, 0, READ_FILE_DEFAULT_MAX_LINES, neverAbort());
+    const { content } = await readFileBounded(
+      p,
+      0,
+      READ_FILE_DEFAULT_MAX_LINES,
+      neverAbort(),
+    );
     const body = content.split("\n\n")[0] ?? "";
     const lineCount = body.trimEnd().split("\n").length;
     expect(lineCount).toBeLessThanOrEqual(READ_FILE_DEFAULT_MAX_LINES);
@@ -70,7 +90,12 @@ describe("readFileBounded", () => {
 
   test("offset beyond EOF is an error with the true line count", async () => {
     const p = await fixture("short.txt", "a\nb");
-    const { content, isError } = await readFileBounded(p, 99, 2000, neverAbort());
+    const { content, isError } = await readFileBounded(
+      p,
+      99,
+      2000,
+      neverAbort(),
+    );
     expect(isError).toBe(true);
     expect(content).toContain("beyond end of file");
     expect(content).toContain("(2 lines)");
@@ -85,19 +110,36 @@ describe("readFileBounded", () => {
 
   test("rejects a binary file whose NUL is in the first chunk", async () => {
     const p = await fixture("binary.bin", Buffer.from([0x41, 0x00, 0x42]));
-    const { content, isError } = await readFileBounded(p, 0, 2000, neverAbort());
+    const { content, isError } = await readFileBounded(
+      p,
+      0,
+      2000,
+      neverAbort(),
+    );
     expect(isError).toBe(true);
     expect(content).toContain("binary");
   });
 
   test("a NUL deep in an otherwise-valid file does not discard streamed content", async () => {
     // Enough valid text (>64KB) to guarantee the NUL lands in a later chunk.
-    const head = Array.from({ length: 10_000 }, (_, i) => `valid-line-${i}`).join("\n");
+    const head = Array.from(
+      { length: 10_000 },
+      (_, i) => `valid-line-${i}`,
+    ).join("\n");
     const p = await fixture(
       "late-nul.bin",
-      Buffer.concat([Buffer.from(`${head}\n`, "utf8"), Buffer.from([0x00]), Buffer.from("\ntail")]),
+      Buffer.concat([
+        Buffer.from(`${head}\n`, "utf8"),
+        Buffer.from([0x00]),
+        Buffer.from("\ntail"),
+      ]),
     );
-    const { content, isError } = await readFileBounded(p, 0, 500_000, neverAbort());
+    const { content, isError } = await readFileBounded(
+      p,
+      0,
+      500_000,
+      neverAbort(),
+    );
     expect(isError).toBeUndefined();
     expect(content).toContain("valid-line-0");
     // Contract: a NUL past the first chunk is tolerated (streamed as text), not
@@ -106,9 +148,17 @@ describe("readFileBounded", () => {
 
   test("a fully-read file emits no false continuation notice", async () => {
     // ~40KB, under the 50KB budget, all lines fit and the stream ends.
-    const body = Array.from({ length: 400 }, (_, i) => `line ${i} ${"z".repeat(80)}`).join("\n");
+    const body = Array.from(
+      { length: 400 },
+      (_, i) => `line ${i} ${"z".repeat(80)}`,
+    ).join("\n");
     const p = await fixture("fits.txt", body);
-    const { content } = await readFileBounded(p, 0, READ_FILE_DEFAULT_MAX_LINES, neverAbort());
+    const { content } = await readFileBounded(
+      p,
+      0,
+      READ_FILE_DEFAULT_MAX_LINES,
+      neverAbort(),
+    );
     expect(Buffer.byteLength(content, "utf8")).toBeGreaterThan(30_000);
     expect(content).not.toContain("Use offset=");
     expect(content).not.toContain("continue");
@@ -117,7 +167,12 @@ describe("readFileBounded", () => {
   test("a newline-less file past the scan ceiling returns content, not empty", async () => {
     const giant = "a".repeat(READ_FILE_MAX_SCAN_BYTES + 1024);
     const p = await fixture("giant-line.txt", giant);
-    const { content, isError } = await readFileBounded(p, 0, 2000, neverAbort());
+    const { content, isError } = await readFileBounded(
+      p,
+      0,
+      2000,
+      neverAbort(),
+    );
     expect(isError).toBeUndefined();
     expect(content.length).toBeGreaterThan(0);
     expect(content).toContain("     1\t");
@@ -139,7 +194,9 @@ describe("readFileBounded", () => {
   });
 
   test("offset and limit slice in-memory tool-output bytes without loading all lines", async () => {
-    const lines = Array.from({ length: 20_000 }, (_, i) => `line-${i}`).join("\n");
+    const lines = Array.from({ length: 20_000 }, (_, i) => `line-${i}`).join(
+      "\n",
+    );
     const bytes = new TextEncoder().encode(lines);
     const { content, isError } = await readBytesBounded(
       bytes,
@@ -154,16 +211,25 @@ describe("readFileBounded", () => {
     expect(content).toContain("line-4");
     expect(content).not.toContain("line-0");
     expect(content).not.toContain("line-5");
-    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(READ_FILE_MAX_BYTES);
+    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(
+      READ_FILE_MAX_BYTES,
+    );
   });
 
   test("offset past the scan ceiling reports the scan limit, not a fake EOF", async () => {
     // Many short lines totaling more than the scan ceiling; a huge offset can
     // never be reached within one scan pass.
     const line = `${"y".repeat(80)}\n`;
-    const count = Math.ceil((READ_FILE_MAX_SCAN_BYTES + 1_000_000) / line.length);
+    const count = Math.ceil(
+      (READ_FILE_MAX_SCAN_BYTES + 1_000_000) / line.length,
+    );
     const p = await fixture("wide.txt", line.repeat(count));
-    const { content, isError } = await readFileBounded(p, 50_000_000, 2000, neverAbort());
+    const { content, isError } = await readFileBounded(
+      p,
+      50_000_000,
+      2000,
+      neverAbort(),
+    );
     expect(isError).toBe(true);
     expect(content).toContain("scan limit");
     expect(content).not.toContain("beyond end of file");
@@ -180,13 +246,20 @@ describe("readFileGuardPlugin", () => {
     call: ToolCall,
     blobReader?: ReturnType<typeof createBlobReader>,
   ): Promise<ToolResult> {
-    const plugin = readFileGuardPlugin(dir, blobReader !== undefined ? { blobReader } : {});
+    const plugin = readFileGuardPlugin(
+      dir,
+      blobReader !== undefined ? { blobReader } : {},
+    );
     return defined(plugin.middleware)(fallback)(call, neverAbort());
   }
 
   test("intercepts read_file for real paths", async () => {
     await fixture("guarded.txt", "hello");
-    const result = await run({ id: "r1", name: "read_file", arguments: { path: "guarded.txt" } });
+    const result = await run({
+      id: "r1",
+      name: "read_file",
+      arguments: { path: "guarded.txt" },
+    });
     expect(result.content).toBe("     1\thello");
     expect(result.content).not.toBe("FALLBACK");
   });
@@ -242,7 +315,9 @@ describe("readFileGuardPlugin", () => {
 
   test("pages tool-output blobs above the display ceiling instead of rejecting the spill", async () => {
     const encoder = new TextEncoder();
-    const huge = encoder.encode("x".repeat(READ_FILE_MAX_TOOL_OUTPUT_BYTES + 1));
+    const huge = encoder.encode(
+      "x".repeat(READ_FILE_MAX_TOOL_OUTPUT_BYTES + 1),
+    );
     const blobReader = createBlobReader({
       async readBlob() {
         return huge;
@@ -271,21 +346,36 @@ describe("readFileGuardPlugin", () => {
   });
 
   test("delegates directories to the stock handler", async () => {
-    const result = await run({ id: "r3b", name: "read_file", arguments: { path: "." } });
+    const result = await run({
+      id: "r3b",
+      name: "read_file",
+      arguments: { path: "." },
+    });
     expect(result.content).toBe("FALLBACK");
   });
 
   test("ignores non-read_file calls", async () => {
-    const result = await run({ id: "r4", name: "grep", arguments: { pattern: "x" } });
+    const result = await run({
+      id: "r4",
+      name: "grep",
+      arguments: { pattern: "x" },
+    });
     expect(result.content).toBe("FALLBACK");
   });
 
   test("a truncated read never asks the model to re-read the same path (CL-6961)", async () => {
-    await fixture("many-lines.txt", Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"));
+    await fixture(
+      "many-lines.txt",
+      Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
+    );
     const plugin = readFileGuardPlugin(dir, {});
     const middleware = defined(plugin.middleware)(fallback);
     const result = await middleware(
-      { id: "c1", name: "read_file", arguments: { path: "many-lines.txt", limit: 4 } },
+      {
+        id: "c1",
+        name: "read_file",
+        arguments: { path: "many-lines.txt", limit: 4 },
+      },
       neverAbort(),
     );
     expect(result.content).not.toContain("Use offset=");
@@ -321,7 +411,11 @@ describe("readFileGuardPlugin", () => {
       pathsRead.push(nextPath);
 
       result = await middleware(
-        { id: `c${pathsRead.length}`, name: "read_file", arguments: { path: nextPath } },
+        {
+          id: `c${pathsRead.length}`,
+          name: "read_file",
+          arguments: { path: nextPath },
+        },
         neverAbort(),
       );
     }
@@ -340,10 +434,16 @@ describe("readFileGuardPlugin", () => {
     const plugin = readFileGuardPlugin(dir, {});
     const middleware = defined(plugin.middleware)(fallback);
     const first = await middleware(
-      { id: "s1", name: "read_file", arguments: { path: "stale.txt", limit: 4 } },
+      {
+        id: "s1",
+        name: "read_file",
+        arguments: { path: "stale.txt", limit: 4 },
+      },
       neverAbort(),
     );
-    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(String(first.content));
+    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(
+      String(first.content),
+    );
     expect(match).not.toBeNull();
     const cursorPath = (match as RegExpExecArray)[1] as string;
 
@@ -372,7 +472,11 @@ describe("readFileGuardPlugin", () => {
       },
     };
     const result = await run(
-      { id: "u1", name: "read_file", arguments: { path: "tool-output:///never-minted" } },
+      {
+        id: "u1",
+        name: "read_file",
+        arguments: { path: "tool-output:///never-minted" },
+      },
       blobReader,
     );
     expect(result.isError).toBe(true);
@@ -394,10 +498,16 @@ describe("readFileGuardPlugin", () => {
     const middleware = defined(plugin.middleware)(fallback);
 
     const first = await middleware(
-      { id: "b1", name: "read_file", arguments: { path: "tool-output:///spill-1", limit: 5 } },
+      {
+        id: "b1",
+        name: "read_file",
+        arguments: { path: "tool-output:///spill-1", limit: 5 },
+      },
       neverAbort(),
     );
-    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(String(first.content));
+    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(
+      String(first.content),
+    );
     expect(match).not.toBeNull();
     const cursorPath = (match as RegExpExecArray)[1] as string;
 

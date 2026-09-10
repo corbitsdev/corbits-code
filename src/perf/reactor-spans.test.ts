@@ -27,10 +27,18 @@ function completed(spans: PerfSpan[]): PerfSpan[] {
   return spans.filter((s) => s.endNs !== undefined);
 }
 
-const emptyUsage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, thinking: 0 };
+const emptyUsage = {
+  input: 10,
+  output: 5,
+  cacheRead: 0,
+  cacheWrite: 0,
+  thinking: 0,
+};
 const source = { provider: "test-provider", model: "test-model" };
 
-function inferenceDone(content: unknown[] = [{ type: "text", text: "hi" }]): ReactorEmittedEvent {
+function inferenceDone(
+  content: unknown[] = [{ type: "text", text: "hi" }],
+): ReactorEmittedEvent {
   return event("inference.done", {
     turn: { role: "assistant", content, model: "test-model", timestamp: 0 },
     usage: emptyUsage,
@@ -43,9 +51,17 @@ describe("createPerfReactorObserver", () => {
     const obs = createPerfReactorObserver();
 
     obs.observe(event("inference.start", { model: "test-model" }));
-    obs.observe(event("inference.text.delta", { token: "Hello", partial: { text: "Hello" } }));
     obs.observe(
-      event("inference.text.delta", { token: " world", partial: { text: "Hello world" } }),
+      event("inference.text.delta", {
+        token: "Hello",
+        partial: { text: "Hello" },
+      }),
+    );
+    obs.observe(
+      event("inference.text.delta", {
+        token: " world",
+        partial: { text: "Hello world" },
+      }),
     );
     obs.observe(inferenceDone());
 
@@ -80,12 +96,22 @@ describe("createPerfReactorObserver", () => {
     const obs = createPerfReactorObserver();
 
     obs.observe(event("inference.start", { model: "test-model" }));
-    obs.observe(event("inference.text.delta", { token: "x", partial: { text: "x" } }));
     obs.observe(
-      inferenceDone([{ type: "tool_call", id: "call-1", name: "run_shell", arguments: {} }]),
+      event("inference.text.delta", { token: "x", partial: { text: "x" } }),
     );
-    obs.observe(event("tool.start", { call: { id: "call-1", name: "run_shell", arguments: {} } }));
-    obs.observe(event("tool.done", { result: { callId: "call-1", content: "ok" } }));
+    obs.observe(
+      inferenceDone([
+        { type: "tool_call", id: "call-1", name: "run_shell", arguments: {} },
+      ]),
+    );
+    obs.observe(
+      event("tool.start", {
+        call: { id: "call-1", name: "run_shell", arguments: {} },
+      }),
+    );
+    obs.observe(
+      event("tool.done", { result: { callId: "call-1", content: "ok" } }),
+    );
 
     const spans = completed(snapshot());
     const turn = defined(byName(spans, "turn")[0]);
@@ -104,7 +130,9 @@ describe("createPerfReactorObserver", () => {
 
     for (let i = 0; i < 2; i += 1) {
       obs.observe(event("inference.start", { model: "test-model" }));
-      obs.observe(event("inference.text.delta", { token: "a", partial: { text: "a" } }));
+      obs.observe(
+        event("inference.text.delta", { token: "a", partial: { text: "a" } }),
+      );
       obs.observe(inferenceDone());
     }
 
@@ -137,7 +165,12 @@ describe("createPerfReactorObserver", () => {
     const obs = createPerfReactorObserver();
 
     obs.observe(event("inference.start", { model: "test-model" }));
-    obs.observe(event("inference.thinking.delta", { token: "hmm", partial: { text: "" } }));
+    obs.observe(
+      event("inference.thinking.delta", {
+        token: "hmm",
+        partial: { text: "" },
+      }),
+    );
     obs.observe(inferenceDone());
 
     const spans = completed(snapshot());
@@ -150,7 +183,14 @@ describe("createPerfReactorObserver", () => {
 
     obs.observe(event("inference.start", { model: "test-model" }));
     obs.observe(
-      inferenceDone([{ type: "tool_call", id: "blocked-1", name: "run_shell", arguments: {} }]),
+      inferenceDone([
+        {
+          type: "tool_call",
+          id: "blocked-1",
+          name: "run_shell",
+          arguments: {},
+        },
+      ]),
     );
     obs.observe(
       event("tool.done", {
@@ -161,7 +201,9 @@ describe("createPerfReactorObserver", () => {
     const tools = byName(completed(snapshot()), "tool");
     expect(tools).toHaveLength(1);
     expect(defined(tools[0]).tags?.tool_id).toBe("blocked-1");
-    expect(defined(byName(completed(snapshot()), "turn")[0]).endNs).toBeDefined();
+    expect(
+      defined(byName(completed(snapshot()), "turn")[0]).endNs,
+    ).toBeDefined();
   });
 
   test("reset closes open spans and clears state", () => {
@@ -185,7 +227,12 @@ describe("createPerfReactorObserver", () => {
     const obs = createPerfReactorObserver();
 
     obs.observe(event("inference.start", { model: "test-model" }));
-    obs.observe(event("inference.text.delta", { token: "partial", partial: { text: "partial" } }));
+    obs.observe(
+      event("inference.text.delta", {
+        token: "partial",
+        partial: { text: "partial" },
+      }),
+    );
     // Interrupt: no inference.done / error — next start must abandon.
     obs.observe(event("inference.start", { model: "test-model" }));
     obs.observe(inferenceDone());
@@ -200,7 +247,9 @@ describe("createPerfReactorObserver", () => {
     expect(defined(inferences[0]).parentId).toBe(defined(turns[0]).id);
     expect(defined(inferences[1]).parentId).toBe(defined(turns[1]).id);
     // First turn abandoned before second opened — not nested.
-    expect(defined(defined(turns[0]).endNs) <= defined(turns[1]).startNs).toBe(true);
+    expect(defined(defined(turns[0]).endNs) <= defined(turns[1]).startNs).toBe(
+      true,
+    );
   });
 
   test("abandon mid-tool then new start closes open tools and prior turn", () => {
@@ -208,9 +257,15 @@ describe("createPerfReactorObserver", () => {
 
     obs.observe(event("inference.start", { model: "test-model" }));
     obs.observe(
-      inferenceDone([{ type: "tool_call", id: "call-1", name: "run_shell", arguments: {} }]),
+      inferenceDone([
+        { type: "tool_call", id: "call-1", name: "run_shell", arguments: {} },
+      ]),
     );
-    obs.observe(event("tool.start", { call: { id: "call-1", name: "run_shell", arguments: {} } }));
+    obs.observe(
+      event("tool.start", {
+        call: { id: "call-1", name: "run_shell", arguments: {} },
+      }),
+    );
     // Interrupt mid-tool: no tool.done — next inference.start must not nest.
     obs.observe(event("inference.start", { model: "next-model" }));
     obs.observe(inferenceDone());
@@ -230,14 +285,18 @@ describe("createPerfReactorObserver", () => {
     expect(defined(inferences[1]).parentId).toBe(defined(turns[1]).id);
     // Second inference must not nest under the abandoned turn.
     expect(defined(inferences[1]).parentId).not.toBe(defined(turns[0]).id);
-    expect(defined(defined(turns[0]).endNs) <= defined(turns[1]).startNs).toBe(true);
+    expect(defined(defined(turns[0]).endNs) <= defined(turns[1]).startNs).toBe(
+      true,
+    );
   });
 
   test("inference.error mid-turn then new start leaves no open spans", () => {
     const obs = createPerfReactorObserver();
 
     obs.observe(event("inference.start", { model: "test-model" }));
-    obs.observe(event("inference.text.delta", { token: "x", partial: { text: "x" } }));
+    obs.observe(
+      event("inference.text.delta", { token: "x", partial: { text: "x" } }),
+    );
     obs.observe(event("inference.error", { error: { message: "timeout" } }));
 
     // Error with no pending tools closes the turn.
@@ -250,7 +309,9 @@ describe("createPerfReactorObserver", () => {
     expect(spans.every((s) => s.endNs !== undefined)).toBe(true);
     const turns = byName(completed(spans), "turn");
     expect(turns).toHaveLength(2);
-    expect(defined(byName(completed(spans), "inference")[1]).parentId).toBe(defined(turns[1]).id);
+    expect(defined(byName(completed(spans), "inference")[1]).parentId).toBe(
+      defined(turns[1]).id,
+    );
   });
 });
 
@@ -275,7 +336,9 @@ describe("turn collector durationMs unchanged with perf observer", () => {
     };
 
     feed(event("inference.start", { model: "test-model" }));
-    feed(event("inference.text.delta", { token: "hi", partial: { text: "hi" } }));
+    feed(
+      event("inference.text.delta", { token: "hi", partial: { text: "hi" } }),
+    );
     feed(inferenceDone());
 
     expect(completedTurns).toHaveLength(1);
@@ -307,10 +370,18 @@ describe("turn collector durationMs unchanged with perf observer", () => {
     };
 
     feed(event("inference.start", { model: "m" }));
-    feed(inferenceDone([{ type: "tool_call", id: "c1", name: "read_file", arguments: {} }]));
+    feed(
+      inferenceDone([
+        { type: "tool_call", id: "c1", name: "read_file", arguments: {} },
+      ]),
+    );
     expect(completedTurns).toHaveLength(0);
 
-    feed(event("tool.start", { call: { id: "c1", name: "read_file", arguments: {} } }));
+    feed(
+      event("tool.start", {
+        call: { id: "c1", name: "read_file", arguments: {} },
+      }),
+    );
     feed(event("tool.done", { result: { callId: "c1", content: "ok" } }));
 
     expect(completedTurns).toHaveLength(1);
@@ -318,6 +389,8 @@ describe("turn collector durationMs unchanged with perf observer", () => {
 
     const spans = completed(snapshot());
     expect(byName(spans, "tool")).toHaveLength(1);
-    expect(defined(byName(spans, "tool")[0]).parentId).toBe(defined(byName(spans, "turn")[0]).id);
+    expect(defined(byName(spans, "tool")[0]).parentId).toBe(
+      defined(byName(spans, "turn")[0]).id,
+    );
   });
 });

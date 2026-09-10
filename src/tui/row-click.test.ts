@@ -46,7 +46,10 @@ describe("clicking a row's expand arrow", () => {
         });
         try {
           appendStreamRow(shell, CALL);
-          appendStreamRow(shell, { ...CALL, summary: "https://www.example.com" });
+          appendStreamRow(shell, {
+            ...CALL,
+            summary: "https://www.example.com",
+          });
           await h.renderOnce();
 
           const arrow = findCell(h.captureCharFrame(), ROW_ARROW.collapsed);

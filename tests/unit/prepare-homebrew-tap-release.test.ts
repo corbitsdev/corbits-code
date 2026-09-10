@@ -8,7 +8,10 @@ import { promisify } from "node:util";
 import { initTemporaryGitRepo } from "../helpers/temporary-git-repo.js";
 
 const execFileAsync = promisify(execFile);
-const script = join(import.meta.dir, "../../scripts/prepare-homebrew-tap-release.sh");
+const script = join(
+  import.meta.dir,
+  "../../scripts/prepare-homebrew-tap-release.sh",
+);
 
 describe("prepare-homebrew-tap-release", () => {
   let root: string;
@@ -19,7 +22,9 @@ describe("prepare-homebrew-tap-release", () => {
     const origin = join(root, "origin.git");
     tapDir = join(root, "tap");
     await mkdir(origin);
-    initTemporaryGitRepo(origin, { initArgs: ["--bare", "--initial-branch=main"] });
+    initTemporaryGitRepo(origin, {
+      initArgs: ["--bare", "--initial-branch=main"],
+    });
     await execFileAsync("git", ["clone", origin, tapDir]);
     initTemporaryGitRepo(tapDir);
 
@@ -37,8 +42,19 @@ describe("prepare-homebrew-tap-release", () => {
 
   test("requests a push when generated files are unchanged but the tap is ahead", async () => {
     await writeFile(join(tapDir, "Formula/corbits-code.rb"), "version two\n");
-    await execFileAsync("git", ["-C", tapDir, "add", "Formula/corbits-code.rb"]);
-    await execFileAsync("git", ["-C", tapDir, "commit", "-m", "Pending formula"]);
+    await execFileAsync("git", [
+      "-C",
+      tapDir,
+      "add",
+      "Formula/corbits-code.rb",
+    ]);
+    await execFileAsync("git", [
+      "-C",
+      tapDir,
+      "commit",
+      "-m",
+      "Pending formula",
+    ]);
 
     const result = await execFileAsync("bash", [script, tapDir, "1.2.3"]);
 

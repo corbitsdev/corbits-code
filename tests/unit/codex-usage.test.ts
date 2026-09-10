@@ -11,8 +11,18 @@ describe("formatCodexUsage", () => {
       planType: "team",
       allowed: true,
       limitReached: false,
-      primary: { usedPercent: 42, windowSeconds: 18000, resetAfterSeconds: 3600, resetAt: 0 },
-      secondary: { usedPercent: 74, windowSeconds: 604800, resetAfterSeconds: 266511, resetAt: 0 },
+      primary: {
+        usedPercent: 42,
+        windowSeconds: 18000,
+        resetAfterSeconds: 3600,
+        resetAt: 0,
+      },
+      secondary: {
+        usedPercent: 74,
+        windowSeconds: 604800,
+        resetAfterSeconds: 266511,
+        resetAt: 0,
+      },
       hasCredits: true,
     };
     const out = formatCodexUsage(usage);
@@ -27,7 +37,12 @@ describe("formatCodexUsage", () => {
       planType: "team",
       allowed: false,
       limitReached: true,
-      primary: { usedPercent: 100, windowSeconds: 18000, resetAfterSeconds: 562, resetAt: 0 },
+      primary: {
+        usedPercent: 100,
+        windowSeconds: 18000,
+        resetAfterSeconds: 562,
+        resetAt: 0,
+      },
       hasCredits: false,
       reachedType: "workspace_member_credits_depleted",
     };
@@ -54,8 +69,18 @@ describe("formatCodexUsageCompact", () => {
       planType: "team",
       allowed: true,
       limitReached: false,
-      primary: { usedPercent: 42, windowSeconds: 18000, resetAfterSeconds: 0, resetAt: 0 },
-      secondary: { usedPercent: 74, windowSeconds: 604800, resetAfterSeconds: 0, resetAt: 0 },
+      primary: {
+        usedPercent: 42,
+        windowSeconds: 18000,
+        resetAfterSeconds: 0,
+        resetAt: 0,
+      },
+      secondary: {
+        usedPercent: 74,
+        windowSeconds: 604800,
+        resetAfterSeconds: 0,
+        resetAt: 0,
+      },
       hasCredits: true,
     };
     expect(formatCodexUsageCompact(usage)).toBe("Codex 5h 42% · wk 74%");
@@ -66,8 +91,18 @@ describe("formatCodexUsageCompact", () => {
       planType: "team",
       allowed: true,
       limitReached: false,
-      primary: { usedPercent: 10, windowSeconds: 10800, resetAfterSeconds: 0, resetAt: 0 },
-      secondary: { usedPercent: 5, windowSeconds: 86400, resetAfterSeconds: 0, resetAt: 0 },
+      primary: {
+        usedPercent: 10,
+        windowSeconds: 10800,
+        resetAfterSeconds: 0,
+        resetAt: 0,
+      },
+      secondary: {
+        usedPercent: 5,
+        windowSeconds: 86400,
+        resetAfterSeconds: 0,
+        resetAt: 0,
+      },
       hasCredits: true,
     };
     expect(formatCodexUsageCompact(usage)).toBe("Codex 3h 10% · 1d 5%");
@@ -78,8 +113,18 @@ describe("formatCodexUsageCompact", () => {
       planType: "team",
       allowed: true,
       limitReached: false,
-      primary: { usedPercent: 10, windowSeconds: 0, resetAfterSeconds: 0, resetAt: 0 },
-      secondary: { usedPercent: 5, windowSeconds: 0, resetAfterSeconds: 0, resetAt: 0 },
+      primary: {
+        usedPercent: 10,
+        windowSeconds: 0,
+        resetAfterSeconds: 0,
+        resetAt: 0,
+      },
+      secondary: {
+        usedPercent: 5,
+        windowSeconds: 0,
+        resetAfterSeconds: 0,
+        resetAt: 0,
+      },
       hasCredits: true,
     };
     expect(formatCodexUsageCompact(usage)).toBe("Codex 5h 10% · wk 5%");
@@ -90,9 +135,16 @@ describe("formatCodexUsageCompact", () => {
       planType: "team",
       allowed: false,
       limitReached: true,
-      primary: { usedPercent: 100, windowSeconds: 18000, resetAfterSeconds: 0, resetAt: 0 },
+      primary: {
+        usedPercent: 100,
+        windowSeconds: 18000,
+        resetAfterSeconds: 0,
+        resetAt: 0,
+      },
       hasCredits: false,
     };
-    expect(formatCodexUsageCompact(usage)).toBe("Codex 5h 100% · (limit reached)");
+    expect(formatCodexUsageCompact(usage)).toBe(
+      "Codex 5h 100% · (limit reached)",
+    );
   });
 });

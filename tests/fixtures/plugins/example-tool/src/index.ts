@@ -14,7 +14,11 @@ interface ToolResult {
   isError?: boolean;
 }
 interface ExtraTool {
-  definition: { name: string; description: string; inputSchema: Record<string, unknown> };
+  definition: {
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  };
   handler: (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>;
 }
 interface ToolPlugin {
@@ -38,10 +42,13 @@ export function createToolPlugin(_options: unknown): ToolPlugin {
       {
         definition: {
           name: "echo",
-          description: "Echo back the provided text. Demonstrates a tool plugin.",
+          description:
+            "Echo back the provided text. Demonstrates a tool plugin.",
           inputSchema: {
             type: "object",
-            properties: { text: { type: "string", description: "Text to echo" } },
+            properties: {
+              text: { type: "string", description: "Text to echo" },
+            },
             required: ["text"],
           },
         },

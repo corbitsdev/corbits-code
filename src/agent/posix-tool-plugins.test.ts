@@ -8,11 +8,17 @@ import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { createPermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
-import { createCompositeBlobReader, createLazyBlobReader } from "./lazy-blob-reader.js";
+import {
+  createCompositeBlobReader,
+  createLazyBlobReader,
+} from "./lazy-blob-reader.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { editFileLineRangePlugin } from "../plugins/edit-file-line-range-plugin.js";
 
-type ToolHandlerLike = (call: ToolCall, signal: AbortSignal) => Promise<ToolResult>;
+type ToolHandlerLike = (
+  call: ToolCall,
+  signal: AbortSignal,
+) => Promise<ToolResult>;
 
 /**
  * editFileLineRangePlugin never calls `next` for start_line/end_line edits (it
@@ -25,7 +31,9 @@ function findMiddlewareIndex(
   plugins: ReturnType<typeof buildCorePosixToolPlugins>,
   marker: string,
 ): number {
-  return plugins.findIndex((plugin) => plugin.middleware?.toString().includes(marker) === true);
+  return plugins.findIndex(
+    (plugin) => plugin.middleware?.toString().includes(marker) === true,
+  );
 }
 
 describe("buildCorePosixToolPlugins", () => {
@@ -84,7 +92,11 @@ describe("buildCorePosixToolPlugins", () => {
       });
       const outPath = join(cwd, "out.txt");
       const denied = await runner.run(
-        { id: "1", name: "write_file", arguments: { path: outPath, content: "nope" } },
+        {
+          id: "1",
+          name: "write_file",
+          arguments: { path: outPath, content: "nope" },
+        },
         new AbortController().signal,
       );
       expect(denied.isError).toBe(true);
@@ -109,7 +121,9 @@ describe("buildCorePosixToolPlugins", () => {
       // The read-file guard caps the read before result-truncation would run,
       // so a 90KB single line comes back line-truncated and bounded.
       expect(String(allowed.content)).toContain("line truncated at 2000 chars");
-      expect(Buffer.byteLength(String(allowed.content), "utf8")).toBeLessThan(4096);
+      expect(Buffer.byteLength(String(allowed.content), "utf8")).toBeLessThan(
+        4096,
+      );
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -263,7 +277,8 @@ describe("buildCorePosixToolPlugins", () => {
       const childHolder: { current?: ReturnType<typeof createBlobReader> } = {};
       const parentReader = createBlobReader({
         async readBlob(key: string) {
-          if (key === "parent-mcp-skill") return encoder.encode("parent-skill-body-tail");
+          if (key === "parent-mcp-skill")
+            return encoder.encode("parent-skill-body-tail");
           throw new Error(`Blob not found for key: ${JSON.stringify(key)}`);
         },
       });
@@ -346,8 +361,14 @@ describe("buildCorePosixToolPlugins", () => {
       });
       const plugins = buildCorePosixToolPlugins({ cwd, permissionGate: gate });
 
-      const verifyIndex = findMiddlewareIndex(plugins, "Edit verification failed");
-      const editRangeIndex = findMiddlewareIndex(plugins, "runEditFileLineRange");
+      const verifyIndex = findMiddlewareIndex(
+        plugins,
+        "Edit verification failed",
+      );
+      const editRangeIndex = findMiddlewareIndex(
+        plugins,
+        "runEditFileLineRange",
+      );
 
       expect(verifyIndex).toBeGreaterThanOrEqual(0);
       expect(editRangeIndex).toBeGreaterThanOrEqual(0);
@@ -408,11 +429,16 @@ describe("buildCorePosixToolPlugins", () => {
           return next(call, signal);
         };
 
-      const base: ToolHandlerLike = async (call) => ({ callId: call.id, content: "unreachable" });
+      const base: ToolHandlerLike = async (call) => ({
+        callId: call.id,
+        content: "unreachable",
+      });
       const verifyMiddleware = verifyPlugin().middleware;
       const editRangeMiddleware = editFileLineRangePlugin().middleware;
       if (verifyMiddleware === undefined || editRangeMiddleware === undefined) {
-        throw new Error("expected verifyPlugin and editFileLineRangePlugin to expose middleware");
+        throw new Error(
+          "expected verifyPlugin and editFileLineRangePlugin to expose middleware",
+        );
       }
       const composed = composeMiddleware(
         [verifyMiddleware, concurrentWriterMiddleware, editRangeMiddleware],
@@ -456,7 +482,11 @@ describe("buildCorePosixToolPlugins", () => {
       });
 
       const result = await runner.run(
-        { id: "grep-1", name: "grep", arguments: { pattern: "AKIA|sk-", path: cwd } },
+        {
+          id: "grep-1",
+          name: "grep",
+          arguments: { pattern: "AKIA|sk-", path: cwd },
+        },
         new AbortController().signal,
       );
 
@@ -503,7 +533,10 @@ describe("buildCorePosixToolPlugins", () => {
       reactorGated: false,
       cwd: "/tmp",
     });
-    const plugins = buildCorePosixToolPlugins({ cwd: "/tmp", permissionGate: gate });
+    const plugins = buildCorePosixToolPlugins({
+      cwd: "/tmp",
+      permissionGate: gate,
+    });
     const ripgrepIndex = findMiddlewareIndex(plugins, "no matches for /");
     expect(ripgrepIndex).toBeGreaterThanOrEqual(0);
     plugins[ripgrepIndex] = shortCircuitingPlugin;
@@ -536,7 +569,8 @@ describe("buildCorePosixToolPlugins", () => {
     // the scrub, a secret split mid-pattern at the cap boundary would no
     // longer match the scrub's regex, and a bare, unredacted fragment of the
     // credential would reach the model with no redaction marker at all.
-    const { MAX_RESULT_CHARS } = await import("../plugins/result-truncation-plugin.js");
+    const { MAX_RESULT_CHARS } =
+      await import("../plugins/result-truncation-plugin.js");
     // A newline immediately ahead of the key gives the scrub regex's `\b` a
     // real word boundary; the padding length puts the cap boundary partway
     // through the 20-char key that follows, so a truncate-then-scrub bug
@@ -560,7 +594,10 @@ describe("buildCorePosixToolPlugins", () => {
       reactorGated: false,
       cwd: "/tmp",
     });
-    const plugins = buildCorePosixToolPlugins({ cwd: "/tmp", permissionGate: gate });
+    const plugins = buildCorePosixToolPlugins({
+      cwd: "/tmp",
+      permissionGate: gate,
+    });
     const ripgrepIndex = findMiddlewareIndex(plugins, "no matches for /");
     expect(ripgrepIndex).toBeGreaterThanOrEqual(0);
     plugins[ripgrepIndex] = shortCircuitingPlugin;

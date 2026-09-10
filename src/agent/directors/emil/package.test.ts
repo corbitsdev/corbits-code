@@ -92,12 +92,20 @@ describe("emilPackage", () => {
     expect(emilPackage.primaryIntent).toBe(
       "Design-engineering laws review; never fix product code",
     );
-    expect(emilPackage.outOfLane).toContain("shipping product code without design brief");
+    expect(emilPackage.outOfLane).toContain(
+      "shipping product code without design brief",
+    );
     expect(emilPackage.outOfLane).toContain("marketing content");
     expect(emilPackage.outOfLane).toContain("applying product fixes");
-    expect(emilPackage.outOfLane).toContain("suggesting full rewrites as implementer");
-    expect(emilPackage.outOfLane).toContain("CBS visual token ownership (draper)");
+    expect(emilPackage.outOfLane).toContain(
+      "suggesting full rewrites as implementer",
+    );
+    expect(emilPackage.outOfLane).toContain(
+      "CBS visual token ownership (draper)",
+    );
     expect(emilPackage.outOfLane).toContain("DESIGN.md ownership (rand)");
-    expect(emilPackage.outOfLane).toContain("correctness-severity ownership (critic)");
+    expect(emilPackage.outOfLane).toContain(
+      "correctness-severity ownership (critic)",
+    );
   });
 });

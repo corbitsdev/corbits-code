@@ -40,7 +40,9 @@ describe("one focus owner + one scroll lease", () => {
       expect(scrollLease(s)).not.toBeNull();
       // Single top frame owns both; stack never empty.
       expect(s.frames.length).toBeGreaterThanOrEqual(1);
-      expect(scrollLease(s)).toBe(defined(s.frames[s.frames.length - 1]).scrollOwner);
+      expect(scrollLease(s)).toBe(
+        defined(s.frames[s.frames.length - 1]).scrollOwner,
+      );
     }
   });
 
@@ -82,7 +84,11 @@ describe("priority: overlay > observe > shell", () => {
     expect(focusOwner(s)).toBe("overlay");
     expect(scrollLease(s)).toBe("overlay");
     // Observe remains under the overlay.
-    expect(s.frames.map((f) => f.target)).toEqual(["prompt", "observe", "overlay"]);
+    expect(s.frames.map((f) => f.target)).toEqual([
+      "prompt",
+      "observe",
+      "overlay",
+    ]);
   });
 
   test("openObserve while overlay open keeps overlay on top", () => {
@@ -151,7 +157,10 @@ describe("palette stacks over overlay (single Esc path)", () => {
   test("palette stacks; double Esc returns to shell", () => {
     let s = createFocusState();
     s = openOverlay(s, "settings");
-    s = openOverlay(s, "palette", { target: "palette", scrollOwner: "palette" });
+    s = openOverlay(s, "palette", {
+      target: "palette",
+      scrollOwner: "palette",
+    });
 
     expect(focusOwner(s)).toBe("palette");
     expect(scrollLease(s)).toBe("palette");

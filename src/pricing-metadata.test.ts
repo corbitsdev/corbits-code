@@ -48,7 +48,11 @@ describe("pricing-metadata", () => {
         {
           timestamp: 2,
           models: {
-            m: { inputPricePerToken: 1, outputPricePerToken: 2, cacheReadPricePerToken: 0 },
+            m: {
+              inputPricePerToken: 1,
+              outputPricePerToken: 2,
+              cacheReadPricePerToken: 0,
+            },
           },
           reasoning: { m: false },
           contextWindows: { m: 32_000 },

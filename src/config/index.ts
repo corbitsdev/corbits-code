@@ -1,15 +1,25 @@
 import { resolve } from "node:path";
 
 import type { InferenceSource } from "@intx/types/runtime";
-import { generateSessionId, isSessionId, migrateLegacySessionIfNeeded } from "../session/index.js";
+import {
+  generateSessionId,
+  isSessionId,
+  migrateLegacySessionIfNeeded,
+} from "../session/index.js";
 import { loadState } from "../session/state.js";
 import { COMMAND_NAME } from "../branding.js";
 
 import { isDirectorId } from "../agent/directors/registry.js";
 import { DIRECTOR_IDS, type DirectorId } from "../agent/directors/types.js";
-import { validateEffort, type ReasoningEffort } from "../provider/reasoning-effort.js";
+import {
+  validateEffort,
+  type ReasoningEffort,
+} from "../provider/reasoning-effort.js";
 import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
-import { defaultPricingCachePath, type PricingFetcherOptions } from "../cost/pricing-fetcher.js";
+import {
+  defaultPricingCachePath,
+  type PricingFetcherOptions,
+} from "../cost/pricing-fetcher.js";
 import { listCodexProfiles, type CodexProfile } from "../auth/codex/store.js";
 import { listXaiProfiles, type XaiProfile } from "../auth/xai/store.js";
 import {
@@ -120,24 +130,30 @@ function dropOrphanedOAuthEntries(
   const providers = Object.fromEntries(
     Object.entries(settings.providers).filter(
       ([name]) =>
-        (!isCodexProviderName(name) && !isXaiProviderName(name)) || projected[name] !== undefined,
+        (!isCodexProviderName(name) && !isXaiProviderName(name)) ||
+        projected[name] !== undefined,
     ),
   );
   const { defaultProvider, ...rest } = settings;
   return {
     ...rest,
     providers,
-    ...(defaultProvider !== undefined && providers[defaultProvider] !== undefined
+    ...(defaultProvider !== undefined &&
+    providers[defaultProvider] !== undefined
       ? { defaultProvider }
       : {}),
   };
 }
 
 function hasExaEntry(servers: MCPServerSettingsEntry[] | undefined): boolean {
-  return servers?.some((server) => server.name === EXA_MCP_SERVER_NAME) === true;
+  return (
+    servers?.some((server) => server.name === EXA_MCP_SERVER_NAME) === true
+  );
 }
 
-function globalExaSuppressesBuiltin(servers: MCPServerSettingsEntry[] | undefined): boolean {
+function globalExaSuppressesBuiltin(
+  servers: MCPServerSettingsEntry[] | undefined,
+): boolean {
   return (
     servers?.some((server) => {
       if (server.name !== EXA_MCP_SERVER_NAME) return false;
@@ -147,9 +163,12 @@ function globalExaSuppressesBuiltin(servers: MCPServerSettingsEntry[] | undefine
   );
 }
 
-function expandMcpServers(servers: MCPServerSettingsEntry[]): ResolvedMCPServerConfig[] {
+function expandMcpServers(
+  servers: MCPServerSettingsEntry[],
+): ResolvedMCPServerConfig[] {
   return servers.flatMap((server) => {
-    if (isExaMCPPreset(server)) return server.enabled ? [createExaMCPServerConfig()] : [];
+    if (isExaMCPPreset(server))
+      return server.enabled ? [createExaMCPServerConfig()] : [];
     if (server.enabled === false) return [];
     const { enabled: _enabled, ...connect } = server;
     return [connect];
@@ -197,7 +216,9 @@ export function buildOpenAISource(fields: {
       ? ollamaOpenAIBaseURL(fields.baseURL)
       : normalizeOpenAICompatibleBaseURL(fields.baseURL),
     apiKey:
-      fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
+      fields.apiKey !== undefined && fields.apiKey.length > 0
+        ? fields.apiKey
+        : KEYLESS_API_KEY,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
   };
@@ -217,7 +238,10 @@ export function buildOpenAISource(fields: {
 // TS does not flag a missing optional property against an explicitly-typed
 // object literal, so forwarding of an optional field can only be caught at
 // runtime.
-export type ProviderCatalogEntry = Omit<ProviderSettings, "name" | "contextWindow"> & {
+export type ProviderCatalogEntry = Omit<
+  ProviderSettings,
+  "name" | "contextWindow"
+> & {
   name: string;
   // Set when this entry is a Codex OAuth profile rather than an API-key
   // provider. Holds the profile name; the send path uses it to refresh the
@@ -258,8 +282,11 @@ export function buildCodexSource(fields: {
   accountId?: string;
   reasoningEffort?: ReasoningEffort;
 }): InferenceSource {
-  const providerOptions: Record<string, unknown> = { [CODEX_SESSION_ID_OPTION]: fields.sessionId };
-  if (fields.accountId !== undefined) providerOptions[CODEX_ACCOUNT_ID_OPTION] = fields.accountId;
+  const providerOptions: Record<string, unknown> = {
+    [CODEX_SESSION_ID_OPTION]: fields.sessionId,
+  };
+  if (fields.accountId !== undefined)
+    providerOptions[CODEX_ACCOUNT_ID_OPTION] = fields.accountId;
   if (fields.reasoningEffort !== undefined)
     providerOptions["reasoning_effort"] = fields.reasoningEffort;
   return {
@@ -321,7 +348,9 @@ export function buildBifrostSource(fields: {
     provider: BIFROST_PROVIDER,
     baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
     apiKey:
-      fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
+      fields.apiKey !== undefined && fields.apiKey.length > 0
+        ? fields.apiKey
+        : KEYLESS_API_KEY,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
   };
@@ -339,7 +368,9 @@ export function buildAnthropicSource(fields: {
     provider: "anthropic",
     baseURL: fields.baseURL.replace(/\/+$/, ""),
     apiKey:
-      fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY,
+      fields.apiKey !== undefined && fields.apiKey.length > 0
+        ? fields.apiKey
+        : KEYLESS_API_KEY,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS },
   };
@@ -356,7 +387,9 @@ export function buildGoSource(fields: {
 }): InferenceSource {
   const endpoint = resolveGoEndpoint(fields.model);
   const apiKey =
-    fields.apiKey !== undefined && fields.apiKey.length > 0 ? fields.apiKey : KEYLESS_API_KEY;
+    fields.apiKey !== undefined && fields.apiKey.length > 0
+      ? fields.apiKey
+      : KEYLESS_API_KEY;
   if (endpoint.adapter === "anthropic") {
     return {
       id: fields.id,
@@ -367,7 +400,11 @@ export function buildGoSource(fields: {
       defaults: {
         maxTokens: SOURCE_MAX_TOKENS,
         ...(fields.sessionId !== undefined
-          ? { providerOptions: { [OPENCODE_SESSION_ID_OPTION]: fields.sessionId } }
+          ? {
+              providerOptions: {
+                [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+              },
+            }
           : {}),
       },
     };
@@ -395,10 +432,13 @@ export function buildGoSource(fields: {
   // chat-completions (default)
   const source = buildOpenAISource({
     id: fields.id,
-    baseURL: endpoint.baseURL.length > 0 ? endpoint.baseURL : OPENCODE_GO_BASE_URL,
+    baseURL:
+      endpoint.baseURL.length > 0 ? endpoint.baseURL : OPENCODE_GO_BASE_URL,
     apiKey,
     model: fields.model,
-    ...(fields.reasoningEffort !== undefined ? { reasoningEffort: fields.reasoningEffort } : {}),
+    ...(fields.reasoningEffort !== undefined
+      ? { reasoningEffort: fields.reasoningEffort }
+      : {}),
   });
   return {
     ...source,
@@ -715,7 +755,9 @@ export async function loadConfig(
         throw new Error("--director is only available in exec mode");
       }
       if (!isDirectorId(value)) {
-        throw new Error(`Unknown director "${value}". Use one of: ${DIRECTOR_IDS.join(", ")}.`);
+        throw new Error(
+          `Unknown director "${value}". Use one of: ${DIRECTOR_IDS.join(", ")}.`,
+        );
       }
       director = value;
       continue;
@@ -762,12 +804,19 @@ export async function loadConfig(
 
   const pricingCachePath = defaultPricingCachePath();
 
-  await bootstrapPricingMetadata({ cachePath: pricingCachePath, ...options.pricing });
+  await bootstrapPricingMetadata({
+    cachePath: pricingCachePath,
+    ...options.pricing,
+  });
 
   // Resolve both settings targets from the same effective global path. The
   // local schema must never be read from or written to that global target.
-  const effectiveSettingsPath = configPath ?? options.globalSettingsPath ?? globalSettingsPath();
-  const localSettingsFile = resolveLocalSettingsPath(cwd, effectiveSettingsPath);
+  const effectiveSettingsPath =
+    configPath ?? options.globalSettingsPath ?? globalSettingsPath();
+  const localSettingsFile = resolveLocalSettingsPath(
+    cwd,
+    effectiveSettingsPath,
+  );
 
   // OAuth profiles live in home-level auth stores (~/.corbits/codex-auth.json,
   // xai-auth.json), entirely separate from settings.json. --config only
@@ -778,19 +827,25 @@ export async function loadConfig(
   // exposed as a CLI flag — opts out, for tests that want a fully controlled
   // provider set with no home-directory reads at all.
   const useOAuthProfiles = options.globalSettingsPath === undefined;
-  const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] = useOAuthProfiles
-    ? await Promise.all([listCodexProfiles(), listXaiProfiles()])
-    : [[], []];
+  const [codexProfiles, xaiProfiles]: [CodexProfile[], XaiProfile[]] =
+    useOAuthProfiles
+      ? await Promise.all([listCodexProfiles(), listXaiProfiles()])
+      : [[], []];
   let projectedOAuthProviders = {
     ...codexProvidersAsSettings(codexProfiles),
     ...xaiProvidersAsSettings(xaiProfiles),
   };
   const settings =
     configPath !== undefined
-      ? await loadSettingsRecoveringClobberedOAuthSelection(configPath, projectedOAuthProviders, {
-          persist: false,
-        }).then((s) => {
-          if (s === null) throw new Error(`--config file not found or empty: ${configPath}`);
+      ? await loadSettingsRecoveringClobberedOAuthSelection(
+          configPath,
+          projectedOAuthProviders,
+          {
+            persist: false,
+          },
+        ).then((s) => {
+          if (s === null)
+            throw new Error(`--config file not found or empty: ${configPath}`);
           return s;
         })
       : await loadSettingsRecoveringClobberedOAuthSelection(
@@ -803,10 +858,14 @@ export async function loadConfig(
   // rather than this invocation's --dangerously-skip-permissions flag, so the
   // TUI/exec entry points can surface a startup notice for the silent case.
   const skipPermissionsFromSettings =
-    !dangerouslySkipPermissions && settings?.dangerouslySkipPermissions === true;
+    !dangerouslySkipPermissions &&
+    settings?.dangerouslySkipPermissions === true;
   dangerouslySkipPermissions =
     dangerouslySkipPermissions || settings?.dangerouslySkipPermissions === true;
-  projectedOAuthProviders = applyPersistedOAuthDefaults(settings, projectedOAuthProviders);
+  projectedOAuthProviders = applyPersistedOAuthDefaults(
+    settings,
+    projectedOAuthProviders,
+  );
   const liveSettings = useOAuthProfiles
     ? dropOrphanedOAuthEntries(settings, projectedOAuthProviders)
     : settings;
@@ -814,7 +873,10 @@ export async function loadConfig(
     Object.keys(projectedOAuthProviders).length > 0
       ? {
           ...(liveSettings ?? { providers: {} }),
-          providers: { ...(liveSettings?.providers ?? {}), ...projectedOAuthProviders },
+          providers: {
+            ...(liveSettings?.providers ?? {}),
+            ...projectedOAuthProviders,
+          },
         }
       : liveSettings;
 
@@ -834,7 +896,11 @@ export async function loadConfig(
   // Apply profile as a fallback layer: profile.model fills in when neither CLI
   // nor local settings specify a model. This sits below local in precedence.
   const effectiveLocal =
-    local !== null ? local : profile.model !== undefined ? { model: profile.model } : null;
+    local !== null
+      ? local
+      : profile.model !== undefined
+        ? { model: profile.model }
+        : null;
   const profileLocal =
     local !== null && local.model === undefined && profile.model !== undefined
       ? { ...local, model: profile.model }
@@ -886,7 +952,9 @@ export async function loadConfig(
       isCodexProviderName(resolved.providerName),
     );
     if (!verdict.ok) {
-      throw new Error(`Invalid reasoningEffort in local settings: ${verdict.error}`);
+      throw new Error(
+        `Invalid reasoningEffort in local settings: ${verdict.error}`,
+      );
     }
   }
 
@@ -942,7 +1010,12 @@ export async function loadConfig(
     ...(settings?.defaultProvider !== undefined
       ? { globalDefaultProvider: settings.defaultProvider }
       : {}),
-    providers: mergeOAuthCatalog(settings, resolved, codexProfiles, xaiProfiles),
+    providers: mergeOAuthCatalog(
+      settings,
+      resolved,
+      codexProfiles,
+      xaiProfiles,
+    ),
     ...(profile.profile !== undefined ? { profile: profile.profile } : {}),
     ...(profile.systemPromptExtensions !== undefined
       ? { systemPromptExtensions: profile.systemPromptExtensions }
@@ -950,8 +1023,12 @@ export async function loadConfig(
     ...(profile.inactivityTimeoutMs !== undefined
       ? { inactivityTimeoutMs: profile.inactivityTimeoutMs }
       : {}),
-    ...(profile.totalTimeoutMs !== undefined ? { totalTimeoutMs: profile.totalTimeoutMs } : {}),
-    ...(local?.reasoningEffort !== undefined ? { reasoningEffort: local.reasoningEffort } : {}),
+    ...(profile.totalTimeoutMs !== undefined
+      ? { totalTimeoutMs: profile.totalTimeoutMs }
+      : {}),
+    ...(local?.reasoningEffort !== undefined
+      ? { reasoningEffort: local.reasoningEffort }
+      : {}),
     ...(local?.mcpServers !== undefined
       ? {
           mcpServers: resolveMcpServers(settings?.mcpServers, local.mcpServers),
@@ -972,7 +1049,9 @@ export async function loadConfig(
     // Runtime view includes OAuth projections so inference resolution can see
     // Codex/xAI providers that are never written to settings.json. Not safe
     // to persist as-is — use providerCatalogToSettings or re-read disk.
-    ...(settingsForResolution !== null ? { settings: settingsForResolution } : {}),
+    ...(settingsForResolution !== null
+      ? { settings: settingsForResolution }
+      : {}),
     ...(settingsDiagnostics.length > 0 ? { settingsDiagnostics } : {}),
   };
 }
@@ -995,7 +1074,9 @@ function mergeOAuthCatalog(
     ...codexProfilesToCatalogEntries(codexProfiles),
     ...xaiProfilesToCatalogEntries(xaiProfiles),
   ].map((entry) =>
-    isOpenCodeGoProvider(entry) ? { ...entry, models: [...selectableGoModelIds()] } : entry,
+    isOpenCodeGoProvider(entry)
+      ? { ...entry, models: [...selectableGoModelIds()] }
+      : entry,
   );
 }
 
@@ -1004,11 +1085,16 @@ export async function refreshLiveProviderCatalog(
   settings: Settings | null,
   resolved: ResolvedProvider,
 ): Promise<ProviderCatalogEntry[]> {
-  const [codexProfiles, xaiProfiles] = await Promise.all([listCodexProfiles(), listXaiProfiles()]);
+  const [codexProfiles, xaiProfiles] = await Promise.all([
+    listCodexProfiles(),
+    listXaiProfiles(),
+  ]);
   return mergeOAuthCatalog(settings, resolved, codexProfiles, xaiProfiles);
 }
 
-export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): ProviderSettings {
+export function catalogEntryAsProviderSettings(
+  entry: ProviderCatalogEntry,
+): ProviderSettings {
   // Anthropic and Go anthropic-protocol bases must not be forced through the
   // OpenAI-compatible normalizer (which assumes a /v1 chat-completions root).
   // Go identity is flag, known provider id, or Go baseURL — always force
@@ -1021,9 +1107,13 @@ export function catalogEntryAsProviderSettings(entry: ProviderCatalogEntry): Pro
   return {
     baseURL,
     ...(entry.keyless === true ? { keyless: true } : {}),
-    ...(entry.apiKey !== undefined && entry.apiKey.length > 0 ? { apiKey: entry.apiKey } : {}),
+    ...(entry.apiKey !== undefined && entry.apiKey.length > 0
+      ? { apiKey: entry.apiKey }
+      : {}),
     models: entry.models,
-    ...(entry.defaultModel !== undefined ? { defaultModel: entry.defaultModel } : {}),
+    ...(entry.defaultModel !== undefined
+      ? { defaultModel: entry.defaultModel }
+      : {}),
     ...(entry.free !== undefined ? { free: entry.free } : {}),
     ...(entry.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
     ...(entry.anthropic === true ? { anthropic: true } : {}),
@@ -1068,38 +1158,46 @@ export function buildProviderCatalog(
   resolved: ResolvedProvider,
 ): ProviderCatalogEntry[] {
   if (settings !== null && Object.keys(settings.providers).length > 0) {
-    return Object.entries(settings.providers).map(([name, p]): ProviderCatalogEntry => {
-      // Heal mis-seeded Go rows on load: known id/label, flag, or Go baseURL →
-      // pin baseURL + flag.
-      const go = isOpenCodeGoProvider({
-        name,
-        ...(p.opencodeGo === true ? { opencodeGo: true as const } : {}),
-        baseURL: p.baseURL,
-      });
-      return {
-        name,
-        baseURL: go
-          ? OPENCODE_GO_BASE_URL
-          : p.anthropic === true
-            ? p.baseURL.replace(/\/+$/, "")
-            : normalizeOpenAICompatibleBaseURL(p.baseURL),
-        ...(p.keyless === true ? { keyless: true } : {}),
-        ...(p.apiKey !== undefined && p.apiKey.length > 0 ? { apiKey: p.apiKey } : {}),
-        models: p.models,
-        ...(p.defaultModel !== undefined ? { defaultModel: p.defaultModel } : {}),
-        ...(p.free !== undefined ? { free: p.free } : {}),
-        ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
-        ...(p.anthropic === true ? { anthropic: true } : {}),
-        ...(go ? { opencodeGo: true } : {}),
-        ...(p.verified === false ? { verified: false } : {}),
-      };
-    });
+    return Object.entries(settings.providers).map(
+      ([name, p]): ProviderCatalogEntry => {
+        // Heal mis-seeded Go rows on load: known id/label, flag, or Go baseURL →
+        // pin baseURL + flag.
+        const go = isOpenCodeGoProvider({
+          name,
+          ...(p.opencodeGo === true ? { opencodeGo: true as const } : {}),
+          baseURL: p.baseURL,
+        });
+        return {
+          name,
+          baseURL: go
+            ? OPENCODE_GO_BASE_URL
+            : p.anthropic === true
+              ? p.baseURL.replace(/\/+$/, "")
+              : normalizeOpenAICompatibleBaseURL(p.baseURL),
+          ...(p.keyless === true ? { keyless: true } : {}),
+          ...(p.apiKey !== undefined && p.apiKey.length > 0
+            ? { apiKey: p.apiKey }
+            : {}),
+          models: p.models,
+          ...(p.defaultModel !== undefined
+            ? { defaultModel: p.defaultModel }
+            : {}),
+          ...(p.free !== undefined ? { free: p.free } : {}),
+          ...(p.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
+          ...(p.anthropic === true ? { anthropic: true } : {}),
+          ...(go ? { opencodeGo: true } : {}),
+          ...(p.verified === false ? { verified: false } : {}),
+        };
+      },
+    );
   }
   return [
     {
       name: resolved.providerName,
       baseURL: resolved.baseURL,
-      ...(resolved.keyless === true ? { keyless: true } : { apiKey: resolved.apiKey }),
+      ...(resolved.keyless === true
+        ? { keyless: true }
+        : { apiKey: resolved.apiKey }),
       models: [resolved.model],
     },
   ];
@@ -1117,7 +1215,10 @@ export function providerCatalogToSettings(
     (p) => p.codexProfile === undefined && p.xaiProfile === undefined,
   );
   const providers = Object.fromEntries(
-    persistable.map((p): [string, ProviderSettings] => [p.name, catalogEntryAsProviderSettings(p)]),
+    persistable.map((p): [string, ProviderSettings] => [
+      p.name,
+      catalogEntryAsProviderSettings(p),
+    ]),
   );
   // Spread the full existing settings so provider saves never drop plugins,
   // pluginPaths, shell, tools, or other unknown keys. Only the catalog and
@@ -1129,7 +1230,11 @@ export function providerCatalogToSettings(
       providers,
     };
   }
-  const { providers: _dropProviders, defaultProvider: _dropDefault, ...rest } = existing;
+  const {
+    providers: _dropProviders,
+    defaultProvider: _dropDefault,
+    ...rest
+  } = existing;
   return {
     ...rest,
     ...(defaultProvider !== undefined ? { defaultProvider } : {}),

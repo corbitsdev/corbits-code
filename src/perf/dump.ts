@@ -143,7 +143,10 @@ export function buildDump(
  * Write `perftrace-{sessionId}.json` under `opts.dir`.
  * Returns the absolute-or-relative path written.
  */
-export async function dumpSpans(spans: readonly PerfSpan[], opts: DumpOptions): Promise<string> {
+export async function dumpSpans(
+  spans: readonly PerfSpan[],
+  opts: DumpOptions,
+): Promise<string> {
   assertSafeSessionId(opts.sessionId);
   const dump = buildDump(spans, opts.sessionId, new Date().toISOString());
   const filePath = join(opts.dir, `perftrace-${opts.sessionId}.json`);

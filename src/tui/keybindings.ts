@@ -37,11 +37,13 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   },
   {
     keys: "Ctrl+G",
-    description: "cancel the most recently queued or steered message before it dispatches",
+    description:
+      "cancel the most recently queued or steered message before it dispatches",
   },
   {
     keys: "Alt+C",
-    description: "copy mode: pick a message, tool output, or diff; press again to close it",
+    description:
+      "copy mode: pick a message, tool output, or diff; press again to close it",
   },
   {
     keys: "Alt+M",
@@ -50,32 +52,63 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   },
   {
     keys: "Alt+E",
-    description: "expand or collapse every collapsible row (tool call, diff, skill, reasoning)",
+    description:
+      "expand or collapse every collapsible row (tool call, diff, skill, reasoning)",
   },
-  { keys: "Alt+T", description: "show or hide the task list above the prompt (hidden by default)" },
+  {
+    keys: "Alt+T",
+    description:
+      "show or hide the task list above the prompt (hidden by default)",
+  },
   {
     keys: "Alt+O",
-    description: "observe a live subagent session; a system row says so when there is none",
+    description:
+      "observe a live subagent session; a system row says so when there is none",
   },
-  { keys: "Tab", description: "move focus between the prompt and the transcript" },
-  { keys: "Shift+Tab", description: "cycle reasoning effort for the current model" },
-  { keys: "Esc", description: "close the open overlay, or leave subagent observe" },
-  { keys: "Ctrl+B / Ctrl+F", description: "move the cursor back / forward one character" },
+  {
+    keys: "Tab",
+    description: "move focus between the prompt and the transcript",
+  },
+  {
+    keys: "Shift+Tab",
+    description: "cycle reasoning effort for the current model",
+  },
+  {
+    keys: "Esc",
+    description: "close the open overlay, or leave subagent observe",
+  },
+  {
+    keys: "Ctrl+B / Ctrl+F",
+    description: "move the cursor back / forward one character",
+  },
   { keys: "Ctrl+D", description: "delete the character under the cursor" },
-  { keys: "Alt+B / Alt+F", description: "move the cursor back / forward one word" },
-  { keys: "Ctrl+K", description: "kill from the cursor to the end of the line" },
-  { keys: "Ctrl+U", description: "kill from the start of the line to the cursor" },
+  {
+    keys: "Alt+B / Alt+F",
+    description: "move the cursor back / forward one word",
+  },
+  {
+    keys: "Ctrl+K",
+    description: "kill from the cursor to the end of the line",
+  },
+  {
+    keys: "Ctrl+U",
+    description: "kill from the start of the line to the cursor",
+  },
   { keys: "Ctrl+W", description: "kill the previous word" },
   { keys: "Alt+D", description: "kill the next word" },
   { keys: "Ctrl+Y", description: "yank the last kill at the cursor" },
-  { keys: "Alt+Y", description: "replace the text just yanked with the next-older kill" },
+  {
+    keys: "Alt+Y",
+    description: "replace the text just yanked with the next-older kill",
+  },
   {
     keys: "Ctrl+V / Ctrl+P",
     description: "attach a PNG from the macOS clipboard to the next message",
   },
   {
     keys: "@",
-    description: "at the start of a word, open file suggestions for the @mention being typed",
+    description:
+      "at the start of a word, open file suggestions for the @mention being typed",
   },
   {
     keys: "/",
@@ -84,9 +117,13 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   },
   {
     keys: "Up / Down",
-    description: "recall previously sent messages, from the prompt's first / last row",
+    description:
+      "recall previously sent messages, from the prompt's first / last row",
   },
-  { keys: "Arrow keys", description: "move the cursor left / right / up / down in the prompt" },
+  {
+    keys: "Arrow keys",
+    description: "move the cursor left / right / up / down in the prompt",
+  },
   {
     keys: "Ctrl+Enter / Ctrl+J",
     description:
@@ -98,5 +135,8 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
  * drift from what the shell actually implements — there is no host dependency
  * to omit, so this never takes user-supplied items. */
 export function helpItems(): readonly string[] {
-  return [...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`), "Close help"];
+  return [
+    ...SHELL_SHORTCUTS.map((s) => `${s.keys} — ${s.description}`),
+    "Close help",
+  ];
 }

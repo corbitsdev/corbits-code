@@ -26,7 +26,8 @@ function scriptedSpawn(script: Script): SpawnRg {
       },
       stderr: { on: () => undefined },
       on: ((event: string, listener: (arg: never) => void) => {
-        if (event === "close") onClose = listener as (code: number | null) => void;
+        if (event === "close")
+          onClose = listener as (code: number | null) => void;
       }) as RgChild["on"],
       kill: () => undefined,
     };
@@ -44,13 +45,22 @@ function scriptedSpawn(script: Script): SpawnRg {
 }
 
 function run(script: Script, maxOutputBytes = 200): ReturnType<typeof runRg> {
-  return runRg([], ".", new AbortController().signal, { maxOutputBytes }, scriptedSpawn(script));
+  return runRg(
+    [],
+    ".",
+    new AbortController().signal,
+    { maxOutputBytes },
+    scriptedSpawn(script),
+  );
 }
 
 test("an over-cap run is capped regardless of how stdout is chunked", async () => {
   const bulk = line.repeat(400);
   const oneChunk = await run({ stdout: [bulk], code: 0 });
-  const manyChunks = await run({ stdout: bulk.match(/.{1,7}/gs) ?? [], code: 0 });
+  const manyChunks = await run({
+    stdout: bulk.match(/.{1,7}/gs) ?? [],
+    code: 0,
+  });
   for (const result of [oneChunk, manyChunks]) {
     expect(result.kind).toBe("partial");
     if (result.kind !== "partial") continue;
@@ -82,7 +92,9 @@ test("a run under the cap settles as complete output", async () => {
 });
 
 test("exit code 1 is no-match", async () => {
-  expect(await run({ stdout: [], code: 1 })).toMatchObject({ kind: "no-match" });
+  expect(await run({ stdout: [], code: 1 })).toMatchObject({
+    kind: "no-match",
+  });
 });
 
 test("the timeout settles a slow run", async () => {
@@ -93,6 +105,15 @@ test("the timeout settles a slow run", async () => {
     on: (() => undefined) as RgChild["on"],
     kill: () => undefined,
   });
-  const result = await runRg([], ".", new AbortController().signal, { timeoutMs: 1 }, stalled);
-  expect(result).toMatchObject({ kind: "partial", notice: expect.stringContaining("timed out") });
+  const result = await runRg(
+    [],
+    ".",
+    new AbortController().signal,
+    { timeoutMs: 1 },
+    stalled,
+  );
+  expect(result).toMatchObject({
+    kind: "partial",
+    notice: expect.stringContaining("timed out"),
+  });
 });

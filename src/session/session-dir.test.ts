@@ -109,7 +109,11 @@ test("migrateLegacySessionIfNeeded does not migrate main-repo .agent-state from 
     stdio: "ignore",
   });
   try {
-    const fromWorktree = await migrateLegacySessionIfNeeded(wt, mainSessionId, home);
+    const fromWorktree = await migrateLegacySessionIfNeeded(
+      wt,
+      mainSessionId,
+      home,
+    );
     expect(fromWorktree).toBe(sessionDir(wt, mainSessionId, home));
     expect(fromWorktree).not.toBe(sessionDir(main, mainSessionId, home));
     expect(existsSync(legacyOnMain)).toBe(true);

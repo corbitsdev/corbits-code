@@ -17,7 +17,11 @@ import {
   trustPathPlugin,
   trustPathPlugins,
 } from "../../src/trust/path-trust.js";
-import { isPluginTrusted, loadProjectTrust, trustPlugin } from "../../src/trust/project-trust.js";
+import {
+  isPluginTrusted,
+  loadProjectTrust,
+  trustPlugin,
+} from "../../src/trust/project-trust.js";
 
 // `onSkip` is required on `expandPluginPath` — no default sink to fall back
 // to. These fixtures expect every declared member to resolve, so a skip here
@@ -26,7 +30,11 @@ function failOnSkip(skip: ExpandPluginPathSkip): never {
   throw new Error(`unexpected marketplace skip: ${JSON.stringify(skip)}`);
 }
 
-async function writeCommandPlugin(dir: string, id: string, marker?: string): Promise<void> {
+async function writeCommandPlugin(
+  dir: string,
+  id: string,
+  marker?: string,
+): Promise<void> {
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, "manifest.json"),
@@ -83,12 +91,20 @@ describe("path plugin trust across working directories", () => {
       await trustPathPlugin(pluginDir, home);
       const pathTrust = await loadPathTrust(home);
       expect(isPathPluginTrusted(pathTrust, pluginDir)).toBe(true);
-      expect(isPluginTrusted(await loadProjectTrust(cwdA, home), pluginDir)).toBe(false);
-      expect(isPluginTrusted(await loadProjectTrust(cwdB, home), pluginDir)).toBe(false);
+      expect(
+        isPluginTrusted(await loadProjectTrust(cwdA, home), pluginDir),
+      ).toBe(false);
+      expect(
+        isPluginTrusted(await loadProjectTrust(cwdB, home), pluginDir),
+      ).toBe(false);
 
       const isTrusted = (p: string) => isPathPluginTrusted(pathTrust, p);
-      const modsA = await loadPluginsFromPaths([pluginDir], cwdA, { isPluginTrusted: isTrusted });
-      const modsB = await loadPluginsFromPaths([pluginDir], cwdB, { isPluginTrusted: isTrusted });
+      const modsA = await loadPluginsFromPaths([pluginDir], cwdA, {
+        isPluginTrusted: isTrusted,
+      });
+      const modsB = await loadPluginsFromPaths([pluginDir], cwdB, {
+        isPluginTrusted: isTrusted,
+      });
       for (const mods of [modsA, modsB]) {
         const mod = mods.find((m) => m.manifest?.id === "shared-plugin");
         expect(mod?.metadataOnly).toBeUndefined();
@@ -112,7 +128,9 @@ describe("path plugin trust across working directories", () => {
 
       // Only project trust — path origin must still refuse full load.
       await trustPlugin(cwd, pluginDir, home);
-      expect(isPluginTrusted(await loadProjectTrust(cwd, home), pluginDir)).toBe(true);
+      expect(
+        isPluginTrusted(await loadProjectTrust(cwd, home), pluginDir),
+      ).toBe(true);
 
       const pathTrust = await loadPathTrust(home);
       const mods = await loadPluginsFromPaths([pluginDir], cwd, {
@@ -149,8 +167,12 @@ describe("path plugin trust across working directories", () => {
       const loadedB = await discoverUserPlugins(cwdB, {
         isPluginTrusted: (p) => isPluginTrusted(trustB, p),
       });
-      expect(loadedA.find((m) => m.manifest?.id === "local")?.metadataOnly).toBeUndefined();
-      expect(loadedB.find((m) => m.manifest?.id === "local")?.metadataOnly).toBe(true);
+      expect(
+        loadedA.find((m) => m.manifest?.id === "local")?.metadataOnly,
+      ).toBeUndefined();
+      expect(
+        loadedB.find((m) => m.manifest?.id === "local")?.metadataOnly,
+      ).toBe(true);
     } finally {
       await rm(base, { recursive: true, force: true });
     }

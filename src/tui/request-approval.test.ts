@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { attachApprovalBudget, createGateRequestApproval } from "./request-approval.js";
-import { getToolApprovalBudget, runWithToolExecutionWatchdog } from "./tool-execution-watchdog.js";
+import {
+  attachApprovalBudget,
+  createGateRequestApproval,
+} from "./request-approval.js";
+import {
+  getToolApprovalBudget,
+  runWithToolExecutionWatchdog,
+} from "./tool-execution-watchdog.js";
 import type { PermissionGateEvent } from "./gate-events.js";
-import type { ApprovalOutcome, PermissionRequest } from "../permission/types.js";
+import type {
+  ApprovalOutcome,
+  PermissionRequest,
+} from "../permission/types.js";
 
 const request: PermissionRequest = {
   tool: "run_shell",
@@ -76,7 +85,10 @@ describe("createGateRequestApproval", () => {
         captured = event;
         return true;
       },
-      approvalTimeout: () => ({ timeoutMs: 15_000, timeoutMessage: "auto-deny skip" }),
+      approvalTimeout: () => ({
+        timeoutMs: 15_000,
+        timeoutMessage: "auto-deny skip",
+      }),
     });
     const pending = requestApproval(request);
     expect(captured?.timeoutMs).toBe(15_000);
@@ -134,7 +146,9 @@ describe("createGateRequestApproval", () => {
     expect(captured?.signal?.aborted).toBe(false);
     identity.abort("session identity changed; approval request denied");
     expect(captured?.signal?.aborted).toBe(true);
-    expect(captured?.signal?.reason).toBe("session identity changed; approval request denied");
+    expect(captured?.signal?.reason).toBe(
+      "session identity changed; approval request denied",
+    );
     captured?.resolve({
       allow: false,
       message: "session identity changed; approval request denied",

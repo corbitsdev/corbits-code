@@ -115,7 +115,9 @@ describe("start / end / mark", () => {
 
 describe("parentId privacy fence", () => {
   test("strips path-like parentId", () => {
-    const id = start("inference", { parentId: "/Users/me/secret/repo/src/main.ts" });
+    const id = start("inference", {
+      parentId: "/Users/me/secret/repo/src/main.ts",
+    });
     end(id);
     expect(defined(snapshot()[0]).parentId).toBeUndefined();
   });
@@ -145,8 +147,12 @@ describe("parentId privacy fence", () => {
     end(orphan);
 
     const spans = snapshot();
-    expect(defined(spans.find((s) => s.name === "inference")).parentId).toBe(parent);
-    expect(defined(spans.find((s) => s.name === "tool")).parentId).toBe("parent1");
+    expect(defined(spans.find((s) => s.name === "inference")).parentId).toBe(
+      parent,
+    );
+    expect(defined(spans.find((s) => s.name === "tool")).parentId).toBe(
+      "parent1",
+    );
   });
 
   test("accepts parentId of a completed (ring) span", () => {
@@ -154,7 +160,9 @@ describe("parentId privacy fence", () => {
     end(parent);
     const child = start("inference", { parentId: parent });
     end(child);
-    expect(defined(snapshot().find((s) => s.name === "inference")).parentId).toBe(parent);
+    expect(
+      defined(snapshot().find((s) => s.name === "inference")).parentId,
+    ).toBe(parent);
   });
 });
 
@@ -231,7 +239,9 @@ describe("open span capacity", () => {
     expect(open).toHaveLength(OPEN_SPAN_CAPACITY);
 
     // Oldest five (count 0..4) were evicted; survivors start at count 5.
-    const counts = open.map((s) => s.tags?.count).sort((a, b) => (a ?? 0) - (b ?? 0));
+    const counts = open
+      .map((s) => s.tags?.count)
+      .sort((a, b) => (a ?? 0) - (b ?? 0));
     expect(counts[0]).toBe(5);
     expect(counts[counts.length - 1]).toBe(OPEN_SPAN_CAPACITY + 4);
 
@@ -330,7 +340,9 @@ describe("open/close budget", () => {
     const iterations = 5_000;
     const t0 = process.hrtime.bigint();
     for (let i = 0; i < iterations; i += 1) {
-      const id = start("inference", { tags: { provider_id: "openai", model_id: "gpt-5.4" } });
+      const id = start("inference", {
+        tags: { provider_id: "openai", model_id: "gpt-5.4" },
+      });
       end(id, { duration_ms: 1 });
     }
     const t1 = process.hrtime.bigint();

@@ -29,23 +29,39 @@ describe("WorkerLifecycle projections", () => {
   });
 
   test("verb lifecycleStatus does not leak cancelled or failed", () => {
-    expect(projectLifecycleStatus({ state: "pending_init" })).toBe("pending_init");
+    expect(projectLifecycleStatus({ state: "pending_init" })).toBe(
+      "pending_init",
+    );
     expect(projectLifecycleStatus({ state: "running" })).toBe("running");
-    expect(projectLifecycleStatus({ state: "completed", report: "ok" })).toBe("completed");
-    expect(projectLifecycleStatus({ state: "interrupted" })).toBe("interrupted");
+    expect(projectLifecycleStatus({ state: "completed", report: "ok" })).toBe(
+      "completed",
+    );
+    expect(projectLifecycleStatus({ state: "interrupted" })).toBe(
+      "interrupted",
+    );
     expect(projectLifecycleStatus({ state: "cancelled" })).toBe("interrupted");
-    expect(projectLifecycleStatus({ state: "failed", error: "boom" })).toBe("shutdown");
+    expect(projectLifecycleStatus({ state: "failed", error: "boom" })).toBe(
+      "shutdown",
+    );
     expect(projectLifecycleStatus({ state: "shutdown" })).toBe("shutdown");
   });
 
   test("resume gate is retained completed or interrupted only", () => {
-    expect(isResumableLifecycle(true, { state: "completed", report: "ok" })).toBe(true);
+    expect(
+      isResumableLifecycle(true, { state: "completed", report: "ok" }),
+    ).toBe(true);
     expect(isResumableLifecycle(true, { state: "interrupted" })).toBe(true);
     expect(isResumableLifecycle(true, { state: "cancelled" })).toBe(false);
-    expect(isResumableLifecycle(true, { state: "failed", error: "x" })).toBe(false);
+    expect(isResumableLifecycle(true, { state: "failed", error: "x" })).toBe(
+      false,
+    );
     expect(isResumableLifecycle(true, { state: "shutdown" })).toBe(false);
-    expect(isResumableLifecycle(false, { state: "completed", report: "ok" })).toBe(false);
-    expect(isResumableLifecycle(undefined, { state: "interrupted" })).toBe(false);
+    expect(
+      isResumableLifecycle(false, { state: "completed", report: "ok" }),
+    ).toBe(false);
+    expect(isResumableLifecycle(undefined, { state: "interrupted" })).toBe(
+      false,
+    );
   });
 
   test("live strip is pending_init, running, and interrupted", () => {
@@ -69,11 +85,17 @@ describe("WorkerLifecycle projections", () => {
   });
 
   test("in-flight followup is wait-running over a prior completed or interrupted stamp", () => {
-    expect(projectWaitStatus({ state: "completed", report: "first" }, true)).toBe("running");
+    expect(
+      projectWaitStatus({ state: "completed", report: "first" }, true),
+    ).toBe("running");
     expect(projectWaitStatus({ state: "interrupted" }, true)).toBe("running");
     expect(projectWaitStatus({ state: "cancelled" }, true)).toBe("running");
-    expect(projectWaitStatus({ state: "completed", report: "first" }, false)).toBe("done");
-    expect(projectWaitStatus({ state: "failed", error: "boom" }, true)).toBe("failed");
+    expect(
+      projectWaitStatus({ state: "completed", report: "first" }, false),
+    ).toBe("done");
+    expect(projectWaitStatus({ state: "failed", error: "boom" }, true)).toBe(
+      "failed",
+    );
   });
 
   test("queued is a live wait status, not terminal", () => {

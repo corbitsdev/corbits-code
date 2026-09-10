@@ -28,10 +28,17 @@ const JSON_CREDENTIAL_FIELD =
 const ENV_ASSIGNMENT = /(?:^|:)([A-Z][A-Z0-9_]+)=([^\n]+)/gm;
 
 function isSecretEnvKey(key: string): boolean {
-  return key === "API_KEY" || /(?:SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|AUTH)/.test(key);
+  return (
+    key === "API_KEY" ||
+    /(?:SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL|AUTH)/.test(key)
+  );
 }
 
-function replaceAll(text: string, pattern: RegExp, replacement: string): string {
+function replaceAll(
+  text: string,
+  pattern: RegExp,
+  replacement: string,
+): string {
   return text.replace(pattern, replacement);
 }
 

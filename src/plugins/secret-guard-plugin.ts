@@ -1,6 +1,9 @@
 import { isAbsolute } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
-import { realpathNearestOr, UNRESOLVABLE } from "../permission/path-restriction.js";
+import {
+  realpathNearestOr,
+  UNRESOLVABLE,
+} from "../permission/path-restriction.js";
 import { looksLikePath } from "./path-escape-plugin.js";
 
 // Files that hold secrets and must never be read or written by path-keyed tools
@@ -129,7 +132,9 @@ function shellPathTokens(command: string): string[] {
 // name at runtime. Perfect shell sandboxing is out of scope; the goal is to
 // force a prompt for the trivial, single-token references that make exfiltration
 // easy. Tool-result secret scrub still redacts credential-shaped output.
-export function commandReferencesSensitivePath(command: string): string | undefined {
+export function commandReferencesSensitivePath(
+  command: string,
+): string | undefined {
   for (const token of shellPathTokens(command)) {
     if (isSensitivePath(token)) return token;
   }
@@ -148,7 +153,11 @@ export function secretGuardPlugin(): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
       for (const [key, value] of Object.entries(call.arguments)) {
-        if (typeof value === "string" && looksLikePath(key) && isSensitivePathResolved(value)) {
+        if (
+          typeof value === "string" &&
+          looksLikePath(key) &&
+          isSensitivePathResolved(value)
+        ) {
           return {
             callId: call.id,
             content: `Access to sensitive file blocked by policy: ${value}`,

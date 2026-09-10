@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import { createTurnContextCollector, HOOK_PAYLOAD_TOOL_RESULT_CHARS } from "./hooks.js";
+import {
+  createTurnContextCollector,
+  HOOK_PAYLOAD_TOOL_RESULT_CHARS,
+} from "./hooks.js";
 
 function event(type: string, data: unknown): ReactorEmittedEvent {
   return { type, seq: 1, data } as ReactorEmittedEvent;
@@ -14,7 +17,9 @@ function observeOneTurnWithToolResult(
     event("inference.done", {
       turn: {
         role: "assistant",
-        content: [{ type: "tool_call", id: "call-1", name: "run_shell", arguments: {} }],
+        content: [
+          { type: "tool_call", id: "call-1", name: "run_shell", arguments: {} },
+        ],
         model: "test",
         timestamp: 0,
       },
@@ -40,7 +45,9 @@ describe("createTurnContextCollector tool result truncation", () => {
     const content = turn?.toolResults[0]?.content;
     expect(typeof content).toBe("string");
     expect((content as string).length).toBeLessThan(hugeOutput.length);
-    expect((content as string).length).toBeLessThanOrEqual(HOOK_PAYLOAD_TOOL_RESULT_CHARS + 64);
+    expect((content as string).length).toBeLessThanOrEqual(
+      HOOK_PAYLOAD_TOOL_RESULT_CHARS + 64,
+    );
   });
 
   test("leaves tool result content under the budget untouched", () => {

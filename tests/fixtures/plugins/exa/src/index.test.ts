@@ -60,7 +60,10 @@ describe("search", () => {
   test("skips malformed result items", async () => {
     const fetchImpl = (async () =>
       jsonResponse({
-        results: [{ title: "Good", url: "https://example.com" }, { nope: true }],
+        results: [
+          { title: "Good", url: "https://example.com" },
+          { nope: true },
+        ],
       })) as unknown as typeof fetch;
 
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
@@ -75,16 +78,19 @@ describe("search", () => {
       new Response("nope", { status: 401 })) as unknown as typeof fetch;
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
 
-    await expect(provider.search("test", new AbortController().signal)).rejects.toThrow(/401/);
+    await expect(
+      provider.search("test", new AbortController().signal),
+    ).rejects.toThrow(/401/);
   });
 
   test("throws on unrecognizable response shape", async () => {
-    const fetchImpl = (async () => jsonResponse({ unexpected: true })) as unknown as typeof fetch;
+    const fetchImpl = (async () =>
+      jsonResponse({ unexpected: true })) as unknown as typeof fetch;
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
 
-    await expect(provider.search("test", new AbortController().signal)).rejects.toThrow(
-      /unrecognizable/,
-    );
+    await expect(
+      provider.search("test", new AbortController().signal),
+    ).rejects.toThrow(/unrecognizable/);
   });
 });
 
@@ -97,12 +103,16 @@ describe("fetch", () => {
       })) as unknown as typeof fetch;
 
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
-    const content = await provider.fetch("https://example.com", new AbortController().signal);
+    const content = await provider.fetch(
+      "https://example.com",
+      new AbortController().signal,
+    );
     expect(content).toBe("# Hello");
   });
 
   test("throws on non-ok response", async () => {
-    const fetchImpl = (async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    const fetchImpl = (async () =>
+      new Response("", { status: 500 })) as unknown as typeof fetch;
     const provider = createWebProvider({ apiKey: "k", fetchImpl });
 
     await expect(

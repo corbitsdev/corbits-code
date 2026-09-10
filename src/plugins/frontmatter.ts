@@ -22,7 +22,11 @@ export function splitFrontmatter(raw: string): ParsedMarkdown {
   if (yaml.length === 0) return { frontmatter: {}, body };
   try {
     const parsed = Bun.YAML.parse(yaml);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
       return { frontmatter: {}, body };
     }
     return { frontmatter: parsed as Record<string, unknown>, body };

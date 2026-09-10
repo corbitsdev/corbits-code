@@ -8,7 +8,9 @@ import {
 } from "./worktree.js";
 import { defined } from "../../tests/helpers/defined.js";
 
-function recordingExec(responses: Record<string, { stdout?: string; error?: Error }>): {
+function recordingExec(
+  responses: Record<string, { stdout?: string; error?: Error }>,
+): {
   exec: WorktreeExec;
   calls: string[][];
 } {
@@ -34,7 +36,11 @@ describe("createSubAgentWorktree", () => {
       "rev-parse HEAD": { stdout: "abc123def456\n" },
       stash: { stdout: "" },
     });
-    const result = await createSubAgentWorktree("/repo", "/repo/.worktrees/abc", exec);
+    const result = await createSubAgentWorktree(
+      "/repo",
+      "/repo/.worktrees/abc",
+      exec,
+    );
     expect(result.path).toBe("/repo/.worktrees/abc");
     expect(result.stashBaseline).toEqual([]);
     expect(result.headAtCreate).toBe("abc123def456");
@@ -53,8 +59,14 @@ describe("createSubAgentWorktree", () => {
       "rev-parse HEAD": { stdout: "abc123\n" },
       stash: { stdout: "stash@{0}: WIP on main: abc1234 pre-existing stash\n" },
     });
-    const result = await createSubAgentWorktree("/repo", "/repo/.worktrees/abc", exec);
-    expect(result.stashBaseline).toEqual(["stash@{0}: WIP on main: abc1234 pre-existing stash"]);
+    const result = await createSubAgentWorktree(
+      "/repo",
+      "/repo/.worktrees/abc",
+      exec,
+    );
+    expect(result.stashBaseline).toEqual([
+      "stash@{0}: WIP on main: abc1234 pre-existing stash",
+    ]);
   });
 
   test("records a null stash baseline when stash list fails at create", async () => {
@@ -64,7 +76,11 @@ describe("createSubAgentWorktree", () => {
       "rev-parse HEAD": { stdout: "abc123\n" },
       stash: { error: new Error("stash failed") },
     });
-    const result = await createSubAgentWorktree("/repo", "/repo/.worktrees/abc", exec);
+    const result = await createSubAgentWorktree(
+      "/repo",
+      "/repo/.worktrees/abc",
+      exec,
+    );
     expect(result.stashBaseline).toBeNull();
   });
 
@@ -72,9 +88,9 @@ describe("createSubAgentWorktree", () => {
     const { exec } = recordingExec({
       "rev-parse --show-toplevel": { error: new Error("not a git repository") },
     });
-    await expect(createSubAgentWorktree("/not-a-repo", "/tmp/wt", exec)).rejects.toThrow(
-      WorktreeError,
-    );
+    await expect(
+      createSubAgentWorktree("/not-a-repo", "/tmp/wt", exec),
+    ).rejects.toThrow(WorktreeError);
   });
 
   test("fails closed when worktree add fails", async () => {
@@ -82,9 +98,9 @@ describe("createSubAgentWorktree", () => {
       "rev-parse --show-toplevel": { stdout: "/repo\n" },
       worktree: { error: new Error("worktree already exists") },
     });
-    await expect(createSubAgentWorktree("/repo", "/repo/.worktrees/abc", exec)).rejects.toThrow(
-      WorktreeError,
-    );
+    await expect(
+      createSubAgentWorktree("/repo", "/repo/.worktrees/abc", exec),
+    ).rejects.toThrow(WorktreeError);
   });
 });
 
@@ -179,7 +195,9 @@ describe("cleanupSubAgentWorktree", () => {
   test("preserves a clean worktree that created a new stash entry", async () => {
     const { exec, calls } = recordingExec({
       status: { stdout: "" },
-      stash: { stdout: "stash@{0}: WIP on (no branch): abc1234 sub-agent work\n" },
+      stash: {
+        stdout: "stash@{0}: WIP on (no branch): abc1234 sub-agent work\n",
+      },
     });
     const result = await cleanupSubAgentWorktree(
       "/repo",

@@ -8,7 +8,9 @@ describe("shakespearePackage", () => {
 
   test("systemPrompt is non-empty and not a Placeholder", () => {
     expect(shakespearePackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(shakespearePackage.systemPrompt.startsWith("Placeholder")).toBe(false);
+    expect(shakespearePackage.systemPrompt.startsWith("Placeholder")).toBe(
+      false,
+    );
   });
 
   test("systemPrompt identity is Shakespeare / ShakespeareDirector", () => {
@@ -92,6 +94,8 @@ describe("shakespearePackage", () => {
   });
 
   test("primaryIntent is docs maintain", () => {
-    expect(shakespearePackage.primaryIntent).toMatch(/docs|documentation|PRODUCT|product/i);
+    expect(shakespearePackage.primaryIntent).toMatch(
+      /docs|documentation|PRODUCT|product/i,
+    );
   });
 });

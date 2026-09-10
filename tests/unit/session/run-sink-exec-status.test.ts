@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
-import { createRunSink, resolveExecRunStatus } from "../../../src/session/run-sink.js";
+import {
+  createRunSink,
+  resolveExecRunStatus,
+} from "../../../src/session/run-sink.js";
 
 describe("resolveExecRunStatus", () => {
   test("maps successful send to done even when sink is cancelled (no reactor.done)", () => {

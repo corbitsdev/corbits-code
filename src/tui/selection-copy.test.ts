@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { defined } from "../../tests/helpers/defined.js";
 import { createRecordingClipboard } from "./copy-path.js";
-import { copyFinishedSelection, type SelectionCopyHost } from "./selection-copy.js";
+import {
+  copyFinishedSelection,
+  type SelectionCopyHost,
+} from "./selection-copy.js";
 
 function host(): SelectionCopyHost & {
   readonly clipboard: ReturnType<typeof createRecordingClipboard>;

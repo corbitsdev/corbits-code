@@ -77,12 +77,17 @@ export function thinkingLivePreviewLines(
   const revealed =
     revealChars === undefined
       ? flat
-      : flat.slice(0, Math.max(0, Math.min(flat.length, Math.floor(revealChars))));
+      : flat.slice(
+          0,
+          Math.max(0, Math.min(flat.length, Math.floor(revealChars))),
+        );
   if (revealed.length === 0) return [""];
   // Prefer the newest prose when the wrap would exceed the cap.
   const budget = linesCap * columns;
   const window =
-    revealed.length > budget ? revealed.slice(revealed.length - budget).trimStart() : revealed;
+    revealed.length > budget
+      ? revealed.slice(revealed.length - budget).trimStart()
+      : revealed;
   const wrapped = wrapLines(window, columns);
   return wrapped.slice(-linesCap);
 }

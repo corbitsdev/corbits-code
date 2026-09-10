@@ -48,7 +48,10 @@ describe("permission.wait spans", () => {
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
-    expect(defined(waits[0]).tags).toEqual({ tool_id: "run_shell", decision: "allow" });
+    expect(defined(waits[0]).tags).toEqual({
+      tool_id: "run_shell",
+      decision: "allow",
+    });
   });
 
   test("records deny decision when operator declines", async () => {
@@ -86,7 +89,9 @@ describe("permission.wait spans", () => {
     const verdict = await gate.evaluate(shellCall("curl example.com"));
     expect(verdict.allowed).toBe(false);
     // Free text reaches the operator-facing reason only (not span tags).
-    expect(!verdict.allowed && "reason" in verdict ? verdict.reason : "").toContain(freeText);
+    expect(
+      !verdict.allowed && "reason" in verdict ? verdict.reason : "",
+    ).toContain(freeText);
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
@@ -131,7 +136,10 @@ describe("permission.wait spans", () => {
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
-    expect(defined(waits[0]).tags).toEqual({ tool_id: "write_file", decision: "allow" });
+    expect(defined(waits[0]).tags).toEqual({
+      tool_id: "write_file",
+      decision: "allow",
+    });
   });
 
   test("closes permission.wait when requestApproval throws", async () => {
@@ -145,7 +153,9 @@ describe("permission.wait spans", () => {
       },
     });
 
-    await expect(gate.evaluate(shellCall("curl example.com"))).rejects.toThrow("ui aborted");
+    await expect(gate.evaluate(shellCall("curl example.com"))).rejects.toThrow(
+      "ui aborted",
+    );
 
     const waits = byName(completed(snapshot()), "permission.wait");
     expect(waits).toHaveLength(1);
@@ -189,11 +199,19 @@ describe("permission.wait spans", () => {
       event("inference.done", {
         turn: {
           role: "assistant",
-          content: [{ type: "tool_call", id: "t1", name: "run_shell", arguments: {} }],
+          content: [
+            { type: "tool_call", id: "t1", name: "run_shell", arguments: {} },
+          ],
           model: "m",
           timestamp: 0,
         },
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "p", model: "m" },
       }),
     );

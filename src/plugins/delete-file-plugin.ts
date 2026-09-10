@@ -16,7 +16,8 @@ const DELETE_FILE_DEFINITION = {
     properties: {
       path: {
         type: "string",
-        description: "Path to the file to delete, relative to the working directory or absolute",
+        description:
+          "Path to the file to delete, relative to the working directory or absolute",
       },
     },
     required: ["path"],
@@ -24,7 +25,11 @@ const DELETE_FILE_DEFINITION = {
 };
 
 function errorResult(callId: string, message: string): ToolResult {
-  return { callId, content: `Failed to delete file: ${message}`, isError: true };
+  return {
+    callId,
+    content: `Failed to delete file: ${message}`,
+    isError: true,
+  };
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -40,7 +45,10 @@ function failureDetail(error: unknown): string {
 
 function isWithin(root: string, path: string): boolean {
   const rel = relative(root, path);
-  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+  return (
+    rel === "" ||
+    (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
+  );
 }
 
 export interface DeleteFilePluginOptions {
@@ -50,7 +58,9 @@ export interface DeleteFilePluginOptions {
   allowOutside?: boolean | (() => boolean);
 }
 
-function resolveAllowOutside(value: boolean | (() => boolean) | undefined): boolean {
+function resolveAllowOutside(
+  value: boolean | (() => boolean) | undefined,
+): boolean {
   if (typeof value === "function") return value();
   return value === true;
 }
@@ -61,7 +71,10 @@ function resolveAllowOutside(value: boolean | (() => boolean) | undefined): bool
 // enough case that the read must not become a resource regression.
 const MAX_DELETE_PREVIEW_BYTES = 256 * 1024;
 
-export function deleteFilePlugin(cwd: string, options: DeleteFilePluginOptions = {}): ToolPlugin {
+export function deleteFilePlugin(
+  cwd: string,
+  options: DeleteFilePluginOptions = {},
+): ToolPlugin {
   const tool: ExtraTool = {
     definition: DELETE_FILE_DEFINITION,
     handler: async (call: ToolCall): Promise<ToolResult> => {
@@ -78,7 +91,10 @@ export function deleteFilePlugin(cwd: string, options: DeleteFilePluginOptions =
           realpath(dirname(target)),
         ]);
         if (!allowOutside && !isWithin(physicalRoot, physicalParent)) {
-          return errorResult(call.id, `${args.path} resolves outside the working directory`);
+          return errorResult(
+            call.id,
+            `${args.path} resolves outside the working directory`,
+          );
         }
         const info = await lstat(target);
         if (info.isDirectory()) {

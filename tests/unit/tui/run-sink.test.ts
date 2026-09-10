@@ -1,6 +1,9 @@
 import { test, expect } from "bun:test";
 import { EventEmitter } from "node:events";
-import { createRunSink, getTUIRunSummaryStatus } from "../../../src/session/run-sink.js";
+import {
+  createRunSink,
+  getTUIRunSummaryStatus,
+} from "../../../src/session/run-sink.js";
 import { defined } from "../../helpers/defined.js";
 
 function makeArgs() {
@@ -44,7 +47,10 @@ test("reactor.done event → getStatus returns done", () => {
 test("reactor.error event → getStatus returns failed with error", () => {
   const args = makeArgs();
   const runSink = createRunSink(args);
-  runSink.sink({ type: "reactor.error", data: { error: "reactor blew up" } } as never);
+  runSink.sink({
+    type: "reactor.error",
+    data: { error: "reactor blew up" },
+  } as never);
   expect(runSink.getStatus()).toBe("failed");
   expect(runSink.getRunError()).toBe("reactor blew up");
 });

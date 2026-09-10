@@ -97,7 +97,8 @@ describe("runWebFetch", () => {
     };
     const outcome = await runWebFetch(`${baseUrl}/`, "text", 30);
     expect(outcome.ok).toBe(false);
-    if (!outcome.ok) expect(outcome.error).toMatch(/private|loopback|link-local/i);
+    if (!outcome.ok)
+      expect(outcome.error).toMatch(/private|loopback|link-local/i);
   });
 
   test("follows a redirect back to the allowed fixture URL", async () => {
@@ -132,7 +133,9 @@ describe("createExaMCPWebFetchTool", () => {
         ok: true,
         client: {
           serverName: "exa",
-          tools: [{ name: "web_fetch_exa", description: "Fetch", inputSchema: {} }],
+          tools: [
+            { name: "web_fetch_exa", description: "Fetch", inputSchema: {} },
+          ],
           call,
           close: async () => undefined,
         },
@@ -144,7 +147,9 @@ describe("createExaMCPWebFetchTool", () => {
     const tool = createTool(
       async (_name, _args, signal) =>
         new Promise<string>((_resolve, reject) => {
-          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
         }),
     );
     const result = await tool.handler(
@@ -173,12 +178,16 @@ describe("createExaMCPWebFetchTool", () => {
       arguments: { url: "ftp://example.com/file" },
     };
 
-    const nativeResult = await nativeRunner.run(call, new AbortController().signal);
+    const nativeResult = await nativeRunner.run(
+      call,
+      new AbortController().signal,
+    );
     const exaResult = await exaRunner.run(call, new AbortController().signal);
 
     expect(nativeResult).toEqual({
       callId: "protocol-call",
-      content: 'Error: Unsupported protocol "ftp:"; only http and https are allowed.',
+      content:
+        'Error: Unsupported protocol "ftp:"; only http and https are allowed.',
     });
     expect(exaResult).toEqual(nativeResult);
   });
@@ -188,7 +197,9 @@ describe("createExaMCPWebFetchTool", () => {
     const exa = createTool(
       async (_name, _args, signal) =>
         new Promise<string>((_resolve, reject) => {
-          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
         }),
     );
     const nativeRunner = createDynamicToolRunner([createWebFetchTool()]);
@@ -226,7 +237,8 @@ describe("createExaMCPWebFetchTool", () => {
         },
         new AbortController().signal,
       );
-      if (typeof result === "string") throw new Error("expected a full tool result");
+      if (typeof result === "string")
+        throw new Error("expected a full tool result");
       return result;
     };
 

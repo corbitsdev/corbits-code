@@ -7,7 +7,10 @@ import {
   resumeTranscriptLoadErrorBlock,
   startInterruptRebuild,
 } from "../../../src/tui/runner/exit.js";
-import { createTUIEventEmitter, getTUIRunSummaryStatus } from "../../../src/tui/runner/index.js";
+import {
+  createTUIEventEmitter,
+  getTUIRunSummaryStatus,
+} from "../../../src/tui/runner/index.js";
 import { loadLocalSettingsWriteBase } from "../../../src/tui/runner/settings.js";
 import { tuiSendFailureMessage } from "../../../src/tui/runner/send-failure-message.js";
 import { defined } from "../../helpers/defined.js";
@@ -38,7 +41,9 @@ test("resumeTranscriptLoadErrorBlock surfaces a user-visible error block", () =>
     type: "error",
     message: "Could not load prior session transcript: EACCES",
   });
-  expect(resumeTranscriptLoadErrorBlock("disk full").message).toContain("disk full");
+  expect(resumeTranscriptLoadErrorBlock("disk full").message).toContain(
+    "disk full",
+  );
 });
 
 test("TUI send failures keep non-provider errors distinct", () => {
@@ -89,20 +94,29 @@ test("TUI send failures prefer an explicitly reported provider", () => {
 
 test("TUI auth failures tell the user to log in again instead of switching models", () => {
   expect(
-    tuiSendFailureMessage(new Error("401 refresh token rejected"), "auth", false, {
-      providerId: "codex/work",
-      displayLabel: "Codex",
-    }),
+    tuiSendFailureMessage(
+      new Error("401 refresh token rejected"),
+      "auth",
+      false,
+      {
+        providerId: "codex/work",
+        displayLabel: "Codex",
+      },
+    ),
   ).toBe("Authentication failed — log in again.");
 });
 
 test("loadLocalSettingsWriteBase distinguishes absent from unreadable", async () => {
   // Absent → empty base (safe to write a single key).
-  expect(await loadLocalSettingsWriteBase("/nope", async () => null)).toEqual({});
+  expect(await loadLocalSettingsWriteBase("/nope", async () => null)).toEqual(
+    {},
+  );
 
   // Readable → merge base.
   expect(
-    await loadLocalSettingsWriteBase("/ok", async () => ({ sessionMode: "orchestrator" })),
+    await loadLocalSettingsWriteBase("/ok", async () => ({
+      sessionMode: "orchestrator",
+    })),
   ).toEqual({
     sessionMode: "orchestrator",
   });
@@ -147,7 +161,10 @@ test("rotation resets run-sink so a new session starts from a clean state", () =
 
   // The new collector is a fresh instance — not the same object as before.
   // hooks are configured above, so the collector is non-null here
-  const collectorAfterReset = defined(runSink.getTurnCollector(), "turn collector");
+  const collectorAfterReset = defined(
+    runSink.getTurnCollector(),
+    "turn collector",
+  );
   expect(collectorAfterReset).not.toBe(collectorBeforeReset);
 
   // Status is cancelled (no events received in new session yet).
@@ -174,7 +191,9 @@ function stubAgent(closeImpl: () => Promise<void>): Agent {
 }
 
 test("closeAgentForRebuild reports a failed close without throwing", async () => {
-  const agent = stubAgent(() => Promise.reject(new AgentContextLockError("/tmp/workdir")));
+  const agent = stubAgent(() =>
+    Promise.reject(new AgentContextLockError("/tmp/workdir")),
+  );
   const closedCleanly = await closeAgentForRebuild(agent, "interrupt");
   expect(closedCleanly).toBe(false);
 });
@@ -204,7 +223,9 @@ test("a failed close followed by a lock error never surfaces as a raw AgentConte
   // the rebuild site short-circuits instead of calling buildAgent() again,
   // and the resulting error is the plain-language one — never the raw
   // AgentContextLockError a bare `throw` would have produced.
-  const agent = stubAgent(() => Promise.reject(new AgentContextLockError("/tmp/workdir")));
+  const agent = stubAgent(() =>
+    Promise.reject(new AgentContextLockError("/tmp/workdir")),
+  );
   let rebuildError: Error | null = null;
   try {
     const closedCleanly = await closeAgentForRebuild(agent, "interrupt");
@@ -235,7 +256,9 @@ test("a failed close followed by a lock error never surfaces as a raw AgentConte
 // precisely how the unhandled rejection in the ticket escaped.
 test("a rejecting reload op through the real session-operation-queue never triggers an unhandled rejection", async () => {
   const { enqueue, awaitTail } = createSessionOperationQueue();
-  const agent = stubAgent(() => Promise.reject(new AgentContextLockError("/tmp/workdir")));
+  const agent = stubAgent(() =>
+    Promise.reject(new AgentContextLockError("/tmp/workdir")),
+  );
 
   let unhandled: unknown = null;
   const onUnhandledRejection = (reason: unknown): void => {
@@ -273,7 +296,9 @@ test("a rejecting reload op through the real session-operation-queue never trigg
   expect(unhandled).toBeNull();
   expect(fatalBuildError).not.toBeNull();
   expect(fatalBuildError).not.toBeInstanceOf(AgentContextLockError);
-  expect(defined<Error>(fatalBuildError, "fatal build error").message).toMatch(/restart/i);
+  expect(defined<Error>(fatalBuildError, "fatal build error").message).toMatch(
+    /restart/i,
+  );
 });
 
 // A true negative control (reproducing reloadIfIdle's pre-fix shape — no

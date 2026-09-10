@@ -134,7 +134,9 @@ The array form carries the name inline:
 
 ```jsonc
 {
-  "mcpServers": [{ "name": "linear", "type": "http", "url": "https://mcp.linear.app/mcp" }],
+  "mcpServers": [
+    { "name": "linear", "type": "http", "url": "https://mcp.linear.app/mcp" },
+  ],
 }
 ```
 

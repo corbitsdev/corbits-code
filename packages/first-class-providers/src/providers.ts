@@ -59,7 +59,8 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     baseURL: OPENCODE_GO_BASE_URL,
     models: OPENCODE_GO_MODEL_IDS,
     defaultModel: OPENCODE_GO_DEFAULT_MODEL,
-    authHint: "OpenCode Go subscription — paste your API key from https://opencode.ai/auth",
+    authHint:
+      "OpenCode Go subscription — paste your API key from https://opencode.ai/auth",
     opencodeGo: true,
     billingProduct: "subscription",
   },
@@ -98,7 +99,12 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     label: "Anthropic",
     auth: "api-key",
     baseURL: "https://api.anthropic.com",
-    models: ["claude-fable-5-1", "claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"],
+    models: [
+      "claude-fable-5-1",
+      "claude-opus-4-5",
+      "claude-sonnet-4-5",
+      "claude-haiku-4-5",
+    ],
     defaultModel: "claude-sonnet-4-5",
     authHint: "Paste your Anthropic API key (sk-ant-...)",
     anthropic: true,
@@ -135,7 +141,9 @@ export function connectListProviders(): readonly FirstClassProviderDef[] {
   return FIRST_CLASS_PROVIDERS;
 }
 
-export function firstClassProviderById(id: string): FirstClassProviderDef | undefined {
+export function firstClassProviderById(
+  id: string,
+): FirstClassProviderDef | undefined {
   return FIRST_CLASS_PROVIDERS.find((p) => p.id === id);
 }
 
@@ -155,10 +163,14 @@ export function firstClassPathAsProvider(
     auth: "api-key",
     ...(path.baseURL !== undefined ? { baseURL: path.baseURL } : {}),
     ...(path.models !== undefined ? { models: path.models } : {}),
-    ...(path.defaultModel !== undefined ? { defaultModel: path.defaultModel } : {}),
+    ...(path.defaultModel !== undefined
+      ? { defaultModel: path.defaultModel }
+      : {}),
     ...(path.authHint !== undefined ? { authHint: path.authHint } : {}),
     ...(def.anthropic === true ? { anthropic: true } : {}),
     ...(def.opencodeGo === true ? { opencodeGo: true } : {}),
-    ...(def.billingProduct !== undefined ? { billingProduct: def.billingProduct } : {}),
+    ...(def.billingProduct !== undefined
+      ? { billingProduct: def.billingProduct }
+      : {}),
   };
 }

@@ -3,7 +3,8 @@ import { htmlToMarkdown, htmlToText } from "./html-convert.js";
 
 describe("htmlToText", () => {
   test("strips tags and decodes entities", () => {
-    const html = "<html><body><h1>Hi &amp; Bye</h1><p>Body text</p></body></html>";
+    const html =
+      "<html><body><h1>Hi &amp; Bye</h1><p>Body text</p></body></html>";
     expect(htmlToText(html)).toBe("Hi & Bye\nBody text");
   });
   test("drops script and style content", () => {

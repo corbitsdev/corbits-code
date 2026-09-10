@@ -81,7 +81,11 @@ describe("greybeardPackage", () => {
 
   test("spawn.maySpawn is true with limited allowlist", () => {
     expect(greybeardPackage.spawn.maySpawn).toBe(true);
-    expect(greybeardPackage.spawn.allowlist).toEqual(["intern", "explorer", "critic"]);
+    expect(greybeardPackage.spawn.allowlist).toEqual([
+      "intern",
+      "explorer",
+      "critic",
+    ]);
   });
 
   test("allowlist is only intern, explorer, critic", () => {
@@ -113,12 +117,20 @@ describe("greybeardPackage", () => {
   });
 
   test("optionalSkills order", () => {
-    expect(greybeardPackage.optionalSkills).toEqual(["style", "philosophy", "native-integration"]);
+    expect(greybeardPackage.optionalSkills).toEqual([
+      "style",
+      "philosophy",
+      "native-integration",
+    ]);
   });
 
   test("primaryIntent and outOfLane match greybeard lane", () => {
-    expect(greybeardPackage.primaryIntent).toBe("Architecture judgment; limited spawn");
+    expect(greybeardPackage.primaryIntent).toBe(
+      "Architecture judgment; limited spawn",
+    );
     expect(greybeardPackage.outOfLane).toContain("shipping product code");
-    expect(greybeardPackage.outOfLane).toContain("pedantic style-only nitpicking");
+    expect(greybeardPackage.outOfLane).toContain(
+      "pedantic style-only nitpicking",
+    );
   });
 });

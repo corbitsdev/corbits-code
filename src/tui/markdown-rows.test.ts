@@ -4,10 +4,18 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { MarkdownRenderable, BoxRenderable, type CapturedSpan } from "@opentui/core";
+import {
+  MarkdownRenderable,
+  BoxRenderable,
+  type CapturedSpan,
+} from "@opentui/core";
 import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer, type Harness } from "./harness";
-import { appendStreamRow, createStreamRowRenderable, replaceStreamRowAt } from "./shell/chrome";
+import {
+  appendStreamRow,
+  createStreamRowRenderable,
+  replaceStreamRowAt,
+} from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import { splitAtSettledHeading } from "./markdown-parser";
 import { isMarkdownRow } from "./stream";
@@ -25,7 +33,10 @@ const shellOpts = {
  * for the settled shape and get the frame back the moment it's true, rather
  * than gambling on a fixed sleep long enough to outrun load.
  */
-async function settle(h: Harness, isSettled: (frame: string) => boolean): Promise<string> {
+async function settle(
+  h: Harness,
+  isSettled: (frame: string) => boolean,
+): Promise<string> {
   const deadline = Date.now() + 2000;
   for (;;) {
     await h.renderOnce();
@@ -44,7 +55,9 @@ describe("markdown transcript rows", () => {
     expect(isMarkdownRow({ role: "tool", text: "# hi" })).toBe(false);
     expect(isMarkdownRow({ role: "user", text: "# hi" })).toBe(false);
     expect(isMarkdownRow({ role: "system", text: "# hi" })).toBe(false);
-    expect(isMarkdownRow({ role: "tool", text: "# hi", markdown: true })).toBe(true);
+    expect(isMarkdownRow({ role: "tool", text: "# hi", markdown: true })).toBe(
+      true,
+    );
   });
 
   test("heading, bold, list, fence and link render formatted", async () => {
@@ -151,7 +164,10 @@ describe("markdown transcript rows", () => {
 
       const frame = await settle(
         h,
-        (f) => f.includes("Done") && !f.includes("## Done") && f.includes("const partial ="),
+        (f) =>
+          f.includes("Done") &&
+          !f.includes("## Done") &&
+          f.includes("const partial ="),
       );
       expect(frame).toContain("Done");
       expect(frame).not.toContain("## Done");
@@ -172,7 +188,10 @@ describe("markdown transcript rows", () => {
       // literal text and the row paints the bare markers until the title's
       // first character lands. Held back instead, so the line's classification
       // cannot flip under text already on screen.
-      const frame = await settle(h, (f) => f.includes("Some body text.") && !f.includes("####"));
+      const frame = await settle(
+        h,
+        (f) => f.includes("Some body text.") && !f.includes("####"),
+      );
       expect(frame).toContain("Some body text.");
       expect(frame).not.toContain("####");
 
@@ -181,7 +200,10 @@ describe("markdown transcript rows", () => {
         streaming: true,
         text: ["Some body text.", "", "#### Title"].join("\n"),
       });
-      const next = await settle(h, (f) => f.includes("Title") && !f.includes("#### Title"));
+      const next = await settle(
+        h,
+        (f) => f.includes("Title") && !f.includes("#### Title"),
+      );
       expect(next).toContain("Title");
       expect(next).not.toContain("#### Title");
     }, WIDE);
@@ -248,10 +270,16 @@ describe("markdown transcript rows", () => {
       replaceStreamRowAt(shell, shell.streamLog.length - 1, {
         role: "assistant",
         streaming: true,
-        text: ["### Title", "", "Some body text that keeps growing and growing."].join("\n"),
+        text: [
+          "### Title",
+          "",
+          "Some body text that keeps growing and growing.",
+        ].join("\n"),
       });
       const childrenAfter = shell.transcript.getChildren().slice(1);
-      const [, bodyNodeAfter] = (childrenAfter[0] as BoxRenderable).getChildren();
+      const [, bodyNodeAfter] = (
+        childrenAfter[0] as BoxRenderable
+      ).getChildren();
       const [frozenNodeAfter] = (bodyNodeAfter as BoxRenderable).getChildren();
 
       expect(frozenNodeAfter).toBe(frozenNode);
@@ -267,11 +295,15 @@ describe("markdown transcript rows", () => {
       const shell = createAppShell(h.renderer, shellOpts);
       appendStreamRow(shell, {
         role: "assistant",
-        text: ["### Title", "", "Here is the list:", "- alpha", "- beta"].join("\n"),
+        text: ["### Title", "", "Here is the list:", "- alpha", "- beta"].join(
+          "\n",
+        ),
       });
       const frame = await settle(h, (f) => f.includes("alpha"));
       const lines = frame.split("\n").map((line) => line.trimEnd());
-      const listLine = lines.findIndex((line) => line.includes("Here is the list:"));
+      const listLine = lines.findIndex((line) =>
+        line.includes("Here is the list:"),
+      );
       expect(listLine).toBeGreaterThan(-1);
       // No blank row inserted between the paragraph and the list beneath it.
       expect(lines[listLine + 1]).toContain("alpha");
@@ -281,7 +313,10 @@ describe("markdown transcript rows", () => {
   test("a ten-item ordered list under a heading keeps unpadded markers", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts);
-      const items = Array.from({ length: 10 }, (_, i) => `${i + 1}. item ${i + 1}`);
+      const items = Array.from(
+        { length: 10 },
+        (_, i) => `${i + 1}. item ${i + 1}`,
+      );
       appendStreamRow(shell, {
         role: "assistant",
         text: ["### Steps", "", ...items].join("\n"),
@@ -311,7 +346,8 @@ describe("markdown transcript rows", () => {
     // with no settle wait, which is the one place the flicker would show up.
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts);
-      const full = "Some body text that keeps growing and growing more and more and even more.";
+      const full =
+        "Some body text that keeps growing and growing more and more and even more.";
       appendStreamRow(shell, {
         role: "assistant",
         streaming: true,
@@ -437,7 +473,9 @@ describe("markdown transcript rows", () => {
       expect(split).not.toBeNull();
       expect(defined(split).frozen).toContain("### Title");
       expect(defined(split).frozen).toContain("```stillcode");
-      expect(defined(split).frozen).toContain("# should still be inside fence per CommonMark");
+      expect(defined(split).frozen).toContain(
+        "# should still be inside fence per CommonMark",
+      );
       expect(defined(split).live).toBe("body");
     });
 
@@ -446,7 +484,9 @@ describe("markdown transcript rows", () => {
       // "### Title" is fence content too and there is no heading at all.
       expect(
         splitAtSettledHeading(
-          ["````", "# not a heading", "```", "### Title", "", "body"].join("\n"),
+          ["````", "# not a heading", "```", "### Title", "", "body"].join(
+            "\n",
+          ),
         ),
       ).toBeNull();
       // The same shape, properly closed by a run of 4+: now it is a heading.
@@ -471,7 +511,15 @@ describe("markdown transcript rows", () => {
       expect(
         defined(
           splitAtSettledHeading(
-            ["```", "# not a heading", "````", "", "### Title", "", "body"].join("\n"),
+            [
+              "```",
+              "# not a heading",
+              "````",
+              "",
+              "### Title",
+              "",
+              "body",
+            ].join("\n"),
           ),
         ).frozen,
       ).toContain("### Title");
@@ -479,7 +527,15 @@ describe("markdown transcript rows", () => {
       expect(
         defined(
           splitAtSettledHeading(
-            ["```", "~~~", "# not a heading", "```", "### Title", "", "body"].join("\n"),
+            [
+              "```",
+              "~~~",
+              "# not a heading",
+              "```",
+              "### Title",
+              "",
+              "body",
+            ].join("\n"),
           ),
         ).frozen,
       ).toContain("### Title");
@@ -487,20 +543,31 @@ describe("markdown transcript rows", () => {
       expect(
         defined(
           splitAtSettledHeading(
-            ["   ```", "# not a heading", "   ```", "### Title", "", "body"].join("\n"),
+            [
+              "   ```",
+              "# not a heading",
+              "   ```",
+              "### Title",
+              "",
+              "body",
+            ].join("\n"),
           ),
         ).frozen,
       ).toContain("### Title");
       // 4 spaces is indented code, not a fence — the `#` line is still inside
       // it as indented code, never a heading boundary on its own.
       expect(
-        splitAtSettledHeading(["    ```", "    # not a heading", "body"].join("\n")),
+        splitAtSettledHeading(
+          ["    ```", "    # not a heading", "body"].join("\n"),
+        ),
       ).toBeNull();
       // An unclosed fence at end of input, with a `#` line inside it and no
       // real heading anywhere: nothing to split at.
       expect(
         splitAtSettledHeading(
-          ["```", "# still fence content, not a heading", "still going"].join("\n"),
+          ["```", "# still fence content, not a heading", "still going"].join(
+            "\n",
+          ),
         ),
       ).toBeNull();
     });

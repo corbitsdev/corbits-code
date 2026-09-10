@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { createSkillSearchTool, skillSearchDefinition } from "./skill-search.js";
+import {
+  createSkillSearchTool,
+  skillSearchDefinition,
+} from "./skill-search.js";
 import type { SkillSummary } from "../extensions/skills.js";
 
 function call(
@@ -26,7 +29,9 @@ describe("skillSearchDefinition", () => {
     expect(skillSearchDefinition.description).toContain("system prompt");
     expect(skillSearchDefinition.description).toContain("use_skill");
     expect(skillSearchDefinition.description).toMatch(/directly callable/i);
-    expect(skillSearchDefinition.description).not.toMatch(/find this via tool_search/i);
+    expect(skillSearchDefinition.description).not.toMatch(
+      /find this via tool_search/i,
+    );
   });
 });
 

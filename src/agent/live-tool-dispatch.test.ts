@@ -12,7 +12,11 @@ const stringTool = (name: string, reply: string) => ({
   definition: {
     name,
     description: name,
-    inputSchema: { type: "object" as const, properties: {}, required: [] as string[] },
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+      required: [] as string[],
+    },
   },
   handler: async () => reply,
 });
@@ -38,7 +42,9 @@ describe("live tool dispatch fallback", () => {
     ]);
     expect(fallbackLiveToolBundle(many)).toBeUndefined();
 
-    const none = new Map<unknown, unknown>([["read_file", { run: () => undefined }]]);
+    const none = new Map<unknown, unknown>([
+      ["read_file", { run: () => undefined }],
+    ]);
     expect(fallbackLiveToolBundle(none)).toBeUndefined();
   });
 

@@ -20,7 +20,9 @@ function tempDir(): string {
 
 function writeTurns(dir: string, turns: unknown[]): void {
   fs.mkdirSync(dir, { recursive: true });
-  const text = turns.map((t) => JSON.stringify(t)).join("\n") + (turns.length > 0 ? "\n" : "");
+  const text =
+    turns.map((t) => JSON.stringify(t)).join("\n") +
+    (turns.length > 0 ? "\n" : "");
   fs.writeFileSync(path.join(dir, "turns.jsonl"), text);
 }
 
@@ -46,7 +48,10 @@ describe("listUniqueSubdirs", () => {
 
   test("a broken symlink is skipped, not thrown", async () => {
     const root = tempDir();
-    fs.symlinkSync(path.join(root, "does-not-exist"), path.join(root, "dangling"));
+    fs.symlinkSync(
+      path.join(root, "does-not-exist"),
+      path.join(root, "dangling"),
+    );
     const entries = await listUniqueSubdirs(root);
     expect(entries).toHaveLength(0);
   });
@@ -68,7 +73,13 @@ describe("findAgentTraceDir", () => {
 
   test("finds a nested descendant several levels deep", async () => {
     const root = tempDir();
-    const grandchildDir = path.join(root, "subagents", "child-1", "subagents", "grandchild-1");
+    const grandchildDir = path.join(
+      root,
+      "subagents",
+      "child-1",
+      "subagents",
+      "grandchild-1",
+    );
     writeTurns(grandchildDir, []);
     const found = await findAgentTraceDir(root, "grandchild-1");
     expect(found).toBe(fs.realpathSync(grandchildDir));
@@ -94,7 +105,9 @@ describe("findAgentTraceDir", () => {
 describe("readAgentTrace", () => {
   test("throws a clean error for a missing target", async () => {
     const root = tempDir();
-    await expect(readAgentTrace(root, "ghost")).rejects.toBeInstanceOf(AgentTraceNotFoundError);
+    await expect(readAgentTrace(root, "ghost")).rejects.toBeInstanceOf(
+      AgentTraceNotFoundError,
+    );
   });
 
   test("reads turns, tool calls, and tool errors", async () => {
@@ -104,7 +117,14 @@ describe("readAgentTrace", () => {
       { role: "user", content: [{ type: "text", text: "do the thing" }] },
       {
         role: "assistant",
-        content: [{ type: "tool_call", id: "call-1", name: "run_shell", arguments: { cmd: "ls" } }],
+        content: [
+          {
+            type: "tool_call",
+            id: "call-1",
+            name: "run_shell",
+            arguments: { cmd: "ls" },
+          },
+        ],
       },
       {
         role: "user",
@@ -121,7 +141,11 @@ describe("readAgentTrace", () => {
 
     const result = await readAgentTrace(root, "worker-1");
     expect(result.totalTurns).toBe(3);
-    expect(result.entries.map((e) => e.kind)).toEqual(["text", "tool_call", "error"]);
+    expect(result.entries.map((e) => e.kind)).toEqual([
+      "text",
+      "tool_call",
+      "error",
+    ]);
     expect(defined(result.entries[2]).isError).toBe(true);
     expect(result.omitted).toBeNull();
   });
@@ -130,8 +154,14 @@ describe("readAgentTrace", () => {
     const root = tempDir();
     const childDir = path.join(root, "subagents", "worker-1");
     fs.mkdirSync(childDir, { recursive: true });
-    const good = JSON.stringify({ role: "user", content: [{ type: "text", text: "hi" }] });
-    fs.writeFileSync(path.join(childDir, "turns.jsonl"), `${good}\n{"role":"assistant","cont`);
+    const good = JSON.stringify({
+      role: "user",
+      content: [{ type: "text", text: "hi" }],
+    });
+    fs.writeFileSync(
+      path.join(childDir, "turns.jsonl"),
+      `${good}\n{"role":"assistant","cont`,
+    );
 
     const result = await readAgentTrace(root, "worker-1");
     expect(result.totalTurns).toBe(1);
@@ -169,7 +199,10 @@ describe("readAgentTrace", () => {
       toTurn: 600,
       limit: MAX_TRACE_ENTRY_LIMIT,
     });
-    const totalChars = result.entries.reduce((sum, e) => sum + e.content.length, 0);
+    const totalChars = result.entries.reduce(
+      (sum, e) => sum + e.content.length,
+      0,
+    );
     expect(totalChars).toBeLessThanOrEqual(MAX_TRACE_TOTAL_CHARS);
     expect(result.entriesTruncated).toBe(true);
     expect(result.omitted).not.toBeNull();
@@ -203,7 +236,9 @@ describe("readAgentTrace", () => {
       toTurn: 500,
       limit: MAX_TRACE_ENTRY_LIMIT,
     });
-    expect(result.toTurn - result.fromTurn).toBeLessThanOrEqual(MAX_TRACE_TURN_WINDOW);
+    expect(result.toTurn - result.fromTurn).toBeLessThanOrEqual(
+      MAX_TRACE_TURN_WINDOW,
+    );
   });
 
   test("filters entries by kind", async () => {
@@ -227,7 +262,10 @@ describe("readAgentTrace", () => {
     const root = tempDir();
     const childDir = path.join(root, "subagents", "worker-1");
     writeTurns(childDir, [
-      { role: "assistant", content: [{ type: "text", text: "x".repeat(10_000) }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "x".repeat(10_000) }],
+      },
     ]);
 
     const result = await readAgentTrace(root, "worker-1");

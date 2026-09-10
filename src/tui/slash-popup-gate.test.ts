@@ -13,7 +13,10 @@ import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
-import { openCommandSurface, type CommandSurfaceDeps } from "./command-surfaces";
+import {
+  openCommandSurface,
+  type CommandSurfaceDeps,
+} from "./command-surfaces";
 import { wireGates } from "./gate-wire";
 import { openAddProviderOverlay, openPermissionsOverlay } from "./overlays";
 import { createAppShell } from "./shell/index";
@@ -27,7 +30,10 @@ import {
   openListOverlay,
   reserveOverlayHost,
 } from "./shell/overlay-host";
-import { cycleOverlaySelection, moveOverlaySelection } from "./shell/overlay-list";
+import {
+  cycleOverlaySelection,
+  moveOverlaySelection,
+} from "./shell/overlay-list";
 import { openHelpOverlay, openPalette } from "./shell/palette";
 
 const CATALOG: readonly PaletteCommand[] = [
@@ -125,7 +131,9 @@ function hangingSettingsList(): {
   };
 }
 
-function settingsOnCommand(list: Promise<readonly []>): (name: string, shell: AppShell) => void {
+function settingsOnCommand(
+  list: Promise<readonly []>,
+): (name: string, shell: AppShell) => void {
   return (name, shell) => {
     if (name !== "settings") return;
     openCommandSurface(shell, "settings", {
@@ -186,7 +194,10 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(shell.prompt.value).toBe("/m");
         expect(shell.overlayKind).toBe("palette");
         expect(isSlashPopupOpen(shell)).toBe(true);
-        expect(shell.paletteCommands.map((c) => c.id)).toEqual(["model", "mcp"]);
+        expect(shell.paletteCommands.map((c) => c.id)).toEqual([
+          "model",
+          "mcp",
+        ]);
         expect(resolved).toBeUndefined();
         expect(closedCount).toBe(0);
 
@@ -368,14 +379,18 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
 
         openPalette(shell, { catalog: CATALOG });
         expect(shell.overlayKind).toBe("palette");
-        expect(shell.paletteCommands[shell.overlayList?.activeIndex ?? -1]?.id).toBe("help");
+        expect(
+          shell.paletteCommands[shell.overlayList?.activeIndex ?? -1]?.id,
+        ).toBe("help");
 
         acceptOverlaySelection(shell);
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
-        expect(shell.streamLog.some((row) => row.role === "system" && /help/i.test(row.text))).toBe(
-          true,
-        );
+        expect(
+          shell.streamLog.some(
+            (row) => row.role === "system" && /help/i.test(row.text),
+          ),
+        ).toBe(true);
 
         // Flush-while-busy must keep the deferred slot (the restored gate still
         // holds the host). Dropping it here would lose /help on the next close.
@@ -418,7 +433,9 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
         const helpIdx = shell.paletteCommands.findIndex((c) => c.id === "help");
         expect(helpIdx).toBeGreaterThanOrEqual(0);
         for (let i = 0; i < helpIdx; i++) moveOverlaySelection(shell, 1);
-        expect(shell.paletteCommands[shell.overlayList?.activeIndex ?? -1]?.id).toBe("help");
+        expect(
+          shell.paletteCommands[shell.overlayList?.activeIndex ?? -1]?.id,
+        ).toBe("help");
 
         acceptOverlaySelection(shell);
         expect(shell.overlayKind).toBe("permissions");
@@ -565,10 +582,14 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           expect(shell.overlayKind).toBe("permissions");
 
           openPalette(shell, { catalog: CATALOG });
-          const settingsIdx = shell.paletteCommands.findIndex((c) => c.id === "settings");
+          const settingsIdx = shell.paletteCommands.findIndex(
+            (c) => c.id === "settings",
+          );
           expect(settingsIdx).toBeGreaterThanOrEqual(0);
           for (let i = 0; i < settingsIdx; i++) moveOverlaySelection(shell, 1);
-          expect(shell.paletteCommands[shell.overlayList?.activeIndex ?? -1]?.id).toBe("settings");
+          expect(
+            shell.paletteCommands[shell.overlayList?.activeIndex ?? -1]?.id,
+          ).toBe("settings");
 
           acceptOverlaySelection(shell);
           expect(shell.overlayKind).toBe("permissions");
@@ -580,7 +601,9 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           expect(shell.overlayKind).toBe("permissions");
           expect(resolved).toBeUndefined();
           expect(
-            shell.streamLog.some((row) => row.role === "system" && /settings/i.test(row.text)),
+            shell.streamLog.some(
+              (row) => row.role === "system" && /settings/i.test(row.text),
+            ),
           ).toBe(true);
 
           closeInsetOverlay(shell);
@@ -635,13 +658,17 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           const mcpIdx = shell.paletteCommands.findIndex((c) => c.id === "mcp");
           expect(mcpIdx).toBeGreaterThanOrEqual(0);
           for (let i = 0; i < mcpIdx; i++) moveOverlaySelection(shell, 1);
-          expect(shell.paletteCommands[shell.overlayList?.activeIndex ?? -1]?.id).toBe("mcp");
+          expect(
+            shell.paletteCommands[shell.overlayList?.activeIndex ?? -1]?.id,
+          ).toBe("mcp");
 
           acceptOverlaySelection(shell);
           expect(shell.overlayKind).toBe("permissions");
           expect(resolved).toBeUndefined();
           expect(
-            shell.streamLog.some((row) => row.role === "system" && /mcp/i.test(row.text)),
+            shell.streamLog.some(
+              (row) => row.role === "system" && /mcp/i.test(row.text),
+            ),
           ).toBe(true);
 
           closeInsetOverlay(shell);
@@ -723,7 +750,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
       openListOverlay(shell, { kind: "demo", items: ["second"] });
       expect(shell.overlayItems[0]).toBe("first");
       expect(
-        shell.streamLog.some((row) => row.role === "system" && /will open/i.test(row.text)),
+        shell.streamLog.some(
+          (row) => row.role === "system" && /will open/i.test(row.text),
+        ),
       ).toBe(false);
 
       closeInsetOverlay(shell);
@@ -819,7 +848,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
         expect(shell.overlayKind).toBe("settings");
         expect(resolved).toBeUndefined();
 
-        const pluginsIdx = shell.overlayItems.findIndex((row) => row.includes("plugins"));
+        const pluginsIdx = shell.overlayItems.findIndex((row) =>
+          row.includes("plugins"),
+        );
         expect(pluginsIdx).toBeGreaterThanOrEqual(0);
         for (let i = 0; i < pluginsIdx; i++) moveOverlaySelection(shell, 1);
         acceptOverlaySelection(shell);
@@ -838,7 +869,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
       openHelpOverlay(shell);
       expect(shell.overlayKind).toBe("help");
       expect(
-        shell.streamLog.some((row) => row.role === "system" && /will open/i.test(row.text)),
+        shell.streamLog.some(
+          (row) => row.role === "system" && /will open/i.test(row.text),
+        ),
       ).toBe(false);
       press("Escape");
       await render();
@@ -864,7 +897,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
       openHelpOverlay(shell);
       expect(shell.overlayKind).toBe("help");
       expect(
-        shell.streamLog.some((row) => row.role === "system" && /will open/i.test(row.text)),
+        shell.streamLog.some(
+          (row) => row.role === "system" && /will open/i.test(row.text),
+        ),
       ).toBe(false);
     });
   });
@@ -1032,7 +1067,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
       acceptOverlaySelection(shell);
       expect(shell.overlayKind).toBe("help");
       expect(
-        shell.streamLog.filter((row) => row.role === "system" && /will open/i.test(row.text)),
+        shell.streamLog.filter(
+          (row) => row.role === "system" && /will open/i.test(row.text),
+        ),
       ).toHaveLength(0);
 
       closeInsetOverlay(shell);
@@ -1052,11 +1089,16 @@ describe("overlay host occupancy and opt-in deferral", () => {
         });
         expect(shell.overlayKind).toBe("permissions");
 
-        openAddProviderOverlay(shell, { items: ["custom"], itemIds: ["custom"] });
+        openAddProviderOverlay(shell, {
+          items: ["custom"],
+          itemIds: ["custom"],
+        });
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
         expect(
-          shell.streamLog.some((row) => row.role === "system" && /will open/i.test(row.text)),
+          shell.streamLog.some(
+            (row) => row.role === "system" && /will open/i.test(row.text),
+          ),
         ).toBe(true);
 
         closeInsetOverlay(shell);

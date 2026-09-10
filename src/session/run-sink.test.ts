@@ -25,7 +25,9 @@ const enabledHook: LifecycleHookStatus = {
   enabled: true,
 };
 
-function attributionHarness(selectedSource = { provider: "provider-a", model: "model-a" }) {
+function attributionHarness(
+  selectedSource = { provider: "provider-a", model: "model-a" },
+) {
   const captured: { event: string; properties: Record<string, unknown> }[] = [];
   const telemetry: Telemetry = {
     enabled: true,
@@ -51,7 +53,9 @@ function attributionHarness(selectedSource = { provider: "provider-a", model: "m
 }
 
 function failMessageRun(runSink: ReturnType<typeof createRunSink>): void {
-  runSink.sink(event("inference.error", { error: { message: "attempt failed" } }));
+  runSink.sink(
+    event("inference.error", { error: { message: "attempt failed" } }),
+  );
   runSink.sink(
     event("message.run.ended", {
       messageRunId: "run-1",
@@ -73,7 +77,13 @@ describe("createRunSink", () => {
     runSink.sink(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "test", model: "test" },
       }),
     );
@@ -110,7 +120,13 @@ describe("createRunSink", () => {
     runSink.sink(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "test", model: "test" },
       }),
     );
@@ -141,7 +157,13 @@ describe("createRunSink", () => {
     runSink.sink(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "test", model: "test" },
       }),
     );
@@ -159,7 +181,9 @@ describe("createRunSink", () => {
     });
 
     runSink.sink(event("inference.start", {}));
-    runSink.sink(event("inference.error", { error: { message: "429 rate limit" } }));
+    runSink.sink(
+      event("inference.error", { error: { message: "429 rate limit" } }),
+    );
     expect(failures).toEqual([]);
 
     runSink.sink(
@@ -209,7 +233,13 @@ describe("createRunSink", () => {
     runSink.sink(event("inference.start", { model: "model-b" }));
     runSink.sink(
       event("inference.usage", {
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { sourceId: "retry", provider: "provider-b", model: "model-b" },
       }),
     );
@@ -229,8 +259,18 @@ describe("createRunSink", () => {
     runSink.sink(event("inference.start", { model: "model-a" }));
     runSink.sink(
       event("inference.usage", {
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-        source: { sourceId: "selected", provider: "provider-a", model: "model-a" },
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
+        source: {
+          sourceId: "selected",
+          provider: "provider-a",
+          model: "model-a",
+        },
       }),
     );
     runSink.sink(event("inference.error", { error: { message: "retry" } }));
@@ -261,7 +301,13 @@ describe("createRunSink", () => {
     runSink.sink(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "test", model: "test" },
       }),
     );
@@ -291,11 +337,19 @@ describe("createRunSink", () => {
     runSink.sink(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "test", model: "test" },
       }),
     );
-    runSink.sink(event("reactor.error", { error: "reactor gave up at shutdown" }));
+    runSink.sink(
+      event("reactor.error", { error: "reactor gave up at shutdown" }),
+    );
 
     expect(completions).toEqual([0]);
     expect(failures).toEqual([]);
@@ -310,9 +364,13 @@ describe("createRunSink", () => {
     });
 
     runSink.sink(event("inference.start", {}));
-    runSink.sink(event("inference.error", { error: { message: "500 upstream" } }));
+    runSink.sink(
+      event("inference.error", { error: { message: "500 upstream" } }),
+    );
     runSink.sink(event("inference.start", {}));
-    runSink.sink(event("inference.error", { error: { message: "500 upstream again" } }));
+    runSink.sink(
+      event("inference.error", { error: { message: "500 upstream again" } }),
+    );
     runSink.sink(
       event("message.run.ended", {
         messageRunId: "run-1",
@@ -333,10 +391,14 @@ describe("createRunSink", () => {
     });
 
     runSink.sink(event("inference.start", {}));
-    runSink.sink(event("inference.error", { error: { message: "first session" } }));
+    runSink.sink(
+      event("inference.error", { error: { message: "first session" } }),
+    );
     runSink.reset();
     runSink.sink(event("inference.start", {}));
-    runSink.sink(event("inference.error", { error: { message: "second session" } }));
+    runSink.sink(
+      event("inference.error", { error: { message: "second session" } }),
+    );
     runSink.sink(
       event("message.run.ended", {
         messageRunId: "run-2",
@@ -360,7 +422,13 @@ describe("createRunSink", () => {
     runSink.sink(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "test", model: "test" },
       }),
     );
@@ -377,14 +445,26 @@ describe("createRunSink", () => {
     runSink.sink(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-        usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 100,
+          output: 10,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "test", model: "test" },
       }),
     );
     runSink.sink(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-        usage: { input: 150, output: 20, cacheRead: 5, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 150,
+          output: 20,
+          cacheRead: 5,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "test", model: "test" },
       }),
     );
@@ -417,7 +497,13 @@ describe("createRunSink", () => {
     runSink.sink(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
-        usage: { input: 2, output: 3, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        usage: {
+          input: 2,
+          output: 3,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
         source: { provider: "test", model: "test" },
       }),
     );
@@ -435,7 +521,13 @@ describe("createRunSink", () => {
 
     expect(finish).toEqual({
       turnsUsed: 1,
-      tokenUsage: { input: 2, output: 3, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      tokenUsage: {
+        input: 2,
+        output: 3,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
       turns: [],
       toolCallCount: 0,
     });

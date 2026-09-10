@@ -12,7 +12,11 @@ import {
 
 describe("PRODUCT_WRITE_TOOLS", () => {
   test("is write_file / edit_file / delete_file", () => {
-    expect([...PRODUCT_WRITE_TOOLS]).toEqual(["write_file", "edit_file", "delete_file"]);
+    expect([...PRODUCT_WRITE_TOOLS]).toEqual([
+      "write_file",
+      "edit_file",
+      "delete_file",
+    ]);
   });
 });
 
@@ -78,12 +82,16 @@ describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
   // CL-7051: fleet discovery is Tier-1 only.
   test("search_agents is on Skywalker only, not the nested orchestrator surface", () => {
     expect(SKYWALKER_TOOLS as readonly string[]).toContain("search_agents");
-    expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain("search_agents");
+    expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain(
+      "search_agents",
+    );
   });
 
   test("skill_search is not on Skywalker or worker orchestrator allowlists", () => {
     expect(SKYWALKER_TOOLS as readonly string[]).not.toContain("skill_search");
-    expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain("skill_search");
+    expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain(
+      "skill_search",
+    );
   });
 });
 
@@ -99,7 +107,12 @@ describe("REVIEW_TOOLS / INTERN_TOOLS", () => {
     expect(INTERN_TOOLS).toContain("run_shell");
     expect(INTERN_TOOLS).toContain("read_file");
     expect(INTERN_TOOLS).toContain("list_dir");
-    for (const name of ["grep", "search_files", "spawn_agent", "wait_agents"] as const) {
+    for (const name of [
+      "grep",
+      "search_files",
+      "spawn_agent",
+      "wait_agents",
+    ] as const) {
       expect(INTERN_TOOLS as readonly string[]).not.toContain(name);
     }
   });

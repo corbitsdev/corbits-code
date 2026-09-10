@@ -9,7 +9,10 @@ import {
   spansFromDumpJson,
 } from "./attribution-report.js";
 import { DUMP_VERSION, buildDump, serializeSpan } from "./dump.js";
-import { MULTI_TOOL_TURN_GOLDEN, multiToolTurnFixture } from "./fixtures/multi-tool-turn.js";
+import {
+  MULTI_TOOL_TURN_GOLDEN,
+  multiToolTurnFixture,
+} from "./fixtures/multi-tool-turn.js";
 import type { PerfSpan } from "./index.js";
 
 function span(partial: {
@@ -145,7 +148,10 @@ describe("attributionFromSpans — subagent + transport", () => {
     expect(categoryShare(report.session.categories, "other").ns).toBe(2000);
     expect(report.session.subagentCount).toBe(1);
     expect(report.session.transportNs).toBe(800);
-    expect(report.session.transportShareOfInference).toBeCloseTo(800 / 4000, 10);
+    expect(report.session.transportShareOfInference).toBeCloseTo(
+      800 / 4000,
+      10,
+    );
     expect(report.session.open).toBe(false);
     expect(report.session.openPhases).toEqual([]);
   });
@@ -247,7 +253,10 @@ describe("attributionFromSpans — subagent + transport", () => {
     expect(report.session.inference.ttftNs).toBe(400 + 500);
     expect(report.session.inference.streamNs).toBe(1600 + 2000);
 
-    const turnShareSum = defined(report.turns[0]).categories.reduce((a, c) => a + c.share, 0);
+    const turnShareSum = defined(report.turns[0]).categories.reduce(
+      (a, c) => a + c.share,
+      0,
+    );
     expect(turnShareSum).toBeCloseTo(1, 10);
   });
 });
@@ -296,7 +305,10 @@ describe("attributionFromSpans — open (stall) turns", () => {
     expect(report.session.open).toBe(true);
     // Still-running: turn + open stream (completed inference/tool are not listed)
     expect(report.session.openPhases).toEqual(["inference.stream", "turn"]);
-    expect(defined(report.turns[0]).openPhases).toEqual(["inference.stream", "turn"]);
+    expect(defined(report.turns[0]).openPhases).toEqual([
+      "inference.stream",
+      "turn",
+    ]);
 
     expect(categoryShare(report.session.categories, "inference").ns).toBe(2000);
     expect(categoryShare(report.session.categories, "tools").ns).toBe(1000);
@@ -306,7 +318,10 @@ describe("attributionFromSpans — open (stall) turns", () => {
     const shareSum = report.session.categories.reduce((a, c) => a + c.share, 0);
     expect(shareSum).toBeCloseTo(1, 10);
 
-    const turnShareSum = defined(report.turns[0]).categories.reduce((a, c) => a + c.share, 0);
+    const turnShareSum = defined(report.turns[0]).categories.reduce(
+      (a, c) => a + c.share,
+      0,
+    );
     expect(turnShareSum).toBeCloseTo(1, 10);
   });
 
@@ -418,16 +433,22 @@ describe("dump round-trip", () => {
   });
 
   test("attributionFromDump rejects unsupported DUMP_VERSION", () => {
-    const dump = buildDump(multiToolTurnFixture(), "fixture-multi", "2026-04-08T00:00:00.000Z");
-    expect(() => attributionFromDump({ ...dump, version: DUMP_VERSION + 1 })).toThrow(
-      /unsupported dump version/,
+    const dump = buildDump(
+      multiToolTurnFixture(),
+      "fixture-multi",
+      "2026-04-08T00:00:00.000Z",
     );
+    expect(() =>
+      attributionFromDump({ ...dump, version: DUMP_VERSION + 1 }),
+    ).toThrow(/unsupported dump version/);
   });
 });
 
 describe("formatAttributionReport", () => {
   test("prints category labels and percentages for the golden fixture", () => {
-    const text = formatAttributionReport(attributionFromSpans(multiToolTurnFixture()));
+    const text = formatAttributionReport(
+      attributionFromSpans(multiToolTurnFixture()),
+    );
     expect(text).toContain("PerfTrace attribution report");
     expect(text).toContain("inference");
     expect(text).toContain("tools");

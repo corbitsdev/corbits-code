@@ -6,7 +6,10 @@ import { setupHarness, type RequestPredicate } from "@intx/inference-testing";
 import { type } from "arktype";
 import { createIsogitStore } from "@intx/storage-isogit/node";
 import { ErrorRecord, type AuditRecord } from "@intx/types/audit";
-import { createPermissionGate, type PermissionGate } from "../../src/permission/gate.js";
+import {
+  createPermissionGate,
+  type PermissionGate,
+} from "../../src/permission/gate.js";
 import {
   DENIED_BY_POLICY_MARKER,
   WORKER_CANNOT_COMPLETE_APPROVAL,
@@ -49,7 +52,11 @@ async function withWorker(
     workdirBase,
     description: "permission probe",
     prompt: "Write probe.txt then report.",
-    provider: { providerName: "openai", baseURL: "https://api.openai.com/v1", model: "test-model" },
+    provider: {
+      providerName: "openai",
+      baseURL: "https://api.openai.com/v1",
+      model: "test-model",
+    },
     permissionGate:
       gate?.(cwd) ??
       createPermissionGate({
@@ -79,7 +86,10 @@ async function withWorker(
               toolCalls: [
                 {
                   name: "write_file",
-                  args: { path: join(cwd, "probe.txt"), content: "unauthorized" },
+                  args: {
+                    path: join(cwd, "probe.txt"),
+                    content: "unauthorized",
+                  },
                 },
               ],
             });
@@ -90,7 +100,8 @@ async function withWorker(
             const sessions = await readdir(join(auditPath, "state", "audit"));
             expect(sessions).toHaveLength(1);
             const session = sessions[0];
-            if (session === undefined) throw new Error("missing runtime audit session");
+            if (session === undefined)
+              throw new Error("missing runtime audit session");
             return store.loadAudit(session);
           },
         }),
@@ -109,7 +120,10 @@ for (const interactive of [false, true]) {
       await withWorker(
         async ({ cwd, harness, params, write, audit }) => {
           write();
-          await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+          await Promise.all([
+            runSubAgent(params),
+            harness.run({ wallClockBudgetMs: 15000 }),
+          ]);
           expect(await Bun.file(join(cwd, "probe.txt")).exists()).toBe(false);
           expect(asks).toBe(0);
           const records = await audit();
@@ -120,10 +134,14 @@ for (const interactive of [false, true]) {
             authz: { effect: "deny", blocked: true },
             result: { isError: true },
           });
-          expect(String(records[0]?.result.content)).toContain(DENIED_BY_POLICY_MARKER);
+          expect(String(records[0]?.result.content)).toContain(
+            DENIED_BY_POLICY_MARKER,
+          );
           if (interactive) {
             expect(String(records[0]?.result.content)).toContain("probe.txt");
-            expect(String(records[0]?.result.content)).toContain(WORKER_CANNOT_COMPLETE_APPROVAL);
+            expect(String(records[0]?.result.content)).toContain(
+              WORKER_CANNOT_COMPLETE_APPROVAL,
+            );
           }
           expect(records[0]?.callId.length).toBeGreaterThan(0);
           expect(records[0]?.sessionId.length).toBeGreaterThan(0);
@@ -151,7 +169,9 @@ test.serial(
   "retained worker checkpoints audit before close and observes live grants on resume",
   async () => {
     await withWorker(async ({ cwd, harness, params, write, audit }) => {
-      let handles: Parameters<NonNullable<RunSubAgentParams["onAgentReady"]>>[0] | undefined;
+      let handles:
+        | Parameters<NonNullable<RunSubAgentParams["onAgentReady"]>>[0]
+        | undefined;
       write();
       const [result] = await Promise.all([
         runSubAgent({
@@ -166,7 +186,8 @@ test.serial(
       try {
         expect(result.agentRetained).toBe(true);
         expect((await audit())[0]?.authz?.effect).toBe("deny");
-        if (handles === undefined) throw new Error("missing retained worker handles");
+        if (handles === undefined)
+          throw new Error("missing retained worker handles");
         params.permissionGate.setSeededApprovals([
           { tool: "write_file", pattern: join(cwd, "probe.txt") },
         ]);
@@ -175,7 +196,9 @@ test.serial(
           handles.followup("Retry the write."),
           harness.run({ wallClockBudgetMs: 15000 }),
         ]);
-        expect(await Bun.file(join(cwd, "probe.txt")).text()).toBe("unauthorized");
+        expect(await Bun.file(join(cwd, "probe.txt")).text()).toBe(
+          "unauthorized",
+        );
         const records = await audit();
         expect(records).toHaveLength(2);
         expect(records[1]).toMatchObject({
@@ -227,18 +250,26 @@ test.serial(
       ]);
       harness.scenario.replyOnce("openai", {
         toolCalls: [
-          { name: "write_file", args: { path: join(cwd, "probe.txt"), content: "blocked" } },
+          {
+            name: "write_file",
+            args: { path: join(cwd, "probe.txt"), content: "blocked" },
+          },
           { name: "read_file", args: { path: join(cwd, "read.txt") } },
         ],
       });
       harness.scenario.replyOnce("openai", { text: report });
-      await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+      await Promise.all([
+        runSubAgent(params),
+        harness.run({ wallClockBudgetMs: 15000 }),
+      ]);
       expect(await Bun.file(join(cwd, "probe.txt")).exists()).toBe(false);
       const records = await audit();
-      expect(records.find((record) => record.tool === "write_file")?.authz?.effect).toBe("deny");
-      expect(records.find((record) => record.tool === "read_file")?.result.content).toContain(
-        "read evidence",
-      );
+      expect(
+        records.find((record) => record.tool === "write_file")?.authz?.effect,
+      ).toBe("deny");
+      expect(
+        records.find((record) => record.tool === "read_file")?.result.content,
+      ).toContain("read evidence");
     });
   },
   20000,
@@ -272,7 +303,10 @@ test.serial(
           toolCalls: [{ name: "mcp__probe__mutate", args: {} }],
         });
         harness.scenario.replyOnce("openai", { text: report });
-        await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+        await Promise.all([
+          runSubAgent(params),
+          harness.run({ wallClockBudgetMs: 15000 }),
+        ]);
         expect(calls).toBe(0);
         expect(asks).toBe(0);
         expect((await audit())[0]?.authz?.effect).toBe("deny");
@@ -332,7 +366,10 @@ test.serial(
           toolCalls: [{ name: "mcp__probe__mutate", args: {} }],
         });
         harness.scenario.replyOnce("openai", { text: report });
-        await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+        await Promise.all([
+          runSubAgent(params),
+          harness.run({ wallClockBudgetMs: 15000 }),
+        ]);
         expect(calls).toBe(1);
         expect(asks).toBe(0);
         expect((await audit())[0]?.authz?.effect).toBe("allow");
@@ -369,7 +406,9 @@ async function bindCreateAgentToolsetInherit(args: {
     import.meta.resolve("../../src/subagent/agent-fleet.js"),
     (real: typeof import("../../src/subagent/agent-fleet.js")) => ({
       ...real,
-      createSpawnAgentTool: (deps: Parameters<typeof real.createSpawnAgentTool>[0]) => {
+      createSpawnAgentTool: (
+        deps: Parameters<typeof real.createSpawnAgentTool>[0],
+      ) => {
         inheritMcpTools = deps.inheritMcpTools;
         return real.createSpawnAgentTool(deps);
       },
@@ -379,10 +418,14 @@ async function bindCreateAgentToolsetInherit(args: {
         import.meta.resolve("../../src/mcp/client.js"),
         (real: typeof import("../../src/mcp/client.js")) => ({
           ...real,
-          connectMCPServer: async () => ({ ok: true as const, client: args.client }),
+          connectMCPServer: async () => ({
+            ok: true as const,
+            client: args.client,
+          }),
         }),
         async () => {
-          const { createAgentToolset } = await import("../../src/agent/tools.js");
+          const { createAgentToolset } =
+            await import("../../src/agent/tools.js");
           const toolset = await createAgentToolset({
             cwd: args.cwd,
             permissionGate: args.permissionGate,
@@ -459,7 +502,10 @@ test.serial(
             toolCalls: [{ name: "mcp__probe__mutate", args: {} }],
           });
           harness.scenario.replyOnce("openai", { text: report });
-          await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+          await Promise.all([
+            runSubAgent(params),
+            harness.run({ wallClockBudgetMs: 15000 }),
+          ]);
           expect(calls).toBe(1);
           expect(asks).toBe(0);
           expect((await audit())[0]?.authz?.effect).toBe("allow");
@@ -519,9 +565,13 @@ test("storing parent-gated MCP tools then wrapping again denies without requestA
     };
     parent.registerMcpClient(client);
     const parentGated = mcpClientToAgentTools(client, parent);
-    const doubleWrapped = gateAgentTools(parentGated, workerPermissionGate(parent));
+    const doubleWrapped = gateAgentTools(
+      parentGated,
+      workerPermissionGate(parent),
+    );
     const tool = doubleWrapped[0];
-    if (tool?.kind !== "full") throw new Error("expected full inherited MCP tool");
+    if (tool?.kind !== "full")
+      throw new Error("expected full inherited MCP tool");
     const result = await tool.handler(
       { id: "c1", name: "mcp__probe__mutate", arguments: {} },
       new AbortController().signal,
@@ -550,7 +600,10 @@ test.serial(
           return result;
         };
         write();
-        await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+        await Promise.all([
+          runSubAgent(params),
+          harness.run({ wallClockBudgetMs: 15000 }),
+        ]);
         expect(await Bun.file(join(cwd, "probe.txt")).exists()).toBe(true);
         expect(decisions).toBe(1);
         expect(asks).toBe(0);
@@ -585,15 +638,23 @@ test.serial(
       params.permissionGate.authorizeCall = async (call) => {
         await new Promise((resolve) => setTimeout(resolve, 5));
         const identity = getSubAgentIdentity();
-        if (identity === undefined) throw new Error("missing authorization identity");
+        if (identity === undefined)
+          throw new Error("missing authorization identity");
         seen.push(identity.cwd);
         return authorize(call);
       };
       for (const dir of cwds) {
-        const predicate = fromHost(dir.endsWith("first") ? "first.invalid" : "second.invalid");
+        const predicate = fromHost(
+          dir.endsWith("first") ? "first.invalid" : "second.invalid",
+        );
         harness.scenario.replyOnce("openai", {
           predicate,
-          toolCalls: [{ name: "write_file", args: { path: "probe.txt", content: "blocked" } }],
+          toolCalls: [
+            {
+              name: "write_file",
+              args: { path: "probe.txt", content: "blocked" },
+            },
+          ],
         });
         harness.scenario.replyOnce("openai", { predicate, text: report });
       }
@@ -612,7 +673,8 @@ test.serial(
         harness.run({ wallClockBudgetMs: 15000 }),
       ]);
       expect(seen.sort()).toEqual(cwds.sort());
-      for (const dir of cwds) expect(await Bun.file(join(dir, "probe.txt")).exists()).toBe(false);
+      for (const dir of cwds)
+        expect(await Bun.file(join(dir, "probe.txt")).exists()).toBe(false);
     });
   },
   20000,
@@ -622,16 +684,21 @@ test.serial(
   "worker persists inference failures through the agent error collector",
   async () => {
     await withWorker(async ({ harness, auditPath, params }) => {
-      harness.scenario.replyOnce("openai", { text: "unauthorized", responseOpts: { status: 401 } });
+      harness.scenario.replyOnce("openai", {
+        text: "unauthorized",
+        responseOpts: { status: 401 },
+      });
       const results = await Promise.allSettled([
         runSubAgent(params),
         harness.run({ wallClockBudgetMs: 15000 }),
       ]);
       expect(results[0]?.status).toBe("rejected");
       const errors = await loadErrors(auditPath);
-      expect(errors.some((error) => error.source === "inference" && error.statusCode === 401)).toBe(
-        true,
-      );
+      expect(
+        errors.some(
+          (error) => error.source === "inference" && error.statusCode === 401,
+        ),
+      ).toBe(true);
       expect(errors.every((error) => error.sessionId.length > 0)).toBe(true);
     });
   },
@@ -643,8 +710,12 @@ test.serial(
   async () => {
     await withWorker(async ({ cwd, harness, params, audit }) => {
       const sessions = createSubAgentSessionStore();
-      let handles: Parameters<NonNullable<RunSubAgentParams["onAgentReady"]>>[0] | undefined;
-      params.permissionGate.setSeededApprovals([{ tool: "spawn_agent", pattern: "*" }]);
+      let handles:
+        | Parameters<NonNullable<RunSubAgentParams["onAgentReady"]>>[0]
+        | undefined;
+      params.permissionGate.setSeededApprovals([
+        { tool: "spawn_agent", pattern: "*" },
+      ]);
       const parent = fromHost("api.openai.com");
       const child = fromHost("nested.invalid");
       harness.scenario.replyOnce("openai", {
@@ -665,7 +736,10 @@ test.serial(
       harness.scenario.replyOnce("openai", {
         predicate: child,
         toolCalls: [
-          { name: "write_file", args: { path: join(cwd, "probe.txt"), content: "unauthorized" } },
+          {
+            name: "write_file",
+            args: { path: join(cwd, "probe.txt"), content: "unauthorized" },
+          },
         ],
       });
       harness.scenario.replyOnce("openai", { predicate: child, text: report });
@@ -684,14 +758,18 @@ test.serial(
               sessions,
               useWorktree: false,
               getWorkdirBase: () => params.workdirBase,
-              provider: { ...params.provider, baseURL: "https://nested.invalid/v1" },
+              provider: {
+                ...params.provider,
+                baseURL: "https://nested.invalid/v1",
+              },
             },
           }),
           harness.run({ wallClockBudgetMs: 15000 }),
         ]);
         for (
           let i = 0;
-          i < 200 && sessions.list().some((session) => session.finishedAt === undefined);
+          i < 200 &&
+          sessions.list().some((session) => session.finishedAt === undefined);
           i++
         )
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -707,7 +785,9 @@ test.serial(
         const store = await createIsogitStore(auditPath);
         const [sessionId] = await readdir(join(auditPath, "state", "audit"));
         if (sessionId === undefined) throw new Error("missing nested audit");
-        expect((await store.loadAudit(sessionId))[0]?.authz?.effect).toBe("deny");
+        expect((await store.loadAudit(sessionId))[0]?.authz?.effect).toBe(
+          "deny",
+        );
       } finally {
         sessions.cancelAll("test cleanup");
         await handles?.close();
@@ -730,7 +810,10 @@ test.serial(
             {
               middleware: (next) => async (call, signal) => {
                 await mkdir(join(auditPath, "state"), { recursive: true });
-                await writeFile(join(auditPath, "state", "audit"), "block audit commit");
+                await writeFile(
+                  join(auditPath, "state", "audit"),
+                  "block audit commit",
+                );
                 return next(call, signal);
               },
             },
@@ -738,18 +821,23 @@ test.serial(
         }),
         harness.run({ wallClockBudgetMs: 15000 }),
       ]);
-      expect(await Bun.file(join(cwd, "probe.txt")).text()).toBe("unauthorized");
+      expect(await Bun.file(join(cwd, "probe.txt")).text()).toBe(
+        "unauthorized",
+      );
       expect(result[0]?.status).toBe("fulfilled");
       expect(
         (await loadErrors(auditPath)).some(
-          (error) => error.source === "reactor" && error.message.includes("afterCheckpoint failed"),
+          (error) =>
+            error.source === "reactor" &&
+            error.message.includes("afterCheckpoint failed"),
         ),
       ).toBe(true);
       await rm(join(auditPath, "state", "audit"));
       const store = await createIsogitStore(auditPath);
       const errors = await loadErrors(auditPath);
       const session = errors[0]?.sessionId;
-      if (session === undefined) throw new Error("missing storage failure session");
+      if (session === undefined)
+        throw new Error("missing storage failure session");
       expect(await store.loadAudit(session)).toEqual([]);
     });
   },
@@ -782,10 +870,18 @@ for (const mode of [
         async ({ harness, params, audit }) => {
           params.tier = "leaf";
           harness.scenario.replyOnce("openai", {
-            toolCalls: [{ name: "submit_result", args: { turn_token: "stale", result: {} } }],
+            toolCalls: [
+              {
+                name: "submit_result",
+                args: { turn_token: "stale", result: {} },
+              },
+            ],
           });
           harness.scenario.replyOnce("openai", { text: report });
-          await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+          await Promise.all([
+            runSubAgent(params),
+            harness.run({ wallClockBudgetMs: 15000 }),
+          ]);
           expect(asks).toBe(0);
           const record = (await audit())[0];
           expect(record?.tool).toBe("submit_result");
@@ -828,10 +924,15 @@ test.serial(
           cancel: () => undefined,
         };
         harness.scenario.replyOnce("openai", {
-          toolCalls: [{ name: "ask_director", args: { question: "which file?" } }],
+          toolCalls: [
+            { name: "ask_director", args: { question: "which file?" } },
+          ],
         });
         harness.scenario.replyOnce("openai", { text: report });
-        await Promise.all([runSubAgent(params), harness.run({ wallClockBudgetMs: 15000 })]);
+        await Promise.all([
+          runSubAgent(params),
+          harness.run({ wallClockBudgetMs: 15000 }),
+        ]);
         expect(asks).toBe(0);
         expect(registered?.question).toBe("which file?");
         expect((await audit())[0]).toMatchObject({
@@ -864,8 +965,12 @@ test.serial(
     await withWorker(
       async ({ cwd, harness, params, audit }) => {
         const sessions = createSubAgentSessionStore();
-        let handles: Parameters<NonNullable<RunSubAgentParams["onAgentReady"]>>[0] | undefined;
-        params.permissionGate.setSeededApprovals([{ tool: "spawn_agent", pattern: "*" }]);
+        let handles:
+          | Parameters<NonNullable<RunSubAgentParams["onAgentReady"]>>[0]
+          | undefined;
+        params.permissionGate.setSeededApprovals([
+          { tool: "spawn_agent", pattern: "*" },
+        ]);
         const parent = fromHost("api.openai.com");
         const child = fromHost("nested.invalid");
         harness.scenario.replyOnce("openai", {
@@ -886,8 +991,14 @@ test.serial(
           predicate: parent,
           toolCalls: [{ name: "wait_agents", args: { timeout_ms: 8000 } }],
         });
-        harness.scenario.replyOnce("openai", { predicate: parent, text: report });
-        harness.scenario.replyOnce("openai", { predicate: child, text: report });
+        harness.scenario.replyOnce("openai", {
+          predicate: parent,
+          text: report,
+        });
+        harness.scenario.replyOnce("openai", {
+          predicate: child,
+          text: report,
+        });
         try {
           await Promise.all([
             runSubAgent({
@@ -903,7 +1014,10 @@ test.serial(
                 sessions,
                 useWorktree: false,
                 getWorkdirBase: () => params.workdirBase,
-                provider: { ...params.provider, baseURL: "https://nested.invalid/v1" },
+                provider: {
+                  ...params.provider,
+                  baseURL: "https://nested.invalid/v1",
+                },
               },
             }),
             harness.run({ wallClockBudgetMs: 15000 }),
@@ -911,9 +1025,10 @@ test.serial(
           expect(asks).toBe(0);
           expect(sessions.list()).toHaveLength(1);
           const records = await audit();
-          expect(records.find((record) => record.tool === "wait_agents")?.authz?.effect).toBe(
-            "allow",
-          );
+          expect(
+            records.find((record) => record.tool === "wait_agents")?.authz
+              ?.effect,
+          ).toBe("allow");
           expect(await Bun.file(join(cwd, "probe.txt")).exists()).toBe(false);
         } finally {
           sessions.cancelAll("test cleanup");

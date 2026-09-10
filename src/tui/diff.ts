@@ -69,7 +69,9 @@ function requireDiffLine(lines: readonly string[], index: number): string {
 function lcsTable(a: readonly string[], b: readonly string[]): number[][] {
   const n = a.length;
   const m = b.length;
-  const table: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  const table: number[][] = Array.from({ length: n + 1 }, () =>
+    new Array<number>(m + 1).fill(0),
+  );
   for (let i = n - 1; i >= 0; i--) {
     for (let j = m - 1; j >= 0; j--) {
       const row = table[i];
@@ -117,7 +119,10 @@ export function diffLines(oldText: string, newText: string): DiffRow[] {
   return rows;
 }
 
-export function diffStat(oldText: string, newText: string): { added: number; removed: number } {
+export function diffStat(
+  oldText: string,
+  newText: string,
+): { added: number; removed: number } {
   let added = 0;
   let removed = 0;
   for (const row of diffLines(oldText, newText)) {
@@ -155,7 +160,10 @@ function numberRows(rows: readonly DiffRow[]): NumberedRow[] {
 
 // Collapse long unchanged stretches to a few lines of context on each side of a
 // change so a large file write or a wide edit does not bury the actual delta.
-function collapseContext(rows: readonly NumberedRow[], pad: number): NumberedRow[] {
+function collapseContext(
+  rows: readonly NumberedRow[],
+  pad: number,
+): NumberedRow[] {
   const keep = new Array<boolean>(rows.length).fill(false);
   rows.forEach((row, idx) => {
     if (row.kind === "context") return;
@@ -197,7 +205,11 @@ function tokenizeWords(line: string): string[] {
  * the changed tokens, not the whole line. Emits segments for `line` only (the
  * side being rendered); tokens unique to `paired` are skipped on this pass.
  */
-export function wordDiffSegments(line: string, kind: "add" | "del", paired: string): DiffSegment[] {
+export function wordDiffSegments(
+  line: string,
+  kind: "add" | "del",
+  paired: string,
+): DiffSegment[] {
   const self = tokenizeWords(line);
   const other = tokenizeWords(paired);
   const changed = (text: string): DiffSegment => ({
@@ -243,7 +255,10 @@ function sliceSegments(
     const from = Math.max(start, segStart);
     const to = Math.min(end, segEnd);
     if (to > from) {
-      out.push({ ...seg, text: seg.text.slice(from - segStart, to - segStart) });
+      out.push({
+        ...seg,
+        text: seg.text.slice(from - segStart, to - segStart),
+      });
     }
   }
   return out;
@@ -282,9 +297,19 @@ export function renderDiff(
 
   // Right-align both columns to the widest line number that actually appears,
   // so a 3-digit file does not waste columns a 1000-line file would need.
-  const maxOldNum = rows.reduce((max, row) => Math.max(max, row.oldNum ?? 0), 0);
-  const maxNewNum = rows.reduce((max, row) => Math.max(max, row.newNum ?? 0), 0);
-  const numWidth = Math.max(1, String(maxOldNum).length, String(maxNewNum).length);
+  const maxOldNum = rows.reduce(
+    (max, row) => Math.max(max, row.oldNum ?? 0),
+    0,
+  );
+  const maxNewNum = rows.reduce(
+    (max, row) => Math.max(max, row.newNum ?? 0),
+    0,
+  );
+  const numWidth = Math.max(
+    1,
+    String(maxOldNum).length,
+    String(maxNewNum).length,
+  );
   const numColWidth = showNumbers ? numWidth * 2 + 2 : 0; // "<old> <new> "
 
   const lines: DiffLine[] = [];
@@ -307,11 +332,16 @@ export function renderDiff(
           : undefined;
     const segFg = rowColor(row.kind);
     const bodySegs: DiffSegment[] =
-      (row.kind === "add" || row.kind === "del") && paired !== undefined && paired !== row.text
+      (row.kind === "add" || row.kind === "del") &&
+      paired !== undefined &&
+      paired !== row.text
         ? wordDiffSegments(row.text, row.kind, paired)
         : [{ text: row.text, fg: segFg }];
 
-    const ranges = row.text.length === 0 ? [{ start: 0, end: 0 }] : wrapRanges(row.text, bodyWidth);
+    const ranges =
+      row.text.length === 0
+        ? [{ start: 0, end: 0 }]
+        : wrapRanges(row.text, bodyWidth);
     for (let idx = 0; idx < ranges.length; idx++) {
       const range = ranges[idx];
       if (range == null) throw new Error("diff wrap range missing");
@@ -357,7 +387,10 @@ export function isEditToolName(toolName: string): boolean {
  * and the whole file reads as an addition. Returns null for any other tool or
  * unparseable arguments.
  */
-export function editDiffFromArgs(toolName: string, rawArgs: string): EditDiffSource | null {
+export function editDiffFromArgs(
+  toolName: string,
+  rawArgs: string,
+): EditDiffSource | null {
   if (!isEditToolName(toolName)) return null;
   let parsed: EditArgs;
   try {
@@ -374,7 +407,10 @@ export function editDiffFromArgs(toolName: string, rawArgs: string): EditDiffSou
       ...(path !== undefined ? { path } : {}),
     };
   }
-  if (typeof parsed.old_string !== "string" || typeof parsed.new_string !== "string") {
+  if (
+    typeof parsed.old_string !== "string" ||
+    typeof parsed.new_string !== "string"
+  ) {
     return null;
   }
   return {
@@ -432,7 +468,9 @@ export function editDiffView(
 
 /** Uncoloured diff body, for the clipboard. */
 export function diffPlainText(view: DiffView): string {
-  return view.lines.map((line) => line.map((segment) => segment.text).join("")).join("\n");
+  return view.lines
+    .map((line) => line.map((segment) => segment.text).join(""))
+    .join("\n");
 }
 
 export interface ToolCallRowInput {
@@ -466,7 +504,8 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
           .join(" ")
       : input.name;
   const call = args.length > 0 ? describeToolCall(input.name, args) : null;
-  const summarised = diff === null && args.length > 0 ? toolArgsView(input.name, args) : null;
+  const summarised =
+    diff === null && args.length > 0 ? toolArgsView(input.name, args) : null;
   // `summarised` (view/JSON-aware) wins when it has an opinion — it is what the
   // existing collapse mechanism already renders for a view spec or a wide
   // argument object. `call.summary` only fills the gap it leaves: a short
@@ -487,7 +526,11 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
   // `undefined` makes the paint layer fall through to raw argument JSON
   // (CL-5762). An empty string is fine: the verb alone names the call.
   const paintSummary =
-    summary !== undefined ? summary : call !== null || summarised !== null ? "" : undefined;
+    summary !== undefined
+      ? summary
+      : call !== null || summarised !== null
+        ? ""
+        : undefined;
   return {
     role: "tool",
     text,

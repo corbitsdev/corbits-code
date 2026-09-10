@@ -17,7 +17,14 @@ describe("mergeMcpSurfaceEntries", () => {
 
   test("configured disabled wins over leftover disconnected and never paints disconnected", () => {
     const rows = mergeMcpSurfaceEntries(
-      [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp", enabled: false }],
+      [
+        {
+          name: "linear",
+          type: "http",
+          url: "https://mcp.linear.app/mcp",
+          enabled: false,
+        },
+      ],
       live([{ name: "linear", state: "disconnected" }]),
     );
     expect(rows.map((row) => row.state)).not.toContain("disconnected");
@@ -52,9 +59,9 @@ describe("mergeMcpSurfaceEntries", () => {
   });
 
   test("an Exa preset is builtin; a custom exa transport is not", () => {
-    expect(mergeMcpSurfaceEntries([{ name: "exa", enabled: false }], live([]))).toEqual([
-      { name: "exa", state: "disabled", builtin: true },
-    ]);
+    expect(
+      mergeMcpSurfaceEntries([{ name: "exa", enabled: false }], live([])),
+    ).toEqual([{ name: "exa", state: "disabled", builtin: true }]);
     expect(
       mergeMcpSurfaceEntries(
         [{ name: "exa", type: "http", url: "https://custom.example/mcp" }],
@@ -65,9 +72,13 @@ describe("mergeMcpSurfaceEntries", () => {
 
   test("live builtin Exa config marks the implicit row builtin", () => {
     expect(
-      mergeMcpSurfaceEntries([], live([{ name: "exa", state: "connected", tools: ["s"] }]), [
-        createExaMCPServerConfig(),
-      ]),
-    ).toEqual([{ name: "exa", state: "connected", toolCount: 1, builtin: true }]);
+      mergeMcpSurfaceEntries(
+        [],
+        live([{ name: "exa", state: "connected", tools: ["s"] }]),
+        [createExaMCPServerConfig()],
+      ),
+    ).toEqual([
+      { name: "exa", state: "connected", toolCount: 1, builtin: true },
+    ]);
   });
 });

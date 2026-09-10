@@ -1,4 +1,8 @@
-import { createAuthStore, type AuthProfile, type BaseTokens } from "../oauth/store.js";
+import {
+  createAuthStore,
+  type AuthProfile,
+  type BaseTokens,
+} from "../oauth/store.js";
 
 export type XaiTokens = BaseTokens & {
   idToken?: string;

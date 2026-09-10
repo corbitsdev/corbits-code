@@ -10,11 +10,20 @@ import { COMMAND_NAME, LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "workflows", "state"]);
 
-const STEP_STATUSES: StepStatus[] = ["pending", "active", "completed", "skipped"];
+const STEP_STATUSES: StepStatus[] = [
+  "pending",
+  "active",
+  "completed",
+  "skipped",
+];
 
 const writeChains = new Map<string, Promise<void>>();
 
-function workflowStatePath(cwd: string, sessionId: string, home?: string): string {
+function workflowStatePath(
+  cwd: string,
+  sessionId: string,
+  home?: string,
+): string {
   return join(sessionDir(cwd, sessionId, home), "workflow.json");
 }
 
@@ -27,12 +36,19 @@ function isValidWorkflowState(data: unknown): data is WorkflowState {
     if (typeof frame !== "object" || frame === null) return false;
     const f = frame as Record<string, unknown>;
     if (typeof f.workflow !== "string") return false;
-    if (typeof f.stepIndex !== "number" || !Number.isInteger(f.stepIndex) || f.stepIndex < 0) {
+    if (
+      typeof f.stepIndex !== "number" ||
+      !Number.isInteger(f.stepIndex) ||
+      f.stepIndex < 0
+    ) {
       return false;
     }
     if (!Array.isArray(f.statuses)) return false;
     for (const status of f.statuses) {
-      if (typeof status !== "string" || !STEP_STATUSES.includes(status as StepStatus)) {
+      if (
+        typeof status !== "string" ||
+        !STEP_STATUSES.includes(status as StepStatus)
+      ) {
         return false;
       }
     }
@@ -41,7 +57,10 @@ function isValidWorkflowState(data: unknown): data is WorkflowState {
 }
 
 /** Surface a failed workflow.json write instead of dropping it silently. */
-export function warnWorkflowPersistenceFailure(path: string, reason: string): void {
+export function warnWorkflowPersistenceFailure(
+  path: string,
+  reason: string,
+): void {
   process.stderr.write(
     `${COMMAND_NAME}: failed to persist workflow state at ${path} (${reason})\n`,
   );
@@ -85,13 +104,19 @@ export async function loadWorkflowState(
     const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw);
     if (!isValidWorkflowState(parsed)) {
-      log.warn("unreadable workflow state at {path}: {reason}", { path, reason: "invalid shape" });
+      log.warn("unreadable workflow state at {path}: {reason}", {
+        path,
+        reason: "invalid shape",
+      });
       return null;
     }
     return parsed;
   } catch (err) {
     if (err instanceof SyntaxError) {
-      log.warn("unreadable workflow state at {path}: {reason}", { path, reason: "corrupt JSON" });
+      log.warn("unreadable workflow state at {path}: {reason}", {
+        path,
+        reason: "corrupt JSON",
+      });
       return null;
     }
     if (

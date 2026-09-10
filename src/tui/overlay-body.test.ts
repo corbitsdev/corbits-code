@@ -21,9 +21,11 @@ const WIDTHS = [72, 60, 48, 40, 24] as const;
 const SENTENCE =
   "The agent wants to run a destructive command on the working tree and this cannot be undone";
 
-const LONG_PATH = "/Users/someone/abklabs/corbits-code/src/tui/geometry/margins.ts";
+const LONG_PATH =
+  "/Users/someone/abklabs/corbits-code/src/tui/geometry/margins.ts";
 
-const LONG_URL = "https://registry.internal.example.com/artifactory/api/npm/npm-virtual/package";
+const LONG_URL =
+  "https://registry.internal.example.com/artifactory/api/npm/npm-virtual/package";
 
 describe("wrapWords", () => {
   for (const width of WIDTHS) {
@@ -44,7 +46,8 @@ describe("wrapWords", () => {
     const lines = wrapWords(LONG_PATH, 30);
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(30);
     expect(lines.length).toBeGreaterThan(1);
-    for (const line of lines.slice(0, -1)) expect(line.endsWith("/")).toBe(true);
+    for (const line of lines.slice(0, -1))
+      expect(line.endsWith("/")).toBe(true);
     expect(lines.join("")).toBe(LONG_PATH);
   });
 
@@ -65,7 +68,8 @@ describe("wrapWords", () => {
     const lines = wrapWords("    alpha beta gamma delta", 14);
     expect(lines[0]).toBe("    alpha beta");
     expect(lines.length).toBeGreaterThan(1);
-    for (const line of lines.slice(1)) expect(line.startsWith("    ")).toBe(true);
+    for (const line of lines.slice(1))
+      expect(line.startsWith("    ")).toBe(true);
   });
 
   test("blank input yields a single blank row", () => {
@@ -120,7 +124,9 @@ describe("composeDecisionBody", () => {
     ].join("\n");
     const rows = composeDecisionBody(long, 60, 8);
     const texts = rows.map((r) => r.text);
-    expect(texts.some((t) => t.includes("more lines · full text in transcript"))).toBe(true);
+    expect(
+      texts.some((t) => t.includes("more lines · full text in transcript")),
+    ).toBe(true);
     expect(texts).toContain("e expand 2 collapsed payloads");
     // header + air + 8 context rows + air
     expect(rows.length).toBe(11);
@@ -167,7 +173,9 @@ describe("decision overlay paints at narrow widths", () => {
       // Every row the host paints starts with a leading space; a row butting
       // straight against the border is the signature of a wrapped title or a
       // body line that outgrew the box.
-      const bottom = lines.findIndex((l, i) => i > top && l.trimStart().startsWith("└"));
+      const bottom = lines.findIndex(
+        (l, i) => i > top && l.trimStart().startsWith("└"),
+      );
       for (const line of lines.slice(top + 1, bottom)) {
         expect(/│\S/.test(line)).toBe(false);
       }
@@ -182,7 +190,10 @@ describe("decision overlay paints at narrow widths", () => {
       // a width one — reachability under clipping is overlay-overflow's file.
       expect(interior).toContain("Reject");
       const choiceLines = lines.filter(
-        (l) => l.includes("Reject") || l.includes("Accept once") || l.includes("Always allow"),
+        (l) =>
+          l.includes("Reject") ||
+          l.includes("Accept once") ||
+          l.includes("Always allow"),
       );
       expect(choiceLines.length).toBeGreaterThan(0);
       for (const line of choiceLines) {
@@ -196,7 +207,10 @@ describe("decision overlay paints at narrow widths", () => {
 describe("describeZoneLines", () => {
   test("fills the two-line budget with what, then impact", () => {
     const { lines, fgs } = describeZoneLines(
-      { what: "compaction trims the transcript.", impact: "summarize costs a model call." },
+      {
+        what: "compaction trims the transcript.",
+        impact: "summarize costs a model call.",
+      },
       60,
     );
     expect(lines).toHaveLength(2);
@@ -208,7 +222,11 @@ describe("describeZoneLines", () => {
 
   test("consequence tone paints the impact line in UI.warning", () => {
     const { fgs } = describeZoneLines(
-      { what: "sub-agent cap.", impact: "raising it spends more tokens.", tone: "consequence" },
+      {
+        what: "sub-agent cap.",
+        impact: "raising it spends more tokens.",
+        tone: "consequence",
+      },
       60,
     );
     expect(fgs[1]).toBe(UI.warning);
@@ -278,12 +296,18 @@ describe("decisionContextBudget", () => {
 
 describe("overlayChoiceText", () => {
   test("quotes a plain list item as-is", () => {
-    expect(overlayChoiceText("  Accept once  ", undefined, undefined)).toBe("Chose Accept once.");
+    expect(overlayChoiceText("  Accept once  ", undefined, undefined)).toBe(
+      "Chose Accept once.",
+    );
   });
 
   test("echoes a settings field from id and value, not the painted label", () => {
-    expect(overlayChoiceText("‹on› off", "auto-compact", "on")).toBe("Set auto compact to on.");
-    expect(overlayChoiceText("label", undefined, "on")).toBe("Set setting to on.");
+    expect(overlayChoiceText("‹on› off", "auto-compact", "on")).toBe(
+      "Set auto compact to on.",
+    );
+    expect(overlayChoiceText("label", undefined, "on")).toBe(
+      "Set setting to on.",
+    );
   });
 });
 

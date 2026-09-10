@@ -45,7 +45,10 @@ afterAll(() => {
 /** Open a turn, and forget every row before it. */
 function prompt(text: string): void {
   mark = shell.streamLog.length;
-  bridge.handle({ type: "message.received", data: { message: { content: text } } });
+  bridge.handle({
+    type: "message.received",
+    data: { message: { content: text } },
+  });
 }
 
 /** Rows this turn appended. */
@@ -97,7 +100,9 @@ describe("a turn's reasoning", () => {
     bridge.handle(call("web_fetch", "c2"));
     bridge.handle(done("c2"));
 
-    const kinds = rows().map((row) => (isThinkingRow(row) ? "think" : row.role));
+    const kinds = rows().map((row) =>
+      isThinkingRow(row) ? "think" : row.role,
+    );
     expect(kinds).toEqual(["user", "think", "tool", "tool"]);
   });
 
@@ -119,7 +124,10 @@ describe("a turn's reasoning", () => {
     prompt("one");
     bridge.handle(think("thinking about one"));
     bridge.handle({ type: "inference.text.delta", data: { token: "a" } });
-    bridge.handle({ type: "message.received", data: { message: { content: "two" } } });
+    bridge.handle({
+      type: "message.received",
+      data: { message: { content: "two" } },
+    });
     bridge.handle(think("thinking about two"));
 
     expect(thinking()).toHaveLength(2);
@@ -130,6 +138,8 @@ describe("a turn's reasoning", () => {
     const you: StreamRow = { role: "user", text: "go" };
     const thought: StreamRow = { role: "system", text: "…", meta: "thinking" };
     const agent: StreamRow = { role: "assistant", text: "done" };
-    expect(rowGroupGap(you, thought) + rowGroupGap(thought, agent)).toBe(rowGroupGap(you, agent));
+    expect(rowGroupGap(you, thought) + rowGroupGap(thought, agent)).toBe(
+      rowGroupGap(you, agent),
+    );
   });
 });

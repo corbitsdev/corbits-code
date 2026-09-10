@@ -13,8 +13,15 @@ import {
   resolveExecDirectorOverlay,
   runExec,
 } from "../../../src/exec/runner.js";
-import { BUILD_TOOLS, SKYWALKER_TOOLS } from "../../../src/agent/directors/tool-sets.js";
-import { clearActiveRun, getActiveRun, setActiveRun } from "../../../src/session/active-run.js";
+import {
+  BUILD_TOOLS,
+  SKYWALKER_TOOLS,
+} from "../../../src/agent/directors/tool-sets.js";
+import {
+  clearActiveRun,
+  getActiveRun,
+  setActiveRun,
+} from "../../../src/session/active-run.js";
 import { getActiveDisposeHost } from "../../../src/session/active-host.js";
 import { loadState, type RunState } from "../../../src/session/state.js";
 import type { AgentToolset } from "../../../src/agent/tools.js";
@@ -50,9 +57,13 @@ describe("formatCaughtError", () => {
 
 describe("selected provider refresh failures", () => {
   test("a non-provider failure remains distinct after inference has run", () => {
-    expect(execUserFailureMessage(bareConfig("hello"), new Error("disk full"), false)).toBe(
-      "disk full",
-    );
+    expect(
+      execUserFailureMessage(
+        bareConfig("hello"),
+        new Error("disk full"),
+        false,
+      ),
+    ).toBe("disk full");
   });
 
   test("pre-inference OAuth failure keeps diagnostics internal and returns safe copy", async () => {
@@ -64,7 +75,9 @@ describe("selected provider refresh failures", () => {
     const rawDiagnostic = '401 {"error":"refresh token rejected"}';
 
     try {
-      await refreshSelectedProviderCredential(() => Promise.reject(new Error(rawDiagnostic)));
+      await refreshSelectedProviderCredential(() =>
+        Promise.reject(new Error(rawDiagnostic)),
+      );
       throw new Error("expected refresh to fail");
     } catch (err) {
       expect(formatCaughtError(err)).toBe(rawDiagnostic);
@@ -116,8 +129,13 @@ describe("runExec", () => {
     clearActiveRun();
     const stderrChunks: string[] = [];
     const origWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-      stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    process.stderr.write = ((
+      chunk: string | Uint8Array,
+      ...rest: unknown[]
+    ) => {
+      stderrChunks.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
       return origWrite(chunk as never, ...(rest as never[]));
     }) as typeof process.stderr.write;
 
@@ -126,7 +144,9 @@ describe("runExec", () => {
       expect(result.exitCode).toBe(2);
       expect(result.status).toBe("failed");
       expect(result.error).toMatch(/missing prompt|empty prompt/i);
-      expect(stderrChunks.join("")).toMatch(/missing prompt|empty prompt|Usage: corbits exec/i);
+      expect(stderrChunks.join("")).toMatch(
+        /missing prompt|empty prompt|Usage: corbits exec/i,
+      );
       expect(getActiveRun()).toBeNull();
     } finally {
       process.stderr.write = origWrite;
@@ -148,12 +168,16 @@ describe("runExec", () => {
         async () => {
           await withMockedModuleDuring(
             import.meta.resolve("../../../src/session/assemble-runtime.js"),
-            (real: typeof import("../../../src/session/assemble-runtime.js")) => ({
+            (
+              real: typeof import("../../../src/session/assemble-runtime.js"),
+            ) => ({
               ...real,
-              assembleInferenceBase: () => Promise.reject(new Error("bootstrap failed")),
+              assembleInferenceBase: () =>
+                Promise.reject(new Error("bootstrap failed")),
             }),
             async () => {
-              const { runExec: runExecUnderMock } = await import("../../../src/exec/runner.js");
+              const { runExec: runExecUnderMock } =
+                await import("../../../src/exec/runner.js");
               const result = await runExecUnderMock({
                 ...bareConfig("do the thing"),
                 cwd,
@@ -191,7 +215,11 @@ describe("runExec", () => {
     const held = Promise.withResolvers<undefined>();
     let runningSaves = 0;
     let heldRunningSave: Promise<void> | undefined;
-    const dummySource = { id: "test", provider: "test", model: "test" } as InferenceSource;
+    const dummySource = {
+      id: "test",
+      provider: "test",
+      model: "test",
+    } as InferenceSource;
     try {
       await withMockedModuleDuring(
         import.meta.resolve("node:os"),
@@ -210,13 +238,28 @@ describe("runExec", () => {
                 if (snapshot.status === "running") {
                   runningSaves += 1;
                   if (runningSaves === 1) {
-                    return real.saveState(saveCwd, saveSessionId, snapshot, saveHome);
+                    return real.saveState(
+                      saveCwd,
+                      saveSessionId,
+                      snapshot,
+                      saveHome,
+                    );
                   }
-                  const issued = real.saveState(saveCwd, saveSessionId, snapshot, saveHome);
+                  const issued = real.saveState(
+                    saveCwd,
+                    saveSessionId,
+                    snapshot,
+                    saveHome,
+                  );
                   heldRunningSave = issued.then(() => held.promise);
                   return heldRunningSave;
                 }
-                return real.saveState(saveCwd, saveSessionId, snapshot, saveHome);
+                return real.saveState(
+                  saveCwd,
+                  saveSessionId,
+                  snapshot,
+                  saveHome,
+                );
               },
             }),
             async () => {
@@ -231,8 +274,11 @@ describe("runExec", () => {
                 }),
                 async () => {
                   await withMockedModuleDuring(
-                    import.meta.resolve("../../../src/session/assemble-runtime.js"),
-                    (real: typeof import("../../../src/session/assemble-runtime.js")) => ({
+                    import.meta
+                      .resolve("../../../src/session/assemble-runtime.js"),
+                    (
+                      real: typeof import("../../../src/session/assemble-runtime.js"),
+                    ) => ({
                       ...real,
                       resolveLiveSessionSources: () => ({
                         sources: [dummySource],
@@ -298,11 +344,20 @@ describe("runExec", () => {
     const home = mkdtempSync(join(tmpdir(), "corbits-exec-dispose-home-"));
     const sessionId = "exec-dispose-fail";
     let disposeCalls = 0;
-    const dummySource = { id: "test", provider: "test", model: "test" } as InferenceSource;
+    const dummySource = {
+      id: "test",
+      provider: "test",
+      model: "test",
+    } as InferenceSource;
     const stderrChunks: string[] = [];
     const origWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-      stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+    process.stderr.write = ((
+      chunk: string | Uint8Array,
+      ...rest: unknown[]
+    ) => {
+      stderrChunks.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
       return origWrite(chunk as never, ...(rest as never[]));
     }) as typeof process.stderr.write;
     try {
@@ -325,7 +380,9 @@ describe("runExec", () => {
             async () => {
               await withMockedModuleDuring(
                 import.meta.resolve("../../../src/session/assemble-runtime.js"),
-                (real: typeof import("../../../src/session/assemble-runtime.js")) => ({
+                (
+                  real: typeof import("../../../src/session/assemble-runtime.js"),
+                ) => ({
                   ...real,
                   resolveLiveSessionSources: () => ({
                     sources: [dummySource],
@@ -344,7 +401,8 @@ describe("runExec", () => {
                   },
                 }),
                 async () => {
-                  const { runExec: runExecUnderMock } = await import("../../../src/exec/runner.js");
+                  const { runExec: runExecUnderMock } =
+                    await import("../../../src/exec/runner.js");
                   const result = await runExecUnderMock({
                     ...bareConfig("do the thing"),
                     cwd,
@@ -355,8 +413,12 @@ describe("runExec", () => {
                   });
                   expect(result.exitCode).toBe(1);
                   expect(result.status).toBe("failed");
-                  expect(result.error).toMatch(/plugin dispose failed|runtime dispose failed/i);
-                  expect(stderrChunks.join("")).toMatch(/runtime dispose failed/i);
+                  expect(result.error).toMatch(
+                    /plugin dispose failed|runtime dispose failed/i,
+                  );
+                  expect(stderrChunks.join("")).toMatch(
+                    /runtime dispose failed/i,
+                  );
                   expect(disposeCalls).toBe(1);
                   expect(getActiveDisposeHost()).toBeNull();
                 },
@@ -459,7 +521,9 @@ describe("disposeExecRuntime", () => {
         agent: { close: async () => undefined },
         toolset: {
           dispose: async () => {
-            throw new Error("1 shell child process still live after 2000ms reap");
+            throw new Error(
+              "1 shell child process still live after 2000ms reap",
+            );
           },
         },
         subAgentSessions: null,
@@ -496,7 +560,9 @@ describe("disposeExecRuntime", () => {
     expect(result.kind).toBe("rejected");
     if (result.kind !== "rejected") throw new Error("expected leftover reject");
     expect(result.err).toBeInstanceOf(Error);
-    expect((result.err as Error).message).toMatch(/still live after 2000ms reap/);
+    expect((result.err as Error).message).toMatch(
+      /still live after 2000ms reap/,
+    );
   });
 
   test("rejects when toolset dispose fails", async () => {
@@ -528,7 +594,12 @@ describe("disposeExecRuntime", () => {
     });
 
     // Posix/toolset first so a hung close cannot skip reap; then cancel, then close.
-    expect(calls).toEqual(["toolset", "cancel:first", "cancel:second", "agent"]);
+    expect(calls).toEqual([
+      "toolset",
+      "cancel:first",
+      "cancel:second",
+      "agent",
+    ]);
     expect(store.get(first.id)?.status).toBe("cancelled");
     expect(store.get(second.id)?.status).toBe("cancelled");
     expect(store.get(first.id)?.stopReason).toBe("cancelled — Session closed");
@@ -563,7 +634,9 @@ describe("resolveExecDirectorOverlay", () => {
     expect(overlay.advertisedAllow).toBeDefined();
     expect(overlay.advertisedAllow).toEqual([...BUILD_TOOLS]);
     const buildToolSet = new Set<string>(BUILD_TOOLS);
-    const fleetVerbs = SKYWALKER_TOOLS.filter((name) => !buildToolSet.has(name));
+    const fleetVerbs = SKYWALKER_TOOLS.filter(
+      (name) => !buildToolSet.has(name),
+    );
     expect(fleetVerbs.length).toBeGreaterThan(0);
     for (const verb of fleetVerbs) {
       expect(overlay.advertisedAllow).not.toContain(verb);
@@ -574,8 +647,12 @@ describe("resolveExecDirectorOverlay", () => {
   test("skywalker default still can mount fleet", () => {
     expect(resolveExecDirectorOverlay(undefined).mountFleet).toBe(true);
     expect(resolveExecDirectorOverlay(undefined).systemPrompt).toBeUndefined();
-    expect(resolveExecDirectorOverlay(undefined).advertisedAllow).toBeUndefined();
+    expect(
+      resolveExecDirectorOverlay(undefined).advertisedAllow,
+    ).toBeUndefined();
     expect(resolveExecDirectorOverlay("skywalker").mountFleet).toBe(true);
-    expect(resolveExecDirectorOverlay("skywalker").systemPrompt).toBeUndefined();
+    expect(
+      resolveExecDirectorOverlay("skywalker").systemPrompt,
+    ).toBeUndefined();
   });
 });

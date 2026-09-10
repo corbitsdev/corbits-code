@@ -35,7 +35,10 @@ import {
 import { mcpClientTools } from "../mcp/plugin.js";
 import { parseMcpToolName } from "../mcp/tool-name.js";
 import { gateAgentTools } from "../plugins/permission-plugin.js";
-import { createDynamicToolRunner, type DynamicToolRunner } from "../tui/dynamic-tool-runner.js";
+import {
+  createDynamicToolRunner,
+  type DynamicToolRunner,
+} from "../tui/dynamic-tool-runner.js";
 import type { MCPServerConfig, Settings } from "../config/settings.js";
 import {
   filterMcpServersForConnect,
@@ -45,7 +48,10 @@ import {
 import type { ToolWatchdogConfig } from "../tui/tool-execution-watchdog.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
-import { advertisedToolNamesForSessionMode, type ToolAvailability } from "./tool-search.js";
+import {
+  advertisedToolNamesForSessionMode,
+  type ToolAvailability,
+} from "./tool-search.js";
 import { discoverSkills, type SkillSummary } from "../extensions/skills.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import type { AgentProfile } from "./profiles.js";
@@ -79,8 +85,14 @@ import {
   type BackgroundShellExit,
 } from "../shell/background-shell.js";
 import { createListDirTool } from "../util/list-dir.js";
-import { createExaMCPWebFetchTool, createWebFetchTool } from "../tools/web-fetch.js";
-import { createWebSearchTool, disposeWebSearchClients } from "../tools/web-search.js";
+import {
+  createExaMCPWebFetchTool,
+  createWebFetchTool,
+} from "../tools/web-fetch.js";
+import {
+  createWebSearchTool,
+  disposeWebSearchClients,
+} from "../tools/web-search.js";
 import { createUseSkillTool } from "./use-skill.js";
 import { createSkillSearchTool } from "./skill-search.js";
 import { createToolIndex, createToolSearchTool } from "./tool-search.js";
@@ -121,12 +133,17 @@ const SubmitOutputArgs = type({
 // dismiss the question without answering. The gate owns this distinction so the
 // tool layer can translate each outcome into the right tool result.
 export type OperatorResult =
-  { kind: "option"; index: number } | { kind: "custom"; text: string } | { kind: "cancel" };
+  | { kind: "option"; index: number }
+  | { kind: "custom"; text: string }
+  | { kind: "cancel" };
 
 export interface AgentToolsetArgs {
   cwd: string;
   permissionGate: PermissionGate;
-  onOperatorGate: (question: string, options: string[]) => Promise<OperatorResult>;
+  onOperatorGate: (
+    question: string,
+    options: string[],
+  ) => Promise<OperatorResult>;
   mcpServers?: MCPServerConfig[];
   /**
    * Where mcpServers came from. `"local"` requires project trust before spawn;
@@ -209,7 +226,9 @@ export interface AgentToolsetArgs {
     // transcript — child events stay in the store only.
     sessions?: SubAgentSessionStore;
     settings?: Settings | (() => Settings | undefined);
-    catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
+    catalog?:
+      | readonly ProviderCatalogEntry[]
+      | (() => readonly ProviderCatalogEntry[]);
     profiles?: AgentProfile[] | (() => AgentProfile[]);
     // Opt-in: dispatch each sub-agent into its own git worktree instead of
     // sharing this session's cwd. See src/subagent/worktree.ts.
@@ -249,7 +268,10 @@ export interface AgentToolset {
   dynamicRunner: DynamicToolRunner;
   // Connect configured MCP servers in the background. Resolves once every server
   // has either connected or failed; authorization waits are bounded by `signal`.
-  connectMCP: (callbacks: MCPConnectCallbacks, signal?: AbortSignal) => Promise<void>;
+  connectMCP: (
+    callbacks: MCPConnectCallbacks,
+    signal?: AbortSignal,
+  ) => Promise<void>;
   // Connect one newly persisted server through the same lifecycle as startup MCP.
   connectMCPServer: (
     config: MCPServerConfig,
@@ -259,7 +281,10 @@ export interface AgentToolset {
   // Drop a server's tools in the running session. Idempotent for unknown and
   // already-disconnected names. Persist uses hasMCPServer as occupied; this
   // is the live teardown that disable/remove need.
-  disconnectMCPServer: (name: string, callbacks: MCPConnectCallbacks) => Promise<void>;
+  disconnectMCPServer: (
+    name: string,
+    callbacks: MCPConnectCallbacks,
+  ) => Promise<void>;
   // True while this name is connected or a connection is in flight — not after
   // teardown, and not after a failed connect. Persist uses this to block a
   // second add of an active name; failed rows retry through connectMCPServer
@@ -282,7 +307,9 @@ export interface AgentToolset {
   dispose: () => Promise<void>;
 }
 
-export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentToolset> {
+export async function createAgentToolset(
+  args: AgentToolsetArgs,
+): Promise<AgentToolset> {
   const {
     cwd,
     permissionGate,
@@ -316,23 +343,39 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   });
   const shellCollect = createShellCollectTool(backgroundShells);
   const sessionBlobReader =
-    getBlobReader !== undefined ? createLazyBlobReader(getBlobReader) : undefined;
+    getBlobReader !== undefined
+      ? createLazyBlobReader(getBlobReader)
+      : undefined;
   const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
-  const advertisedBuiltIns = advertisedToolNamesForSessionMode(sessionMode, toolAvailability);
+  const advertisedBuiltIns = advertisedToolNamesForSessionMode(
+    sessionMode,
+    toolAvailability,
+  );
   const skills =
-    args.skills !== undefined ? [...args.skills] : await discoverSkills(cwd, skillDirs);
+    args.skills !== undefined
+      ? [...args.skills]
+      : await discoverSkills(cwd, skillDirs);
   let builtinExaEnabled = mcpServers.some(isBuiltinExaMCPServer);
-  let resolveBuiltinExaConnection: ((result: MCPConnectResult) => void) | undefined;
-  let builtinExaConnection: Promise<MCPConnectResult> | undefined = builtinExaEnabled
-    ? new Promise<MCPConnectResult>((resolve) => {
-        resolveBuiltinExaConnection = resolve;
-      })
-    : undefined;
+  let resolveBuiltinExaConnection:
+    | ((result: MCPConnectResult) => void)
+    | undefined;
+  let builtinExaConnection: Promise<MCPConnectResult> | undefined =
+    builtinExaEnabled
+      ? new Promise<MCPConnectResult>((resolve) => {
+          resolveBuiltinExaConnection = resolve;
+        })
+      : undefined;
 
-  const waitForBuiltinExaConnection = async (signal: AbortSignal): Promise<MCPConnectResult> => {
+  const waitForBuiltinExaConnection = async (
+    signal: AbortSignal,
+  ): Promise<MCPConnectResult> => {
     const pending = builtinExaConnection;
     if (pending === undefined) {
-      return { ok: false, serverName: "exa", error: "built-in Exa MCP is not enabled" };
+      return {
+        ok: false,
+        serverName: "exa",
+        error: "built-in Exa MCP is not enabled",
+      };
     }
     if (signal.aborted) {
       return {
@@ -359,12 +402,16 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
 
   const inheritedMcpTools: AgentTool[] = [];
   if (builtinExaEnabled) {
-    inheritedMcpTools.push(createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection }));
+    inheritedMcpTools.push(
+      createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection }),
+    );
   }
 
   const posixTools = createPosixTools({
     cwd,
-    ...(sessionBlobReader !== undefined ? { blobReader: sessionBlobReader } : {}),
+    ...(sessionBlobReader !== undefined
+      ? { blobReader: sessionBlobReader }
+      : {}),
     plugins: buildCorePosixToolPlugins({
       cwd,
       permissionGate,
@@ -389,7 +436,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       new AbortController().signal,
     );
     return {
-      content: typeof result.content === "string" ? result.content : JSON.stringify(result.content),
+      content:
+        typeof result.content === "string"
+          ? result.content
+          : JSON.stringify(result.content),
       ...(result.isError === true ? { isError: true } : {}),
     };
   };
@@ -421,7 +471,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   let fleetRecords: FleetMailboxHandle | undefined;
   if (subAgentsEnabled && args.subAgent !== undefined) {
     const sa = args.subAgent;
-    fleetRecords = sa.sessions !== undefined ? createFleetMailbox(sa.sessions) : undefined;
+    fleetRecords =
+      sa.sessions !== undefined ? createFleetMailbox(sa.sessions) : undefined;
     if (sa.profiles !== undefined) {
       orchestratorTools.push(
         createSearchAgentsTool(() => {
@@ -444,18 +495,23 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       fleetSessionsForDispose = fleetSessions;
       const fleetDeps = {
         permissionGate,
-        inheritMcpTools: (gate: PermissionGate) => gateAgentTools(inheritedMcpTools, gate),
+        inheritMcpTools: (gate: PermissionGate) =>
+          gateAgentTools(inheritedMcpTools, gate),
         ...(shellTimeout !== undefined ? { shellTimeout } : {}),
         ...(shellEnv !== undefined ? { shellEnv } : {}),
         ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
         cwd,
         getWorkdirBase: sa.getWorkdirBase,
         provider: sa.provider,
-        ...(args.getBlobReader !== undefined ? { getBlobReader: args.getBlobReader } : {}),
+        ...(args.getBlobReader !== undefined
+          ? { getBlobReader: args.getBlobReader }
+          : {}),
         run: runSubAgent,
         sessions: fleetSessions,
         fleetRecords,
-        ...(sa.useWorktree !== undefined ? { useWorktree: sa.useWorktree } : {}),
+        ...(sa.useWorktree !== undefined
+          ? { useWorktree: sa.useWorktree }
+          : {}),
         ...(sa.onEvent !== undefined ? { onEvent: sa.onEvent } : {}),
         ...(sa.onProgress !== undefined ? { onProgress: sa.onProgress } : {}),
         ...(sa.settings !== undefined ? { settings: sa.settings } : {}),
@@ -505,7 +561,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
     stringTool({
       definition: askOperatorDefinition,
-      handler: async (rawArgs: Record<string, unknown>, _signal: AbortSignal): Promise<string> => {
+      handler: async (
+        rawArgs: Record<string, unknown>,
+        _signal: AbortSignal,
+      ): Promise<string> => {
         const parsed = AskOperatorArgs(rawArgs);
         if (parsed instanceof type.errors) {
           return "Error: ask_operator requires question (string) and options (array of strings).";
@@ -569,7 +628,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
         const parsed = SubmitOutputArgs(rawArgs);
         const step = parsed instanceof type.errors ? undefined : parsed.step;
-        const summary = parsed instanceof type.errors ? undefined : parsed.summary;
+        const summary =
+          parsed instanceof type.errors ? undefined : parsed.summary;
         const workflowActive = args.isWorkflowActive?.() === true;
         if (workflowActive) {
           if (step === undefined || step.length === 0) {
@@ -577,7 +637,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
           }
           const result = args.completeWorkflowStep?.(step) ?? "not-current";
           if (result === "advanced") {
-            const note = summary !== undefined && summary.length > 0 ? ` (${summary})` : "";
+            const note =
+              summary !== undefined && summary.length > 0
+                ? ` (${summary})`
+                : "";
             return `Workflow step marked complete${note}. Advancing to the next step.`;
           }
           if (result === "already-complete") {
@@ -595,7 +658,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
 
   // tool_search ranks over the live runner (set just below) and promotes matches
   // through a holder the runner wires up once its advertise/reload loop exists.
-  const promoter: { promote: (names: string[]) => void } = { promote: () => undefined };
+  const promoter: { promote: (names: string[]) => void } = {
+    promote: () => undefined,
+  };
   const runnerHolder: { current?: DynamicToolRunner } = {};
   const toolIndex = createToolIndex(
     () => runnerHolder.current?.currentDefinitions() ?? [],
@@ -604,7 +669,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   baseTools.push(
     createToolSearchTool({
       search: (query) => toolIndex.search(query),
-      lookup: (name) => runnerHolder.current?.currentDefinitions().find((d) => d.name === name),
+      lookup: (name) =>
+        runnerHolder.current?.currentDefinitions().find((d) => d.name === name),
       promote: (names) => promoter.promote(names),
     }),
   );
@@ -620,7 +686,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     }),
   );
 
-  const primaryTools = baseTools.filter((tool) => tool.definition.name !== "apply_patch");
+  const primaryTools = baseTools.filter(
+    (tool) => tool.definition.name !== "apply_patch",
+  );
 
   const dynamicRunner = createDynamicToolRunner(primaryTools, toolWatchdog);
   runnerHolder.current = dynamicRunner;
@@ -648,7 +716,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       source: mcpServersSource,
       store: mcpTrustStore,
       cwd,
-      ...(requestMcpTrust !== undefined ? { requestTrust: requestMcpTrust } : {}),
+      ...(requestMcpTrust !== undefined
+        ? { requestTrust: requestMcpTrust }
+        : {}),
     });
     if (mcpServersSource !== "local") return allowed;
     // Remember grants so connectOneMCPServer does not re-prompt after startup TOFU.
@@ -663,7 +733,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
       }
     }
     if (changed) {
-      mcpTrustStore = { ...mcpTrustStore, trustedMcpFingerprints: fingerprints };
+      mcpTrustStore = {
+        ...mcpTrustStore,
+        trustedMcpFingerprints: fingerprints,
+      };
     }
     return allowed;
   };
@@ -676,7 +749,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     return next;
   };
 
-  const enqueueServerOp = (name: string, op: () => Promise<void>): Promise<void> => {
+  const enqueueServerOp = (
+    name: string,
+    op: () => Promise<void>,
+  ): Promise<void> => {
     const previous = serverOpQueues.get(name) ?? Promise.resolve();
     const run = previous.then(op, op);
     const tracked = run.then(
@@ -691,12 +767,18 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
   };
 
   const failBuiltinExaWaiters = (error: string): void => {
-    resolveBuiltinExaConnection?.({ ok: false, serverName: EXA_MCP_SERVER_NAME, error });
+    resolveBuiltinExaConnection?.({
+      ok: false,
+      serverName: EXA_MCP_SERVER_NAME,
+      error,
+    });
     resolveBuiltinExaConnection = undefined;
   };
 
   const replaceInheritedTool = (toolName: string, tool: AgentTool): void => {
-    const index = inheritedMcpTools.findIndex((entry) => entry.definition.name === toolName);
+    const index = inheritedMcpTools.findIndex(
+      (entry) => entry.definition.name === toolName,
+    );
     if (index >= 0) inheritedMcpTools.splice(index, 1);
     inheritedMcpTools.push(tool);
   };
@@ -717,7 +799,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     builtinExaConnection = new Promise<MCPConnectResult>((resolve) => {
       resolveBuiltinExaConnection = resolve;
     });
-    mountWebFetch(createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection }));
+    mountWebFetch(
+      createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection }),
+    );
   };
 
   const dropServerTools = (name: string): void => {
@@ -728,7 +812,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     dynamicRunner.removeTools(names);
     for (let i = inheritedMcpTools.length - 1; i >= 0; i--) {
       const entry = inheritedMcpTools[i];
-      if (entry !== undefined && parseMcpToolName(entry.definition.name)?.server === name) {
+      if (
+        entry !== undefined &&
+        parseMcpToolName(entry.definition.name)?.server === name
+      ) {
         inheritedMcpTools.splice(i, 1);
       }
     }
@@ -752,7 +839,10 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     if (connectedClients.has(config.name)) return Promise.resolve();
     const ownedEpoch = epoch ?? currentEpoch(config.name);
     const existing = inFlightConnections.get(config.name);
-    if (existing !== undefined && inFlightEpochs.get(config.name) === ownedEpoch) {
+    if (
+      existing !== undefined &&
+      inFlightEpochs.get(config.name) === ownedEpoch
+    ) {
       return existing;
     }
     let perServer = serverAborts.get(config.name);
@@ -763,10 +853,15 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     const connectionSignal =
       signal === undefined
         ? AbortSignal.any([mcpAbortController.signal, perServer.signal])
-        : AbortSignal.any([mcpAbortController.signal, perServer.signal, signal]);
+        : AbortSignal.any([
+            mcpAbortController.signal,
+            perServer.signal,
+            signal,
+          ]);
 
     const staleOrDisabled = (): boolean =>
-      disabledNames.has(config.name) || currentEpoch(config.name) !== ownedEpoch;
+      disabledNames.has(config.name) ||
+      currentEpoch(config.name) !== ownedEpoch;
 
     const run = (async () => {
       if (mcpServersSource === "local") {
@@ -816,9 +911,14 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         if (staleOrDisabled()) return;
         const error = err instanceof Error ? err.message : String(err);
         if (isBuiltinExaMCPServer(config)) {
-          resolveBuiltinExaConnection?.({ ok: false, serverName: config.name, error });
+          resolveBuiltinExaConnection?.({
+            ok: false,
+            serverName: config.name,
+            error,
+          });
         }
-        if (!disposed) callbacks.onStatus({ name: config.name, state: "failed", error });
+        if (!disposed)
+          callbacks.onStatus({ name: config.name, state: "failed", error });
         return;
       }
       if (disposed) {
@@ -837,8 +937,13 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         return;
       }
       if (!result.ok) {
-        if (isBuiltinExaMCPServer(config)) resolveBuiltinExaConnection?.(result);
-        callbacks.onStatus({ name: config.name, state: "failed", error: result.error });
+        if (isBuiltinExaMCPServer(config))
+          resolveBuiltinExaConnection?.(result);
+        callbacks.onStatus({
+          name: config.name,
+          state: "failed",
+          error: result.error,
+        });
         return;
       }
 
@@ -851,7 +956,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         const mcpTools = mcpClientTools(result.client, {
           ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
           ...(getContextDir !== undefined ? { getContextDir } : {}),
-          ...(isBuiltinExaMCPServer(config) ? { excludeToolNames: ["web_fetch_exa"] } : {}),
+          ...(isBuiltinExaMCPServer(config)
+            ? { excludeToolNames: ["web_fetch_exa"] }
+            : {}),
         });
         dynamicRunner.addTools(gateAgentTools(mcpTools, permissionGate));
         inheritedMcpTools.push(...mcpTools);
@@ -862,7 +969,11 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         if (staleOrDisabled()) return;
         const error = err instanceof Error ? err.message : String(err);
         if (isBuiltinExaMCPServer(config)) {
-          resolveBuiltinExaConnection?.({ ok: false, serverName: config.name, error });
+          resolveBuiltinExaConnection?.({
+            ok: false,
+            serverName: config.name,
+            error,
+          });
         }
         callbacks.onStatus({ name: config.name, state: "failed", error });
         return;
@@ -937,7 +1048,12 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         serverAborts.set(config.name, new AbortController());
       }
       remountAliasIfNeeded();
-      await connectOneMCPServer(config, callbacks, signal, currentEpoch(config.name));
+      await connectOneMCPServer(
+        config,
+        callbacks,
+        signal,
+        currentEpoch(config.name),
+      );
     });
   };
 
@@ -971,7 +1087,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     if (disposed) return;
     const toConnect = await filterServersForConnect(mcpServers);
     if (disposed) return;
-    await Promise.all(toConnect.map((config) => connectOneMCPServer(config, callbacks, signal)));
+    await Promise.all(
+      toConnect.map((config) => connectOneMCPServer(config, callbacks, signal)),
+    );
     if (disposed) return;
     // Report untrusted local servers as failed (fail closed) so the UI is honest.
     if (mcpServersSource === "local") {
@@ -1022,7 +1140,9 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
         permissionGate.unregisterMcpServer(client.serverName);
       }
       await Promise.all(
-        [...connectedClients.values()].map((client) => client.close().catch(() => undefined)),
+        [...connectedClients.values()].map((client) =>
+          client.close().catch(() => undefined),
+        ),
       );
       connectedClients.clear();
       await disposeWebSearchClients();
@@ -1036,7 +1156,8 @@ export async function createAgentToolset(args: AgentToolsetArgs): Promise<AgentT
     connectMCP,
     connectMCPServer: publicConnectMCPServer,
     disconnectMCPServer: publicDisconnectMCPServer,
-    hasMCPServer: (name) => connectedClients.has(name) || inFlightConnections.has(name),
+    hasMCPServer: (name) =>
+      connectedClients.has(name) || inFlightConnections.has(name),
     setMcpServersSource: (source) => {
       mcpServersSource = source;
     },

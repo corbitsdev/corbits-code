@@ -46,7 +46,10 @@ export function writeClipboard(
   };
   try {
     const result = port.writeText(text);
-    if (result != null && typeof (result as PromiseLike<void>).then === "function") {
+    if (
+      result != null &&
+      typeof (result as PromiseLike<void>).then === "function"
+    ) {
       void Promise.resolve(result).then(handlers.onSuccess, fail);
       return;
     }
@@ -98,7 +101,9 @@ export function classifyCopy(row: StreamRow): CopyKind {
 export function copyRowLabel(row: StreamRow): string {
   const kind = classifyCopy(row);
   if (kind === "tool") {
-    return row.meta && row.meta.length > 0 ? `${row.meta} output` : "tool output";
+    return row.meta && row.meta.length > 0
+      ? `${row.meta} output`
+      : "tool output";
   }
   if (kind === "diff") return "edit diff";
   if (row.role === "user") return "your message";
@@ -125,7 +130,8 @@ export function formatCopyText(row: StreamRow): CopyPayload {
     default:
       text = row.text;
   }
-  const preview = text.length > 48 ? `${text.slice(0, 45).replace(/\s+/g, " ")}…` : text;
+  const preview =
+    text.length > 48 ? `${text.slice(0, 45).replace(/\s+/g, " ")}…` : text;
   return {
     kind,
     text,
@@ -176,7 +182,10 @@ export function copyStreamRow(
 }
 
 /** Pick the row to copy: explicit index, else last non-system, else last. */
-export function pickCopyRow(log: readonly StreamRow[], activeIndex?: number): StreamRow | null {
+export function pickCopyRow(
+  log: readonly StreamRow[],
+  activeIndex?: number,
+): StreamRow | null {
   if (log.length === 0) return null;
   if (activeIndex !== undefined) {
     const i = Math.max(0, Math.min(log.length - 1, Math.floor(activeIndex)));

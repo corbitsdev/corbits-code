@@ -30,7 +30,10 @@ export interface ShouldAbortForStallArgs {
  * and the abort so they never disagree about which runs are stalled — only
  * about how long they have been.
  */
-function silentPastThreshold(args: ShouldAbortForStallArgs, thresholdMs: number): boolean {
+function silentPastThreshold(
+  args: ShouldAbortForStallArgs,
+  thresholdMs: number,
+): boolean {
   if (args.status !== "running") return false;
   if (args.nowMs - args.lastActivityAt < thresholdMs) return false;
   // A parallel fan-out flips `awaitingResponse` true the moment any one
@@ -39,7 +42,11 @@ function silentPastThreshold(args: ShouldAbortForStallArgs, thresholdMs: number)
   if (args.awaitingResponse && args.activeToolCalls.length === 0) return true;
   // Mid-stream hang: model stream stalled after first token. Long in-flight
   // tool runs do not emit parent stream events; do not abort those.
-  return args.isProcessing && args.streamingType !== null && args.streamingType !== "tool";
+  return (
+    args.isProcessing &&
+    args.streamingType !== null &&
+    args.streamingType !== "tool"
+  );
 }
 
 /**
@@ -116,9 +123,11 @@ export function isStalledForDisplay(args: ShouldNoticeStallArgs): boolean {
  * flowing — a model looping on repeated content is still producing output,
  * so it is reported by `repetitionRecoveryMessage` instead, not this one.
  */
-export const STALL_NOTICE_MESSAGE = "no response for a while — ctrl+c to interrupt";
+export const STALL_NOTICE_MESSAGE =
+  "no response for a while — ctrl+c to interrupt";
 
-export const STALL_RECOVERY_MESSAGE = "stopped after no response — send again to retry";
+export const STALL_RECOVERY_MESSAGE =
+  "stopped after no response — send again to retry";
 
 /**
  * Shown once a repeated line aborts the turn. Named as degeneration, not a

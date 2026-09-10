@@ -17,10 +17,22 @@ export const OPENCODE_GO_MODELS = [
   { id: "glm-5.2", name: "GLM-5.2", protocol: "chat-completions" },
   { id: "glm-5.1", name: "GLM-5.1", protocol: "chat-completions" },
   { id: "kimi-k3", name: "Kimi K3", protocol: "chat-completions" },
-  { id: "kimi-k2.7-code", name: "Kimi K2.7 Code", protocol: "chat-completions" },
+  {
+    id: "kimi-k2.7-code",
+    name: "Kimi K2.7 Code",
+    protocol: "chat-completions",
+  },
   { id: "kimi-k2.6", name: "Kimi K2.6", protocol: "chat-completions" },
-  { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", protocol: "chat-completions" },
-  { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", protocol: "chat-completions" },
+  {
+    id: "deepseek-v4-pro",
+    name: "DeepSeek V4 Pro",
+    protocol: "chat-completions",
+  },
+  {
+    id: "deepseek-v4-flash",
+    name: "DeepSeek V4 Flash",
+    protocol: "chat-completions",
+  },
   { id: "mimo-v2.5", name: "MiMo-V2.5", protocol: "chat-completions" },
   { id: "mimo-v2.5-pro", name: "MiMo-V2.5-Pro", protocol: "chat-completions" },
   { id: "minimax-m3", name: "MiniMax M3", protocol: "messages" },
@@ -35,7 +47,9 @@ export const OPENCODE_GO_MODELS = [
 
 export type GoModelId = (typeof OPENCODE_GO_MODELS)[number]["id"];
 
-export const OPENCODE_GO_MODEL_IDS: readonly string[] = OPENCODE_GO_MODELS.map((m) => m.id);
+export const OPENCODE_GO_MODEL_IDS: readonly string[] = OPENCODE_GO_MODELS.map(
+  (m) => m.id,
+);
 
 export const OPENCODE_GO_DEFAULT_MODEL: GoModelId = "kimi-k2.7-code";
 

@@ -21,7 +21,10 @@ export interface AskDirectorInput {
 }
 
 export interface AskDirectorPort {
-  register: (input: { question: string; questionId: string }) => Promise<string>;
+  register: (input: {
+    question: string;
+    questionId: string;
+  }) => Promise<string>;
   cancel: (reason: string) => void;
 }
 
@@ -32,11 +35,17 @@ export function evaluateAskDirector(input: AskDirectorInput): {
   question?: string;
 } {
   if (typeof input.question !== "string") {
-    return { ok: false, message: "Error: ask_director requires question (string)." };
+    return {
+      ok: false,
+      message: "Error: ask_director requires question (string).",
+    };
   }
   const question = input.question.trim();
   if (question.length === 0) {
-    return { ok: false, message: "Error: ask_director requires a non-empty question." };
+    return {
+      ok: false,
+      message: "Error: ask_director requires a non-empty question.",
+    };
   }
   const bytes = new TextEncoder().encode(question).byteLength;
   if (bytes > ASK_DIRECTOR_MAX_BYTES) {
@@ -97,7 +106,10 @@ export async function handleAskDirector(args: {
   port: AskDirectorPort;
   signal: AbortSignal;
 }): Promise<string> {
-  const outcome = evaluateAskDirector({ question: args.question, state: args.state });
+  const outcome = evaluateAskDirector({
+    question: args.question,
+    state: args.state,
+  });
   if (!outcome.ok || outcome.question === undefined) return outcome.message;
   try {
     const onAbort = (): void => {
@@ -129,7 +141,8 @@ export async function handleAskDirector(args: {
       return await answerP;
     } catch (cause) {
       if (args.signal.aborted) return "Error: ask_director was cancelled.";
-      const detail = cause instanceof Error ? cause.message : "ask_director cancelled";
+      const detail =
+        cause instanceof Error ? cause.message : "ask_director cancelled";
       return `Error: ${detail}`;
     } finally {
       args.signal.removeEventListener("abort", onAbort);

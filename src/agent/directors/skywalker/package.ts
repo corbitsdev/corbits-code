@@ -171,7 +171,8 @@ export function createSkywalkerSystemPrompt(): string {
 
 export const skywalkerPackage: DirectorPackage = {
   id: "skywalker",
-  primaryIntent: "Orchestrate; DIY tiny/bounded product edits; spawn for substantial work",
+  primaryIntent:
+    "Orchestrate; DIY tiny/bounded product edits; spawn for substantial work",
   outOfLane: [
     "substantial multi-file product work without spawning",
     "docs/design authorship (PRODUCT.md, ARCHITECTURE.md, docs/design/*, brand) except one-line fixes",
@@ -181,7 +182,8 @@ export const skywalkerPackage: DirectorPackage = {
     "diagnostic fleets for why/how/stall questions",
     "searching the repo yourself after a worker stops without finishing",
   ],
-  description: "Primary orchestration director — chains specialists into a workflow",
+  description:
+    "Primary orchestration director — chains specialists into a workflow",
   systemPrompt: SKYWALKER_SYSTEM_PROMPT,
   optionalSkills: ["style", "philosophy", "native-integration", "interview"],
   tools: { allow: SKYWALKER_TOOLS },

@@ -32,7 +32,8 @@ export const OPENAI_SESSION_ID_OPTION = "openaiSessionId";
 export const OPENCODE_SESSION_ID_OPTION = "opencodeSessionId";
 
 type ResponsesInputContentPart =
-  { type: "input_text"; text: string } | { type: "input_image"; image_url: string };
+  | { type: "input_text"; text: string }
+  | { type: "input_image"; image_url: string };
 
 type ResponsesInputItem =
   | {
@@ -44,7 +45,9 @@ type ResponsesInputItem =
   | { type: "function_call_output"; call_id: string; output: string }
   | { type: "reasoning"; summary: never[]; encrypted_content: string };
 
-function toolResultText(block: Extract<ContentBlock, { type: "tool_result" }>): string {
+function toolResultText(
+  block: Extract<ContentBlock, { type: "tool_result" }>,
+): string {
   const parts: string[] = [];
   for (const c of block.content) {
     if (c.type === "text") parts.push(c.text);
@@ -73,7 +76,9 @@ function toResponsesItems(
       role,
       content: hasImage
         ? [...parts]
-        : parts.map((part) => (part.type === "input_text" ? part.text : "")).join(""),
+        : parts
+            .map((part) => (part.type === "input_text" ? part.text : ""))
+            .join(""),
     });
     parts.length = 0;
     hasImage = false;
@@ -129,7 +134,11 @@ function toResponsesItems(
         block.signature,
       );
       if (encryptedContent !== undefined) {
-        items.push({ type: "reasoning", summary: [], encrypted_content: encryptedContent });
+        items.push({
+          type: "reasoning",
+          summary: [],
+          encrypted_content: encryptedContent,
+        });
         suppressOrphanedCalls = false;
       } else {
         suppressOrphanedCalls = true;
@@ -141,7 +150,8 @@ function toResponsesItems(
 }
 
 function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
-  if (options.tools === undefined || options.tools.length === 0) return undefined;
+  if (options.tools === undefined || options.tools.length === 0)
+    return undefined;
   return options.tools.map((t) => ({
     type: "function",
     name: encodeToolName(t.name, RESPONSES_TOOL_NAME_LIMIT),
@@ -150,7 +160,10 @@ function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
   }));
 }
 
-export function optionString(options: InferenceOptions, key: string): string | undefined {
+export function optionString(
+  options: InferenceOptions,
+  key: string,
+): string | undefined {
   const value = options.providerOptions?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -188,7 +201,10 @@ function buildRequest(
     options.systemPrompt !== undefined
       ? { type: "message", role: "system", content: options.systemPrompt }
       : undefined;
-  const input = systemMessage !== undefined ? [systemMessage, ...conversation] : conversation;
+  const input =
+    systemMessage !== undefined
+      ? [systemMessage, ...conversation]
+      : conversation;
   const tools = toResponsesTools(options);
 
   const body: Record<string, unknown> = {
@@ -203,8 +219,10 @@ function buildRequest(
     body["tools"] = tools;
     body["tool_choice"] = "auto";
   }
-  if (options.maxTokens !== undefined) body["max_output_tokens"] = options.maxTokens;
-  if (options.temperature !== undefined) body["temperature"] = options.temperature;
+  if (options.maxTokens !== undefined)
+    body["max_output_tokens"] = options.maxTokens;
+  if (options.temperature !== undefined)
+    body["temperature"] = options.temperature;
   // With store:false this is the only cache-routing signal; keying it to the
   // inference thread's session id keeps every request on the same cache shard.
   const sessionId = optionString(options, OPENAI_SESSION_ID_OPTION);
@@ -217,13 +235,17 @@ function buildRequest(
       "content-type": "application/json",
       accept: "text/event-stream",
       authorization: BEARER_CREDENTIAL_SENTINEL,
-      ...(opencodeSessionId !== undefined ? { "x-opencode-session": opencodeSessionId } : {}),
+      ...(opencodeSessionId !== undefined
+        ? { "x-opencode-session": opencodeSessionId }
+        : {}),
     },
     body: JSON.stringify(body),
   };
 }
 
-export function createOpenAIResponsesAdapter(source: LastCycleSource): ProviderAdapter {
+export function createOpenAIResponsesAdapter(
+  source: LastCycleSource,
+): ProviderAdapter {
   // Re-created per request in buildRequest — see codex-responses-adapter.ts.
   let indexer = createResponsesBlockIndexer();
   return {
@@ -231,7 +253,8 @@ export function createOpenAIResponsesAdapter(source: LastCycleSource): ProviderA
       indexer = createResponsesBlockIndexer();
       return buildRequest(messages, model, options, source.provider);
     },
-    parseResponse: (sseData) => parseResponse(sseData, indexer, source, OPENAI_RESPONSES_PROVIDER),
+    parseResponse: (sseData) =>
+      parseResponse(sseData, indexer, source, OPENAI_RESPONSES_PROVIDER),
     parseJSONResponse,
     isStreamTerminal: isResponsesStreamTerminal,
     extractRetryAfterMs: extractResponsesRetryAfterMs,

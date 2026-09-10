@@ -80,7 +80,9 @@ export const NUMERIC_BEHAVIOR_METRICS = [
 
 export type NumericBehaviorMetric = (typeof NUMERIC_BEHAVIOR_METRICS)[number];
 
-export function isNumericBehaviorMetric(name: string): name is NumericBehaviorMetric {
+export function isNumericBehaviorMetric(
+  name: string,
+): name is NumericBehaviorMetric {
   return (NUMERIC_BEHAVIOR_METRICS as readonly string[]).includes(name);
 }
 
@@ -89,7 +91,10 @@ export function isNumericBehaviorMetric(name: string): name is NumericBehaviorMe
  * improvement (the metric counts a misbehavior); "neutral" metrics are
  * informational and never produce improve/regress verdicts.
  */
-export const BEHAVIOR_METRIC_DIRECTIONS: Record<NumericBehaviorMetric, "lower" | "neutral"> = {
+export const BEHAVIOR_METRIC_DIRECTIONS: Record<
+  NumericBehaviorMetric,
+  "lower" | "neutral"
+> = {
   shellCommandCount: "neutral",
   envAssignmentCommandCount: "lower",
   chainSegmentCount: "neutral",
@@ -192,7 +197,8 @@ export function normalizeToolArguments(args: unknown): string {
 }
 
 function normalizeValue(value: unknown): unknown {
-  if (typeof value === "string") return value.toLowerCase().replace(/\s+/g, " ").trim();
+  if (typeof value === "string")
+    return value.toLowerCase().replace(/\s+/g, " ").trim();
   if (Array.isArray(value)) return value.map(normalizeValue);
   if (typeof value === "object" && value !== null) {
     const entries = Object.entries(value as Record<string, unknown>)
@@ -206,7 +212,9 @@ function normalizeValue(value: unknown): unknown {
 function turnHasText(turn: CapturedTurn): boolean {
   return turn.assistantTurn.content.some(
     (block) =>
-      block.type === "text" && typeof block.text === "string" && block.text.trim().length > 0,
+      block.type === "text" &&
+      typeof block.text === "string" &&
+      block.text.trim().length > 0,
   );
 }
 
@@ -216,7 +224,9 @@ function shellCommandFromArguments(args: unknown): string | null {
   return typeof command === "string" ? command : null;
 }
 
-export function deriveBehaviorMetrics(summary: CapturedRunSummary): BehaviorMetrics {
+export function deriveBehaviorMetrics(
+  summary: CapturedRunSummary,
+): BehaviorMetrics {
   let shellCommandCount = 0;
   let envAssignmentCommandCount = 0;
   let chainSegmentCount = 0;
@@ -240,7 +250,10 @@ export function deriveBehaviorMetrics(summary: CapturedRunSummary): BehaviorMetr
     }
     for (const call of turn.toolCalls) {
       toolCallsByName[call.name] = (toolCallsByName[call.name] ?? 0) + 1;
-      const signature = JSON.stringify([call.name, normalizeToolArguments(call.arguments)]);
+      const signature = JSON.stringify([
+        call.name,
+        normalizeToolArguments(call.arguments),
+      ]);
       if (seenCalls.has(signature)) repeatedSearchCount++;
       else seenCalls.add(signature);
 
@@ -250,7 +263,10 @@ export function deriveBehaviorMetrics(summary: CapturedRunSummary): BehaviorMetr
       shellCommandCount++;
       const segments = splitChainSegments(command);
       chainSegmentCount += segments.length;
-      maxChainSegmentsPerCommand = Math.max(maxChainSegmentsPerCommand, segments.length);
+      maxChainSegmentsPerCommand = Math.max(
+        maxChainSegmentsPerCommand,
+        segments.length,
+      );
       if (segments.some(segmentHasEnvAssignment)) envAssignmentCommandCount++;
       networkCommandCount += segments.filter(segmentIsNetworkCommand).length;
       editViaShellCount += segments.filter(segmentIsShellEdit).length;

@@ -46,9 +46,15 @@ describe("createSubAgentSessionStore", () => {
     const store = createSubAgentSessionStore({ createId: () => "s-2" });
     store.start({ description: "job", agentId: "worker", brief: "do it" });
 
-    store.appendEvent("s-2", event("inference.text.delta", { token: "Hello " }));
+    store.appendEvent(
+      "s-2",
+      event("inference.text.delta", { token: "Hello " }),
+    );
     store.appendEvent("s-2", event("inference.text.delta", { token: "world" }));
-    store.appendEvent("s-2", event("inference.tool_call.start", { name: "grep", callId: "c1" }));
+    store.appendEvent(
+      "s-2",
+      event("inference.tool_call.start", { name: "grep", callId: "c1" }),
+    );
     store.appendEvent(
       "s-2",
       event("inference.tool_call.delta", { argumentFragment: '{"pattern":' }),
@@ -105,15 +111,24 @@ describe("createSubAgentSessionStore", () => {
     // on the entry that owns its callId, not the most recent tool entry.
     store.appendEvent(
       "s-parallel",
-      event("inference.tool_call.delta", { callId: "a", argumentFragment: '{"path":' }),
+      event("inference.tool_call.delta", {
+        callId: "a",
+        argumentFragment: '{"path":',
+      }),
     );
     store.appendEvent(
       "s-parallel",
-      event("inference.tool_call.delta", { callId: "b", argumentFragment: '{"pattern":' }),
+      event("inference.tool_call.delta", {
+        callId: "b",
+        argumentFragment: '{"pattern":',
+      }),
     );
     store.appendEvent(
       "s-parallel",
-      event("inference.tool_call.delta", { callId: "a", argumentFragment: '"a.ts"}' }),
+      event("inference.tool_call.delta", {
+        callId: "a",
+        argumentFragment: '"a.ts"}',
+      }),
     );
 
     const session = store.get("s-parallel");
@@ -152,7 +167,11 @@ describe("createSubAgentSessionStore", () => {
       })(),
     });
     for (let i = 0; i < 3; i++) {
-      const s = store.start({ description: `job-${i}`, agentId: "w", brief: "b" });
+      const s = store.start({
+        description: `job-${i}`,
+        agentId: "w",
+        brief: "b",
+      });
       store.complete(s.id, `report ${i}`);
     }
     // A running session is never pruned by the completed bound.
@@ -191,7 +210,11 @@ describe("createSubAgentSessionStore", () => {
         return () => `s-${++n}`;
       })(),
     });
-    const a = store.start({ description: "old-done", agentId: "w", brief: "b" });
+    const a = store.start({
+      description: "old-done",
+      agentId: "w",
+      brief: "b",
+    });
     store.complete(a.id, "ok");
     store.start({ description: "live", agentId: "w", brief: "b" });
     const strip = store.listForStrip();
@@ -249,7 +272,11 @@ describe("createSubAgentSessionStore", () => {
   test("start records parentSessionId when the caller is a nested dispatch", () => {
     let n = 0;
     const store = createSubAgentSessionStore({ createId: () => `s-${++n}` });
-    const orchestrator = store.start({ description: "orchestrate", agentId: "lead", brief: "b" });
+    const orchestrator = store.start({
+      description: "orchestrate",
+      agentId: "lead",
+      brief: "b",
+    });
     const nested = store.start({
       description: "nested worker",
       agentId: "helper",
@@ -263,8 +290,15 @@ describe("createSubAgentSessionStore", () => {
   });
 
   test("cancel is not resumable and complete after cancel no-ops", () => {
-    const store = createSubAgentSessionStore({ createId: () => "s-cancel-resume" });
-    store.start({ description: "stuck", agentId: "worker", brief: "loop", retained: true });
+    const store = createSubAgentSessionStore({
+      createId: () => "s-cancel-resume",
+    });
+    store.start({
+      description: "stuck",
+      agentId: "worker",
+      brief: "loop",
+      retained: true,
+    });
     store.markRunning("s-cancel-resume");
     store.registerFollowup("s-cancel-resume", async () => "nope");
     expect(store.cancel("s-cancel-resume", "operator kill")).toBe(true);
@@ -281,7 +315,12 @@ describe("createSubAgentSessionStore", () => {
 
   test("interruptOne stays strip-running and resumable when retained", () => {
     const store = createSubAgentSessionStore({ createId: () => "s-int" });
-    store.start({ description: "loop", agentId: "worker", brief: "b", retained: true });
+    store.start({
+      description: "loop",
+      agentId: "worker",
+      brief: "b",
+      retained: true,
+    });
     store.markRunning("s-int");
     store.registerInterrupt("s-int", () => undefined);
     store.registerFollowup("s-int", async () => "next");
@@ -290,7 +329,10 @@ describe("createSubAgentSessionStore", () => {
     expect(session?.lifecycle.state).toBe("interrupted");
     expect(session?.status).toBe("running");
     expect(session?.lifecycleStatus).toBe("interrupted");
-    expect(store.resumeOne("s-int", "continue")).toEqual({ ok: true, status: "running" });
+    expect(store.resumeOne("s-int", "continue")).toEqual({
+      ok: true,
+      status: "running",
+    });
   });
 
   test("pinned completed sessions survive maxCompleted until unpin", () => {
@@ -305,14 +347,27 @@ describe("createSubAgentSessionStore", () => {
         return () => ++t;
       })(),
     });
-    const pinned = store.start({ description: "keep", agentId: "w", brief: "b" });
+    const pinned = store.start({
+      description: "keep",
+      agentId: "w",
+      brief: "b",
+    });
     store.pin(pinned.id);
     store.complete(pinned.id, "keep");
-    store.complete(store.start({ description: "a", agentId: "w", brief: "b" }).id, "a");
-    store.complete(store.start({ description: "b", agentId: "w", brief: "b" }).id, "b");
+    store.complete(
+      store.start({ description: "a", agentId: "w", brief: "b" }).id,
+      "a",
+    );
+    store.complete(
+      store.start({ description: "b", agentId: "w", brief: "b" }).id,
+      "b",
+    );
     expect(store.get(pinned.id)).toBeDefined();
     store.unpin(pinned.id);
-    store.complete(store.start({ description: "c", agentId: "w", brief: "b" }).id, "c");
+    store.complete(
+      store.start({ description: "c", agentId: "w", brief: "b" }).id,
+      "c",
+    );
     expect(store.get(pinned.id)).toBeUndefined();
   });
 });

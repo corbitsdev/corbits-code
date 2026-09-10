@@ -23,7 +23,9 @@ import {
  * Non-row events (run state, tool.boundary, assistant.delta) return null —
  * callers coalesce deltas / apply run state themselves when needed.
  */
-export function rowFromBridgeEvent(event: BridgeInboundEvent): StreamRow | null {
+export function rowFromBridgeEvent(
+  event: BridgeInboundEvent,
+): StreamRow | null {
   switch (event.type) {
     case "user":
       return { role: "user", text: event.text };
@@ -58,7 +60,9 @@ export function rowFromBridgeEvent(event: BridgeInboundEvent): StreamRow | null 
  * Tool events are folded rather than mapped one-to-one: a call and its result
  * are one row, and a repeat of a call collapses onto the row it repeats.
  */
-export function rowsFromBridgeEvents(events: readonly BridgeInboundEvent[]): StreamRow[] {
+export function rowsFromBridgeEvents(
+  events: readonly BridgeInboundEvent[],
+): StreamRow[] {
   const rows: StreamRow[] = [];
   const attempt: AttemptBoundary = { at: null };
   for (const event of events) {
@@ -118,7 +122,10 @@ function pushBridgeEvent(
  * Pass a shared StreamMapContext across a live child session for tool-name
  * fidelity (same as mapProductionEvent).
  */
-export function mapChildStreamEvent(event: ReactorLikeEvent, ctx?: StreamMapContext): StreamRow[] {
+export function mapChildStreamEvent(
+  event: ReactorLikeEvent,
+  ctx?: StreamMapContext,
+): StreamRow[] {
   return rowsFromBridgeEvents(mapProductionEvent(event, ctx));
 }
 
@@ -145,7 +152,9 @@ export function mapChildStreamSequence(
  * sequence ends or a non-delta event arrives. Useful for pure seed paths
  * that do not run the live bridge bag.
  */
-export function rowsFromBridgeEventsCoalesced(events: readonly BridgeInboundEvent[]): StreamRow[] {
+export function rowsFromBridgeEventsCoalesced(
+  events: readonly BridgeInboundEvent[],
+): StreamRow[] {
   const rows: StreamRow[] = [];
   let deltaBuf = "";
   const flushDelta = (): void => {

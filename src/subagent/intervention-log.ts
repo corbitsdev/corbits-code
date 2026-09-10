@@ -36,7 +36,12 @@ export const INTERVENTION_FILE = "interventions.jsonl";
  * records a detected overlap between two concurrently running lanes; it is
  * advisory only — the dispatch that triggered it was never blocked.
  */
-export type InterventionClass = "stop" | "nudge" | "block" | "outcome" | "conflict";
+export type InterventionClass =
+  | "stop"
+  | "nudge"
+  | "block"
+  | "outcome"
+  | "conflict";
 
 /** What a completed dispatch produced, for correlating against earlier stops. */
 export interface InterventionOutcome {
@@ -94,7 +99,10 @@ export type InterventionContext = Pick<
 >;
 
 export type InterventionSink = (
-  event: Omit<InterventionRecord, "ts" | "role" | "provider" | "model" | "family" | "intent"> &
+  event: Omit<
+    InterventionRecord,
+    "ts" | "role" | "provider" | "model" | "family" | "intent"
+  > &
     // Outcome records are written parent-side, one per completed dispatch, so
     // provider/model/family are not fixed at sink construction like a leaf's
     // context — they vary per call with the child that was actually dispatched.

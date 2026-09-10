@@ -4,7 +4,10 @@ import { resolve, dirname, basename } from "node:path";
 const MAX_SUGGESTIONS = 20;
 const MAX_SCANNED_ENTRIES = 2_000;
 
-async function resolveDirectory(dir: string, cwd: string): Promise<string | null> {
+async function resolveDirectory(
+  dir: string,
+  cwd: string,
+): Promise<string | null> {
   try {
     return await realpath(resolve(cwd, dir));
   } catch {
@@ -15,7 +18,10 @@ async function resolveDirectory(dir: string, cwd: string): Promise<string | null
 // Given a path prefix the user has typed (e.g. after @ or in a path field),
 // return up to MAX_SUGGESTIONS matching filesystem entries. Directories get a
 // trailing / so the user can drill in. Never throws — returns [] on any fs error.
-export async function listPathSuggestions(prefix: string, cwd: string): Promise<string[]> {
+export async function listPathSuggestions(
+  prefix: string,
+  cwd: string,
+): Promise<string[]> {
   if (prefix === "~" || prefix.startsWith("~/")) return [];
 
   try {

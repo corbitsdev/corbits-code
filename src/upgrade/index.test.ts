@@ -13,7 +13,9 @@ import {
   type InstallProbe,
 } from "./index.js";
 
-function probe(partial: Partial<InstallProbe> & Pick<InstallProbe, "execPath">): InstallProbe {
+function probe(
+  partial: Partial<InstallProbe> & Pick<InstallProbe, "execPath">,
+): InstallProbe {
   return {
     argv: [],
     platform: "darwin",
@@ -238,7 +240,10 @@ describe("checkForUpgrade", () => {
       currentVersion: "0.2.90",
       fetchLatest: async () => null,
     });
-    expect(result).toEqual({ kind: "skipped", reason: "latest version unavailable" });
+    expect(result).toEqual({
+      kind: "skipped",
+      reason: "latest version unavailable",
+    });
   });
 
   test("soft-skips when fetchLatest throws", async () => {

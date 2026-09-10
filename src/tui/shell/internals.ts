@@ -11,7 +11,10 @@ import {
   type KeyEvent,
 } from "@opentui/core";
 import { parseAtState, type AtState } from "../components/at-mention/parse.js";
-import { type ClipboardImageResult, type PendingImageAttachment } from "../image-attachments.js";
+import {
+  type ClipboardImageResult,
+  type PendingImageAttachment,
+} from "../image-attachments.js";
 import { type SentHistoryBrowse } from "../sent-message-history.js";
 import { type PromptRecognitionSource } from "../prompt-recognition.js";
 import { type PromptInput } from "../prompt-input.js";
@@ -19,7 +22,11 @@ import type { RampPhase, StallAge } from "../ramp.js";
 import type { ActivityState } from "../session-chrome.js";
 import { type CostContextMeter } from "../prompt-border.js";
 import { type FocusState } from "../focus/index.js";
-import { type GeometryLayout, type OverlayMode, type ZoneVisibility } from "../geometry/index.js";
+import {
+  type GeometryLayout,
+  type OverlayMode,
+  type ZoneVisibility,
+} from "../geometry/index.js";
 import { type LandingAbove, type LandingBelowContent } from "../landing.js";
 import { type PaletteCommand } from "../command-catalog.js";
 import { type ObserveSession } from "../residuals.js";
@@ -47,7 +54,10 @@ export function clearShellExitHandler(shell: AppShell): void {
 export const effortCycleHandlers = new WeakMap<AppShell, () => void>();
 
 /** Shift+Tab host callback: cycle reasoning effort for the live session. */
-export function setEffortCycleHandler(shell: AppShell, onCycle: () => void): void {
+export function setEffortCycleHandler(
+  shell: AppShell,
+  onCycle: () => void,
+): void {
   effortCycleHandlers.set(shell, onCycle);
 }
 
@@ -64,7 +74,10 @@ export interface ShellBridgeHooks {
 
 const shellBridgeHooks = new WeakMap<AppShell, ShellBridgeHooks>();
 
-export function setShellBridgeHooks(shell: AppShell, hooks: ShellBridgeHooks): void {
+export function setShellBridgeHooks(
+  shell: AppShell,
+  hooks: ShellBridgeHooks,
+): void {
   shellBridgeHooks.set(shell, hooks);
 }
 
@@ -72,7 +85,9 @@ export function clearShellBridgeHooks(shell: AppShell): void {
   shellBridgeHooks.delete(shell);
 }
 
-export function getShellBridgeHooks(shell: AppShell): ShellBridgeHooks | undefined {
+export function getShellBridgeHooks(
+  shell: AppShell,
+): ShellBridgeHooks | undefined {
   return shellBridgeHooks.get(shell);
 }
 
@@ -124,7 +139,10 @@ export interface ShellOverlayHooks {
 
 const shellOverlayHooks = new WeakMap<AppShell, ShellOverlayHooks>();
 
-export function setShellOverlayHooks(shell: AppShell, hooks: ShellOverlayHooks): void {
+export function setShellOverlayHooks(
+  shell: AppShell,
+  hooks: ShellOverlayHooks,
+): void {
   shellOverlayHooks.set(shell, hooks);
 }
 
@@ -132,7 +150,9 @@ export function clearShellOverlayHooks(shell: AppShell): void {
   shellOverlayHooks.delete(shell);
 }
 
-export function getShellOverlayHooks(shell: AppShell): ShellOverlayHooks | undefined {
+export function getShellOverlayHooks(
+  shell: AppShell,
+): ShellOverlayHooks | undefined {
   return shellOverlayHooks.get(shell);
 }
 
@@ -145,12 +165,17 @@ export type PaletteOnCommand = (name: string) => void;
 
 const shellPaletteOnCommand = new WeakMap<AppShell, PaletteOnCommand>();
 
-export function setPaletteOnCommand(shell: AppShell, handler: PaletteOnCommand | undefined): void {
+export function setPaletteOnCommand(
+  shell: AppShell,
+  handler: PaletteOnCommand | undefined,
+): void {
   if (handler) shellPaletteOnCommand.set(shell, handler);
   else shellPaletteOnCommand.delete(shell);
 }
 
-export function getPaletteOnCommand(shell: AppShell): PaletteOnCommand | undefined {
+export function getPaletteOnCommand(
+  shell: AppShell,
+): PaletteOnCommand | undefined {
   return shellPaletteOnCommand.get(shell);
 }
 
@@ -160,17 +185,28 @@ export function getPaletteOnCommand(shell: AppShell): PaletteOnCommand | undefin
  */
 export type PromptImageSource = () => Promise<ClipboardImageResult>;
 
-export const shellPromptImageSource = new WeakMap<AppShell, PromptImageSource>();
+export const shellPromptImageSource = new WeakMap<
+  AppShell,
+  PromptImageSource
+>();
 
-export function setPromptImageSource(shell: AppShell, source: PromptImageSource | undefined): void {
+export function setPromptImageSource(
+  shell: AppShell,
+  source: PromptImageSource | undefined,
+): void {
   if (source) shellPromptImageSource.set(shell, source);
   else shellPromptImageSource.delete(shell);
 }
 
 /** Filesystem suggestions behind the @-mention overlay. */
-export type MentionSuggestionSource = (prefix: string) => Promise<readonly string[]>;
+export type MentionSuggestionSource = (
+  prefix: string,
+) => Promise<readonly string[]>;
 
-export const shellMentionSource = new WeakMap<AppShell, MentionSuggestionSource>();
+export const shellMentionSource = new WeakMap<
+  AppShell,
+  MentionSuggestionSource
+>();
 
 export function setMentionSuggestionSource(
   shell: AppShell,
@@ -181,7 +217,10 @@ export function setMentionSuggestionSource(
 }
 
 /** Names the prompt is allowed to highlight as leading `/command` tokens. */
-export const shellRecognitionSource = new WeakMap<AppShell, PromptRecognitionSource>();
+export const shellRecognitionSource = new WeakMap<
+  AppShell,
+  PromptRecognitionSource
+>();
 
 export function setPromptRecognitionSource(
   shell: AppShell,
@@ -198,7 +237,10 @@ export function setPromptRecognitionSource(
  */
 export type PaletteOnObserveRequest = () => ObserveSession | null;
 
-const shellPaletteOnObserveRequest = new WeakMap<AppShell, PaletteOnObserveRequest>();
+const shellPaletteOnObserveRequest = new WeakMap<
+  AppShell,
+  PaletteOnObserveRequest
+>();
 
 export function setPaletteOnObserveRequest(
   shell: AppShell,
@@ -208,14 +250,23 @@ export function setPaletteOnObserveRequest(
   else shellPaletteOnObserveRequest.delete(shell);
 }
 
-export function getPaletteOnObserveRequest(shell: AppShell): PaletteOnObserveRequest | undefined {
+export function getPaletteOnObserveRequest(
+  shell: AppShell,
+): PaletteOnObserveRequest | undefined {
   return shellPaletteOnObserveRequest.get(shell);
 }
 
 /** Renderer surface required by the shell (CliRenderer / createTestRenderer). */
 export type ShellRenderer = Pick<
   CliRenderer,
-  "root" | "width" | "height" | "keyInput" | "on" | "off" | "isDestroyed" | "clearSelection"
+  | "root"
+  | "width"
+  | "height"
+  | "keyInput"
+  | "on"
+  | "off"
+  | "isDestroyed"
+  | "clearSelection"
 >;
 
 export interface AppShellOptions {
@@ -244,7 +295,9 @@ export interface AppShellOptions {
    * Host typically passes `buildPaletteCatalog({ commands: listCommands() })`.
    * Static array or lazy builder. Defaults to residual openers only.
    */
-  readonly paletteCatalog?: readonly PaletteCommand[] | (() => readonly PaletteCommand[]);
+  readonly paletteCatalog?:
+    | readonly PaletteCommand[]
+    | (() => readonly PaletteCommand[]);
   /**
    * Invoked when a registry-backed palette item is accepted (`dispatch: "command"`).
    * Residual openers never hit this path.
@@ -687,7 +740,10 @@ interface ShellInternals {
    * Registry-backed `/` command catalog (static or lazy), host-injected. Empty
    * when unset.
    */
-  paletteCatalog: readonly PaletteCommand[] | (() => readonly PaletteCommand[]) | null;
+  paletteCatalog:
+    | readonly PaletteCommand[]
+    | (() => readonly PaletteCommand[])
+    | null;
   /** Live filter state for the open palette, so typing can re-filter it. */
   paletteFilter: PaletteFilterState | null;
   /** Live type-to-filter state for a non-palette list overlay (model picker). */
@@ -697,7 +753,10 @@ interface ShellInternals {
    * above the prompt box, the disclosure and starters below it. Dropped (not
    * hidden) on the first row so it never occupies a transcript line later.
    */
-  landing: { readonly above: LandingAbove; readonly below: BoxRenderable } | null;
+  landing: {
+    readonly above: LandingAbove;
+    readonly below: BoxRenderable;
+  } | null;
   /**
    * The disclosure the landing is showing. Re-appended to the transcript when
    * the landing tears down so consent-by-proceeding leaves a durable record
@@ -982,6 +1041,9 @@ export function initShellInternals(shell: AppShell, bag: ShellInternals): void {
   internals.set(shell, bag);
 }
 
-export function setTranscriptSpacer(shell: AppShell, spacer: BoxRenderable): void {
+export function setTranscriptSpacer(
+  shell: AppShell,
+  spacer: BoxRenderable,
+): void {
   transcriptSpacers.set(shell, spacer);
 }

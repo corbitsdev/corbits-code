@@ -5,7 +5,12 @@ import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import { authFilePath, loadAuthState, saveAuthState, deleteAuthState } from "./auth-store.js";
+import {
+  authFilePath,
+  loadAuthState,
+  saveAuthState,
+  deleteAuthState,
+} from "./auth-store.js";
 import { fetchWithConnectAbort } from "./client.js";
 import { createOAuthProvider } from "./oauth-provider.js";
 
@@ -23,7 +28,10 @@ const clientInfo = (port: number) => ({
   client_name: "interchange-code",
 });
 
-const linear = { serverName: "linear", serverURL: "https://mcp.linear.app/mcp" };
+const linear = {
+  serverName: "linear",
+  serverURL: "https://mcp.linear.app/mcp",
+};
 
 async function syncValue<T>(value: T | Promise<T>): Promise<T> {
   return await value;
@@ -88,7 +96,9 @@ describe("createOAuthProvider", () => {
       home,
     });
 
-    expect((await syncValue(provider.clientInformation()))?.client_id).toBe("client-on-60435");
+    expect((await syncValue(provider.clientInformation()))?.client_id).toBe(
+      "client-on-60435",
+    );
     expect((await syncValue(provider.tokens()))?.access_token).toBe("live");
   });
 
@@ -188,7 +198,9 @@ describe("createOAuthProvider", () => {
     await b.resetAuthorization();
 
     expect((await syncValue(a.tokens()))?.access_token).toBe("fresh");
-    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe("fresh");
+    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
+      "fresh",
+    );
   });
 
   test("isolates same-name providers by endpoint and persists the same identity", async () => {
@@ -202,7 +214,10 @@ describe("createOAuthProvider", () => {
       onAuthURL: () => undefined,
       home,
     });
-    await custom.saveTokens({ access_token: "custom-secret", token_type: "bearer" });
+    await custom.saveTokens({
+      access_token: "custom-secret",
+      token_type: "bearer",
+    });
 
     const canonical = await createOAuthProvider({
       serverName: "exa",
@@ -220,7 +235,9 @@ describe("createOAuthProvider", () => {
     });
 
     expect(await syncValue(canonical.tokens())).toBeUndefined();
-    expect((await syncValue(customAgain.tokens()))?.access_token).toBe("custom-secret");
+    expect((await syncValue(customAgain.tokens()))?.access_token).toBe(
+      "custom-secret",
+    );
   });
 
   test("leaves ordinary and empty-name legacy state inert", async () => {
@@ -324,14 +341,16 @@ describe("createOAuthProvider", () => {
       onAuthURL: () => undefined,
       home,
     });
-    expect((await syncValue(a.clientInformation()))?.client_id).toBe("client-on-62000");
+    expect((await syncValue(a.clientInformation()))?.client_id).toBe(
+      "client-on-62000",
+    );
 
     await saveClient(b, clientInfo(60435));
     const info = await syncValue(a.clientInformation());
     expect(info?.client_id).toBe("client-on-62000");
-    expect(info && "redirect_uris" in info ? info.redirect_uris : undefined).toEqual([
-      "http://127.0.0.1:62000/callback",
-    ]);
+    expect(
+      info && "redirect_uris" in info ? info.redirect_uris : undefined,
+    ).toEqual(["http://127.0.0.1:62000/callback"]);
   });
 
   test("saveTokens after a different-port sibling construct keeps this session's DCR", async () => {
@@ -364,12 +383,14 @@ describe("createOAuthProvider", () => {
 
     const info = await syncValue(a.clientInformation());
     expect(info?.client_id).toBe("client-on-62000");
-    expect(info && "redirect_uris" in info ? info.redirect_uris : undefined).toEqual([
-      "http://127.0.0.1:62000/callback",
-    ]);
+    expect(
+      info && "redirect_uris" in info ? info.redirect_uris : undefined,
+    ).toEqual(["http://127.0.0.1:62000/callback"]);
     const disk = await loadAuthState(linear, home);
     expect(disk.clientInformation?.client_id).toBe("client-on-62000");
-    expect(disk.clientInformation?.redirect_uris).toEqual(["http://127.0.0.1:62000/callback"]);
+    expect(disk.clientInformation?.redirect_uris).toEqual([
+      "http://127.0.0.1:62000/callback",
+    ]);
   });
 
   test("saveTokens after a different-port sibling saveClient keeps this session's DCR", async () => {
@@ -402,12 +423,14 @@ describe("createOAuthProvider", () => {
 
     const info = await syncValue(a.clientInformation());
     expect(info?.client_id).toBe("client-on-62000");
-    expect(info && "redirect_uris" in info ? info.redirect_uris : undefined).toEqual([
-      "http://127.0.0.1:62000/callback",
-    ]);
+    expect(
+      info && "redirect_uris" in info ? info.redirect_uris : undefined,
+    ).toEqual(["http://127.0.0.1:62000/callback"]);
     const disk = await loadAuthState(linear, home);
     expect(disk.clientInformation?.client_id).toBe("client-on-62000");
-    expect(disk.clientInformation?.redirect_uris).toEqual(["http://127.0.0.1:62000/callback"]);
+    expect(disk.clientInformation?.redirect_uris).toEqual([
+      "http://127.0.0.1:62000/callback",
+    ]);
     expect(disk.tokens?.access_token).toBe("tok-a");
     expect((await syncValue(a.tokens()))?.access_token).toBe("tok-a");
   });
@@ -435,9 +458,9 @@ describe("createOAuthProvider", () => {
 
     const info = await syncValue(a.clientInformation());
     expect(info?.client_id).toBe("client-on-62000");
-    expect(info && "redirect_uris" in info ? info.redirect_uris : undefined).toEqual([
-      "http://127.0.0.1:62000/callback",
-    ]);
+    expect(
+      info && "redirect_uris" in info ? info.redirect_uris : undefined,
+    ).toEqual(["http://127.0.0.1:62000/callback"]);
   });
 
   test("idle tokens getter adopts a sibling's completed auth without rewriting matching DCR", async () => {
@@ -476,7 +499,9 @@ describe("createOAuthProvider", () => {
     const disk = await loadAuthState(linear, home);
     expect(disk.tokens?.access_token).toBe("tok-b");
     expect(disk.clientInformation?.client_id).toBe("client-on-60435");
-    expect(disk.clientInformation?.redirect_uris).toEqual(["http://127.0.0.1:60435/callback"]);
+    expect(disk.clientInformation?.redirect_uris).toEqual([
+      "http://127.0.0.1:60435/callback",
+    ]);
   });
 
   test("same-port DCR rotation after a different-port sibling saveClient keeps the new client", async () => {
@@ -504,12 +529,14 @@ describe("createOAuthProvider", () => {
 
     const info = await syncValue(a.clientInformation());
     expect(info?.client_id).toBe("client-on-62000-v2");
-    expect(info && "redirect_uris" in info ? info.redirect_uris : undefined).toEqual([
-      "http://127.0.0.1:62000/callback",
-    ]);
+    expect(
+      info && "redirect_uris" in info ? info.redirect_uris : undefined,
+    ).toEqual(["http://127.0.0.1:62000/callback"]);
     const disk = await loadAuthState(linear, home);
     expect(disk.clientInformation?.client_id).toBe("client-on-62000-v2");
-    expect(disk.clientInformation?.redirect_uris).toEqual(["http://127.0.0.1:62000/callback"]);
+    expect(disk.clientInformation?.redirect_uris).toEqual([
+      "http://127.0.0.1:62000/callback",
+    ]);
   });
 
   test("sync getters fall back to the in-memory mirror when the auth file disappears", async () => {
@@ -577,7 +604,11 @@ describe("createOAuthProvider", () => {
     } finally {
       await chmod(path, 0o600);
     }
-    await saveAuthState(linear, { tokens: { access_token: "fresh", token_type: "bearer" } }, home);
+    await saveAuthState(
+      linear,
+      { tokens: { access_token: "fresh", token_type: "bearer" } },
+      home,
+    );
     expect((await syncValue(provider.tokens()))?.access_token).toBe("fresh");
   });
 
@@ -606,15 +637,21 @@ describe("createOAuthProvider", () => {
   test("does not delete scoped state whose filename stem is another provider name", async () => {
     const home = await tempHome();
     const dir = join(home, ".corbits", "mcp-auth");
-    const existingIdentity = { serverName: "exa", serverURL: "https://custom.example/mcp" };
+    const existingIdentity = {
+      serverName: "exa",
+      serverURL: "https://custom.example/mcp",
+    };
     await saveAuthState(
       existingIdentity,
       { tokens: { access_token: "scoped-secret", token_type: "bearer" } },
       home,
     );
-    const [scopedFilename] = await Array.fromAsync(new Bun.Glob("exa-*.json").scan(dir));
+    const [scopedFilename] = await Array.fromAsync(
+      new Bun.Glob("exa-*.json").scan(dir),
+    );
     expect(scopedFilename).toBeDefined();
-    const collidingName = scopedFilename?.slice(0, -".json".length) ?? "missing";
+    const collidingName =
+      scopedFilename?.slice(0, -".json".length) ?? "missing";
 
     const collidingProvider = await createOAuthProvider({
       serverName: collidingName,
@@ -631,10 +668,12 @@ describe("createOAuthProvider", () => {
     });
 
     expect(await syncValue(collidingProvider.tokens())).toBeUndefined();
-    expect((await syncValue(existingProvider.tokens()))?.access_token).toBe("scoped-secret");
-    expect((await loadAuthState(existingIdentity, home)).tokens?.access_token).toBe(
+    expect((await syncValue(existingProvider.tokens()))?.access_token).toBe(
       "scoped-secret",
     );
+    expect(
+      (await loadAuthState(existingIdentity, home)).tokens?.access_token,
+    ).toBe("scoped-secret");
   });
 
   test("refreshToken posts grant_type=refresh_token with a resource and persists tokens", async () => {
@@ -653,7 +692,10 @@ describe("createOAuthProvider", () => {
     );
 
     const tokenBodies: string[] = [];
-    const fetchFn = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+    const fetchFn = async (
+      url: string | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       const href = String(url);
       if (init?.method === "POST") {
         tokenBodies.push(String(init.body));
@@ -676,7 +718,10 @@ describe("createOAuthProvider", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
-      if (href.includes("oauth-authorization-server") || href.includes("openid-configuration")) {
+      if (
+        href.includes("oauth-authorization-server") ||
+        href.includes("openid-configuration")
+      ) {
         return new Response(
           JSON.stringify({
             issuer: "https://mcp.linear.app",
@@ -705,16 +750,25 @@ describe("createOAuthProvider", () => {
     const body = tokenBodies[0] ?? "";
     expect(body).toContain("grant_type=refresh_token");
     expect(body).toContain("refresh_token=refresh-me");
-    expect(body).toContain(`resource=${encodeURIComponent("https://mcp.linear.app/mcp")}`);
-    expect((await syncValue(provider.tokens()))?.access_token).toBe("fresh-access");
-    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe("fresh-access");
+    expect(body).toContain(
+      `resource=${encodeURIComponent("https://mcp.linear.app/mcp")}`,
+    );
+    expect((await syncValue(provider.tokens()))?.access_token).toBe(
+      "fresh-access",
+    );
+    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
+      "fresh-access",
+    );
   });
 
   test("refreshToken wraps failures as UnauthorizedError", async () => {
     const home = await tempHome();
     await saveAuthState(linear, { clientInformation: clientInfo(1) }, home);
 
-    const fetchFn = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+    const fetchFn = async (
+      url: string | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       const href = String(url);
       if (init?.method === "POST") {
         return new Response(JSON.stringify({ error: "invalid_grant" }), {
@@ -731,7 +785,10 @@ describe("createOAuthProvider", () => {
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
-      if (href.includes("oauth-authorization-server") || href.includes("openid-configuration")) {
+      if (
+        href.includes("oauth-authorization-server") ||
+        href.includes("openid-configuration")
+      ) {
         return new Response(
           JSON.stringify({
             issuer: "https://mcp.linear.app",
@@ -754,7 +811,9 @@ describe("createOAuthProvider", () => {
       fetchFn,
     });
 
-    await expect(provider.refreshToken("refresh-me")).rejects.toBeInstanceOf(UnauthorizedError);
+    await expect(provider.refreshToken("refresh-me")).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    );
     await expect(provider.refreshToken("refresh-me")).rejects.toThrow(
       "Token refresh failed for linear",
     );
@@ -788,7 +847,10 @@ describe("createOAuthProvider", () => {
           ),
         );
       }
-      if (href.includes("oauth-authorization-server") || href.includes("openid-configuration")) {
+      if (
+        href.includes("oauth-authorization-server") ||
+        href.includes("openid-configuration")
+      ) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -814,7 +876,8 @@ describe("createOAuthProvider", () => {
     });
 
     const pending = provider.refreshToken("refresh-me");
-    while (seen.every((signal) => signal !== abort.signal)) await Promise.resolve();
+    while (seen.every((signal) => signal !== abort.signal))
+      await Promise.resolve();
     abort.abort(new DOMException("toolset disposed", "AbortError"));
     await expect(pending).rejects.toThrow("toolset disposed");
     await expect(pending).rejects.not.toBeInstanceOf(UnauthorizedError);

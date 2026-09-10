@@ -9,7 +9,10 @@ import { withTestRenderer } from "./harness.js";
 import { overlayKindWord } from "./overlay-body.js";
 import { createAppShell } from "./shell/index.js";
 import type { AppShell, PrimaryOverlayKind } from "./shell/internals.js";
-import { acceptOverlaySelection, openListOverlay } from "./shell/overlay-host.js";
+import {
+  acceptOverlaySelection,
+  openListOverlay,
+} from "./shell/overlay-host.js";
 import { streamRowGutter, type RowLayout } from "./stream.js";
 
 const OVERLAY_KIND_GUTTER = {
@@ -50,7 +53,8 @@ const NON_ECHO_OVERLAY_KINDS = new Set<PrimaryOverlayKind>(["palette", "copy"]);
 const LAYOUT: RowLayout = { width: 80, multiAgent: false };
 
 const IMMEDIATE_META = /meta:\s*["']([^"']+)["']/g;
-const TERNARY_META = /meta:\s*[^,\n]+\?\s*["']([^"']+)["']\s*:\s*["']([^"']+)["']/g;
+const TERNARY_META =
+  /meta:\s*[^,\n]+\?\s*["']([^"']+)["']\s*:\s*["']([^"']+)["']/g;
 const META_LINE = /\bmeta:\s*([^\n]+)/g;
 const SKIP_RHS = /^(true|false|string|boolean|number|unknown|null)\b/;
 
@@ -87,7 +91,10 @@ function isRecognisedMetaRhs(rhs: string): boolean {
   return false;
 }
 
-async function assertEchoRecap(open: (shell: AppShell) => void, word: string): Promise<void> {
+async function assertEchoRecap(
+  open: (shell: AppShell) => void,
+  word: string,
+): Promise<void> {
   await withTestRenderer(
     async (h) => {
       const shell = createAppShell(h.renderer, {
@@ -143,33 +150,51 @@ describe("transcript gutter labels", () => {
 
     expect(unrecognized).toEqual([]);
     expect(FORBIDDEN.filter((token) => captured.has(token))).toEqual([]);
-    const painted = new Set<string>([...CHROME_LITERALS, ...Object.values(OVERLAY_KIND_GUTTER)]);
+    const painted = new Set<string>([
+      ...CHROME_LITERALS,
+      ...Object.values(OVERLAY_KIND_GUTTER),
+    ]);
     expect(FORBIDDEN.filter((token) => painted.has(token))).toEqual([]);
 
     for (const { kind, word } of overlayKindCases()) {
       expect(overlayKindWord(kind)).toBe(word);
     }
 
-    expect(sortedSet(captured)).toEqual(sortedSet([...CHROME_LITERALS, ...STORED_META_LITERALS]));
+    expect(sortedSet(captured)).toEqual(
+      sortedSet([...CHROME_LITERALS, ...STORED_META_LITERALS]),
+    );
   });
 
   test("thinking rows paint an empty gutter", () => {
     expect(
-      streamRowGutter({ role: "system", text: "chain of thought", meta: "thinking" }, LAYOUT)
-        .content,
+      streamRowGutter(
+        { role: "system", text: "chain of thought", meta: "thinking" },
+        LAYOUT,
+      ).content,
     ).toBe("");
   });
 
-  test.each([...CHROME_LITERALS])("permitted chrome paints %s in the gutter", (meta) => {
-    expect(streamRowGutter({ role: "system", text: "notice", meta }, LAYOUT).content.trim()).toBe(
-      meta,
-    );
-  });
+  test.each([...CHROME_LITERALS])(
+    "permitted chrome paints %s in the gutter",
+    (meta) => {
+      expect(
+        streamRowGutter(
+          { role: "system", text: "notice", meta },
+          LAYOUT,
+        ).content.trim(),
+      ).toBe(meta);
+    },
+  );
 
-  test.each(overlayKindCases().filter(({ kind }) => !NON_ECHO_OVERLAY_KINDS.has(kind)))(
+  test.each(
+    overlayKindCases().filter(({ kind }) => !NON_ECHO_OVERLAY_KINDS.has(kind)),
+  )(
     "a default-echo $kind recap paints the overlay word",
     async ({ kind, word }) => {
-      await assertEchoRecap((shell) => openListOverlay(shell, { kind, items: ["one"] }), word);
+      await assertEchoRecap(
+        (shell) => openListOverlay(shell, { kind, items: ["one"] }),
+        word,
+      );
     },
   );
 });

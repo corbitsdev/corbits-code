@@ -5,7 +5,11 @@
  * collect one choice, and tear down — they never join the live session host.
  */
 
-import { createCliRenderer, type CliRenderer, type KeyEvent } from "@opentui/core";
+import {
+  createCliRenderer,
+  type CliRenderer,
+  type KeyEvent,
+} from "@opentui/core";
 
 import {
   residualIdFromSelection,
@@ -39,7 +43,9 @@ export interface ListModalConfig {
  * Mount the modal and resolve with the accepted option id, or null when the
  * operator cancels (Esc / Ctrl+C / Ctrl+D).
  */
-export async function runListModal(config: ListModalConfig): Promise<string | null> {
+export async function runListModal(
+  config: ListModalConfig,
+): Promise<string | null> {
   const renderer = config.createRenderer
     ? await config.createRenderer()
     : await createCliRenderer({
@@ -89,7 +95,8 @@ export async function runListModal(config: ListModalConfig): Promise<string | nu
   function onKey(key: KeyEvent): void {
     if (settled) return;
     const cancel =
-      key.name === "escape" || (key.ctrl === true && (key.name === "c" || key.name === "d"));
+      key.name === "escape" ||
+      (key.ctrl === true && (key.name === "c" || key.name === "d"));
     if (cancel) {
       key.preventDefault();
       settle(null);

@@ -13,11 +13,14 @@ interface OxlintJson {
 async function runOxlint(
   file: string,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const proc = Bun.spawn(["bunx", "oxlint", "-c", oxlintrc, "-f", "json", file], {
-    cwd: repoRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const proc = Bun.spawn(
+    ["bunx", "oxlint", "-c", oxlintrc, "-f", "json", file],
+    {
+      cwd: repoRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -32,7 +35,9 @@ function findingsForRule(stdout: string): unknown[] {
 }
 
 test("oxlint reports bare mock.module in a *.test.ts file", async () => {
-  const dir = await mkdtemp(join(import.meta.dirname, "oxlint-mock-module-banned-"));
+  const dir = await mkdtemp(
+    join(import.meta.dirname, "oxlint-mock-module-banned-"),
+  );
   const file = join(dir, "banned.test.ts");
   try {
     await writeFile(
@@ -49,7 +54,9 @@ mock.module("./example.js", () => ({}));
 });
 
 test("oxlint is clean when a *.test.ts file only uses withMockedModule", async () => {
-  const dir = await mkdtemp(join(import.meta.dirname, "oxlint-mock-module-clean-"));
+  const dir = await mkdtemp(
+    join(import.meta.dirname, "oxlint-mock-module-clean-"),
+  );
   const file = join(dir, "clean.test.ts");
   try {
     await writeFile(

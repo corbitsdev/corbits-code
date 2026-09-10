@@ -26,7 +26,10 @@ import {
   assertPhaseSummary,
   assertTurnHasInferenceAndTools,
 } from "./assert-spans.js";
-import { MULTI_TOOL_TURN_GOLDEN, multiToolTurnFixture } from "./fixtures/multi-tool-turn.js";
+import {
+  MULTI_TOOL_TURN_GOLDEN,
+  multiToolTurnFixture,
+} from "./fixtures/multi-tool-turn.js";
 import { ALLOWED_TAG_KEYS, clear, snapshot, type PerfSpan } from "./index.js";
 import { createPerfReactorObserver } from "./reactor-spans.js";
 import { rollupByPhase, rollupByTurn, type TurnSummary } from "./rollup.js";
@@ -47,10 +50,18 @@ function event(type: string, data: unknown = {}): ReactorEmittedEvent {
   return { type, seq: 1, data } as ReactorEmittedEvent;
 }
 
-const emptyUsage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, thinking: 0 };
+const emptyUsage = {
+  input: 10,
+  output: 5,
+  cacheRead: 0,
+  cacheWrite: 0,
+  thinking: 0,
+};
 const source = { provider: "test-provider", model: "test-model" };
 
-function inferenceDone(content: unknown[] = [{ type: "text", text: "hi" }]): ReactorEmittedEvent {
+function inferenceDone(
+  content: unknown[] = [{ type: "text", text: "hi" }],
+): ReactorEmittedEvent {
   return event("inference.done", {
     turn: { role: "assistant", content, model: "test-model", timestamp: 0 },
     usage: emptyUsage,
@@ -62,7 +73,9 @@ function completed(spans: PerfSpan[]): PerfSpan[] {
   return spans.filter((s) => s.endNs !== undefined);
 }
 
-function turnSummary(partial: Partial<TurnSummary> & Pick<TurnSummary, "turnId">): TurnSummary {
+function turnSummary(
+  partial: Partial<TurnSummary> & Pick<TurnSummary, "turnId">,
+): TurnSummary {
   return {
     turnNs: 1000,
     open: false,
@@ -87,9 +100,9 @@ describe("assertPhasePresent / assertNesting", () => {
   });
 
   test("assertPhasePresent throws when phase is missing", () => {
-    expect(() => assertPhasePresent(multiToolTurnFixture(), "subagent")).toThrow(
-      /expected phase "subagent"/,
-    );
+    expect(() =>
+      assertPhasePresent(multiToolTurnFixture(), "subagent"),
+    ).toThrow(/expected phase "subagent"/);
   });
 
   test("assertNesting verifies parent-child links (child, parent arg order)", () => {
@@ -103,9 +116,9 @@ describe("assertPhasePresent / assertNesting", () => {
   });
 
   test("assertNesting throws when link is absent", () => {
-    expect(() => assertNesting(multiToolTurnFixture(), "tool", "inference")).toThrow(
-      /expected nesting inference → tool/,
-    );
+    expect(() =>
+      assertNesting(multiToolTurnFixture(), "tool", "inference"),
+    ).toThrow(/expected nesting inference → tool/);
   });
 });
 
@@ -115,7 +128,10 @@ describe("assertPhaseSummary", () => {
     assertPhaseSummary(phases, "turn", { minCount: 1, minTotalNs: 5000 });
     assertPhaseSummary(phases, "inference", { minCount: 1, minTotalNs: 2000 });
     assertPhaseSummary(phases, "tool", { minCount: 2, minTotalNs: 1200 });
-    assertPhaseSummary(phases, "permission.wait", { minCount: 1, minTotalNs: 400 });
+    assertPhaseSummary(phases, "permission.wait", {
+      minCount: 1,
+      minTotalNs: 400,
+    });
   });
 
   test("throws when phase summary is missing", () => {
@@ -134,9 +150,9 @@ describe("assertPhaseSummary", () => {
 
   test("throws when totalNs is below minTotalNs", () => {
     const phases = rollupByPhase(multiToolTurnFixture());
-    expect(() => assertPhaseSummary(phases, "inference", { minTotalNs: 999_999 })).toThrow(
-      /phase "inference": expected totalNs >= 999999/,
-    );
+    expect(() =>
+      assertPhaseSummary(phases, "inference", { minTotalNs: 999_999 }),
+    ).toThrow(/phase "inference": expected totalNs >= 999999/);
   });
 });
 
@@ -162,20 +178,26 @@ describe("assertTurnHasInferenceAndTools", () => {
 
   test("throws when inferenceNs is not positive", () => {
     expect(() =>
-      assertTurnHasInferenceAndTools(turnSummary({ turnId: "t-no-inf", inferenceNs: 0 })),
+      assertTurnHasInferenceAndTools(
+        turnSummary({ turnId: "t-no-inf", inferenceNs: 0 }),
+      ),
     ).toThrow(/turn t-no-inf: expected inferenceNs > 0/);
   });
 
   test("throws when toolCount is below minimum", () => {
-    const noTools = turnSummary({ turnId: "t-no-tools", toolCount: 0, toolNs: 0 });
+    const noTools = turnSummary({
+      turnId: "t-no-tools",
+      toolCount: 0,
+      toolNs: 0,
+    });
     expect(() => assertTurnHasInferenceAndTools(noTools)).toThrow(
       /turn t-no-tools: expected toolCount >= 1/,
     );
 
     const oneTool = turnSummary({ turnId: "t-one", toolCount: 1, toolNs: 100 });
-    expect(() => assertTurnHasInferenceAndTools(oneTool, { minToolCount: 2 })).toThrow(
-      /turn t-one: expected toolCount >= 2/,
-    );
+    expect(() =>
+      assertTurnHasInferenceAndTools(oneTool, { minToolCount: 2 }),
+    ).toThrow(/turn t-one: expected toolCount >= 2/);
   });
 
   test("throws when toolNs is not positive despite toolCount", () => {
@@ -187,9 +209,13 @@ describe("assertTurnHasInferenceAndTools", () => {
   });
 
   test("fails when tools are filtered out of the golden fixture", () => {
-    const spans: PerfSpan[] = multiToolTurnFixture().filter((s) => s.name !== "tool");
+    const spans: PerfSpan[] = multiToolTurnFixture().filter(
+      (s) => s.name !== "tool",
+    );
     const turns = rollupByTurn(spans);
-    expect(() => assertTurnHasInferenceAndTools(defined(turns[0]))).toThrow(/toolCount/);
+    expect(() => assertTurnHasInferenceAndTools(defined(turns[0]))).toThrow(
+      /toolCount/,
+    );
   });
 });
 
@@ -220,17 +246,31 @@ describe("observer pipeline → snapshot → rollup → assertions", () => {
     const obs = createPerfReactorObserver();
 
     obs.observe(event("inference.start", { model: "test-model" }));
-    obs.observe(event("inference.text.delta", { token: "x", partial: { text: "x" } }));
+    obs.observe(
+      event("inference.text.delta", { token: "x", partial: { text: "x" } }),
+    );
     obs.observe(
       inferenceDone([
         { type: "tool_call", id: "call-a", name: "read_file", arguments: {} },
         { type: "tool_call", id: "call-b", name: "edit_file", arguments: {} },
       ]),
     );
-    obs.observe(event("tool.start", { call: { id: "call-a", name: "read_file", arguments: {} } }));
-    obs.observe(event("tool.done", { result: { callId: "call-a", content: "ok" } }));
-    obs.observe(event("tool.start", { call: { id: "call-b", name: "edit_file", arguments: {} } }));
-    obs.observe(event("tool.done", { result: { callId: "call-b", content: "ok" } }));
+    obs.observe(
+      event("tool.start", {
+        call: { id: "call-a", name: "read_file", arguments: {} },
+      }),
+    );
+    obs.observe(
+      event("tool.done", { result: { callId: "call-a", content: "ok" } }),
+    );
+    obs.observe(
+      event("tool.start", {
+        call: { id: "call-b", name: "edit_file", arguments: {} },
+      }),
+    );
+    obs.observe(
+      event("tool.done", { result: { callId: "call-b", content: "ok" } }),
+    );
 
     const spans = completed(snapshot());
 

@@ -22,8 +22,12 @@ describe("MCP tool name helpers", () => {
   });
 
   test("humanizes to 'Server: Tool Name'", () => {
-    expect(humanizeMcpTool("mcp__acme__list_widgets")).toBe("Acme: List Widgets");
-    expect(humanizeMcpTool("mcp__example__create_item")).toBe("Example: Create Item");
+    expect(humanizeMcpTool("mcp__acme__list_widgets")).toBe(
+      "Acme: List Widgets",
+    );
+    expect(humanizeMcpTool("mcp__example__create_item")).toBe(
+      "Example: Create Item",
+    );
   });
 
   test("title-cases a single-word tool", () => {
@@ -31,7 +35,9 @@ describe("MCP tool name helpers", () => {
   });
 
   test("handles a server with digits and hyphens", () => {
-    expect(humanizeMcpTool("mcp__acme-2__list_widgets")).toBe("Acme-2: List Widgets");
+    expect(humanizeMcpTool("mcp__acme-2__list_widgets")).toBe(
+      "Acme-2: List Widgets",
+    );
   });
 
   test("does not repeat the server when a tool name carries it as a suffix or prefix", () => {

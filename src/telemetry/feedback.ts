@@ -14,23 +14,28 @@ export const FEEDBACK_PROMPT =
 
 export const FEEDBACK_THANKS = "Thanks — feedback sent.";
 
-export const FEEDBACK_THANKS_TRUNCATED = "Thanks — feedback sent (truncated to 2000 characters).";
+export const FEEDBACK_THANKS_TRUNCATED =
+  "Thanks — feedback sent (truncated to 2000 characters).";
 
 export const FEEDBACK_EMPTY = "No feedback text provided.";
 
 export const FEEDBACK_BLOCKED =
   "Feedback could not be sent (disabled by environment or missing install identity).";
 
-export const FEEDBACK_UNCONFIGURED = "Feedback is not configured (missing survey id).";
+export const FEEDBACK_UNCONFIGURED =
+  "Feedback is not configured (missing survey id).";
 
 /**
  * Corbits team survey — public routing ids (same trust class as the baked-in
  * PostHog project key). Operators never set these. Env override is for tests
  * and forks: when the env key is present (even empty), it wins over the default.
  */
-export const DEFAULT_FEEDBACK_SURVEY_ID = "019fe7ff-d12a-0000-7a63-303f3a874b90";
-export const DEFAULT_FEEDBACK_QUESTION_ID = "913862f4-82aa-4814-8f68-146c05c38a74";
-export const FEEDBACK_QUESTION_TEXT = "What feedback do you have about Corbits Code?";
+export const DEFAULT_FEEDBACK_SURVEY_ID =
+  "019fe7ff-d12a-0000-7a63-303f3a874b90";
+export const DEFAULT_FEEDBACK_QUESTION_ID =
+  "913862f4-82aa-4814-8f68-146c05c38a74";
+export const FEEDBACK_QUESTION_TEXT =
+  "What feedback do you have about Corbits Code?";
 
 function envOverride(env: NodeJS.ProcessEnv, key: string): string | undefined {
   // Present key wins (including empty → fail closed for tests/forks).
@@ -40,16 +45,25 @@ function envOverride(env: NodeJS.ProcessEnv, key: string): string | undefined {
 
 /** PostHog survey id for /feedback. */
 export function feedbackSurveyId(env: NodeJS.ProcessEnv = process.env): string {
-  return envOverride(env, "CORBITS_FEEDBACK_SURVEY_ID") ?? DEFAULT_FEEDBACK_SURVEY_ID;
+  return (
+    envOverride(env, "CORBITS_FEEDBACK_SURVEY_ID") ?? DEFAULT_FEEDBACK_SURVEY_ID
+  );
 }
 
 /** Free-text question id inside the survey. */
-export function feedbackQuestionId(env: NodeJS.ProcessEnv = process.env): string {
-  return envOverride(env, "CORBITS_FEEDBACK_QUESTION_ID") ?? DEFAULT_FEEDBACK_QUESTION_ID;
+export function feedbackQuestionId(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return (
+    envOverride(env, "CORBITS_FEEDBACK_QUESTION_ID") ??
+    DEFAULT_FEEDBACK_QUESTION_ID
+  );
 }
 
 /** True when both survey ids resolve (defaults always do unless env blanks them). */
-export function isFeedbackConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+export function isFeedbackConfigured(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
   return feedbackSurveyId(env).length > 0 && feedbackQuestionId(env).length > 0;
 }
 
@@ -109,7 +123,10 @@ export function captureFeedback(
     return "unconfigured";
   }
   const truncated = trimmed.length > FEEDBACK_MAX_CHARS;
-  const ok = telemetry.captureIntentional("survey sent", buildSurveyProperties(trimmed, options));
+  const ok = telemetry.captureIntentional(
+    "survey sent",
+    buildSurveyProperties(trimmed, options),
+  );
   if (!ok) return "blocked";
   // Deterministic handoff to PostHog — not part of the agent loop. Flush so
   // the response is not sitting in the ambient batch queue until idle exit.

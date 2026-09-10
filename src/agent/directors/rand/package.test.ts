@@ -86,7 +86,11 @@ describe("randPackage", () => {
   });
 
   test("primaryIntent and outOfLane match rand lane", () => {
-    expect(randPackage.primaryIntent).toBe("Own DESIGN.md create/use + brand gate");
-    expect(randPackage.outOfLane).toContain("arbitrary product code outside DESIGN.md");
+    expect(randPackage.primaryIntent).toBe(
+      "Own DESIGN.md create/use + brand gate",
+    );
+    expect(randPackage.outOfLane).toContain(
+      "arbitrary product code outside DESIGN.md",
+    );
   });
 });

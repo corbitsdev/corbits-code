@@ -41,7 +41,8 @@ const LINE_PARAGRAPH_SEPARATORS = /[\u2028\u2029]/g;
 
 // C0 controls other than the whitespace worth keeping (tab, newline,
 // carriage return), plus the C1 range and the standalone DEL byte.
-const C0_C1_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u0080-\u009f]/g;
+const C0_C1_CONTROLS =
+  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u0080-\u009f]/g;
 
 export function stripTerminalControlSequences(text: string): string {
   return text
@@ -68,7 +69,9 @@ const MAX_HELD_CHARS = 256;
  * independently would miss an escape sequence straddling a fragment boundary,
  * so the tail is carried into the next fragment instead.
  */
-export function splitPendingControlTail(text: string): readonly [string, string] {
+export function splitPendingControlTail(
+  text: string,
+): readonly [string, string] {
   let end = text.length;
   // A lone high surrogate is half of a character; joining it to the next
   // fragment is what makes the pair render at all.

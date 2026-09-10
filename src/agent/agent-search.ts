@@ -10,7 +10,11 @@ function tokenize(text: string): string[] {
 }
 
 function profileSearchText(profile: AgentProfile): string {
-  const parts = [profile.id, profile.description ?? "", profile.systemPromptRole ?? ""];
+  const parts = [
+    profile.id,
+    profile.description ?? "",
+    profile.systemPromptRole ?? "",
+  ];
   return parts.join(" ");
 }
 
@@ -19,8 +23,14 @@ export interface AgentIndex {
 }
 
 // Lexical ranker over id, description, and role text — same spirit as tool_search.
-export function createAgentIndex(getProfiles: () => readonly AgentProfile[]): AgentIndex {
-  const score = (profile: AgentProfile, queryTokens: string[], rawQuery: string): number => {
+export function createAgentIndex(
+  getProfiles: () => readonly AgentProfile[],
+): AgentIndex {
+  const score = (
+    profile: AgentProfile,
+    queryTokens: string[],
+    rawQuery: string,
+  ): number => {
     const idTokens = tokenize(profile.id);
     const blob = profileSearchText(profile).toLowerCase();
     const blobTokens = new Set(tokenize(blob));
@@ -32,7 +42,8 @@ export function createAgentIndex(getProfiles: () => readonly AgentProfile[]): Ag
       else if (blob.includes(token)) total += 0.25;
     }
     if (profile.id.toLowerCase().includes(rawQuery)) total += 1;
-    if ((profile.description ?? "").toLowerCase().includes(rawQuery)) total += 0.5;
+    if ((profile.description ?? "").toLowerCase().includes(rawQuery))
+      total += 0.5;
     return total;
   };
 
@@ -71,13 +82,17 @@ function formatAgentProfileEntry(p: AgentProfile): string {
   const orch = p.orchestrator === true ? " [orchestrator]" : "";
   const source = p.source !== undefined ? ` [source: ${p.source}]` : "";
   const header =
-    desc.length > 0 ? `### ${p.id}${orch}${source}\n${desc}` : `### ${p.id}${orch}${source}`;
+    desc.length > 0
+      ? `### ${p.id}${orch}${source}\n${desc}`
+      : `### ${p.id}${orch}${source}`;
   const body = (p.systemPromptRole ?? "").trim();
   if (body.length === 0) return header;
   return `${header}\n\nSystem prompt / body:\n${truncateAgentBody(body)}`;
 }
 
-export function formatAgentSearchResults(profiles: readonly AgentProfile[]): string {
+export function formatAgentSearchResults(
+  profiles: readonly AgentProfile[],
+): string {
   if (profiles.length === 0) {
     return "No agent profiles matched. Try broader terms (e.g. review, explore, implement) or list_dir on .agents/agents/.";
   }
@@ -116,7 +131,9 @@ export const searchAgentsDefinition: ToolDefinition = {
 
 const SearchAgentsArgs = type({ query: "string" });
 
-export function createSearchAgentsTool(getProfiles: () => readonly AgentProfile[]): AgentTool {
+export function createSearchAgentsTool(
+  getProfiles: () => readonly AgentProfile[],
+): AgentTool {
   const index = createAgentIndex(getProfiles);
   return stringTool({
     definition: searchAgentsDefinition,

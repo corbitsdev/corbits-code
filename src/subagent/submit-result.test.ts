@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import { type } from "arktype";
 
-import { createSubmitResultState, evaluateSubmitResult } from "./submit-result.js";
+import {
+  createSubmitResultState,
+  evaluateSubmitResult,
+} from "./submit-result.js";
 
 const TOKEN = "turn-abc123";
 

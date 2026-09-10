@@ -20,7 +20,12 @@ import {
   dumpSpans,
   serializeSpan,
 } from "./dump.js";
-import { rollupByPhase, rollupByTurn, sessionTotals, spanDurationNs } from "./rollup.js";
+import {
+  rollupByPhase,
+  rollupByTurn,
+  sessionTotals,
+  spanDurationNs,
+} from "./rollup.js";
 
 // The span store is process-wide, so a perf test cannot assume the tests that
 // ran before it in this process left it empty. Reset on both edges.
@@ -109,11 +114,15 @@ function nestedTurnFixture(): PerfSpan[] {
 
 describe("spanDurationNs", () => {
   test("returns end - start for completed spans", () => {
-    expect(spanDurationNs(span({ id: "a", name: "tool", startNs: 10n, endNs: 40n }))).toBe(30);
+    expect(
+      spanDurationNs(span({ id: "a", name: "tool", startNs: 10n, endNs: 40n })),
+    ).toBe(30);
   });
 
   test("returns undefined for open spans", () => {
-    expect(spanDurationNs(span({ id: "a", name: "tool", startNs: 10n }))).toBeUndefined();
+    expect(
+      spanDurationNs(span({ id: "a", name: "tool", startNs: 10n })),
+    ).toBeUndefined();
   });
 });
 
@@ -123,11 +132,23 @@ describe("rollupByPhase", () => {
     const phases = rollupByPhase(spans);
     const byName = Object.fromEntries(phases.map((p) => [p.name, p]));
 
-    expect(byName.turn).toMatchObject({ count: 1, openCount: 0, totalNs: 2000 });
+    expect(byName.turn).toMatchObject({
+      count: 1,
+      openCount: 0,
+      totalNs: 2000,
+    });
     expect(byName.inference).toMatchObject({ count: 1, totalNs: 1000 });
     expect(byName["inference.ttft"]).toMatchObject({ count: 1, totalNs: 200 });
-    expect(byName["inference.stream"]).toMatchObject({ count: 1, totalNs: 800 });
-    expect(byName.tool).toMatchObject({ count: 2, totalNs: 400, p50Ns: 100, p95Ns: 300 });
+    expect(byName["inference.stream"]).toMatchObject({
+      count: 1,
+      totalNs: 800,
+    });
+    expect(byName.tool).toMatchObject({
+      count: 2,
+      totalNs: 400,
+      p50Ns: 100,
+      p95Ns: 300,
+    });
   });
 
   test("open spans count but do not contribute to duration stats", () => {
@@ -319,7 +340,9 @@ describe("sessionTotals", () => {
   });
 
   test("zero TTFT and stream yields zero shares", () => {
-    const totals = sessionTotals([span({ id: "t1", name: "turn", startNs: 0n, endNs: 10n })]);
+    const totals = sessionTotals([
+      span({ id: "t1", name: "turn", startNs: 0n, endNs: 10n }),
+    ]);
     expect(totals.ttftShare).toBe(0);
     expect(totals.streamShare).toBe(0);
   });
@@ -366,9 +389,9 @@ describe("dumpSpans", () => {
   });
 
   test("rejects path-like session ids", async () => {
-    await expect(dumpSpans([], { dir: "/tmp", sessionId: "../etc/passwd" })).rejects.toThrow(
-      /sessionId/,
-    );
+    await expect(
+      dumpSpans([], { dir: "/tmp", sessionId: "../etc/passwd" }),
+    ).rejects.toThrow(/sessionId/);
   });
 
   test("serializes open spans without endNs", () => {
@@ -422,11 +445,23 @@ describe("privacy fixture", () => {
     } as unknown as PerfSpan;
 
     const spans = [...snapshot(), dirty];
-    const dump = buildDump(spans, "privacy-fixture", "2026-04-08T00:00:00.000Z");
+    const dump = buildDump(
+      spans,
+      "privacy-fixture",
+      "2026-04-08T00:00:00.000Z",
+    );
 
     // Top-level keys are a fixed allowlist.
     expect(Object.keys(dump).sort()).toEqual(
-      ["openCount", "rollup", "sessionId", "spanCount", "spans", "version", "writtenAt"].sort(),
+      [
+        "openCount",
+        "rollup",
+        "sessionId",
+        "spanCount",
+        "spans",
+        "version",
+        "writtenAt",
+      ].sort(),
     );
 
     // No free-text substrings anywhere in the serialized dump.

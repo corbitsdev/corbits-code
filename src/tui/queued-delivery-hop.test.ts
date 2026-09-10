@@ -7,7 +7,10 @@ import { attachSessionBridge, type SessionBridge } from "./runtime-bridge";
 import { createLiveSessionPort } from "./live-session-port";
 import { createAppShell } from "./shell/index";
 import { withTestRenderer } from "./harness";
-import { createLiveSteerDeliver, routeQueuedDelivery } from "./queued-delivery.js";
+import {
+  createLiveSteerDeliver,
+  routeQueuedDelivery,
+} from "./queued-delivery.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
 import { badgeCount } from "./session-queue";
 
@@ -41,7 +44,9 @@ describe("queued delivery last hop", () => {
           wireKeys: false,
           run: "busy",
         });
-        const bridgeRef: { current: SessionBridge | undefined } = { current: undefined };
+        const bridgeRef: { current: SessionBridge | undefined } = {
+          current: undefined,
+        };
         const { port, sends, steers } = lastHopPort(bridgeRef);
         const bridge = attachSessionBridge(shell, port);
         bridgeRef.current = bridge;
@@ -68,7 +73,9 @@ describe("queued delivery last hop", () => {
           wireKeys: false,
           run: "busy",
         });
-        const bridgeRef: { current: SessionBridge | undefined } = { current: undefined };
+        const bridgeRef: { current: SessionBridge | undefined } = {
+          current: undefined,
+        };
         const sends: string[] = [];
         const delivered: string[] = [];
         const { enqueue, awaitTail } = createSessionOperationQueue();
@@ -133,7 +140,9 @@ describe("queued delivery last hop", () => {
           wireKeys: false,
           run: "busy",
         });
-        const bridgeRef: { current: SessionBridge | undefined } = { current: undefined };
+        const bridgeRef: { current: SessionBridge | undefined } = {
+          current: undefined,
+        };
         const { port, sends, steers } = lastHopPort(bridgeRef);
         const bridge = attachSessionBridge(shell, port);
         bridgeRef.current = bridge;
@@ -164,14 +173,19 @@ describe("queued delivery last hop", () => {
           wireKeys: false,
           run: "busy",
         });
-        const bridgeRef: { current: SessionBridge | undefined } = { current: undefined };
+        const bridgeRef: { current: SessionBridge | undefined } = {
+          current: undefined,
+        };
         const { port, sends, steers } = lastHopPort(bridgeRef);
         const bridge = attachSessionBridge(shell, port);
         bridgeRef.current = bridge;
         try {
           bridge.submit("leftover", "steer");
           bridge.handle({ type: "inference.start", data: {} });
-          bridge.handle({ type: "inference.text.delta", data: { token: "hi" } });
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "hi" },
+          });
           bridge.handle({ type: "inference.done", data: {} });
           expect(sends).toEqual(["leftover"]);
           expect(steers).toEqual([]);
@@ -192,7 +206,9 @@ describe("queued delivery last hop", () => {
           wireKeys: false,
           run: "busy",
         });
-        const bridgeRef: { current: SessionBridge | undefined } = { current: undefined };
+        const bridgeRef: { current: SessionBridge | undefined } = {
+          current: undefined,
+        };
         const { port, sends, steers } = lastHopPort(bridgeRef);
         const bridge = attachSessionBridge(shell, port);
         bridgeRef.current = bridge;
@@ -218,7 +234,9 @@ describe("queued delivery last hop", () => {
           wireKeys: false,
           run: "idle",
         });
-        const bridgeRef: { current: SessionBridge | undefined } = { current: undefined };
+        const bridgeRef: { current: SessionBridge | undefined } = {
+          current: undefined,
+        };
         const { port, sends, steers } = lastHopPort(bridgeRef);
         const bridge = attachSessionBridge(shell, port);
         bridgeRef.current = bridge;
@@ -247,7 +265,9 @@ describe("queued delivery last hop", () => {
           wireKeys: false,
           run: "busy",
         });
-        const bridgeRef: { current: SessionBridge | undefined } = { current: undefined };
+        const bridgeRef: { current: SessionBridge | undefined } = {
+          current: undefined,
+        };
         const { port, sends, steers } = lastHopPort(bridgeRef);
         const bridge = attachSessionBridge(shell, port);
         bridgeRef.current = bridge;

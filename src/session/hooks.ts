@@ -119,7 +119,9 @@ export function hookDirectories(cwd: string = process.cwd()): string[] {
 export async function discoverLifecycleHooks(
   directories: string | string[] = hookDirectories(),
 ): Promise<LifecycleHook[]> {
-  const resolvedDirectories = Array.isArray(directories) ? directories : [directories];
+  const resolvedDirectories = Array.isArray(directories)
+    ? directories
+    : [directories];
   const hooksByName = new Map<string, LifecycleHook>();
 
   for (const directory of resolvedDirectories) {
@@ -133,7 +135,9 @@ export async function discoverLifecycleHooks(
   return [...hooksByName.values()];
 }
 
-async function discoverHooksInDirectory(directory: string): Promise<LifecycleHook[]> {
+async function discoverHooksInDirectory(
+  directory: string,
+): Promise<LifecycleHook[]> {
   let entries: string[];
   try {
     entries = await readdir(directory);
@@ -325,14 +329,20 @@ export function createLifecycleHookManager(args: {
   const initialEnabled = args.initialEnabled ?? {};
   const statuses = new Map<string, LifecycleHookStatus>();
   for (const hook of args.hooks) {
-    statuses.set(hook.id, { ...hook, enabled: initialEnabled[hook.id] ?? true });
+    statuses.set(hook.id, {
+      ...hook,
+      enabled: initialEnabled[hook.id] ?? true,
+    });
   }
 
   function snapshot(): LifecycleHookStatus[] {
     return [...statuses.values()].map((status) => ({ ...status }));
   }
 
-  function updateStatus(id: string, update: Partial<LifecycleHookStatus>): void {
+  function updateStatus(
+    id: string,
+    update: Partial<LifecycleHookStatus>,
+  ): void {
     const current = statuses.get(id);
     if (current === undefined) return;
     const next = { ...current, ...update };
@@ -358,7 +368,10 @@ export function createLifecycleHookManager(args: {
     );
   }
 
-  function dispatch(kind: HookKind, payload: TurnContext | RunSummary): Promise<void> {
+  function dispatch(
+    kind: HookKind,
+    payload: TurnContext | RunSummary,
+  ): Promise<void> {
     const pending: Promise<void>[] = [];
     for (const status of statuses.values()) {
       if (!status.enabled) continue;
@@ -399,7 +412,10 @@ async function runLifecycleHook(
   });
   proc.stdin.write(JSON.stringify(payload));
   proc.stdin.end();
-  const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+  const [exitCode, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stderr).text(),
+  ]);
   return {
     code: exitCode,
     signal: proc.signalCode,
@@ -411,7 +427,10 @@ function hookCommand(hook: LifecycleHook, kind: HookKind): string[] {
   return ["sh", hook.path, kind];
 }
 
-async function createTypeScriptHookCommand(hook: LifecycleHook, kind: HookKind): Promise<string[]> {
+async function createTypeScriptHookCommand(
+  hook: LifecycleHook,
+  kind: HookKind,
+): Promise<string[]> {
   const runnerDir = join(tmpdir(), `${COMMAND_NAME}-hook-runners`);
   const runnerPath = join(runnerDir, `${hashHookRunner(hook.path, kind)}.ts`);
   await mkdir(runnerDir, { recursive: true });
@@ -434,11 +453,17 @@ function typeScriptHookRunnerSource(path: string, kind: HookKind): string {
 }
 
 function hashHookRunner(path: string, kind: HookKind): string {
-  return createHash("sha256").update(`${path}:${kind}`).digest("hex").slice(0, 24);
+  return createHash("sha256")
+    .update(`${path}:${kind}`)
+    .digest("hex")
+    .slice(0, 24);
 }
 
 function truncateToolResultForHookPayload(result: ToolResult): ToolResult {
-  const raw = typeof result.content === "string" ? result.content : JSON.stringify(result.content);
+  const raw =
+    typeof result.content === "string"
+      ? result.content
+      : JSON.stringify(result.content);
   const content =
     raw.length <= HOOK_PAYLOAD_TOOL_RESULT_CHARS
       ? raw
@@ -447,7 +472,9 @@ function truncateToolResultForHookPayload(result: ToolResult): ToolResult {
     callId: result.callId,
     content,
     ...(result.isError !== undefined ? { isError: result.isError } : {}),
-    ...(result.pendingMarker !== undefined ? { pendingMarker: result.pendingMarker } : {}),
+    ...(result.pendingMarker !== undefined
+      ? { pendingMarker: result.pendingMarker }
+      : {}),
   };
 }
 

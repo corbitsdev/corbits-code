@@ -42,7 +42,10 @@ export default tseslint.config(
       ],
       // LogTape (and a few test spies) use tagged-template logging as a
       // statement; the expression is the side effect.
-      "@typescript-eslint/no-unused-expressions": ["error", { allowTaggedTemplates: true }],
+      "@typescript-eslint/no-unused-expressions": [
+        "error",
+        { allowTaggedTemplates: true },
+      ],
       // Staged adoption: the codebase predates these two rules and carries
       // ~1200 pre-existing violations, almost all in tests and TUI plumbing.
       // Warning keeps them visible without making the CI gate unachievable;
@@ -70,7 +73,8 @@ export default tseslint.config(
       "no-restricted-syntax": [
         "error",
         {
-          selector: "CallExpression[callee.object.name='mock'][callee.property.name='module']",
+          selector:
+            "CallExpression[callee.object.name='mock'][callee.property.name='module']",
           message:
             "Use withMockedModule/withMockedModuleDuring from tests/helpers/mock-module.ts instead of bare mock.module — an un-restored mock.module leaks into every test file that runs after this one.",
         },

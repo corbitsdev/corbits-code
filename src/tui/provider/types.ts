@@ -6,7 +6,11 @@
  * setup (that would be a cycle), yet need the same contracts setup defines.
  */
 
-import type { BoxRenderable, CliRenderer, InputRenderable } from "@opentui/core";
+import type {
+  BoxRenderable,
+  CliRenderer,
+  InputRenderable,
+} from "@opentui/core";
 
 import type { FirstClassOAuthProvider } from "../../../packages/first-class-providers/src/index.js";
 import type { CodexTokens } from "../../auth/codex/store.js";
@@ -117,7 +121,9 @@ export type OAuthLoginStarter = (input: {
 }) => Promise<OAuthLoginStart>;
 
 /** Fetches the names of already-authorized profiles for a provider kind. */
-export type OAuthProfileLister = (kind: OAuthKind) => Promise<readonly string[]>;
+export type OAuthProfileLister = (
+  kind: OAuthKind,
+) => Promise<readonly string[]>;
 
 export interface ProviderSetupConfig {
   readonly onSubmit: ProviderSetupSubmit;

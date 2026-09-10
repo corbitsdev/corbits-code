@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, stat, symlink, lstat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  stat,
+  symlink,
+  lstat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,7 +29,9 @@ import {
 const temps: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temps.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+  await Promise.all(
+    temps.splice(0).map((d) => rm(d, { recursive: true, force: true })),
+  );
 });
 
 async function tempDir(prefix: string): Promise<string> {
@@ -114,7 +124,12 @@ describe("deleteOwnedPluginDir", () => {
     await mkdir(outside, { recursive: true });
     const claudeRoot = join(cwd, "home", ".claude");
     expect(
-      await deleteOwnedPluginDir({ pluginPath: inside, originRoot: root, claudeRoot, cwd }),
+      await deleteOwnedPluginDir({
+        pluginPath: inside,
+        originRoot: root,
+        claudeRoot,
+        cwd,
+      }),
     ).toEqual({ ok: true });
     expect(await exists(inside)).toBe(false);
     const refused = await deleteOwnedPluginDir({
@@ -154,7 +169,8 @@ describe("deleteOwnedPluginDir", () => {
       cwd: home,
     });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.message).toContain("outside the origin plugins root");
+    if (!result.ok)
+      expect(result.message).toContain("outside the origin plugins root");
   });
 
   test("dangling symlink inside origin root is removed", async () => {
@@ -178,9 +194,14 @@ describe("isOwnedDiskInstall", () => {
   test("project path is owned only for the passed cwd", () => {
     const cwd = "/tmp/project-a";
     const pluginPath = join(projectPluginsRoot(cwd), "local");
-    expect(isOwnedDiskInstall({ origin: "project", pluginPath, home: "/tmp/home", cwd })).toBe(
-      true,
-    );
+    expect(
+      isOwnedDiskInstall({
+        origin: "project",
+        pluginPath,
+        home: "/tmp/home",
+        cwd,
+      }),
+    ).toBe(true);
     expect(
       isOwnedDiskInstall({
         origin: "project",
@@ -195,30 +216,47 @@ describe("isOwnedDiskInstall", () => {
     const home = "/tmp/home";
     const cwd = "/tmp/cwd";
     const pluginPath = join(home, ".claude", "plugins", "exa");
-    expect(isOwnedDiskInstall({ origin: "user", pluginPath, home, cwd })).toBe(false);
-    expect(isOwnedDiskInstall({ origin: "project", pluginPath, home, cwd })).toBe(false);
+    expect(isOwnedDiskInstall({ origin: "user", pluginPath, home, cwd })).toBe(
+      false,
+    );
+    expect(
+      isOwnedDiskInstall({ origin: "project", pluginPath, home, cwd }),
+    ).toBe(false);
   });
 
   test("path origin under userPluginsRoot is owned", () => {
     const home = "/tmp/home";
     const cwd = "/tmp/cwd";
     const pluginPath = join(userPluginsRoot(home), "exa");
-    expect(isOwnedDiskInstall({ origin: "path", pluginPath, home, cwd })).toBe(true);
-    expect(ownedDiskOriginRoot({ pluginPath, home, cwd })).toBe(userPluginsRoot(home));
+    expect(isOwnedDiskInstall({ origin: "path", pluginPath, home, cwd })).toBe(
+      true,
+    );
+    expect(ownedDiskOriginRoot({ pluginPath, home, cwd })).toBe(
+      userPluginsRoot(home),
+    );
   });
 
   test("path origin under /tmp is not owned", () => {
     const home = "/tmp/home";
     const cwd = "/tmp/cwd";
     const pluginPath = "/tmp/elsewhere/my-plugin";
-    expect(isOwnedDiskInstall({ origin: "path", pluginPath, home, cwd })).toBe(false);
+    expect(isOwnedDiskInstall({ origin: "path", pluginPath, home, cwd })).toBe(
+      false,
+    );
     expect(ownedDiskOriginRoot({ pluginPath, home, cwd })).toBeUndefined();
   });
 
   test("path origin under projectPluginsRoot is owned for that cwd", () => {
     const cwd = "/tmp/project-a";
     const pluginPath = join(projectPluginsRoot(cwd), "from-path");
-    expect(isOwnedDiskInstall({ origin: "path", pluginPath, home: "/tmp/home", cwd })).toBe(true);
+    expect(
+      isOwnedDiskInstall({
+        origin: "path",
+        pluginPath,
+        home: "/tmp/home",
+        cwd,
+      }),
+    ).toBe(true);
     expect(
       isOwnedDiskInstall({
         origin: "path",
@@ -232,14 +270,30 @@ describe("isOwnedDiskInstall", () => {
 
 describe("classifyPluginRemove", () => {
   test("origin and owned classify into one shared action", () => {
-    expect(classifyPluginRemove({ origin: "repo", owned: false })).toBe("disable-bundled");
-    expect(classifyPluginRemove({ origin: "repo", owned: true })).toBe("disable-bundled");
-    expect(classifyPluginRemove({ origin: "user", owned: false })).toBe("disable-unowned-user");
-    expect(classifyPluginRemove({ origin: "user", owned: true })).toBe("delete-owned");
-    expect(classifyPluginRemove({ origin: "project", owned: true })).toBe("delete-owned");
-    expect(classifyPluginRemove({ origin: "project", owned: false })).toBe("cannot");
-    expect(classifyPluginRemove({ origin: "path", owned: false })).toBe("remove-path");
-    expect(classifyPluginRemove({ origin: "path", owned: true })).toBe("delete-owned");
+    expect(classifyPluginRemove({ origin: "repo", owned: false })).toBe(
+      "disable-bundled",
+    );
+    expect(classifyPluginRemove({ origin: "repo", owned: true })).toBe(
+      "disable-bundled",
+    );
+    expect(classifyPluginRemove({ origin: "user", owned: false })).toBe(
+      "disable-unowned-user",
+    );
+    expect(classifyPluginRemove({ origin: "user", owned: true })).toBe(
+      "delete-owned",
+    );
+    expect(classifyPluginRemove({ origin: "project", owned: true })).toBe(
+      "delete-owned",
+    );
+    expect(classifyPluginRemove({ origin: "project", owned: false })).toBe(
+      "cannot",
+    );
+    expect(classifyPluginRemove({ origin: "path", owned: false })).toBe(
+      "remove-path",
+    );
+    expect(classifyPluginRemove({ origin: "path", owned: true })).toBe(
+      "delete-owned",
+    );
   });
 });
 
@@ -393,8 +447,12 @@ describe("executePluginRemove", () => {
       expect(result.plugins.exa?.enabled).toBe(false);
       expect(result.plugins.exa?.credentials).toEqual({ apiKey: "k" });
       expect("exa" in result.plugins).toBe(true);
-      expect(result.message).toContain("Claude marketplace files were not removed");
-      expect(result.message).toContain("Tools from this plugin stay until you restart");
+      expect(result.message).toContain(
+        "Claude marketplace files were not removed",
+      );
+      expect(result.message).toContain(
+        "Tools from this plugin stay until you restart",
+      );
     }
     expect(await exists(plugin)).toBe(true);
   });

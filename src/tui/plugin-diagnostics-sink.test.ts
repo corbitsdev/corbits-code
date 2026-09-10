@@ -17,7 +17,10 @@ import {
   type ExpandPluginPathSkip,
 } from "../plugins/loader.js";
 import { resolveAgentPluginProfiles } from "../plugins/agent-plugins.js";
-import { resolveToolPlugins, type ToolPluginCandidate } from "../plugins/tool-plugins.js";
+import {
+  resolveToolPlugins,
+  type ToolPluginCandidate,
+} from "../plugins/tool-plugins.js";
 import { discoverSessionPlugins } from "../session/runtime-assembly.js";
 
 // The TUI holds the alternate screen for the whole interactive session, so any
@@ -28,7 +31,9 @@ import { discoverSessionPlugins } from "../session/runtime-assembly.js";
 // calls (not a source grep for one function name), so it catches the bug
 // class regardless of which function or file the write comes from.
 
-async function withStderrCapture<T>(fn: () => Promise<T>): Promise<{ result: T; writes: number }> {
+async function withStderrCapture<T>(
+  fn: () => Promise<T>,
+): Promise<{ result: T; writes: number }> {
   const original = process.stderr.write.bind(process.stderr);
   let writes = 0;
   process.stderr.write = ((..._args: unknown[]) => {
@@ -47,10 +52,17 @@ async function makeAgentPluginWithMissingSkill(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "diag-behavior-"));
   const agentsDir = join(dir, "agents");
   await mkdir(agentsDir, { recursive: true });
-  await writeFile(join(agentsDir, "a.md"), "---\nskills: [does-not-exist]\n---\nbody\n");
+  await writeFile(
+    join(agentsDir, "a.md"),
+    "---\nskills: [does-not-exist]\n---\nbody\n",
+  );
   await writeFile(
     join(dir, "plugin.json"),
-    JSON.stringify({ id: "diag-behavior", name: "diag-behavior", kind: "agent" }),
+    JSON.stringify({
+      id: "diag-behavior",
+      name: "diag-behavior",
+      kind: "agent",
+    }),
   );
   return dir;
 }
@@ -77,7 +89,11 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
     const pluginDir = await makeAgentPluginWithMissingSkill();
     const { writes } = await withStderrCapture(async () => {
       const diag = createPluginLoadDiagnostics();
-      await loadPluginEntry(pluginDir, { cwd: pluginDir, origin: "path", diagnostics: diag });
+      await loadPluginEntry(pluginDir, {
+        cwd: pluginDir,
+        origin: "path",
+        diagnostics: diag,
+      });
       // Same fold-into-message pattern the fix applies in runner.ts's
       // `saveConfig` — never a bare `emitPluginWarningSummary(diag)`.
       const message = formatPluginWarningsSummary(diag.warnings);
@@ -92,8 +108,14 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
     // tripping through markdown, since that's the exact shape runner.ts's
     // `verify` handler passes in from an already-loaded module.
     const mod = {
-      manifest: { id: "malformed-agent", name: "Malformed Agent", kind: "agent" as const },
-      agentPlugin: { agents: [{ description: "missing the required id field" }] },
+      manifest: {
+        id: "malformed-agent",
+        name: "Malformed Agent",
+        kind: "agent" as const,
+      },
+      agentPlugin: {
+        agents: [{ description: "missing the required id field" }],
+      },
     };
     const { writes } = await withStderrCapture(async () => {
       const diag = createPluginLoadDiagnostics();
@@ -164,7 +186,9 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
       // lost-warning bug reached by a different route.
       const message = formatPluginWarningsSummary(diag.warnings);
       expect(message).toBeDefined();
-      expect(diag.warnings.some((w) => w.includes("/etc/not-a-plugin"))).toBe(true);
+      expect(diag.warnings.some((w) => w.includes("/etc/not-a-plugin"))).toBe(
+        true,
+      );
     });
     expect(writes).toBe(0);
   });
@@ -197,7 +221,9 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
       expect(members).toEqual([]);
       const message = formatPluginWarningsSummary(diag.warnings);
       expect(message).toBeDefined();
-      expect(diag.warnings.some((w) => w.includes("/etc/not-a-plugin"))).toBe(true);
+      expect(diag.warnings.some((w) => w.includes("/etc/not-a-plugin"))).toBe(
+        true,
+      );
     });
     expect(writes).toBe(0);
   });
@@ -207,8 +233,14 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
     // (over `executablePlugins()` and the full `settings.plugins` config),
     // distinct from the verify-time call above which targets one plugin id.
     const mod = {
-      manifest: { id: "startup-agent", name: "Startup Agent", kind: "agent" as const },
-      agentPlugin: { agents: [{ description: "missing the required id field" }] },
+      manifest: {
+        id: "startup-agent",
+        name: "Startup Agent",
+        kind: "agent" as const,
+      },
+      agentPlugin: {
+        agents: [{ description: "missing the required id field" }],
+      },
     };
     const { writes } = await withStderrCapture(async () => {
       const diag = createPluginLoadDiagnostics();
@@ -266,7 +298,9 @@ describe("plugin warnings route to plugin ! / /plugins, not startup notices", ()
       /startupPluginNotices\.push\(\s*(discoveryNotice|toolPluginNotice|profileNotice)/,
     );
     // Unverified provider-key notice is still allowed on the startup path.
-    expect(sources).toMatch(/startupPluginNotices\.push\([\s\S]*couldn't confirm your/);
+    expect(sources).toMatch(
+      /startupPluginNotices\.push\([\s\S]*couldn't confirm your/,
+    );
   });
 });
 

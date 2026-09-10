@@ -3,7 +3,12 @@ import { describe, expect, test } from "bun:test";
 import { MARK_LARGE, MARK_MID, MARK_SMALL } from "./mark-shape.js";
 import { createHarness } from "./harness.js";
 import { stringWidth } from "./view/height.js";
-import { resolveWelcomeLine, resolveWelcomeMarkGrid, runWelcome, WELCOME_LINE } from "./welcome.js";
+import {
+  resolveWelcomeLine,
+  resolveWelcomeMarkGrid,
+  runWelcome,
+  WELCOME_LINE,
+} from "./welcome.js";
 
 describe("resolveWelcomeMarkGrid", () => {
   test("picks the largest mark that fits the terminal", () => {

@@ -18,7 +18,11 @@ const pricingCache: PricingCache = {
       outputPricePerToken: 0.00001,
       cacheReadPricePerToken: 0,
     },
-    "free-model": { inputPricePerToken: 0, outputPricePerToken: 0, cacheReadPricePerToken: 0 },
+    "free-model": {
+      inputPricePerToken: 0,
+      outputPricePerToken: 0,
+      cacheReadPricePerToken: 0,
+    },
     "gpt-5.6-luna": {
       inputPricePerToken: 0.000001,
       outputPricePerToken: 0.000008,
@@ -42,7 +46,9 @@ describe("isFreeModelId", () => {
 
 describe("isCodingPlanBaseURL", () => {
   it("detects /coding in the path", () => {
-    expect(isCodingPlanBaseURL("https://api.z.ai/api/coding/paas/v4")).toBe(true);
+    expect(isCodingPlanBaseURL("https://api.z.ai/api/coding/paas/v4")).toBe(
+      true,
+    );
   });
 
   it("ignores the metered API endpoint", () => {
@@ -51,13 +57,19 @@ describe("isCodingPlanBaseURL", () => {
 
   it("matches coding only as a whole path segment", () => {
     expect(isCodingPlanBaseURL("https://api.z.ai/api/coding")).toBe(true);
-    expect(isCodingPlanBaseURL("https://api.example.com/v1/encoding/paas")).toBe(false);
+    expect(
+      isCodingPlanBaseURL("https://api.example.com/v1/encoding/paas"),
+    ).toBe(false);
     expect(isCodingPlanBaseURL("https://api.example.com/decoding")).toBe(false);
-    expect(isCodingPlanBaseURL("https://api.example.com/coding-assistant/v1")).toBe(false);
+    expect(
+      isCodingPlanBaseURL("https://api.example.com/coding-assistant/v1"),
+    ).toBe(false);
   });
 
   it("does not match coding in a query string", () => {
-    expect(isCodingPlanBaseURL("https://api.example.com/v1?redirect=/coding")).toBe(false);
+    expect(
+      isCodingPlanBaseURL("https://api.example.com/v1?redirect=/coding"),
+    ).toBe(false);
   });
 
   it("handles undefined and malformed URLs without over-matching", () => {
@@ -85,48 +97,74 @@ describe("isChatGPTSubscriptionBaseURL", () => {
   it("detects the Codex ChatGPT subscription inference base URL", () => {
     expect(isChatGPTSubscriptionBaseURL(CODEX_BASE_URL)).toBe(true);
     expect(isChatGPTSubscriptionBaseURL(`${CODEX_BASE_URL}/`)).toBe(true);
-    expect(isChatGPTSubscriptionBaseURL(`${CODEX_BASE_URL}/codex/responses`)).toBe(true);
+    expect(
+      isChatGPTSubscriptionBaseURL(`${CODEX_BASE_URL}/codex/responses`),
+    ).toBe(true);
   });
 
   it("does not match the metered OpenAI platform API", () => {
-    expect(isChatGPTSubscriptionBaseURL("https://api.openai.com/v1")).toBe(false);
+    expect(isChatGPTSubscriptionBaseURL("https://api.openai.com/v1")).toBe(
+      false,
+    );
   });
 
   it("does not match chatgpt.com outside the backend-api path", () => {
     expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/")).toBe(false);
-    expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/backend")).toBe(false);
-    expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/backend-api-v2")).toBe(false);
+    expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/backend")).toBe(
+      false,
+    );
+    expect(
+      isChatGPTSubscriptionBaseURL("https://chatgpt.com/backend-api-v2"),
+    ).toBe(false);
   });
 
   it("matches the backend-api path case-insensitively", () => {
-    expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/BACKEND-API")).toBe(true);
-    expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/Backend-Api/codex/responses")).toBe(
-      true,
-    );
+    expect(
+      isChatGPTSubscriptionBaseURL("https://chatgpt.com/BACKEND-API"),
+    ).toBe(true);
+    expect(
+      isChatGPTSubscriptionBaseURL(
+        "https://chatgpt.com/Backend-Api/codex/responses",
+      ),
+    ).toBe(true);
   });
 
   it("matches query and hash via pathname, not as part of the path prefix", () => {
-    expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/backend-api?foo=1")).toBe(true);
-    expect(isChatGPTSubscriptionBaseURL("https://chatgpt.com/backend-api#section")).toBe(true);
+    expect(
+      isChatGPTSubscriptionBaseURL("https://chatgpt.com/backend-api?foo=1"),
+    ).toBe(true);
+    expect(
+      isChatGPTSubscriptionBaseURL("https://chatgpt.com/backend-api#section"),
+    ).toBe(true);
   });
 
   it("does not match http against the https Codex origin", () => {
-    expect(isChatGPTSubscriptionBaseURL("http://chatgpt.com/backend-api")).toBe(false);
+    expect(isChatGPTSubscriptionBaseURL("http://chatgpt.com/backend-api")).toBe(
+      false,
+    );
   });
 
   it("rejects undefined, unanchored substrings, and lookalike hosts", () => {
     expect(isChatGPTSubscriptionBaseURL(undefined)).toBe(false);
-    expect(isChatGPTSubscriptionBaseURL("not a url chatgpt.com/backend-api")).toBe(false);
-    expect(isChatGPTSubscriptionBaseURL("notchatgpt.com/backend-api")).toBe(false);
+    expect(
+      isChatGPTSubscriptionBaseURL("not a url chatgpt.com/backend-api"),
+    ).toBe(false);
+    expect(isChatGPTSubscriptionBaseURL("notchatgpt.com/backend-api")).toBe(
+      false,
+    );
     expect(isChatGPTSubscriptionBaseURL("chatgpt.com/backend-api")).toBe(true);
   });
 });
 
 describe("costHiddenReason", () => {
   it("hides for a manual provider override", () => {
-    expect(costHiddenReason({ modelId: "glm-5.1", providerFree: true, pricingCache })).toBe(
-      "provider-free",
-    );
+    expect(
+      costHiddenReason({
+        modelId: "glm-5.1",
+        providerFree: true,
+        pricingCache,
+      }),
+    ).toBe("provider-free");
   });
 
   it("hides for a coding-plan base URL", () => {
@@ -216,11 +254,15 @@ describe("costHiddenReason", () => {
   });
 
   it("hides for a free-named model", () => {
-    expect(costHiddenReason({ modelId: "qwen3:free", pricingCache })).toBe("free-model");
+    expect(costHiddenReason({ modelId: "qwen3:free", pricingCache })).toBe(
+      "free-model",
+    );
   });
 
   it("hides for a model priced at zero", () => {
-    expect(costHiddenReason({ modelId: "free-model", pricingCache })).toBe("zero-priced");
+    expect(costHiddenReason({ modelId: "free-model", pricingCache })).toBe(
+      "zero-priced",
+    );
   });
 
   it("shows cost for a normal metered model", () => {
@@ -256,6 +298,8 @@ describe("costHiddenReason", () => {
   });
 
   it("shows cost for an unknown model with no signals", () => {
-    expect(costHiddenReason({ modelId: "mystery-model", pricingCache: null })).toBeNull();
+    expect(
+      costHiddenReason({ modelId: "mystery-model", pricingCache: null }),
+    ).toBeNull();
   });
 });

@@ -12,7 +12,9 @@ import { installFileLogSink } from "../../src/logging/sink.js";
  * Leaves the sink installed (same as `src/logging/sink.test.ts`) and does
  * not delete the temp dir — later tests in the same process may still log.
  */
-export async function withFileLogSink(fn: () => Promise<void>): Promise<string> {
+export async function withFileLogSink(
+  fn: () => Promise<void>,
+): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), "corbits-silence-log-"));
   const file = join(dir, "corbits.log");
   installFileLogSink(file);

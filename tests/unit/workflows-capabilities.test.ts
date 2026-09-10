@@ -1,10 +1,18 @@
 import { test, expect } from "bun:test";
 import type { ToolDefinition } from "@intx/types/runtime";
-import { detectCapabilities, resolveStep, CAPABILITIES } from "../../src/workflows/capabilities.js";
+import {
+  detectCapabilities,
+  resolveStep,
+  CAPABILITIES,
+} from "../../src/workflows/capabilities.js";
 import type { WorkflowStep } from "../../src/workflows/types.js";
 
 function tool(name: string): ToolDefinition {
-  return { name, description: name, inputSchema: { type: "object", properties: {} } };
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+  };
 }
 
 const linearTools = [
@@ -38,7 +46,9 @@ test("no matching tools means the capability is absent", () => {
 });
 
 test("unknown MCP servers are ignored, not errored", () => {
-  expect(() => detectCapabilities([tool("mcp__some_unknown_server__do_thing")])).not.toThrow();
+  expect(() =>
+    detectCapabilities([tool("mcp__some_unknown_server__do_thing")]),
+  ).not.toThrow();
 });
 
 test("an override disables a present capability", () => {
@@ -53,14 +63,22 @@ test("resolveStep runs steps with no capability requirement", () => {
 });
 
 test("resolveStep marks a step non-runnable when its capability is unsatisfied", () => {
-  const step: WorkflowStep = { id: "x", label: "X", capability: "ticket-tracker" };
+  const step: WorkflowStep = {
+    id: "x",
+    label: "X",
+    capability: "ticket-tracker",
+  };
   const res = resolveStep(step, detectCapabilities([]));
   expect(res.runnable).toBe(false);
   expect(res.skippedReason).toContain("ticket-tracker");
 });
 
 test("resolveStep returns the satisfying tools when runnable", () => {
-  const step: WorkflowStep = { id: "x", label: "X", capability: "ticket-tracker" };
+  const step: WorkflowStep = {
+    id: "x",
+    label: "X",
+    capability: "ticket-tracker",
+  };
   const res = resolveStep(step, detectCapabilities(linearTools));
   expect(res.runnable).toBe(true);
   expect(res.tools).toHaveLength(2);
@@ -81,6 +99,8 @@ test("substring-adjacent tool names do not produce false-positive capabilities",
 
 test("the capability registry is extensible by data alone", () => {
   for (const name of Object.keys(CAPABILITIES)) {
-    expect(CAPABILITIES[name as keyof typeof CAPABILITIES].requiredTools.length).toBeGreaterThan(0);
+    expect(
+      CAPABILITIES[name as keyof typeof CAPABILITIES].requiredTools.length,
+    ).toBeGreaterThan(0);
   }
 });

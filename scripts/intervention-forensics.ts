@@ -33,7 +33,10 @@ import { readdirSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-import { INTERVENTION_FILE, type InterventionRecord } from "../src/subagent/intervention-log.js";
+import {
+  INTERVENTION_FILE,
+  type InterventionRecord,
+} from "../src/subagent/intervention-log.js";
 
 // lstat, and skip symlinks: session dirs carry a `latest` symlink to a real
 // session, and following it double-counts every record in that session.
@@ -60,7 +63,10 @@ function findAll(dir: string, name: string, out: string[]): void {
 
 function percentile(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) return 0;
-  const index = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length));
+  const index = Math.min(
+    sorted.length - 1,
+    Math.floor((p / 100) * sorted.length),
+  );
   const value = sorted[index];
   if (value === undefined) return 0;
   return value;
@@ -129,7 +135,10 @@ for (const file of files) {
       const kind = record.outcome.kind;
       outcomes.set(kind, (outcomes.get(kind) ?? 0) + 1);
       if (record.model !== undefined) {
-        dispatchesByModel.set(record.model, (dispatchesByModel.get(record.model) ?? 0) + 1);
+        dispatchesByModel.set(
+          record.model,
+          (dispatchesByModel.get(record.model) ?? 0) + 1,
+        );
       } else {
         // Written before CL-6968 tagged outcome records with model identity.
         untaggedOutcomes++;
@@ -148,7 +157,10 @@ for (const file of files) {
     const model = record.model ?? "unknown";
     bucket.byModel.set(model, (bucket.byModel.get(model) ?? 0) + 1);
     if (record.class === "stop" || record.class === "nudge") {
-      interventionsByModel.set(model, (interventionsByModel.get(model) ?? 0) + 1);
+      interventionsByModel.set(
+        model,
+        (interventionsByModel.get(model) ?? 0) + 1,
+      );
     }
     if (record.measurement !== undefined) {
       bucket.values.push(record.measurement.value);
@@ -164,14 +176,18 @@ for (const file of files) {
 }
 
 console.log(`intervention logs: ${files.length}`);
-console.log(`records: ${records}${malformed > 0 ? ` (${malformed} malformed, skipped)` : ""}`);
+console.log(
+  `records: ${records}${malformed > 0 ? ` (${malformed} malformed, skipped)` : ""}`,
+);
 if (records === 0) {
   console.log("\nNo interventions logged yet. Run some sessions first.");
   process.exit(0);
 }
 
 const rows = [...buckets.entries()].sort((a, b) => b[1].count - a[1].count);
-console.log("\nintervention                       n   value p50/p90/max   threshold  edited");
+console.log(
+  "\nintervention                       n   value p50/p90/max   threshold  edited",
+);
 for (const [key, bucket] of rows) {
   const sorted = [...bucket.values].sort((a, b) => a - b);
   const last = sorted[sorted.length - 1];
@@ -179,7 +195,8 @@ for (const [key, bucket] of rows) {
     sorted.length === 0 || last === undefined
       ? "-"
       : `${percentile(sorted, 50)}/${percentile(sorted, 90)}/${last}`;
-  const thresholds = bucket.thresholds.size === 0 ? "-" : [...bucket.thresholds].join(",");
+  const thresholds =
+    bucket.thresholds.size === 0 ? "-" : [...bucket.thresholds].join(",");
   console.log(
     `${key.padEnd(33)} ${String(bucket.count).padStart(3)}   ${dist.padEnd(16)} ${thresholds.padEnd(10)} ${String(bucket.editedWork).padStart(5)}`,
   );
@@ -208,7 +225,9 @@ if (repetitionRows.length > 0) {
       totalsByModel.set(model, (totalsByModel.get(model) ?? 0) + count);
     }
   }
-  console.log("\nrepetition aborts by model (mid-stream degenerate-repetition, all detectors)");
+  console.log(
+    "\nrepetition aborts by model (mid-stream degenerate-repetition, all detectors)",
+  );
   const modelRows = [...totalsByModel.entries()].sort((a, b) => b[1] - a[1]);
   for (const [model, count] of modelRows) {
     console.log(`${model.padEnd(33)} ${count}`);
@@ -231,13 +250,19 @@ console.log(
 // dispatches = outcome records tagged with that model (CL-6968); interventions
 // = stop+nudge records for that model. Everything above this is a count.
 if (dispatchesByModel.size > 0 || interventionsByModel.size > 0) {
-  console.log("\ninterventions per dispatch by model (stop+nudge count / dispatch count = rate)");
-  const models = new Set([...dispatchesByModel.keys(), ...interventionsByModel.keys()]);
+  console.log(
+    "\ninterventions per dispatch by model (stop+nudge count / dispatch count = rate)",
+  );
+  const models = new Set([
+    ...dispatchesByModel.keys(),
+    ...interventionsByModel.keys(),
+  ]);
   const modelRows = [...models]
     .map((model) => {
       const dispatches = dispatchesByModel.get(model) ?? 0;
       const interventions = interventionsByModel.get(model) ?? 0;
-      const rate = dispatches > 0 ? (interventions / dispatches).toFixed(3) : "-";
+      const rate =
+        dispatches > 0 ? (interventions / dispatches).toFixed(3) : "-";
       return { model, dispatches, interventions, rate };
     })
     .sort((a, b) => b.interventions - a.interventions);

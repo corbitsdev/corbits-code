@@ -20,6 +20,7 @@ export function createExaMCPServerConfig(): ResolvedMCPServerConfig {
 
 export function isBuiltinExaMCPServer(config: MCPServerConfig): boolean {
   return (
-    config.name === EXA_MCP_SERVER_NAME && (config as ResolvedMCPServerConfig).source === "builtin"
+    config.name === EXA_MCP_SERVER_NAME &&
+    (config as ResolvedMCPServerConfig).source === "builtin"
   );
 }

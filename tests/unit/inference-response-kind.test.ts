@@ -8,8 +8,16 @@
  * responses requests only; everything else keeps the loud failure.
  */
 import { describe, expect, test } from "bun:test";
-import { createDefaultScheduler, runInference, type Dependencies } from "@intx/inference";
-import type { ConversationTurn, InferenceEvent, InferenceSource } from "@intx/types/runtime";
+import {
+  createDefaultScheduler,
+  runInference,
+  type Dependencies,
+} from "@intx/inference";
+import type {
+  ConversationTurn,
+  InferenceEvent,
+  InferenceSource,
+} from "@intx/types/runtime";
 import { createInferenceDependencies } from "../../src/provider/inference-dependencies.js";
 import {
   CODEX_RESPONSES_PROVIDER,
@@ -32,7 +40,10 @@ function userTurn(text: string): ConversationTurn {
 }
 
 const SSE_PAYLOADS = [
-  { type: "response.created", response: { id: "resp_1", status: "in_progress" } },
+  {
+    type: "response.created",
+    response: { id: "resp_1", status: "in_progress" },
+  },
   { type: "response.output_text.delta", item_id: "item_1", delta: "hello" },
   {
     type: "response.completed",
@@ -61,13 +72,17 @@ function headerlessResponse(body: BodyInit): Response {
   return response;
 }
 
-async function collect(iter: AsyncIterable<InferenceEvent>): Promise<InferenceEvent[]> {
+async function collect(
+  iter: AsyncIterable<InferenceEvent>,
+): Promise<InferenceEvent[]> {
   const out: InferenceEvent[] = [];
   for await (const ev of iter) out.push(ev);
   return out;
 }
 
-async function runCodexTurn(fetchImpl: Dependencies["fetch"]): Promise<InferenceEvent[]> {
+async function runCodexTurn(
+  fetchImpl: Dependencies["fetch"],
+): Promise<InferenceEvent[]> {
   const base = await createInferenceDependencies();
   const deps: Dependencies = {
     ...base,
@@ -111,14 +126,19 @@ describe("withCodexContentTypeRepair through the harness", () => {
     const error = events.find((e) => e.type === "inference.error");
 
     expect(error).toBeDefined();
-    expect(JSON.stringify(error)).toContain("Unsupported response Content-Type");
+    expect(JSON.stringify(error)).toContain(
+      "Unsupported response Content-Type",
+    );
   });
 });
 
 describe("withCodexContentTypeRepair boundaries", () => {
   const sseInit: RequestInit = {
     method: "POST",
-    headers: { accept: "text/event-stream", "content-type": "application/json" },
+    headers: {
+      accept: "text/event-stream",
+      "content-type": "application/json",
+    },
   };
 
   test("restores text/event-stream from an SSE accept header", async () => {
@@ -170,7 +190,10 @@ describe("withCodexContentTypeRepair boundaries", () => {
     const fetchImpl = withCodexContentTypeRepair(() =>
       Promise.resolve(headerlessResponse(sseBody([]))),
     );
-    const response = await fetchImpl("https://api.example.com/v1/messages", sseInit);
+    const response = await fetchImpl(
+      "https://api.example.com/v1/messages",
+      sseInit,
+    );
     expect(response.headers.get("content-type")).toBeNull();
   });
 
@@ -185,7 +208,8 @@ describe("withCodexContentTypeRepair boundaries", () => {
       { preconnect: () => undefined },
     ) as typeof globalThis.fetch;
     try {
-      const specifier = "../../src/provider/inference-dependencies.js" + "?wiring-regression";
+      const specifier =
+        "../../src/provider/inference-dependencies.js" + "?wiring-regression";
       const mod = (await import(specifier)) as {
         createInferenceDependencies: () => Promise<Dependencies>;
       };
@@ -200,11 +224,16 @@ describe("withCodexContentTypeRepair boundaries", () => {
   test("leaves declared Content-Type and non-2xx responses untouched", async () => {
     const declared = withCodexContentTypeRepair(() =>
       Promise.resolve(
-        new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
+        new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
       ),
     );
     const declaredResponse = await declared(CODEX_URL, sseInit);
-    expect(declaredResponse.headers.get("content-type")).toBe("application/json");
+    expect(declaredResponse.headers.get("content-type")).toBe(
+      "application/json",
+    );
 
     const failing = withCodexContentTypeRepair(() => {
       const response = new Response("nope", { status: 429 });

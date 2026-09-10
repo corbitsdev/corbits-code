@@ -43,8 +43,11 @@ function redactPattern(text: string, pattern: RegExp): string {
     if (quotes.length >= 4) {
       const valueOpen = quotes[2];
       const valueClose = quotes[quotes.length - 1];
-      if (valueOpen === undefined || valueClose === undefined) return "[REDACTED]";
-      return match.slice(0, valueOpen + 1) + "[REDACTED]" + match.slice(valueClose);
+      if (valueOpen === undefined || valueClose === undefined)
+        return "[REDACTED]";
+      return (
+        match.slice(0, valueOpen + 1) + "[REDACTED]" + match.slice(valueClose)
+      );
     }
 
     // Header: Authorization: ...

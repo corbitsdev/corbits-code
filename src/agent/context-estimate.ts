@@ -29,7 +29,10 @@ export function estimateTokensFromChars(chars: number): number {
 
 export function estimateMediaSourceTokens(source: MediaSource): number {
   if (source.kind === "base64") {
-    return Math.min(estimateTokensFromChars(source.data.length), MEDIA_BASE64_MAX_TOKENS);
+    return Math.min(
+      estimateTokensFromChars(source.data.length),
+      MEDIA_BASE64_MAX_TOKENS,
+    );
   }
   return MEDIA_REFERENCE_FLOOR_TOKENS;
 }
@@ -45,9 +48,14 @@ export function estimateContentBlockTokens(block: ContentBlock): number {
     case "refusal":
       return estimateTokensFromChars(block.reason.length);
     case "tool_call":
-      return estimateTokensFromChars(block.name.length + JSON.stringify(block.arguments).length);
+      return estimateTokensFromChars(
+        block.name.length + JSON.stringify(block.arguments).length,
+      );
     case "tool_result":
-      return block.content.reduce((sum, part) => sum + estimateContentBlockTokens(part), 0);
+      return block.content.reduce(
+        (sum, part) => sum + estimateContentBlockTokens(part),
+        0,
+      );
     case "image":
     case "audio":
     case "video":
@@ -60,7 +68,9 @@ export function estimateContentBlockTokens(block: ContentBlock): number {
           (block.source.uri?.length ?? 0),
       );
     case "code_execution_request":
-      return estimateTokensFromChars(block.code.length + (block.language?.length ?? 0));
+      return estimateTokensFromChars(
+        block.code.length + (block.language?.length ?? 0),
+      );
     case "code_execution_result":
       return estimateTokensFromChars(
         (block.stdout?.length ?? 0) +
@@ -80,7 +90,9 @@ function estimateTurnTokens(turn: ConversationTurn): number {
   return total;
 }
 
-export function estimateContextTokens(turns: readonly ConversationTurn[]): number {
+export function estimateContextTokens(
+  turns: readonly ConversationTurn[],
+): number {
   let total = 0;
   for (const turn of turns ?? []) {
     total += estimateTurnTokens(turn);
@@ -99,7 +111,10 @@ export function estimateOverheadTokens(
 ): number {
   let chars = systemPrompt.length;
   for (const tool of toolDefinitions) {
-    chars += tool.name.length + tool.description.length + JSON.stringify(tool.inputSchema).length;
+    chars +=
+      tool.name.length +
+      tool.description.length +
+      JSON.stringify(tool.inputSchema).length;
   }
   return estimateTokensFromChars(chars);
 }

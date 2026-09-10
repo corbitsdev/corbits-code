@@ -10,7 +10,10 @@ import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
 // Tool names referenced in the discipline block must exist in the actual
 // registration source, not be assumed. web_fetch/web_search are catalog tools
 // (always advertised) and also registered via createWebFetchTool/createWebSearchTool.
-const REGISTERED_TOOL_NAMES = new Set([...CORE_TOOL_NAMES, ...CATALOG_TOOL_NAMES]);
+const REGISTERED_TOOL_NAMES = new Set([
+  ...CORE_TOOL_NAMES,
+  ...CATALOG_TOOL_NAMES,
+]);
 
 const REFERENCED_TOOL_NAMES = [
   "read_file",
@@ -29,7 +32,9 @@ function expectVerificationGuidance(prompt: string): void {
   expect(prompt).toMatch(
     /defined typecheck command.*relevant tests.*defined full verification command/is,
   );
-  expect(prompt).toMatch(/repository defines no typecheck command.*explicit Blocker/is);
+  expect(prompt).toMatch(
+    /repository defines no typecheck command.*explicit Blocker/is,
+  );
   expect(prompt).toMatch(/evidence.*AGENTS.*package scripts/is);
   expect(prompt).toMatch(/do not invent.*typecheck command/i);
   expect(prompt).toMatch(/exact verification command.*outcome.*exit status/is);
@@ -63,7 +68,9 @@ describe("buildPromptDisciplineBlock", () => {
     expect(block).toContain("cat/head/tail");
     expect(block).toContain("heredoc/echo");
     // Environment.
-    expect(block).toMatch(/never set, export, or prefix environment variables/i);
+    expect(block).toMatch(
+      /never set, export, or prefix environment variables/i,
+    );
     expect(block).toMatch(/project settings/i);
     // Web.
     expect(block).toMatch(/curl or wget/i);
@@ -86,7 +93,13 @@ describe("buildPromptDisciplineBlock", () => {
 
 describe("shared discipline block appears exactly once per built prompt", () => {
   it("appears exactly once in the orchestrator chat prompt", () => {
-    const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "orchestrator");
+    const prompt = buildChatSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      [],
+      "orchestrator",
+    );
     expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
   });
 
@@ -125,7 +138,13 @@ describe("shared verification guidance", () => {
   });
 
   it("requires evidence-carrying verification in orchestrator chat prompts", () => {
-    const prompt = buildChatSystemPrompt(undefined, undefined, undefined, [], "orchestrator");
+    const prompt = buildChatSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      [],
+      "orchestrator",
+    );
     expectVerificationGuidance(prompt);
   });
 });

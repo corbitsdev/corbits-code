@@ -22,7 +22,9 @@ export interface AgeImageResult {
  * Replace base64 image blocks with a rehydratable attachment marker and emit
  * blobs the reactor will write via ContextStore.writeBlob.
  */
-export async function ageImageBlocks(turn: ConversationTurn): Promise<AgeImageResult> {
+export async function ageImageBlocks(
+  turn: ConversationTurn,
+): Promise<AgeImageResult> {
   if (!turn.content.some((b) => b.type === "image")) {
     return { turn, blobs: [] };
   }

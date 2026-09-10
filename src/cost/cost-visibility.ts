@@ -44,9 +44,12 @@ const CODEX_PATH = CODEX_BASE.pathname.replace(/\/$/, "").toLowerCase();
 // Host-anchored: a scheme or start of string must precede chatgpt.com so
 // notchatgpt.com/backend-api never matches. Query/hash after the path still
 // count. Unparseable noise that merely contains the substring does not.
-const CHATGPT_SUBSCRIPTION_FALLBACK = /(?:^|\/\/)chatgpt\.com\/backend-api(?:\/|$|\?|#)/i;
+const CHATGPT_SUBSCRIPTION_FALLBACK =
+  /(?:^|\/\/)chatgpt\.com\/backend-api(?:\/|$|\?|#)/i;
 
-export function isChatGPTSubscriptionBaseURL(baseURL: string | undefined): boolean {
+export function isChatGPTSubscriptionBaseURL(
+  baseURL: string | undefined,
+): boolean {
   if (baseURL === undefined) return false;
   try {
     const url = new URL(baseURL);
@@ -58,7 +61,10 @@ export function isChatGPTSubscriptionBaseURL(baseURL: string | undefined): boole
   }
 }
 
-export function isFreeModelByPricing(cache: PricingCache | null, modelId: string): boolean {
+export function isFreeModelByPricing(
+  cache: PricingCache | null,
+  modelId: string,
+): boolean {
   const pricing = lookupModelPricing(cache, modelId);
   if (pricing === null) return false;
   return pricing.inputPricePerToken === 0 && pricing.outputPricePerToken === 0;
@@ -78,7 +84,11 @@ export interface CostVisibilityInput {
 }
 
 export type CostHiddenReason =
-  "provider-free" | "coding-plan" | "chatgpt-subscription" | "free-model" | "zero-priced";
+  | "provider-free"
+  | "coding-plan"
+  | "chatgpt-subscription"
+  | "free-model"
+  | "zero-priced";
 
 function isCodingPlanSession(input: CostVisibilityInput): boolean {
   if (input.providerName !== undefined) {
@@ -100,12 +110,16 @@ function isChatGPTSubscriptionSession(input: CostVisibilityInput): boolean {
 // free-named model, or a model the pricing registry reports as zero-cost.
 // The reason is carried to the display so /cost can say which condition hid
 // the figure.
-export function costHiddenReason(input: CostVisibilityInput): CostHiddenReason | null {
+export function costHiddenReason(
+  input: CostVisibilityInput,
+): CostHiddenReason | null {
   if (input.providerFree === true) return "provider-free";
   if (isCodingPlanSession(input)) return "coding-plan";
   if (isChatGPTSubscriptionSession(input)) return "chatgpt-subscription";
   if (isFreeModelId(input.modelId)) return "free-model";
-  return isFreeModelByPricing(input.pricingCache, input.modelId) ? "zero-priced" : null;
+  return isFreeModelByPricing(input.pricingCache, input.modelId)
+    ? "zero-priced"
+    : null;
 }
 
 // The pricing cache loaded at startup. Held as a module global so the render

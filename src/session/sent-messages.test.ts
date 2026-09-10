@@ -25,7 +25,10 @@ describe("sent-messages", () => {
     expect(await loadSentMessages(cwd, sessionId, home)).toEqual([]);
     await appendSentMessage(cwd, sessionId, "  hello  ", home);
     await appendSentMessage(cwd, sessionId, "world", home);
-    expect(await loadSentMessages(cwd, sessionId, home)).toEqual(["hello", "world"]);
+    expect(await loadSentMessages(cwd, sessionId, home)).toEqual([
+      "hello",
+      "world",
+    ]);
   });
 
   test("load keeps only the last 20 messages", async () => {

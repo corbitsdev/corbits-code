@@ -110,7 +110,8 @@ async function collectFilePaths(
     try {
       entries = await readdir(dirAbs, { withFileTypes: true });
     } catch (err) {
-      if (hasCode(err) && (err.code === "EACCES" || err.code === "ENOENT")) return;
+      if (hasCode(err) && (err.code === "EACCES" || err.code === "ENOENT"))
+        return;
       throw err;
     }
 
@@ -163,9 +164,15 @@ async function searchFile(
   let buf: Buffer;
   try {
     const handle = await readFile(filePath, { signal });
-    buf = handle.length > maxPerFileBytes ? handle.subarray(0, maxPerFileBytes) : handle;
+    buf =
+      handle.length > maxPerFileBytes
+        ? handle.subarray(0, maxPerFileBytes)
+        : handle;
   } catch (err) {
-    if (hasCode(err) && (err.code === "EISDIR" || err.code === "EACCES" || err.code === "ENOENT")) {
+    if (
+      hasCode(err) &&
+      (err.code === "EISDIR" || err.code === "EACCES" || err.code === "ENOENT")
+    ) {
       return null;
     }
     throw err;
@@ -249,11 +256,15 @@ export async function runBoundedGrep(
   try {
     regex = new RegExp(args.pattern);
   } catch (err) {
-    throw new Error(`invalid regex: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `invalid regex: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
-  const maxDirectoryEntries = limits.maxDirectoryEntries ?? BOUNDED_GREP_MAX_DIRECTORY_ENTRIES;
-  const maxPerFileBytes = limits.maxPerFileBytes ?? BOUNDED_GREP_MAX_PER_FILE_BYTES;
+  const maxDirectoryEntries =
+    limits.maxDirectoryEntries ?? BOUNDED_GREP_MAX_DIRECTORY_ENTRIES;
+  const maxPerFileBytes =
+    limits.maxPerFileBytes ?? BOUNDED_GREP_MAX_PER_FILE_BYTES;
 
   const basePath = resolve(baseCwd, args.path ?? ".");
   const contextLines = args.context ?? 0;
@@ -265,8 +276,10 @@ export async function runBoundedGrep(
     info = await stat(basePath);
   } catch (err) {
     if (hasCode(err)) {
-      if (err.code === "ENOENT") throw new Error(`path not found: ${basePath}`, { cause: err });
-      if (err.code === "EACCES") throw new Error(`permission denied: ${basePath}`, { cause: err });
+      if (err.code === "ENOENT")
+        throw new Error(`path not found: ${basePath}`, { cause: err });
+      if (err.code === "EACCES")
+        throw new Error(`permission denied: ${basePath}`, { cause: err });
     }
     throw err;
   }
@@ -287,7 +300,13 @@ export async function runBoundedGrep(
     signal.throwIfAborted();
 
     const displayPath = isDir ? relative(basePath, fp) : fp;
-    const result = await searchFile(fp, displayPath, regex, signal, maxPerFileBytes);
+    const result = await searchFile(
+      fp,
+      displayPath,
+      regex,
+      signal,
+      maxPerFileBytes,
+    );
     if (result === null) continue;
 
     totalMatches += result.matches.length;
@@ -323,7 +342,8 @@ export async function runBoundedSearchFiles(
 ): Promise<string> {
   signal.throwIfAborted();
 
-  const maxDirectoryEntries = limits.maxDirectoryEntries ?? BOUNDED_GREP_MAX_DIRECTORY_ENTRIES;
+  const maxDirectoryEntries =
+    limits.maxDirectoryEntries ?? BOUNDED_GREP_MAX_DIRECTORY_ENTRIES;
 
   const basePath = resolve(baseCwd, args.path ?? ".");
   const maxResults = args.max_results ?? BOUNDED_SEARCH_DEFAULT_MAX_RESULTS;
@@ -336,7 +356,8 @@ export async function runBoundedSearchFiles(
     if (hasCode(err)) {
       if (err.code === "ENOENT")
         throw new Error(`directory not found: ${basePath}`, { cause: err });
-      if (err.code === "EACCES") throw new Error(`permission denied: ${basePath}`, { cause: err });
+      if (err.code === "EACCES")
+        throw new Error(`permission denied: ${basePath}`, { cause: err });
     }
     throw err;
   }

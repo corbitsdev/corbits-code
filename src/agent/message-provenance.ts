@@ -17,6 +17,8 @@
  */
 export const OPERATOR_ORIGINATED_FLAG = "operator-originated";
 
-export function isOperatorOriginated(flags: readonly string[] | undefined): boolean {
+export function isOperatorOriginated(
+  flags: readonly string[] | undefined,
+): boolean {
   return flags !== undefined && flags.includes(OPERATOR_ORIGINATED_FLAG);
 }

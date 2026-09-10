@@ -21,10 +21,14 @@ export interface CodexUsageLimitError {
 }
 
 /** Exact codes observed / expected from the Codex ChatGPT backend. */
-const USAGE_LIMIT_CODES = new Set(["usage_limit_reached", "usage_limit_exceeded"]);
+const USAGE_LIMIT_CODES = new Set([
+  "usage_limit_reached",
+  "usage_limit_exceeded",
+]);
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return undefined;
   return value as Record<string, unknown>;
 }
 
@@ -68,7 +72,9 @@ function readErrorNode(body: unknown): Record<string, unknown> | undefined {
  * Returns a structured usage-limit error when `raw` matches the Codex body.
  * Undefined for unrelated payloads (including other providers' quota 429s).
  */
-export function parseCodexUsageLimitError(raw: unknown): CodexUsageLimitError | undefined {
+export function parseCodexUsageLimitError(
+  raw: unknown,
+): CodexUsageLimitError | undefined {
   const body = coerceBody(raw);
   const node = readErrorNode(body);
   if (node === undefined) return undefined;
@@ -88,9 +94,13 @@ export function parseCodexUsageLimitError(raw: unknown): CodexUsageLimitError | 
         : undefined;
 
   const resetsRaw =
-    node["resets_in_seconds"] ?? node["resetsInSeconds"] ?? node["reset_after_seconds"];
+    node["resets_in_seconds"] ??
+    node["resetsInSeconds"] ??
+    node["reset_after_seconds"];
   const resetsInSeconds =
-    typeof resetsRaw === "number" && Number.isFinite(resetsRaw) && resetsRaw >= 0
+    typeof resetsRaw === "number" &&
+    Number.isFinite(resetsRaw) &&
+    resetsRaw >= 0
       ? Math.floor(resetsRaw)
       : undefined;
 
@@ -103,7 +113,9 @@ export function parseCodexUsageLimitError(raw: unknown): CodexUsageLimitError | 
 }
 
 /** `retryAfterMs` for the default retry policy; undefined when the body omits reset. */
-export function codexUsageLimitRetryAfterMs(parsed: CodexUsageLimitError): number | undefined {
+export function codexUsageLimitRetryAfterMs(
+  parsed: CodexUsageLimitError,
+): number | undefined {
   if (parsed.resetsInSeconds === undefined) return undefined;
   if (parsed.resetsInSeconds <= 0) return 0;
   return parsed.resetsInSeconds * 1000;

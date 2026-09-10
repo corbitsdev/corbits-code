@@ -40,7 +40,10 @@ import {
   type AgentProgressSession,
   type LaneState,
 } from "./agent-progress.js";
-import { AGENTS_PANEL_MAX_VISIBLE, TASKS_PANEL_MAX_VISIBLE } from "./geometry/zones.js";
+import {
+  AGENTS_PANEL_MAX_VISIBLE,
+  TASKS_PANEL_MAX_VISIBLE,
+} from "./geometry/zones.js";
 
 /**
  * How long a finished agent row (done / failed / cancelled / interrupted) stays
@@ -146,7 +149,12 @@ export interface AgentPanelRow {
  * operator answers "is everything fine" without reading a word. This is a
  * display order only; stall/`in_tool` semantics live in `agent-progress`.
  */
-const BOARD_LANE_ORDER: readonly LaneState[] = ["stalled", "in_tool", "working", "queued"];
+const BOARD_LANE_ORDER: readonly LaneState[] = [
+  "stalled",
+  "in_tool",
+  "working",
+  "queued",
+];
 
 /** Always-populated result for setChromeZones (null = hide zone). */
 export interface FormattedChromeZones {
@@ -278,9 +286,11 @@ export function formatAgentsPanel(
   lingerMs: number = AGENTS_PANEL_LINGER_MS,
 ): readonly AgentPanelRow[] | null {
   const observeRow = formatObserveRow(observe);
-  if (observeRow !== undefined) return observeRow === null ? null : [observeRow];
+  if (observeRow !== undefined)
+    return observeRow === null ? null : [observeRow];
 
-  if (agents === null || agents === undefined || agents.length === 0) return null;
+  if (agents === null || agents === undefined || agents.length === 0)
+    return null;
 
   const running = agents.filter((s) => agentLaneIsLive(s));
   const lingering = agents.filter((s) => agentIsLingering(s, nowMs, lingerMs));
@@ -302,11 +312,15 @@ export function formatAgentsPanel(
     );
 
   const rankedLingering = [...lingering].sort(
-    (a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0) || a.agentId.localeCompare(b.agentId),
+    (a, b) =>
+      (b.finishedAt ?? 0) - (a.finishedAt ?? 0) ||
+      a.agentId.localeCompare(b.agentId),
   );
 
   const ranked: AgentPanelRow[] = [
-    ...rankedRunning.map(({ session, state }) => formatAgentRow(session, state, nowMs, stallMs)),
+    ...rankedRunning.map(({ session, state }) =>
+      formatAgentRow(session, state, nowMs, stallMs),
+    ),
     ...rankedLingering.map((session) =>
       session.status === "running" && session.lifecycleStatus === "interrupted"
         ? formatInterruptedLingerRow(session, nowMs, stallMs)
@@ -337,17 +351,23 @@ export function formatAgentsPanel(
  * Missing clocks mean we cannot ask those helpers — callers fall back to a
  * safe display default rather than inventing timestamps.
  */
-function toProgressSession(session: ChromeAgentSession): AgentProgressSession | null {
+function toProgressSession(
+  session: ChromeAgentSession,
+): AgentProgressSession | null {
   if (session.startedAt === undefined) return null;
   return {
     status: session.status,
-    ...(session.lifecycleStatus !== undefined ? { lifecycleStatus: session.lifecycleStatus } : {}),
+    ...(session.lifecycleStatus !== undefined
+      ? { lifecycleStatus: session.lifecycleStatus }
+      : {}),
     currentToolName: session.currentToolName ?? null,
     currentToolPreview: session.currentToolPreview ?? null,
     currentToolStartedAt: session.currentToolStartedAt,
     startedAt: session.startedAt,
     lastActivityAt: session.lastActivityAt ?? session.startedAt,
-    ...(session.runInFlight !== undefined ? { runInFlight: session.runInFlight } : {}),
+    ...(session.runInFlight !== undefined
+      ? { runInFlight: session.runInFlight }
+      : {}),
   };
 }
 
@@ -355,7 +375,11 @@ function toProgressSession(session: ChromeAgentSession): AgentProgressSession | 
  * Board-facing lane word: main's `laneState` when clocks exist, else `working`
  * (no second stall path — without clocks we simply cannot claim stalled).
  */
-function boardLaneState(session: ChromeAgentSession, nowMs: number, stallMs: number): LaneState {
+function boardLaneState(
+  session: ChromeAgentSession,
+  nowMs: number,
+  stallMs: number,
+): LaneState {
   const progress = toProgressSession(session);
   if (progress === null) return "working";
   return laneState(progress, nowMs, stallMs);
@@ -385,7 +409,10 @@ export function clampBoardRows(
 
   const shown = lanes.slice(0, Math.max(0, height - 1));
   const hidden = priorHidden + (lanes.length - shown.length);
-  return [...shown, { label: `+${hidden} more`, tail: "", stalled: false, kind: "more" }];
+  return [
+    ...shown,
+    { label: `+${hidden} more`, tail: "", stalled: false, kind: "more" },
+  ];
 }
 
 /** Lanes already disclosed by a prior format/clamp fold on these rows. */
@@ -400,13 +427,26 @@ function priorHiddenCount(rows: readonly AgentPanelRow[]): number {
   return hidden;
 }
 
-function formatObserveRow(observe: ChromeLiveState["observe"]): AgentPanelRow | null | undefined {
+function formatObserveRow(
+  observe: ChromeLiveState["observe"],
+): AgentPanelRow | null | undefined {
   if (observe === null || observe === undefined) return undefined;
   const id = observe.agentId.trim();
   const desc = observe.description.trim();
   if (id.length === 0 && desc.length === 0) return null;
-  const label = id.length > 0 && desc.length > 0 ? `${id} — ${desc}` : id.length > 0 ? id : desc;
-  return { label: `observe: ${label}`, tail: "", stalled: false, kind: "lane", status: "running" };
+  const label =
+    id.length > 0 && desc.length > 0
+      ? `${id} — ${desc}`
+      : id.length > 0
+        ? id
+        : desc;
+  return {
+    label: `observe: ${label}`,
+    tail: "",
+    stalled: false,
+    kind: "lane",
+    status: "running",
+  };
 }
 
 function formatAgentRow(
@@ -469,7 +509,10 @@ function formatInterruptedLingerRow(
 ): AgentPanelRow {
   const label = `● ${session.agentId}  ${session.description}`.trim();
   const progressSession = toProgressSession(session);
-  const progress = progressSession !== null ? agentProgress(progressSession, nowMs, stallMs) : null;
+  const progress =
+    progressSession !== null
+      ? agentProgress(progressSession, nowMs, stallMs)
+      : null;
   return {
     label,
     tail: progress !== null ? ` · ${progress.stat}` : " · interrupted",
@@ -484,7 +527,11 @@ function formatTerminalRow(session: ChromeAgentSession): AgentPanelRow {
   const marker = failed ? "!" : "●";
   const label = `${marker} ${session.agentId}  ${session.description}`.trim();
   const word =
-    session.status === "done" ? "done" : session.status === "failed" ? "failed" : "cancelled";
+    session.status === "done"
+      ? "done"
+      : session.status === "failed"
+        ? "failed"
+        : "cancelled";
   return {
     label,
     tail: ` · ${word}`,
@@ -597,12 +644,20 @@ function mapSessionAgents(
       agentId: agentId.length > 0 ? agentId : "agent",
       description: a.description,
       status: a.status,
-      ...(a.lifecycleStatus !== undefined ? { lifecycleStatus: a.lifecycleStatus } : {}),
-      ...(a.currentToolName !== undefined ? { currentToolName: a.currentToolName } : {}),
-      ...(a.currentToolPreview !== undefined ? { currentToolPreview: a.currentToolPreview } : {}),
+      ...(a.lifecycleStatus !== undefined
+        ? { lifecycleStatus: a.lifecycleStatus }
+        : {}),
+      ...(a.currentToolName !== undefined
+        ? { currentToolName: a.currentToolName }
+        : {}),
+      ...(a.currentToolPreview !== undefined
+        ? { currentToolPreview: a.currentToolPreview }
+        : {}),
       currentToolStartedAt: a.currentToolStartedAt,
       ...(a.startedAt !== undefined ? { startedAt: a.startedAt } : {}),
-      ...(a.lastActivityAt !== undefined ? { lastActivityAt: a.lastActivityAt } : {}),
+      ...(a.lastActivityAt !== undefined
+        ? { lastActivityAt: a.lastActivityAt }
+        : {}),
       ...(a.finishedAt !== undefined ? { finishedAt: a.finishedAt } : {}),
       ...(a.runInFlight !== undefined ? { runInFlight: a.runInFlight } : {}),
     };

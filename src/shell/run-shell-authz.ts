@@ -35,7 +35,8 @@ const cmd = (name: string): RegExp => new RegExp(`${CMD}${name}\\b`);
 // neither carries piped data to the following stage — matched as explicit
 // two-character operators so a lone `|` inside them is not mistaken for the
 // single-pipe case.
-const CMD_HEAD = String.raw`(?:^|[\n;(` + "`" + String.raw`]\s*|&&\s*|\|\|\s*)(?:\w+=\S*\s+)*`;
+const CMD_HEAD =
+  String.raw`(?:^|[\n;(` + "`" + String.raw`]\s*|&&\s*|\|\|\s*)(?:\w+=\S*\s+)*`;
 
 const cmdHead = (name: string): RegExp => new RegExp(`${CMD_HEAD}${name}\\b`);
 
@@ -72,7 +73,9 @@ const BLOCKED_PATTERNS: RegExp[] = [
   // inside quotes and would otherwise miss the `;` these patterns need.
   /:\(\)\s*\{\s*:\|:&\s*\};/,
   // Piping a network download straight into a shell (through any wrappers).
-  new RegExp(String.raw`(curl|wget|fetch)\b[^\n;|]*\|\s*${SHELL_WRAPPERS}(bash|sh|zsh)\b`),
+  new RegExp(
+    String.raw`(curl|wget|fetch)\b[^\n;|]*\|\s*${SHELL_WRAPPERS}(bash|sh|zsh)\b`,
+  ),
   // Privilege escalation and shell replacement, only in command position.
   cmd("sudo"),
   /(?:^|[\n;&|(])\s*su\s+-/,
@@ -132,15 +135,40 @@ const NEVER_TERMINATING_PATTERNS: RegExp[] = [
 // file (and not downstream of a pipe) they block on a terminal that never
 // arrives. `git log | tail` is fine (tail reads the pipe); `tail -n 50 file.log`
 // is fine (it has a file); a bare `tail`, `cat`, or `grep pattern` is not.
-const STDIN_READERS = new Set(["cat", "tac", "nl", "rev", "head", "tail", "sort", "uniq", "wc"]);
+const STDIN_READERS = new Set([
+  "cat",
+  "tac",
+  "nl",
+  "rev",
+  "head",
+  "tail",
+  "sort",
+  "uniq",
+  "wc",
+]);
 
 // Short flags that consume the following token as their value, so the value is
 // not mistaken for a file operand (e.g. the `50` in `tail -n 50`). These are
 // value-taking only for `head` and `tail`; for the other stdin readers the same
 // letters are boolean flags (e.g. `wc -c`, `uniq -c`, `sort -c`), so consuming a
 // following token there would wrongly drop a real file operand.
-export const HEAD_TAIL_VALUE_FLAGS = new Set(["-n", "-c", "-C", "--lines", "--bytes"]);
-export const GREP_VALUE_FLAGS = new Set(["-e", "-f", "-m", "-A", "-B", "-C", "--regexp", "--file"]);
+export const HEAD_TAIL_VALUE_FLAGS = new Set([
+  "-n",
+  "-c",
+  "-C",
+  "--lines",
+  "--bytes",
+]);
+export const GREP_VALUE_FLAGS = new Set([
+  "-e",
+  "-f",
+  "-m",
+  "-A",
+  "-B",
+  "-C",
+  "--regexp",
+  "--file",
+]);
 
 // The head of each pipeline (the stage before the first `|`) is the only stage
 // that reads the terminal's stdin; later stages read the pipe. A naive regex
@@ -244,7 +272,9 @@ function readsStdinWithoutInput(head: string): boolean {
   }
   if (STDIN_READERS.has(exec)) {
     const valueFlags =
-      exec === "head" || exec === "tail" ? HEAD_TAIL_VALUE_FLAGS : new Set<string>();
+      exec === "head" || exec === "tail"
+        ? HEAD_TAIL_VALUE_FLAGS
+        : new Set<string>();
     return fileOperandCount(args, valueFlags) < 1;
   }
   return false;
@@ -270,7 +300,9 @@ const STRIP_WRAPPER = String.raw`(?:command|env|builtin)`;
 // before the deny patterns run. Only the executable token is rewritten, so
 // redirect targets and later arguments are left intact.
 const NORMALIZE_COMMAND_POSITION = new RegExp(
-  String.raw`(^|[\n;&|(` + "`" + String.raw`]\s*)(?:\w+=\S*\s+|${STRIP_WRAPPER}\s+)*(/\S*/)?`,
+  String.raw`(^|[\n;&|(` +
+    "`" +
+    String.raw`]\s*)(?:\w+=\S*\s+|${STRIP_WRAPPER}\s+)*(/\S*/)?`,
   "g",
 );
 
@@ -287,7 +319,15 @@ const RECURSIVE_FLAG = /^(--recursive|-[A-Za-z]*[rR][A-Za-z]*)$/;
 // Exported so tests and callers share one explicit list with the peeler.
 export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 // Transparent prefixes that sit in front of a real program without changing it.
-const PREFIX_WRAPPERS = new Set(["command", "env", "builtin", "time", "nice", "nohup", "timeout"]);
+const PREFIX_WRAPPERS = new Set([
+  "command",
+  "env",
+  "builtin",
+  "time",
+  "nice",
+  "nohup",
+  "timeout",
+]);
 // Max recursive peel depth for nested wrappers. Exported so the depth cap is a
 // named policy knob tests can assert against, not a magic number.
 export const MAX_PEEL_DEPTH = 4;
@@ -320,7 +360,8 @@ const XARGS_VALUE_FLAGS = new Set([
 // routine and is left to the permission gate to ask about, not hard-denied here.
 function isDangerousTarget(token: string): boolean {
   const t = token.replace(/['"]/g, "");
-  if (["/", "~", "~/", "$HOME", "*", ".", "..", "./", "../"].includes(t)) return true;
+  if (["/", "~", "~/", "$HOME", "*", ".", "..", "./", "../"].includes(t))
+    return true;
   if (/^\$HOME\b/.test(t)) return true;
   if (/^~\//.test(t)) return true;
   if (/^\/\*/.test(t)) return true;
@@ -351,7 +392,10 @@ function isOpaquePayload(payload: string): boolean {
   return false;
 }
 
-type PeelOutcome = { kind: "inner"; command: string } | { kind: "opaque" } | { kind: "none" };
+type PeelOutcome =
+  | { kind: "inner"; command: string }
+  | { kind: "opaque" }
+  | { kind: "none" };
 
 // Tokens that survive rejoining without quotes. Anything else is re-quoted so
 // a payload token that originally carried quotes (e.g. the argument of a
@@ -410,7 +454,10 @@ function shellPayloadReferencesPositional(payload: string): boolean {
   return /\$(?:[0-9@*#]|\{(?:[0-9]+|[@*#])\})/.test(payload);
 }
 
-function nestedInterpreterPayloadOpaque(payload: string, rest: readonly string[]): boolean {
+function nestedInterpreterPayloadOpaque(
+  payload: string,
+  rest: readonly string[],
+): boolean {
   if (isBackslashInterpreterToken(payload)) return true;
   const first = tokenize(payload)[0];
   if (first !== undefined && isBackslashInterpreterToken(first)) return true;
@@ -437,16 +484,19 @@ function peelShellDashC(tokens: string[], start: number): PeelOutcome {
     }
     if (t === "-c" || t === "--command") {
       const payload = tokens[i + 1];
-      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      if (payload === undefined || isOpaquePayload(payload))
+        return { kind: "opaque" };
       const rest = tokens.slice(i + 2);
-      if (nestedInterpreterPayloadOpaque(payload, rest)) return { kind: "opaque" };
+      if (nestedInterpreterPayloadOpaque(payload, rest))
+        return { kind: "opaque" };
       return { kind: "inner", command: payload };
     }
     if (t.startsWith("--command=")) {
       const payload = t.slice("--command=".length);
       if (isOpaquePayload(payload)) return { kind: "opaque" };
       // Glued `--command=` has no separate rest tokens; still reject `\bash`.
-      if (nestedInterpreterPayloadOpaque(payload, [])) return { kind: "opaque" };
+      if (nestedInterpreterPayloadOpaque(payload, []))
+        return { kind: "opaque" };
       return { kind: "inner", command: payload };
     }
     if (SHELL_SEPARATE_VALUE_FLAGS.has(t)) {
@@ -457,9 +507,11 @@ function peelShellDashC(tokens: string[], start: number): PeelOutcome {
     // next token as the command string, matching bash/sh/zsh.
     if (/^-[A-Za-z]*c[A-Za-z]*$/.test(t)) {
       const payload = tokens[i + 1];
-      if (payload === undefined || isOpaquePayload(payload)) return { kind: "opaque" };
+      if (payload === undefined || isOpaquePayload(payload))
+        return { kind: "opaque" };
       const rest = tokens.slice(i + 2);
-      if (nestedInterpreterPayloadOpaque(payload, rest)) return { kind: "opaque" };
+      if (nestedInterpreterPayloadOpaque(payload, rest))
+        return { kind: "opaque" };
       return { kind: "inner", command: payload };
     }
     if (t.startsWith("-") && t !== "-") {
@@ -617,7 +669,11 @@ function peelEnvSplitUtility(command: string): PeelOutcome {
 // real program, not just the assignment fragment that -S consumed.
 // Empty/opaque payloads with a trailing utility still execute that utility
 // (`env -S " " find /`), so prefer the trailing tokens over opaque-dropping them.
-function finishEnvSplitPayload(payload: string, tokens: string[], restStart: number): PeelOutcome {
+function finishEnvSplitPayload(
+  payload: string,
+  tokens: string[],
+  restStart: number,
+): PeelOutcome {
   const rest = tokens.slice(restStart);
   let raw: string | null;
   if (isOpaquePayload(payload)) {
@@ -655,11 +711,19 @@ function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
 
     // --split-string=PAYLOAD
     if (t.startsWith("--split-string=")) {
-      return finishEnvSplitPayload(t.slice("--split-string=".length), tokens, i + 1);
+      return finishEnvSplitPayload(
+        t.slice("--split-string=".length),
+        tokens,
+        i + 1,
+      );
     }
     // Glued long form without `=`: --split-string"find /" → one token.
     if (t.startsWith("--split-string") && t !== "--split-string") {
-      return finishEnvSplitPayload(t.slice("--split-string".length), tokens, i + 1);
+      return finishEnvSplitPayload(
+        t.slice("--split-string".length),
+        tokens,
+        i + 1,
+      );
     }
     // Separate-arg forms: -S PAYLOAD / --split-string PAYLOAD
     if (t === "-S" || t === "--split-string") {
@@ -673,12 +737,18 @@ function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
     //   -iS / -0S            → S at end of cluster; next token is payload
     //   -Si / -Sv            → S then only boolean shorts; next token is payload
     //   -Sifind              → S then non-bool remainder; treat as glued payload
-    if (t.startsWith("-") && t !== "-" && t.includes("S") && !t.startsWith("--")) {
+    if (
+      t.startsWith("-") &&
+      t !== "-" &&
+      t.includes("S") &&
+      !t.startsWith("--")
+    ) {
       const sIdx = t.indexOf("S", 1);
       if (sIdx >= 1) {
         const afterS = t.slice(sIdx + 1);
         const onlyBoolAfter =
-          afterS.length === 0 || [...afterS].every((c) => ENV_BOOL_SHORT.has(c));
+          afterS.length === 0 ||
+          [...afterS].every((c) => ENV_BOOL_SHORT.has(c));
         if (onlyBoolAfter) {
           // Clustered flags; S consumes the following argv token.
           const payload = tokens[i + 1];
@@ -802,10 +872,12 @@ function peelOnce(segment: string): PeelOutcome {
     break;
   }
 
-  if (i >= tokens.length) return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
+  if (i >= tokens.length)
+    return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
 
   const current = tokens[i];
-  if (current === undefined) return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
+  if (current === undefined)
+    return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
   const prog = programBasename(current);
   if (SHELL_INTERPRETERS.has(prog)) {
     // A backtick or `$(` anywhere in the raw segment means the -c payload may
@@ -815,7 +887,8 @@ function peelOnce(segment: string): PeelOutcome {
     // first fragment of the original quoted argument, not the whole string —
     // reconstructing it accurately is not possible from tokens alone. Treat the
     // wrapper as opaque rather than risk peeling a truncated, misleading payload.
-    if (segment.includes("`") || segment.includes("$(")) return { kind: "opaque" };
+    if (segment.includes("`") || segment.includes("$("))
+      return { kind: "opaque" };
     const shellPeel = peelShellDashC(tokens, i + 1);
     if (shellPeel.kind !== "none") return shellPeel;
     // Interpreter without -c (e.g. `bash script.sh`) — not a peelable wrapper.
@@ -875,7 +948,10 @@ function stripEndOfOptionsCommand(command: string): string {
   return rejoinTokens(next) ?? next.join(" ");
 }
 
-export function expandShellSubjects(command: string, maxDepth = MAX_PEEL_DEPTH): ShellExpandResult {
+export function expandShellSubjects(
+  command: string,
+  maxDepth = MAX_PEEL_DEPTH,
+): ShellExpandResult {
   const subjects: string[] = [];
   const seen = new Set<string>();
   let opaque = false;
@@ -935,7 +1011,9 @@ export function commandHasRecursiveRm(command: string): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
   const { subjects } = expandShellSubjects(trimmed);
-  return subjects.some((subject) => subject.split(CHAIN).some(segmentHasRecursiveRm));
+  return subjects.some((subject) =>
+    subject.split(CHAIN).some(segmentHasRecursiveRm),
+  );
 }
 
 function isCatastrophicRm(segment: string): boolean {
@@ -1040,8 +1118,14 @@ function skipQuotedSpans(command: string): string {
 function isDestructiveExpanded(command: string): boolean {
   const { subjects } = expandShellSubjects(command);
   return subjects.some((subject) => {
-    if (BLOCKED_PATTERNS.some((pattern) => pattern.test(skipQuotedSpans(subject)))) return true;
-    if (BLOCKED_QUOTED_PAYLOAD_PATTERNS.some((pattern) => pattern.test(subject))) return true;
+    if (
+      BLOCKED_PATTERNS.some((pattern) => pattern.test(skipQuotedSpans(subject)))
+    )
+      return true;
+    if (
+      BLOCKED_QUOTED_PAYLOAD_PATTERNS.some((pattern) => pattern.test(subject))
+    )
+      return true;
     return subject.split(CHAIN).some(isCatastrophicRm);
   });
 }
@@ -1065,7 +1149,10 @@ function isOpenEndedSearch(command: string): boolean {
 // so `env -S "find /"`, `bash -c 'watch ls'`, and similar wrappers cannot hide
 // the real program inside a quoted payload. Normalize each subject so path-
 // qualified binaries still match command-position patterns.
-function subjectsHit(command: string, pred: (normalizedSubject: string) => boolean): boolean {
+function subjectsHit(
+  command: string,
+  pred: (normalizedSubject: string) => boolean,
+): boolean {
   const { subjects } = expandShellSubjects(command);
   if (subjects.some((subject) => pred(normalizeCommand(subject)))) return true;
   const normalized = normalizeCommand(command);
@@ -1090,7 +1177,9 @@ function openEndedSearchReason(command: string): string | undefined {
 // Pipeline segments are judged in isolation for open-ended/destructive rules only.
 // Stdin and never-terminating checks apply across expanded subjects so wrapper
 // payloads (env -S, bash -c, …) are visible.
-export function runShellAuthzSegmentBlockReason(segment: string): string | undefined {
+export function runShellAuthzSegmentBlockReason(
+  segment: string,
+): string | undefined {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return undefined;
   // Pass the raw segment: isDestructive expands both raw and normalized forms.

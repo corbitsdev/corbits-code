@@ -16,7 +16,9 @@ export function createPluginLoadDiagnostics(): PluginLoadDiagnostics {
 }
 
 /** Build an onWarning callback that records into `diag`. */
-export function pluginWarningSink(diag: PluginLoadDiagnostics): (msg: string) => void {
+export function pluginWarningSink(
+  diag: PluginLoadDiagnostics,
+): (msg: string) => void {
   return (msg) => {
     diag.warnings.push(msg);
   };
@@ -29,9 +31,13 @@ export function pluginWarningSink(diag: PluginLoadDiagnostics): (msg: string) =>
  * headless paths where no frame is being held).
  */
 export function resolvePluginWarningHandler(
-  opts: { diagnostics: PluginLoadDiagnostics } | { onWarning: (msg: string) => void },
+  opts:
+    | { diagnostics: PluginLoadDiagnostics }
+    | { onWarning: (msg: string) => void },
 ): (msg: string) => void {
-  return "diagnostics" in opts ? pluginWarningSink(opts.diagnostics) : opts.onWarning;
+  return "diagnostics" in opts
+    ? pluginWarningSink(opts.diagnostics)
+    : opts.onWarning;
 }
 
 /** Named raw-stderr choice: `{ onWarning: stderrPluginWarning }`. */
@@ -49,7 +55,9 @@ export function stderrPluginWarning(msg: string): void {
  * them — and the count is taken from the deduplicated list so the number can
  * never disagree with the names printed beside it.
  */
-export function formatPluginWarningsSummary(warnings: readonly string[]): string | undefined {
+export function formatPluginWarningsSummary(
+  warnings: readonly string[],
+): string | undefined {
   if (warnings.length === 0) return undefined;
 
   const missedSkills = new Set<string>();

@@ -29,7 +29,10 @@ export interface LiveModelSwitchHandles {
   refreshAdvertisedSchemas: (next: LiveModelRef) => void;
 }
 
-export function applyLiveModelSwitch(next: LiveModelRef, handles: LiveModelSwitchHandles): void {
+export function applyLiveModelSwitch(
+  next: LiveModelRef,
+  handles: LiveModelSwitchHandles,
+): void {
   handles.applyIdentity(next);
   handles.setPermissionIdentity(next.providerName, next.model);
   handles.rebuildInference(next);

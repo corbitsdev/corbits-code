@@ -1,6 +1,10 @@
 import { describe, test, expect } from "bun:test";
 
-import { sessionResumeLabel, recentResumeSessions, RESUME_PICKER_LIMIT } from "./pick-session.js";
+import {
+  sessionResumeLabel,
+  recentResumeSessions,
+  RESUME_PICKER_LIMIT,
+} from "./pick-session.js";
 import type { SessionSummary } from "../session/index.js";
 
 function summary(overrides: Partial<SessionSummary> = {}): SessionSummary {
@@ -28,8 +32,12 @@ describe("sessionResumeLabel", () => {
   });
 
   test("includes completed and crashed statuses in the row", () => {
-    expect(sessionResumeLabel(summary({ status: "failed" }))).toContain("failed");
-    expect(sessionResumeLabel(summary({ status: "crashed" }))).toContain("crashed");
+    expect(sessionResumeLabel(summary({ status: "failed" }))).toContain(
+      "failed",
+    );
+    expect(sessionResumeLabel(summary({ status: "crashed" }))).toContain(
+      "crashed",
+    );
   });
 
   test("falls back to Untitled session when the task is blank", () => {

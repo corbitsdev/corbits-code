@@ -25,11 +25,15 @@ export const shellCollectDefinition: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      shell_id: { type: "string", description: "shell_id from the background run_shell start." },
+      shell_id: {
+        type: "string",
+        description: "shell_id from the background run_shell start.",
+      },
       action: {
         type: "string",
         enum: ["collect", "cancel"],
-        description: '"collect" retrieves status/output; "cancel" kills the process group.',
+        description:
+          '"collect" retrieves status/output; "cancel" kills the process group.',
       },
       wait_ms: {
         type: "number",
@@ -54,7 +58,11 @@ export function createSpillingBackgroundShellExitNotifier(args: {
         const writeBlob = args.getBlobWriter?.();
         if (writeBlob !== undefined) {
           const key = `bg-shell-${exit.id}`;
-          await writeBlob(key, new TextEncoder().encode(exit.output), "text/plain");
+          await writeBlob(
+            key,
+            new TextEncoder().encode(exit.output),
+            "text/plain",
+          );
           spillUri = `tool-output:///${key}`;
         }
       }

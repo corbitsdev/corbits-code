@@ -23,7 +23,8 @@ export function parseChangelogText(content: string): ChangelogEntry[] {
   const entries: ChangelogEntry[] = [];
 
   let currentLines: string[] = [];
-  let currentVersion: { major: number; minor: number; patch: number } | null = null;
+  let currentVersion: { major: number; minor: number; patch: number } | null =
+    null;
 
   const flush = (): void => {
     if (currentVersion !== null && currentLines.length > 0) {
@@ -90,7 +91,8 @@ export function parseVersionString(version: string): ChangelogEntry | null {
   const major = match[1];
   const minor = match[2];
   const patch = match[3];
-  if (major === undefined || minor === undefined || patch === undefined) return null;
+  if (major === undefined || minor === undefined || patch === undefined)
+    return null;
   return {
     major: Number.parseInt(major, 10),
     minor: Number.parseInt(minor, 10),
@@ -100,7 +102,10 @@ export function parseVersionString(version: string): ChangelogEntry | null {
 }
 
 /** Entries strictly newer than lastVersion (newest-first if the file is newest-first). */
-export function getNewEntries(entries: ChangelogEntry[], lastVersion: string): ChangelogEntry[] {
+export function getNewEntries(
+  entries: ChangelogEntry[],
+  lastVersion: string,
+): ChangelogEntry[] {
   const last = parseVersionString(lastVersion);
   if (last === null) return [];
   return entries.filter((entry) => compareVersions(entry, last) > 0);
@@ -125,7 +130,8 @@ export function formatStartupChangelog(
 ): StartupChangelogResult {
   const maxEntries = opts?.maxEntries ?? DEFAULT_STARTUP_ENTRY_LIMIT;
   const maxBytes = opts?.maxBytes ?? DEFAULT_STARTUP_MARKDOWN_BYTES;
-  const fullHint = opts?.fullHint ?? "Run /changelog full for complete history.";
+  const fullHint =
+    opts?.fullHint ?? "Run /changelog full for complete history.";
   const hintBlock = `\n\n_${fullHint}_`;
   const hintBytes = Buffer.byteLength(hintBlock, "utf8");
 
@@ -141,7 +147,8 @@ export function formatStartupChangelog(
 
   for (const entry of selected) {
     const piece = entry.content;
-    const candidate = kept.length === 0 ? piece : `${kept.join("\n\n")}\n\n${piece}`;
+    const candidate =
+      kept.length === 0 ? piece : `${kept.join("\n\n")}\n\n${piece}`;
     if (Buffer.byteLength(candidate, "utf8") <= bodyBudget) {
       kept.push(piece);
       continue;
@@ -149,7 +156,9 @@ export function formatStartupChangelog(
     if (kept.length === 0) {
       // Single section larger than the budget: hard-cut the body so the
       // watermark path never dumps unbounded markdown into the banner.
-      const raw = Buffer.from(piece, "utf8").subarray(0, bodyBudget).toString("utf8");
+      const raw = Buffer.from(piece, "utf8")
+        .subarray(0, bodyBudget)
+        .toString("utf8");
       kept.push(raw.replace(/\uFFFD$/, "").trimEnd() + "…");
     }
     truncated = true;
@@ -163,7 +172,9 @@ export function formatStartupChangelog(
   }
   // Final hard cap if hint + body still overshoots (pathological tiny maxBytes).
   if (Buffer.byteLength(markdown, "utf8") > maxBytes) {
-    const cut = Buffer.from(markdown, "utf8").subarray(0, maxBytes).toString("utf8");
+    const cut = Buffer.from(markdown, "utf8")
+      .subarray(0, maxBytes)
+      .toString("utf8");
     markdown = cut.replace(/\uFFFD$/, "").trimEnd();
     truncated = true;
   }
@@ -176,7 +187,12 @@ export function formatStartupChangelog(
 
 export type ChangelogDisplayDecision =
   | { kind: "first_install"; stampVersion: string }
-  | { kind: "upgrade"; markdown: string; stampVersion: string; versions: string[] }
+  | {
+      kind: "upgrade";
+      markdown: string;
+      stampVersion: string;
+      versions: string[];
+    }
   | { kind: "current"; stampVersion?: undefined };
 
 /**
@@ -196,7 +212,8 @@ export function decideStartupChangelog(input: {
   maxBytes?: number;
 }): ChangelogDisplayDecision {
   const pkg = parseVersionString(input.packageVersion);
-  const stampVersion = pkg !== null ? entryVersion(pkg) : input.packageVersion.trim();
+  const stampVersion =
+    pkg !== null ? entryVersion(pkg) : input.packageVersion.trim();
 
   const last = input.lastChangelogVersion?.trim() ?? "";
   if (last.length === 0 || parseVersionString(last) === null) {
@@ -263,8 +280,19 @@ export function resolveChangelogPath(opts?: {
   const execPath = opts?.execPath ?? process.execPath;
   if (execPath.length > 0) {
     candidates.push(join(dirname(execPath), "CHANGELOG.md"));
-    candidates.push(join(dirname(execPath), "..", "share", "doc", "corbits", "CHANGELOG.md"));
-    candidates.push(join(dirname(execPath), "..", "share", "doc", "corbits-code", "CHANGELOG.md"));
+    candidates.push(
+      join(dirname(execPath), "..", "share", "doc", "corbits", "CHANGELOG.md"),
+    );
+    candidates.push(
+      join(
+        dirname(execPath),
+        "..",
+        "share",
+        "doc",
+        "corbits-code",
+        "CHANGELOG.md",
+      ),
+    );
   }
   const cwd = opts?.cwd ?? process.cwd();
   candidates.push(join(cwd, "CHANGELOG.md"));

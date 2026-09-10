@@ -201,7 +201,9 @@ describe("formatCostCommandOutput", () => {
 
   it("reports the reason cost is hidden for a free model", () => {
     const summary = buildCostSummary({ ...baseInput, modelId: "qwen3:free" });
-    expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (free model)");
+    expect(formatCostCommandOutput(summary)).toContain(
+      "Cost: hidden (free model)",
+    );
   });
 
   it("reports the reason cost is hidden for a coding-plan endpoint", () => {
@@ -209,7 +211,9 @@ describe("formatCostCommandOutput", () => {
       ...baseInput,
       baseURL: "https://api.z.ai/api/coding/paas/v4",
     });
-    expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (coding-plan endpoint)");
+    expect(formatCostCommandOutput(summary)).toContain(
+      "Cost: hidden (coding-plan endpoint)",
+    );
   });
 
   it("reports ChatGPT subscription coverage instead of a hidden dollar figure", () => {
@@ -231,13 +235,17 @@ describe("formatCostCommandOutput", () => {
 
   it("reports the reason cost is hidden for a provider marked free", () => {
     const summary = buildCostSummary({ ...baseInput, providerFree: true });
-    expect(formatCostCommandOutput(summary)).toContain("Cost: hidden (provider marked free)");
+    expect(formatCostCommandOutput(summary)).toContain(
+      "Cost: hidden (provider marked free)",
+    );
   });
 
   it("prints unknown for a non-positive context window", () => {
     setModelContextWindows({ "test-model": 0 });
     const summary = buildCostSummary(baseInput);
-    expect(formatCostCommandOutput(summary)).toContain("Context: 64000/unknown (--%)");
+    expect(formatCostCommandOutput(summary)).toContain(
+      "Context: 64000/unknown (--%)",
+    );
   });
 
   it("flags an estimated context percentage with a tilde", () => {

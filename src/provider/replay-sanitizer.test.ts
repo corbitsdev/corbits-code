@@ -56,7 +56,9 @@ function corbitsRegistry(): AdapterRegistry {
   const builtin = createBuiltinRegistry();
   return {
     has: (provider) =>
-      provider === "openai-compatible" || provider === "grok-responses" || builtin.has(provider),
+      provider === "openai-compatible" ||
+      provider === "grok-responses" ||
+      builtin.has(provider),
     resolve(source, quirks) {
       if (source.provider === "openai-compatible") {
         return createOpenAICompatibleAdapter(source);
@@ -139,7 +141,9 @@ describe("sanitizeReplayTurns", () => {
       ],
       "claude-opus-4",
     );
-    expect(turns[0]?.content).toEqual([{ type: "text", text: "cannot comply" }]);
+    expect(turns[0]?.content).toEqual([
+      { type: "text", text: "cannot comply" },
+    ]);
   });
 
   it("drops foreign redacted_thinking and citation blocks", () => {
@@ -176,7 +180,9 @@ describe("sanitizeReplayTurns", () => {
       ],
       "claude-opus-4",
     );
-    const results = turns.flatMap((t) => t.content.filter((b) => b.type === "tool_result"));
+    const results = turns.flatMap((t) =>
+      t.content.filter((b) => b.type === "tool_result"),
+    );
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ callId: "call_1", isError: true });
   });
@@ -184,7 +190,9 @@ describe("sanitizeReplayTurns", () => {
   it("replaces a thinking-only assistant between users with a marker and keeps roles", () => {
     const turns = sanitizeReplayTurns(thinkingOnlyHistory(), "claude-opus-4");
     expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
-    expect(turns[1]?.content).toEqual([{ type: "text", text: THINKING_ONLY_OMITTED }]);
+    expect(turns[1]?.content).toEqual([
+      { type: "text", text: THINKING_ONLY_OMITTED },
+    ]);
   });
 
   it("replaces empty and leftover-only assistant turns with the same marker", () => {
@@ -199,7 +207,9 @@ describe("sanitizeReplayTurns", () => {
       ],
       "claude-opus-4",
     );
-    expect(empty[0]?.content).toEqual([{ type: "text", text: THINKING_ONLY_OMITTED }]);
+    expect(empty[0]?.content).toEqual([
+      { type: "text", text: THINKING_ONLY_OMITTED },
+    ]);
 
     const leftovers = sanitizeReplayTurns(
       [
@@ -216,7 +226,9 @@ describe("sanitizeReplayTurns", () => {
       ],
       "gemini-2.5-pro",
     );
-    expect(leftovers[0]?.content).toEqual([{ type: "text", text: THINKING_ONLY_OMITTED }]);
+    expect(leftovers[0]?.content).toEqual([
+      { type: "text", text: THINKING_ONLY_OMITTED },
+    ]);
     expect(JSON.stringify(leftovers)).not.toContain("pondering");
     expect(JSON.stringify(leftovers)).not.toContain("opaque");
   });
@@ -234,7 +246,12 @@ describe("sanitizeReplayTurns", () => {
         model: "grok-4",
         content: [
           { type: "thinking" as const, thinking: "need a tool" },
-          { type: "tool_call" as const, id: "call_1", name: "ls", arguments: {} },
+          {
+            type: "tool_call" as const,
+            id: "call_1",
+            name: "ls",
+            arguments: {},
+          },
         ],
         timestamp: 1,
       },
@@ -251,7 +268,11 @@ describe("withReplaySanitizer", () => {
       provider: "anthropic",
       model: "claude-opus-4",
     });
-    const request = adapter.buildRequest(grokThinkingHistory(), "claude-opus-4", {});
+    const request = adapter.buildRequest(
+      grokThinkingHistory(),
+      "claude-opus-4",
+      {},
+    );
     expect(request.body).not.toContain(GROK_SIGNATURE);
     expect(request.body).not.toContain('"thinking"');
   });
@@ -262,7 +283,11 @@ describe("withReplaySanitizer", () => {
       provider: "google-genai",
       model: "gemini-2.5-pro",
     });
-    const request = adapter.buildRequest(grokThinkingHistory(), "gemini-2.5-pro", {});
+    const request = adapter.buildRequest(
+      grokThinkingHistory(),
+      "gemini-2.5-pro",
+      {},
+    );
     expect(request.body).not.toContain(GROK_SIGNATURE);
     expect(request.body).not.toContain("thoughtSignature");
   });
@@ -373,8 +398,12 @@ describe("withReplaySanitizer", () => {
         timestamp: 2,
       },
     ];
-    expect(() => adapter.buildRequest(thinkingOnlyHistory(), "claude-opus-4", {})).not.toThrow();
-    expect(() => adapter.buildRequest(leftoverHistory, "claude-opus-4", {})).not.toThrow();
+    expect(() =>
+      adapter.buildRequest(thinkingOnlyHistory(), "claude-opus-4", {}),
+    ).not.toThrow();
+    expect(() =>
+      adapter.buildRequest(leftoverHistory, "claude-opus-4", {}),
+    ).not.toThrow();
   });
 
   // Regression for CL-6912: sanitizeReplayTurns runs INSIDE buildRequest,
@@ -432,7 +461,9 @@ describe("withReplaySanitizer", () => {
       "claude-opus-4",
     );
     expect(turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
-    expect(turns[1]?.content).toEqual([{ type: "text", text: COMPACT_SPACER_TEXT }]);
+    expect(turns[1]?.content).toEqual([
+      { type: "text", text: COMPACT_SPACER_TEXT },
+    ]);
     expect(isHarnessCompactSpacer(defined(turns[1]))).toBe(true);
   });
 });

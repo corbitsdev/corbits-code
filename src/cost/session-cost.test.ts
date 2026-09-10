@@ -3,7 +3,10 @@ import type { TokenUsage } from "@intx/types/runtime";
 
 import { createFaremeter, formatCost } from "./faremeter.js";
 import type { PricingCache } from "./pricing-fetcher.js";
-import { billingIdentityFromSource, createSessionCostAccumulator } from "./session-cost.js";
+import {
+  billingIdentityFromSource,
+  createSessionCostAccumulator,
+} from "./session-cost.js";
 
 const pricingCache: PricingCache = {
   timestamp: 0,
@@ -54,8 +57,13 @@ function recastAtLiveModel(modelId: string, turns: TokenUsage[]): number {
 
 describe("createSessionCostAccumulator", () => {
   it("prices Codex then metered as the metered turns only, not a live-model recast of the sink", () => {
-    const acc = createSessionCostAccumulator({ pricingCache: () => pricingCache });
-    acc.addTurn(CODEX_USAGE, { modelId: "gpt-5.6-luna", providerName: "codex/default" });
+    const acc = createSessionCostAccumulator({
+      pricingCache: () => pricingCache,
+    });
+    acc.addTurn(CODEX_USAGE, {
+      modelId: "gpt-5.6-luna",
+      providerName: "codex/default",
+    });
     acc.addTurn(METERED_USAGE, { modelId: "glm-5.1", providerName: "openai" });
 
     const meteredOnly = createFaremeter({ modelId: "glm-5.1", pricingCache });
@@ -67,13 +75,20 @@ describe("createSessionCostAccumulator", () => {
     expect(snapshot.meteredCost).toBeLessThan(
       recastAtLiveModel("glm-5.1", [CODEX_USAGE, METERED_USAGE]),
     );
-    expect(formatCost(snapshot.meteredCost)).toBe(formatCost(meteredOnly.getTotalCost()));
+    expect(formatCost(snapshot.meteredCost)).toBe(
+      formatCost(meteredOnly.getTotalCost()),
+    );
   });
 
   it("prices metered then Codex as mixed with only the metered turns billed", () => {
-    const acc = createSessionCostAccumulator({ pricingCache: () => pricingCache });
+    const acc = createSessionCostAccumulator({
+      pricingCache: () => pricingCache,
+    });
     acc.addTurn(METERED_USAGE, { modelId: "glm-5.1", providerName: "openai" });
-    acc.addTurn(CODEX_USAGE, { modelId: "gpt-5.6-luna", providerName: "codex/default" });
+    acc.addTurn(CODEX_USAGE, {
+      modelId: "gpt-5.6-luna",
+      providerName: "codex/default",
+    });
 
     const meteredOnly = createFaremeter({ modelId: "glm-5.1", pricingCache });
     meteredOnly.addUsage(METERED_USAGE);
@@ -86,8 +101,13 @@ describe("createSessionCostAccumulator", () => {
   });
 
   it("keeps a Codex-only session hidden with the subscription reason", () => {
-    const acc = createSessionCostAccumulator({ pricingCache: () => pricingCache });
-    acc.addTurn(CODEX_USAGE, { modelId: "gpt-5.6-luna", providerName: "codex/default" });
+    const acc = createSessionCostAccumulator({
+      pricingCache: () => pricingCache,
+    });
+    acc.addTurn(CODEX_USAGE, {
+      modelId: "gpt-5.6-luna",
+      providerName: "codex/default",
+    });
 
     const snapshot = acc.snapshot();
     expect(snapshot.mix).toBe("hidden-only");
@@ -104,7 +124,9 @@ describe("createSessionCostAccumulator", () => {
       }),
     ).toEqual({ modelId: "gpt-5.6-luna", providerName: "codex/default" });
 
-    const acc = createSessionCostAccumulator({ pricingCache: () => pricingCache });
+    const acc = createSessionCostAccumulator({
+      pricingCache: () => pricingCache,
+    });
     acc.addTurn(
       CODEX_USAGE,
       billingIdentityFromSource({
@@ -121,11 +143,20 @@ describe("createSessionCostAccumulator", () => {
   });
 
   it("resets mix and metered cost for a new session", () => {
-    const acc = createSessionCostAccumulator({ pricingCache: () => pricingCache });
+    const acc = createSessionCostAccumulator({
+      pricingCache: () => pricingCache,
+    });
     acc.addTurn(METERED_USAGE, { modelId: "glm-5.1", providerName: "openai" });
-    acc.addTurn(CODEX_USAGE, { modelId: "gpt-5.6-luna", providerName: "codex/default" });
+    acc.addTurn(CODEX_USAGE, {
+      modelId: "gpt-5.6-luna",
+      providerName: "codex/default",
+    });
     acc.reset();
 
-    expect(acc.snapshot()).toEqual({ mix: "none", meteredCost: 0, hiddenReason: null });
+    expect(acc.snapshot()).toEqual({
+      mix: "none",
+      meteredCost: 0,
+      hiddenReason: null,
+    });
   });
 });

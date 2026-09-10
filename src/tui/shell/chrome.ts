@@ -20,7 +20,12 @@ import { sliceTailToWidth, sliceToWidth, stringWidth } from "../view/height.js";
 import { promptRowCount } from "../prompt-input.js";
 import { promptBoxRows } from "../prompt-rows.js";
 import { composeNoticeLine, resolveWaitingOn } from "../notice-line.js";
-import { lockupCells, lockupText, lockupWidth, type LockupInput } from "../lockup.js";
+import {
+  lockupCells,
+  lockupText,
+  lockupWidth,
+  type LockupInput,
+} from "../lockup.js";
 import type { RampPhase, StallAge } from "../ramp.js";
 import type { ActivityState } from "../session-chrome.js";
 import {
@@ -31,7 +36,12 @@ import {
   costContextText,
   type RulePart,
 } from "../prompt-border.js";
-import { focusOwner, focusPrompt, focusTranscript, popFocus } from "../focus/index.js";
+import {
+  focusOwner,
+  focusPrompt,
+  focusTranscript,
+  popFocus,
+} from "../focus/index.js";
 import {
   resolveBottomMarginRows,
   resolveGeometry,
@@ -58,7 +68,11 @@ import {
 } from "../session-queue.js";
 import { agentVoicesIn, isCollapsibleRow, type StreamRow } from "../stream.js";
 import { UI } from "../theme.js";
-import { isDecisionOverlay, overlayRowsPerItem, overlayChromeRows } from "../overlay-view.js";
+import {
+  isDecisionOverlay,
+  overlayRowsPerItem,
+  overlayChromeRows,
+} from "../overlay-view.js";
 import { DECISION_CHOICE_ROWS } from "../overlay-body.js";
 
 import {
@@ -104,7 +118,11 @@ export function noticeText(shell: AppShell): string {
   return composeNoticeLine({
     steer: steerCount(shell.session),
     followUp: queueCount(shell.session),
-    waitingOn: resolveWaitingOn(steerCount(shell.session), shell.inFlightTool, shell.lockupNowMs),
+    waitingOn: resolveWaitingOn(
+      steerCount(shell.session),
+      shell.inFlightTool,
+      shell.lockupNowMs,
+    ),
     interrupt: shell.session.interruptFlash,
     pinned: !isTranscriptFollowing(shell),
     flash: shell.statusFlash,
@@ -113,7 +131,10 @@ export function noticeText(shell: AppShell): string {
 }
 
 /** Which MCP servers are waiting on authorization. Repaints on change. */
-export function setMcpNeedsAuth(shell: AppShell, names: readonly string[]): void {
+export function setMcpNeedsAuth(
+  shell: AppShell,
+  names: readonly string[],
+): void {
   const next = [...names];
   if (
     shell.mcpNeedsAuth.length === next.length &&
@@ -167,7 +188,9 @@ function chromeComposeKey(shell: AppShell, notice: string): string {
     shell.workspace.cwd,
     shell.workspace.branch,
     homedir(),
-    meter === null ? "" : `${meter.band}\u0001${meter.percentLabel}\u0001${meter.costLabel ?? ""}`,
+    meter === null
+      ? ""
+      : `${meter.band}\u0001${meter.percentLabel}\u0001${meter.costLabel ?? ""}`,
     shell.prompt.value.length,
   ].join("\u0000");
 }
@@ -188,7 +211,10 @@ export function chromeComposeCount(shell: AppShell): number {
  * gate for paths that must repaint regardless (layout application, where the
  * column budget and the render tree may have moved under identical text).
  */
-export function paintChrome(shell: AppShell, opts?: { readonly force?: boolean }): void {
+export function paintChrome(
+  shell: AppShell,
+  opts?: { readonly force?: boolean },
+): void {
   if (shell.disposed) return;
   // Headless tests often destroy the renderer without dispose
   // (`withTestRenderer` cleanup). A TTL flash armed before that teardown
@@ -326,7 +352,8 @@ export function setStatusFlash(
   const ttlMs = options?.ttlMs;
   if (message === null || ttlMs === undefined || ttlMs <= 0) return;
   if (shell.disposed || shell.renderer.isDestroyed) return;
-  const schedule = options?.schedule ?? shellFlashSchedules.get(shell) ?? defaultFlashSchedule;
+  const schedule =
+    options?.schedule ?? shellFlashSchedules.get(shell) ?? defaultFlashSchedule;
   flashTimers.set(
     shell,
     schedule(() => {
@@ -398,7 +425,11 @@ const OVERLAY_FLOAT_Z = 10;
  * true — rows there are content the operator is reading, and covering them is
  * worse than pushing them — so the host goes back into the column.
  */
-function floatOverlayHost(shell: AppShell, floating: boolean, top: number): void {
+function floatOverlayHost(
+  shell: AppShell,
+  floating: boolean,
+  top: number,
+): void {
   const host = shell.overlayHost;
   if (!floating) {
     host.position = "relative";
@@ -426,7 +457,10 @@ function floatOverlayHost(shell: AppShell, floating: boolean, top: number): void
 }
 
 /** Stable id for the focused row: `itemIds[index]` when supplied, else its label. */
-export function activeOverlayItemId(shell: AppShell, list: OverlayList): string {
+export function activeOverlayItemId(
+  shell: AppShell,
+  list: OverlayList,
+): string {
   const bag = shellInternals(shell);
   return (
     bag?.primaryBindings.itemIds[list.activeIndex] ??
@@ -451,7 +485,9 @@ export function paintOverlayList(shell: AppShell): void {
       answer: overlayAnswerState(shell),
       describe: () => {
         const describe = shellInternals(shell)?.primaryBindings.describe;
-        return describe ? describe(activeOverlayItemId(shell, list)) : undefined;
+        return describe
+          ? describe(activeOverlayItemId(shell, list))
+          : undefined;
       },
     },
     shell.layout.contentWidth,
@@ -481,7 +517,9 @@ function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
       chunks.push(fgChunk(UI.warning)(part.text));
       continue;
     }
-    chunks.push(fgChunk(part.role === "label" ? UI.textDim : UI.textFaint)(part.text));
+    chunks.push(
+      fgChunk(part.role === "label" ? UI.textDim : UI.textFaint)(part.text),
+    );
   }
   return chunks;
 }
@@ -493,7 +531,11 @@ function ruleChunks(shell: AppShell, parts: readonly RulePart[]): TextChunk[] {
 function meterChunks(shell: AppShell, cell: string): TextChunk[] {
   const meter = shell.costContext;
   const percentFg =
-    meter?.band === "danger" ? UI.error : meter?.band === "warning" ? UI.warning : UI.textDim;
+    meter?.band === "danger"
+      ? UI.error
+      : meter?.band === "warning"
+        ? UI.warning
+        : UI.textDim;
   if (meter === null) return [fgChunk(percentFg)(cell)];
   const percent = meter.percentLabel;
   const idx = cell.indexOf(percent);
@@ -543,7 +585,10 @@ export function paintPromptBorder(shell: AppShell): void {
   // what the workspace has to fit inside — with the lockup if the rule can
   // seat both, without it if it cannot. Where the row can only afford one, the
   // information wins and the mark goes.
-  const withBrand = Math.max(0, width - 9 - lockupWidth(lockupFrameInput(shell)));
+  const withBrand = Math.max(
+    0,
+    width - 9 - lockupWidth(lockupFrameInput(shell)),
+  );
   const alone = Math.max(0, width - 6);
   const workspaceInput = {
     cwd: shell.workspace.cwd,
@@ -553,10 +598,15 @@ export function paintPromptBorder(shell: AppShell): void {
   // A workspace that has lost its path is a branch floating with no context,
   // which is worth less than the mark it displaced. So the mark yields not just
   // when the label cannot fit at all, but when keeping it would starve the path.
-  const roomyRaw = composeWorkspaceLabel({ ...workspaceInput, maxWidth: withBrand });
+  const roomyRaw = composeWorkspaceLabel({
+    ...workspaceInput,
+    maxWidth: withBrand,
+  });
   const roomy = roomyRaw.startsWith("(") ? "" : roomyRaw;
   const workspace =
-    roomy.length > 0 ? roomy : composeWorkspaceLabel({ ...workspaceInput, maxWidth: alone });
+    roomy.length > 0
+      ? roomy
+      : composeWorkspaceLabel({ ...workspaceInput, maxWidth: alone });
   const brand = lockupText(lockupCells(lockupFrameInput(shell)));
   const meter = shell.costContext;
   const bottom = composeRule({
@@ -564,7 +614,10 @@ export function paintPromptBorder(shell: AppShell): void {
     corners: [BORDER.bottomLeft, BORDER.bottomRight],
     ...(roomy.length > 0 || workspace.length === 0 ? { brand } : {}),
     ...(meter !== null
-      ? { meter: costContextText(meter, true), meterCompact: costContextText(meter, false) }
+      ? {
+          meter: costContextText(meter, true),
+          meterCompact: costContextText(meter, false),
+        }
       : {}),
     ...(workspace.length > 0 ? { label: workspace } : {}),
   });
@@ -589,7 +642,8 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // this badge itself reserves (see `terminalForGeometry`), which would make
   // the threshold check its own effect. Landing-only: see `relayout`.
   shell.versionRow.visible =
-    isLanding(shell) && versionBadgeVisible(shell.renderer.width, shell.renderer.height);
+    isLanding(shell) &&
+    versionBadgeVisible(shell.renderer.width, shell.renderer.height);
 
   const taskH = Math.max(0, h.task);
   shell.taskBox.height = taskH > 0 ? taskH : 1;
@@ -617,19 +671,29 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // resolver took for the overlay host are handed back to the split.
   const bag = shellInternals(shell);
   const landing = bag?.landing ?? null;
-  const landingRows = transcriptH - padH - bottomPadH + (landing === null ? 0 : overlayH);
+  const landingRows =
+    transcriptH - padH - bottomPadH + (landing === null ? 0 : overlayH);
   // The resolver already sized overlayH to the overlay's real content (list
   // included) and capped it against the fraction/floor limits, so it is the
   // correct minimum to ask the landing split to make room for — asking for
   // less (e.g. just enough for one choice row) starves the list underneath
   // the title down to nearly nothing once floatOverlayHost pins the host to it.
-  const split = landing === null ? null : landingSplitFor(landingRows, overlayH, padH);
+  const split =
+    landing === null ? null : landingSplitFor(landingRows, overlayH, padH);
   if (bag !== undefined && landing !== null && split !== null) {
     landing.above.box.height = Math.max(1, split.above);
     // A new zone can seat a different tier, and a tier is a different grid, so
     // the mark is redrawn rather than left showing the previous size's frame.
-    fitLandingMark(landing.above, resolveMarkGrid(split.above, layout.contentWidth));
-    paintLandingMark(landing.above, bag.landingNowMs, !bag.landingAnimating, bag.reducedMotion);
+    fitLandingMark(
+      landing.above,
+      resolveMarkGrid(split.above, layout.contentWidth),
+    );
+    paintLandingMark(
+      landing.above,
+      bag.landingNowMs,
+      !bag.landingAnimating,
+      bag.reducedMotion,
+    );
     landing.below.height = Math.max(0, split.below);
     landing.below.visible = split.below > 0;
   }
@@ -674,7 +738,9 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // Stack: topPad, transcript, agents, task, then prompt (notice omitted —
   // same as before; it is transient chrome between task and prompt).
   const promptTop = padH + transcriptBody + agentsH + taskH;
-  const hostH = floating ? Math.min(overlayH, Math.max(1, promptTop)) : overlayH;
+  const hostH = floating
+    ? Math.min(overlayH, Math.max(1, promptTop))
+    : overlayH;
   floatOverlayHost(shell, floating, Math.max(0, promptTop - hostH));
   shell.overlayHost.height = hostH > 0 ? hostH : 1;
   shell.overlayHost.visible = hostH > 0;
@@ -711,7 +777,11 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
       renderTasksRows(shell, bag.chrome.task, layout.contentWidth);
     }
     if (bag.chrome.agents.length > 0) {
-      renderAgentsRows(shell, clampBoardRows(bag.chrome.agents, agentsH), layout.contentWidth);
+      renderAgentsRows(
+        shell,
+        clampBoardRows(bag.chrome.agents, agentsH),
+        layout.contentWidth,
+      );
     }
   }
 
@@ -726,7 +796,10 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
  * moves, which is once per wrapped line gained or lost.
  */
 export function syncPromptRows(shell: AppShell): void {
-  const rows = promptBoxRows(promptRowCount(shell.prompt), shell.renderer.height);
+  const rows = promptBoxRows(
+    promptRowCount(shell.prompt),
+    shell.renderer.height,
+  );
   if (rows === shell.layout.heights.prompt) return;
   relayout(shell, { promptContentRows: rows });
 }
@@ -766,7 +839,8 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
   const promptContentRows = opts?.promptContentRows ?? bag?.promptContentRows;
   const overlayMode = opts?.overlayMode ?? bag?.overlayMode ?? "closed";
   const overlayBodyRows = opts?.overlayBodyRows ?? bag?.overlayBodyRows;
-  const overlayMinBodyRows = opts?.overlayMinBodyRows ?? bag?.overlayMinBodyRows;
+  const overlayMinBodyRows =
+    opts?.overlayMinBodyRows ?? bag?.overlayMinBodyRows;
   if (bag) {
     bag.visibility = visibility;
     bag.promptContentRows = promptContentRows;
@@ -791,8 +865,12 @@ export function relayout(shell: AppShell, opts?: RelayoutOpts): GeometryLayout {
         ? { mode: "closed" }
         : {
             mode: overlayMode,
-            ...(overlayBodyRows !== undefined ? { bodyRows: overlayBodyRows } : {}),
-            ...(overlayMinBodyRows !== undefined ? { minBodyRows: overlayMinBodyRows } : {}),
+            ...(overlayBodyRows !== undefined
+              ? { bodyRows: overlayBodyRows }
+              : {}),
+            ...(overlayMinBodyRows !== undefined
+              ? { minBodyRows: overlayMinBodyRows }
+              : {}),
           },
     ...(promptContentRows !== undefined ? { promptContentRows } : {}),
     // The landing owns the screen until the first transcript row lands, so
@@ -850,7 +928,10 @@ export function appendStreamRow(shell: AppShell, row: StreamRow): void {
  * Host-pushed live events (not only fixture seed lines). No-op when not observing.
  * @returns true when the row was applied to the observe view
  */
-export function appendObserveStreamRow(shell: AppShell, row: StreamRow): boolean {
+export function appendObserveStreamRow(
+  shell: AppShell,
+  row: StreamRow,
+): boolean {
   if (shell.observe === null) return false;
   shell.observe.lines.push(row);
   paintAppendStreamRow(shell, row);
@@ -926,7 +1007,9 @@ export function truncateStreamRows(shell: AppShell, length: number): void {
   const parentLog = shell.parentStreamLog;
   const observing = shell.observe !== null && parentLog !== null;
   const log = observing ? parentLog : shell.streamLog;
-  const base = observing ? (shell.parentStreamLogBase ?? 0) : shell.streamLogBase;
+  const base = observing
+    ? (shell.parentStreamLogBase ?? 0)
+    : shell.streamLogBase;
   const local = length - base;
   if (local < 0 || local >= log.length) return;
   log.length = local;
@@ -983,7 +1066,11 @@ export function clearTranscript(shell: AppShell): void {
  * already evicted is a no-op rather than corrupting an unrelated row at the
  * same array slot.
  */
-export function replaceStreamRowAt(shell: AppShell, index: number, row: StreamRow): void {
+export function replaceStreamRowAt(
+  shell: AppShell,
+  index: number,
+  row: StreamRow,
+): void {
   if (shell.observe !== null && shell.parentStreamLog !== null) {
     const parentLocal = index - (shell.parentStreamLogBase ?? 0);
     if (parentLocal >= 0 && parentLocal < shell.parentStreamLog.length) {
@@ -1131,7 +1218,11 @@ export const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
  * argument: it freezes the mountain and drops snow even when a caller
  * asks for `animating`.
  */
-export function paintLanding(shell: AppShell, nowMs: number, animating: boolean): void {
+export function paintLanding(
+  shell: AppShell,
+  nowMs: number,
+  animating: boolean,
+): void {
   const bag = shellInternals(shell);
   const landing = bag?.landing;
   if (bag === undefined || landing === null || landing === undefined) return;
@@ -1185,7 +1276,11 @@ export function createStreamRowRenderable(
     return node;
   }
 
-  const wrapper = new BoxRenderable(ctx, { flexDirection: "column", width: "100%", marginTop });
+  const wrapper = new BoxRenderable(ctx, {
+    flexDirection: "column",
+    width: "100%",
+    marginTop,
+  });
   wrapper.add(new TextRenderable(ctx, { content: label, fg: UI.textDim }));
   wrapper.add(node);
   return wrapper;
@@ -1243,7 +1338,9 @@ export function toggleRowExpandedAt(shell: AppShell, index: number): boolean {
 
 export function toggleCollapsedRow(shell: AppShell): boolean {
   const collapsible = shell.streamLog.flatMap((row, local) =>
-    row !== undefined && isCollapsibleRow(row) ? [{ row, index: shell.streamLogBase + local }] : [],
+    row !== undefined && isCollapsibleRow(row)
+      ? [{ row, index: shell.streamLogBase + local }]
+      : [],
   );
   if (collapsible.length === 0) return false;
   const expand = collapsible.some(({ row }) => row.expanded !== true);
@@ -1325,7 +1422,11 @@ function fitTaskRow(row: TaskPanelRow, maxWidth: number): string {
 }
 
 /** Rebuild taskBox's row children to match the requested rows exactly. */
-function renderTasksRows(shell: AppShell, rows: readonly TaskPanelRow[], maxWidth: number): void {
+function renderTasksRows(
+  shell: AppShell,
+  rows: readonly TaskPanelRow[],
+  maxWidth: number,
+): void {
   for (const child of [...shell.taskBox.getChildren()]) {
     shell.taskBox.remove(child);
     destroySubtree(child);
@@ -1333,7 +1434,12 @@ function renderTasksRows(shell: AppShell, rows: readonly TaskPanelRow[], maxWidt
   for (const row of rows) {
     const text = new TextRenderable(shell.renderer as CliRenderer, {
       content: fitTaskRow(row, maxWidth),
-      fg: row.status === "done" ? UI.done : row.status === "doing" ? UI.text : UI.textDim,
+      fg:
+        row.status === "done"
+          ? UI.done
+          : row.status === "doing"
+            ? UI.text
+            : UI.textDim,
     });
     shell.taskBox.add(text);
   }
@@ -1344,12 +1450,17 @@ function agentRowFg(row: AgentPanelRow): string {
   if (row.kind === "more" || row.kind === "header") return UI.textDim;
   if (row.stalled || row.status === "failed") return UI.action;
   if (row.status === "done") return UI.done;
-  if (row.status === "cancelled" || row.status === "interrupted") return UI.textDim;
+  if (row.status === "cancelled" || row.status === "interrupted")
+    return UI.textDim;
   return UI.text;
 }
 
 /** Rebuild agentsBox's row children to match the requested rows exactly. */
-function renderAgentsRows(shell: AppShell, rows: readonly AgentPanelRow[], maxWidth: number): void {
+function renderAgentsRows(
+  shell: AppShell,
+  rows: readonly AgentPanelRow[],
+  maxWidth: number,
+): void {
   for (const child of [...shell.agentsBox.getChildren()]) {
     shell.agentsBox.remove(child);
     destroySubtree(child);
@@ -1370,17 +1481,27 @@ function renderAgentsRows(shell: AppShell, rows: readonly AgentPanelRow[], maxWi
  * Set agents/task chrome zone content (null/empty = hide zone).
  * Heights come from geometry resolve — never guessed.
  */
-function taskRowsEqual(a: readonly TaskPanelRow[], b: readonly TaskPanelRow[]): boolean {
+function taskRowsEqual(
+  a: readonly TaskPanelRow[],
+  b: readonly TaskPanelRow[],
+): boolean {
   return (
     a.length === b.length &&
     a.every((row, i) => {
       const other = b[i];
-      return other !== undefined && row.label === other.label && row.status === other.status;
+      return (
+        other !== undefined &&
+        row.label === other.label &&
+        row.status === other.status
+      );
     })
   );
 }
 
-export function setChromeZones(shell: AppShell, content: ChromeZoneContent): void {
+export function setChromeZones(
+  shell: AppShell,
+  content: ChromeZoneContent,
+): void {
   const bag = shellInternals(shell);
   if (!bag) return;
 
@@ -1422,7 +1543,8 @@ export function setChromeZones(shell: AppShell, content: ChromeZoneContent): voi
   // row budget; retitling a zone whose row count is unchanged must not
   // re-resolve and re-apply the whole layout.
   const budgetUnchanged =
-    taskRowCount === bag.visibility.task && agentsRowCount === bag.visibility.agents;
+    taskRowCount === bag.visibility.task &&
+    agentsRowCount === bag.visibility.agents;
   if (!budgetUnchanged) {
     relayout(shell, {
       visibility: {
@@ -1431,7 +1553,9 @@ export function setChromeZones(shell: AppShell, content: ChromeZoneContent): voi
         agents: agentsRowCount,
       },
       overlayMode: bag.overlayMode,
-      ...(bag.overlayBodyRows !== undefined ? { overlayBodyRows: bag.overlayBodyRows } : {}),
+      ...(bag.overlayBodyRows !== undefined
+        ? { overlayBodyRows: bag.overlayBodyRows }
+        : {}),
     });
   }
 
@@ -1466,7 +1590,11 @@ export function toggleTasksPanel(shell: AppShell): void {
   setChromeZones(shell, { task: bag.chrome.tasksRaw });
   // A flash, not a transcript row: which panels are showing is a property of
   // the current screen, not something that happened in the conversation.
-  setStatusFlash(shell, hiding ? "task list hidden · alt+t to show" : "task list shown", {
-    ttlMs: PANEL_TOGGLE_FLASH_MS,
-  });
+  setStatusFlash(
+    shell,
+    hiding ? "task list hidden · alt+t to show" : "task list shown",
+    {
+      ttlMs: PANEL_TOGGLE_FLASH_MS,
+    },
+  );
 }

@@ -10,8 +10,14 @@
 import type { EventEmitter } from "node:events";
 import type { CliRenderer } from "@opentui/core";
 
-import type { SubAgentSession, SubAgentTranscriptEntry } from "../../subagent/session-store.js";
-import { commandItemsFromRegistry, type RegistryCommandSource } from "../command-catalog.js";
+import type {
+  SubAgentSession,
+  SubAgentTranscriptEntry,
+} from "../../subagent/session-store.js";
+import {
+  commandItemsFromRegistry,
+  type RegistryCommandSource,
+} from "../command-catalog.js";
 import {
   openCommandSurface,
   type CommandSurfaceDeps,
@@ -57,7 +63,10 @@ import type { QueueKind } from "../session-queue.js";
 export interface RunnerHostDeps {
   readonly title: string;
   readonly eventEmitter: EventEmitter;
-  readonly send: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
+  readonly send: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void;
   /**
    * Classify a submit without side effects so slash commands and multi-turn
    * /feedback never mark the session busy or enter the mid-run queue.
@@ -117,7 +126,9 @@ export interface RunnerHostDeps {
    * then hidden. Defaults to false (off) when omitted.
    */
   readonly showPromptCost?: () => boolean;
-  readonly commands: readonly RegistryCommandSource[] | (() => readonly RegistryCommandSource[]);
+  readonly commands:
+    | readonly RegistryCommandSource[]
+    | (() => readonly RegistryCommandSource[]);
   readonly onCommand: (name: string) => void;
   /** Live chrome snapshot source, read on mount and on every notify. */
   readonly chrome: () => ChromeSessionInput;
@@ -135,7 +146,10 @@ export interface RunnerHostDeps {
    * Live data behind the command surfaces (settings, permissions, plugins).
    * `notify` is supplied by the host itself.
    */
-  readonly surfaces?: Omit<CommandSurfaceDeps, "notify" | "openModels" | "openAddProvider">;
+  readonly surfaces?: Omit<
+    CommandSurfaceDeps,
+    "notify" | "openModels" | "openAddProvider"
+  >;
   /** Renderer factory override for headless mounting in tests. */
   readonly createRenderer?: () => Promise<CliRenderer>;
   /** First-run telemetry disclosure, shown on the landing screen. */
@@ -168,14 +182,20 @@ export type RunnerHost = ProductHost & {
 };
 
 /** Map a subagent transcript entry to a stream row. */
-export function rowFromTranscriptEntry(entry: SubAgentTranscriptEntry): StreamRow {
+export function rowFromTranscriptEntry(
+  entry: SubAgentTranscriptEntry,
+): StreamRow {
   switch (entry.kind) {
     case "text":
       return { role: "assistant", text: entry.content };
     case "thinking":
       return { role: "system", text: entry.content, meta: "thinking" };
     case "tool":
-      return toolCallRow({ name: entry.name, arguments: entry.arguments, callId: entry.callId });
+      return toolCallRow({
+        name: entry.name,
+        arguments: entry.arguments,
+        callId: entry.callId,
+      });
     case "tool_result":
       return toolResultRow({
         name: entry.name,
@@ -193,11 +213,17 @@ export function rowFromTranscriptEntry(entry: SubAgentTranscriptEntry): StreamRo
  * one: a call and its result share a row, and a repeated call collapses onto
  * the row it repeats.
  */
-export function rowsFromTranscript(entries: readonly SubAgentTranscriptEntry[]): StreamRow[] {
+export function rowsFromTranscript(
+  entries: readonly SubAgentTranscriptEntry[],
+): StreamRow[] {
   const rows: StreamRow[] = [];
   for (const entry of entries) {
     if (entry.kind === "tool") {
-      pushToolCall(rows, { name: entry.name, arguments: entry.arguments, callId: entry.callId });
+      pushToolCall(rows, {
+        name: entry.name,
+        arguments: entry.arguments,
+        callId: entry.callId,
+      });
       continue;
     }
     if (entry.kind === "tool_result") {
@@ -233,7 +259,9 @@ export function observeSessionFromSubAgents(
 }
 
 /** Mount the OpenTUI host for a live session. */
-export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost> {
+export async function mountRunnerHost(
+  deps: RunnerHostDeps,
+): Promise<RunnerHost> {
   // Mutable so a live provider connect (see refreshModels below) can replace
   // the catalog source without remounting the host.
   let liveProviders = deps.providers;
@@ -262,10 +290,18 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     send: deps.send,
     interrupt: deps.interrupt,
     deliver: deps.deliver,
-    ...(deps.classifySubmit !== undefined ? { classifySubmit: deps.classifySubmit } : {}),
-    ...(deps.onConnectProvider !== undefined ? { onConnectProvider: deps.onConnectProvider } : {}),
-    ...(deps.onFavoriteToggle !== undefined ? { onFavoriteToggle: deps.onFavoriteToggle } : {}),
-    ...(deps.onSetDefault !== undefined ? { onSetDefault: deps.onSetDefault } : {}),
+    ...(deps.classifySubmit !== undefined
+      ? { classifySubmit: deps.classifySubmit }
+      : {}),
+    ...(deps.onConnectProvider !== undefined
+      ? { onConnectProvider: deps.onConnectProvider }
+      : {}),
+    ...(deps.onFavoriteToggle !== undefined
+      ? { onFavoriteToggle: deps.onFavoriteToggle }
+      : {}),
+    ...(deps.onSetDefault !== undefined
+      ? { onSetDefault: deps.onSetDefault }
+      : {}),
     ...(deps.addProviderChoices !== undefined
       ? { addProviderChoices: deps.addProviderChoices }
       : {}),
@@ -282,7 +318,8 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
       ),
     onCommand: deps.onCommand,
     chrome: chromeFromSession(deps.chrome()),
-    onObserveRequest: () => observeSessionFromSubAgents(deps.subAgentSessions()),
+    onObserveRequest: () =>
+      observeSessionFromSubAgents(deps.subAgentSessions()),
     subAgentSessions: () =>
       deps.subAgentSessions().map((s) => ({
         id: s.id,
@@ -295,8 +332,12 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
         lastActivityAt: s.lastActivityAt,
         ...(s.runInFlight !== undefined ? { runInFlight: s.runInFlight } : {}),
       })),
-    ...(deps.createRenderer !== undefined ? { createRenderer: deps.createRenderer } : {}),
-    ...(deps.telemetryNotice !== undefined ? { telemetryNotice: deps.telemetryNotice } : {}),
+    ...(deps.createRenderer !== undefined
+      ? { createRenderer: deps.createRenderer }
+      : {}),
+    ...(deps.telemetryNotice !== undefined
+      ? { telemetryNotice: deps.telemetryNotice }
+      : {}),
   });
 
   const pushChrome = (): void => {
@@ -312,7 +353,10 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
     const showCost = deps.showPromptCost?.() ?? false;
     setPromptCostContext(host.shell, {
       contextPercentUsed: summary.contextPercentUsed,
-      costLabel: showCost && summary.costHiddenReason === null ? summary.formattedCost : null,
+      costLabel:
+        showCost && summary.costHiddenReason === null
+          ? summary.formattedCost
+          : null,
       contextIsEstimate: summary.contextIsEstimate,
     });
   };
@@ -347,7 +391,9 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const stopBranchWatch = watchGitBranch({
     cwd,
     onBranch: (branch) => setPromptWorkspace(host.shell, { branch }),
-    ...(deps.fetchBranch !== undefined ? { fetchBranch: deps.fetchBranch } : {}),
+    ...(deps.fetchBranch !== undefined
+      ? { fetchBranch: deps.fetchBranch }
+      : {}),
   });
 
   // Quitting is Ctrl+C twice, the binding this interface has always used. The
@@ -374,7 +420,9 @@ export async function mountRunnerHost(deps: RunnerHostDeps): Promise<RunnerHost>
   const surfaceDeps: CommandSurfaceDeps = {
     ...(deps.surfaces ?? {}),
     ...(host.openModels !== undefined ? { openModels: host.openModels } : {}),
-    ...(host.openAddProvider !== undefined ? { openAddProvider: host.openAddProvider } : {}),
+    ...(host.openAddProvider !== undefined
+      ? { openAddProvider: host.openAddProvider }
+      : {}),
     notify: (text) => surfaceSystemNotice(host.shell, text),
   };
 

@@ -292,12 +292,20 @@ export function deriveCommandScopes(rawCommand: string): ApprovalScope[] {
 
   const scopes: ApprovalScope[] = [];
   const firstToken = tokens[0];
-  const minPrefix = firstToken !== undefined && MULTIPLEXERS.has(firstToken) ? 2 : 1;
-  const prefixLimit = Math.min(tokens.length - 1, minPrefix + MAX_PREFIX_SCOPES - 1);
+  const minPrefix =
+    firstToken !== undefined && MULTIPLEXERS.has(firstToken) ? 2 : 1;
+  const prefixLimit = Math.min(
+    tokens.length - 1,
+    minPrefix + MAX_PREFIX_SCOPES - 1,
+  );
   for (let n = minPrefix; n <= prefixLimit; n++) {
     const prefix = tokens.slice(0, n).join(" ");
     const pattern = `${prefix} *`;
-    scopes.push({ id: `prefix-${n}`, label: `Always allow ${pattern}`, pattern });
+    scopes.push({
+      id: `prefix-${n}`,
+      label: `Always allow ${pattern}`,
+      pattern,
+    });
   }
 
   // Escape token text only — glob metacharacters typed into a real command
@@ -305,7 +313,11 @@ export function deriveCommandScopes(rawCommand: string): ApprovalScope[] {
   // literal match, never as a wildcard the grant did not actually grant.
   const exact = tokens.map(escapeGlobLiteral).join(" ");
   if (!scopes.some((s) => s.pattern === exact)) {
-    scopes.push({ id: "exact", label: `Always allow this exact command`, pattern: exact });
+    scopes.push({
+      id: "exact",
+      label: `Always allow this exact command`,
+      pattern: exact,
+    });
   }
   return scopes;
 }

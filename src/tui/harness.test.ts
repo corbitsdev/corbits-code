@@ -44,7 +44,9 @@ describe("withTestRenderer", () => {
       h.pressKey("Alt+Enter");
       await h.renderOnce();
       const altEnter = defined(captured.at(-1), "altEnter");
-      expect(altEnter.name === "return" || altEnter.name === "enter").toBe(true);
+      expect(altEnter.name === "return" || altEnter.name === "enter").toBe(
+        true,
+      );
       expect(altEnter.meta === true || altEnter.option === true).toBe(true);
 
       h.pressKey("Ctrl+C");

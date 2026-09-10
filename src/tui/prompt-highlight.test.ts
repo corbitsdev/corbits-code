@@ -12,7 +12,9 @@ import { UI } from "./theme";
 
 const ACTION_FG = RGBA.fromHex(UI.action);
 
-function withShell(fn: (shell: AppShell, h: Harness) => Promise<void> | void): Promise<void> {
+function withShell(
+  fn: (shell: AppShell, h: Harness) => Promise<void> | void,
+): Promise<void> {
   return withTestRenderer(async (h) => {
     const shell = createAppShell(h.renderer, {
       terminal: { columns: 60, rows: 20 },
@@ -30,7 +32,11 @@ function withShell(fn: (shell: AppShell, h: Harness) => Promise<void> | void): P
   });
 }
 
-async function compose(shell: AppShell, h: Harness, value: string): Promise<void> {
+async function compose(
+  shell: AppShell,
+  h: Harness,
+  value: string,
+): Promise<void> {
   shell.prompt.value = value;
   syncPromptHighlights(shell);
   await h.renderOnce();
@@ -41,7 +47,8 @@ function spansFor(h: Harness, text: string): { text: string; fg: RGBA }[] {
   const found: { text: string; fg: RGBA }[] = [];
   for (const line of h.captureSpans().lines) {
     for (const span of line.spans) {
-      if (span.text.includes(text)) found.push({ text: span.text, fg: span.fg });
+      if (span.text.includes(text))
+        found.push({ text: span.text, fg: span.fg });
     }
   }
   return found;
@@ -68,7 +75,13 @@ describe("prompt recognition highlighting", () => {
 
   test("bare words stay unstyled", async () => {
     await withShell(async (shell, h) => {
-      for (const word of ["emil", "implement", "brand review", "improve", "linear-create"]) {
+      for (const word of [
+        "emil",
+        "implement",
+        "brand review",
+        "improve",
+        "linear-create",
+      ]) {
         await compose(shell, h, word);
         const spans = spansFor(h, word);
         expect(spans.length).toBeGreaterThan(0);

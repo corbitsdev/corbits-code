@@ -33,7 +33,9 @@ async function settle(h: Harness): Promise<void> {
 }
 
 /** Every painted span in the frame, flattened, with fg as a hex string. */
-function spansWithHex(h: Harness): { text: string; fg: string; attributes: number }[] {
+function spansWithHex(
+  h: Harness,
+): { text: string; fg: string; attributes: number }[] {
   const frame = h.captureSpans();
   return frame.lines.flatMap((line: { spans: CapturedSpan[] }) =>
     line.spans.map((span) => ({
@@ -108,7 +110,10 @@ describe("diff transcript rows", () => {
   test("a non-edit tool call paints its summary, not its argument JSON", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts);
-      appendStreamRow(shell, toolCallRow({ name: "read_file", arguments: '{"path":"src/x.ts"}' }));
+      appendStreamRow(
+        shell,
+        toolCallRow({ name: "read_file", arguments: '{"path":"src/x.ts"}' }),
+      );
 
       await settle(h);
       const frame = h.captureCharFrame();
@@ -121,7 +126,8 @@ describe("diff transcript rows", () => {
     const brief = {
       agent: "explorer",
       description: "map callers of leaveObserve",
-      prompt: "Find every call site of leaveObserve.\nReport paths and line numbers.",
+      prompt:
+        "Find every call site of leaveObserve.\nReport paths and line numbers.",
       intent: "explore",
       success_criteria: ["list call sites", "note tests"],
       do_not: ["edit code", "open PRs"],
@@ -202,16 +208,24 @@ describe("diff transcript rows", () => {
       const shell = createAppShell(h.renderer, shellOpts);
       appendStreamRow(
         shell,
-        toolCallRow({ name: "read_file", arguments: JSON.stringify({ path: "package.json" }) }),
+        toolCallRow({
+          name: "read_file",
+          arguments: JSON.stringify({ path: "package.json" }),
+        }),
       );
-      appendStreamRow(shell, toolResultRow({ name: "read_file", content: "30 lines" }));
+      appendStreamRow(
+        shell,
+        toolResultRow({ name: "read_file", content: "30 lines" }),
+      );
 
       await settle(h);
       const rows = h
         .captureCharFrame()
         .split("\n")
         .filter((line) => line.trim().length > 0);
-      const callRow = rows.find((line) => line.includes("Read") && line.includes("package.json"));
+      const callRow = rows.find(
+        (line) => line.includes("Read") && line.includes("package.json"),
+      );
       const resultRow = rows.find((line) => line.includes("30 lines"));
       expect(callRow).toBeDefined();
       expect(resultRow).toBeDefined();

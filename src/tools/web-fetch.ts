@@ -83,7 +83,8 @@ async function readCapped(
       await reader.cancel().catch(() => undefined);
       break;
     }
-    const slice = value.byteLength > remaining ? value.slice(0, remaining) : value;
+    const slice =
+      value.byteLength > remaining ? value.slice(0, remaining) : value;
     chunks.push(slice);
     total += slice.byteLength;
     if (slice.byteLength < value.byteLength) {
@@ -124,7 +125,8 @@ async function fetchOnce(
 }
 
 export type WebFetchOutcome =
-  { ok: true; content: string; truncated: boolean } | { ok: false; error: string };
+  | { ok: true; content: string; truncated: boolean }
+  | { ok: false; error: string };
 
 export async function runWebFetch(
   rawUrl: string,
@@ -160,7 +162,10 @@ export async function runWebFetch(
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
       if (location === null) {
-        return { ok: false, error: `Redirect from ${currentUrl} had no Location header.` };
+        return {
+          ok: false,
+          error: `Redirect from ${currentUrl} had no Location header.`,
+        };
       }
       const nextUrl = new URL(location, currentUrl).toString();
       await response.body?.cancel().catch(() => undefined);
@@ -183,9 +188,13 @@ export async function runWebFetch(
       };
     }
 
-    const { text: body, truncated } = await readCapped(response, MAX_FETCH_BYTES);
+    const { text: body, truncated } = await readCapped(
+      response,
+      MAX_FETCH_BYTES,
+    );
     const contentType = response.headers.get("content-type") ?? "";
-    const isHtml = contentType.includes("html") || /^\s*<(!doctype|html)/i.test(body);
+    const isHtml =
+      contentType.includes("html") || /^\s*<(!doctype|html)/i.test(body);
 
     let content: string;
     if (format === "html") {
@@ -198,7 +207,10 @@ export async function runWebFetch(
     return { ok: true, content, truncated };
   }
 
-  return { ok: false, error: `Too many redirects fetching ${rawUrl} (max ${MAX_REDIRECTS}).` };
+  return {
+    ok: false,
+    error: `Too many redirects fetching ${rawUrl} (max ${MAX_REDIRECTS}).`,
+  };
 }
 
 export function createWebFetchTool(): AgentTool {
@@ -213,13 +225,17 @@ export function createWebFetchTool(): AgentTool {
       const timeout = parsed.timeout ?? DEFAULT_TIMEOUT_S;
       const outcome = await runWebFetch(parsed.url, format, timeout);
       if (!outcome.ok) return `Error: ${outcome.error}`;
-      const suffix = outcome.truncated ? `\n\n[content truncated at ${MAX_FETCH_BYTES} bytes]` : "";
+      const suffix = outcome.truncated
+        ? `\n\n[content truncated at ${MAX_FETCH_BYTES} bytes]`
+        : "";
       return outcome.content + suffix;
     },
   });
 }
 
-type ExaMCPWebFetchConnection = { ok: true; client: MCPClient } | { ok: false; error: string };
+type ExaMCPWebFetchConnection =
+  | { ok: true; client: MCPClient }
+  | { ok: false; error: string };
 
 export function createExaMCPWebFetchTool(args: {
   connect: (signal: AbortSignal) => Promise<ExaMCPWebFetchConnection>;
@@ -227,7 +243,10 @@ export function createExaMCPWebFetchTool(args: {
   return {
     kind: "full",
     definition: webFetchDefinition,
-    handler: async (call: ToolCall, signal: AbortSignal): Promise<ToolResult> => {
+    handler: async (
+      call: ToolCall,
+      signal: AbortSignal,
+    ): Promise<ToolResult> => {
       const parsed = WebFetchArgs(call.arguments);
       if (parsed instanceof type.errors) {
         return {
@@ -287,7 +306,11 @@ export function createExaMCPWebFetchTool(args: {
                 content: `Error: Exa MCP web_fetch unavailable: ${connection.error}`,
               };
             }
-            if (!connection.client.tools.some((tool) => tool.name === "web_fetch_exa")) {
+            if (
+              !connection.client.tools.some(
+                (tool) => tool.name === "web_fetch_exa",
+              )
+            ) {
               return {
                 callId: call.id,
                 content:

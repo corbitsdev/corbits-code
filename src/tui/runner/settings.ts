@@ -29,7 +29,10 @@ import { refreshLiveProviderCatalog } from "../../config/index.js";
 import { createTelemetryToggleHandler } from "../../telemetry/toggle.js";
 import { telemetryFirstRunPending } from "../../telemetry/first-run.js";
 import { TELEMETRY_NOTICE } from "../../telemetry/index.js";
-import { loadStartupChangelogMarkdown, stampVersionAfterStartup } from "../../changelog/index.js";
+import {
+  loadStartupChangelogMarkdown,
+  stampVersionAfterStartup,
+} from "../../changelog/index.js";
 import pkg from "../../../package.json" with { type: "json" };
 import type { GrantScope } from "../../permission/types.js";
 import { connectProviderInline } from "../provider/connect.js";
@@ -75,7 +78,9 @@ export function telemetryStartupNotice(
   globalSettings: Settings | null | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-  return telemetryFirstRunPending(globalSettings, env) ? TELEMETRY_NOTICE : undefined;
+  return telemetryFirstRunPending(globalSettings, env)
+    ? TELEMETRY_NOTICE
+    : undefined;
 }
 
 export interface SettingsWiring {
@@ -107,13 +112,20 @@ export async function wireSettings(
   const hookRunsOn = new Map<string, string>();
   for (const status of services.hookManager.getStatuses()) {
     if (status.type === "shell") {
-      hookRunsOn.set(status.id, "runs postTurn and postRun (receives the lifecycle name as $1)");
+      hookRunsOn.set(
+        status.id,
+        "runs postTurn and postRun (receives the lifecycle name as $1)",
+      );
       continue;
     }
     try {
       const source = await readFile(status.path, "utf8");
-      const hasPostTurn = /export\s+(async\s+)?function\s+postTurn\b/.test(source);
-      const hasPostRun = /export\s+(async\s+)?function\s+postRun\b/.test(source);
+      const hasPostTurn = /export\s+(async\s+)?function\s+postTurn\b/.test(
+        source,
+      );
+      const hasPostRun = /export\s+(async\s+)?function\s+postRun\b/.test(
+        source,
+      );
       hookRunsOn.set(
         status.id,
         hasPostTurn && hasPostRun
@@ -134,12 +146,18 @@ export async function wireSettings(
       hooks: state.liveHookConfig,
     }));
     if (result === "skipped") {
-      tuiLogger.warn("Skipping hook settings write: unreadable global settings at {path}", {
-        path: state.config.globalSettingsPath,
-      });
+      tuiLogger.warn(
+        "Skipping hook settings write: unreadable global settings at {path}",
+        {
+          path: state.config.globalSettingsPath,
+        },
+      );
     }
   };
-  const setHookEnabled = async (id: string, enabled: boolean): Promise<void> => {
+  const setHookEnabled = async (
+    id: string,
+    enabled: boolean,
+  ): Promise<void> => {
     services.hookManager.setEnabled(id, enabled);
     state.liveHookConfig = { ...state.liveHookConfig, [id]: { enabled } };
     await persistHookSettings();
@@ -150,7 +168,9 @@ export async function wireSettings(
   // file when one was given). This keeps first-run detection consistent and stops
   // a --config launch from stamping project-config contents into the global file.
   const trueGlobalSettingsPath = state.trueGlobalSettingsPath;
-  const globalSettingsForOnboarding = await loadSettings(trueGlobalSettingsPath);
+  const globalSettingsForOnboarding = await loadSettings(
+    trueGlobalSettingsPath,
+  );
 
   // Consent by proceeding (see telemetry/first-run.ts): on a first run the
   // singleton is a held no-op and the passive banner below is the
@@ -164,7 +184,9 @@ export async function wireSettings(
     undefined,
     services.globalSettingsWriter.enqueue,
   );
-  state.telemetryFirstRun = telemetryFirstRunPending(globalSettingsForOnboarding);
+  state.telemetryFirstRun = telemetryFirstRunPending(
+    globalSettingsForOnboarding,
+  );
   const telemetryNotice = telemetryStartupNotice(globalSettingsForOnboarding);
   // Tracks the user's intent (persisted opt-in, updated live by the settings
   // toggle) rather than the held instance's state, so the settings tab shows
@@ -193,7 +215,9 @@ export async function wireSettings(
   const stampVersion = stampVersionAfterStartup(changelogDecision, notesShown);
   if (stampVersion !== null) {
     void services.globalSettingsWriter
-      .enqueue(() => markLastChangelogVersion(trueGlobalSettingsPath, stampVersion))
+      .enqueue(() =>
+        markLastChangelogVersion(trueGlobalSettingsPath, stampVersion),
+      )
       .catch(() => {
         // Best-effort watermark.
       });
@@ -207,10 +231,13 @@ export async function wireSettings(
   ): Promise<boolean> => {
     const result = await services.globalSettingsWriter.mutate(apply);
     if (result === "ok") return true;
-    tuiLogger.warn("Skipping {what} write: unreadable global settings at {path}", {
-      what,
-      path: state.config.globalSettingsPath,
-    });
+    tuiLogger.warn(
+      "Skipping {what} write: unreadable global settings at {path}",
+      {
+        what,
+        path: state.config.globalSettingsPath,
+      },
+    );
     return false;
   };
 
@@ -233,7 +260,8 @@ export async function wireSettings(
               trueGlobalSettingsPath,
               apply,
             );
-            if (next === null) throw new Error("global settings are unreadable");
+            if (next === null)
+              throw new Error("global settings are unreadable");
             state.config = { ...state.config, settings: next };
             return next;
           },
@@ -258,9 +286,14 @@ export async function wireSettings(
         baseURL: state.config.baseURL,
         model: state.config.model,
         providerName: state.config.providerName,
-        ...(state.config.keyless !== undefined ? { keyless: state.config.keyless } : {}),
+        ...(state.config.keyless !== undefined
+          ? { keyless: state.config.keyless }
+          : {}),
       };
-      const providers = await refreshLiveProviderCatalog(onDisk, resolvedForCatalog);
+      const providers = await refreshLiveProviderCatalog(
+        onDisk,
+        resolvedForCatalog,
+      );
       state.config = {
         ...state.config,
         providers,
@@ -276,15 +309,22 @@ export async function wireSettings(
       // hunt for the row they just authorized.
       const connectedName = result.providerName ?? providerName;
       hostOf(state).openModels?.(
-        result.model !== undefined ? modelOptionId(connectedName, result.model) : undefined,
+        result.model !== undefined
+          ? modelOptionId(connectedName, result.model)
+          : undefined,
       );
-      state.systemNotice?.(`Connected ${connectedName}. Open /model to pick a model.`);
+      state.systemNotice?.(
+        `Connected ${connectedName}. Open /model to pick a model.`,
+      );
       if (isOpenCodeGoProvider({ name: providerName })) {
         void prefetchGoModels()
           .then(async () => {
             if (services.hostHolder.instance === undefined) return;
             const nextDisk = await loadSettings(trueGlobalSettingsPath);
-            const nextProviders = await refreshLiveProviderCatalog(nextDisk, resolvedForCatalog);
+            const nextProviders = await refreshLiveProviderCatalog(
+              nextDisk,
+              resolvedForCatalog,
+            );
             state.config = {
               ...state.config,
               providers: nextProviders,
@@ -318,7 +358,11 @@ export async function wireSettings(
       { providerName: provider, model },
       {
         applyIdentity: (next) => {
-          state.config = { ...state.config, providerName: next.providerName, model: next.model };
+          state.config = {
+            ...state.config,
+            providerName: next.providerName,
+            model: next.model,
+          };
         },
         setPermissionIdentity: (providerName, modelName) => {
           services.permissionGate.setProviderIdentity(providerName, modelName);
@@ -333,7 +377,9 @@ export async function wireSettings(
         },
         refreshAdvertisedSchemas: () => {
           services.directorHolder.instance?.updateToolDefinitions(
-            services.computeAdvertised(services.toolset.dynamicRunner.currentDefinitions()),
+            services.computeAdvertised(
+              services.toolset.dynamicRunner.currentDefinitions(),
+            ),
           );
         },
       },
@@ -353,7 +399,10 @@ export async function wireSettings(
         throw new Error("global settings are unreadable");
       }
       state.config = { ...state.config, settings: next };
-      hostOf(state).refreshModels(listRecentModels(next), listFavoriteModels(next));
+      hostOf(state).refreshModels(
+        listRecentModels(next),
+        listFavoriteModels(next),
+      );
     })().catch((err: unknown) => {
       tuiLogger.debug("model selection persist failed: {error}", {
         error: err instanceof Error ? err.message : String(err),
@@ -364,7 +413,10 @@ export async function wireSettings(
   const onFavoriteToggle = (id: string): void => {
     const sep = id.indexOf(":");
     if (sep <= 0) return;
-    const ref: ModelRef = { provider: id.slice(0, sep), model: id.slice(sep + 1) };
+    const ref: ModelRef = {
+      provider: id.slice(0, sep),
+      model: id.slice(sep + 1),
+    };
     void (async () => {
       let next: Settings | undefined;
       const result = await services.globalSettingsWriter.mutateAt(
@@ -378,7 +430,10 @@ export async function wireSettings(
         throw new Error("global settings are unreadable");
       }
       state.config = { ...state.config, settings: next };
-      hostOf(state).refreshModels(listRecentModels(next), listFavoriteModels(next));
+      hostOf(state).refreshModels(
+        listRecentModels(next),
+        listFavoriteModels(next),
+      );
     })().catch((err: unknown) => {
       tuiLogger.debug("favorite toggle persist failed: {error}", {
         error: err instanceof Error ? err.message : String(err),
@@ -389,7 +444,10 @@ export async function wireSettings(
   const onSetDefault = (id: string): void => {
     const sep = id.indexOf(":");
     if (sep <= 0) return;
-    const ref: ModelRef = { provider: id.slice(0, sep), model: id.slice(sep + 1) };
+    const ref: ModelRef = {
+      provider: id.slice(0, sep),
+      model: id.slice(sep + 1),
+    };
     void (async () => {
       let next: Settings | undefined;
       const result = await services.globalSettingsWriter.mutateAt(
@@ -398,7 +456,9 @@ export async function wireSettings(
           next = setDefaultModel(
             onDisk,
             ref,
-            state.config.providers.find((provider) => provider.name === ref.provider),
+            state.config.providers.find(
+              (provider) => provider.name === ref.provider,
+            ),
           );
           return next;
         },
@@ -406,7 +466,11 @@ export async function wireSettings(
       if (result === "skipped" || next === undefined) {
         throw new Error("global settings are unreadable");
       }
-      await persistConnectedSelection(state.localSettingsFile, ref.provider, ref.model);
+      await persistConnectedSelection(
+        state.localSettingsFile,
+        ref.provider,
+        ref.model,
+      );
       state.config = { ...state.config, settings: next };
       state.systemNotice?.(`Default set to ${ref.model} (${ref.provider})`);
     })().catch((err: unknown) => {
@@ -436,7 +500,10 @@ export async function wireSettings(
   };
 }
 
-function createPermissionsSurface(state: RunnerState, _services: RunnerServices) {
+function createPermissionsSurface(
+  state: RunnerState,
+  _services: RunnerServices,
+) {
   return {
     list: async () => {
       state.listedGrants = await _services.permissionsAdmin.list();
@@ -445,7 +512,9 @@ function createPermissionsSurface(state: RunnerState, _services: RunnerServices)
         scopeLabel: GRANT_SCOPE_LABEL[entry.scope],
         tool: entry.tool,
         pattern: entry.pattern,
-        ...(entry.providerModel !== undefined ? { providerModel: entry.providerModel } : {}),
+        ...(entry.providerModel !== undefined
+          ? { providerModel: entry.providerModel }
+          : {}),
       }));
     },
     revoke: async (id: string) => {
@@ -462,11 +531,18 @@ function createPluginsSurface(state: RunnerState, services: RunnerServices) {
     list: () => {
       const cfg = services.pluginsAdmin.getConfig();
       return services.pluginsAdmin.list().map((p) => {
-        const mod = services.pluginState.modules.find((m) => m.manifest?.id === p.id);
-        const attributed = warningsForPluginEntry(state.standingPluginWarnings, {
-          id: p.id,
-          ...(p.agentProfiles !== undefined ? { agentProfiles: p.agentProfiles } : {}),
-        });
+        const mod = services.pluginState.modules.find(
+          (m) => m.manifest?.id === p.id,
+        );
+        const attributed = warningsForPluginEntry(
+          state.standingPluginWarnings,
+          {
+            id: p.id,
+            ...(p.agentProfiles !== undefined
+              ? { agentProfiles: p.agentProfiles }
+              : {}),
+          },
+        );
         return {
           id: p.id,
           name: p.name,
@@ -475,10 +551,14 @@ function createPluginsSurface(state: RunnerState, services: RunnerServices) {
           credentials: p.credentials,
           credentialValues: cfg[p.id]?.credentials ?? {},
           ...(p.kind !== undefined ? { kind: p.kind } : {}),
-          ...(p.description !== undefined ? { description: p.description } : {}),
+          ...(p.description !== undefined
+            ? { description: p.description }
+            : {}),
           ...(p.needsTrust === true ? { needsTrust: true } : {}),
           ...(p.canRevokeTrust === true ? { canRevokeTrust: true } : {}),
-          ...(p.agentProfiles !== undefined ? { agentProfiles: p.agentProfiles } : {}),
+          ...(p.agentProfiles !== undefined
+            ? { agentProfiles: p.agentProfiles }
+            : {}),
           ...(p.pluginPath !== undefined
             ? { pluginPath: p.pluginPath, originPath: p.pluginPath }
             : mod?.pluginPath !== undefined
@@ -495,9 +575,17 @@ function createPluginsSurface(state: RunnerState, services: RunnerServices) {
     },
     setEnabled: async (id: string, enabled: boolean) => {
       const existing = services.pluginsAdmin.getConfig()[id] ?? {};
-      return (await services.pluginsAdmin.saveConfig(id, { ...existing, enabled })) ?? undefined;
+      return (
+        (await services.pluginsAdmin.saveConfig(id, {
+          ...existing,
+          enabled,
+        })) ?? undefined
+      );
     },
-    saveCredentials: async (id: string, credentials: Record<string, string>) => {
+    saveCredentials: async (
+      id: string,
+      credentials: Record<string, string>,
+    ) => {
       const existing = services.pluginsAdmin.getConfig()[id] ?? {};
       await services.pluginsAdmin.saveConfig(id, { ...existing, credentials });
     },
@@ -505,9 +593,14 @@ function createPluginsSurface(state: RunnerState, services: RunnerServices) {
       services.pluginsAdmin.verify(id, credentials),
     addPath: (path: string) => services.pluginsAdmin.addPath(path),
     remove: (id: string) => services.pluginsAdmin.remove(id),
-    webProviders: () => services.pluginState.webCandidates.map((c) => ({ id: c.id, name: c.name })),
+    webProviders: () =>
+      services.pluginState.webCandidates.map((c) => ({
+        id: c.id,
+        name: c.name,
+      })),
     currentWebProvider: () => services.pluginsAdmin.getWebOverride(),
-    setWebProvider: (id: string | undefined) => services.pluginsAdmin.setWebOverride(id),
+    setWebProvider: (id: string | undefined) =>
+      services.pluginsAdmin.setWebOverride(id),
     loadWarnings: () => state.standingPluginWarnings,
   };
 }
@@ -536,7 +629,10 @@ function createSettingsSurface(
   state: RunnerState,
   services: RunnerServices,
   onChangeTelemetryEnabled: (enabled: boolean) => boolean,
-  persistGlobalSettings: (what: string, apply: (base: Settings) => Settings) => Promise<boolean>,
+  persistGlobalSettings: (
+    what: string,
+    apply: (base: Settings) => Settings,
+  ) => Promise<boolean>,
 ) {
   return {
     read: () => ({

@@ -3,7 +3,8 @@ import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
 // The marker word of a heredoc redirect starting at `i` (pointing at `<<`),
 // or null when `<<` is not a heredoc opener (e.g. `<<<` here-string).
 function parseHeredocMarker(command: string, i: number): string | null {
-  if (command[i] !== "<" || command[i + 1] !== "<" || command[i + 2] === "<") return null;
+  if (command[i] !== "<" || command[i + 1] !== "<" || command[i + 2] === "<")
+    return null;
   let j = i + 2;
   if (command[j] === "-") j++;
   while (command[j] === " " || command[j] === "\t") j++;
@@ -53,7 +54,10 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
   let continued = false;
 
   const push = (): void => {
-    const isComment = heredocMarker === null && !continued && current.trimStart().startsWith("#");
+    const isComment =
+      heredocMarker === null &&
+      !continued &&
+      current.trimStart().startsWith("#");
     lines.push({ text: current, isComment });
     current = "";
     continued = false;
@@ -147,7 +151,9 @@ function payloadLabel(segment: string, quoteStart: number): string {
   const end = k + 1;
   while (k >= 0 && segment[k] !== " " && segment[k] !== "=") k--;
   const token = segment.slice(k + 1, end);
-  return token === "-m" || token === "--message" || token === "-F" ? "message" : "text";
+  return token === "-m" || token === "--message" || token === "-F"
+    ? "message"
+    : "text";
 }
 
 function lineCountSuffix(count: number): string {
@@ -247,7 +253,8 @@ function segmentWords(segment: string): string[] {
         i += 2;
         if (segment[i] === "-") i++;
         while (segment[i] === " " || segment[i] === "\t") i++;
-        const markerQuote = segment[i] === "'" || segment[i] === '"' ? segment[i++] : null;
+        const markerQuote =
+          segment[i] === "'" || segment[i] === '"' ? segment[i++] : null;
         i += marker.length;
         if (markerQuote !== null && segment[i] === markerQuote) i++;
         continue;
@@ -290,7 +297,8 @@ function programBasename(word: string): string {
 //
 function isCodeConsumingSegment(segment: string): boolean {
   const words = segmentWords(segment);
-  const bareWord = (word: string): string => word.replace(/^[(`]+/, "").replace(/^\$\(/, "");
+  const bareWord = (word: string): string =>
+    word.replace(/^[(`]+/, "").replace(/^\$\(/, "");
   for (const word of words) {
     const bare = programBasename(bareWord(word));
     if (CODE_CONSUMING_COMMANDS.has(bare)) return true;
@@ -305,7 +313,8 @@ function isCodeConsumingSegment(segment: string): boolean {
 // collapsed (see isCodeConsumingSegment) — only data-consuming payloads
 // (commit messages, file contents piped to tee/cat, echoed text) collapse.
 export function collapseSegmentPayloads(segment: string): CollapsedSegment {
-  if (isCodeConsumingSegment(segment)) return { display: segment, payloads: [] };
+  if (isCodeConsumingSegment(segment))
+    return { display: segment, payloads: [] };
   const payloads: CollapsedPayload[] = [];
   let display = "";
   let i = 0;
@@ -425,7 +434,8 @@ export function formatCommandForApproval(
     if (opts?.expanded !== true) return;
     for (const payload of segment.payloads) {
       lines.push(`   ${payload.placeholder}`);
-      for (const line of payload.lines) lines.push(`     ${renderPayloadLine(line)}`);
+      for (const line of payload.lines)
+        lines.push(`     ${renderPayloadLine(line)}`);
     }
   });
 

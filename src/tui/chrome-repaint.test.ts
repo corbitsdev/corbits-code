@@ -4,11 +4,19 @@
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
-import { chromeComposeCount, paintChrome, setLockupFrame, setStatusFlash } from "./shell/chrome";
+import {
+  chromeComposeCount,
+  paintChrome,
+  setLockupFrame,
+  setStatusFlash,
+} from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
 
-async function withShell(fn: (shell: AppShell) => void, columns = 80): Promise<void> {
+async function withShell(
+  fn: (shell: AppShell) => void,
+  columns = 80,
+): Promise<void> {
   await withTestRenderer(
     async (h) => {
       const shell = createAppShell(h.renderer, {

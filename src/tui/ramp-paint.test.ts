@@ -17,7 +17,10 @@ const BRAILLE = /[⠀-⣿]/;
 const DENSITY = /[░▒▓█]/;
 
 /** Drives the bridge monitor tick by hand so the ramp animates deterministically. */
-function fakeMonitor(stall?: { readonly noticeMs: number; readonly timeoutMs: number }): {
+function fakeMonitor(stall?: {
+  readonly noticeMs: number;
+  readonly timeoutMs: number;
+}): {
   readonly monitor: {
     now: () => number;
     tickMs: number;
@@ -53,7 +56,8 @@ function fakeMonitor(stall?: { readonly noticeMs: number; readonly timeoutMs: nu
 /** The prompt box's bottom border — the row the status slot rides. */
 function statusRow(frame: string): string {
   const row = frame.split("\n").find((line) => line.includes("╰"));
-  if (row === undefined) throw new Error("no prompt-box bottom border in frame");
+  if (row === undefined)
+    throw new Error("no prompt-box bottom border in frame");
   return row;
 }
 
@@ -78,7 +82,11 @@ describe("turn ramp paint", () => {
           run: "idle",
         });
         const { monitor } = fakeMonitor();
-        const bridge = attachSessionBridge(shell, createRecordingPort(), monitor);
+        const bridge = attachSessionBridge(
+          shell,
+          createRecordingPort(),
+          monitor,
+        );
         try {
           bridge.handle({ type: "run", state: "busy" });
           await h.renderOnce();
@@ -104,7 +112,11 @@ describe("turn ramp paint", () => {
           run: "idle",
         });
         const { monitor, advance } = fakeMonitor();
-        const bridge = attachSessionBridge(shell, createRecordingPort(), monitor);
+        const bridge = attachSessionBridge(
+          shell,
+          createRecordingPort(),
+          monitor,
+        );
         try {
           bridge.handle({ type: "run", state: "busy" });
           await h.renderOnce();
@@ -132,7 +144,11 @@ describe("turn ramp paint", () => {
           run: "idle",
         });
         const { monitor } = fakeMonitor();
-        const bridge = attachSessionBridge(shell, createRecordingPort(), monitor);
+        const bridge = attachSessionBridge(
+          shell,
+          createRecordingPort(),
+          monitor,
+        );
         try {
           bridge.handle({ type: "run", state: "busy" });
           bridge.handle({ type: "run", state: "idle" });
@@ -165,7 +181,11 @@ describe("turn ramp paint", () => {
             return monitor.schedule(tick, ms);
           },
         };
-        const bridge = attachSessionBridge(shell, createRecordingPort(), countingMonitor);
+        const bridge = attachSessionBridge(
+          shell,
+          createRecordingPort(),
+          countingMonitor,
+        );
         try {
           bridge.handle({ type: "run", state: "busy" });
           bridge.handle({ type: "run", state: "idle" });
@@ -189,7 +209,11 @@ describe("turn ramp paint", () => {
           run: "idle",
         });
         const { monitor, advance } = fakeMonitor();
-        const bridge = attachSessionBridge(shell, createRecordingPort(), monitor);
+        const bridge = attachSessionBridge(
+          shell,
+          createRecordingPort(),
+          monitor,
+        );
         try {
           bridge.handle({ type: "run", state: "busy" });
           await h.renderOnce();
@@ -231,7 +255,11 @@ describe("turn ramp paint", () => {
           noticeMs: 1_000,
           timeoutMs: 600_000,
         });
-        const bridge = attachSessionBridge(shell, createRecordingPort(), monitor);
+        const bridge = attachSessionBridge(
+          shell,
+          createRecordingPort(),
+          monitor,
+        );
         try {
           bridge.handle({ type: "run", state: "busy" });
           await h.renderOnce();

@@ -21,7 +21,9 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text.startsWith("Identity: agent id `builder`")).toBe(true);
     expect(text).toContain('spawn_agent(agent="builder")');
     expect(text).toContain("Model role: implement.");
-    expect(text).toContain("style, philosophy, native-runtime, idiot-proof, ponytail");
+    expect(text).toContain(
+      "style, philosophy, native-runtime, idiot-proof, ponytail",
+    );
     expect(text).toContain(DIRECTOR_REGISTRY.builder.systemPrompt);
   });
 
@@ -34,31 +36,46 @@ describe("formatDirectorSystemPrompt", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     const style = stripFrontmatter(
       readFileSync(
-        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/style/SKILL.md"),
+        join(
+          import.meta.dirname,
+          "../../../plugins/corbits-skills/skills/style/SKILL.md",
+        ),
         "utf8",
       ),
     );
     const philosophy = stripFrontmatter(
       readFileSync(
-        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/philosophy/SKILL.md"),
+        join(
+          import.meta.dirname,
+          "../../../plugins/corbits-skills/skills/philosophy/SKILL.md",
+        ),
         "utf8",
       ),
     );
     const nativeRuntime = stripFrontmatter(
       readFileSync(
-        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/native-runtime/SKILL.md"),
+        join(
+          import.meta.dirname,
+          "../../../plugins/corbits-skills/skills/native-runtime/SKILL.md",
+        ),
         "utf8",
       ),
     );
     const idiotProof = stripFrontmatter(
       readFileSync(
-        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/idiot-proof/SKILL.md"),
+        join(
+          import.meta.dirname,
+          "../../../plugins/corbits-skills/skills/idiot-proof/SKILL.md",
+        ),
         "utf8",
       ),
     );
     const ponytail = stripFrontmatter(
       readFileSync(
-        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/ponytail/SKILL.md"),
+        join(
+          import.meta.dirname,
+          "../../../plugins/corbits-skills/skills/ponytail/SKILL.md",
+        ),
         "utf8",
       ),
     );
@@ -73,7 +90,10 @@ describe("formatDirectorSystemPrompt", () => {
     );
     const typescript = stripFrontmatter(
       readFileSync(
-        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/typescript/SKILL.md"),
+        join(
+          import.meta.dirname,
+          "../../../plugins/corbits-skills/skills/typescript/SKILL.md",
+        ),
         "utf8",
       ),
     );
@@ -131,7 +151,10 @@ describe("formatDirectorSystemPrompt", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.counsel);
     const interview = stripFrontmatter(
       readFileSync(
-        join(import.meta.dirname, "../../../plugins/corbits-skills/skills/interview/SKILL.md"),
+        join(
+          import.meta.dirname,
+          "../../../plugins/corbits-skills/skills/interview/SKILL.md",
+        ),
         "utf8",
       ),
     );
@@ -143,7 +166,9 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).not.toContain(interview);
     expect(text).not.toContain("### interview");
     // interview recipe centers on ask_operator batches; counsel must not embed it
-    expect(text).not.toMatch(/multiple-choice questions in batches via `ask_operator`/);
+    expect(text).not.toMatch(
+      /multiple-choice questions in batches via `ask_operator`/,
+    );
     expect(text).toContain("style, philosophy");
     expect(text).toContain("# Baked skill guidance");
   });

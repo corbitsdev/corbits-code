@@ -17,7 +17,10 @@ describe("buildStdioMcpProcessEnv", () => {
   });
 
   test("merges server env from settings on top", () => {
-    const env = buildStdioMcpProcessEnv({ PATH: "/bin" }, { TOKEN: "mcp-token", PATH: "/custom" });
+    const env = buildStdioMcpProcessEnv(
+      { PATH: "/bin" },
+      { TOKEN: "mcp-token", PATH: "/custom" },
+    );
     expect(env).toEqual({ PATH: "/custom", TOKEN: "mcp-token" });
   });
 });

@@ -177,7 +177,11 @@ describe("agentProgress", () => {
   });
 
   test("recent activity keeps a long-running session marked working", () => {
-    const progress = agentProgress({ ...base, lastActivityAt: 100_000 }, 100_500, 120_000);
+    const progress = agentProgress(
+      { ...base, lastActivityAt: 100_000 },
+      100_500,
+      120_000,
+    );
     expect(progress?.working).toBe(true);
     expect(progress?.stalled).toBe(false);
   });
@@ -185,11 +189,17 @@ describe("agentProgress", () => {
   test("default stall window tolerates a multi-minute Grok think gap", () => {
     // DEFAULT_STALL_MS is 300s — 180s of quiet with no tool outstanding must
     // still read working, or worker/spawn_agent rows false-stall on healthy Responses thinks.
-    const progress = agentProgress({ ...base, currentToolName: null, lastActivityAt: 0 }, 180_000);
+    const progress = agentProgress(
+      { ...base, currentToolName: null, lastActivityAt: 0 },
+      180_000,
+    );
     expect(progress?.state).toBe("working");
     expect(progress?.stalled).toBe(false);
     expect(
-      agentProgress({ ...base, currentToolName: null, lastActivityAt: 0 }, 301_000)?.stalled,
+      agentProgress(
+        { ...base, currentToolName: null, lastActivityAt: 0 },
+        301_000,
+      )?.stalled,
     ).toBe(true);
   });
 
@@ -222,7 +232,9 @@ describe("laneState", () => {
   };
 
   test("names the three lanes a running worker can be in", () => {
-    expect(laneState({ ...running, lastActivityAt: 1_000 }, 2_000, 30_000)).toBe("working");
+    expect(
+      laneState({ ...running, lastActivityAt: 1_000 }, 2_000, 30_000),
+    ).toBe("working");
     expect(laneState(running, 60_000, 30_000)).toBe("stalled");
     expect(
       laneState(
@@ -305,19 +317,27 @@ describe("fleetProgress", () => {
 describe("agentLaneIsLive", () => {
   test("running without lifecycleStatus stays live; interrupted is not", () => {
     expect(agentLaneIsLive({ status: "running" })).toBe(true);
-    expect(agentLaneIsLive({ status: "running", lifecycleStatus: "running" })).toBe(true);
-    expect(agentLaneIsLive({ status: "running", lifecycleStatus: "interrupted" })).toBe(false);
+    expect(
+      agentLaneIsLive({ status: "running", lifecycleStatus: "running" }),
+    ).toBe(true);
+    expect(
+      agentLaneIsLive({ status: "running", lifecycleStatus: "interrupted" }),
+    ).toBe(false);
     expect(agentLaneIsLive({ status: "done" })).toBe(false);
   });
 });
 
 describe("fleetLabel", () => {
   test("is null with nothing running so the single-agent case is untouched", () => {
-    expect(fleetLabel({ running: 0, working: 0, inTool: 0, stalled: 0 })).toBeNull();
+    expect(
+      fleetLabel({ running: 0, working: 0, inTool: 0, stalled: 0 }),
+    ).toBeNull();
   });
 
   test("never names stalled count to the operator", () => {
-    expect(fleetLabel({ running: 6, working: 4, inTool: 0, stalled: 2 })).toBe("6 agents");
+    expect(fleetLabel({ running: 6, working: 4, inTool: 0, stalled: 2 })).toBe(
+      "6 agents",
+    );
   });
 
   test("says when the whole fleet is inside tool calls", () => {

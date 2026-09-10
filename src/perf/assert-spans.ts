@@ -10,7 +10,10 @@ import type { PhaseSummary, TurnSummary } from "./rollup.js";
 import { spanDurationNs } from "./rollup.js";
 
 /** Verify at least one span with the given phase name exists. */
-export function assertPhasePresent(spans: readonly PerfSpan[], phaseName: SpanName | string): void {
+export function assertPhasePresent(
+  spans: readonly PerfSpan[],
+  phaseName: SpanName | string,
+): void {
   const found = spans.some((s) => s.name === phaseName);
   if (!found) {
     const names = [...new Set(spans.map((s) => s.name))].sort().join(", ");
@@ -61,7 +64,9 @@ export function assertTurnHasInferenceAndTools(
 ): void {
   const minToolCount = opts?.minToolCount ?? 1;
   if (turn.inferenceNs <= 0) {
-    throw new Error(`turn ${turn.turnId}: expected inferenceNs > 0, got ${turn.inferenceNs}`);
+    throw new Error(
+      `turn ${turn.turnId}: expected inferenceNs > 0, got ${turn.inferenceNs}`,
+    );
   }
   if (turn.toolCount < minToolCount) {
     throw new Error(
@@ -69,7 +74,9 @@ export function assertTurnHasInferenceAndTools(
     );
   }
   if (turn.toolNs <= 0) {
-    throw new Error(`turn ${turn.turnId}: expected toolNs > 0 when tools ran, got ${turn.toolNs}`);
+    throw new Error(
+      `turn ${turn.turnId}: expected toolNs > 0 when tools ran, got ${turn.toolNs}`,
+    );
   }
 }
 
@@ -77,7 +84,11 @@ export function assertTurnHasInferenceAndTools(
  * Assert a < b for relative magnitude checks (e.g. TTFT < stream wall).
  * Values are plain numbers (typically nanoseconds from rollup).
  */
-export function assertLessThan(left: number, right: number, label = "magnitude"): void {
+export function assertLessThan(
+  left: number,
+  right: number,
+  label = "magnitude",
+): void {
   if (!(left < right)) {
     throw new Error(`${label}: expected ${left} < ${right}`);
   }
@@ -94,11 +105,15 @@ export function assertPhaseSummary(
   const phase = phases.find((p) => p.name === phaseName);
   if (phase === undefined) {
     const names = phases.map((p) => p.name).join(", ");
-    throw new Error(`expected phase summary "${phaseName}"; present: [${names || "none"}]`);
+    throw new Error(
+      `expected phase summary "${phaseName}"; present: [${names || "none"}]`,
+    );
   }
   const minCount = opts?.minCount ?? 1;
   if (phase.count < minCount) {
-    throw new Error(`phase "${phaseName}": expected count >= ${minCount}, got ${phase.count}`);
+    throw new Error(
+      `phase "${phaseName}": expected count >= ${minCount}, got ${phase.count}`,
+    );
   }
   if (opts?.minTotalNs !== undefined && phase.totalNs < opts.minTotalNs) {
     throw new Error(

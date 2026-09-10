@@ -16,7 +16,10 @@ import {
   compactorNoOpFloor,
   isCompactSpacerEchoTurn,
 } from "../session/compactor.js";
-import { createContextEstimate, estimateOverheadTokens } from "./context-estimate.js";
+import {
+  createContextEstimate,
+  estimateOverheadTokens,
+} from "./context-estimate.js";
 import { onTurnBoundary } from "./reactor-events.js";
 
 const COMPACTOR_NAME = "pruning-compactor";
@@ -78,7 +81,9 @@ export function createCompactionGovernor(
   // or report zero leave the proactive path blind; the estimate fills that
   // gap. When the provider reports real usage we prefer it so a coarse local
   // count cannot thrash against a trustworthy signal.
-  const estimate = createContextEstimate(estimateOverheadTokens(systemPrompt, toolDefinitions));
+  const estimate = createContextEstimate(
+    estimateOverheadTokens(systemPrompt, toolDefinitions),
+  );
 
   // Re-sync after turn appends, tool results, and compaction rewrites. Callers
   // pass the full turn list so the estimate stays accurate without incremental
@@ -93,7 +98,10 @@ export function createCompactionGovernor(
     const high = compactionThresholdFor(lastModel);
     if (contextTokens <= high) return false;
     if (tokensAtLastCompact !== undefined) {
-      return contextTokens >= tokensAtLastCompact + compactionResumeDeltaFor(lastModel);
+      return (
+        contextTokens >=
+        tokensAtLastCompact + compactionResumeDeltaFor(lastModel)
+      );
     }
     return true;
   }
@@ -111,12 +119,18 @@ export function createCompactionGovernor(
     noteCompactIssued();
   }
 
-  function isSpacerEchoTerminal(event: ReactorInboundEvent, actions: ReactorAction[]): boolean {
+  function isSpacerEchoTerminal(
+    event: ReactorInboundEvent,
+    actions: ReactorAction[],
+  ): boolean {
     // Fail-closed only. ChatDirector owns spacer-echo completeness (nudge, then
     // loop-protection / workflow / open-task rails). This just refuses to treat
     // that incomplete wait or reply as an idle-compact pause.
-    if (event.type === "inference.done" && isCompactSpacerEchoTurn(event.turn)) return true;
-    return actions.some((a) => a.type === "reply" && assistantTextIsCompactSpacerEcho(a.content));
+    if (event.type === "inference.done" && isCompactSpacerEchoTurn(event.turn))
+      return true;
+    return actions.some(
+      (a) => a.type === "reply" && assistantTextIsCompactSpacerEcho(a.content),
+    );
   }
 
   function noteInferenceDone(
@@ -169,7 +183,8 @@ export function createCompactionGovernor(
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
     if (event.type !== "tool.done") return null;
-    if (!pending && !(usingEstimate && isOverThreshold(estimate.tokens))) return null;
+    if (!pending && !(usingEstimate && isOverThreshold(estimate.tokens)))
+      return null;
     if (!actions.some((a) => a.type === "infer")) return null;
     if (atThresholdCompactCap()) return null;
     pending = false;
@@ -186,7 +201,10 @@ export function createCompactionGovernor(
   // pending compaction would wait indefinitely for the next tool batch. When
   // the turn ends without follow-up work, ask the host for a continuation and
   // compact when it (or the operator's next message) arrives.
-  function noteIdleTurn(event: ReactorInboundEvent, actions: ReactorAction[]): void {
+  function noteIdleTurn(
+    event: ReactorInboundEvent,
+    actions: ReactorAction[],
+  ): void {
     if (!pending || idlePending || requestContinuation === undefined) return;
     if (atThresholdCompactCap()) return;
     if (!onTurnBoundary(event)) return;
@@ -210,7 +228,8 @@ export function createCompactionGovernor(
     }
     idlePending = false;
     pending = false;
-    const content = typeof event.message.content === "string" ? event.message.content : "";
+    const content =
+      typeof event.message.content === "string" ? event.message.content : "";
     // The reactor delivers no event after compact, so always request a
     // continuation to re-enter decide against the shrunk turns:
     // - raced operator content → re-infer to answer it
@@ -233,7 +252,10 @@ export function createCompactionGovernor(
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
     if (requestContinuation === undefined) return null;
-    if (event.type !== "inference.error" || event.error.category !== "context_overflow") {
+    if (
+      event.type !== "inference.error" ||
+      event.error.category !== "context_overflow"
+    ) {
       return null;
     }
     if (overflowRecoveries >= MAX_OVERFLOW_RECOVERIES) return null;
@@ -248,9 +270,12 @@ export function createCompactionGovernor(
   // After compact, a content-less continuation re-enters decide. "infer" means
   // resume the interrupted loop; "meter" means adopt the shrunk turns for the
   // Ctx display and stay idle (idle empty compact has nothing to answer).
-  function resumeAfterCompact(event: ReactorInboundEvent): "infer" | "meter" | null {
+  function resumeAfterCompact(
+    event: ReactorInboundEvent,
+  ): "infer" | "meter" | null {
     if (event.type !== "message.received") return null;
-    const content = typeof event.message.content === "string" ? event.message.content : "";
+    const content =
+      typeof event.message.content === "string" ? event.message.content : "";
     if (content.length > 0) return null;
     if (postCompactInfer) {
       postCompactInfer = false;

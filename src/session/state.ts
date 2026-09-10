@@ -45,7 +45,10 @@ let tmpWriteCounter = 0;
 // crash mid-write never leaves torn JSON. The temp name combines the pid with a
 // monotonic counter so concurrent or rapid successive saves within one process
 // never collide on the same temp path (pid alone is not unique per call).
-export async function atomicWrite(path: string, content: string): Promise<void> {
+export async function atomicWrite(
+  path: string,
+  content: string,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${(tmpWriteCounter += 1)}.tmp`;
   await writeFile(tmp, content);
@@ -69,7 +72,10 @@ const writeChains = new Map<string, Promise<void>>();
 // This cannot recall a write whose writeFile/rename has already been
 // dispatched to the kernel — that residual window is one atomicWrite call
 // wide (a small local JSON write), not the remaining lifetime of the process.
-async function atomicWriteUnlessCrashed(path: string, content: string): Promise<void> {
+async function atomicWriteUnlessCrashed(
+  path: string,
+  content: string,
+): Promise<void> {
   // No-op in production; lets a test hold this write open past the moment
   // isCrashed() flips, so the check below is proven rather than assumed.
   const gate = getTestWriteGate();
@@ -154,7 +160,9 @@ export async function saveCrashState(
   await atomicWrite(path, JSON.stringify(state, null, 2));
 }
 
-type ParseRunStateResult = { ok: true; state: RunState } | { ok: false; reason: string };
+type ParseRunStateResult =
+  | { ok: true; state: RunState }
+  | { ok: false; reason: string };
 
 // Tagged so a valid RunState.error string cannot be mistaken for a parse failure.
 function parseRunState(data: unknown): ParseRunStateResult {
@@ -165,7 +173,9 @@ function parseRunState(data: unknown): ParseRunStateResult {
 }
 
 export type LoadStateResult =
-  { kind: "ok"; state: RunState } | { kind: "missing" } | { kind: "unreadable" };
+  | { kind: "ok"; state: RunState }
+  | { kind: "missing" }
+  | { kind: "unreadable" };
 
 export async function loadState(
   cwd: string,
@@ -187,7 +197,10 @@ export async function loadState(
     return { kind: "ok", state: parsed.state };
   } catch (err) {
     if (err instanceof SyntaxError) {
-      log.warn("unreadable session state at {path}: {reason}", { path, reason: "corrupt JSON" });
+      log.warn("unreadable session state at {path}: {reason}", {
+        path,
+        reason: "corrupt JSON",
+      });
       return { kind: "unreadable" };
     }
     if (

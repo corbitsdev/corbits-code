@@ -82,11 +82,19 @@ describe("image attachment helpers", () => {
 
   test("finds image paths embedded in instructions", () => {
     expect(
-      findImagePathMentions("what is in /tmp/Screenshot 2026-01-01.png please", "/repo"),
-    ).toEqual([{ raw: "/tmp/Screenshot 2026-01-01.png", path: "/tmp/Screenshot 2026-01-01.png" }]);
-    expect(findImagePathMentions("look at file:///tmp/my%20shot.png", "/repo")).toEqual([
-      { raw: "file:///tmp/my%20shot.png", path: "/tmp/my shot.png" },
+      findImagePathMentions(
+        "what is in /tmp/Screenshot 2026-01-01.png please",
+        "/repo",
+      ),
+    ).toEqual([
+      {
+        raw: "/tmp/Screenshot 2026-01-01.png",
+        path: "/tmp/Screenshot 2026-01-01.png",
+      },
     ]);
+    expect(
+      findImagePathMentions("look at file:///tmp/my%20shot.png", "/repo"),
+    ).toEqual([{ raw: "file:///tmp/my%20shot.png", path: "/tmp/my shot.png" }]);
   });
 
   test("leaves small images untouched", async () => {
@@ -113,11 +121,16 @@ describe("image attachment helpers", () => {
       const tmpPath = `/tmp/corbits-image-cap-test-${process.pid}-${Date.now()}.jpg`;
       await Bun.write(tmpPath, result.data);
       try {
-        const dims = await Bun.$`sips -g pixelWidth -g pixelHeight ${tmpPath}`.text();
+        const dims =
+          await Bun.$`sips -g pixelWidth -g pixelHeight ${tmpPath}`.text();
         const widthMatch = dims.match(/pixelWidth:\s*(\d+)/);
         const heightMatch = dims.match(/pixelHeight:\s*(\d+)/);
-        expect(Number(widthMatch?.[1])).toBeLessThanOrEqual(MAX_IMAGE_DIMENSION);
-        expect(Number(heightMatch?.[1])).toBeLessThanOrEqual(MAX_IMAGE_DIMENSION);
+        expect(Number(widthMatch?.[1])).toBeLessThanOrEqual(
+          MAX_IMAGE_DIMENSION,
+        );
+        expect(Number(heightMatch?.[1])).toBeLessThanOrEqual(
+          MAX_IMAGE_DIMENSION,
+        );
       } finally {
         await unlink(tmpPath).catch(() => undefined);
       }
@@ -142,16 +155,25 @@ describe("image attachment helpers", () => {
     const bytes = buildTestPng(1200, 1200);
     expect(bytes.byteLength).toBeGreaterThan(300 * 1024);
 
-    const pathA = join(tmpdir(), `corbits-hash-test-a-${process.pid}-${Date.now()}.png`);
-    const pathB = join(tmpdir(), `corbits-hash-test-b-${process.pid}-${Date.now()}.png`);
+    const pathA = join(
+      tmpdir(),
+      `corbits-hash-test-a-${process.pid}-${Date.now()}.png`,
+    );
+    const pathB = join(
+      tmpdir(),
+      `corbits-hash-test-b-${process.pid}-${Date.now()}.png`,
+    );
     await Bun.write(pathA, bytes);
     await Bun.write(pathB, bytes);
     try {
       const resultA = await imageAttachmentFromPath(pathA);
       const resultB = await imageAttachmentFromPath(pathB);
-      if (!resultA.ok || !resultB.ok) throw new Error("expected both ingests to succeed");
+      if (!resultA.ok || !resultB.ok)
+        throw new Error("expected both ingests to succeed");
 
-      expect(resultA.attachment.contentHash).toBe(resultB.attachment.contentHash);
+      expect(resultA.attachment.contentHash).toBe(
+        resultB.attachment.contentHash,
+      );
       expect(resultA.attachment.id).not.toBe(resultB.attachment.id);
     } finally {
       await unlink(pathA).catch(() => undefined);
@@ -173,7 +195,9 @@ describe("image attachment helpers", () => {
         contentHash: "h",
       },
     ];
-    expect(userRowText("hello", attachments)).toBe("hello\n[1 image attached: shot.png]");
+    expect(userRowText("hello", attachments)).toBe(
+      "hello\n[1 image attached: shot.png]",
+    );
     expect(userRowText("", attachments)).toBe("[1 image attached: shot.png]");
   });
 });
@@ -195,7 +219,12 @@ describe("findDuplicateAttachment", () => {
   };
 
   test("returns the first existing attachment with the same content hash", () => {
-    const candidate = { ...first, id: "later", name: "copy.png", path: "/tmp/copy.png" };
+    const candidate = {
+      ...first,
+      id: "later",
+      name: "copy.png",
+      path: "/tmp/copy.png",
+    };
     expect(findDuplicateAttachment([first, other], candidate)).toBe(first);
   });
 

@@ -3,7 +3,11 @@ import type { ReactorEmittedEvent } from "@intx/inference";
 
 import { onTurnBoundary } from "../../src/agent/reactor-events.js";
 import { createPermissionGate } from "../../src/permission/gate.js";
-import { closeIntegrationSession, openIntegrationSession, runUntilDone } from "./harness.js";
+import {
+  closeIntegrationSession,
+  openIntegrationSession,
+  runUntilDone,
+} from "./harness.js";
 
 // The unit tests in `src/agent/reactor-events.test.ts` cover type-level
 // narrowing across both event unions and `onReactorShutdown`'s behavior.
@@ -19,35 +23,45 @@ import { closeIntegrationSession, openIntegrationSession, runUntilDone } from ".
 // relying on `reactor.done` to arrive. That gap is covered by the unit
 // test's real `ReactorEmittedEvent` / `ReactorInboundEvent` narrowing.
 describe("integration — reactor-events guards", () => {
-  test.serial("onTurnBoundary matches exactly the turn boundary, once per real turn", async () => {
-    const session = await openIntegrationSession({
-      permissionGate: createPermissionGate({
-        approvals: [],
-        interactive: false,
-        skipPermissions: true,
-        reactorGated: false,
-      }),
-    });
-
-    try {
-      session.harness.scenario.replyOnce("anthropic", {
-        toolCalls: [{ name: "write_file", args: { path: "out.txt", content: "ok\n" } }],
+  test.serial(
+    "onTurnBoundary matches exactly the turn boundary, once per real turn",
+    async () => {
+      const session = await openIntegrationSession({
+        permissionGate: createPermissionGate({
+          approvals: [],
+          interactive: false,
+          skipPermissions: true,
+          reactorGated: false,
+        }),
       });
-      session.harness.scenario.replyOnce("anthropic", { text: "Done." });
 
-      const { events } = await runUntilDone(session, "Write out.txt with content ok.");
+      try {
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [
+            { name: "write_file", args: { path: "out.txt", content: "ok\n" } },
+          ],
+        });
+        session.harness.scenario.replyOnce("anthropic", { text: "Done." });
 
-      const turnBoundaries = events.filter(onTurnBoundary);
+        const { events } = await runUntilDone(
+          session,
+          "Write out.txt with content ok.",
+        );
 
-      // One tool-call turn followed by one final-text turn: exactly two
-      // inference.done events, despite tool.done and other events on the stream.
-      expect(turnBoundaries.length).toBe(2);
-      expect(turnBoundaries.every((e: ReactorEmittedEvent) => e.type === "inference.done")).toBe(
-        true,
-      );
-      expect(events.some((e) => e.type === "tool.done")).toBe(true);
-    } finally {
-      await closeIntegrationSession(session);
-    }
-  });
+        const turnBoundaries = events.filter(onTurnBoundary);
+
+        // One tool-call turn followed by one final-text turn: exactly two
+        // inference.done events, despite tool.done and other events on the stream.
+        expect(turnBoundaries.length).toBe(2);
+        expect(
+          turnBoundaries.every(
+            (e: ReactorEmittedEvent) => e.type === "inference.done",
+          ),
+        ).toBe(true);
+        expect(events.some((e) => e.type === "tool.done")).toBe(true);
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
 });

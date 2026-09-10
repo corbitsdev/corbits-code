@@ -13,7 +13,10 @@ const tmpCwd = process.cwd();
 describe("background shell registry", () => {
   test("start returns a handle immediately while the process runs", async () => {
     const registry = createBackgroundShellRegistry();
-    const started = registry.start({ command: "sleep 1; echo done", cwd: tmpCwd });
+    const started = registry.start({
+      command: "sleep 1; echo done",
+      cwd: tmpCwd,
+    });
     if ("error" in started) throw new Error(started.error);
     const snapshot = await registry.collect(started.id, 0);
     expect(snapshot.state).toBe("running");
@@ -27,7 +30,9 @@ describe("background shell registry", () => {
 
   test("onExit fires with exit status and output", async () => {
     const exits: unknown[] = [];
-    const registry = createBackgroundShellRegistry({ onExit: (exit) => exits.push(exit) });
+    const registry = createBackgroundShellRegistry({
+      onExit: (exit) => exits.push(exit),
+    });
     const started = registry.start({ command: "echo hi", cwd: tmpCwd });
     if ("error" in started) throw new Error(started.error);
     await registry.collect(started.id, 5_000);
@@ -104,7 +109,10 @@ describe("background shell registry", () => {
   test("disposeAll kills running children", async () => {
     const token = `ic_bg_dispose_${randomUUID()}`;
     const registry = createBackgroundShellRegistry();
-    const started = registry.start({ command: `sleep 600 # ${token}`, cwd: tmpCwd });
+    const started = registry.start({
+      command: `sleep 600 # ${token}`,
+      cwd: tmpCwd,
+    });
     if ("error" in started) throw new Error(started.error);
     registry.disposeAll("session closed");
     await new Promise((r) => setTimeout(r, 300));

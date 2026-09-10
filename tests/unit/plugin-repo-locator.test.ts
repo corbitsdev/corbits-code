@@ -4,12 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { discoverRepoPlugins, resolveRepoPluginsDir } from "../../src/plugins/loader.js";
+import {
+  discoverRepoPlugins,
+  resolveRepoPluginsDir,
+} from "../../src/plugins/loader.js";
 
 const tmpDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(tmpDirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+  await Promise.all(
+    tmpDirs.splice(0).map((d) => rm(d, { recursive: true, force: true })),
+  );
 });
 
 async function tmpRoot(): Promise<string> {
@@ -18,7 +23,10 @@ async function tmpRoot(): Promise<string> {
   return dir;
 }
 
-async function writeLoadablePlugin(pluginDir: string, id: string): Promise<void> {
+async function writeLoadablePlugin(
+  pluginDir: string,
+  id: string,
+): Promise<void> {
   await mkdir(join(pluginDir, "commands"), { recursive: true });
   await writeFile(
     join(pluginDir, "manifest.json"),
@@ -140,7 +148,10 @@ describe("discoverRepoPlugins", () => {
     const root = await tmpRoot();
     const cwd = join(root, "session");
     await mkdir(cwd, { recursive: true });
-    await writeLoadablePlugin(join(root, "bin", "plugins", "from-bin"), "from-bin");
+    await writeLoadablePlugin(
+      join(root, "bin", "plugins", "from-bin"),
+      "from-bin",
+    );
     const mods = await discoverRepoPlugins(cwd, {
       moduleUrl: pathToFileURL(join(root, "src", "plugins", "loader.ts")).href,
       execPath: join(root, "bin", "corbits"),

@@ -57,7 +57,10 @@ export async function startCallbackServer(
   };
 
   const server: Server = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", `http://${publicHost}:${String(config.port)}`);
+    const url = new URL(
+      req.url ?? "/",
+      `http://${publicHost}:${String(config.port)}`,
+    );
     if (url.pathname !== config.path) {
       res.statusCode = 404;
       res.end("Not found");
@@ -74,7 +77,9 @@ export async function startCallbackServer(
       res.statusCode = 400;
       res.end("Authorization failed: state mismatch");
       finish({
-        error: new Error("Authorization state did not match; possible CSRF — login aborted."),
+        error: new Error(
+          "Authorization state did not match; possible CSRF — login aborted.",
+        ),
       });
       return;
     }
@@ -87,8 +92,10 @@ export async function startCallbackServer(
         : config.doneHtml,
     );
 
-    if (error !== null) finish({ error: new Error(`Authorization failed: ${error}`) });
-    else if (code === null) finish({ error: new Error("Authorization redirect carried no code.") });
+    if (error !== null)
+      finish({ error: new Error(`Authorization failed: ${error}`) });
+    else if (code === null)
+      finish({ error: new Error("Authorization redirect carried no code.") });
     else finish({ code });
   });
 
@@ -111,9 +118,13 @@ export async function startCallbackServer(
     waitForCode: (signal: AbortSignal) => {
       if (signal.aborted) finish({ error: new Error("aborted") });
       else
-        signal.addEventListener("abort", () => finish({ error: new Error("aborted") }), {
-          once: true,
-        });
+        signal.addEventListener(
+          "abort",
+          () => finish({ error: new Error("aborted") }),
+          {
+            once: true,
+          },
+        );
       return codePromise;
     },
     close: () => server.close(),

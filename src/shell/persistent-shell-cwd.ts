@@ -44,7 +44,10 @@ export function parsePwdProbeOutput(raw: string): PwdProbeParse {
   if (markerIndex < 0) {
     return { output: raw };
   }
-  const kept = [...lines.slice(0, markerIndex), ...lines.slice(markerIndex + 1)];
+  const kept = [
+    ...lines.slice(0, markerIndex),
+    ...lines.slice(markerIndex + 1),
+  ];
   while (kept.length > 0 && kept[kept.length - 1] === "") {
     kept.pop();
   }
@@ -58,7 +61,10 @@ export function missingShellCwdMessage(cwd: string): string {
 }
 
 /** True when `candidate` resolves to the session root or a subdirectory of it. */
-export function isShellCwdWithinSession(sessionRoot: string, candidate: string): boolean {
+export function isShellCwdWithinSession(
+  sessionRoot: string,
+  candidate: string,
+): boolean {
   const rel = relative(sessionRoot, candidate);
   return rel === "" || !rel.startsWith("..");
 }
@@ -87,7 +93,10 @@ export function resolvePerCallShellCwd(
   } catch {
     resolved = candidate;
   }
-  if (options.allowOutsideSession !== true && !isShellCwdWithinSession(root, resolved)) {
+  if (
+    options.allowOutsideSession !== true &&
+    !isShellCwdWithinSession(root, resolved)
+  ) {
     throw new Error(shellCwdEscapesSessionMessage(resolved));
   }
   return resolved;
@@ -100,7 +109,10 @@ export function assertShellCwdUsable(cwd: string): void {
       throw new Error(missingShellCwdMessage(cwd));
     }
   } catch (err) {
-    if (err instanceof Error && err.message.startsWith("Shell working directory")) {
+    if (
+      err instanceof Error &&
+      err.message.startsWith("Shell working directory")
+    ) {
       throw err;
     }
     throw new Error(missingShellCwdMessage(cwd));

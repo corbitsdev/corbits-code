@@ -72,7 +72,10 @@ import {
   recordKill,
   rotateYank,
 } from "../prompt-kill-ring.js";
-import { promptCaretAtFirstRow, promptCaretAtLastRow } from "../prompt-input.js";
+import {
+  promptCaretAtFirstRow,
+  promptCaretAtLastRow,
+} from "../prompt-input.js";
 import {
   sentHistoryOnEdit,
   stepSentHistoryDown,
@@ -117,7 +120,11 @@ function isPrintableInsertKey(key: KeyEvent): boolean {
  * pressing them again inserts them rather than closing the popup.
  */
 function toggledSurfaceFor(key: KeyEvent): PrimaryOverlayKind | null {
-  if ((key.meta || key.option) && !key.ctrl && (key.name === "c" || key.name === "C")) {
+  if (
+    (key.meta || key.option) &&
+    !key.ctrl &&
+    (key.name === "c" || key.name === "C")
+  ) {
     return "copy";
   }
   return null;
@@ -149,7 +156,11 @@ const ctrlCArmedAt = new WeakMap<AppShell, number>();
  * explicit second confirmation), no modal. Quitting routes through the
  * registered exit handler so host finalize still runs.
  */
-export function handleCtrlC(shell: AppShell, now = Date.now(), options?: FlashOptions): void {
+export function handleCtrlC(
+  shell: AppShell,
+  now = Date.now(),
+  options?: FlashOptions,
+): void {
   const armedAt = ctrlCArmedAt.get(shell);
   if (armedAt !== undefined && now - armedAt <= CTRL_C_EXIT_WINDOW_MS) {
     ctrlCArmedAt.delete(shell);
@@ -202,11 +213,13 @@ export function routePromptWheelToTranscript(
   prompt: BaseRenderable,
   transcript: ScrollBoxRenderable,
 ): void {
-  (prompt as unknown as { onMouseEvent: (event: MouseEvent) => void }).onMouseEvent = (
-    event: MouseEvent,
-  ) => {
+  (
+    prompt as unknown as { onMouseEvent: (event: MouseEvent) => void }
+  ).onMouseEvent = (event: MouseEvent) => {
     if (event.type !== "scroll") return;
-    (transcript as unknown as { onMouseEvent: (event: MouseEvent) => void }).onMouseEvent(event);
+    (
+      transcript as unknown as { onMouseEvent: (event: MouseEvent) => void }
+    ).onMouseEvent(event);
   };
 }
 
@@ -235,7 +248,10 @@ export function createShellKeyHandlers(
   let lastKeyAt = 0;
   let lastKeyWasPrintable = false;
   let suppressNextLinefeed = false;
-  const onPaste = (event: { bytes: Uint8Array; preventDefault: () => void }): void => {
+  const onPaste = (event: {
+    bytes: Uint8Array;
+    preventDefault: () => void;
+  }): void => {
     if (opts.isDisposed()) return;
     const bag = shellInternals(shell);
     if (bag?.inputSuspended === true) return;
@@ -422,7 +438,13 @@ export function createShellKeyHandlers(
       // newlines, one for the converted CR and one for the LF right behind it.
       const suppressLinefeed = suppressNextLinefeed;
       suppressNextLinefeed = false;
-      if (suppressLinefeed && keyName === "linefeed" && !key.ctrl && !key.meta && !key.option) {
+      if (
+        suppressLinefeed &&
+        keyName === "linefeed" &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.option
+      ) {
         key.preventDefault();
         return;
       }
@@ -443,8 +465,15 @@ export function createShellKeyHandlers(
       lastKeyAt = now;
       lastKeyWasPrintable = isPrintableInsertKey(key);
       const isBareReturn =
-        !key.ctrl && !key.meta && !key.option && (keyName === "return" || keyName === "kpenter");
-      if (isBareReturn && previousKeyWasPrintable && sincePreviousKey < PASTE_BURST_MS) {
+        !key.ctrl &&
+        !key.meta &&
+        !key.option &&
+        (keyName === "return" || keyName === "kpenter");
+      if (
+        isBareReturn &&
+        previousKeyWasPrintable &&
+        sincePreviousKey < PASTE_BURST_MS
+      ) {
         key.preventDefault();
         shell.prompt.insertText("\n");
         suppressNextLinefeed = true;
@@ -456,9 +485,14 @@ export function createShellKeyHandlers(
       key.ctrl &&
       !key.meta &&
       !key.option &&
-      (keyName === "k" || keyName === "u" || keyName === "w" || keyName === "y");
+      (keyName === "k" ||
+        keyName === "u" ||
+        keyName === "w" ||
+        keyName === "y");
     const isAltKillYank =
-      (key.meta || key.option) && !key.ctrl && (keyName === "d" || keyName === "y");
+      (key.meta || key.option) &&
+      !key.ctrl &&
+      (keyName === "d" || keyName === "y");
     if (!isCtrlKillYank && !isAltKillYank) {
       shell.promptKillRing = breakKillSequence(shell.promptKillRing);
     }
@@ -468,8 +502,16 @@ export function createShellKeyHandlers(
       const before = shell.prompt.value;
       const beforeCursor = shell.prompt.cursorOffset;
       shell.prompt.deleteToLineEnd();
-      const killed = killedTextForward(before, beforeCursor, shell.prompt.value);
-      shell.promptKillRing = recordKill(shell.promptKillRing, killed, "forward");
+      const killed = killedTextForward(
+        before,
+        beforeCursor,
+        shell.prompt.value,
+      );
+      shell.promptKillRing = recordKill(
+        shell.promptKillRing,
+        killed,
+        "forward",
+      );
       return;
     }
 
@@ -478,8 +520,16 @@ export function createShellKeyHandlers(
       const before = shell.prompt.value;
       const beforeCursor = shell.prompt.cursorOffset;
       shell.prompt.deleteToLineStart();
-      const killed = killedTextBackward(before, beforeCursor, shell.prompt.cursorOffset);
-      shell.promptKillRing = recordKill(shell.promptKillRing, killed, "backward");
+      const killed = killedTextBackward(
+        before,
+        beforeCursor,
+        shell.prompt.cursorOffset,
+      );
+      shell.promptKillRing = recordKill(
+        shell.promptKillRing,
+        killed,
+        "backward",
+      );
       return;
     }
 
@@ -488,8 +538,16 @@ export function createShellKeyHandlers(
       const before = shell.prompt.value;
       const beforeCursor = shell.prompt.cursorOffset;
       shell.prompt.deleteWordBackward();
-      const killed = killedTextBackward(before, beforeCursor, shell.prompt.cursorOffset);
-      shell.promptKillRing = recordKill(shell.promptKillRing, killed, "backward");
+      const killed = killedTextBackward(
+        before,
+        beforeCursor,
+        shell.prompt.cursorOffset,
+      );
+      shell.promptKillRing = recordKill(
+        shell.promptKillRing,
+        killed,
+        "backward",
+      );
       return;
     }
 
@@ -498,8 +556,16 @@ export function createShellKeyHandlers(
       const before = shell.prompt.value;
       const beforeCursor = shell.prompt.cursorOffset;
       shell.prompt.deleteWordForward();
-      const killed = killedTextForward(before, beforeCursor, shell.prompt.value);
-      shell.promptKillRing = recordKill(shell.promptKillRing, killed, "forward");
+      const killed = killedTextForward(
+        before,
+        beforeCursor,
+        shell.prompt.value,
+      );
+      shell.promptKillRing = recordKill(
+        shell.promptKillRing,
+        killed,
+        "forward",
+      );
       return;
     }
 
@@ -530,7 +596,12 @@ export function createShellKeyHandlers(
     // turns CMD+V into bracketed paste, which OpenTUI delivers as its own
     // `paste` event and the InputRenderable inserts as text. Binding Ctrl+V
     // here therefore cannot swallow an ordinary text paste.
-    if (key.ctrl && !key.meta && !key.option && (keyName === "p" || keyName === "v")) {
+    if (
+      key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      (keyName === "p" || keyName === "v")
+    ) {
       key.preventDefault();
       void attachClipboardImage(shell);
       return;
@@ -589,7 +660,11 @@ export function createShellKeyHandlers(
             ? stepSentHistoryUp(shell.sentHistory, shell.prompt.value)
             : null
           : promptCaretAtLastRow(shell.prompt)
-            ? stepSentHistoryDown(shell.sentHistory, shell.prompt.value, shell.prompt.value.length)
+            ? stepSentHistoryDown(
+                shell.sentHistory,
+                shell.prompt.value,
+                shell.prompt.value.length,
+              )
             : null;
       if (stepped !== null) {
         key.preventDefault();
@@ -613,7 +688,13 @@ export function createShellKeyHandlers(
       return;
     }
 
-    if (key.name === "tab" && !key.ctrl && !key.meta && !key.option && !key.shift) {
+    if (
+      key.name === "tab" &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      !key.shift
+    ) {
       key.preventDefault();
       toggleShellFocus(shell);
       return;
@@ -628,21 +709,33 @@ export function createShellKeyHandlers(
       }
     }
 
-    if ((key.meta || key.option) && (key.name === "c" || key.name === "C") && !key.ctrl) {
+    if (
+      (key.meta || key.option) &&
+      (key.name === "c" || key.name === "C") &&
+      !key.ctrl
+    ) {
       // Alt+C: keyboard copy path (no mouse drag-select).
       key.preventDefault();
       enterCopyMode(shell);
       return;
     }
 
-    if ((key.meta || key.option) && (key.name === "m" || key.name === "M") && !key.ctrl) {
+    if (
+      (key.meta || key.option) &&
+      (key.name === "m" || key.name === "M") &&
+      !key.ctrl
+    ) {
       // Alt+M: release mouse reporting so the terminal can drag-select.
       key.preventDefault();
       toggleMouseCapture(shell);
       return;
     }
 
-    if ((key.meta || key.option) && (key.name === "t" || key.name === "T") && !key.ctrl) {
+    if (
+      (key.meta || key.option) &&
+      (key.name === "t" || key.name === "T") &&
+      !key.ctrl
+    ) {
       // Alt+T: the task panel's only entry point now that the palette is gone.
       // Losing the palette must not lose the toggle with it.
       key.preventDefault();
@@ -650,7 +743,11 @@ export function createShellKeyHandlers(
       return;
     }
 
-    if ((key.meta || key.option) && (key.name === "o" || key.name === "O") && !key.ctrl) {
+    if (
+      (key.meta || key.option) &&
+      (key.name === "o" || key.name === "O") &&
+      !key.ctrl
+    ) {
       // Alt+O: observe a live subagent, same rationale as Alt+T — this was
       // the palette's "observe" action and needs a real chord now the
       // palette is gone, not a silently orphaned feature.
@@ -674,7 +771,11 @@ export function createShellKeyHandlers(
       return;
     }
 
-    if ((key.name === "return" || key.name === "enter") && (key.meta || key.option) && !key.ctrl) {
+    if (
+      (key.name === "return" || key.name === "enter") &&
+      (key.meta || key.option) &&
+      !key.ctrl
+    ) {
       // Alt+Enter: follow-up — enqueue kind "queue"; deliver only when the
       // run goes idle. Does not interrupt or reinject. Idle / empty: no-op
       // (nothing to wait for). Soft steer is plain Enter below; reinject is

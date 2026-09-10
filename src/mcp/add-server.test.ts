@@ -33,30 +33,47 @@ async function tempHome(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+  );
 });
 
 describe("persistGlobalHTTPMCPServer", () => {
   test("adds an HTTP server without losing unrelated settings", async () => {
     const path = await settingsPath();
-    await Bun.write(path, JSON.stringify({ providers: {}, showPromptCost: true }));
+    await Bun.write(
+      path,
+      JSON.stringify({ providers: {}, showPromptCost: true }),
+    );
     const writer = createGlobalSettingsWriter(path);
 
     expect(
-      await persistGlobalHTTPMCPServer(writer, "linear", "https://mcp.linear.app/mcp"),
+      await persistGlobalHTTPMCPServer(
+        writer,
+        "linear",
+        "https://mcp.linear.app/mcp",
+      ),
     ).toEqual({
       ok: true,
-      server: { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+      server: {
+        name: "linear",
+        type: "http",
+        url: "https://mcp.linear.app/mcp",
+      },
       settings: {
         providers: {},
         showPromptCost: true,
-        mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+        mcpServers: [
+          { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+        ],
       },
     });
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
       providers: {},
       showPromptCost: true,
-      mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+      mcpServers: [
+        { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+      ],
     });
   });
 
@@ -69,26 +86,48 @@ describe("persistGlobalHTTPMCPServer", () => {
     await Bun.write(path, original);
     const writer = createGlobalSettingsWriter(path);
 
-    expect(await persistGlobalHTTPMCPServer(writer, "", "https://example.test/mcp")).toEqual({
+    expect(
+      await persistGlobalHTTPMCPServer(writer, "", "https://example.test/mcp"),
+    ).toEqual({
       ok: false,
       reason: "invalid-name",
     });
-    expect(await persistGlobalHTTPMCPServer(writer, "other", "ftp://example.test/mcp")).toEqual({
+    expect(
+      await persistGlobalHTTPMCPServer(
+        writer,
+        "other",
+        "ftp://example.test/mcp",
+      ),
+    ).toEqual({
       ok: false,
       reason: "invalid-url",
     });
-    expect(await persistGlobalHTTPMCPServer(writer, "other", "relative/path")).toEqual({
+    expect(
+      await persistGlobalHTTPMCPServer(writer, "other", "relative/path"),
+    ).toEqual({
       ok: false,
       reason: "invalid-url",
     });
-    expect(await persistGlobalHTTPMCPServer(writer, "other", "https://.")).toEqual({
+    expect(
+      await persistGlobalHTTPMCPServer(writer, "other", "https://."),
+    ).toEqual({
       ok: false,
       reason: "invalid-url",
     });
-    expect(await persistGlobalHTTPMCPServer(writer, "other", "https://user:pass@host/mcp")).toEqual(
-      { ok: false, reason: "invalid-url" },
-    );
-    expect(await persistGlobalHTTPMCPServer(writer, "linear", "https://new.test/mcp")).toEqual({
+    expect(
+      await persistGlobalHTTPMCPServer(
+        writer,
+        "other",
+        "https://user:pass@host/mcp",
+      ),
+    ).toEqual({ ok: false, reason: "invalid-url" });
+    expect(
+      await persistGlobalHTTPMCPServer(
+        writer,
+        "linear",
+        "https://new.test/mcp",
+      ),
+    ).toEqual({
       ok: false,
       reason: "duplicate",
     });
@@ -101,7 +140,9 @@ describe("persistGlobalHTTPMCPServer", () => {
     await writeFile(path, original);
     const spoofingName = "linear__list_projects";
 
-    expect(isReadOnlyMcpTool(mcpToolName(spoofingName, "delete_issue"))).toBe(true);
+    expect(isReadOnlyMcpTool(mcpToolName(spoofingName, "delete_issue"))).toBe(
+      true,
+    );
     expect(
       await persistGlobalHTTPMCPServer(
         createGlobalSettingsWriter(path),
@@ -119,7 +160,12 @@ describe("persistGlobalHTTPMCPServer", () => {
     const writer = createGlobalSettingsWriter(path);
 
     expect(
-      await persistGlobalHTTPMCPServer(writer, "linear", "https://mcp.linear.app/mcp", "local"),
+      await persistGlobalHTTPMCPServer(
+        writer,
+        "linear",
+        "https://mcp.linear.app/mcp",
+        "local",
+      ),
     ).toEqual({ ok: false, reason: "local-shadow" });
     expect(await readFile(path, "utf8")).toBe(original);
   });
@@ -140,10 +186,18 @@ describe("persistGlobalHTTPMCPServer", () => {
     const writer = createGlobalSettingsWriter(path);
 
     expect(
-      await persistGlobalHTTPMCPServer(writer, "linear", "https://CUSTOM.example:443/mcp"),
+      await persistGlobalHTTPMCPServer(
+        writer,
+        "linear",
+        "https://CUSTOM.example:443/mcp",
+      ),
     ).toMatchObject({
       ok: true,
-      server: { name: "linear", type: "http", url: "https://custom.example/mcp" },
+      server: {
+        name: "linear",
+        type: "http",
+        url: "https://custom.example/mcp",
+      },
     });
     expect(JSON.parse(await readFile(path, "utf8")).mcpServers).toEqual([
       { name: "linear", type: "http", url: "https://custom.example/mcp" },
@@ -152,7 +206,10 @@ describe("persistGlobalHTTPMCPServer", () => {
 
   test("serializes a delayed MCP add with hook and plugin mutation", async () => {
     const path = await settingsPath();
-    await writeFile(path, JSON.stringify({ providers: {}, showPromptCost: true }));
+    await writeFile(
+      path,
+      JSON.stringify({ providers: {}, showPromptCost: true }),
+    );
     let releaseFirstLoad: (() => void) | undefined;
     let firstLoadStarted: (() => void) | undefined;
     const firstLoad = new Promise<void>((resolve) => {
@@ -173,7 +230,11 @@ describe("persistGlobalHTTPMCPServer", () => {
       },
     });
 
-    const add = persistGlobalHTTPMCPServer(writer, "linear", "https://mcp.linear.app/mcp");
+    const add = persistGlobalHTTPMCPServer(
+      writer,
+      "linear",
+      "https://mcp.linear.app/mcp",
+    );
     await firstLoad;
     const admin = writer.mutate((base) => ({
       ...base,
@@ -187,7 +248,9 @@ describe("persistGlobalHTTPMCPServer", () => {
       showPromptCost: true,
       hooks: { audit: { enabled: false } },
       plugins: { linear: { enabled: true } },
-      mcpServers: [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+      mcpServers: [
+        { name: "linear", type: "http", url: "https://mcp.linear.app/mcp" },
+      ],
     });
   });
 
@@ -213,27 +276,40 @@ const linearHTTP = {
   url: "https://mcp.linear.app/mcp",
 };
 
-const linearAuth = { serverName: "linear", serverURL: "https://mcp.linear.app/mcp" };
+const linearAuth = {
+  serverName: "linear",
+  serverURL: "https://mcp.linear.app/mcp",
+};
 
 describe("setMCPServerEntryEnabled", () => {
   test("disables a transport row and omits enabled when re-enabled", () => {
     expect(setMCPServerEntryEnabled([linearHTTP], "linear", false)).toEqual([
       { ...linearHTTP, enabled: false },
     ]);
-    expect(setMCPServerEntryEnabled([{ ...linearHTTP, enabled: false }], "linear", true)).toEqual([
-      linearHTTP,
-    ]);
+    expect(
+      setMCPServerEntryEnabled(
+        [{ ...linearHTTP, enabled: false }],
+        "linear",
+        true,
+      ),
+    ).toEqual([linearHTTP]);
   });
 
   test("upserts an Exa preset when the list is empty or already a preset", () => {
-    expect(setMCPServerEntryEnabled([], "exa", false)).toEqual([{ name: "exa", enabled: false }]);
-    expect(setMCPServerEntryEnabled([{ name: "exa", enabled: false }], "exa", true)).toEqual([
-      { name: "exa", enabled: true },
+    expect(setMCPServerEntryEnabled([], "exa", false)).toEqual([
+      { name: "exa", enabled: false },
     ]);
+    expect(
+      setMCPServerEntryEnabled([{ name: "exa", enabled: false }], "exa", true),
+    ).toEqual([{ name: "exa", enabled: true }]);
   });
 
   test("treats a custom transport named exa as a transport row", () => {
-    const custom = { name: "exa", type: "http" as const, url: "https://custom.exa.test/mcp" };
+    const custom = {
+      name: "exa",
+      type: "http" as const,
+      url: "https://custom.exa.test/mcp",
+    };
     expect(setMCPServerEntryEnabled([custom], "exa", false)).toEqual([
       { ...custom, enabled: false },
     ]);
@@ -246,11 +322,18 @@ describe("setMCPServerEntryEnabled", () => {
 
 describe("removeMCPServerEntry", () => {
   test("drops a transport row and refuses an Exa preset", () => {
-    expect(removeMCPServerEntry([linearHTTP, { name: "exa", enabled: true }], "linear")).toEqual({
+    expect(
+      removeMCPServerEntry(
+        [linearHTTP, { name: "exa", enabled: true }],
+        "linear",
+      ),
+    ).toEqual({
       entries: [{ name: "exa", enabled: true }],
       removed: linearHTTP,
     });
-    expect(removeMCPServerEntry([{ name: "exa", enabled: false }], "exa")).toBeNull();
+    expect(
+      removeMCPServerEntry([{ name: "exa", enabled: false }], "exa"),
+    ).toBeNull();
     expect(removeMCPServerEntry([linearHTTP], "missing")).toBeNull();
   });
 });
@@ -261,12 +344,18 @@ describe("persistMCPServerEnabled", () => {
     const home = await tempHome();
     await writeFile(
       path,
-      JSON.stringify({ providers: {}, showPromptCost: true, mcpServers: [linearHTTP] }),
+      JSON.stringify({
+        providers: {},
+        showPromptCost: true,
+        mcpServers: [linearHTTP],
+      }),
     );
     await saveAuthState(linearAuth, { codeVerifier: "keep-me" }, home);
     const writer = createGlobalSettingsWriter(path);
 
-    expect(await persistMCPServerEnabled(writer, "linear", false)).toMatchObject({
+    expect(
+      await persistMCPServerEnabled(writer, "linear", false),
+    ).toMatchObject({
       ok: true,
       omitted: false,
       entries: [{ ...linearHTTP, enabled: false }],
@@ -276,12 +365,16 @@ describe("persistMCPServerEnabled", () => {
       showPromptCost: true,
       mcpServers: [{ ...linearHTTP, enabled: false }],
     });
-    expect((await loadAuthState(linearAuth, home)).codeVerifier).toBe("keep-me");
+    expect((await loadAuthState(linearAuth, home)).codeVerifier).toBe(
+      "keep-me",
+    );
 
-    expect(await persistMCPServerEnabled(writer, "linear", true)).toMatchObject({
-      ok: true,
-      entries: [linearHTTP],
-    });
+    expect(await persistMCPServerEnabled(writer, "linear", true)).toMatchObject(
+      {
+        ok: true,
+        entries: [linearHTTP],
+      },
+    );
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
       providers: {},
       showPromptCost: true,
@@ -298,7 +391,10 @@ describe("persistMCPServerEnabled", () => {
       ok: true,
       entries: [{ name: "exa", enabled: false }],
       omitted: false,
-      settings: { providers: {}, mcpServers: [{ name: "exa", enabled: false }] },
+      settings: {
+        providers: {},
+        mcpServers: [{ name: "exa", enabled: false }],
+      },
     });
     expect(JSON.parse(await readFile(path, "utf8")).mcpServers).toEqual([
       { name: "exa", enabled: false },
@@ -315,8 +411,15 @@ describe("persistMCPServerEnabled", () => {
 
   test("does not convert a custom transport named exa into a preset", async () => {
     const path = await settingsPath();
-    const custom = { name: "exa", type: "http" as const, url: "https://custom.exa.test/mcp" };
-    await writeFile(path, JSON.stringify({ providers: {}, mcpServers: [custom] }));
+    const custom = {
+      name: "exa",
+      type: "http" as const,
+      url: "https://custom.exa.test/mcp",
+    };
+    await writeFile(
+      path,
+      JSON.stringify({ providers: {}, mcpServers: [custom] }),
+    );
     const writer = createGlobalSettingsWriter(path);
 
     expect(await persistMCPServerEnabled(writer, "exa", false)).toMatchObject({
@@ -338,7 +441,10 @@ describe("persistMCPServerRemoved", () => {
       JSON.stringify({
         providers: {},
         showPromptCost: true,
-        mcpServers: [linearHTTP, { name: "other", type: "http", url: "https://other.test/mcp" }],
+        mcpServers: [
+          linearHTTP,
+          { name: "other", type: "http", url: "https://other.test/mcp" },
+        ],
       }),
     );
     await saveAuthState(linearAuth, { codeVerifier: "linear-secret" }, home);
@@ -354,7 +460,9 @@ describe("persistMCPServerRemoved", () => {
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
       providers: {},
       showPromptCost: true,
-      mcpServers: [{ name: "other", type: "http", url: "https://other.test/mcp" }],
+      mcpServers: [
+        { name: "other", type: "http", url: "https://other.test/mcp" },
+      ],
     });
     expect(await loadAuthState(linearAuth, home)).toEqual({});
   });
@@ -362,15 +470,20 @@ describe("persistMCPServerRemoved", () => {
   test("treats a missing auth file as success", async () => {
     const path = await settingsPath();
     const home = await tempHome();
-    await writeFile(path, JSON.stringify({ providers: {}, mcpServers: [linearHTTP] }));
+    await writeFile(
+      path,
+      JSON.stringify({ providers: {}, mcpServers: [linearHTTP] }),
+    );
     const writer = createGlobalSettingsWriter(path);
 
-    expect(await persistMCPServerRemoved(writer, "linear", home)).toMatchObject({
-      ok: true,
-      omitted: true,
-      removed: linearHTTP,
-      entries: [],
-    });
+    expect(await persistMCPServerRemoved(writer, "linear", home)).toMatchObject(
+      {
+        ok: true,
+        omitted: true,
+        removed: linearHTTP,
+        entries: [],
+      },
+    );
   });
 
   test("omits the mcpServers key after removing the last server", async () => {
@@ -378,13 +491,20 @@ describe("persistMCPServerRemoved", () => {
     const home = await tempHome();
     await writeFile(
       path,
-      JSON.stringify({ providers: {}, showPromptCost: true, mcpServers: [linearHTTP] }),
+      JSON.stringify({
+        providers: {},
+        showPromptCost: true,
+        mcpServers: [linearHTTP],
+      }),
     );
     const writer = createGlobalSettingsWriter(path);
 
     const result = await persistMCPServerRemoved(writer, "linear", home);
     expect(result).toMatchObject({ ok: true, omitted: true, entries: [] });
-    const saved = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    const saved = JSON.parse(await readFile(path, "utf8")) as Record<
+      string,
+      unknown
+    >;
     expect(saved).toEqual({ providers: {}, showPromptCost: true });
     expect("mcpServers" in saved).toBe(false);
     expect(await readFile(path, "utf8")).not.toContain("mcpServers");
@@ -409,9 +529,16 @@ describe("persistMCPServerRemoved", () => {
   test("allows removing a custom transport named exa and deletes that url's auth", async () => {
     const path = await settingsPath();
     const home = await tempHome();
-    const custom = { name: "exa", type: "http" as const, url: "https://custom.exa.test/mcp" };
+    const custom = {
+      name: "exa",
+      type: "http" as const,
+      url: "https://custom.exa.test/mcp",
+    };
     const identity = { serverName: "exa", serverURL: custom.url };
-    await writeFile(path, JSON.stringify({ providers: {}, mcpServers: [custom] }));
+    await writeFile(
+      path,
+      JSON.stringify({ providers: {}, mcpServers: [custom] }),
+    );
     await saveAuthState(identity, { codeVerifier: "custom-exa" }, home);
     const writer = createGlobalSettingsWriter(path);
 
@@ -420,22 +547,34 @@ describe("persistMCPServerRemoved", () => {
       omitted: true,
       removed: custom,
     });
-    expect("mcpServers" in JSON.parse(await readFile(path, "utf8"))).toBe(false);
+    expect("mcpServers" in JSON.parse(await readFile(path, "utf8"))).toBe(
+      false,
+    );
     expect(await loadAuthState(identity, home)).toEqual({});
   });
 
   test("auth-delete failure after a successful write still returns ok", async () => {
     const path = await settingsPath();
     const home = await tempHome();
-    await writeFile(path, JSON.stringify({ providers: {}, mcpServers: [linearHTTP] }));
+    await writeFile(
+      path,
+      JSON.stringify({ providers: {}, mcpServers: [linearHTTP] }),
+    );
     await saveAuthState(linearAuth, { codeVerifier: "linear-secret" }, home);
     const authDir = mcpAuthDir(home);
     await chmod(authDir, 0o000);
     const writer = createGlobalSettingsWriter(path);
     try {
       const result = await persistMCPServerRemoved(writer, "linear", home);
-      expect(result).toMatchObject({ ok: true, omitted: true, removed: linearHTTP, entries: [] });
-      expect("mcpServers" in JSON.parse(await readFile(path, "utf8"))).toBe(false);
+      expect(result).toMatchObject({
+        ok: true,
+        omitted: true,
+        removed: linearHTTP,
+        entries: [],
+      });
+      expect("mcpServers" in JSON.parse(await readFile(path, "utf8"))).toBe(
+        false,
+      );
     } finally {
       await chmod(authDir, 0o700);
     }
@@ -449,19 +588,28 @@ describe("local MCP persist", () => {
     const home = await tempHome();
     const globalOriginal = {
       providers: {},
-      mcpServers: [{ name: "global-linear", type: "http", url: "https://global.test/mcp" }],
+      mcpServers: [
+        { name: "global-linear", type: "http", url: "https://global.test/mcp" },
+      ],
     };
     await writeFile(globalPath, JSON.stringify(globalOriginal));
-    await writeFile(localPath, JSON.stringify({ provider: "a", mcpServers: [linearHTTP] }));
+    await writeFile(
+      localPath,
+      JSON.stringify({ provider: "a", mcpServers: [linearHTTP] }),
+    );
     await saveAuthState(linearAuth, { codeVerifier: "local-linear" }, home);
     const writer = createLocalSettingsWriter(localPath);
 
-    expect(await persistLocalMCPServerEnabled(writer, "linear", false)).toMatchObject({
+    expect(
+      await persistLocalMCPServerEnabled(writer, "linear", false),
+    ).toMatchObject({
       ok: true,
       entries: [{ ...linearHTTP, enabled: false }],
       local: { provider: "a", mcpServers: [{ ...linearHTTP, enabled: false }] },
     });
-    expect(JSON.parse(await readFile(globalPath, "utf8"))).toEqual(globalOriginal);
+    expect(JSON.parse(await readFile(globalPath, "utf8"))).toEqual(
+      globalOriginal,
+    );
     expect(JSON.parse(await readFile(localPath, "utf8"))).toEqual({
       provider: "a",
       mcpServers: [{ ...linearHTTP, enabled: false }],
@@ -474,8 +622,13 @@ describe("local MCP persist", () => {
       entries: [],
       removed: { ...linearHTTP, enabled: false },
     });
-    expect(JSON.parse(await readFile(globalPath, "utf8"))).toEqual(globalOriginal);
-    const localSaved = JSON.parse(await readFile(localPath, "utf8")) as Record<string, unknown>;
+    expect(JSON.parse(await readFile(globalPath, "utf8"))).toEqual(
+      globalOriginal,
+    );
+    const localSaved = JSON.parse(await readFile(localPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
     expect(localSaved).toEqual({ provider: "a" });
     expect("mcpServers" in localSaved).toBe(false);
     expect(await loadAuthState(linearAuth, home)).toEqual({});
@@ -484,15 +637,25 @@ describe("local MCP persist", () => {
   test("auth-delete failure after a successful write still returns ok", async () => {
     const path = await settingsPath();
     const home = await tempHome();
-    await writeFile(path, JSON.stringify({ provider: "a", mcpServers: [linearHTTP] }));
+    await writeFile(
+      path,
+      JSON.stringify({ provider: "a", mcpServers: [linearHTTP] }),
+    );
     await saveAuthState(linearAuth, { codeVerifier: "local-linear" }, home);
     const authDir = mcpAuthDir(home);
     await chmod(authDir, 0o000);
     const writer = createLocalSettingsWriter(path);
     try {
       const result = await persistLocalMCPServerRemoved(writer, "linear", home);
-      expect(result).toMatchObject({ ok: true, omitted: true, removed: linearHTTP, entries: [] });
-      expect("mcpServers" in JSON.parse(await readFile(path, "utf8"))).toBe(false);
+      expect(result).toMatchObject({
+        ok: true,
+        omitted: true,
+        removed: linearHTTP,
+        entries: [],
+      });
+      expect("mcpServers" in JSON.parse(await readFile(path, "utf8"))).toBe(
+        false,
+      );
     } finally {
       await chmod(authDir, 0o700);
     }

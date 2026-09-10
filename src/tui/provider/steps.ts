@@ -9,20 +9,41 @@ import type { ProviderChoice } from "./types.js";
 export type ProviderField = "name" | "baseURL" | "apiKey" | "model";
 
 /** One screen of the flow. `provider` and `model` can be pick-lists. */
-export type SetupStep = "provider" | "name" | "baseURL" | "apiKey" | "model" | "login";
+export type SetupStep =
+  | "provider"
+  | "name"
+  | "baseURL"
+  | "apiKey"
+  | "model"
+  | "login";
 
 /** Known-provider path: pick, name the instance, paste key, pick model. */
-export const PRESET_STEPS: readonly SetupStep[] = ["provider", "name", "apiKey", "model"];
+export const PRESET_STEPS: readonly SetupStep[] = [
+  "provider",
+  "name",
+  "apiKey",
+  "model",
+];
 
 /** Ollama is keyless and keeps its editable root URL visible before discovery. */
-export const OLLAMA_STEPS: readonly SetupStep[] = ["provider", "name", "baseURL", "model"];
+export const OLLAMA_STEPS: readonly SetupStep[] = [
+  "provider",
+  "name",
+  "baseURL",
+  "model",
+];
 
 /**
  * Subscription path: pick, name the account (a suggested slug is prefilled;
  * reusing an existing name asks for confirmation before re-authorizing it),
  * sign in through the browser, pick a model.
  */
-export const OAUTH_STEPS: readonly SetupStep[] = ["provider", "name", "login", "model"];
+export const OAUTH_STEPS: readonly SetupStep[] = [
+  "provider",
+  "name",
+  "login",
+  "model",
+];
 
 /** Unknown endpoint: the full manual form, still preceded by the pick-list. */
 export const CUSTOM_STEPS: readonly SetupStep[] = [
@@ -45,7 +66,8 @@ export const STEP_LABELS: Record<SetupStep, string> = {
 export const STEP_PROMPTS: Record<SetupStep, string> = {
   provider: "pick the provider you have a key or subscription for",
   name: "name this provider — you will see it in /model",
-  baseURL: "paste the provider url — Ollama uses the server root; others may include /v1",
+  baseURL:
+    "paste the provider url — Ollama uses the server root; others may include /v1",
   apiKey: "paste the api key — leave blank for a keyless local endpoint",
   model: "pick the model to start with",
   login: "authorize in the browser — this window waits for you",
@@ -61,8 +83,12 @@ export function accountNamePrompt(choice: ProviderChoice): string {
 
 // The "name" step names a whole provider on the custom path but a single
 // account/instance on multi-instance first-class kinds (OAuth and API-key).
-export function stepLabel(step: SetupStep, choice: ProviderChoice | null): string {
-  if (step === "name" && choice !== null && !choice.custom) return "account name";
+export function stepLabel(
+  step: SetupStep,
+  choice: ProviderChoice | null,
+): string {
+  if (step === "name" && choice !== null && !choice.custom)
+    return "account name";
   return STEP_LABELS[step];
 }
 

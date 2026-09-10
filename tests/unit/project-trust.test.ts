@@ -18,13 +18,21 @@ import type { MCPServerConfig } from "../../src/config/settings.js";
 
 // Every test injects a temp `home` so the trust store never touches the real
 // ~/.corbits and the tests stay hermetic.
-async function scratch(): Promise<{ cwd: string; home: string; cleanup: () => Promise<void> }> {
+async function scratch(): Promise<{
+  cwd: string;
+  home: string;
+  cleanup: () => Promise<void>;
+}> {
   const base = await mkdtemp(join(tmpdir(), "corbits-trust-"));
   const cwd = join(base, "repo");
   const home = join(base, "home");
   await mkdir(cwd, { recursive: true });
   await mkdir(home, { recursive: true });
-  return { cwd, home, cleanup: () => rm(base, { recursive: true, force: true }) };
+  return {
+    cwd,
+    home,
+    cleanup: () => rm(base, { recursive: true, force: true }),
+  };
 }
 
 describe("project-trust", () => {
@@ -64,7 +72,11 @@ describe("project-trust", () => {
   test("SECURITY: a trust.json shipped inside the repo grants nothing", async () => {
     const { cwd, home, cleanup } = await scratch();
     try {
-      const server: MCPServerConfig = { name: "evil", command: "node", args: ["-e", "1"] };
+      const server: MCPServerConfig = {
+        name: "evil",
+        command: "node",
+        args: ["-e", "1"],
+      };
       // Attacker ships a pre-forged consent file at the OLD in-repo location
       // with the correct fingerprint precomputed.
       const repoTrust = join(cwd, ".corbits", "trust.json");
@@ -122,7 +134,10 @@ describe("project-trust", () => {
     try {
       const result = await readProjectTrustStore(cwd, home);
       expect(result.state).toBe("missing");
-      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+      expect(result.store).toEqual({
+        trustedPluginPaths: [],
+        trustedMcpFingerprints: [],
+      });
     } finally {
       await cleanup();
     }
@@ -136,7 +151,10 @@ describe("project-trust", () => {
       await writeFile(path, "{ not json", "utf8");
       const result = await readProjectTrustStore(cwd, home);
       expect(result.state).toBe("invalid");
-      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+      expect(result.store).toEqual({
+        trustedPluginPaths: [],
+        trustedMcpFingerprints: [],
+      });
     } finally {
       await cleanup();
     }
@@ -158,7 +176,10 @@ describe("project-trust", () => {
       );
       const result = await readProjectTrustStore(cwd, home);
       expect(result.state).toBe("invalid");
-      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+      expect(result.store).toEqual({
+        trustedPluginPaths: [],
+        trustedMcpFingerprints: [],
+      });
     } finally {
       await cleanup();
     }
@@ -172,7 +193,10 @@ describe("project-trust", () => {
       await writeFile(path, JSON.stringify([1, 2, 3]), "utf8");
       const result = await readProjectTrustStore(cwd, home);
       expect(result.state).toBe("invalid");
-      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+      expect(result.store).toEqual({
+        trustedPluginPaths: [],
+        trustedMcpFingerprints: [],
+      });
     } finally {
       await cleanup();
     }
@@ -194,7 +218,10 @@ describe("project-trust", () => {
       );
       const result = await readProjectTrustStore(cwd, home);
       expect(result.state).toBe("invalid");
-      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+      expect(result.store).toEqual({
+        trustedPluginPaths: [],
+        trustedMcpFingerprints: [],
+      });
     } finally {
       await cleanup();
     }
@@ -264,7 +291,9 @@ describe("project-trust", () => {
       );
       const result = await readProjectTrustStore(cwd, home);
       expect(result.state).toBe("valid");
-      expect(result.store.trustedPluginPaths).toEqual([join(cwd, "plugins", "good")]);
+      expect(result.store.trustedPluginPaths).toEqual([
+        join(cwd, "plugins", "good"),
+      ]);
       expect(result.store.trustedMcpFingerprints).toEqual(["abc123"]);
       // loadProjectTrust remains store-only for callers.
       const storeOnly = await loadProjectTrust(cwd, home);
@@ -285,7 +314,9 @@ describe("project-trust", () => {
       const fp = mcpServerFingerprint(server);
       expect(mcpServerFingerprint({ ...server })).toBe(fp);
       // Adding an injected env var invalidates a prior grant.
-      expect(mcpServerFingerprint({ ...server, env: { SECRET: "x" } })).not.toBe(fp);
+      expect(
+        mcpServerFingerprint({ ...server, env: { SECRET: "x" } }),
+      ).not.toBe(fp);
 
       const empty = await loadProjectTrust(cwd, home);
       expect(isMcpServerTrusted(empty, server)).toBe(false);
@@ -348,7 +379,11 @@ describe("project-trust", () => {
   test("interactive requestTrust can grant and persist", async () => {
     const { cwd, home, cleanup } = await scratch();
     try {
-      const server: MCPServerConfig = { name: "files", command: "npx", args: ["-y", "x"] };
+      const server: MCPServerConfig = {
+        name: "files",
+        command: "npx",
+        args: ["-y", "x"],
+      };
       const allowed = await filterMcpServersForConnect([server], {
         source: "local",
         store: await loadProjectTrust(cwd, home),
@@ -357,7 +392,9 @@ describe("project-trust", () => {
         requestTrust: async () => true,
       });
       expect(allowed).toEqual([server]);
-      expect(isMcpServerTrusted(await loadProjectTrust(cwd, home), server)).toBe(true);
+      expect(
+        isMcpServerTrusted(await loadProjectTrust(cwd, home), server),
+      ).toBe(true);
     } finally {
       await cleanup();
     }

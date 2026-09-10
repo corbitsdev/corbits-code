@@ -98,7 +98,9 @@ describe("rowFromHistoryBlock", () => {
       text: MISSING_ERROR_DETAIL,
       meta: "error",
     });
-    expect(MISSING_ERROR_DETAIL).toBe("this step failed and the details were not saved");
+    expect(MISSING_ERROR_DETAIL).toBe(
+      "this step failed and the details were not saved",
+    );
     expect(rowFromHistoryBlock({ type: "who-knows" })).toBeNull();
   });
 
@@ -125,7 +127,9 @@ describe("rowFromHistoryBlock", () => {
       text: EMPTY_VIEW_DETAIL,
       markdown: false,
     });
-    expect(rowFromHistoryBlock({ type: "view", node: { type: "bogus" } })).toEqual({
+    expect(
+      rowFromHistoryBlock({ type: "view", node: { type: "bogus" } }),
+    ).toEqual({
       role: "assistant",
       text: EMPTY_VIEW_DETAIL,
       markdown: false,
@@ -192,7 +196,13 @@ describe("hydrateHistoryRows", () => {
     expect(rows).toMatchObject([
       { role: "user", text: "parent user" },
       { role: "assistant", text: "assistant line" },
-      { role: "tool", text: "body", meta: "read_file", summary: "x", verb: "Read" },
+      {
+        role: "tool",
+        text: "body",
+        meta: "read_file",
+        summary: "x",
+        verb: "Read",
+      },
       { role: "system", text: "fail", meta: "error" },
     ]);
   });
@@ -220,9 +230,24 @@ describe("hydrateHistoryRows", () => {
         arguments: '{"description":"Fix CL-5561"}',
         callId: "c3",
       },
-      { type: "tool_result", name: "spawn_agent", content: "done c2", callId: "c2" },
-      { type: "tool_result", name: "spawn_agent", content: "done c1", callId: "c1" },
-      { type: "tool_result", name: "spawn_agent", content: "done c3", callId: "c3" },
+      {
+        type: "tool_result",
+        name: "spawn_agent",
+        content: "done c2",
+        callId: "c2",
+      },
+      {
+        type: "tool_result",
+        name: "spawn_agent",
+        content: "done c1",
+        callId: "c1",
+      },
+      {
+        type: "tool_result",
+        name: "spawn_agent",
+        content: "done c3",
+        callId: "c3",
+      },
     ]);
     expect(rows.length).toBe(3);
     expect(rows.every((r) => r.pending !== true)).toBe(true);

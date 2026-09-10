@@ -50,7 +50,9 @@ describe("sent-message-history", () => {
   });
 
   test("editing exits browse mode", () => {
-    const browse = defined(stepSentHistoryUp(createSentHistoryBrowse(sent), "x")).browse;
+    const browse = defined(
+      stepSentHistoryUp(createSentHistoryBrowse(sent), "x"),
+    ).browse;
     expect(sentHistoryOnEdit(browse).browseIndex).toBeNull();
   });
 

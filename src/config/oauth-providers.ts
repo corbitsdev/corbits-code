@@ -17,7 +17,9 @@ export interface OAuthProviderProjection<P extends OAuthProfileLike> {
   providerName: (profile: string) => string;
   isProviderName: (name: string) => boolean;
   profileFromProviderName: (name: string) => string | undefined;
-  providersAsSettings: (profiles: readonly P[]) => Record<string, ProviderSettings>;
+  providersAsSettings: (
+    profiles: readonly P[],
+  ) => Record<string, ProviderSettings>;
   profilesToCatalogEntries: (profiles: readonly P[]) => ProviderCatalogEntry[];
 }
 
@@ -35,8 +37,10 @@ export interface OAuthProviderProjectionOptions<P extends OAuthProfileLike> {
 export function createOAuthProviderProjection<P extends OAuthProfileLike>(
   options: OAuthProviderProjectionOptions<P>,
 ): OAuthProviderProjection<P> {
-  const providerName = (profile: string): string => `${options.prefix}${profile}`;
-  const isProviderName = (name: string): boolean => name.startsWith(options.prefix);
+  const providerName = (profile: string): string =>
+    `${options.prefix}${profile}`;
+  const isProviderName = (name: string): boolean =>
+    name.startsWith(options.prefix);
 
   return {
     providerName,
@@ -44,13 +48,17 @@ export function createOAuthProviderProjection<P extends OAuthProfileLike>(
     // The profile name embedded in a "<prefix><profile>" provider name, or
     // undefined if the name is not this provider's.
     profileFromProviderName(name: string): string | undefined {
-      return isProviderName(name) ? name.slice(options.prefix.length) : undefined;
+      return isProviderName(name)
+        ? name.slice(options.prefix.length)
+        : undefined;
     },
     // Project profiles into synthetic ProviderSettings so resolveProvider can
     // treat a selected "<prefix><profile>" exactly like any configured
     // provider. The apiKey seeds the stored access token; the send path
     // refreshes it before use, so a stale seed never reaches the wire.
-    providersAsSettings(profiles: readonly P[]): Record<string, ProviderSettings> {
+    providersAsSettings(
+      profiles: readonly P[],
+    ): Record<string, ProviderSettings> {
       const entries: Record<string, ProviderSettings> = {};
       for (const profile of profiles) {
         entries[providerName(profile.name)] = {

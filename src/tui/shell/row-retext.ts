@@ -40,7 +40,10 @@ export function diffLineChunks(line: StyledBodyLine): TextChunk[] {
 
 /** Columns a sentence row's single line paints into, beside its gutter. */
 function sentenceColumns(row: StreamRow, layout: RowLayout): number {
-  return Math.max(1, layout.width - stringWidth(streamRowGutter(row, layout).content));
+  return Math.max(
+    1,
+    layout.width - stringWidth(streamRowGutter(row, layout).content),
+  );
 }
 
 /**
@@ -58,14 +61,27 @@ export function retextStyledKindRow(
     const columns = sentenceColumns(row, layout);
     if (row.structured !== undefined) {
       return row.expanded === true
-        ? retextStructuredRow(node, row, layout, toolSentenceLines(row, columns), row.structured)
-        : retextStyledLinesRow(node, row, layout, toolSentenceLines(row, columns));
+        ? retextStructuredRow(
+            node,
+            row,
+            layout,
+            toolSentenceLines(row, columns),
+            row.structured,
+          )
+        : retextStyledLinesRow(
+            node,
+            row,
+            layout,
+            toolSentenceLines(row, columns),
+          );
     }
     return retextStyledLinesRow(node, row, layout, toolRowLines(row, columns));
   }
-  if (row.diff !== undefined) return retextStyledLinesRow(node, row, layout, row.diff.lines);
+  if (row.diff !== undefined)
+    return retextStyledLinesRow(node, row, layout, row.diff.lines);
   const expanded = expandedRowLines(row, layout);
-  if (expanded !== null) return retextStyledLinesRow(node, row, layout, expanded);
+  if (expanded !== null)
+    return retextStyledLinesRow(node, row, layout, expanded);
   if (row.structured !== undefined) {
     return retextStructuredRow(node, row, layout, [], row.structured);
   }
@@ -86,7 +102,11 @@ function retextStyledLinesRow(
 ): boolean {
   if (!(node instanceof BoxRenderable)) return false;
   const [gutterNode, bodyNode] = node.getChildren();
-  if (!(gutterNode instanceof TextRenderable) || !(bodyNode instanceof BoxRenderable)) return false;
+  if (
+    !(gutterNode instanceof TextRenderable) ||
+    !(bodyNode instanceof BoxRenderable)
+  )
+    return false;
   const lineNodes = bodyNode.getChildren();
   // A different line count is a different shape — the caller rebuilds.
   if (lineNodes.length !== lines.length) return false;
@@ -98,7 +118,10 @@ function retextStyledLinesRow(
 }
 
 /** One body line in place; an arrow line retextes only its body segment. */
-function retextBodyLine(node: BaseRenderable | undefined, line: StyledBodyLine): boolean {
+function retextBodyLine(
+  node: BaseRenderable | undefined,
+  line: StyledBodyLine,
+): boolean {
   const split = splitTrailingArrow(line);
   if (node instanceof TextRenderable) {
     if (split !== null) return false;
@@ -121,7 +144,11 @@ function retextStructuredRow(
 ): boolean {
   if (!(node instanceof BoxRenderable)) return false;
   const [gutterNode, bodyNode] = node.getChildren();
-  if (!(gutterNode instanceof TextRenderable) || !(bodyNode instanceof BoxRenderable)) return false;
+  if (
+    !(gutterNode instanceof TextRenderable) ||
+    !(bodyNode instanceof BoxRenderable)
+  )
+    return false;
   const children = bodyNode.getChildren();
   if (children.length !== head.length + 1) return false;
   const tableNode = children[head.length];

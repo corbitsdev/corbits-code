@@ -10,7 +10,8 @@ import { isLiveWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
 /** Enough of a lane report for a parent continuation; traces stay on disk. */
 export const FLEET_DRY_REPORT_CHARS = 8_192;
 
-export const FLEET_DRY_CONTINUATION_PREFIX = "The fleet has gone dry. Remaining open tasks:";
+export const FLEET_DRY_CONTINUATION_PREFIX =
+  "The fleet has gone dry. Remaining open tasks:";
 
 export interface FleetDryMailboxRecord {
   readonly status: WaitJSONStatus;
@@ -58,7 +59,9 @@ export function shouldDriveOpenTasks(input: {
   const previousRunning = input.previousRunning ?? 0;
   const wentDry = running === 0 && previousRunning > 0;
   const dryEdge = wentDry || input.deferredDryEdge === true;
-  return dryEdge && running === 0 && input.hasOpenTasks && !input.parentProcessing;
+  return (
+    dryEdge && running === 0 && input.hasOpenTasks && !input.parentProcessing
+  );
 }
 
 function isPromiseLike(value: unknown): value is Promise<unknown> {
@@ -82,12 +85,16 @@ export function projectMailboxRecord(
   return {
     agent_id: id,
     status: taken.status,
-    ...(description !== undefined && description.length > 0 ? { description } : {}),
+    ...(description !== undefined && description.length > 0
+      ? { description }
+      : {}),
     ...(taken.status !== "failed" && report !== undefined ? { report } : {}),
     ...(error !== undefined ? { error } : {}),
     ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
     ...(taken.providerFailure === true ? { provider_failure: true } : {}),
-    ...(taken.stopReason !== undefined ? { stop_reason: taken.stopReason } : {}),
+    ...(taken.stopReason !== undefined
+      ? { stop_reason: taken.stopReason }
+      : {}),
   };
 }
 
@@ -108,7 +115,9 @@ export function takeAndProjectMailboxRecord(
   return projectMailboxRecord(id, taken, lane);
 }
 
-function clipCollectedReport(report: CollectedWorkerReport): CollectedWorkerReport {
+function clipCollectedReport(
+  report: CollectedWorkerReport,
+): CollectedWorkerReport {
   const clippedReport = clipField(report.report);
   const clippedError = clipField(report.error);
   return {
@@ -144,8 +153,12 @@ export function buildFleetDryContinuationPrompt(
   tasks: readonly Task[],
   reports: readonly CollectedWorkerReport[],
 ): string {
-  const open = tasks.filter((task) => task.status === "todo" || task.status === "doing");
-  const taskLines = open.map((task) => `- ${task.id}: ${task.title} (${task.status})`).join("\n");
+  const open = tasks.filter(
+    (task) => task.status === "todo" || task.status === "doing",
+  );
+  const taskLines = open
+    .map((task) => `- ${task.id}: ${task.title} (${task.status})`)
+    .join("\n");
   return [
     FLEET_DRY_CONTINUATION_PREFIX,
     taskLines,

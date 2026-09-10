@@ -56,7 +56,9 @@ describe("composeRule", () => {
       brand: "▃▅██▆ corbits code",
       label: "~/x (main)",
     });
-    expect(ruleText(parts)).toBe("╰─ ▃▅██▆ corbits code ──────────────────────── ~/x (main) ─╯");
+    expect(ruleText(parts)).toBe(
+      "╰─ ▃▅██▆ corbits code ──────────────────────── ~/x (main) ─╯",
+    );
     expect(ruleWidth(parts)).toBe(60);
     expect(parts.some((p) => p.role === "brand")).toBe(true);
     expect(parts.some((p) => p.role === "label")).toBe(true);
@@ -94,7 +96,9 @@ describe("composeRule", () => {
       meterCompact: "██████████ 68%",
       label: "~/x",
     });
-    expect(ruleText(parts)).toBe("╰─ corbits code ──────────── ██████████ 68% · $0.42 ─ ~/x ─╯");
+    expect(ruleText(parts)).toBe(
+      "╰─ corbits code ──────────── ██████████ 68% · $0.42 ─ ~/x ─╯",
+    );
     expect(ruleWidth(parts)).toBe(60);
     expect(parts.some((p) => p.role === "meter")).toBe(true);
     expect(parts.some((p) => p.role === "label")).toBe(true);
@@ -167,8 +171,12 @@ describe("composeRule", () => {
   test("composeAttentionLabel covers each attention combination", () => {
     expect(composeAttentionLabel({})).toBeUndefined();
     expect(composeAttentionLabel({ mcp: true })).toBe(MCP_ATTENTION_LABEL);
-    expect(composeAttentionLabel({ plugin: true })).toBe(PLUGIN_ATTENTION_LABEL);
-    expect(composeAttentionLabel({ mcp: true, plugin: true })).toBe("mcp ! · plugin !");
+    expect(composeAttentionLabel({ plugin: true })).toBe(
+      PLUGIN_ATTENTION_LABEL,
+    );
+    expect(composeAttentionLabel({ mcp: true, plugin: true })).toBe(
+      "mcp ! · plugin !",
+    );
   });
 
   test("attention alone still seats when there is no model label", () => {
@@ -207,7 +215,10 @@ describe("composeRule", () => {
 describe("composeCostContextMeter", () => {
   test("null when the context window is unknown", () => {
     expect(
-      composeCostContextMeter({ contextPercentUsed: null, contextIsEstimate: false }),
+      composeCostContextMeter({
+        contextPercentUsed: null,
+        contextIsEstimate: false,
+      }),
     ).toBeNull();
   });
 
@@ -238,8 +249,12 @@ describe("composeCostContextMeter", () => {
 
   test("bands from the percent: 60 quiet, 80 warning, 81 danger", () => {
     const bandAt = (percent: number) =>
-      defined(composeCostContextMeter({ contextPercentUsed: percent, contextIsEstimate: false }))
-        .band;
+      defined(
+        composeCostContextMeter({
+          contextPercentUsed: percent,
+          contextIsEstimate: false,
+        }),
+      ).band;
     expect(bandAt(0)).toBe("quiet");
     expect(bandAt(60)).toBe("quiet");
     expect(bandAt(61)).toBe("warning");
@@ -250,7 +265,10 @@ describe("composeCostContextMeter", () => {
 
   test("flags an estimated percent with a tilde", () => {
     const meter = defined(
-      composeCostContextMeter({ contextPercentUsed: 68, contextIsEstimate: true }),
+      composeCostContextMeter({
+        contextPercentUsed: 68,
+        contextIsEstimate: true,
+      }),
     );
     expect(meter.percentLabel).toBe("~68%");
   });
@@ -269,15 +287,25 @@ describe("composeWorkspaceLabel", () => {
   const cwd = "/home/x/abklabs/corbits-code";
 
   test("directory and branch, home abbreviated", () => {
-    expect(composeWorkspaceLabel({ cwd, branch: "main", home: "/home/x", maxWidth: 80 })).toBe(
-      "~/abklabs/corbits-code (main)",
-    );
+    expect(
+      composeWorkspaceLabel({
+        cwd,
+        branch: "main",
+        home: "/home/x",
+        maxWidth: 80,
+      }),
+    ).toBe("~/abklabs/corbits-code (main)");
   });
 
   test("no branch leaves the directory alone", () => {
-    expect(composeWorkspaceLabel({ cwd, branch: null, home: "/home/x", maxWidth: 80 })).toBe(
-      "~/abklabs/corbits-code",
-    );
+    expect(
+      composeWorkspaceLabel({
+        cwd,
+        branch: null,
+        home: "/home/x",
+        maxWidth: 80,
+      }),
+    ).toBe("~/abklabs/corbits-code");
   });
 
   test("the path shortens from the left so the branch always survives", () => {
@@ -333,7 +361,10 @@ describe("meterEquals", () => {
     expect(
       meterEquals(
         null,
-        composeCostContextMeter({ contextPercentUsed: 10, contextIsEstimate: false }),
+        composeCostContextMeter({
+          contextPercentUsed: 10,
+          contextIsEstimate: false,
+        }),
       ),
     ).toBe(false);
   });

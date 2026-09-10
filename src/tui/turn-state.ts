@@ -197,7 +197,10 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
 }
 
 /** Ctrl+C / watchdog abort: nothing is in flight and no prompt may be replayed. */
-export function turnStateOnInterrupt(state: TurnState, nowMs: number): TurnState {
+export function turnStateOnInterrupt(
+  state: TurnState,
+  nowMs: number,
+): TurnState {
   return carryBlockedGateCount(state, {
     ...initialTurnState(nowMs),
     status: "stopped",
@@ -225,12 +228,20 @@ export function turnStateGateOpened(state: TurnState): TurnState {
  * moves to `nowMs` so the stall clock restarts from the moment the operator
  * actually answered, rather than crediting silence spent reading the prompt.
  */
-export function turnStateGateClosed(state: TurnState, nowMs: number): TurnState {
+export function turnStateGateClosed(
+  state: TurnState,
+  nowMs: number,
+): TurnState {
   const blockedGateCount = Math.max(0, state.blockedGateCount - 1);
   if (blockedGateCount > 0) return { ...state, blockedGateCount };
   return {
     ...state,
-    status: state.status === "blocked" ? (state.isProcessing ? "running" : "idle") : state.status,
+    status:
+      state.status === "blocked"
+        ? state.isProcessing
+          ? "running"
+          : "idle"
+        : state.status,
     lastActivityAt: nowMs,
     blockedGateCount,
   };
@@ -253,7 +264,10 @@ const tokenData = type({ "token?": "string" });
  * Text carried by a delta event. Reactor-shaped deltas carry it as
  * `data.token`; canonical bridge deltas carry it as a top-level `text`.
  */
-function deltaText(event: { readonly data?: unknown; readonly text?: string }): string {
+function deltaText(event: {
+  readonly data?: unknown;
+  readonly text?: string;
+}): string {
   const parsed = tokenData(event.data);
   if (!(parsed instanceof type.errors) && parsed.token !== undefined) {
     return parsed.token;
@@ -261,7 +275,10 @@ function deltaText(event: { readonly data?: unknown; readonly text?: string }): 
   return event.text ?? "";
 }
 
-function quotaFromInferenceError(data: unknown, nowMs: number): QuotaWait | null {
+function quotaFromInferenceError(
+  data: unknown,
+  nowMs: number,
+): QuotaWait | null {
   const parsed = inferenceErrorData(data);
   if (parsed instanceof type.errors) return null;
   const { category, retryAfterMs } = parsed.error;
@@ -313,7 +330,10 @@ function resultIdentity(data: unknown): CallIdentity {
   };
 }
 
-function withActiveCall(active: readonly string[], id: string): readonly string[] {
+function withActiveCall(
+  active: readonly string[],
+  id: string,
+): readonly string[] {
   return active.includes(id) ? active : [...active, id];
 }
 
@@ -321,7 +341,10 @@ function withActiveCall(active: readonly string[], id: string): readonly string[
  * Drop one outstanding call. An unmatched id still consumes an entry: a
  * mismatched pair would otherwise leave the turn permanently "working".
  */
-function withoutActiveCall(active: readonly string[], id: string): readonly string[] {
+function withoutActiveCall(
+  active: readonly string[],
+  id: string,
+): readonly string[] {
   const index = active.indexOf(id);
   if (index !== -1) return active.filter((_, i) => i !== index);
   return active.slice(1);
@@ -346,7 +369,10 @@ interface CallTracking {
  * name-only announcement (no callId yet) and a later id-bearing one for the
  * same call must collapse onto a single activeToolCalls entry, not two.
  */
-function registerActiveCall(tracking: CallTracking, identity: CallIdentity): CallTracking {
+function registerActiveCall(
+  tracking: CallTracking,
+  identity: CallIdentity,
+): CallTracking {
   const { activeToolCalls, callIdByName } = tracking;
 
   if (identity.id !== undefined) {
@@ -368,10 +394,16 @@ function registerActiveCall(tracking: CallTracking, identity: CallIdentity): Cal
 
   if (identity.name !== undefined) {
     const id = callIdByName[identity.name] ?? identity.name;
-    return { activeToolCalls: withActiveCall(activeToolCalls, id), callIdByName };
+    return {
+      activeToolCalls: withActiveCall(activeToolCalls, id),
+      callIdByName,
+    };
   }
 
-  return { activeToolCalls: withActiveCall(activeToolCalls, "tool"), callIdByName };
+  return {
+    activeToolCalls: withActiveCall(activeToolCalls, "tool"),
+    callIdByName,
+  };
 }
 
 function withoutCallIdByName(
@@ -379,7 +411,9 @@ function withoutCallIdByName(
   name: string,
 ): Readonly<Record<string, string>> {
   if (!(name in callIdByName)) return callIdByName;
-  return Object.fromEntries(Object.entries(callIdByName).filter(([n]) => n !== name));
+  return Object.fromEntries(
+    Object.entries(callIdByName).filter(([n]) => n !== name),
+  );
 }
 
 /**
@@ -394,16 +428,22 @@ function nameForCallId(
   return Object.entries(callIdByName).find(([, v]) => v === id)?.[0];
 }
 
-function unregisterActiveCall(tracking: CallTracking, identity: CallIdentity): CallTracking {
+function unregisterActiveCall(
+  tracking: CallTracking,
+  identity: CallIdentity,
+): CallTracking {
   const { activeToolCalls, callIdByName } = tracking;
 
   if (identity.id !== undefined) {
     // Clear the mapping once its call resolves, or a later call reusing the
     // same tool name would resolve straight to this now-finished id instead
     // of tracking its own — reproducing the leak this function exists to fix.
-    const resolvedName = identity.name ?? nameForCallId(callIdByName, identity.id);
+    const resolvedName =
+      identity.name ?? nameForCallId(callIdByName, identity.id);
     const nextCallIdByName =
-      resolvedName !== undefined ? withoutCallIdByName(callIdByName, resolvedName) : callIdByName;
+      resolvedName !== undefined
+        ? withoutCallIdByName(callIdByName, resolvedName)
+        : callIdByName;
     return {
       activeToolCalls: withoutActiveCall(activeToolCalls, identity.id),
       callIdByName: nextCallIdByName,
@@ -418,7 +458,10 @@ function unregisterActiveCall(tracking: CallTracking, identity: CallIdentity): C
     };
   }
 
-  return { activeToolCalls: withoutActiveCall(activeToolCalls, "tool"), callIdByName };
+  return {
+    activeToolCalls: withoutActiveCall(activeToolCalls, "tool"),
+    callIdByName,
+  };
 }
 
 const streaming = (
@@ -427,8 +470,11 @@ const streaming = (
   nowMs: number,
   text: string,
 ): TurnState => {
-  const streamTokenCount = kind === "text" ? state.streamTokenCount + 1 : state.streamTokenCount;
-  const streamText = `${state.streamText}${text}`.slice(-STREAM_TEXT_BUFFER_CHARS);
+  const streamTokenCount =
+    kind === "text" ? state.streamTokenCount + 1 : state.streamTokenCount;
+  const streamText = `${state.streamText}${text}`.slice(
+    -STREAM_TEXT_BUFFER_CHARS,
+  );
   return {
     ...state,
     status: state.status === "blocked" ? "blocked" : "running",
@@ -451,7 +497,11 @@ const streaming = (
 // completed cycle is kept and compared against the next one: several
 // consecutive cycles fingerprinting alike is what that shape of loop looks
 // like, and nine different narration lines never do.
-const runningTool = (state: TurnState, name: string | null, nowMs: number): TurnState => {
+const runningTool = (
+  state: TurnState,
+  name: string | null,
+  nowMs: number,
+): TurnState => {
   const cycleText = state.streamText;
   const longEnoughToCompare = cycleText.length >= CYCLE_FINGERPRINT_MIN_CHARS;
   const fingerprint = longEnoughToCompare ? cycleFingerprint(cycleText) : null;
@@ -465,7 +515,8 @@ const runningTool = (state: TurnState, name: string | null, nowMs: number): Turn
       ? 1
       : state.consecutiveMatchingCycles;
   const repeating =
-    state.repeating || consecutiveMatchingCycles >= CYCLE_REPETITION_MIN_CONSECUTIVE;
+    state.repeating ||
+    consecutiveMatchingCycles >= CYCLE_REPETITION_MIN_CONSECUTIVE;
 
   return {
     ...state,
@@ -481,7 +532,9 @@ const runningTool = (state: TurnState, name: string | null, nowMs: number): Turn
       repeating && state.repeatingSinceTokenCount === null
         ? state.streamTokenCount
         : state.repeatingSinceTokenCount,
-    cycleFingerprint: longEnoughToCompare ? fingerprint : state.cycleFingerprint,
+    cycleFingerprint: longEnoughToCompare
+      ? fingerprint
+      : state.cycleFingerprint,
     consecutiveMatchingCycles,
   };
 };
@@ -541,7 +594,10 @@ export function turnStateFromEvent(
       const running = runningTool(state, event.name ?? null, nowMs);
       return {
         ...running,
-        activeToolCalls: withActiveCall(state.activeToolCalls, event.name ?? "tool"),
+        activeToolCalls: withActiveCall(
+          state.activeToolCalls,
+          event.name ?? "tool",
+        ),
       };
     }
 
@@ -560,7 +616,10 @@ export function turnStateFromEvent(
     }
 
     case "tool_result": {
-      const activeToolCalls = withoutActiveCall(state.activeToolCalls, event.name ?? "tool");
+      const activeToolCalls = withoutActiveCall(
+        state.activeToolCalls,
+        event.name ?? "tool",
+      );
       return {
         ...state,
         awaitingResponse: activeToolCalls.length === 0,

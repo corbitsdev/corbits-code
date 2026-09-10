@@ -38,7 +38,9 @@ describe("decision overlay body cache survives a stacked palette", () => {
           const hostBefore = shell.layout.overlayHeight;
           // Chrome is border (2) + title (1) + body lines; list is N * perItem.
           expect(hostBefore).toBe(
-            shell.overlayBodyLines.length + 3 + items.length * DECISION_CHOICE_ROWS,
+            shell.overlayBodyLines.length +
+              3 +
+              items.length * DECISION_CHOICE_ROWS,
           );
 
           // Stack a palette over the open permissions overlay — its own

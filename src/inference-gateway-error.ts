@@ -9,7 +9,10 @@ import {
   formatCodexUsageLimitMessage,
   parseCodexUsageLimitError,
 } from "./auth/codex/usage-limit-error.js";
-import { codexProfileFromProviderName, isCodexProviderName } from "./config/codex-providers.js";
+import {
+  codexProfileFromProviderName,
+  isCodexProviderName,
+} from "./config/codex-providers.js";
 import { isXaiProviderName } from "./config/xai-providers.js";
 import { isXaiGrokLeafProvider } from "./subagent/provider-family.js";
 
@@ -34,7 +37,8 @@ export interface OpenCodeGoErrorContext {
   opencodeGo?: boolean;
 }
 
-export type InferenceErrorWithGoContext = InferenceError & OpenCodeGoErrorContext;
+export type InferenceErrorWithGoContext = InferenceError &
+  OpenCodeGoErrorContext;
 
 const GATEWAY_OVERLOAD_STATUS_CODES = new Set([502, 503, 504]);
 
@@ -47,7 +51,8 @@ const GATEWAY_OVERLOAD_TEXT_MARKERS = [
 ] as const;
 
 /** User-visible line while the harness retries a transient gateway overload. */
-export const GATEWAY_OVERLOAD_USER_MESSAGE = "Inference gateway overloaded — retrying…";
+export const GATEWAY_OVERLOAD_USER_MESSAGE =
+  "Inference gateway overloaded — retrying…";
 
 /**
  * User-visible line for a short known-provider HTTP 429. Worded without
@@ -92,24 +97,35 @@ export function looksLikeHtmlGatewayBody(text: string): boolean {
 function textSuggestsGatewayOverload(...parts: string[]): boolean {
   const combined = parts.join("\n").toLowerCase();
   if (combined.includes("503")) return true;
-  return GATEWAY_OVERLOAD_TEXT_MARKERS.some((marker) => combined.includes(marker));
+  return GATEWAY_OVERLOAD_TEXT_MARKERS.some((marker) =>
+    combined.includes(marker),
+  );
 }
 
 function hasGatewayOverloadStatus(error: InferenceErrorLike): boolean {
-  if (error.statusCode !== undefined && GATEWAY_OVERLOAD_STATUS_CODES.has(error.statusCode)) {
+  if (
+    error.statusCode !== undefined &&
+    GATEWAY_OVERLOAD_STATUS_CODES.has(error.statusCode)
+  ) {
     return true;
   }
-  return textSuggestsGatewayOverload(error.message ?? "", stringFromRaw(error.raw));
+  return textSuggestsGatewayOverload(
+    error.message ?? "",
+    stringFromRaw(error.raw),
+  );
 }
 
 /**
  * Detect HTML-bodied 503 / reverse-proxy overload responses that upstream may
  * classify as protocol_mismatch when the stream body is not valid SSE/JSON.
  */
-export function isGatewayOverloadInferenceError(error: InferenceErrorLike): boolean {
+export function isGatewayOverloadInferenceError(
+  error: InferenceErrorLike,
+): boolean {
   const rawText = stringFromRaw(error.raw);
   const htmlLike =
-    looksLikeHtmlGatewayBody(rawText) || looksLikeHtmlGatewayBody(error.message ?? "");
+    looksLikeHtmlGatewayBody(rawText) ||
+    looksLikeHtmlGatewayBody(error.message ?? "");
 
   if (error.category === "retryable" || error.category === "timeout") {
     return htmlLike && hasGatewayOverloadStatus(error);
@@ -192,10 +208,15 @@ export function normalizeOpenCodeGoInferenceError(
   const parsed = parseGoAPIError({ statusCode, body });
   if (parsed === undefined) return error;
 
-  const category = parsed.category === "auth" ? ("credential_failure" as const) : parsed.category;
+  const category =
+    parsed.category === "auth"
+      ? ("credential_failure" as const)
+      : parsed.category;
 
   const retryAfterMs =
-    parsed.retryAfterSec !== undefined ? parsed.retryAfterSec * 1000 : error.retryAfterMs;
+    parsed.retryAfterSec !== undefined
+      ? parsed.retryAfterSec * 1000
+      : error.retryAfterMs;
 
   return {
     category,
@@ -225,11 +246,15 @@ function textHasXaiQuotaMarkers(...parts: string[]): boolean {
  *
  * Discrimination is body markers for quota, not Retry-After length.
  */
-export function isXaiShortRateLimitInferenceError(error: InferenceErrorLike): boolean {
+export function isXaiShortRateLimitInferenceError(
+  error: InferenceErrorLike,
+): boolean {
   if (!isKnownXaiProviderId(error.providerId)) return false;
   if (error.statusCode !== 429) return false;
-  if (error.category !== "quota_exhausted" && error.category !== "retryable") return false;
-  if (textHasXaiQuotaMarkers(error.message ?? "", stringFromRaw(error.raw))) return false;
+  if (error.category !== "quota_exhausted" && error.category !== "retryable")
+    return false;
+  if (textHasXaiQuotaMarkers(error.message ?? "", stringFromRaw(error.raw)))
+    return false;
   return true;
 }
 
@@ -242,18 +267,23 @@ export function isXaiShortRateLimitInferenceError(error: InferenceErrorLike): bo
  * Clear usage/quota body markers keep quota_exhausted. Unknown providers are
  * never remapped.
  */
-export function normalizeXaiRateLimitError(error: InferenceErrorWithGoContext): InferenceError {
+export function normalizeXaiRateLimitError(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
   if (error.statusCode !== 429) return error;
   if (error.category !== "quota_exhausted") return error;
   if (!isKnownXaiProviderId(error.providerId)) return error;
-  if (textHasXaiQuotaMarkers(error.message ?? "", stringFromRaw(error.raw))) return error;
+  if (textHasXaiQuotaMarkers(error.message ?? "", stringFromRaw(error.raw)))
+    return error;
 
   return {
     category: "retryable",
     message: RATE_LIMIT_USER_MESSAGE,
     statusCode: 429,
     ...(error.raw !== undefined ? { raw: error.raw } : {}),
-    ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+    ...(error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
   };
 }
 
@@ -262,7 +292,10 @@ function parseCodexUsageLimitFromError(
 ): ReturnType<typeof parseCodexUsageLimitError> {
   const candidates: unknown[] = [];
   if (error.raw !== undefined) candidates.push(error.raw);
-  if (typeof error.message === "string" && error.message.trim().startsWith("{")) {
+  if (
+    typeof error.message === "string" &&
+    error.message.trim().startsWith("{")
+  ) {
     candidates.push(error.message);
   }
 
@@ -286,10 +319,13 @@ function isKnownCodexProviderId(providerId: string | undefined): boolean {
  * Discrimination is the existing Codex usage-limit parser, not Retry-After length
  * and not ChatGPT usage-limit prose without `usage_limit_reached`.
  */
-export function isCodexShortRateLimitInferenceError(error: InferenceErrorLike): boolean {
+export function isCodexShortRateLimitInferenceError(
+  error: InferenceErrorLike,
+): boolean {
   if (!isKnownCodexProviderId(error.providerId)) return false;
   if (error.statusCode !== 429) return false;
-  if (error.category !== "quota_exhausted" && error.category !== "retryable") return false;
+  if (error.category !== "quota_exhausted" && error.category !== "retryable")
+    return false;
   if (parseCodexUsageLimitFromError(error) !== undefined) return false;
   return true;
 }
@@ -302,7 +338,9 @@ export function isCodexShortRateLimitInferenceError(error: InferenceErrorLike): 
  * Nested `detail.error.code === usage_limit_reached` stays quota_exhausted via
  * `normalizeCodexUsageLimitError`. Unknown / non-Codex providers are never remapped.
  */
-export function normalizeCodexRateLimitError(error: InferenceErrorWithGoContext): InferenceError {
+export function normalizeCodexRateLimitError(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
   if (error.statusCode !== 429) return error;
   if (error.category !== "quota_exhausted") return error;
   if (!isKnownCodexProviderId(error.providerId)) return error;
@@ -313,7 +351,9 @@ export function normalizeCodexRateLimitError(error: InferenceErrorWithGoContext)
     message: RATE_LIMIT_USER_MESSAGE,
     statusCode: 429,
     ...(error.raw !== undefined ? { raw: error.raw } : {}),
-    ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+    ...(error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
   };
 }
 
@@ -325,8 +365,13 @@ export function normalizeCodexRateLimitError(error: InferenceErrorWithGoContext)
  * When providerId is known and not a Codex source, leave the error alone so
  * OpenAI/Go/etc. quota bodies never get Codex-branded copy.
  */
-function normalizeCodexUsageLimitError(error: InferenceErrorWithGoContext): InferenceError {
-  if (error.providerId !== undefined && !isCodexProviderName(error.providerId)) {
+function normalizeCodexUsageLimitError(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
+  if (
+    error.providerId !== undefined &&
+    !isCodexProviderName(error.providerId)
+  ) {
     return error;
   }
 
@@ -334,8 +379,11 @@ function normalizeCodexUsageLimitError(error: InferenceErrorWithGoContext): Infe
   if (parsed === undefined) return error;
 
   const profile =
-    error.providerId !== undefined ? codexProfileFromProviderName(error.providerId) : undefined;
-  const retryAfterMs = codexUsageLimitRetryAfterMs(parsed) ?? error.retryAfterMs;
+    error.providerId !== undefined
+      ? codexProfileFromProviderName(error.providerId)
+      : undefined;
+  const retryAfterMs =
+    codexUsageLimitRetryAfterMs(parsed) ?? error.retryAfterMs;
 
   return {
     category: "quota_exhausted",
@@ -371,18 +419,23 @@ export function normalizeInferenceErrorForRetry(
   if (codexRateLimit !== error) return codexRateLimit;
 
   if (!isGatewayOverloadInferenceError(error)) return error;
-  if (error.category === "retryable" || error.category === "timeout") return error;
+  if (error.category === "retryable" || error.category === "timeout")
+    return error;
 
   return {
     category: "retryable",
     message: GATEWAY_OVERLOAD_USER_MESSAGE,
     statusCode: error.statusCode ?? 503,
     ...(error.raw !== undefined ? { raw: error.raw } : {}),
-    ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+    ...(error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
   };
 }
 
-function isInferenceErrorCategory(category: string): category is InferenceError["category"] {
+function isInferenceErrorCategory(
+  category: string,
+): category is InferenceError["category"] {
   return (
     category === "fatal" ||
     category === "retryable" ||
@@ -418,6 +471,7 @@ export function normalizeInferenceErrorForTerminal(
 }
 
 export function gatewayOverloadUserMessage(error: InferenceErrorLike): string {
-  if (!isGatewayOverloadInferenceError(error)) return error.message ?? "Inference error";
+  if (!isGatewayOverloadInferenceError(error))
+    return error.message ?? "Inference error";
   return GATEWAY_OVERLOAD_USER_MESSAGE;
 }

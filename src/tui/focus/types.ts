@@ -7,7 +7,12 @@
 
 /** Known surfaces plus open string brand for list/kit consumers. */
 export type FocusTarget =
-  "prompt" | "transcript" | "overlay" | "observe" | "palette" | (string & {});
+  | "prompt"
+  | "transcript"
+  | "overlay"
+  | "observe"
+  | "palette"
+  | (string & {});
 
 /** One stack frame: who owns keys (`target`) and who owns wheel/page (`scrollOwner`). */
 export interface FocusFrame {

@@ -20,9 +20,14 @@ async function summarizeDir(abs: string): Promise<string> {
     if (scanned >= MAX_DIRECTORY_SUMMARY_ENTRIES) break;
     scanned++;
     if (entry.isFile()) files++;
-    if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules") {
+    if (
+      entry.isDirectory() &&
+      !entry.name.startsWith(".") &&
+      entry.name !== "node_modules"
+    ) {
       dirs++;
-      if (dirNames.length < MAX_DIRECTORY_NAMES) dirNames.push(`${entry.name}/`);
+      if (dirNames.length < MAX_DIRECTORY_NAMES)
+        dirNames.push(`${entry.name}/`);
     }
   }
 
@@ -46,7 +51,10 @@ async function summarizeDir(abs: string): Promise<string> {
 // the sensitive-path and size checks below. Nothing here authorizes a *later*
 // read of the same path — that still goes through the permission gate on its
 // own terms, and an @mention grants it no standing there.
-export async function resolveAtMentions(message: string, cwd: string): Promise<string> {
+export async function resolveAtMentions(
+  message: string,
+  cwd: string,
+): Promise<string> {
   const pattern = /@("([^"]+)"|(\S+))/g;
   const mentions: { full: string; path: string }[] = [];
   let m: RegExpExecArray | null;
@@ -75,7 +83,10 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
       continue;
     }
     if (isSensitivePath(path)) {
-      replacements.push({ full, replacement: `${full} (blocked: sensitive path)` });
+      replacements.push({
+        full,
+        replacement: `${full} (blocked: sensitive path)`,
+      });
       continue;
     }
     let abs: string;
@@ -86,7 +97,10 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
       continue;
     }
     if (isSensitivePath(abs)) {
-      replacements.push({ full, replacement: `${full} (blocked: sensitive path)` });
+      replacements.push({
+        full,
+        replacement: `${full} (blocked: sensitive path)`,
+      });
       continue;
     }
 
@@ -94,7 +108,10 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
       const info = await stat(abs);
       if (info.isDirectory()) {
         const summary = await summarizeDir(abs);
-        replacements.push({ full, replacement: `\`${path}\` (directory - ${summary})` });
+        replacements.push({
+          full,
+          replacement: `\`${path}\` (directory - ${summary})`,
+        });
         continue;
       }
       if (info.size > MAX_MENTION_FILE_BYTES) {
@@ -114,7 +131,10 @@ export async function resolveAtMentions(message: string, cwd: string): Promise<s
       const content = await readFile(abs, "utf-8");
       totalBytes += info.size;
       const ext = abs.split(".").pop() ?? "";
-      replacements.push({ full, replacement: `\`${path}\`:\n\`\`\`${ext}\n${content}\n\`\`\`` });
+      replacements.push({
+        full,
+        replacement: `\`${path}\`:\n\`\`\`${ext}\n${content}\n\`\`\``,
+      });
     } catch {
       replacements.push({ full, replacement: `${full} (not found)` });
     }

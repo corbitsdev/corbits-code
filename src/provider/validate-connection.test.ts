@@ -13,7 +13,8 @@ test("resolves ok when the models endpoint responds ok", async () => {
   let requestedAuth: string | undefined;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     requestedURL = String(input);
-    requestedAuth = (init?.headers as Record<string, string> | undefined)?.Authorization;
+    requestedAuth = (init?.headers as Record<string, string> | undefined)
+      ?.Authorization;
     return new Response(JSON.stringify({ data: [] }), { status: 200 });
   }) as unknown as typeof fetch;
 
@@ -31,11 +32,14 @@ test("omits the Authorization header for keyless providers", async () => {
   let sawAuthHeader = false;
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     sawAuthHeader =
-      "Authorization" in ((init?.headers as Record<string, string> | undefined) ?? {});
+      "Authorization" in
+      ((init?.headers as Record<string, string> | undefined) ?? {});
     return new Response("{}", { status: 200 });
   }) as unknown as typeof fetch;
 
-  const result = await validateProviderConnection({ baseURL: "http://localhost:11434/v1" });
+  const result = await validateProviderConnection({
+    baseURL: "http://localhost:11434/v1",
+  });
 
   expect(result.ok).toBe(true);
   expect(sawAuthHeader).toBe(false);
@@ -65,7 +69,9 @@ test("fails when the request itself fails", async () => {
     throw new Error("ECONNREFUSED");
   }) as unknown as typeof fetch;
 
-  const result = await validateProviderConnection({ baseURL: "http://localhost:9/v1" });
+  const result = await validateProviderConnection({
+    baseURL: "http://localhost:9/v1",
+  });
 
   expect(result.ok).toBe(false);
   if (!result.ok) {
@@ -89,7 +95,9 @@ test("fails on an invalid base URL without fetching", async () => {
 test("times out against a blackholed host instead of hanging", async () => {
   globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) =>
     new Promise((_resolve, reject) => {
-      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      init?.signal?.addEventListener("abort", () =>
+        reject(init.signal?.reason),
+      );
     })) as unknown as typeof fetch;
 
   const result = await validateProviderConnection({

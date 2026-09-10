@@ -60,7 +60,9 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   onProgress?: (info: { description: string; toolName: string }) => void;
   sessions?: SubAgentSessionStore;
   settings?: Settings | (() => Settings | undefined);
-  catalog?: readonly ProviderCatalogEntry[] | (() => readonly ProviderCatalogEntry[]);
+  catalog?:
+    | readonly ProviderCatalogEntry[]
+    | (() => readonly ProviderCatalogEntry[]);
   profiles?: AgentProfile[] | (() => AgentProfile[]);
   // The orchestrator's own session id, so workers it dispatches record as
   // nested (one-hop) sessions the Agents strip can indent under it.
@@ -167,7 +169,10 @@ export type RunSubAgentParams = {
    * caller has no mailbox (tests, non-fleet dispatches).
    */
   askDirectorPort?: {
-    register: (input: { question: string; questionId: string }) => Promise<string>;
+    register: (input: {
+      question: string;
+      questionId: string;
+    }) => Promise<string>;
     cancel: (reason: string) => void;
   };
   /**

@@ -8,7 +8,9 @@ describe("bruckheimerPackage", () => {
 
   test("systemPrompt is real (not Placeholder)", () => {
     expect(bruckheimerPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(bruckheimerPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
+    expect(bruckheimerPackage.systemPrompt.startsWith("Placeholder")).toBe(
+      false,
+    );
   });
 
   test("systemPrompt states PRIMARY INTENT", () => {
@@ -122,7 +124,11 @@ describe("bruckheimerPackage", () => {
     expect(bruckheimerPackage.primaryIntent).toMatch(/product discovery/i);
     expect(bruckheimerPackage.outOfLane).toContain("shipping product code");
     expect(bruckheimerPackage.outOfLane).toContain("architecture gates");
-    expect(bruckheimerPackage.outOfLane).toContain("ongoing P/A/I docs maintenance as Shakespeare");
-    expect(bruckheimerPackage.outOfLane).toContain("ordered eng plans as Counsel");
+    expect(bruckheimerPackage.outOfLane).toContain(
+      "ongoing P/A/I docs maintenance as Shakespeare",
+    );
+    expect(bruckheimerPackage.outOfLane).toContain(
+      "ordered eng plans as Counsel",
+    );
   });
 });

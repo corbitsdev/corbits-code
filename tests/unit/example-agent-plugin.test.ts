@@ -5,7 +5,10 @@ import { loadPluginEntry } from "../../src/plugins/loader.js";
 import { resolveAgentPluginProfiles } from "../../src/plugins/agent-plugins.js";
 import { defined } from "../helpers/defined.js";
 
-const pluginRoot = join(import.meta.dirname, "../fixtures/plugins/example-agent");
+const pluginRoot = join(
+  import.meta.dirname,
+  "../fixtures/plugins/example-agent",
+);
 
 test("example-agent plugin loads scout profile when enabled", async () => {
   const mod = defined(await loadPluginEntry(pluginRoot), "plugin module");

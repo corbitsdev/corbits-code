@@ -20,7 +20,14 @@ export const PRESENT_VIEW_PRIMITIVES_GUIDANCE =
   "tone is one of default|muted|success|warning|danger|accent. " +
   "Compose freely rather than targeting named shapes.";
 
-const TONE_ENUM = ["default", "muted", "success", "warning", "danger", "accent"] as const;
+const TONE_ENUM = [
+  "default",
+  "muted",
+  "success",
+  "warning",
+  "danger",
+  "accent",
+] as const;
 const ALIGN_ENUM = ["left", "right", "center"] as const;
 const GAP_ENUM = [0, 1] as const;
 
@@ -177,7 +184,9 @@ function rewritePresentForKimi(def: ToolDefinition): ToolDefinition {
   return {
     ...def,
     // structuredClone so callers cannot mutate the shared const via the tool def.
-    inputSchema: structuredClone(KIMI_PRESENT_INPUT_SCHEMA) as ToolDefinition["inputSchema"],
+    inputSchema: structuredClone(
+      KIMI_PRESENT_INPUT_SCHEMA,
+    ) as ToolDefinition["inputSchema"],
   };
 }
 
@@ -200,5 +209,7 @@ export function normalizeToolDefinitionsForProvider(
   if (!isKimiLeafProvider(ctx)) {
     return defs as ToolDefinition[];
   }
-  return defs.map((def) => (def.name === "present" ? rewritePresentForKimi(def) : def));
+  return defs.map((def) =>
+    def.name === "present" ? rewritePresentForKimi(def) : def,
+  );
 }

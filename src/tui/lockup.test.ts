@@ -8,7 +8,11 @@ import {
   lockupWidth,
   type LockupInput,
 } from "./lockup";
-import { STALL_BLINK_BURST_MS, STALL_BLINK_CYCLE_MS, type RampPhase } from "./ramp";
+import {
+  STALL_BLINK_BURST_MS,
+  STALL_BLINK_CYCLE_MS,
+  type RampPhase,
+} from "./ramp";
 import { UI } from "./theme";
 
 const idle = (nowMs: number): LockupInput => ({
@@ -111,7 +115,8 @@ describe("the live phase slot's pulse cell", () => {
   });
 
   test("blocked holds one static cell — stillness is the signal", () => {
-    const at = (nowMs: number) => lockupText(lockupCells(live(nowMs, "blocked", "blocked", null)));
+    const at = (nowMs: number) =>
+      lockupText(lockupCells(live(nowMs, "blocked", "blocked", null)));
     expect(at(0)).toBe("▌ blocked");
     expect(at(STALL_BLINK_CYCLE_MS)).toBe(at(0));
     expect(at(60_000)).toBe(at(0));
@@ -136,7 +141,9 @@ describe("the live phase slot's pulse cell", () => {
 
   test("stalled blinks a bang against a block while the burst runs", () => {
     const on = lockupText(lockupCells(live(0, "working", "stalled", 0)));
-    const off = lockupText(lockupCells(live(STALL_BLINK_CYCLE_MS / 2, "working", "stalled", 0)));
+    const off = lockupText(
+      lockupCells(live(STALL_BLINK_CYCLE_MS / 2, "working", "stalled", 0)),
+    );
     expect(on).toBe("█ working");
     expect(off).toBe("! working");
   });
@@ -155,13 +162,17 @@ describe("the live phase slot's pulse cell", () => {
     // the operator about silence they were not present for.
     const resumed = STALL_BLINK_BURST_MS * 4;
     for (const nowMs of [0, 225, 450, 675]) {
-      expect(lockupText(lockupCells(live(nowMs, "working", "stalled", resumed)))).toBe("! working");
+      expect(
+        lockupText(lockupCells(live(nowMs, "working", "stalled", resumed))),
+      ).toBe("! working");
     }
   });
 
   test("the stalled word stays legible — only the cell blinks", () => {
     for (const nowMs of [0, STALL_BLINK_CYCLE_MS / 2]) {
-      expect(lockupText(lockupCells(live(nowMs, "bash", "stalled", 0)))).toContain("bash");
+      expect(
+        lockupText(lockupCells(live(nowMs, "bash", "stalled", 0))),
+      ).toContain("bash");
     }
   });
 
@@ -172,7 +183,8 @@ describe("the live phase slot's pulse cell", () => {
     // Working sweeps the density glyphs; neither of the other two is one.
     const workingGlyphs = new Set(
       [0, 300, 600, 900].map(
-        (nowMs) => lockupText(lockupCells(live(nowMs, "working", "working", null)))[0],
+        (nowMs) =>
+          lockupText(lockupCells(live(nowMs, "working", "working", null)))[0],
       ),
     );
     expect(workingGlyphs.has(glyph("blocked", null))).toBe(false);
@@ -183,7 +195,9 @@ describe("the live phase slot's pulse cell", () => {
     // and the blink must not move it, whatever the label is made of.
     for (const label of ["読み込み中", "a😀b", "working"]) {
       const on = lockupWidth(live(0, label, "stalled", 0));
-      const off = lockupWidth(live(STALL_BLINK_CYCLE_MS / 2, label, "stalled", 0));
+      const off = lockupWidth(
+        live(STALL_BLINK_CYCLE_MS / 2, label, "stalled", 0),
+      );
       expect(off).toBe(on);
     }
   });

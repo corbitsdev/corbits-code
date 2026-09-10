@@ -12,9 +12,18 @@ import { WorkflowRuntime } from "../../src/workflows/runtime.js";
 import { WorkflowCoordinator } from "../../src/workflows/coordinator.js";
 import type { CapabilityMap } from "../../src/workflows/capabilities.js";
 import type { Workflow } from "../../src/workflows/types.js";
-import { COMPACT_SPACER_TEXT, LEGACY_COMPACT_SPACER_TEXT } from "../../src/session/compactor.js";
+import {
+  COMPACT_SPACER_TEXT,
+  LEGACY_COMPACT_SPACER_TEXT,
+} from "../../src/session/compactor.js";
 
-const usage: TokenUsage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 };
+const usage: TokenUsage = {
+  input: 1,
+  output: 1,
+  cacheRead: 0,
+  cacheWrite: 0,
+  thinking: 0,
+};
 
 const state: ReactorState = {
   turns: [],
@@ -29,7 +38,8 @@ const state: ReactorState = {
 
 function makeCapabilities(): ReactorCapabilities {
   return {
-    infer: (options) => (options === undefined ? { type: "infer" } : { type: "infer", options }),
+    infer: (options) =>
+      options === undefined ? { type: "infer" } : { type: "infer", options },
     executeTools: () => ({ type: "execute_tools", calls: [] }),
     suspend: (gate) => ({ type: "suspend", gate }),
     fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
@@ -82,7 +92,9 @@ function ephemeralNudgeText(result: ReactorAction | ReactorAction[]): string {
       return content
         .filter(
           (p): p is { type: "text"; text: string } =>
-            typeof p === "object" && p !== null && (p as { type?: string }).type === "text",
+            typeof p === "object" &&
+            p !== null &&
+            (p as { type?: string }).type === "text",
         )
         .map((p) => p.text);
     })
@@ -90,7 +102,9 @@ function ephemeralNudgeText(result: ReactorAction | ReactorAction[]): string {
 }
 
 test("the active step directive is injected into the inferred system prompt", async () => {
-  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE PROMPT", [], {
@@ -126,7 +140,9 @@ test("the active step directive is injected into the inferred system prompt", as
 });
 
 test("a submit_output tool call with the current step id advances the runtime through the director", async () => {
-  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
@@ -155,14 +171,20 @@ test("a submit_output tool call with the current step id advances the runtime th
   };
   await director.decide(turn, state, caps);
 
-  const result: ToolResult = { callId: "call-1", content: "Advancing.", isError: false };
+  const result: ToolResult = {
+    callId: "call-1",
+    content: "Advancing.",
+    isError: false,
+  };
   await director.decide({ type: "tool.done", result }, state, caps);
 
   expect(runtime.currentStep()?.id).toBe("b");
 });
 
 test("a stale submit_output does not skip ahead through the director", async () => {
-  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
@@ -191,7 +213,10 @@ test("a stale submit_output does not skip ahead through the director", async () 
   };
   await director.decide(turn, state, caps);
   await director.decide(
-    { type: "tool.done", result: { callId: "call-1", content: "Advancing.", isError: false } },
+    {
+      type: "tool.done",
+      result: { callId: "call-1", content: "Advancing.", isError: false },
+    },
     state,
     caps,
   );
@@ -228,7 +253,9 @@ test("a stale submit_output does not skip ahead through the director", async () 
 });
 
 function hasInfer(result: ReactorAction | ReactorAction[]): boolean {
-  return (Array.isArray(result) ? result : [result]).some((a) => a.type === "infer");
+  return (Array.isArray(result) ? result : [result]).some(
+    (a) => a.type === "infer",
+  );
 }
 
 function textTurn(text: string): ReactorInboundEvent {
@@ -246,7 +273,9 @@ function textTurn(text: string): ReactorInboundEvent {
 }
 
 test("auto-continuation fires on reply() as well as wait() after a text turn", async () => {
-  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
@@ -256,7 +285,11 @@ test("auto-continuation fires on reply() as well as wait() after a text turn", a
   const caps = makeCapabilities();
 
   // Simulate a text-only inference turn (no tool calls).
-  await director.decide(textTurn("I reviewed the diff, moving to next step."), state, caps);
+  await director.decide(
+    textTurn("I reviewed the diff, moving to next step."),
+    state,
+    caps,
+  );
 
   // The DefaultDirector in conversational mode returns [checkpoint, reply(text)] for a text turn.
   // The auto-continuation must recognise reply() as a terminal action and replace it with infer().
@@ -265,7 +298,11 @@ test("auto-continuation fires on reply() as well as wait() after a text turn", a
   // output produces an infer action (auto-continuation triggered).
   //
   // Use a second text turn to confirm idleTurns=1 still produces infer, not wait.
-  const result = await director.decide(textTurn("continuing review..."), state, caps);
+  const result = await director.decide(
+    textTurn("continuing review..."),
+    state,
+    caps,
+  );
   // The director would have received [checkpoint, reply] from DefaultDirector but auto-continuation
   // should have replaced it with infer. Since we can't intercept DefaultDirector output here,
   // verify the stable invariant: after 2 consecutive text turns the director still auto-continues
@@ -273,7 +310,9 @@ test("auto-continuation fires on reply() as well as wait() after a text turn", a
   expect(hasInfer(result)).toBe(true);
 });
 
-function manageTasksTurn(status: "todo" | "doing" | "done"): ReactorInboundEvent {
+function manageTasksTurn(
+  status: "todo" | "doing" | "done",
+): ReactorInboundEvent {
   return {
     type: "inference.done",
     turn: {
@@ -283,7 +322,10 @@ function manageTasksTurn(status: "todo" | "doing" | "done"): ReactorInboundEvent
           type: "tool_call",
           id: "mt",
           name: "manage_tasks",
-          arguments: { action: "create", tasks: [{ id: "t1", title: "work", status }] },
+          arguments: {
+            action: "create",
+            tasks: [{ id: "t1", title: "work", status }],
+          },
         },
       ],
       model: "test-model",
@@ -307,7 +349,9 @@ function emptyTurn(): ReactorInboundEvent {
 // general open-task guard, which must point at submit_output rather than the
 // non-workflow manage_tasks guidance.
 test("a content-free workflow turn with open tasks nudges toward submit_output", async () => {
-  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
@@ -326,14 +370,18 @@ test("a content-free workflow turn with open tasks nudges toward submit_output",
   expect(infers.length).toBeGreaterThan(0);
   const nudge = ephemeralNudgeText(result);
   expect(nudge).toContain("a workflow step is active");
-  expect(nudge).not.toContain("mark each task done or cancelled with manage_tasks before ending");
+  expect(nudge).not.toContain(
+    "mark each task done or cancelled with manage_tasks before ending",
+  );
 });
 
 // With a workflow active, the workflow stuck-cutoff owns termination. Open tasks
 // must not let the general open-task guard override that cutoff into an endless
 // nudge — the workflow path still hands back after 3 idle turns.
 test("open tasks do not defeat the workflow stuck-cutoff after 3 idle turns", async () => {
-  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
@@ -350,11 +398,15 @@ test("open tasks do not defeat the workflow stuck-cutoff after 3 idle turns", as
 
   expect(hasInfer(result)).toBe(false);
   const actions = Array.isArray(result) ? result : [result];
-  expect(actions.some((a) => a.type === "wait" || a.type === "reply")).toBe(true);
+  expect(actions.some((a) => a.type === "wait" || a.type === "reply")).toBe(
+    true,
+  );
 });
 
 test("auto-continuation falls back after 3 consecutive text-only turns", async () => {
-  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
@@ -371,11 +423,15 @@ test("auto-continuation falls back after 3 consecutive text-only turns", async (
   // back to the user. In chat mode this is a reply(); headless uses wait().
   const actions = Array.isArray(result) ? result : [result];
   expect(hasInfer(result)).toBe(false);
-  expect(actions.some((a) => a.type === "wait" || a.type === "reply")).toBe(true);
+  expect(actions.some((a) => a.type === "wait" || a.type === "reply")).toBe(
+    true,
+  );
 });
 
 test("after spacer echo-cap a non-gate workflow step does not empty-settle", async () => {
-  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
   runtime.start(flow);
   const coordinator = new WorkflowCoordinator(runtime);
   const director = createChatDirector("BASE", [], {
@@ -385,12 +441,24 @@ test("after spacer echo-cap a non-gate workflow step does not empty-settle", asy
   const caps = makeCapabilities();
 
   for (let i = 0; i < 2; i++) {
-    const nudged = await director.decide(textTurn(LEGACY_COMPACT_SPACER_TEXT), state, caps);
+    const nudged = await director.decide(
+      textTurn(LEGACY_COMPACT_SPACER_TEXT),
+      state,
+      caps,
+    );
     expect(hasInfer(nudged)).toBe(true);
   }
-  const afterCap = await director.decide(textTurn(COMPACT_SPACER_TEXT), state, caps);
+  const afterCap = await director.decide(
+    textTurn(COMPACT_SPACER_TEXT),
+    state,
+    caps,
+  );
   const actions = Array.isArray(afterCap) ? afterCap : [afterCap];
-  expect(actions.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(false);
+  expect(
+    actions.some(
+      (a) => a.type === "reply" && "content" in a && a.content === "",
+    ),
+  ).toBe(false);
   expect(hasInfer(afterCap)).toBe(true);
   expect(ephemeralNudgeText(afterCap)).toContain("workflow step");
 });

@@ -18,9 +18,16 @@ import {
   type OverlaySelection,
 } from "./shell/internals.js";
 import { enterSubagentObserve, leaveSubagentObserve } from "./shell/observe.js";
-import { acceptOverlaySelection, closeInsetOverlay } from "./shell/overlay-host.js";
+import {
+  acceptOverlaySelection,
+  closeInsetOverlay,
+} from "./shell/overlay-host.js";
 import { moveOverlaySelection } from "./shell/overlay-list.js";
-import { openHelpOverlay, openMentionsOverlay, openSettingsOverlay } from "./shell/palette.js";
+import {
+  openHelpOverlay,
+  openMentionsOverlay,
+  openSettingsOverlay,
+} from "./shell/palette.js";
 
 const SETTINGS_TEST_ITEMS = ["Permissions", "Telemetry", "Close"] as const;
 
@@ -140,7 +147,9 @@ describe("Wave 7: subagent observe", () => {
           expect(shell.observe?.agentId).toBe("explorer");
           expect(focusOwner(shell.focus)).toBe("observe");
           expect(shell.parentStreamLog).not.toBeNull();
-          expect(shell.streamLog.some((r) => r.text.includes("child session"))).toBe(true);
+          expect(
+            shell.streamLog.some((r) => r.text.includes("child session")),
+          ).toBe(true);
           expect(shell.layout.heights.agents).toBeGreaterThan(0);
 
           leaveSubagentObserve(shell);
@@ -149,8 +158,12 @@ describe("Wave 7: subagent observe", () => {
           expect(shell.parentStreamLog).toBeNull();
           expect(focusOwner(shell.focus)).not.toBe("observe");
           expect(shell.streamLog.length).toBeGreaterThanOrEqual(parentLen);
-          expect(shell.streamLog.some((r) => r.text === "parent user line")).toBe(true);
-          expect(shell.streamLog.some((r) => r.text.includes("left observe"))).toBe(true);
+          expect(
+            shell.streamLog.some((r) => r.text === "parent user line"),
+          ).toBe(true);
+          expect(
+            shell.streamLog.some((r) => r.text.includes("left observe")),
+          ).toBe(true);
         } finally {
           shell.dispose();
         }
@@ -195,10 +208,12 @@ describe("Wave 7: residual catalog helpers", () => {
     ]);
     expect(catalog.items).toEqual(["Permissions", "Telemetry", "Close"]);
     expect(catalog.itemIds).toEqual(["permissions", "telemetry", "close"]);
-    expect(residualIdFromSelection({ index: 1, id: "telemetry" }, catalog.itemIds)).toBe(
-      "telemetry",
+    expect(
+      residualIdFromSelection({ index: 1, id: "telemetry" }, catalog.itemIds),
+    ).toBe("telemetry");
+    expect(residualIdFromSelection({ index: 2 }, catalog.itemIds)).toBe(
+      "close",
     );
-    expect(residualIdFromSelection({ index: 2 }, catalog.itemIds)).toBe("close");
     expect(residualIdFromSelection({ index: 0 })).toBeUndefined();
   });
 });
@@ -219,7 +234,11 @@ describe("Wave 7: residual live inject + accept", () => {
             onAccept: (s) => accepted.push(s),
           });
           expect(shell.overlayKind).toBe("settings");
-          expect(shell.overlayItems).toEqual(["Permissions", "Telemetry", "Close"]);
+          expect(shell.overlayItems).toEqual([
+            "Permissions",
+            "Telemetry",
+            "Close",
+          ]);
 
           moveOverlaySelection(shell, 1);
           acceptOverlaySelection(shell);

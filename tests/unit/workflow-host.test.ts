@@ -10,10 +10,17 @@ import { WorkflowHost } from "../../src/workflows/host.js";
 import { findWorkflow } from "../../src/workflows/index.js";
 import { WorkflowRuntime } from "../../src/workflows/runtime.js";
 import { defined } from "../helpers/defined.js";
-import { flushWorkflowStateWrites, saveWorkflowState } from "../../src/workflows/state.js";
+import {
+  flushWorkflowStateWrites,
+  saveWorkflowState,
+} from "../../src/workflows/state.js";
 
 function tool(name: string): ToolDefinition {
-  return { name, description: name, inputSchema: { type: "object", properties: {} } };
+  return {
+    name,
+    description: name,
+    inputSchema: { type: "object", properties: {} },
+  };
 }
 
 function drain(
@@ -40,7 +47,9 @@ async function withHost(
   const cwd = await mkdtemp(join(tmpdir(), "wf-host-"));
   const home = await mkdtemp(join(tmpdir(), "wf-host-home-"));
   await initSessionDir(cwd, "session-1", home);
-  const director = { coordinator: undefined as WorkflowCoordinator | undefined };
+  const director = {
+    coordinator: undefined as WorkflowCoordinator | undefined,
+  };
   const host = new WorkflowHost({
     cwd,
     getSessionId: () => "session-1",
@@ -92,11 +101,15 @@ test("replacing an active workflow requires a confirming second call", async () 
 
 test("status reports capability connection and override state", async () => {
   await withHost([tool("mcp__Linear__save_issue")], async (host) => {
-    const before = host.status().capabilities.find((c) => c.name === "ticket-tracker");
+    const before = host
+      .status()
+      .capabilities.find((c) => c.name === "ticket-tracker");
     expect(before?.connected).toBe(true);
     expect(before?.disabled).toBe(false);
     host.toggleCapability("ticket-tracker");
-    const after = host.status().capabilities.find((c) => c.name === "ticket-tracker");
+    const after = host
+      .status()
+      .capabilities.find((c) => c.name === "ticket-tracker");
     expect(after?.disabled).toBe(true);
   });
 });
@@ -131,7 +144,9 @@ test("complete() advances the current step and records history", async () => {
     const history = host.history();
     expect(history).toHaveLength(1);
     expect(defined(history[0], "history entry").name).toBe("review");
-    expect(defined(history[0], "history entry").steps.length).toBeGreaterThan(0);
+    expect(defined(history[0], "history entry").steps.length).toBeGreaterThan(
+      0,
+    );
   });
 });
 

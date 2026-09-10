@@ -10,7 +10,10 @@ import { SelectRenderable } from "@opentui/core";
 import type { PermissionRequest } from "../permission/types.js";
 import { withTestRenderer } from "./harness";
 import { createAppShell } from "./shell/index.js";
-import { createOverlayList, toggleOverlayExpand } from "./shell/overlay-list.js";
+import {
+  createOverlayList,
+  toggleOverlayExpand,
+} from "./shell/overlay-list.js";
 import { wireGates } from "./gate-wire.js";
 import { DECISION_CHOICE_ROWS } from "./overlay-body";
 import {
@@ -35,9 +38,14 @@ const hintRequest: PermissionRequest = {
   ],
 };
 
-function bodySelect(view: ReturnType<typeof createOverlayView>): SelectRenderable {
-  const found = view.body.getChildren().find((row) => row instanceof SelectRenderable);
-  if (!(found instanceof SelectRenderable)) throw new Error("expected the overlay list");
+function bodySelect(
+  view: ReturnType<typeof createOverlayView>,
+): SelectRenderable {
+  const found = view.body
+    .getChildren()
+    .find((row) => row instanceof SelectRenderable);
+  if (!(found instanceof SelectRenderable))
+    throw new Error("expected the overlay list");
   return found;
 }
 
@@ -59,7 +67,9 @@ describe("decision choice rendering", () => {
           bodyFgs: [],
           answer: null,
           describe: () => undefined,
-        } satisfies Omit<OverlayListPresentation, "list"> & { list: typeof list },
+        } satisfies Omit<OverlayListPresentation, "list"> & {
+          list: typeof list;
+        },
         contentWidth,
       );
 
@@ -97,7 +107,11 @@ describe("decision choice rendering", () => {
 
       try {
         // Choices are bare action names.
-        expect(shell.overlayItems).toEqual(["Reject", "Accept once", "Allow always"]);
+        expect(shell.overlayItems).toEqual([
+          "Reject",
+          "Accept once",
+          "Allow always",
+        ]);
 
         // The scope hint paints as a body message above the choice list.
         const bodyText = shell.overlayBodyLines.join("\n");

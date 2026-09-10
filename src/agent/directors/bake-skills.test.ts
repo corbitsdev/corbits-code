@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { formatBakedOptionalSkills, loadBakedSkillBody } from "./bake-skills.js";
+import {
+  formatBakedOptionalSkills,
+  loadBakedSkillBody,
+} from "./bake-skills.js";
 
 function stripFrontmatter(raw: string): string {
   if (!raw.startsWith("---")) return raw.trim();
@@ -12,25 +15,37 @@ function stripFrontmatter(raw: string): string {
 
 const styleOnDisk = stripFrontmatter(
   readFileSync(
-    join(import.meta.dirname, "../../../plugins/corbits-skills/skills/style/SKILL.md"),
+    join(
+      import.meta.dirname,
+      "../../../plugins/corbits-skills/skills/style/SKILL.md",
+    ),
     "utf8",
   ),
 );
 const philosophyOnDisk = stripFrontmatter(
   readFileSync(
-    join(import.meta.dirname, "../../../plugins/corbits-skills/skills/philosophy/SKILL.md"),
+    join(
+      import.meta.dirname,
+      "../../../plugins/corbits-skills/skills/philosophy/SKILL.md",
+    ),
     "utf8",
   ),
 );
 const ponytailOnDisk = stripFrontmatter(
   readFileSync(
-    join(import.meta.dirname, "../../../plugins/corbits-skills/skills/ponytail/SKILL.md"),
+    join(
+      import.meta.dirname,
+      "../../../plugins/corbits-skills/skills/ponytail/SKILL.md",
+    ),
     "utf8",
   ),
 );
 const nativeRuntimeOnDisk = stripFrontmatter(
   readFileSync(
-    join(import.meta.dirname, "../../../plugins/corbits-skills/skills/native-runtime/SKILL.md"),
+    join(
+      import.meta.dirname,
+      "../../../plugins/corbits-skills/skills/native-runtime/SKILL.md",
+    ),
     "utf8",
   ),
 );

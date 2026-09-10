@@ -20,7 +20,11 @@ describe("xAI OAuth provider projection", () => {
 
   const profile: XaiProfile = {
     name: "work",
-    tokens: { access: "access-token", refresh: "refresh-token", expiresAt: 123 },
+    tokens: {
+      access: "access-token",
+      refresh: "refresh-token",
+      expiresAt: 123,
+    },
     createdAt: 100,
   };
 

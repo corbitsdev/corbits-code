@@ -1,6 +1,9 @@
 import { type BuiltRequest, type ProviderAdapter } from "@intx/inference";
 import { createAnthropicAdapter } from "@intx/inference/providers";
-import { OPENCODE_SESSION_ID_OPTION, optionString } from "./openai-responses-adapter.js";
+import {
+  OPENCODE_SESSION_ID_OPTION,
+  optionString,
+} from "./openai-responses-adapter.js";
 
 export const OPENCODE_GO_MESSAGES_PROVIDER = "opencode-go-messages";
 
@@ -11,7 +14,11 @@ export function createOpenCodeGoAnthropicAdapter(
   quirks?: unknown,
 ): ProviderAdapter {
   const base = createAnthropicAdapter(source, quirks);
-  const buildRequest: ProviderAdapter["buildRequest"] = (messages, model, options) => {
+  const buildRequest: ProviderAdapter["buildRequest"] = (
+    messages,
+    model,
+    options,
+  ) => {
     const built = base.buildRequest(messages, model, options);
     const sessionId = optionString(options, OPENCODE_SESSION_ID_OPTION);
     if (sessionId === undefined) return built;

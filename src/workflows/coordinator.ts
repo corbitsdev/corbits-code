@@ -80,7 +80,11 @@ export class WorkflowCoordinator {
   // already reset their idle counters on any tool call, so a workflow
   // advance is never seen as a stall). Already-complete and not-current
   // completions are acknowledged here without moving the cursor.
-  handleToolDone(name: string | undefined, args: unknown, isError: boolean): boolean {
+  handleToolDone(
+    name: string | undefined,
+    args: unknown,
+    isError: boolean,
+  ): boolean {
     if (isError || !this.runtime.isActive()) return false;
     if (name !== "submit_output") return false;
     const stepId = stepIdOf(args);

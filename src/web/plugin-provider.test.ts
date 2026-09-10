@@ -45,8 +45,18 @@ describe("collectWebPlugins", () => {
 
 describe("selectWebPlugin", () => {
   const candidates: WebPluginCandidate[] = [
-    { id: "exa", name: "Exa Search", credentials: [], factory: () => stubProvider("exa") },
-    { id: "other", name: "Other", credentials: [], factory: () => stubProvider("other") },
+    {
+      id: "exa",
+      name: "Exa Search",
+      credentials: [],
+      factory: () => stubProvider("exa"),
+    },
+    {
+      id: "other",
+      name: "Other",
+      credentials: [],
+      factory: () => stubProvider("other"),
+    },
   ];
 
   test("explicit override wins", () => {
@@ -54,12 +64,18 @@ describe("selectWebPlugin", () => {
   });
 
   test("falls back to the single enabled plugin when no override", () => {
-    expect(selectWebPlugin(candidates, { exa: { enabled: true } }, undefined)?.id).toBe("exa");
+    expect(
+      selectWebPlugin(candidates, { exa: { enabled: true } }, undefined)?.id,
+    ).toBe("exa");
   });
 
   test("returns undefined when multiple enabled and no override (ambiguous)", () => {
     expect(
-      selectWebPlugin(candidates, { exa: { enabled: true }, other: { enabled: true } }, undefined),
+      selectWebPlugin(
+        candidates,
+        { exa: { enabled: true }, other: { enabled: true } },
+        undefined,
+      ),
     ).toBeUndefined();
   });
 

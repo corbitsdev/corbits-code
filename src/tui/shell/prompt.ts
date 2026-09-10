@@ -50,7 +50,10 @@ import {
 } from "./chrome.js";
 
 /** Queue an image for the next submit and reflect it on the notice row. */
-export function addPendingAttachment(shell: AppShell, attachment: PendingImageAttachment): void {
+export function addPendingAttachment(
+  shell: AppShell,
+  attachment: PendingImageAttachment,
+): void {
   shell.pendingAttachments = [...shell.pendingAttachments, attachment];
   paintChrome(shell);
 }
@@ -71,7 +74,12 @@ export function clearPendingAttachments(shell: AppShell): void {
 }
 
 function isENOENT(err: unknown): boolean {
-  return typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    err.code === "ENOENT"
+  );
 }
 
 /**
@@ -92,7 +100,10 @@ export async function attachClipboardImage(shell: AppShell): Promise<boolean> {
     });
     return false;
   }
-  const duplicate = findDuplicateAttachment(shell.pendingAttachments, result.attachment);
+  const duplicate = findDuplicateAttachment(
+    shell.pendingAttachments,
+    result.attachment,
+  );
   if (duplicate !== undefined) {
     setStatusFlash(shell, `${duplicate.name} is already attached`, {
       ttlMs: RUNTIME_FLASH_MS,
@@ -107,16 +118,25 @@ export async function attachClipboardImage(shell: AppShell): Promise<boolean> {
 }
 
 /** Seed the Up/Down recall list (host replays persisted session messages). */
-export function setSentMessageHistory(shell: AppShell, sent: readonly string[]): void {
+export function setSentMessageHistory(
+  shell: AppShell,
+  sent: readonly string[],
+): void {
   shell.sentHistory = createSentHistoryBrowse(sent);
 }
 
 function recordSentMessage(shell: AppShell, text: string): void {
-  shell.sentHistory = createSentHistoryBrowse([...shell.sentHistory.sent, text]);
+  shell.sentHistory = createSentHistoryBrowse([
+    ...shell.sentHistory.sent,
+    text,
+  ]);
 }
 
 /** Publish the `profile · model · effort` label carried by the top border. */
-export function setPromptModelLabel(shell: AppShell, input: PromptActionBarModelLabelInput): void {
+export function setPromptModelLabel(
+  shell: AppShell,
+  input: PromptActionBarModelLabelInput,
+): void {
   const label = composePromptActionBarModelLabel(input) ?? null;
   if (label === shell.modelLabel) return;
   shell.modelLabel = label;
@@ -129,7 +149,8 @@ export function setPromptWorkspace(
   input: { readonly cwd?: string; readonly branch?: string | null },
 ): void {
   const cwd = input.cwd ?? shell.workspace.cwd;
-  const branch = input.branch === undefined ? shell.workspace.branch : input.branch;
+  const branch =
+    input.branch === undefined ? shell.workspace.branch : input.branch;
   if (cwd === shell.workspace.cwd && branch === shell.workspace.branch) return;
   shell.workspace = { cwd, branch };
   paintPromptBorder(shell);
@@ -170,7 +191,8 @@ function promptRecognizedStyleId(): number {
     });
   }
   if (cachedPromptRecognizedStyleId === null) {
-    cachedPromptRecognizedStyleId = cachedPromptSyntaxStyle.resolveStyleId("recognized") ?? 0;
+    cachedPromptRecognizedStyleId =
+      cachedPromptSyntaxStyle.resolveStyleId("recognized") ?? 0;
   }
   return cachedPromptRecognizedStyleId;
 }
@@ -195,7 +217,11 @@ export function syncPromptHighlights(shell: AppShell): void {
   shell.prompt.clearAllHighlights();
   const matcher = resolvePromptRecognitionMatcher(source);
   for (const span of resolvePromptHighlightSpans(value, matcher)) {
-    shell.prompt.addHighlightByCharRange({ start: span.start, end: span.end, styleId });
+    shell.prompt.addHighlightByCharRange({
+      start: span.start,
+      end: span.end,
+      styleId,
+    });
   }
 }
 
@@ -220,7 +246,10 @@ export function syncPromptHighlights(shell: AppShell): void {
  * keyboard for its lifetime; without this, Ctrl+C during a sign-in would
  * also reach the shell and interrupt the running agent.
  */
-export function setShellInputSuspended(shell: AppShell, suspended: boolean): void {
+export function setShellInputSuspended(
+  shell: AppShell,
+  suspended: boolean,
+): void {
   const bag = shellInternals(shell);
   if (bag !== undefined) bag.inputSuspended = suspended;
 }
@@ -287,7 +316,11 @@ export function submitPrompt(
     shell.prompt.value = "";
     clearPendingAttachments(shell);
     const resolved: "queue" | "steer" | "immediate" | "reinject" =
-      kind === "reinject" ? "reinject" : shell.session.run === "idle" ? "immediate" : kind;
+      kind === "reinject"
+        ? "reinject"
+        : shell.session.run === "idle"
+          ? "immediate"
+          : kind;
     hooks.onSubmit(text, resolved, attachments);
     return;
   }
@@ -342,7 +375,10 @@ export function submitPrompt(
  * cancel can retract it instead of leaving a message tagged "queue" that will
  * never dispatch. Absolute index, matching `replaceStreamRowAt`.
  */
-function findQueueRowIndex(shell: AppShell, queueItemId: string): number | undefined {
+function findQueueRowIndex(
+  shell: AppShell,
+  queueItemId: string,
+): number | undefined {
   for (let local = shell.streamLog.length - 1; local >= 0; local--) {
     if (shell.streamLog[local]?.queueItemId === queueItemId) {
       return shell.streamLogBase + local;
@@ -369,7 +405,11 @@ export function applyShellCancelLast(shell: AppShell): void {
       // owns turning it into the "[cancelled]" prefix, so `row.text` still
       // holds what the operator actually typed for anything else that reads
       // it (copy mode, a resumed transcript).
-      replaceStreamRowAt(shell, index, { ...row, meta: "cancelled", cancelled: true });
+      replaceStreamRowAt(shell, index, {
+        ...row,
+        meta: "cancelled",
+        cancelled: true,
+      });
     }
   }
   paintChrome(shell);

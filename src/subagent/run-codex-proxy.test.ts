@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { createToolRunner } from "@intx/agent";
-import { createBlobReader, type ToolCall, type ToolResult } from "@intx/types/runtime";
+import {
+  createBlobReader,
+  type ToolCall,
+  type ToolResult,
+} from "@intx/types/runtime";
 
-import { createCodexToolProxies, type CodexRunManageTasks } from "../agent/codex-tool-proxies.js";
+import {
+  createCodexToolProxies,
+  type CodexRunManageTasks,
+} from "../agent/codex-tool-proxies.js";
 import {
   MAX_RESULT_CHARS,
   truncateToolResultContent,
@@ -24,11 +31,14 @@ function fakeBlobStore() {
   };
 }
 
-const unusedManageTasks: CodexRunManageTasks = async () => ({ content: "unused" });
+const unusedManageTasks: CodexRunManageTasks = async () => ({
+  content: "unused",
+});
 
 function extractToolOutputURI(content: unknown): string {
   const match = /tool-output:\/\/\/\S+/.exec(String(content));
-  if (match === null) throw new Error(`missing tool-output URI in ${String(content)}`);
+  if (match === null)
+    throw new Error(`missing tool-output URI in ${String(content)}`);
   return match[0].replace(/[.\]]+$/, "");
 }
 
@@ -46,10 +56,14 @@ describe("createCodexProxyRunTool", () => {
         const index = seenCallIds.length - 1;
         return {
           callId: call.id,
-          content: await truncateToolResultContent(outputs[index] ?? "", MAX_RESULT_CHARS, {
-            callId: call.id,
-            writeBlob: store.writeBlob,
-          }),
+          content: await truncateToolResultContent(
+            outputs[index] ?? "",
+            MAX_RESULT_CHARS,
+            {
+              callId: call.id,
+              writeBlob: store.writeBlob,
+            },
+          ),
         };
       },
     };
@@ -77,7 +91,11 @@ describe("createCodexProxyRunTool", () => {
     expect(seenCallIds).toEqual(["codex-proxy-1", "codex-proxy-2"]);
 
     const reader = createBlobReader(store);
-    expect(new TextDecoder().decode(await reader.read(firstURI))).toBe(outputs[0]);
-    expect(new TextDecoder().decode(await reader.read(secondURI))).toBe(outputs[1]);
+    expect(new TextDecoder().decode(await reader.read(firstURI))).toBe(
+      outputs[0],
+    );
+    expect(new TextDecoder().decode(await reader.read(secondURI))).toBe(
+      outputs[1],
+    );
   });
 });

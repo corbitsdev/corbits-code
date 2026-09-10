@@ -46,7 +46,13 @@ export type ApprovalMode = "auto" | "interactive";
  * itself because the operator never answered.
  */
 export type ApprovalOutcomeKind =
-  "allow-once" | "allow-with-scope" | "deny" | "auto-allow" | "auto-deny" | "timeout" | "abort";
+  | "allow-once"
+  | "allow-with-scope"
+  | "deny"
+  | "auto-allow"
+  | "auto-deny"
+  | "timeout"
+  | "abort";
 
 export interface ApprovalRecord {
   /** Correlates this settlement with the ask that raised it. */
@@ -124,7 +130,10 @@ export const NOOP_APPROVAL_LOG: ApprovalLog = {
  * Ordering within a session is preserved by chaining each append onto the
  * previous one.
  */
-export function createApprovalLog(dir: string, now: () => Date = () => new Date()): ApprovalLog {
+export function createApprovalLog(
+  dir: string,
+  now: () => Date = () => new Date(),
+): ApprovalLog {
   const path = join(dir, APPROVAL_LOG_FILE);
   const log = getLogger(`${LOG_NAMESPACE_ROOT}:approval-log`);
   let tail: Promise<void> = Promise.resolve();
@@ -165,7 +174,9 @@ export function createApprovalLog(dir: string, now: () => Date = () => new Date(
             tool: event.tool,
             ...(event.rule !== undefined ? { rule: event.rule } : {}),
             mode: event.mode,
-            ...(event.segments !== undefined ? { segments: event.segments } : {}),
+            ...(event.segments !== undefined
+              ? { segments: event.segments }
+              : {}),
             outcome,
             queuedAt: queuedAt.toISOString(),
             displayedAt: displayed.toISOString(),

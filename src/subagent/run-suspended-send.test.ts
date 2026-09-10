@@ -25,7 +25,10 @@ describe("assertReplySend", () => {
       thrown = err;
     }
     expect(thrown).toBeInstanceOf(Error);
-    const error = thrown as Error & { suspendedType?: string; correlationId?: string };
+    const error = thrown as Error & {
+      suspendedType?: string;
+      correlationId?: string;
+    };
     expect(error.message).toContain("suspended");
     expect(error.message).toContain("corr-123");
     expect(error.suspendedType).toBe("suspended");
@@ -38,7 +41,9 @@ describe("assertReplySend", () => {
       description: "run a shell command",
       inputSchema: { type: "object", properties: {} },
       arguments: {},
-    } satisfies NonNullable<Extract<SendResult, { type: "suspended" }>["approvalSnapshot"]>;
+    } satisfies NonNullable<
+      Extract<SendResult, { type: "suspended" }>["approvalSnapshot"]
+    >;
     const result: SendResult = {
       type: "suspended",
       correlationId: "corr-456",

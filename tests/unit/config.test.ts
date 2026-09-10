@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  writeFile,
+  rm,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
@@ -22,7 +29,10 @@ function offlineFetch(): { impl: typeof fetch; calls: () => number } {
 // Writes a minimal valid global settings file with a single provider so that
 // provider resolution succeeds; these tests only exercise flag parsing.
 async function withSettings(
-  fn: (opts: { cwd: string; globalSettingsPath: string }) => void | Promise<void>,
+  fn: (opts: {
+    cwd: string;
+    globalSettingsPath: string;
+  }) => void | Promise<void>,
 ): Promise<void> {
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-"));
   const globalSettingsPath = join(cwd, "global.json");
@@ -60,10 +70,13 @@ test("loadConfig defaults auto mode on", async () => {
 test("loadConfig --no-auto disables auto mode", async () => {
   await withSettings(async ({ cwd, globalSettingsPath }) => {
     const { impl } = offlineFetch();
-    const config = await loadConfig(["--cwd", cwd, "--no-auto", "do something"], {
-      globalSettingsPath,
-      pricing: { fetchImpl: impl },
-    });
+    const config = await loadConfig(
+      ["--cwd", cwd, "--no-auto", "do something"],
+      {
+        globalSettingsPath,
+        pricing: { fetchImpl: impl },
+      },
+    );
     expect(config.auto).toBe(false);
   });
 });
@@ -90,7 +103,10 @@ test("local settings target is omitted when it aliases global settings", async (
     const globalPath = globalSettingsPath(home);
     expect(resolveLocalSettingsPath(home, globalPath)).toBeNull();
     expect(
-      resolveLocalSettingsPath(home, join(home, "nested", "..", ".corbits", "settings.json")),
+      resolveLocalSettingsPath(
+        home,
+        join(home, "nested", "..", ".corbits", "settings.json"),
+      ),
     ).toBeNull();
     expect(resolveLocalSettingsPath(home, join(home, "explicit.json"))).toBe(
       join(home, ".corbits", "settings.json"),
@@ -109,9 +125,9 @@ test("local settings target falls back to the lexical path when .corbits is a re
   const root = await mkdtemp(join(tmpdir(), "ic-unit-config-notdir-"));
   try {
     await writeFile(join(root, ".corbits"), "");
-    expect(resolveLocalSettingsPath(root, globalSettingsPath(join(root, "home")))).toBe(
-      join(root, ".corbits", "settings.json"),
-    );
+    expect(
+      resolveLocalSettingsPath(root, globalSettingsPath(join(root, "home"))),
+    ).toBe(join(root, ".corbits", "settings.json"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -146,7 +162,9 @@ test("symlink alias of the default global settings path is not a programmatic ov
     await symlink(realPath, aliasPath);
 
     expect(isProgrammaticSettingsOverride(aliasPath, realPath)).toBe(false);
-    expect(isProgrammaticSettingsOverride(join(root, "other.json"), realPath)).toBe(true);
+    expect(
+      isProgrammaticSettingsOverride(join(root, "other.json"), realPath),
+    ).toBe(true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -161,17 +179,29 @@ test("loadSettings recovery helper recovers only an exact clobbered local select
     const clobbered = JSON.stringify({ provider: "openai", model: "gpt-5" });
     await writeFile(clobberedPath, clobbered);
     await expect(
-      loadSettingsRecoveringClobberedOAuthSelection(clobberedPath, {}, { persist: true }),
+      loadSettingsRecoveringClobberedOAuthSelection(
+        clobberedPath,
+        {},
+        { persist: true },
+      ),
     ).rejects.toThrow(/Invalid settings schema/);
     expect(await readFile(clobberedPath, "utf8")).toBe(clobbered);
 
     const malformedPath = join(cwd, "malformed.json");
     await writeFile(
       malformedPath,
-      JSON.stringify({ provider: "openai", model: "gpt-5", apiKey: "not-recoverable" }),
+      JSON.stringify({
+        provider: "openai",
+        model: "gpt-5",
+        apiKey: "not-recoverable",
+      }),
     );
     await expect(
-      loadSettingsRecoveringClobberedOAuthSelection(malformedPath, {}, { persist: true }),
+      loadSettingsRecoveringClobberedOAuthSelection(
+        malformedPath,
+        {},
+        { persist: true },
+      ),
     ).rejects.toThrow(/Invalid settings schema/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
@@ -210,13 +240,18 @@ test("loadConfig does not load an aliased global file as local settings", async 
 });
 
 test("global settings round-trip the telemetry block", async () => {
-  const { loadSettings, saveGlobalSettings } = await import("../../src/config/settings.js");
+  const { loadSettings, saveGlobalSettings } =
+    await import("../../src/config/settings.js");
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-telemetry-"));
   const path = join(cwd, "global.json");
   try {
     await saveGlobalSettings(path, {
       providers: {},
-      telemetry: { enabled: false, installationId: "test-id", noticeShown: true },
+      telemetry: {
+        enabled: false,
+        installationId: "test-id",
+        noticeShown: true,
+      },
     });
     const loaded = await loadSettings(path);
     expect(loaded?.telemetry).toEqual({
@@ -275,14 +310,18 @@ test("loadSettings cannot silently drop a known optional key", async () => {
     expect(loaded).not.toBeNull();
     for (const key of GLOBAL_SETTINGS_OPTIONAL_KEYS) {
       expect(loaded).toHaveProperty(key);
-      expect((loaded as unknown as Record<string, unknown>)[key]).not.toBeUndefined();
+      expect(
+        (loaded as unknown as Record<string, unknown>)[key],
+      ).not.toBeUndefined();
     }
     // Undefined optionals stay absent (not { foo: undefined }).
     const minimalPath = join(cwd, "minimal.json");
     await writeFile(minimalPath, JSON.stringify({ providers: {} }));
     const minimal = await loadSettings(minimalPath);
     expect(minimal).toEqual({ providers: {} });
-    expect(Object.prototype.hasOwnProperty.call(minimal, "telemetry")).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(minimal, "telemetry")).toBe(
+      false,
+    );
 
     // Transforms still apply: discoverClaudePlugins only survives when true.
     const falseDiscoverPath = join(cwd, "false-discover.json");
@@ -292,9 +331,12 @@ test("loadSettings cannot silently drop a known optional key", async () => {
     );
     const falseDiscover = await loadSettings(falseDiscoverPath);
     expect(falseDiscover).toEqual({ providers: {} });
-    expect(Object.prototype.hasOwnProperty.call(falseDiscover, "discoverClaudePlugins")).toBe(
-      false,
-    );
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        falseDiscover,
+        "discoverClaudePlugins",
+      ),
+    ).toBe(false);
 
     // Local settings — including env, which the old hand-spread path dropped.
     const localPath = join(cwd, "local.json");
@@ -320,11 +362,15 @@ test("loadSettings cannot silently drop a known optional key", async () => {
 });
 
 test("aliased-home restart preserves a non-default OAuth model", async () => {
-  const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-alias-home-"));
+  const fakeHome = await mkdtemp(
+    join(tmpdir(), "ic-unit-config-oauth-alias-home-"),
+  );
   try {
-    const { XAI_DEFAULT_MODELS } = await import("../../src/auth/xai/constants.js");
+    const { XAI_DEFAULT_MODELS } =
+      await import("../../src/auth/xai/constants.js");
     const selectedModel = XAI_DEFAULT_MODELS[1];
-    if (selectedModel === undefined) throw new Error("Expected a non-default xAI model fixture");
+    if (selectedModel === undefined)
+      throw new Error("Expected a non-default xAI model fixture");
     await mkdir(join(fakeHome, ".corbits"), { recursive: true });
     await writeFile(
       join(fakeHome, ".corbits", "settings.json"),
@@ -358,7 +404,10 @@ test("aliased-home restart preserves a non-default OAuth model", async () => {
 
     await withMockedModuleDuring(
       import.meta.resolve("node:os"),
-      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      (real: typeof import("node:os")) => ({
+        ...real,
+        homedir: () => fakeHome,
+      }),
       async () => {
         const { impl } = offlineFetch();
         const config = await loadConfig(["--cwd", fakeHome, "do something"], {
@@ -377,7 +426,9 @@ test("aliased-home restart preserves a non-default OAuth model", async () => {
 });
 
 test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", async () => {
-  const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-orphan-home-"));
+  const fakeHome = await mkdtemp(
+    join(tmpdir(), "ic-unit-config-oauth-orphan-home-"),
+  );
   try {
     await mkdir(join(fakeHome, ".corbits"), { recursive: true });
     const settingsPath = join(fakeHome, ".corbits", "settings.json");
@@ -400,7 +451,10 @@ test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", as
 
     await withMockedModuleDuring(
       import.meta.resolve("node:os"),
-      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      (real: typeof import("node:os")) => ({
+        ...real,
+        homedir: () => fakeHome,
+      }),
       async () => {
         const { impl } = offlineFetch();
         const config = await loadConfig(["--cwd", fakeHome, "do something"], {
@@ -409,7 +463,9 @@ test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", as
         expect(config.configured).toBe(true);
         if (config.configured) {
           expect(config.providerName).toBe("openai");
-          expect(config.providers.some((p) => p.name === "xai/gone")).toBe(false);
+          expect(config.providers.some((p) => p.name === "xai/gone")).toBe(
+            false,
+          );
         }
       },
     );
@@ -461,7 +517,10 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
     // this call.
     await withMockedModuleDuring(
       import.meta.resolve("node:os"),
-      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      (real: typeof import("node:os")) => ({
+        ...real,
+        homedir: () => fakeHome,
+      }),
       async () => {
         const { impl } = offlineFetch();
         const config = await loadConfig(
@@ -472,7 +531,9 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
         expect(config.configured).toBe(true);
         if (config.configured) {
           expect(config.providerName).toBe("xai/synthetic");
-          expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
+          expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(
+            true,
+          );
         }
       },
     );
@@ -491,8 +552,12 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
 // --config composes with auth: the OAuth profile still resolves even though
 // a --config file is also given, and the file's own settings still apply.
 test("--config composes with OAuth profile auth instead of suppressing it", async () => {
-  const fakeHome = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-compose-home-"));
-  const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-compose-cwd-"));
+  const fakeHome = await mkdtemp(
+    join(tmpdir(), "ic-unit-config-oauth-compose-home-"),
+  );
+  const cwd = await mkdtemp(
+    join(tmpdir(), "ic-unit-config-oauth-compose-cwd-"),
+  );
   try {
     await mkdir(join(fakeHome, ".corbits"), { recursive: true });
     await writeFile(
@@ -516,7 +581,10 @@ test("--config composes with OAuth profile auth instead of suppressing it", asyn
 
     await withMockedModuleDuring(
       import.meta.resolve("node:os"),
-      (real: typeof import("node:os")) => ({ ...real, homedir: () => fakeHome }),
+      (real: typeof import("node:os")) => ({
+        ...real,
+        homedir: () => fakeHome,
+      }),
       async () => {
         const { impl } = offlineFetch();
         const config = await loadConfig(
@@ -536,7 +604,9 @@ test("--config composes with OAuth profile auth instead of suppressing it", asyn
         expect(config.configured).toBe(true);
         if (config.configured) {
           expect(config.providerName).toBe("xai/synthetic");
-          expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
+          expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(
+            true,
+          );
           expect(config.globalSettingsPath).toBe(configPath);
         }
       },

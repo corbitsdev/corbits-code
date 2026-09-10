@@ -29,7 +29,10 @@ export interface PricingFetcherOptions {
   endpoint?: string;
   // The plain call signature, not `typeof fetch` — `typeof fetch` also carries
   // static members (e.g. `preconnect`) that a test double has no reason to implement.
-  fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  fetchImpl?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>;
   fetchTimeoutMs?: number;
   now?: () => number;
   refreshIntervalMs?: number;
@@ -59,7 +62,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function getNumberField(value: Record<string, unknown>, field: string): number | null {
+function getNumberField(
+  value: Record<string, unknown>,
+  field: string,
+): number | null {
   const raw = value[field];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
@@ -83,7 +89,9 @@ function parseModelPricing(value: unknown): ModelPricing | null {
  * below shares this single traversal and only differs in which field it
  * extracts from the yielded node.
  */
-function* walkModelNodes(value: unknown): Generator<[id: string, node: Record<string, unknown>]> {
+function* walkModelNodes(
+  value: unknown,
+): Generator<[id: string, node: Record<string, unknown>]> {
   if (Array.isArray(value)) {
     for (const item of value) yield* walkModelNodes(item);
     return;
@@ -91,7 +99,11 @@ function* walkModelNodes(value: unknown): Generator<[id: string, node: Record<st
   if (!isRecord(value)) return;
 
   const id =
-    typeof value.id === "string" ? value.id : typeof value.model === "string" ? value.model : null;
+    typeof value.id === "string"
+      ? value.id
+      : typeof value.model === "string"
+        ? value.model
+        : null;
   if (id !== null) yield [id, value];
 
   for (const child of Object.values(value)) {
@@ -99,7 +111,9 @@ function* walkModelNodes(value: unknown): Generator<[id: string, node: Record<st
   }
 }
 
-export function parseModelsDevPricing(payload: unknown): Record<string, ModelPricing> {
+export function parseModelsDevPricing(
+  payload: unknown,
+): Record<string, ModelPricing> {
   const models: Record<string, ModelPricing> = {};
   for (const [id, node] of walkModelNodes(payload)) {
     const pricing = parseModelPricing(node);
@@ -108,7 +122,9 @@ export function parseModelsDevPricing(payload: unknown): Record<string, ModelPri
   return models;
 }
 
-export function parseModelsDevReasoning(payload: unknown): Record<string, boolean> {
+export function parseModelsDevReasoning(
+  payload: unknown,
+): Record<string, boolean> {
   const reasoning: Record<string, boolean> = {};
   for (const [id, node] of walkModelNodes(payload)) {
     if (typeof node.reasoning === "boolean") reasoning[id] = node.reasoning;
@@ -116,13 +132,17 @@ export function parseModelsDevReasoning(payload: unknown): Record<string, boolea
   return reasoning;
 }
 
-export function parseModelsDevContextWindows(payload: unknown): Record<string, number> {
+export function parseModelsDevContextWindows(
+  payload: unknown,
+): Record<string, number> {
   const windows: Record<string, number> = {};
   for (const [id, node] of walkModelNodes(payload)) {
     // models.dev nests the window under `limit.context`.
     const limit = isRecord(node.limit) ? node.limit : undefined;
     const context =
-      limit !== undefined && typeof limit.context === "number" ? limit.context : undefined;
+      limit !== undefined && typeof limit.context === "number"
+        ? limit.context
+        : undefined;
     if (context !== undefined && Number.isFinite(context) && context > 0) {
       windows[id] = context;
     }
@@ -152,7 +172,11 @@ export async function readPricingCache(
     const contextWindows: Record<string, number> = {};
     if (isRecord(payload) && isRecord(payload.contextWindows)) {
       for (const [modelId, window] of Object.entries(payload.contextWindows)) {
-        if (typeof window === "number" && Number.isFinite(window) && window > 0) {
+        if (
+          typeof window === "number" &&
+          Number.isFinite(window) &&
+          window > 0
+        ) {
           contextWindows[modelId] = window;
         }
       }
@@ -180,12 +204,16 @@ export async function writePricingCache(
   }
 }
 
-export async function fetchPricing(options: PricingFetcherOptions = {}): Promise<PricingCache> {
+export async function fetchPricing(
+  options: PricingFetcherOptions = {},
+): Promise<PricingCache> {
   const endpoint = options.endpoint ?? DEFAULT_ENDPOINT;
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
   const response = await fetchImpl(endpoint, {
-    signal: AbortSignal.timeout(options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(
+      options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS,
+    ),
   });
   if (!response.ok) {
     throw new Error(`models.dev pricing request failed: ${response.status}`);
@@ -225,8 +253,11 @@ export function lookupModelPricing(
   return cache?.models[modelId] ?? null;
 }
 
-export function startPricingRefresh(options: PricingFetcherOptions = {}): Timer {
-  const refreshIntervalMs = options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
+export function startPricingRefresh(
+  options: PricingFetcherOptions = {},
+): Timer {
+  const refreshIntervalMs =
+    options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
   const timer = setInterval(() => {
     loadPricing(options).catch((err: unknown) => {
       process.stderr.write(`pricing-fetcher: refresh error: ${err}\n`);

@@ -15,61 +15,84 @@ const shellCall = (command: string): ToolCall => ({
 describe("git-global-config ask survives shell wrappers", () => {
   // Control: the plain form names the rule the wrapped forms must still hit.
   test("plain form names the rule", () => {
-    expect(autoShellRuleForCall(shellCall("git config --global user.name foo"))?.name).toBe(
-      "git-global-config",
-    );
+    expect(
+      autoShellRuleForCall(shellCall("git config --global user.name foo"))
+        ?.name,
+    ).toBe("git-global-config");
   });
 
   test("sh -c and bash -c payloads still match", () => {
-    expect(autoShellRuleForCall(shellCall("sh -c 'git config --global user.name foo'"))?.name).toBe(
-      "git-global-config",
-    );
     expect(
-      autoShellRuleForCall(shellCall('bash -c "git config --global user.email x@y.z"'))?.name,
+      autoShellRuleForCall(
+        shellCall("sh -c 'git config --global user.name foo'"),
+      )?.name,
+    ).toBe("git-global-config");
+    expect(
+      autoShellRuleForCall(
+        shellCall('bash -c "git config --global user.email x@y.z"'),
+      )?.name,
     ).toBe("git-global-config");
   });
 
   test("bare and piped xargs do not bypass the ask", () => {
-    expect(autoShellRuleForCall(shellCall("xargs git config --global user.name foo"))?.name).toBe(
-      "git-global-config",
-    );
     expect(
-      autoShellRuleForCall(shellCall("echo refs | xargs git config --global user.name foo"))?.name,
+      autoShellRuleForCall(shellCall("xargs git config --global user.name foo"))
+        ?.name,
+    ).toBe("git-global-config");
+    expect(
+      autoShellRuleForCall(
+        shellCall("echo refs | xargs git config --global user.name foo"),
+      )?.name,
     ).toBe("git-global-config");
   });
 
   test("transparent env prefix still peels through to the rule", () => {
-    expect(autoShellRuleForCall(shellCall("env git config --global user.name foo"))?.name).toBe(
-      "git-global-config",
-    );
+    expect(
+      autoShellRuleForCall(shellCall("env git config --global user.name foo"))
+        ?.name,
+    ).toBe("git-global-config");
   });
 
   test("a NAME=value prefix still asks (env-assignment fires first)", () => {
     // The assignment itself is the earlier ask rule in the table, so the name
     // differs — what is pinned here is that the call never auto-allows.
-    const rule = autoShellRuleForCall(shellCall("FOO=bar git config --global user.name foo"));
+    const rule = autoShellRuleForCall(
+      shellCall("FOO=bar git config --global user.name foo"),
+    );
     expect(rule?.effect).toBe("ask");
     expect(rule?.name).toBe("env-assignment");
   });
 
   test("quote round-trips on the program or flag still match", () => {
-    expect(autoShellRuleForCall(shellCall('git "config" --global user.name foo'))?.name).toBe(
-      "git-global-config",
-    );
-    expect(autoShellRuleForCall(shellCall("git config '--global' user.name foo"))?.name).toBe(
-      "git-global-config",
-    );
     expect(
-      autoShellRuleForCall(shellCall("sh -c 'git \"config\" --global user.name foo'"))?.name,
+      autoShellRuleForCall(shellCall('git "config" --global user.name foo'))
+        ?.name,
+    ).toBe("git-global-config");
+    expect(
+      autoShellRuleForCall(shellCall("git config '--global' user.name foo"))
+        ?.name,
+    ).toBe("git-global-config");
+    expect(
+      autoShellRuleForCall(
+        shellCall("sh -c 'git \"config\" --global user.name foo'"),
+      )?.name,
     ).toBe("git-global-config");
   });
 });
 
 describe("read-only git commands pass through the policy", () => {
   test("scoped reads and repo-local writes stay unflagged", () => {
-    expect(autoShellRuleForCall(shellCall("git config --get user.name"))).toBeUndefined();
-    expect(autoShellRuleForCall(shellCall("git config --list"))).toBeUndefined();
-    expect(autoShellRuleForCall(shellCall("git config --get-regexp '^branch\\.'"))).toBeUndefined();
-    expect(autoShellRuleForCall(shellCall("git status --porcelain"))).toBeUndefined();
+    expect(
+      autoShellRuleForCall(shellCall("git config --get user.name")),
+    ).toBeUndefined();
+    expect(
+      autoShellRuleForCall(shellCall("git config --list")),
+    ).toBeUndefined();
+    expect(
+      autoShellRuleForCall(shellCall("git config --get-regexp '^branch\\.'")),
+    ).toBeUndefined();
+    expect(
+      autoShellRuleForCall(shellCall("git status --porcelain")),
+    ).toBeUndefined();
   });
 });

@@ -30,7 +30,10 @@ afterEach(async () => {
 });
 
 async function mkdtemp(): Promise<string> {
-  const dir = join(tmpdir(), `ic-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `ic-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   await mkdir(dir, { recursive: true });
   return dir;
 }
@@ -48,7 +51,8 @@ describe("loadDataOnlyCommands", () => {
 
   test("synthesizes a flat command from a markdown file", async () => {
     const dir = await makePlugin({
-      "commands/greet.md": "---\ndescription: Greet someone\n---\nHello $ARGUMENTS!",
+      "commands/greet.md":
+        "---\ndescription: Greet someone\n---\nHello $ARGUMENTS!",
     });
     const plugin = defined(await loadDataOnlyCommands(dir), "plugin");
     const cmd = defined(
@@ -66,9 +70,10 @@ describe("loadDataOnlyCommands", () => {
         "---\ndescription: Greet someone\nargument-hint: <name>\n---\nHello $ARGUMENTS!",
     });
     const cmd = defined(
-      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin.commands.find(
-        (c) => c.name === "greet",
-      ),
+      defined(
+        await loadDataOnlyCommands(dir),
+        "plugin",
+      ).commandPlugin.commands.find((c) => c.name === "greet"),
       "greet command",
     );
     expect(cmd.argumentHint).toBe("<name>");
@@ -79,16 +84,20 @@ describe("loadDataOnlyCommands", () => {
       "commands/plain.md": "Summarize the working tree.\nMore detail.",
     });
     const cmd = defined(
-      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin.commands[0],
+      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin
+        .commands[0],
       "command",
     );
     expect(cmd.description).toBe("Summarize the working tree.");
   });
 
   test("drops $ARGUMENTS when the command is invoked with no args", async () => {
-    const dir = await makePlugin({ "commands/echo.md": "Body [$ARGUMENTS] end" });
+    const dir = await makePlugin({
+      "commands/echo.md": "Body [$ARGUMENTS] end",
+    });
     const cmd = defined(
-      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin.commands[0],
+      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin
+        .commands[0],
       "command",
     );
     expect(cmd.handler("", ctx)).toEqual({ type: "send", text: "Body [] end" });
@@ -96,16 +105,21 @@ describe("loadDataOnlyCommands", () => {
 
   test("builds a namespaced command from a subdirectory", async () => {
     const dir = await makePlugin({
-      "commands/repo/init.md": "---\ndescription: init a repo\n---\nInit $ARGUMENTS",
+      "commands/repo/init.md":
+        "---\ndescription: init a repo\n---\nInit $ARGUMENTS",
       "commands/repo/scan.md": "---\ndescription: scan a repo\n---\nScan it",
     });
     const cmd = defined(
-      defined(await loadDataOnlyCommands(dir), "plugin").commandPlugin.commands.find(
-        (c) => c.name === "repo",
-      ),
+      defined(
+        await loadDataOnlyCommands(dir),
+        "plugin",
+      ).commandPlugin.commands.find((c) => c.name === "repo"),
       "repo command",
     );
-    expect(cmd.subcommands?.map((s) => s.name).sort()).toEqual(["init", "scan"]);
+    expect(cmd.subcommands?.map((s) => s.name).sort()).toEqual([
+      "init",
+      "scan",
+    ]);
 
     const ok = cmd.handler("init acme", ctx);
     expect(ok).toEqual({ type: "send", text: "Init acme" });
@@ -120,7 +134,9 @@ describe("loadDataOnlyCommands", () => {
   test("accepts the OpenCode command/ (singular) root", async () => {
     const dir = await makePlugin({ "command/greet.md": "Hi $ARGUMENTS" });
     const plugin = defined(await loadDataOnlyCommands(dir), "plugin");
-    expect(defined(plugin.commandPlugin.commands[0], "command").name).toBe("greet");
+    expect(defined(plugin.commandPlugin.commands[0], "command").name).toBe(
+      "greet",
+    );
   });
 });
 

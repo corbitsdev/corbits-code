@@ -116,7 +116,9 @@ describe("reasoning costs one turn gap, spent below itself", () => {
   const thinking: StreamRow = { role: "system", meta: "thinking", text: "hmm" };
 
   test("the pair opens exactly the gap the turn would have", () => {
-    expect(rowGroupGap(you, thinking) + rowGroupGap(thinking, agent)).toBe(rowGroupGap(you, agent));
+    expect(rowGroupGap(you, thinking) + rowGroupGap(thinking, agent)).toBe(
+      rowGroupGap(you, agent),
+    );
   });
 
   test("the gap sits between the reasoning line and the answer", () => {

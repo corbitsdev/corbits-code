@@ -4,7 +4,11 @@ import {
   formatToolExecutionTimeoutMessage,
   TIMEOUT_PREFIX,
 } from "../plugins/tool-time-budget.js";
-import { BUDGET_EXPIRED, budgetExpiry, withTimeout } from "../util/budget-race.js";
+import {
+  BUDGET_EXPIRED,
+  budgetExpiry,
+  withTimeout,
+} from "../util/budget-race.js";
 export { withTimeout };
 import { isMcpToolName } from "../mcp/tool-name.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
@@ -113,7 +117,9 @@ export function resolveToolExecutionTimeoutMs(
   return resolveSettingsWatchdogTimeoutMs(config);
 }
 
-function resolveMcpToolTimeoutMs(config: ToolWatchdogConfig | undefined): number {
+function resolveMcpToolTimeoutMs(
+  config: ToolWatchdogConfig | undefined,
+): number {
   const max = config?.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
   const configured = config?.mcpTimeoutMs;
   // A non-positive or non-finite configured value is not a valid budget (it
@@ -128,7 +134,11 @@ function resolveMcpToolTimeoutMs(config: ToolWatchdogConfig | undefined): number
 
 function requestedRunShellTimeoutMs(call: ToolCall): number | undefined {
   const timeout = call.arguments.timeout;
-  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) {
+  if (
+    typeof timeout !== "number" ||
+    !Number.isFinite(timeout) ||
+    timeout <= 0
+  ) {
     return undefined;
   }
   return Math.floor(timeout);
@@ -137,7 +147,10 @@ function requestedRunShellTimeoutMs(call: ToolCall): number | undefined {
 function resolveSettingsWatchdogTimeoutMs(
   config: ToolWatchdogConfig | undefined,
 ): number | undefined {
-  if (config === undefined || (config.defaultMs === undefined && config.maxMs === undefined)) {
+  if (
+    config === undefined ||
+    (config.defaultMs === undefined && config.maxMs === undefined)
+  ) {
     return undefined;
   }
   const max = config.maxMs ?? MAX_TOOL_EXECUTION_TIMEOUT_MS;
@@ -362,7 +375,8 @@ export async function preferExecuteSalvageAfterAbort(
 ): Promise<ToolResult | undefined> {
   try {
     const settled = await settleWithGrace(executePromise, graceMs);
-    if (settled !== undefined && isUsableToolExecuteResult(settled)) return settled;
+    if (settled !== undefined && isUsableToolExecuteResult(settled))
+      return settled;
   } catch {
     // execute rejected after abort; fall through to synthetic result
   }
@@ -397,7 +411,8 @@ export async function runWithToolExecutionWatchdog(
   execute: (signal: AbortSignal) => Promise<ToolResult>,
   options: ToolExecutionWatchdogOptions,
 ): Promise<ToolResult> {
-  const salvageGraceMs = options.salvageGraceMs ?? TOOL_EXECUTION_SALVAGE_GRACE_MS;
+  const salvageGraceMs =
+    options.salvageGraceMs ?? TOOL_EXECUTION_SALVAGE_GRACE_MS;
   const waitForApproval = options.waitForApproval;
   const budget: PauseableTimeout =
     timeoutMs === undefined
@@ -431,10 +446,16 @@ export async function runWithToolExecutionWatchdog(
   try {
     return await toolApprovalBudgetAls.run(approvalBudget, async () => {
       const executePromise = execute(budget.signal);
-      const outcome = await Promise.race([executePromise, budgetExpiry(budget.signal)]);
+      const outcome = await Promise.race([
+        executePromise,
+        budgetExpiry(budget.signal),
+      ]);
 
       if (outcome === BUDGET_EXPIRED) {
-        const salvaged = await preferExecuteSalvageAfterAbort(executePromise, salvageGraceMs);
+        const salvaged = await preferExecuteSalvageAfterAbort(
+          executePromise,
+          salvageGraceMs,
+        );
         if (salvaged !== undefined) return salvaged;
         // Avoid unhandled rejection if execute later fails after we move on.
         void executePromise.catch(() => undefined);

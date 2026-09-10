@@ -30,7 +30,10 @@ afterEach(async () => {
 });
 
 async function mkdtemp(): Promise<string> {
-  const dir = join(tmpdir(), `ic-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(
+    tmpdir(),
+    `ic-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   await mkdir(dir, { recursive: true });
   return dir;
 }
@@ -49,7 +52,10 @@ describe("loadSkillCommands", () => {
         "---\nname: linear-create\ndescription: Create Linear issues\n---\nCreate the artifacts.",
     });
     const cmds = defined(await loadSkillCommands(dir), "skill commands");
-    expect(cmds.map((c) => c.name).sort()).toEqual(["linear-create", "linear-issue-workflow"]);
+    expect(cmds.map((c) => c.name).sort()).toEqual([
+      "linear-create",
+      "linear-issue-workflow",
+    ]);
 
     // Tagged skill, no $ARGUMENTS in body -> args append.
     const workflow = defined(
@@ -84,7 +90,9 @@ describe("loadSkillCommands", () => {
         '---\nname: linear-create\ndescription: Create Linear issues\nargument-hint: "[description] [--from-doc]"\n---\nCreate the artifacts.',
     });
     const cmd = defined(
-      defined(await loadSkillCommands(dir), "skill commands").find((c) => c.name === "linear-create"),
+      defined(await loadSkillCommands(dir), "skill commands").find(
+        (c) => c.name === "linear-create",
+      ),
       "linear-create command",
     );
     expect(cmd.argumentHint).toBe("[description] [--from-doc]");
@@ -96,11 +104,19 @@ describe("loadSkillCommands", () => {
         "---\nname: hiring\ndescription: Hiring\n---\nRun the loop on $ARGUMENTS.",
     });
     const cmd = defined(
-      defined(await loadSkillCommands(dir), "skill commands").find((c) => c.name === "hiring"),
+      defined(await loadSkillCommands(dir), "skill commands").find(
+        (c) => c.name === "hiring",
+      ),
       "hiring command",
     );
-    expect(cmd.handler("analyze", ctx)).toEqual({ type: "send", text: "Run the loop on analyze." });
-    expect(cmd.handler("", ctx)).toEqual({ type: "send", text: "Run the loop on ." });
+    expect(cmd.handler("analyze", ctx)).toEqual({
+      type: "send",
+      text: "Run the loop on analyze.",
+    });
+    expect(cmd.handler("", ctx)).toEqual({
+      type: "send",
+      text: "Run the loop on .",
+    });
   });
 
   test("falls back to the directory name when frontmatter omits name", async () => {
@@ -142,8 +158,15 @@ describe("loadDataOnlyPlugin — Claude marketplace adapter", () => {
 
   test("native manifest.json is preferred over .claude-plugin/plugin.json", async () => {
     const dir = await makePlugin({
-      "manifest.json": JSON.stringify({ id: "native", name: "Native", kind: "agent" }),
-      ".claude-plugin/plugin.json": JSON.stringify({ name: "claude-name", description: "ignored" }),
+      "manifest.json": JSON.stringify({
+        id: "native",
+        name: "Native",
+        kind: "agent",
+      }),
+      ".claude-plugin/plugin.json": JSON.stringify({
+        name: "claude-name",
+        description: "ignored",
+      }),
       "agents/karen.md": "You orchestrate.",
     });
     const plugin = defined(await loadDataOnlyPlugin(dir), "plugin");
@@ -155,7 +178,8 @@ describe("loadDataOnlyPlugin — Claude marketplace adapter", () => {
   test("a skills-only plugin infers kind command (every skill is a command)", async () => {
     const dir = await makePlugin({
       "skills/hiring/SKILL.md": "---\nname: hiring\n---\nHire.",
-      "skills/brand-identity/SKILL.md": "---\nname: brand-identity\n---\nBrand.",
+      "skills/brand-identity/SKILL.md":
+        "---\nname: brand-identity\n---\nBrand.",
     });
     const plugin = defined(await loadDataOnlyPlugin(dir), "plugin");
     expect(plugin.manifest.kind).toBe("command");

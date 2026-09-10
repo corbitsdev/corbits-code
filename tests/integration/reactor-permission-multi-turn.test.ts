@@ -58,7 +58,8 @@ describe("integration — reactor permission + multi-turn", () => {
         expect(denied).toBeDefined();
 
         expect(
-          reply.includes("Tool call rejected by operator.") || reply.includes("Understood"),
+          reply.includes("Tool call rejected by operator.") ||
+            reply.includes("Understood"),
         ).toBe(true);
       } finally {
         await closeIntegrationSession(session);
@@ -99,7 +100,10 @@ describe("integration — reactor permission + multi-turn", () => {
           text: "Fetched.",
         });
 
-        const { events } = await runUntilDone(session, "Please fetch example.com with curl.");
+        const { events } = await runUntilDone(
+          session,
+          "Please fetch example.com with curl.",
+        );
 
         expect(asked).toBeGreaterThan(0);
         expect(events.some((e) => e.type === "reactor.error")).toBe(false);
@@ -119,43 +123,54 @@ describe("integration — reactor permission + multi-turn", () => {
     },
   );
 
-  test.serial("two user sends on the same agent retain both turns in history", async () => {
-    const session = await openIntegrationSession({
-      permissionGate: createPermissionGate({
-        approvals: [],
-        interactive: false,
-        skipPermissions: true,
-        reactorGated: false,
-      }),
-    });
+  test.serial(
+    "two user sends on the same agent retain both turns in history",
+    async () => {
+      const session = await openIntegrationSession({
+        permissionGate: createPermissionGate({
+          approvals: [],
+          interactive: false,
+          skipPermissions: true,
+          reactorGated: false,
+        }),
+      });
 
-    try {
-      session.harness.scenario.replyOnce("anthropic", { text: "First reply." });
-      session.harness.scenario.replyOnce("anthropic", { text: "Second reply." });
+      try {
+        session.harness.scenario.replyOnce("anthropic", {
+          text: "First reply.",
+        });
+        session.harness.scenario.replyOnce("anthropic", {
+          text: "Second reply.",
+        });
 
-      await runUntilDone(session, "First message.");
-      await runUntilDone(session, "Second message.");
+        await runUntilDone(session, "First message.");
+        await runUntilDone(session, "Second message.");
 
-      const history = await session.agent.history();
-      const userTexts = history
-        .filter((t) => t.role === "user")
-        .flatMap((t) => t.content)
-        .filter((b) => b.type === "text")
-        .map((b) => (b.type === "text" ? b.text : ""));
+        const history = await session.agent.history();
+        const userTexts = history
+          .filter((t) => t.role === "user")
+          .flatMap((t) => t.content)
+          .filter((b) => b.type === "text")
+          .map((b) => (b.type === "text" ? b.text : ""));
 
-      expect(userTexts.some((t) => t.includes("First message"))).toBe(true);
-      expect(userTexts.some((t) => t.includes("Second message"))).toBe(true);
+        expect(userTexts.some((t) => t.includes("First message"))).toBe(true);
+        expect(userTexts.some((t) => t.includes("Second message"))).toBe(true);
 
-      const assistantTexts = history
-        .filter((t) => t.role === "assistant")
-        .flatMap((t) => t.content)
-        .filter((b) => b.type === "text")
-        .map((b) => (b.type === "text" ? b.text : ""));
+        const assistantTexts = history
+          .filter((t) => t.role === "assistant")
+          .flatMap((t) => t.content)
+          .filter((b) => b.type === "text")
+          .map((b) => (b.type === "text" ? b.text : ""));
 
-      expect(assistantTexts.some((t) => t.includes("First reply"))).toBe(true);
-      expect(assistantTexts.some((t) => t.includes("Second reply"))).toBe(true);
-    } finally {
-      await closeIntegrationSession(session);
-    }
-  });
+        expect(assistantTexts.some((t) => t.includes("First reply"))).toBe(
+          true,
+        );
+        expect(assistantTexts.some((t) => t.includes("Second reply"))).toBe(
+          true,
+        );
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
 });

@@ -14,12 +14,21 @@ export interface McpResultSummary {
 }
 
 // Fields that make a record recognizable, in priority order.
-const NAME_FIELDS = ["name", "title", "identifier", "label", "key", "summary", "id"];
+const NAME_FIELDS = [
+  "name",
+  "title",
+  "identifier",
+  "label",
+  "key",
+  "summary",
+  "id",
+];
 const STATUS_FIELDS = ["status", "state", "type", "priority"];
 
 function asString(value: unknown): string | null {
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   return null;
 }
 
@@ -55,27 +64,36 @@ export function extractMcpRecords(content: string): McpRecords | null {
 }
 
 // Read a field that may be a scalar or a `{ name }` wrapper (Linear's shape).
-export function recordScalar(record: Record<string, unknown>, key: string): string | null {
+export function recordScalar(
+  record: Record<string, unknown>,
+  key: string,
+): string | null {
   return scalarField(record, key);
 }
 
 // A single record result (get_project, get_issue, save_*): a plain object that is
 // not itself a list wrapper. Rendered as a detail card rather than a table.
-export function extractMcpRecord(content: string): Record<string, unknown> | null {
+export function extractMcpRecord(
+  content: string,
+): Record<string, unknown> | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(content.trim());
   } catch {
     return null;
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    return null;
   if (extractMcpRecords(content) !== null) return null;
   return parsed as Record<string, unknown>;
 }
 
 // Some MCP servers nest the human-readable value one level down (e.g. Linear
 // returns status as `{ name: "In Progress" }`). Pull a scalar out of either.
-function scalarField(record: Record<string, unknown>, key: string): string | null {
+function scalarField(
+  record: Record<string, unknown>,
+  key: string,
+): string | null {
   const direct = asString(record[key]);
   if (direct !== null) return direct;
   const nested = record[key];
@@ -92,9 +110,12 @@ function summarizeItem(item: unknown): string {
   }
   if (Array.isArray(item)) return `[${item.length} items]`;
   const record = item as Record<string, unknown>;
-  const nonEmpty = (v: string | null): v is string => v !== null && v.length > 0;
+  const nonEmpty = (v: string | null): v is string =>
+    v !== null && v.length > 0;
   const name = NAME_FIELDS.map((f) => scalarField(record, f)).find(nonEmpty);
-  const status = STATUS_FIELDS.map((f) => scalarField(record, f)).find(nonEmpty);
+  const status = STATUS_FIELDS.map((f) => scalarField(record, f)).find(
+    nonEmpty,
+  );
   if (name === undefined) {
     const keys = Object.keys(record).slice(0, 4).join(", ");
     return `{ ${keys}${Object.keys(record).length > 4 ? ", …" : ""} }`;
@@ -103,33 +124,47 @@ function summarizeItem(item: unknown): string {
 }
 
 function isScalar(v: unknown): boolean {
-  return v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+  return (
+    v === null ||
+    typeof v === "string" ||
+    typeof v === "number" ||
+    typeof v === "boolean"
+  );
 }
 
 // Find the array an object is "really" about: the common MCP list shape is a
 // single array-valued key alongside only scalar pagination fields
 // (e.g. { projects: [...], hasNextPage: false }). A record that merely contains
 // a nested object or several arrays is treated as a record, not a list.
-function primaryArray(obj: Record<string, unknown>): { key: string; items: unknown[] } | null {
+function primaryArray(
+  obj: Record<string, unknown>,
+): { key: string; items: unknown[] } | null {
   const arrayKeys = Object.entries(obj).filter(([, v]) => Array.isArray(v));
   if (arrayKeys.length !== 1) return null;
   const [key, items] = arrayKeys[0] as [string, unknown[]];
-  const othersAllScalar = Object.entries(obj).every(([k, v]) => k === key || isScalar(v));
+  const othersAllScalar = Object.entries(obj).every(
+    ([k, v]) => k === key || isScalar(v),
+  );
   return othersAllScalar ? { key, items } : null;
 }
 
 function bound(lines: string[]): string {
   const out = lines.slice(0, MAX_LINES);
-  if (lines.length > MAX_LINES) out.push(`… and ${lines.length - MAX_LINES} more`);
+  if (lines.length > MAX_LINES)
+    out.push(`… and ${lines.length - MAX_LINES} more`);
   let text = out.join("\n");
-  if (text.length > MAX_CHARS) text = `${text.slice(0, MAX_CHARS)}\n… (truncated)`;
+  if (text.length > MAX_CHARS)
+    text = `${text.slice(0, MAX_CHARS)}\n… (truncated)`;
   return text;
 }
 
 function summarizeList(label: string, items: unknown[]): McpResultSummary {
   const noun = items.length === 1 ? singular(label) : label;
-  const lines = items.slice(0, MAX_ITEMS).map((it, i) => `${i + 1}. ${summarizeItem(it)}`);
-  if (items.length > MAX_ITEMS) lines.push(`… and ${items.length - MAX_ITEMS} more`);
+  const lines = items
+    .slice(0, MAX_ITEMS)
+    .map((it, i) => `${i + 1}. ${summarizeItem(it)}`);
+  if (items.length > MAX_ITEMS)
+    lines.push(`… and ${items.length - MAX_ITEMS} more`);
   return { preview: `${items.length} ${noun}`, full: bound(lines) };
 }
 

@@ -143,7 +143,11 @@ export interface Settings {
   // permission prompt is open so a late approve still runs the tool. When false,
   // the budget keeps ticking during the prompt; if it expires first the tool is
   // skipped and the prompt is dismissed.
-  tools?: { timeoutMs?: number; maxTimeoutMs?: number; waitForApproval?: boolean };
+  tools?: {
+    timeoutMs?: number;
+    maxTimeoutMs?: number;
+    waitForApproval?: boolean;
+  };
   // Wall-clock budget for MCP tool calls specifically (mcp__* names). Unlike
   // the generic `tools` budget, this one is armed by default (see
   // DEFAULT_MCP_TOOL_TIMEOUT_MS) since a wedged MCP server otherwise hangs a
@@ -194,7 +198,9 @@ export function pushRecentModel(
   max: number = DEFAULT_RECENT_MODELS_STORED,
 ): Settings {
   const next: ModelRef = { provider: ref.provider, model: ref.model };
-  const rest = (settings.recentModels ?? []).filter((r) => modelRefKey(r) !== modelRefKey(next));
+  const rest = (settings.recentModels ?? []).filter(
+    (r) => modelRefKey(r) !== modelRefKey(next),
+  );
   return {
     ...settings,
     recentModels: [next, ...rest].slice(0, Math.max(0, max)),
@@ -202,18 +208,26 @@ export function pushRecentModel(
 }
 
 // Add the pair if absent; remove it if present.
-export function toggleFavoriteModel(settings: Settings, ref: ModelRef): Settings {
+export function toggleFavoriteModel(
+  settings: Settings,
+  ref: ModelRef,
+): Settings {
   const next: ModelRef = { provider: ref.provider, model: ref.model };
   const key = modelRefKey(next);
   const current = settings.favoriteModels ?? [];
   const has = current.some((r) => modelRefKey(r) === key);
   return {
     ...settings,
-    favoriteModels: has ? current.filter((r) => modelRefKey(r) !== key) : [...current, next],
+    favoriteModels: has
+      ? current.filter((r) => modelRefKey(r) !== key)
+      : [...current, next],
   };
 }
 
-function providerSelectionMetadata(provider: ProviderSettings, model: string): ProviderSettings {
+function providerSelectionMetadata(
+  provider: ProviderSettings,
+  model: string,
+): ProviderSettings {
   return {
     ...(provider.name !== undefined ? { name: provider.name } : {}),
     baseURL: provider.baseURL,
@@ -221,7 +235,9 @@ function providerSelectionMetadata(provider: ProviderSettings, model: string): P
     defaultModel: model,
     ...(provider.keyless === true ? { keyless: true } : {}),
     ...(provider.free === true ? { free: true } : {}),
-    ...(provider.contextWindow !== undefined ? { contextWindow: provider.contextWindow } : {}),
+    ...(provider.contextWindow !== undefined
+      ? { contextWindow: provider.contextWindow }
+      : {}),
     ...(provider.bifrostVirtualKey === true ? { bifrostVirtualKey: true } : {}),
     ...(provider.anthropic === true ? { anthropic: true } : {}),
     ...(provider.opencodeGo === true ? { opencodeGo: true } : {}),
@@ -282,20 +298,26 @@ export function shellTimeoutFromSettings(
 // expects. Returns undefined only when nothing at all is configured so callers
 // can skip the override; mcp.timeoutMs alone (with no tools.* set) still
 // produces a config, since MCP timeouts are armed unconditionally.
-export function toolWatchdogFromSettings(
-  settings?: Settings | null,
-):
-  | { defaultMs?: number; maxMs?: number; waitForApproval?: boolean; mcpTimeoutMs?: number }
+export function toolWatchdogFromSettings(settings?: Settings | null):
+  | {
+      defaultMs?: number;
+      maxMs?: number;
+      waitForApproval?: boolean;
+      mcpTimeoutMs?: number;
+    }
   | undefined {
   const tools = settings?.tools;
   const mcpTimeoutMs = settings?.mcp?.timeoutMs;
-  const hasTimeout = tools?.timeoutMs !== undefined || tools?.maxTimeoutMs !== undefined;
+  const hasTimeout =
+    tools?.timeoutMs !== undefined || tools?.maxTimeoutMs !== undefined;
   const hasWait = tools?.waitForApproval !== undefined;
   if (!hasTimeout && !hasWait && mcpTimeoutMs === undefined) return undefined;
   return {
     ...(tools?.timeoutMs !== undefined ? { defaultMs: tools.timeoutMs } : {}),
     ...(tools?.maxTimeoutMs !== undefined ? { maxMs: tools.maxTimeoutMs } : {}),
-    ...(tools?.waitForApproval !== undefined ? { waitForApproval: tools.waitForApproval } : {}),
+    ...(tools?.waitForApproval !== undefined
+      ? { waitForApproval: tools.waitForApproval }
+      : {}),
     ...(mcpTimeoutMs !== undefined ? { mcpTimeoutMs } : {}),
   };
 }
@@ -340,7 +362,9 @@ export interface ExaMCPPresetConfig {
   enabled: boolean;
 }
 
-export type MCPServerSettingsEntry = MCPServerSettingsTransport | ExaMCPPresetConfig;
+export type MCPServerSettingsEntry =
+  | MCPServerSettingsTransport
+  | ExaMCPPresetConfig;
 
 export function hasMcpTransport(entry: {
   name?: unknown;
@@ -359,7 +383,9 @@ export function hasMcpTransport(entry: {
   );
 }
 
-export function isExaMCPPreset(entry: MCPServerSettingsEntry): entry is ExaMCPPresetConfig {
+export function isExaMCPPreset(
+  entry: MCPServerSettingsEntry,
+): entry is ExaMCPPresetConfig {
   return entry.name === EXA_MCP_SERVER_NAME && !hasMcpTransport(entry);
 }
 
@@ -396,10 +422,14 @@ export function normalizeOpenAICompatibleBaseURL(raw: string): string {
   try {
     parsed = new URL(trimmed);
   } catch {
-    throw new Error(`Invalid OpenAI-compatible baseURL "${raw}": expected an absolute URL.`);
+    throw new Error(
+      `Invalid OpenAI-compatible baseURL "${raw}": expected an absolute URL.`,
+    );
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`Invalid OpenAI-compatible baseURL "${raw}": expected http or https.`);
+    throw new Error(
+      `Invalid OpenAI-compatible baseURL "${raw}": expected http or https.`,
+    );
   }
 
   const pathname = parsed.pathname.replace(/\/+$/, "");
@@ -441,9 +471,14 @@ function physicalPathIdentity(path: string): string {
   }
 }
 
-export function resolveLocalSettingsPath(cwd: string, globalPath: string): string | null {
+export function resolveLocalSettingsPath(
+  cwd: string,
+  globalPath: string,
+): string | null {
   const localPath = localSettingsPath(cwd);
-  return physicalPathIdentity(localPath) === physicalPathIdentity(globalPath) ? null : localPath;
+  return physicalPathIdentity(localPath) === physicalPathIdentity(globalPath)
+    ? null
+    : localPath;
 }
 
 // True when `settingsPath` is a distinct settings file from the default home
@@ -453,7 +488,10 @@ export function isProgrammaticSettingsOverride(
   settingsPath: string,
   defaultGlobalPath: string = globalSettingsPath(),
 ): boolean {
-  return physicalPathIdentity(settingsPath) !== physicalPathIdentity(defaultGlobalPath);
+  return (
+    physicalPathIdentity(settingsPath) !==
+    physicalPathIdentity(defaultGlobalPath)
+  );
 }
 
 function isENOENT(err: unknown): boolean {
@@ -572,7 +610,11 @@ const LocalSettingsSchema = type({
 export function isSettings(value: unknown): value is Settings {
   if (!SettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
-  if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
+  if (
+    s.mcpServers !== undefined &&
+    normalizeMcpServers(s.mcpServers) === undefined
+  )
+    return false;
   // Legacy "single" | "orchestrator" still load; product resolve ignores them.
   if (
     s.sessionMode !== undefined &&
@@ -595,35 +637,51 @@ function isMCPServerConfigEntry(
     return name === EXA_MCP_SERVER_NAME && typeof s.enabled === "boolean";
   }
   // Exactly one transport must be specified.
-  const isHttp = s.type === "http" || (s.type === undefined && typeof s.url === "string");
+  const isHttp =
+    s.type === "http" || (s.type === undefined && typeof s.url === "string");
   return isHttp ? typeof s.url === "string" : typeof s.command === "string";
 }
 
-function isMCPServerConfigWithKey(value: unknown): value is MCPServerSettingsEntry {
+function isMCPServerConfigWithKey(
+  value: unknown,
+): value is MCPServerSettingsEntry {
   if (typeof value !== "object" || value === null) return false;
   const name = (value as Record<string, unknown>).name;
   if (typeof name !== "string") return false;
   return isMCPServerConfigEntry(name, value);
 }
 
-function normalizeMcpEntry(name: string, entry: Record<string, unknown>): MCPServerSettingsEntry {
+function normalizeMcpEntry(
+  name: string,
+  entry: Record<string, unknown>,
+): MCPServerSettingsEntry {
   if (!hasMcpTransport(entry) && entry.enabled !== undefined) {
     return { name: EXA_MCP_SERVER_NAME, enabled: entry.enabled as boolean };
   }
   return {
     name,
-    ...(entry.type !== undefined ? { type: entry.type as "stdio" | "http" } : {}),
-    ...(entry.command !== undefined ? { command: entry.command as string } : {}),
+    ...(entry.type !== undefined
+      ? { type: entry.type as "stdio" | "http" }
+      : {}),
+    ...(entry.command !== undefined
+      ? { command: entry.command as string }
+      : {}),
     ...(entry.url !== undefined ? { url: entry.url as string } : {}),
     ...(entry.args !== undefined ? { args: entry.args as string[] } : {}),
-    ...(entry.env !== undefined ? { env: entry.env as Record<string, string> } : {}),
-    ...(entry.enabled !== undefined ? { enabled: entry.enabled as boolean } : {}),
+    ...(entry.env !== undefined
+      ? { env: entry.env as Record<string, string> }
+      : {}),
+    ...(entry.enabled !== undefined
+      ? { enabled: entry.enabled as boolean }
+      : {}),
   };
 }
 
 // Accepts both array format [{ name, command, ... }] and object format
 // { "name": { command, ... } }. Returns the normalized array.
-export function normalizeMcpServers(value: unknown): MCPServerSettingsEntry[] | undefined {
+export function normalizeMcpServers(
+  value: unknown,
+): MCPServerSettingsEntry[] | undefined {
   if (value === undefined) return undefined;
   if (Array.isArray(value)) {
     if (!value.every(isMCPServerConfigWithKey)) return undefined;
@@ -651,7 +709,11 @@ export function normalizeMcpServers(value: unknown): MCPServerSettingsEntry[] | 
 export function isLocalSettings(value: unknown): value is LocalSettings {
   if (!LocalSettingsSchema.allows(value)) return false;
   const s = value as Record<string, unknown>;
-  if (s.mcpServers !== undefined && normalizeMcpServers(s.mcpServers) === undefined) return false;
+  if (
+    s.mcpServers !== undefined &&
+    normalizeMcpServers(s.mcpServers) === undefined
+  )
+    return false;
   // Legacy "single" | "orchestrator" still load; product resolve ignores them.
   if (
     s.sessionMode !== undefined &&
@@ -668,13 +730,18 @@ export function isLocalSettings(value: unknown): value is LocalSettings {
 // aligned. Value transforms (normalize, clamp, enum checks) happen before this —
 // the helper only filters undefined, it does not validate.
 type DefinedFields<T> = {
-  [K in keyof T as undefined extends T[K] ? (T[K] extends undefined ? never : K) : K]: Exclude<
-    T[K],
-    undefined
-  >;
+  [
+    K in keyof T as undefined extends T[K]
+      ? T[K] extends undefined
+        ? never
+        : K
+      : K
+  ]: Exclude<T[K], undefined>;
 };
 
-function pickDefined<T extends Record<string, unknown>>(fields: T): DefinedFields<T> {
+function pickDefined<T extends Record<string, unknown>>(
+  fields: T,
+): DefinedFields<T> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
     if (value !== undefined) out[key] = value;
@@ -772,7 +839,9 @@ const ClobberedLocalSelectionSchema = type({
   "+": "reject",
 });
 
-function isClobberedLocalSelection(value: unknown): value is { provider: string; model: string } {
+function isClobberedLocalSelection(
+  value: unknown,
+): value is { provider: string; model: string } {
   return ClobberedLocalSelectionSchema.allows(value);
 }
 
@@ -787,7 +856,10 @@ function recoverClobberedOAuthSelection(
   return {
     defaultProvider: selection.provider,
     providers: {
-      [selection.provider]: providerSelectionMetadata(provider, selection.model),
+      [selection.provider]: providerSelectionMetadata(
+        provider,
+        selection.model,
+      ),
     },
   };
 }
@@ -835,8 +907,13 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
   // Transforms (normalize/clamp/enum) first; pickDefined only drops undefined.
   const optional: OptionalSettingsFields = {
     defaultProvider: s.defaultProvider as string | undefined,
-    mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
-    workflowProfiles: s.workflowProfiles as Settings["workflowProfiles"] | undefined,
+    mcpServers:
+      s.mcpServers !== undefined
+        ? normalizeMcpServers(s.mcpServers)
+        : undefined,
+    workflowProfiles: s.workflowProfiles as
+      | Settings["workflowProfiles"]
+      | undefined,
     plugins: s.plugins as Settings["plugins"] | undefined,
     pluginPaths: s.pluginPaths as string[] | undefined,
     hooks: s.hooks as Settings["hooks"] | undefined,
@@ -845,11 +922,14 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
     hiddenCommands: s.hiddenCommands as string[] | undefined,
     onboarded: s.onboarded !== undefined ? Boolean(s.onboarded) : undefined,
     lastChangelogVersion:
-      typeof s.lastChangelogVersion === "string" && s.lastChangelogVersion.trim().length > 0
+      typeof s.lastChangelogVersion === "string" &&
+      s.lastChangelogVersion.trim().length > 0
         ? s.lastChangelogVersion.trim()
         : undefined,
     compactionMode:
-      s.compactionMode === "llm" || s.compactionMode === "pruning" ? s.compactionMode : undefined,
+      s.compactionMode === "llm" || s.compactionMode === "pruning"
+        ? s.compactionMode
+        : undefined,
     // CL-5814: drop legacy "single"; only keep explicit orchestrator if present.
     sessionMode: s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
     agentModelFallback:
@@ -863,7 +943,8 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
     otel: s.otel as Settings["otel"] | undefined,
     recentModels: s.recentModels as Settings["recentModels"] | undefined,
     favoriteModels: s.favoriteModels as Settings["favoriteModels"] | undefined,
-    showPromptCost: s.showPromptCost !== undefined ? Boolean(s.showPromptCost) : undefined,
+    showPromptCost:
+      s.showPromptCost !== undefined ? Boolean(s.showPromptCost) : undefined,
     dangerouslySkipPermissions:
       s.dangerouslySkipPermissions !== undefined
         ? Boolean(s.dangerouslySkipPermissions)
@@ -875,7 +956,10 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
   };
 }
 
-async function loadStrictSettings(path: string, parsed: unknown): Promise<Settings> {
+async function loadStrictSettings(
+  path: string,
+  parsed: unknown,
+): Promise<Settings> {
   const settings = normalizeParsedSettings(path, parsed);
   // Hard cutover: pin Go flag + canonical baseURL on disk when any Go signal matches.
   // Only rewrite disk when heal actually mutates (no write-on-read for no-op reloads).
@@ -910,7 +994,10 @@ export async function loadSettingsRecoveringClobberedOAuthSelection(
   const parsed = await loadSettingsJSON(path);
   if (parsed === null) return null;
   if (isClobberedLocalSelection(parsed)) {
-    const recovered = recoverClobberedOAuthSelection(parsed, recoverableOAuthProviders);
+    const recovered = recoverClobberedOAuthSelection(
+      parsed,
+      recoverableOAuthProviders,
+    );
     if (recovered === undefined) throw settingsSchemaError(path);
     if (options.persist) await saveGlobalSettings(path, recovered);
     return recovered;
@@ -951,19 +1038,31 @@ function pickLocalFields(
       provider: s.provider as string | undefined,
       model: s.model as string | undefined,
       reasoningEffort: s.reasoningEffort as ReasoningEffort | undefined,
-      mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
-      sessionMode: s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
+      mcpServers:
+        s.mcpServers !== undefined
+          ? normalizeMcpServers(s.mcpServers)
+          : undefined,
+      sessionMode:
+        s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
       env: s.env as Record<string, string> | undefined,
     };
   }
   return {
     provider: typeof s.provider === "string" ? s.provider : undefined,
     model: typeof s.model === "string" ? s.model : undefined,
-    reasoningEffort: isReasoningEffort(s.reasoningEffort) ? s.reasoningEffort : undefined,
-    mcpServers: s.mcpServers !== undefined ? normalizeMcpServers(s.mcpServers) : undefined,
+    reasoningEffort: isReasoningEffort(s.reasoningEffort)
+      ? s.reasoningEffort
+      : undefined,
+    mcpServers:
+      s.mcpServers !== undefined
+        ? normalizeMcpServers(s.mcpServers)
+        : undefined,
     sessionMode: s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
     env:
-      s.env !== undefined && typeof s.env === "object" && s.env !== null && !Array.isArray(s.env)
+      s.env !== undefined &&
+      typeof s.env === "object" &&
+      s.env !== null &&
+      !Array.isArray(s.env)
         ? Object.fromEntries(
             Object.entries(s.env as Record<string, unknown>).filter(
               (e): e is [string, string] => typeof e[1] === "string",
@@ -973,7 +1072,10 @@ function pickLocalFields(
   };
 }
 
-function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadResult {
+function coerceLocalSettings(
+  path: string,
+  parsed: unknown,
+): LocalSettingsLoadResult {
   const diagnostics: SettingsLoadDiagnostic[] = [];
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return {
@@ -990,7 +1092,10 @@ function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadRe
   const s = parsed as Record<string, unknown>;
   // Valid strict path still returns cleanly with no diagnostics.
   if (isLocalSettings(parsed)) {
-    return { settings: pickDefined(pickLocalFields(s, "strict")), diagnostics: [] };
+    return {
+      settings: pickDefined(pickLocalFields(s, "strict")),
+      diagnostics: [],
+    };
   }
 
   const unknownKeys = Object.keys(s).filter((k) => !LOCAL_ALLOWED_KEYS.has(k));
@@ -1021,7 +1126,10 @@ function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadRe
       fix: "Use an object map of MCP server entries (command/args or url).",
     });
   }
-  if (s.reasoningEffort !== undefined && optional.reasoningEffort === undefined) {
+  if (
+    s.reasoningEffort !== undefined &&
+    optional.reasoningEffort === undefined
+  ) {
     diagnostics.push({
       path,
       message: `reasoningEffort in ${path} was invalid and was ignored.`,
@@ -1037,10 +1145,15 @@ function coerceLocalSettings(path: string, parsed: unknown): LocalSettingsLoadRe
     });
   }
   const settings = pickDefined(optional);
-  return { settings: Object.keys(settings).length > 0 ? settings : null, diagnostics };
+  return {
+    settings: Object.keys(settings).length > 0 ? settings : null,
+    diagnostics,
+  };
 }
 
-export async function loadLocalSettingsResult(path: string): Promise<LocalSettingsLoadResult> {
+export async function loadLocalSettingsResult(
+  path: string,
+): Promise<LocalSettingsLoadResult> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
@@ -1066,7 +1179,9 @@ export async function loadLocalSettingsResult(path: string): Promise<LocalSettin
   return coerceLocalSettings(path, parsed);
 }
 
-export async function loadLocalSettings(path: string): Promise<LocalSettings | null> {
+export async function loadLocalSettings(
+  path: string,
+): Promise<LocalSettings | null> {
   // Fail open: never throw for schema/unknown-key problems. Callers that need
   // diagnostics should use loadLocalSettingsResult.
   const { settings } = await loadLocalSettingsResult(path);
@@ -1077,7 +1192,9 @@ export async function loadLocalSettings(path: string): Promise<LocalSettings | n
 // Absent file → empty base (create OK). Partial fail-open → cleaned fields.
 // Invalid JSON / unreadable / fully unusable → null so the caller skips the
 // write instead of collapsing to {} and wiping the file.
-export async function loadLocalSettingsWriteBase(path: string): Promise<LocalSettings | null> {
+export async function loadLocalSettingsWriteBase(
+  path: string,
+): Promise<LocalSettings | null> {
   try {
     const result = await loadLocalSettingsResult(path);
     if (result.settings !== null) return result.settings;
@@ -1093,7 +1210,9 @@ export async function loadLocalSettingsWriteBase(path: string): Promise<LocalSet
 // An absent file yields a fresh minimal base; an unreadable or invalid file
 // yields null so the caller skips the write — falling back to a minimal base
 // there would overwrite the whole file to flip one key.
-export async function loadGlobalSettingsWriteBase(path: string): Promise<Settings | null> {
+export async function loadGlobalSettingsWriteBase(
+  path: string,
+): Promise<Settings | null> {
   try {
     return (await loadSettings(path)) ?? { providers: {} };
   } catch {
@@ -1120,7 +1239,10 @@ export function mergeProviderIntoSettings(
 // Persist the global settings file. Validates before writing so a written file
 // always round-trips back through loadSettings, and written via temp-file +
 // rename so a concurrent reader never sees a torn file.
-export async function saveGlobalSettings(path: string, settings: Settings): Promise<void> {
+export async function saveGlobalSettings(
+  path: string,
+  settings: Settings,
+): Promise<void> {
   if (!isSettings(settings)) {
     throw new Error(`Refusing to write invalid global settings.`);
   }
@@ -1139,7 +1261,10 @@ export async function persistSkipPermissionsDefault(
 ): Promise<"ok" | "skipped"> {
   const base = await loadGlobalSettingsWriteBase(path);
   if (base === null) return "skipped";
-  await saveGlobalSettings(path, { ...base, dangerouslySkipPermissions: value });
+  await saveGlobalSettings(path, {
+    ...base,
+    dangerouslySkipPermissions: value,
+  });
   return "ok";
 }
 
@@ -1155,7 +1280,10 @@ export async function markOnboarded(path: string): Promise<void> {
 }
 
 /** Persist the package version whose release notes were last shown (or stamped on first install). */
-export async function markLastChangelogVersion(path: string, version: string): Promise<void> {
+export async function markLastChangelogVersion(
+  path: string,
+  version: string,
+): Promise<void> {
   const trimmed = version.trim();
   if (trimmed.length === 0) return;
   const onDisk = await loadSettings(path);
@@ -1202,7 +1330,10 @@ export async function markTelemetryNoticeShown(path: string): Promise<void> {
 // the file stays safe to leave gitignored in the repo. Validated before writing
 // so a written file always round-trips back through loadLocalSettings, and
 // written via temp-file + rename so a concurrent reader never sees a torn file.
-export async function saveLocalSettings(path: string, local: LocalSettings): Promise<void> {
+export async function saveLocalSettings(
+  path: string,
+  local: LocalSettings,
+): Promise<void> {
   if (!isLocalSettings(local)) {
     throw new Error(
       `Refusing to write invalid local settings: only "provider", "model", "reasoningEffort", "mcpServers", and "sessionMode" are allowed.`,
@@ -1240,12 +1371,20 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   const providerKeys = Object.keys(providers);
   const soleKey = providerKeys.length === 1 ? providerKeys[0] : undefined;
 
-  if (cli.provider !== undefined && settings !== null && providers[cli.provider] === undefined) {
-    const available = providerKeys.length > 0 ? providerKeys.join(", ") : "none";
-    throw new Error(`Provider "${cli.provider}" not found in settings (available: ${available}).`);
+  if (
+    cli.provider !== undefined &&
+    settings !== null &&
+    providers[cli.provider] === undefined
+  ) {
+    const available =
+      providerKeys.length > 0 ? providerKeys.join(", ") : "none";
+    throw new Error(
+      `Provider "${cli.provider}" not found in settings (available: ${available}).`,
+    );
   }
 
-  const originalName = cli.provider ?? local?.provider ?? settings?.defaultProvider ?? soleKey;
+  const originalName =
+    cli.provider ?? local?.provider ?? settings?.defaultProvider ?? soleKey;
 
   const fieldsFor = (name: string | undefined) => {
     const selected = name !== undefined ? providers[name] : undefined;
@@ -1273,7 +1412,9 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
     model: string,
   ): ResolvedProvider => ({
     providerName: name,
-    baseURL: go ? OPENCODE_GO_BASE_URL : normalizeOpenAICompatibleBaseURL(baseURL),
+    baseURL: go
+      ? OPENCODE_GO_BASE_URL
+      : normalizeOpenAICompatibleBaseURL(baseURL),
     apiKey: apiKey ?? "",
     model,
     ...(keyless ? { keyless: true } : {}),
@@ -1287,7 +1428,8 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
     if (name === undefined || name.length === 0) return undefined;
     const { selected, go, baseURL, apiKey, keyless } = fieldsFor(name);
     if (selected === undefined) return undefined;
-    const missingApiKey = !keyless && (apiKey === undefined || apiKey.length === 0);
+    const missingApiKey =
+      !keyless && (apiKey === undefined || apiKey.length === 0);
     if (
       baseURL === undefined ||
       baseURL.length === 0 ||
@@ -1305,12 +1447,19 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
 
   const throwOriginal = (): never => {
     const { selected, baseURL, apiKey, keyless } = fieldsFor(originalName);
-    const model = nonempty(cli.model) ?? nonempty(local?.model) ?? resolveDefaultModel(selected);
+    const model =
+      nonempty(cli.model) ??
+      nonempty(local?.model) ??
+      resolveDefaultModel(selected);
     const selectedMissing =
-      originalName !== undefined && settings !== null && providers[originalName] === undefined;
-    const missingApiKey = !keyless && (apiKey === undefined || apiKey.length === 0);
+      originalName !== undefined &&
+      settings !== null &&
+      providers[originalName] === undefined;
+    const missingApiKey =
+      !keyless && (apiKey === undefined || apiKey.length === 0);
     const missing: string[] = [];
-    if (originalName === undefined || originalName.length === 0) missing.push("provider");
+    if (originalName === undefined || originalName.length === 0)
+      missing.push("provider");
     if (baseURL === undefined || baseURL.length === 0) missing.push("baseURL");
     if (missingApiKey) missing.push("apiKey");
     if (model === undefined || model.length === 0) missing.push("model");
@@ -1334,7 +1483,8 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   );
   if (original !== undefined) return original;
   if (cli.provider !== undefined) return throwOriginal();
-  if (originalName === undefined || originalName.length === 0) return throwOriginal();
+  if (originalName === undefined || originalName.length === 0)
+    return throwOriginal();
 
   const tried = new Set<string>();
   if (originalName !== undefined) tried.add(originalName);
@@ -1349,13 +1499,17 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
   enqueue(
     local?.provider,
     nonempty(cli.model) ??
-      resolveDefaultModel(local?.provider !== undefined ? providers[local.provider] : undefined),
+      resolveDefaultModel(
+        local?.provider !== undefined ? providers[local.provider] : undefined,
+      ),
   );
   enqueue(
     settings?.defaultProvider,
     nonempty(cli.model) ??
       resolveDefaultModel(
-        settings?.defaultProvider !== undefined ? providers[settings.defaultProvider] : undefined,
+        settings?.defaultProvider !== undefined
+          ? providers[settings.defaultProvider]
+          : undefined,
       ),
   );
   for (const ref of settings?.recentModels ?? []) {
@@ -1364,7 +1518,10 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
     const recentModel = ref.model.length > 0 ? ref.model : undefined;
     fallbacks.push({
       name: ref.provider,
-      model: nonempty(cli.model) ?? recentModel ?? resolveDefaultModel(providers[ref.provider]),
+      model:
+        nonempty(cli.model) ??
+        recentModel ??
+        resolveDefaultModel(providers[ref.provider]),
     });
   }
   for (const name of providerKeys) {
@@ -1389,7 +1546,10 @@ export interface ResolvedInference {
 }
 
 // True when the configured providers actually expose this provider+model.
-function isLegViable(leg: { provider: string; model: string }, settings: Settings): boolean {
+function isLegViable(
+  leg: { provider: string; model: string },
+  settings: Settings,
+): boolean {
   const p = settings.providers[leg.provider];
   if (p === undefined) return false;
   // Empty models list = accept anything (e.g. an unrestricted gateway).
@@ -1425,7 +1585,9 @@ export function resolveInferenceSpec(
       return {
         provider: leg.provider,
         model: leg.model,
-        ...(leg.reasoningEffort !== undefined ? { reasoningEffort: leg.reasoningEffort } : {}),
+        ...(leg.reasoningEffort !== undefined
+          ? { reasoningEffort: leg.reasoningEffort }
+          : {}),
       };
     }
   }
@@ -1444,7 +1606,8 @@ export function resolveInferenceWithPolicy(
 
   // No viable leg. `mode: "pin"` and `agentModelFallback: "none"` both mean
   // "do not silently fall through"; any other combination permits fallback.
-  const forbidFallback = spec.mode === "pin" || settings.agentModelFallback === "none";
+  const forbidFallback =
+    spec.mode === "pin" || settings.agentModelFallback === "none";
   if (forbidFallback) {
     const legs = spec.order.map((l) => `${l.provider}/${l.model}`).join(", ");
     return {

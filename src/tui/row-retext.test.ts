@@ -27,9 +27,11 @@ const SHELL_OPTS = {
 } as const;
 
 const gutterOf = (node: unknown): TextRenderable => {
-  if (!(node instanceof BoxRenderable)) throw new Error("row node is not a wrapper");
+  if (!(node instanceof BoxRenderable))
+    throw new Error("row node is not a wrapper");
   const [gutter] = node.getChildren();
-  if (!(gutter instanceof TextRenderable)) throw new Error("first child is not the gutter");
+  if (!(gutter instanceof TextRenderable))
+    throw new Error("first child is not the gutter");
   return gutter;
 };
 

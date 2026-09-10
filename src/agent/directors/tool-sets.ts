@@ -22,7 +22,11 @@ export const READ_TOOLS = [
  * build/docs only — review/explore/orchestrator/intern mount these path tools
  * alone (lane discipline lives in prompts, not the capability filter).
  */
-export const PRODUCT_WRITE_TOOLS = ["write_file", "edit_file", "delete_file"] as const;
+export const PRODUCT_WRITE_TOOLS = [
+  "write_file",
+  "edit_file",
+  "delete_file",
+] as const;
 
 /**
  * Build: read + full file mutation. `shell` and `update_plan` are Codex
@@ -60,7 +64,12 @@ export const DOCS_TOOLS = [
 export const REVIEW_TOOLS = [...READ_TOOLS, ...PRODUCT_WRITE_TOOLS] as const;
 
 /** Mechanical intern: shell-first + path writes when the brief requires them. */
-export const INTERN_TOOLS = ["run_shell", "read_file", "list_dir", ...PRODUCT_WRITE_TOOLS] as const;
+export const INTERN_TOOLS = [
+  "run_shell",
+  "read_file",
+  "list_dir",
+  ...PRODUCT_WRITE_TOOLS,
+] as const;
 
 /** Nested orchestrator surface (greybeard / package filter): dispatch + path writes. */
 export const ORCHESTRATOR_TOOLS = [
@@ -77,4 +86,7 @@ export const ORCHESTRATOR_TOOLS = [
 ] as const;
 
 /** Skywalker primary: orchestrator surface plus fleet discovery (Tier-1 only). */
-export const SKYWALKER_TOOLS = [...ORCHESTRATOR_TOOLS, "search_agents"] as const;
+export const SKYWALKER_TOOLS = [
+  ...ORCHESTRATOR_TOOLS,
+  "search_agents",
+] as const;

@@ -73,7 +73,8 @@ export async function loadSkillCommands(
       continue;
     }
     const description =
-      typeof frontmatter.description === "string" && frontmatter.description.trim().length > 0
+      typeof frontmatter.description === "string" &&
+      frontmatter.description.trim().length > 0
         ? frontmatter.description.trim()
         : name;
 

@@ -27,7 +27,9 @@ describe("FIRST_CLASS_PROVIDERS", () => {
 
   test("has no separate Codex connect row", () => {
     expect(FIRST_CLASS_PROVIDERS.some((p) => p.id === "codex")).toBe(false);
-    expect(FIRST_CLASS_PROVIDERS.map((p) => p.label)).not.toContain("OpenAI Codex");
+    expect(FIRST_CLASS_PROVIDERS.map((p) => p.label)).not.toContain(
+      "OpenAI Codex",
+    );
   });
 
   test("Custom is last and uses custom auth", () => {
@@ -68,7 +70,13 @@ describe("FIRST_CLASS_PROVIDERS", () => {
   test("xAI is OAuth; Go/Zen/Z.AI/Anthropic/Google are API key", () => {
     expect(firstClassProviderById("xai")?.auth).toBe("oauth");
     expect(firstClassProviderById("xai")?.oauth).toBe("xai");
-    for (const id of ["opencode-go", "zen", "zai", "anthropic", "google"] as const) {
+    for (const id of [
+      "opencode-go",
+      "zen",
+      "zai",
+      "anthropic",
+      "google",
+    ] as const) {
       expect(firstClassProviderById(id)?.auth).toBe("api-key");
     }
   });
@@ -120,7 +128,9 @@ describe("FIRST_CLASS_PROVIDERS", () => {
   });
 
   test("Anthropic and Zen catalogs include Claude Fable 5.1", () => {
-    expect(firstClassProviderById("anthropic")?.models).toContain("claude-fable-5-1");
+    expect(firstClassProviderById("anthropic")?.models).toContain(
+      "claude-fable-5-1",
+    );
     expect(firstClassProviderById("zen")?.models).toContain("claude-fable-5-1");
   });
 

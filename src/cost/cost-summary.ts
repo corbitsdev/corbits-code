@@ -68,7 +68,10 @@ export function buildCostSummary(input: CostSummaryInput): CostSummary {
 // to report. Hide the meter rather than showing 0% or the new director's
 // system-prompt/tool-schema overhead as if it were live usage. Cost totals
 // stay untouched.
-export function maskContextMeterWhenNoTurns(summary: CostSummary, turnCount: number): CostSummary {
+export function maskContextMeterWhenNoTurns(
+  summary: CostSummary,
+  turnCount: number,
+): CostSummary {
   if (turnCount > 0) return summary;
   return { ...summary, contextPercentUsed: null, contextIsEstimate: false };
 }
@@ -84,7 +87,10 @@ export interface StatusBarCostSegments {
 // provider-confirmed. The one place this rule is encoded; every renderer of
 // a context percentage (status bar, prompt border, /cost output) calls this
 // rather than re-deciding the prefix itself.
-export function formatContextPercentLabel(percent: number | null, isEstimate: boolean): string {
+export function formatContextPercentLabel(
+  percent: number | null,
+  isEstimate: boolean,
+): string {
   if (percent === null) return "--%";
   return `${isEstimate ? "~" : ""}${String(percent)}%`;
 }
@@ -93,22 +99,30 @@ export function formatContextPercentLabel(percent: number | null, isEstimate: bo
 // "hidden") when a hide reason applies; context usage always shows since it
 // is meaningful regardless of pricing. Percent is forwarded so the bar can
 // color the compact meter without re-parsing the label.
-export function formatStatusBarSegments(summary: CostSummary): StatusBarCostSegments {
+export function formatStatusBarSegments(
+  summary: CostSummary,
+): StatusBarCostSegments {
   return {
-    ...(summary.costHiddenReason === null ? { costLabel: summary.formattedCost } : {}),
+    ...(summary.costHiddenReason === null
+      ? { costLabel: summary.formattedCost }
+      : {}),
     contextLabel: `Ctx ${formatContextPercentLabel(summary.contextPercentUsed, summary.contextIsEstimate)}`,
     contextPercentUsed: summary.contextPercentUsed,
   };
 }
 
-const HIDDEN_REASON_TEXT: Record<Exclude<CostHiddenReason, "chatgpt-subscription">, string> = {
+const HIDDEN_REASON_TEXT: Record<
+  Exclude<CostHiddenReason, "chatgpt-subscription">,
+  string
+> = {
   "provider-free": "provider marked free",
   "coding-plan": "coding-plan endpoint",
   "free-model": "free model",
   "zero-priced": "zero-priced in the pricing registry",
 };
 
-const MIXED_SESSION_COST_SUFFIX = " (metered portion only; session mixed billed and hidden usage)";
+const MIXED_SESSION_COST_SUFFIX =
+  " (metered portion only; session mixed billed and hidden usage)";
 
 export function formatSessionCostCopy(args: {
   mix: SessionBillingMix;
@@ -143,7 +157,8 @@ function formatCostLine(summary: CostSummary): string {
 }
 
 export function formatCostCommandOutput(summary: CostSummary): string {
-  const window = summary.contextWindow > 0 ? String(summary.contextWindow) : "unknown";
+  const window =
+    summary.contextWindow > 0 ? String(summary.contextWindow) : "unknown";
   const lines = [
     `Model: ${summary.modelId}`,
     formatCostLine(summary),

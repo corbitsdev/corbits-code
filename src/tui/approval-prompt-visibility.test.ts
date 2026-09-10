@@ -37,7 +37,10 @@ interface ApprovalSnapshot {
   readonly hasOverlayList: boolean;
 }
 
-async function paintApproval(height: number, itemCount = 6): Promise<ApprovalSnapshot> {
+async function paintApproval(
+  height: number,
+  itemCount = 6,
+): Promise<ApprovalSnapshot> {
   return withTestRenderer(
     async (h) => {
       const shell = createAppShell(h.renderer, {
@@ -104,7 +107,10 @@ describe("approval overlay keeps the prompt box on screen (CL-5750)", () => {
   }
 
   test("overlay host never displaces the prompt box out of the frame even with a tall body", async () => {
-    const tallBody = Array.from({ length: 20 }, (_, i) => `context line ${i}`).join("\n");
+    const tallBody = Array.from(
+      { length: 20 },
+      (_, i) => `context line ${i}`,
+    ).join("\n");
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -113,7 +119,10 @@ describe("approval overlay keeps the prompt box on screen (CL-5750)", () => {
         });
         try {
           primeSession(shell);
-          openPermissionsOverlay(shell, { items: makePermissionItems(10), body: tallBody });
+          openPermissionsOverlay(shell, {
+            items: makePermissionItems(10),
+            body: tallBody,
+          });
           await h.renderOnce();
           await h.renderOnce();
           const frame = h.captureCharFrame().replace(/\n$/, "");
@@ -141,7 +150,10 @@ describe("approval overlay keeps the prompt box on screen (CL-5750)", () => {
         });
         try {
           primeSession(shell);
-          openPermissionsOverlay(shell, { items: makePermissionItems(6), body: APPROVAL_BODY });
+          openPermissionsOverlay(shell, {
+            items: makePermissionItems(6),
+            body: APPROVAL_BODY,
+          });
           await h.renderOnce();
           await h.renderOnce();
           const heights = shell.layout.heights;

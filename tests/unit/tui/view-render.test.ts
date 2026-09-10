@@ -5,7 +5,8 @@ import type { ViewNode } from "../../../src/tui/view/spec.js";
 const textLines = (node: ViewNode, columns = 80): string[] =>
   viewToLines(node, columns).map((line) => line.map((s) => s.text).join(""));
 
-const frameOf = (node: ViewNode, columns = 80): string => textLines(node, columns).join("\n");
+const frameOf = (node: ViewNode, columns = 80): string =>
+  textLines(node, columns).join("\n");
 
 describe("View rendering", () => {
   test("renders a grid (table equivalent) with headers and colored cells, fitting width", () => {
@@ -31,7 +32,8 @@ describe("View rendering", () => {
     expect(frame).toContain("Name");
     expect(frame).toContain("Alpha");
     expect(frame).toContain("Blocked");
-    for (const line of frame.split("\n")) expect(line.length).toBeLessThanOrEqual(60);
+    for (const line of frame.split("\n"))
+      expect(line.length).toBeLessThanOrEqual(60);
   });
 
   test("renders a stack as card-like with title and rows for fields", () => {

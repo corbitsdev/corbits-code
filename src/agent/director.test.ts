@@ -12,15 +12,26 @@ const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
 function makeCapabilities(): ReactorCapabilities {
   return {
     infer: (options) =>
-      ({ type: "infer", ...(options !== undefined ? { options } : {}) }) as ReactorAction,
+      ({
+        type: "infer",
+        ...(options !== undefined ? { options } : {}),
+      }) as ReactorAction,
     executeTools: (calls, parallel, addToHistory) =>
-      ({ type: "execute_tools", calls, parallel, addToHistory }) as ReactorAction,
+      ({
+        type: "execute_tools",
+        calls,
+        parallel,
+        addToHistory,
+      }) as ReactorAction,
     suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
     fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
-    emit: (eventType, data) => ({ type: "emit", eventType, data }) as ReactorAction,
+    emit: (eventType, data) =>
+      ({ type: "emit", eventType, data }) as ReactorAction,
     reply: (content) => ({ type: "reply", content }) as ReactorAction,
-    checkpoint: (message = "") => ({ type: "checkpoint", message }) as ReactorAction,
-    compact: (compactor, reason) => ({ type: "compact", compactor, reason }) as ReactorAction,
+    checkpoint: (message = "") =>
+      ({ type: "checkpoint", message }) as ReactorAction,
+    compact: (compactor, reason) =>
+      ({ type: "compact", compactor, reason }) as ReactorAction,
     wait: () => ({ type: "wait" }) as ReactorAction,
     done: () => ({ type: "done" }) as ReactorAction,
   };
@@ -36,7 +47,14 @@ function toolOnlyTurn(id: string): ReactorInboundEvent {
       role: "assistant",
       model: "test",
       timestamp: 0,
-      content: [{ type: "tool_call", id, name: "read_file", arguments: { path: `${id}.ts` } }],
+      content: [
+        {
+          type: "tool_call",
+          id,
+          name: "read_file",
+          arguments: { path: `${id}.ts` },
+        },
+      ],
     },
     usage: { input: 0, output: 0 },
     source: "test",
@@ -50,14 +68,17 @@ function toolDoneEvent(callId: string): ReactorInboundEvent {
   } as unknown as ReactorInboundEvent;
 }
 
-function actionsArray(result: ReactorAction | ReactorAction[]): ReactorAction[] {
+function actionsArray(
+  result: ReactorAction | ReactorAction[],
+): ReactorAction[] {
   return Array.isArray(result) ? result : [result];
 }
 
 function ephemeralText(action: ReactorAction | undefined): string | undefined {
   if (action === undefined || action.type !== "infer") return undefined;
   const opts = action.options as
-    { ephemeralTurns?: { content: { text?: string }[] }[] } | undefined;
+    | { ephemeralTurns?: { content: { text?: string }[] }[] }
+    | undefined;
   return opts?.ephemeralTurns?.[0]?.content?.[0]?.text;
 }
 
@@ -72,7 +93,9 @@ async function runToolOnlyStreak(
   for (let i = 0; i < count; i++) {
     const id = `tc-${i}`;
     await director.decide(makeTurn(id), mockState, capabilities);
-    last = actionsArray(await director.decide(toolDoneEvent(id), mockState, capabilities));
+    last = actionsArray(
+      await director.decide(toolDoneEvent(id), mockState, capabilities),
+    );
   }
   return last;
 }
@@ -102,7 +125,9 @@ describe("ChatDirector tool-only loop protection", () => {
     const capabilities = makeCapabilities();
 
     await runToolOnlyStreak(director, capabilities, 25);
-    const nextTurn = actionsArray(await runToolOnlyStreak(director, capabilities, 1));
+    const nextTurn = actionsArray(
+      await runToolOnlyStreak(director, capabilities, 1),
+    );
     const infer = nextTurn.find((a) => a.type === "infer");
     expect(infer).toBeDefined();
     expect(ephemeralText(infer)).toBeUndefined();
@@ -119,9 +144,11 @@ describe("ChatDirector tool-only loop protection", () => {
     const capabilities = makeCapabilities();
 
     const actions = await runToolOnlyStreak(director, capabilities, 50);
-    expect(actions.some((a) => a.type === "reply" && a.content.includes("Auto-paused"))).toBe(
-      false,
-    );
+    expect(
+      actions.some(
+        (a) => a.type === "reply" && a.content.includes("Auto-paused"),
+      ),
+    ).toBe(false);
     expect(actions.some((a) => a.type === "infer")).toBe(true);
   });
 });
@@ -159,7 +186,11 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
       const capabilities = makeCapabilities();
 
       const actions = actionsArray(
-        await director.decide(inferenceErrorEvent(category), mockState, capabilities),
+        await director.decide(
+          inferenceErrorEvent(category),
+          mockState,
+          capabilities,
+        ),
       );
 
       // No additional full-context send: the base director's terminal
@@ -175,18 +206,26 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
-    const internalAbort = inferenceErrorEvent("aborted", { origin: "internal-recovery" });
+    const internalAbort = inferenceErrorEvent("aborted", {
+      origin: "internal-recovery",
+    });
 
     // Recovery 1 of 2: re-issues inference.
-    const first = actionsArray(await director.decide(internalAbort, mockState, capabilities));
+    const first = actionsArray(
+      await director.decide(internalAbort, mockState, capabilities),
+    );
     expect(first.some((a) => a.type === "infer")).toBe(true);
 
     // Recovery 2 of 2: re-issues inference.
-    const second = actionsArray(await director.decide(internalAbort, mockState, capabilities));
+    const second = actionsArray(
+      await director.decide(internalAbort, mockState, capabilities),
+    );
     expect(second.some((a) => a.type === "infer")).toBe(true);
 
     // Budget exhausted: no further infer, terminal reply instead.
-    const third = actionsArray(await director.decide(internalAbort, mockState, capabilities));
+    const third = actionsArray(
+      await director.decide(internalAbort, mockState, capabilities),
+    );
     expect(third.some((a) => a.type === "infer")).toBe(false);
     expect(third.some((a) => a.type === "reply")).toBe(true);
   });
@@ -214,16 +253,24 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
-    const internalAbort = inferenceErrorEvent("aborted", { origin: "internal-recovery" });
+    const internalAbort = inferenceErrorEvent("aborted", {
+      origin: "internal-recovery",
+    });
 
     await director.decide(internalAbort, mockState, capabilities);
     await director.decide(internalAbort, mockState, capabilities);
     // Budget exhausted for this turn.
-    const exhausted = actionsArray(await director.decide(internalAbort, mockState, capabilities));
+    const exhausted = actionsArray(
+      await director.decide(internalAbort, mockState, capabilities),
+    );
     expect(exhausted.some((a) => a.type === "infer")).toBe(false);
 
     // A fresh turn boundary (inference.done) resets the budget.
-    await director.decide(toolOnlyTurn("post-boundary"), mockState, capabilities);
+    await director.decide(
+      toolOnlyTurn("post-boundary"),
+      mockState,
+      capabilities,
+    );
     const afterBoundary = actionsArray(
       await director.decide(internalAbort, mockState, capabilities),
     );
@@ -250,11 +297,15 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
       provider: providerlessPolicy,
     });
     const capabilities = makeCapabilities();
-    const internalAbort = inferenceErrorEvent("aborted", { origin: "internal-recovery" });
+    const internalAbort = inferenceErrorEvent("aborted", {
+      origin: "internal-recovery",
+    });
 
     let inferCount = 0;
     for (let i = 0; i < 10; i++) {
-      const actions = actionsArray(await director.decide(internalAbort, mockState, capabilities));
+      const actions = actionsArray(
+        await director.decide(internalAbort, mockState, capabilities),
+      );
       if (actions.some((a) => a.type === "infer")) inferCount++;
       else break;
     }
@@ -269,11 +320,19 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     const capabilities = makeCapabilities();
 
     const actions = actionsArray(
-      await director.decide(inferenceErrorEvent("timeout"), mockState, capabilities),
+      await director.decide(
+        inferenceErrorEvent("timeout"),
+        mockState,
+        capabilities,
+      ),
     );
     const reply = actions.find((a) => a.type === "reply");
     expect(reply).toBeDefined();
-    expect((reply as { content: string }).content).toContain("did not respond in time");
-    expect((reply as { content: string }).content).not.toContain("unrecoverable inference error");
+    expect((reply as { content: string }).content).toContain(
+      "did not respond in time",
+    );
+    expect((reply as { content: string }).content).not.toContain(
+      "unrecoverable inference error",
+    );
   });
 });

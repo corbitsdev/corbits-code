@@ -14,9 +14,13 @@ if (paths.length === 0) {
   process.exit(1);
 }
 
-const child = spawn("bun", ["test", "--randomize", "--seed", "424242", ...args], {
-  stdio: "inherit",
-});
+const child = spawn(
+  "bun",
+  ["test", "--randomize", "--seed", "424242", ...args],
+  {
+    stdio: "inherit",
+  },
+);
 
 child.on("exit", (code) => {
   process.exit(code ?? 1);

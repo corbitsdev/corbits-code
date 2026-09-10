@@ -35,7 +35,11 @@ export function createOpenAICompatibleAdapter(
     };
   };
 
-  const buildRequest: ProviderAdapter["buildRequest"] = (messages, model, options) => {
+  const buildRequest: ProviderAdapter["buildRequest"] = (
+    messages,
+    model,
+    options,
+  ) => {
     const built = base.buildRequest(messages, model, options);
     const providerOptions = options.providerOptions;
     const hasProviderOptions =

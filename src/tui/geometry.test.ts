@@ -57,7 +57,9 @@ describe("zone registry", () => {
   test("collapse order cuts temporary banners first and never cuts the prompt below base", () => {
     expect(COLLAPSE_ORDER[0]).toBe("command_banner");
     expect(COLLAPSE_ORDER.at(-1)).toBe("prompt");
-    expect(COLLAPSE_ORDER.indexOf("notice")).toBeLessThan(COLLAPSE_ORDER.indexOf("prompt"));
+    expect(COLLAPSE_ORDER.indexOf("notice")).toBeLessThan(
+      COLLAPSE_ORDER.indexOf("prompt"),
+    );
   });
 });
 
@@ -67,7 +69,9 @@ describe("resolveGeometry — 80×24 idle floor", () => {
     // The prompt box is the whole of idle chrome: 5 rows → transcript 19.
     expect(layout.chromeHeight).toBe(PROMPT_IDLE_ROWS);
     expect(layout.transcriptHeight).toBe(24 - PROMPT_IDLE_ROWS);
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      IDLE_TRANSCRIPT_FLOOR,
+    );
     expect(layout.regions.transcript?.height).toBe(24 - PROMPT_IDLE_ROWS);
     expect(layout.overlayHeight).toBe(0);
     expect(layout.overlayMode).toBe("closed");
@@ -131,9 +135,13 @@ describe("resolveGeometry — agents panel", () => {
     const layout = idle80x24({ visibility: { agents: 50 } });
     // Two independent bounds, and the tighter one wins: the fraction of the
     // terminal the board may take, and whatever the transcript floor leaves.
-    expect(layout.heights.agents).toBeLessThanOrEqual(Math.floor(24 * FLEET_BOARD_CAP_FRACTION));
+    expect(layout.heights.agents).toBeLessThanOrEqual(
+      Math.floor(24 * FLEET_BOARD_CAP_FRACTION),
+    );
     expect(layout.heights.agents).toBeLessThanOrEqual(ZONE_REGISTRY.agents.max);
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      layout.transcriptFloor,
+    );
   });
 
   test("a taller terminal honours the agents row request (stack)", () => {
@@ -148,7 +156,9 @@ describe("resolveGeometry — agents panel", () => {
     expect(tall.heights.agents).toBe(requested);
     expect(tall.regions.agents?.width).toBe(tall.contentWidth);
     // Stack: agents sit below transcript and consume vertical chrome.
-    expect(defined(tall.regions.agents).y).toBeGreaterThan(defined(tall.regions.transcript).y);
+    expect(defined(tall.regions.agents).y).toBeGreaterThan(
+      defined(tall.regions.transcript).y,
+    );
   });
 
   test("with a fleet running the agents zone stacks under the transcript", () => {
@@ -159,14 +169,20 @@ describe("resolveGeometry — agents panel", () => {
     });
     expect(fleet.layoutMode).toBe("stack");
     expect(fleet.heights.agents).toBe(1);
-    expect(fleet.transcriptHeight).toBeGreaterThanOrEqual(FLEET_TRANSCRIPT_FLOOR);
+    expect(fleet.transcriptHeight).toBeGreaterThanOrEqual(
+      FLEET_TRANSCRIPT_FLOOR,
+    );
     // The prompt box never leaves the screen, whatever the fleet is doing.
     expect(fleet.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
   });
 
   test("a bounded agents panel never eats the transcript floor", () => {
-    const layout = idle80x24({ visibility: { agents: AGENTS_PANEL_MAX_VISIBLE + 1 } });
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
+    const layout = idle80x24({
+      visibility: { agents: AGENTS_PANEL_MAX_VISIBLE + 1 },
+    });
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      layout.transcriptFloor,
+    );
   });
 
   test("under pressure the panel shrinks one row at a time rather than vanishing in one step", () => {
@@ -185,7 +201,9 @@ describe("resolveGeometry — agents panel", () => {
     });
     expect(layout.heights.agents).toBeGreaterThan(0);
     expect(layout.heights.agents).toBeLessThan(AGENTS_PANEL_MAX_VISIBLE + 1);
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      layout.transcriptFloor,
+    );
   });
 });
 
@@ -247,7 +265,9 @@ describe("resolveGeometry — task panel", () => {
     });
     expect(layout.heights.task).toBeGreaterThan(0);
     expect(layout.heights.task).toBeLessThan(TASKS_PANEL_MAX_VISIBLE + 1);
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(layout.transcriptFloor);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      layout.transcriptFloor,
+    );
   });
 
   test("on a short terminal the task panel is fully collapsed before the prompt is ever shrunk below its idle rows", () => {
@@ -273,7 +293,9 @@ describe("resolveGeometry — task panel", () => {
   });
 
   test("the task panel is ahead of the prompt in collapse order", () => {
-    expect(COLLAPSE_ORDER.indexOf("task")).toBeLessThan(COLLAPSE_ORDER.indexOf("prompt"));
+    expect(COLLAPSE_ORDER.indexOf("task")).toBeLessThan(
+      COLLAPSE_ORDER.indexOf("prompt"),
+    );
   });
 });
 
@@ -291,7 +313,9 @@ describe("resolveGeometry — collapse rules", () => {
         settingsNotice: 3,
       },
     });
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      IDLE_TRANSCRIPT_FLOOR,
+    );
     // Temporary banners and optional strips should be first to go.
     expect(layout.collapsed.length).toBeGreaterThan(0);
     expect(layout.collapsed[0]).toBe("command_banner");
@@ -334,7 +358,9 @@ describe("resolveGeometry — collapse rules", () => {
       },
     });
     // On 20-row, floor is reduced; still must not starve below tiny floor.
-    expect(tight.transcriptHeight).toBeGreaterThanOrEqual(tight.transcriptFloor);
+    expect(tight.transcriptHeight).toBeGreaterThanOrEqual(
+      tight.transcriptFloor,
+    );
   });
 
   test("the notice row is cut only after optional strips and progress_divider", () => {
@@ -362,9 +388,13 @@ describe("resolveGeometry — prompt growth", () => {
   test("prompt cannot expand past floor when overlay closed", () => {
     // Request a huge prompt; must cap so transcript stays ≥ 12.
     const layout = idle80x24({ promptContentRows: 40 });
-    expect(layout.heights.prompt).toBeLessThanOrEqual(Math.floor(24 * PROMPT_CAP_FRACTION));
+    expect(layout.heights.prompt).toBeLessThanOrEqual(
+      Math.floor(24 * PROMPT_CAP_FRACTION),
+    );
     expect(layout.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      IDLE_TRANSCRIPT_FLOOR,
+    );
   });
 
   test("prompt growth is reclaimed when the floor is threatened", () => {
@@ -380,7 +410,9 @@ describe("resolveGeometry — prompt growth", () => {
         pluginBanner: true,
       },
     });
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      IDLE_TRANSCRIPT_FLOOR,
+    );
     // Prompt should not stay at 9 if collapse was needed.
     if (layout.collapsed.includes("prompt")) {
       expect(layout.heights.prompt).toBeLessThan(9);
@@ -400,7 +432,9 @@ describe("resolveGeometry — overlay modes", () => {
     });
     expect(layout.overlayMode).toBe("inset");
     expect(layout.overlayHeight).toBeGreaterThan(0);
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      OVERLAY_TRANSCRIPT_FLOOR,
+    );
     expect(layout.regions.overlay_host?.height).toBe(layout.overlayHeight);
     // The prompt box remains visible in inset mode.
     expect(layout.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
@@ -411,7 +445,9 @@ describe("resolveGeometry — overlay modes", () => {
       overlay: { mode: "inset", bodyRows: 100 },
     });
     expect(layout.overlayHeight).toBeLessThanOrEqual(Math.floor(24 * 0.7));
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(OVERLAY_TRANSCRIPT_FLOOR);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      OVERLAY_TRANSCRIPT_FLOOR,
+    );
   });
 
   test("a large list overlay on a short terminal never exceeds terminal rows", () => {
@@ -423,7 +459,8 @@ describe("resolveGeometry — overlay modes", () => {
         terminal: { columns: 80, rows },
         overlay: { mode: "inset", bodyRows: 48 },
       });
-      const total = layout.chromeHeight + layout.overlayHeight + layout.transcriptHeight;
+      const total =
+        layout.chromeHeight + layout.overlayHeight + layout.transcriptHeight;
       expect(total).toBe(rows);
     }
   });
@@ -447,7 +484,9 @@ describe("resolveGeometry — resize / residual", () => {
 
   test("120×40 idle still keeps floor and accrues residual to transcript", () => {
     const layout = resolveGeometry({ terminal: { columns: 120, rows: 40 } });
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
+      IDLE_TRANSCRIPT_FLOOR,
+    );
     expect(layout.chromeHeight).toBe(PROMPT_IDLE_ROWS);
     expect(layout.transcriptHeight).toBe(40 - PROMPT_IDLE_ROWS);
     // Idle has no agents → stack even on a wide terminal.
@@ -461,7 +500,8 @@ describe("resolveGeometry — resize / residual", () => {
     const layout = resolveGeometry({ terminal: { columns: 40, rows: 18 } });
     expect(layout.terminal.rows).toBe(18);
     expect(layout.terminal.columns).toBe(40);
-    const sum = layout.chromeHeight + layout.overlayHeight + layout.transcriptHeight;
+    const sum =
+      layout.chromeHeight + layout.overlayHeight + layout.transcriptHeight;
     expect(sum).toBe(18);
   });
 });
@@ -517,7 +557,9 @@ describe("resolveGeometry — stack-only layout", () => {
     expect(layout.chatWidth).toBe(layout.contentWidth);
     expect(layout.regions.transcript?.width).toBe(layout.contentWidth);
     expect(layout.regions.agents?.width).toBe(layout.contentWidth);
-    expect(defined(layout.regions.agents).y).toBeGreaterThan(defined(layout.regions.transcript).y);
+    expect(defined(layout.regions.agents).y).toBeGreaterThan(
+      defined(layout.regions.transcript).y,
+    );
     expect(layout.chromeHeight).toBeGreaterThan(PROMPT_IDLE_ROWS);
   });
 

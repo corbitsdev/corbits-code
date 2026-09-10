@@ -80,7 +80,9 @@ describe("inferenceErrorMessage", () => {
     });
     expect(line.toLowerCase()).toMatch(/rate limit/);
     expect(line).not.toContain("Quota exhausted");
-    expect(line.toLowerCase()).not.toContain("the usage limit has been reached");
+    expect(line.toLowerCase()).not.toContain(
+      "the usage limit has been reached",
+    );
     expect(line.toLowerCase()).not.toContain("usage limit reached");
   });
 
@@ -106,7 +108,9 @@ describe("terminalProviderFailureMessage", () => {
         },
         "OpenAI",
       ),
-    ).toBe("OpenAI Provider failed (retryable): upstream unavailable. Try again.");
+    ).toBe(
+      "OpenAI Provider failed (retryable): upstream unavailable. Try again.",
+    );
   });
 
   test("surfaces protocol mismatches with switch-model guidance", () => {
@@ -170,7 +174,8 @@ describe("terminalProviderFailureMessage", () => {
     {
       name: "api_key query parameter",
       secret: "query-secret-value",
-      diagnostic: "GET https://provider.invalid/v1?api_key=query-secret-value&model=test",
+      diagnostic:
+        "GET https://provider.invalid/v1?api_key=query-secret-value&model=test",
     },
     {
       name: "JSON credential fields",
@@ -192,7 +197,8 @@ describe("terminalProviderFailureMessage", () => {
     const secret = "bearer-secret-token-1234567890";
     const message = terminalProviderFailureMessage("custom-provider", {
       category: "fatal",
-      message: "Authorization: Bearer bearer-secret-\u001b[31mtoken-1234567890\u001b[0m",
+      message:
+        "Authorization: Bearer bearer-secret-\u001b[31mtoken-1234567890\u001b[0m",
     });
 
     expect(message).toContain("[redacted: looks like a credential]");
@@ -214,7 +220,11 @@ describe("terminalProviderFailureMessage", () => {
 
   test("terminal Codex short-429 failure does not claim to still be retrying", () => {
     const normalized = normalizeInferenceErrorForTerminal(
-      { category: "quota_exhausted", message: "Too Many Requests", statusCode: 429 },
+      {
+        category: "quota_exhausted",
+        message: "Too Many Requests",
+        statusCode: 429,
+      },
       "codex/default",
     );
     const message = terminalProviderFailureMessage("codex/default", normalized);

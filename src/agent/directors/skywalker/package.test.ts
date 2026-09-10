@@ -10,10 +10,16 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.systemPrompt.length).toBeGreaterThan(0);
     expect(skywalkerPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
     expect(skywalkerPackage.systemPrompt).toContain("You are Skywalker");
-    expect(skywalkerPackage.systemPrompt).toContain("When asked your name, answer: Skywalker");
+    expect(skywalkerPackage.systemPrompt).toContain(
+      "When asked your name, answer: Skywalker",
+    );
     expect(skywalkerPackage.systemPrompt).toContain("PRIMARY INTENT");
-    expect(skywalkerPackage.systemPrompt).toContain("write_file/edit_file/delete_file");
-    expect(skywalkerPackage.systemPrompt).toContain("DIY tiny/single-file/one-route");
+    expect(skywalkerPackage.systemPrompt).toContain(
+      "write_file/edit_file/delete_file",
+    );
+    expect(skywalkerPackage.systemPrompt).toContain(
+      "DIY tiny/single-file/one-route",
+    );
   });
 
   test("createSkywalkerSystemPrompt returns package systemPrompt", () => {
@@ -84,7 +90,9 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.outOfLane).toContain(
       "searching the repo yourself after a worker stops without finishing",
     );
-    expect(skywalkerPackage.outOfLane).toContain("diagnostic fleets for why/how/stall questions");
+    expect(skywalkerPackage.outOfLane).toContain(
+      "diagnostic fleets for why/how/stall questions",
+    );
   });
 
   test("systemPrompt parent tools tell the parent not to run long-blocking jobs", () => {
@@ -117,9 +125,13 @@ describe("skywalkerPackage", () => {
     expect(p).not.toContain("task()");
     expect(p).toContain('mode="all"');
     expect(p).toContain("uncollected spawns");
-    expect(p).toContain("When the fleet goes dry the runtime re-enters with collected reports");
+    expect(p).toContain(
+      "When the fleet goes dry the runtime re-enters with collected reports",
+    );
     expect(p).toContain("do not tight-loop wait_agents");
-    expect(p).not.toContain("Present the plan when the change is large or ambiguous");
+    expect(p).not.toContain(
+      "Present the plan when the change is large or ambiguous",
+    );
   });
 
   test("systemPrompt requires frequent operator updates and staying free for Enter", () => {
@@ -155,7 +167,9 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("changed** brief");
     expect(p).toContain("wait for the operator");
     expect(p).toContain("Do not auto-retry");
-    expect(p).toContain("Identical re-dispatch of the same brief stays refused");
+    expect(p).toContain(
+      "Identical re-dispatch of the same brief stays refused",
+    );
     expect(p).toContain("Operator-cancel is not a re-dispatch");
     expect(p).not.toContain("Then start the next worker");
     expect(p).not.toContain("if the job still needs doing");
@@ -199,7 +213,9 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("required for implement/review");
     expect(p).not.toContain("Brief completeness");
     expect(p).not.toContain("Prefer typed spawn");
-    expect(p.indexOf("Critic stays clean-room")).toBeGreaterThan(p.indexOf("# Verify after ship"));
+    expect(p.indexOf("Critic stays clean-room")).toBeGreaterThan(
+      p.indexOf("# Verify after ship"),
+    );
   });
 
   test("systemPrompt does not use leaf jargon", () => {
@@ -215,8 +231,12 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("idle-send");
     expect(p).toContain("target = that worker's session id");
     expect(p).toContain("target = worker session id");
-    expect(p).not.toMatch(/wait_agents returns status running plus a question/i);
-    expect(p).toMatch(/Escalate with ask_operator only when you cannot resolve it/);
+    expect(p).not.toMatch(
+      /wait_agents returns status running plus a question/i,
+    );
+    expect(p).toMatch(
+      /Escalate with ask_operator only when you cannot resolve it/,
+    );
   });
 
   test("systemPrompt puts API signatures into implement success_criteria", () => {
@@ -231,9 +251,13 @@ describe("skywalkerPackage", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Verify after ship");
     expect(p).toContain("tester");
-    expect(p).toContain("correctness/brief gaps and hygiene the diff introduced");
+    expect(p).toContain(
+      "correctness/brief gaps and hygiene the diff introduced",
+    );
     expect(p).toContain("That hygiene lens is not over-engineering theater");
-    expect(p).toMatch(/after every delegated \*\*builder\*\* implementation.*run \*\*critic\*\*/is);
+    expect(p).toMatch(
+      /after every delegated \*\*builder\*\* implementation.*run \*\*critic\*\*/is,
+    );
     expect(p).toMatch(
       /substantial implementation limited to one internal file.*still requires Critic/is,
     );
@@ -241,7 +265,9 @@ describe("skywalkerPackage", () => {
     expect(p).toMatch(
       /After every delegated builder landing.*run a critic.*architecture.*add greybeard/is,
     );
-    expect(p).not.toMatch(/critic \(or greybeard when architecture is in play\)/i);
+    expect(p).not.toMatch(
+      /critic \(or greybeard when architecture is in play\)/i,
+    );
     expect(p).toMatch(
       /Skip a new Critic dispatch only for parent-DIY work or when existing independent review evidence already covers both the resulting diff and its success criteria/i,
     );

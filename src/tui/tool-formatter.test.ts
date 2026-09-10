@@ -19,7 +19,9 @@ describe("humanizeToolName", () => {
     expect(humanizeToolName("custom_tool")).not.toContain("_");
   });
   test("renders MCP tools as 'Server: tool name'", () => {
-    expect(humanizeToolName("mcp__acme__list_projects")).toBe("Acme: List Projects");
+    expect(humanizeToolName("mcp__acme__list_projects")).toBe(
+      "Acme: List Projects",
+    );
     expect(humanizeToolName("mcp__acme__list_projects")).not.toContain("mcp__");
   });
 });
@@ -54,13 +56,23 @@ describe("describeToolCall", () => {
     expect(describeToolCall("read_file", '{"path":"a"}').role).toBe("warning");
   });
   test("web tools read as warning lookups with readable names", () => {
-    expect(describeToolCall("web_search", '{"query":"hono.dev"}').display).toBe("Web Search");
-    expect(describeToolCall("web_search", '{"query":"hono.dev"}').role).toBe("warning");
-    expect(describeToolCall("web_fetch", '{"url":"https://hono.dev"}').display).toBe("Web Fetch");
-    expect(describeToolCall("web_fetch", '{"url":"https://hono.dev"}').role).toBe("warning");
+    expect(describeToolCall("web_search", '{"query":"hono.dev"}').display).toBe(
+      "Web Search",
+    );
+    expect(describeToolCall("web_search", '{"query":"hono.dev"}').role).toBe(
+      "warning",
+    );
+    expect(
+      describeToolCall("web_fetch", '{"url":"https://hono.dev"}').display,
+    ).toBe("Web Fetch");
+    expect(
+      describeToolCall("web_fetch", '{"url":"https://hono.dev"}').role,
+    ).toBe("warning");
   });
   test("a destructive shell command reads as danger", () => {
-    expect(describeToolCall("run_shell", '{"command":"rm -rf build"}').role).toBe("danger");
+    expect(
+      describeToolCall("run_shell", '{"command":"rm -rf build"}').role,
+    ).toBe("danger");
   });
 });
 
@@ -103,14 +115,20 @@ describe("summarizeToolArgs", () => {
 
   test("long values abbreviated in summary, full in full", () => {
     const long = "y".repeat(200);
-    const { summary, full } = summarizeToolArgs("notify", JSON.stringify({ message: long }));
+    const { summary, full } = summarizeToolArgs(
+      "notify",
+      JSON.stringify({ message: long }),
+    );
     expect(summary.length).toBeLessThan(full.length);
     expect(summary).toContain("…");
     expect(full).toContain(long);
   });
 
   test("empty args produce empty summary", () => {
-    expect(summarizeToolArgs("read_file", "")).toEqual({ summary: "", full: "" });
+    expect(summarizeToolArgs("read_file", "")).toEqual({
+      summary: "",
+      full: "",
+    });
   });
 
   test("malformed JSON does not throw and is never a blob", () => {
@@ -119,7 +137,10 @@ describe("summarizeToolArgs", () => {
   });
 
   test("nested object is compacted, not dumped", () => {
-    const { summary } = summarizeToolArgs("x", JSON.stringify({ opts: { a: 1, b: 2 } }));
+    const { summary } = summarizeToolArgs(
+      "x",
+      JSON.stringify({ opts: { a: 1, b: 2 } }),
+    );
     expect(summary).toBe("opts: {…}");
   });
 });
@@ -143,63 +164,82 @@ describe("mergedToolCollapsedPreview", () => {
 
   test("run_shell merges command and output preview", () => {
     const args = JSON.stringify({ command: "npm test" });
-    expect(mergedToolCollapsedPreview("run_shell", args, "ok\nmore", false)).toBe(
-      "npm test → ok (+1 more lines)",
-    );
+    expect(
+      mergedToolCollapsedPreview("run_shell", args, "ok\nmore", false),
+    ).toBe("npm test → ok (+1 more lines)");
   });
 });
 
 describe("summarizeToolResult", () => {
   test("read_file counts lines", () => {
     const content = ["     1\tfoo", "     2\tbar", "     3\tbaz"].join("\n");
-    expect(summarizeToolResult("read_file", content).preview).toBe("Read 3 lines");
+    expect(summarizeToolResult("read_file", content).preview).toBe(
+      "Read 3 lines",
+    );
   });
 
   test("write_file extracts path", () => {
-    expect(summarizeToolResult("write_file", "wrote 42 bytes to src/foo.ts").preview).toBe(
-      "Wrote src/foo.ts",
-    );
+    expect(
+      summarizeToolResult("write_file", "wrote 42 bytes to src/foo.ts").preview,
+    ).toBe("Wrote src/foo.ts");
   });
 
   test("edit_file extracts path", () => {
-    expect(summarizeToolResult("edit_file", "replaced 2 occurrence(s) in src/foo.ts").preview).toBe(
-      "Edited src/foo.ts",
-    );
+    expect(
+      summarizeToolResult("edit_file", "replaced 2 occurrence(s) in src/foo.ts")
+        .preview,
+    ).toBe("Edited src/foo.ts");
   });
 
   test("run_shell success previews the first output line", () => {
     expect(summarizeToolResult("run_shell", "line a\nline b").preview).toBe(
       "line a (+1 more lines)",
     );
-    expect(summarizeToolResult("run_shell", "only one").preview).toBe("only one");
+    expect(summarizeToolResult("run_shell", "only one").preview).toBe(
+      "only one",
+    );
     expect(summarizeToolResult("run_shell", "").preview).toBe("(no output)");
   });
 
   test("run_shell failure previews the exit code and first error line", () => {
-    expect(summarizeToolResult("run_shell", "exit code 1\nboom").preview).toBe("exit 1: boom");
-  });
-
-  test("search_files no match", () => {
-    expect(summarizeToolResult("search_files", 'no files matching "*.foo"').preview).toBe(
-      "No files matched",
+    expect(summarizeToolResult("run_shell", "exit code 1\nboom").preview).toBe(
+      "exit 1: boom",
     );
   });
 
+  test("search_files no match", () => {
+    expect(
+      summarizeToolResult("search_files", 'no files matching "*.foo"').preview,
+    ).toBe("No files matched");
+  });
+
   test("search_files counts files", () => {
-    expect(summarizeToolResult("search_files", "a.ts\nb.ts").preview).toBe("Found 2 files");
+    expect(summarizeToolResult("search_files", "a.ts\nb.ts").preview).toBe(
+      "Found 2 files",
+    );
   });
 
   test("grep no matches", () => {
-    expect(summarizeToolResult("grep", "no matches for /xyz/").preview).toBe("No matches");
+    expect(summarizeToolResult("grep", "no matches for /xyz/").preview).toBe(
+      "No matches",
+    );
   });
 
   test("grep counts matches", () => {
-    expect(summarizeToolResult("grep", "a.ts:1:foo\nb.ts:2:bar").preview).toBe("Found 2 matches");
+    expect(summarizeToolResult("grep", "a.ts:1:foo\nb.ts:2:bar").preview).toBe(
+      "Found 2 matches",
+    );
   });
 
   test("web_search counts and formats structured results", () => {
     const raw = JSON.stringify({
-      results: [{ title: "Hono", url: "https://hono.dev", snippet: "Fast web framework" }],
+      results: [
+        {
+          title: "Hono",
+          url: "https://hono.dev",
+          snippet: "Fast web framework",
+        },
+      ],
     });
     const result = summarizeToolResult("web_search", raw);
     expect(result.preview).toBe("Found 1 web result");
@@ -210,7 +250,10 @@ describe("summarizeToolResult", () => {
   });
 
   test("web_search handles empty structured results", () => {
-    const result = summarizeToolResult("web_search", JSON.stringify({ results: [] }));
+    const result = summarizeToolResult(
+      "web_search",
+      JSON.stringify({ results: [] }),
+    );
     expect(result.preview).toBe("No web results");
     expect(result.full).toBe("No web results");
     expect(result.isJSONDocument).toBe(false);
@@ -227,7 +270,9 @@ describe("summarizeToolResult", () => {
   });
 
   test("unknown tool gets generic abbreviated preview", () => {
-    expect(summarizeToolResult("mystery", "some output here").preview).toBe("some output here");
+    expect(summarizeToolResult("mystery", "some output here").preview).toBe(
+      "some output here",
+    );
   });
 
   test("full always preserves raw content", () => {
@@ -275,13 +320,24 @@ describe("isUserFacingJSON", () => {
   });
 
   test("read_file of a .json file surfaces as JSON document (line numbers stripped)", () => {
-    const lineNumbered = ["     1\t{", '     2\t  "strict": true', "     3\t}"].join("\n");
-    expect(summarizeToolResult("read_file", lineNumbered).isJSONDocument).toBe(true);
+    const lineNumbered = [
+      "     1\t{",
+      '     2\t  "strict": true',
+      "     3\t}",
+    ].join("\n");
+    expect(summarizeToolResult("read_file", lineNumbered).isJSONDocument).toBe(
+      true,
+    );
   });
 
   test("read_file of source code is not a JSON document", () => {
-    const lineNumbered = ["     1\tconst x = 1", "     2\texport default x"].join("\n");
-    expect(summarizeToolResult("read_file", lineNumbered).isJSONDocument).toBe(false);
+    const lineNumbered = [
+      "     1\tconst x = 1",
+      "     2\texport default x",
+    ].join("\n");
+    expect(summarizeToolResult("read_file", lineNumbered).isJSONDocument).toBe(
+      false,
+    );
   });
 });
 
@@ -299,14 +355,21 @@ describe("describeToolCall for spawn_agent", () => {
   });
 
   test("spawn_agent without agent uses generic Worker display", () => {
-    const args = JSON.stringify({ description: "map all callers", prompt: "..." });
+    const args = JSON.stringify({
+      description: "map all callers",
+      prompt: "...",
+    });
     const result = describeToolCall("spawn_agent", args);
     expect(result.display).toBe("Worker");
     expect(result.summary).toBe("map all callers");
   });
 
   test("spawn_agent with blank agent uses generic Worker display", () => {
-    const args = JSON.stringify({ agent: "", description: "map all callers", prompt: "..." });
+    const args = JSON.stringify({
+      agent: "",
+      description: "map all callers",
+      prompt: "...",
+    });
     const result = describeToolCall("spawn_agent", args);
     expect(result.display).toBe("Worker");
     expect(result.summary).toBe("map all callers");
@@ -314,7 +377,11 @@ describe("describeToolCall for spawn_agent", () => {
 
   test("spawn_agent without description falls back to the prompt subject", () => {
     const prompt = "Find every call site of leaveObserve and report them.";
-    const args = JSON.stringify({ agent: "explorer", prompt, intent: "explore" });
+    const args = JSON.stringify({
+      agent: "explorer",
+      prompt,
+      intent: "explore",
+    });
     const result = describeToolCall("spawn_agent", args);
     expect(result.display).toBe("Explorer");
     // ARG_VALUE_MAX = 48 with ellipsis when truncated
@@ -326,7 +393,11 @@ describe("describeToolCall for spawn_agent", () => {
 
   test("long description is abbreviated", () => {
     const long = "a".repeat(100);
-    const args = JSON.stringify({ agent: "critic", description: long, prompt: "..." });
+    const args = JSON.stringify({
+      agent: "critic",
+      description: long,
+      prompt: "...",
+    });
     const result = describeToolCall("spawn_agent", args);
     expect(result.summary.length).toBeLessThan(long.length + 20);
     expect(result.summary.length).toBe(48); // ARG_VALUE_MAX
@@ -373,10 +444,16 @@ describe("spawn_agent activity transcript lines", () => {
   });
 
   test("summarizeToolArgs falls back to prompt when description is missing", () => {
-    const prompt = "Find every call site of leaveObserve and report them with paths.";
+    const prompt =
+      "Find every call site of leaveObserve and report them with paths.";
     const s = summarizeToolArgs(
       "spawn_agent",
-      JSON.stringify({ agent: "explorer", prompt, intent: "explore", maxTurns: 40 }),
+      JSON.stringify({
+        agent: "explorer",
+        prompt,
+        intent: "explore",
+        maxTurns: 40,
+      }),
     );
     expect(s.summary.length).toBeLessThanOrEqual(48);
     expect(s.full).toBe(prompt);
@@ -389,7 +466,11 @@ describe("spawn_agent activity transcript lines", () => {
     const long = "a".repeat(80);
     const d = describeToolCall(
       "spawn_agent",
-      JSON.stringify({ agent: "explorer", description: long, prompt: "secret brief" }),
+      JSON.stringify({
+        agent: "explorer",
+        description: long,
+        prompt: "secret brief",
+      }),
     );
     expect(d.summary.length).toBeLessThan(long.length);
     expect(d.full).toBe(long);
@@ -398,7 +479,10 @@ describe("spawn_agent activity transcript lines", () => {
   });
 
   test("describeToolCall spawn_agent with empty description stays empty", () => {
-    const d = describeToolCall("spawn_agent", JSON.stringify({ agent: "worker" }));
+    const d = describeToolCall(
+      "spawn_agent",
+      JSON.stringify({ agent: "worker" }),
+    );
     expect(d.summary).toBe("");
     expect(d.full).toBe("");
     expect(d.display).toBe("Worker");
@@ -427,7 +511,10 @@ describe("spawn_agent activity transcript lines", () => {
   });
 
   test("summarizeToolResult marks a cancelled historical task without raw markdown", () => {
-    const r = summarizeToolResult("task", 'Sub-agent "map callers" cancelled by operator.');
+    const r = summarizeToolResult(
+      "task",
+      'Sub-agent "map callers" cancelled by operator.',
+    );
     expect(r.preview).toBe("cancelled");
     expect(r.preview).not.toContain("##");
   });
@@ -439,7 +526,9 @@ describe("spawn_agent activity transcript lines", () => {
       JSON.stringify({ agent_id: "call-abc", status: "running" }),
       false,
     );
-    expect(line).toBe("Explorer map callers of leaveObserve — running call-abc");
+    expect(line).toBe(
+      "Explorer map callers of leaveObserve — running call-abc",
+    );
     expect(line).not.toContain("prompt");
     expect(line).not.toContain("maxTurns");
     expect(line).not.toContain("## Summary");

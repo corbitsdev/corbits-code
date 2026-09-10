@@ -10,7 +10,9 @@ export interface DeliverAgentMessageDeps {
   onDeliverFailure: (message: string) => void;
 }
 
-export async function deliverAgentMessage(deps: DeliverAgentMessageDeps): Promise<void> {
+export async function deliverAgentMessage(
+  deps: DeliverAgentMessageDeps,
+): Promise<void> {
   const fatal = deps.getFatalBuildError();
   if (fatal !== null) {
     deps.onDeliverFailure(`Message not delivered: ${fatal.message}`);

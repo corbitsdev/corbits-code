@@ -1,6 +1,10 @@
 import type { TokenUsage } from "@intx/types/runtime";
 
-import { lookupModelPricing, type ModelPricing, type PricingCache } from "./pricing-fetcher.js";
+import {
+  lookupModelPricing,
+  type ModelPricing,
+  type PricingCache,
+} from "./pricing-fetcher.js";
 import { contextTokensFromUsage } from "../provider/context-window.js";
 
 export interface FaremeterConfig {
@@ -63,7 +67,11 @@ export function createFaremeter(config: CreateFaremeterConfig = {}): Faremeter {
 
   return {
     addUsage(usage: TokenUsage): void {
-      const { inputPricePerToken, outputPricePerToken, cacheReadPricePerToken } = pricesFor();
+      const {
+        inputPricePerToken,
+        outputPricePerToken,
+        cacheReadPricePerToken,
+      } = pricesFor();
       lastContextSize = contextTokensFromUsage(usage);
       outputTokens += usage.output + usage.thinking;
       totalCost +=

@@ -7,8 +7,15 @@ import {
   type ThrashToolCallBlock,
 } from "./thrash.js";
 
-function read(path: string, extra: Record<string, unknown> = {}): ThrashToolCallBlock {
-  return { type: "tool_call", name: "read_file", arguments: { path, ...extra } };
+function read(
+  path: string,
+  extra: Record<string, unknown> = {},
+): ThrashToolCallBlock {
+  return {
+    type: "tool_call",
+    name: "read_file",
+    arguments: { path, ...extra },
+  };
 }
 
 function edit(path: string): ThrashToolCallBlock {
@@ -20,7 +27,11 @@ function edit(path: string): ThrashToolCallBlock {
 }
 
 function write(path: string): ThrashToolCallBlock {
-  return { type: "tool_call", name: "write_file", arguments: { path, content: "x" } };
+  return {
+    type: "tool_call",
+    name: "write_file",
+    arguments: { path, content: "x" },
+  };
 }
 
 function del(path: string): ThrashToolCallBlock {
@@ -28,7 +39,11 @@ function del(path: string): ThrashToolCallBlock {
 }
 
 function grep(pattern: string): ThrashToolCallBlock {
-  return { type: "tool_call", name: "grep", arguments: { pattern, path: "src" } };
+  return {
+    type: "tool_call",
+    name: "grep",
+    arguments: { pattern, path: "src" },
+  };
 }
 
 function applyAll(calls: readonly ThrashToolCallBlock[]): ThrashState {
@@ -41,7 +56,8 @@ describe("thrash pure module", () => {
       type: "tool_call",
       name: "apply_patch",
       arguments: {
-        input: "*** Begin Patch\n*** Update File: c.ts\n@@\n-old\n+new\n*** End Patch\n",
+        input:
+          "*** Begin Patch\n*** Update File: c.ts\n@@\n-old\n+new\n*** End Patch\n",
       },
     } satisfies ThrashToolCallBlock;
     const state = applyAll([write("a.ts"), del("b.ts"), patch]);
@@ -115,7 +131,11 @@ describe("thrash pure module", () => {
       read("src/read.ts", { offset: 0, limit: 20 }),
       grep("needle"),
     ]);
-    expect(salvagePathsFromThrash(state)).toEqual(["src/edit.ts", "src/read.ts", "src"]);
+    expect(salvagePathsFromThrash(state)).toEqual([
+      "src/edit.ts",
+      "src/read.ts",
+      "src",
+    ]);
     expect(salvagePathsFromThrash(state, 0)).toEqual([]);
     expect(salvagePathsFromThrash(EMPTY_THRASH_STATE)).toEqual([]);
   });

@@ -14,7 +14,10 @@ import {
   estimateTokensFromChars,
 } from "./context-estimate.js";
 
-function textTurn(text: string, role: "user" | "assistant" = "user"): ConversationTurn {
+function textTurn(
+  text: string,
+  role: "user" | "assistant" = "user",
+): ConversationTurn {
   return {
     role,
     content: [{ type: "text", text }],
@@ -34,8 +37,14 @@ describe("estimateTokensFromChars", () => {
 
 describe("estimateMediaSourceTokens", () => {
   test("counts base64 payload chars and floors external references", () => {
-    const base64: MediaSource = { kind: "base64", data: "abcd".repeat(100), mimeType: "image/png" };
-    expect(estimateMediaSourceTokens(base64)).toBe(estimateTokensFromChars(400));
+    const base64: MediaSource = {
+      kind: "base64",
+      data: "abcd".repeat(100),
+      mimeType: "image/png",
+    };
+    expect(estimateMediaSourceTokens(base64)).toBe(
+      estimateTokensFromChars(400),
+    );
 
     const url: MediaSource = {
       kind: "url",
@@ -53,7 +62,9 @@ describe("estimateMediaSourceTokens", () => {
       mimeType: "image/png",
     };
     expect(estimateMediaSourceTokens(huge)).toBe(2_500);
-    expect(estimateMediaSourceTokens(huge)).toBeLessThan(estimateTokensFromChars(1_000_000));
+    expect(estimateMediaSourceTokens(huge)).toBeLessThan(
+      estimateTokensFromChars(1_000_000),
+    );
   });
 });
 
@@ -69,7 +80,9 @@ describe("estimateContentBlockTokens", () => {
       arguments: { command: "ls" },
     } as ContentBlock;
     expect(estimateContentBlockTokens(toolCall)).toBe(
-      estimateTokensFromChars("run_shell".length + JSON.stringify({ command: "ls" }).length),
+      estimateTokensFromChars(
+        "run_shell".length + JSON.stringify({ command: "ls" }).length,
+      ),
     );
 
     const toolResult: ContentBlock = {
@@ -77,7 +90,9 @@ describe("estimateContentBlockTokens", () => {
       callId: "c1",
       content: [{ type: "text", text: "ok" }],
     } as ContentBlock;
-    expect(estimateContentBlockTokens(toolResult)).toBe(estimateTokensFromChars(2));
+    expect(estimateContentBlockTokens(toolResult)).toBe(
+      estimateTokensFromChars(2),
+    );
 
     const image: ContentBlock = {
       type: "image",
@@ -99,10 +114,17 @@ describe("estimateOverheadTokens", () => {
   test("counts the system prompt and every tool's name, description, and schema", () => {
     const systemPrompt = "x".repeat(40);
     const tools: ToolDefinition[] = [
-      { name: "run_shell", description: "y".repeat(20), inputSchema: { command: "string" } },
+      {
+        name: "run_shell",
+        description: "y".repeat(20),
+        inputSchema: { command: "string" },
+      },
     ];
     const expectedChars =
-      40 + "run_shell".length + 20 + JSON.stringify({ command: "string" }).length;
+      40 +
+      "run_shell".length +
+      20 +
+      JSON.stringify({ command: "string" }).length;
     expect(estimateOverheadTokens(systemPrompt, tools)).toBe(
       estimateTokensFromChars(expectedChars),
     );
@@ -188,7 +210,9 @@ describe("createContextEstimate", () => {
     expect(estimate.syncFromTurns([first, second])).toBe(3);
 
     const rewritten = [textTurn("xxxx"), textTurn("yyyyyyyy", "assistant")];
-    expect(estimate.syncFromTurns(rewritten)).toBe(estimateContextTokens(rewritten));
+    expect(estimate.syncFromTurns(rewritten)).toBe(
+      estimateContextTokens(rewritten),
+    );
     expect(estimate.tokens).toBe(3);
     expect(estimate.turnCount).toBe(2);
 

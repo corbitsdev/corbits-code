@@ -35,7 +35,9 @@ describe("unwrapToolContent", () => {
       { type: "text", text: "caption" },
       { type: "image", data: "b64" },
     ]);
-    expect(out).toBe(`caption\n${JSON.stringify({ type: "image", data: "b64" })}`);
+    expect(out).toBe(
+      `caption\n${JSON.stringify({ type: "image", data: "b64" })}`,
+    );
   });
 
   test("a text block with a missing text field yields an empty segment, not 'undefined'", () => {

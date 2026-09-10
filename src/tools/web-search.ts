@@ -31,7 +31,10 @@ export const webSearchDefinition: ToolDefinition = {
     type: "object",
     properties: {
       query: { type: "string", description: "Search query" },
-      numResults: { type: "number", description: "Maximum number of results (default 8)." },
+      numResults: {
+        type: "number",
+        description: "Maximum number of results (default 8).",
+      },
       type: {
         type: "string",
         enum: ["auto", "fast", "deep"],
@@ -40,11 +43,13 @@ export const webSearchDefinition: ToolDefinition = {
       livecrawl: {
         type: "string",
         enum: ["fallback", "preferred"],
-        description: "Whether to prefer or only fall back to a live crawl. Defaults to fallback.",
+        description:
+          "Whether to prefer or only fall back to a live crawl. Defaults to fallback.",
       },
       contextMaxCharacters: {
         type: "number",
-        description: "Cap on returned context length in characters (default 10000).",
+        description:
+          "Cap on returned context length in characters (default 10000).",
       },
     },
     required: ["query"],
@@ -63,7 +68,10 @@ export function resolveWebSearchProvider(
   return raw === "parallel" ? "parallel" : "exa";
 }
 
-function endpointFor(provider: WebSearchProviderId, env: NodeJS.ProcessEnv = process.env): string {
+function endpointFor(
+  provider: WebSearchProviderId,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   const base = provider === "parallel" ? PARALLEL_MCP_URL : EXA_MCP_URL;
   const apiKey = env.CORBITS_WEB_SEARCH_API_KEY;
   if (apiKey === undefined || apiKey.length === 0) return base;
@@ -124,7 +132,9 @@ function exaArgs(args: typeof WebSearchArgs.infer): Record<string, unknown> {
 // Parallel's hosted search tool takes an "objective" plus explicit search
 // queries rather than Exa's flatter shape; approximate our common parameter
 // set onto it (best-effort — Parallel is the optional, non-default provider).
-function parallelArgs(args: typeof WebSearchArgs.infer): Record<string, unknown> {
+function parallelArgs(
+  args: typeof WebSearchArgs.infer,
+): Record<string, unknown> {
   return {
     objective: args.query,
     search_queries: [args.query],
@@ -138,7 +148,10 @@ function toolNameFor(provider: WebSearchProviderId): string {
 export function createWebSearchTool(): AgentTool {
   return stringTool({
     definition: webSearchDefinition,
-    handler: async (rawArgs: Record<string, unknown>, signal: AbortSignal): Promise<string> => {
+    handler: async (
+      rawArgs: Record<string, unknown>,
+      signal: AbortSignal,
+    ): Promise<string> => {
       const parsed = WebSearchArgs(rawArgs);
       if (parsed instanceof type.errors) {
         return "Error: web_search requires a non-empty query.";
@@ -146,7 +159,8 @@ export function createWebSearchTool(): AgentTool {
       const provider = resolveWebSearchProvider();
       try {
         const client = await getClient(provider);
-        const args = provider === "parallel" ? parallelArgs(parsed) : exaArgs(parsed);
+        const args =
+          provider === "parallel" ? parallelArgs(parsed) : exaArgs(parsed);
         const result = await client.call(toolNameFor(provider), args, signal);
         return result.length > 0 ? result : "No results.";
       } catch (err) {

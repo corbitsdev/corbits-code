@@ -13,7 +13,11 @@ async function tempProject(): Promise<string> {
 }
 
 afterEach(async () => {
-  await Promise.all(dirsToClean.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(
+    dirsToClean
+      .splice(0)
+      .map((dir) => rm(dir, { recursive: true, force: true })),
+  );
 });
 
 async function seedTsserver(dir: string): Promise<void> {
@@ -31,7 +35,12 @@ describe("detectLanguageServerAvailable", () => {
   test("true when tsserver is resolvable and a local .bin binary exists", async () => {
     const dir = await tempProject();
     await seedTsserver(dir);
-    const bin = path.join(dir, "node_modules", ".bin", "typescript-language-server");
+    const bin = path.join(
+      dir,
+      "node_modules",
+      ".bin",
+      "typescript-language-server",
+    );
     await mkdir(path.dirname(bin), { recursive: true });
     await writeFile(bin, "#!/usr/bin/env node\n");
     expect(detectLanguageServerAvailable(dir)).toBe(true);

@@ -1,7 +1,11 @@
 import { createTokenSession } from "../oauth/session.js";
 import { CODEX_REFRESH_SKEW_MS } from "./constants.js";
 import { refreshTokens } from "./oauth.js";
-import { loadCodexProfile, updateCodexTokens, type CodexTokens } from "./store.js";
+import {
+  loadCodexProfile,
+  updateCodexTokens,
+  type CodexTokens,
+} from "./store.js";
 
 // Raised when a Codex profile cannot yield a usable access token: it is gone,
 // or its refresh token has been revoked/expired. Carries the profile name so
@@ -11,7 +15,11 @@ export class CodexAuthError extends Error {
   readonly profile: string;
   readonly reason: "missing" | "refresh-failed";
 
-  constructor(profile: string, reason: "missing" | "refresh-failed", message: string) {
+  constructor(
+    profile: string,
+    reason: "missing" | "refresh-failed",
+    message: string,
+  ) {
     super(message);
     this.name = "CodexAuthError";
     this.profile = profile;
@@ -33,7 +41,10 @@ const session = createTokenSession<CodexTokens, CodexAccess>({
   loadProfile: loadCodexProfile,
   updateTokens: updateCodexTokens,
   refreshTokens,
-  toAccess: (tokens) => ({ access: tokens.access, accountId: tokens.accountId }),
+  toAccess: (tokens) => ({
+    access: tokens.access,
+    accountId: tokens.accountId,
+  }),
   // The refresh response rarely re-issues an id_token, so carry the account id
   // forward from the prior tokens when the refresh did not supply one.
   mergeRefreshed: (refreshed, previous) =>
@@ -41,7 +52,11 @@ const session = createTokenSession<CodexTokens, CodexAccess>({
       ? { ...refreshed, accountId: previous.accountId }
       : refreshed,
   missingError: (name) =>
-    new CodexAuthError(name, "missing", `Codex profile "${name}" is not authorized. Log in again.`),
+    new CodexAuthError(
+      name,
+      "missing",
+      `Codex profile "${name}" is not authorized. Log in again.`,
+    ),
   refreshFailedError: (name, err) =>
     new CodexAuthError(
       name,

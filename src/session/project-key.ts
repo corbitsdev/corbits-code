@@ -48,7 +48,9 @@ export function projectRootFor(cwd: string): string {
       },
     ).trim();
     if (toplevelRaw.length > 0) {
-      const toplevelAbs = isAbsolute(toplevelRaw) ? toplevelRaw : resolve(cwd, toplevelRaw);
+      const toplevelAbs = isAbsolute(toplevelRaw)
+        ? toplevelRaw
+        : resolve(cwd, toplevelRaw);
       return realpathOr(toplevelAbs);
     }
   } catch {
@@ -71,6 +73,9 @@ export function projectsRoot(home: string = homedir()): string {
 }
 
 /** Global directory for all sessions of one project. */
-export function projectSessionsRoot(cwd: string, home: string = homedir()): string {
+export function projectSessionsRoot(
+  cwd: string,
+  home: string = homedir(),
+): string {
   return join(projectsRoot(home), projectKeyFor(cwd));
 }

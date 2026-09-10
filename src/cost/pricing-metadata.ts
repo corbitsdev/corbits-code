@@ -24,7 +24,9 @@ export async function seedPricingMetadataFromCache(
   return cached;
 }
 
-export function schedulePricingMetadataRefresh(options: PricingFetcherOptions = {}): void {
+export function schedulePricingMetadataRefresh(
+  options: PricingFetcherOptions = {},
+): void {
   if (refreshScheduled) return;
   refreshScheduled = true;
   void loadPricing(options)
@@ -37,7 +39,9 @@ export function schedulePricingMetadataRefresh(options: PricingFetcherOptions = 
     });
 }
 
-export async function bootstrapPricingMetadata(options: PricingFetcherOptions = {}): Promise<void> {
+export async function bootstrapPricingMetadata(
+  options: PricingFetcherOptions = {},
+): Promise<void> {
   await seedPricingMetadataFromCache(options);
   schedulePricingMetadataRefresh(options);
 }

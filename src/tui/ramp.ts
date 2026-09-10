@@ -85,7 +85,9 @@ export const STALL_BLINK_BURST_MS = STALL_BLINK_CYCLE_MS * 9;
  * each inventing its own.
  */
 export function stallBlinkOn(nowMs: number): boolean {
-  const phase = ((nowMs % STALL_BLINK_CYCLE_MS) + STALL_BLINK_CYCLE_MS) % STALL_BLINK_CYCLE_MS;
+  const phase =
+    ((nowMs % STALL_BLINK_CYCLE_MS) + STALL_BLINK_CYCLE_MS) %
+    STALL_BLINK_CYCLE_MS;
   return phase < STALL_BLINK_CYCLE_MS / 2;
 }
 
@@ -121,7 +123,10 @@ export function renderRamp(progress: number, width = RAMP_WIDTH): string {
  * Indeterminate fill: a comet traveling left to right and wrapping. Most coding
  * work has no denominator, so this animates rather than faking a percentage.
  */
-export function renderIndeterminateRamp(nowMs: number, width = RAMP_WIDTH): string {
+export function renderIndeterminateRamp(
+  nowMs: number,
+  width = RAMP_WIDTH,
+): string {
   if (width <= 0) return "";
   const span = width + COMET_LENGTH;
   const phase = ((nowMs % RAMP_CYCLE_MS) + RAMP_CYCLE_MS) % RAMP_CYCLE_MS;
@@ -161,7 +166,8 @@ export function rampPulse(input: PulseInput): string {
   if (input.phase === "done") return SOLID;
   if (input.phase === "blocked") return BLOCKED_GLYPH;
   if (input.phase === "stalled") {
-    const blinking = input.stalledForMs !== null && stallBlinkActive(input.stalledForMs);
+    const blinking =
+      input.stalledForMs !== null && stallBlinkActive(input.stalledForMs);
     return blinking && stallBlinkOn(input.nowMs) ? SOLID : STALL_GLYPH;
   }
   const phase = ((input.nowMs % RAMP_CYCLE_MS) + RAMP_CYCLE_MS) % RAMP_CYCLE_MS;
@@ -181,7 +187,10 @@ export function rampFg(phase: RampPhase): string {
  * waiting states, and false for a stall once its blink burst has settled, so
  * the caller's tick can fall back to its slow cadence.
  */
-export function rampAnimating(phase: RampPhase, stalledForMs: StallAge): boolean {
+export function rampAnimating(
+  phase: RampPhase,
+  stalledForMs: StallAge,
+): boolean {
   if (phase === "done" || phase === "blocked") return false;
   if (phase === "stalled") {
     return stalledForMs !== null && stallBlinkActive(stalledForMs);
@@ -232,8 +241,14 @@ export function rampFor(input: RampInput): Ramp {
 }
 
 /** `███████▓▒░  working · 14s` — ramp, lowercase label, optional elapsed. */
-export function rampLine(ramp: Ramp, label: string, elapsedMs?: number): string {
+export function rampLine(
+  ramp: Ramp,
+  label: string,
+  elapsedMs?: number,
+): string {
   const elapsed =
-    elapsedMs === undefined || elapsedMs < 0 ? "" : ` · ${Math.floor(elapsedMs / 1000)}s`;
+    elapsedMs === undefined || elapsedMs < 0
+      ? ""
+      : ` · ${Math.floor(elapsedMs / 1000)}s`;
   return `${ramp.cells}  ${label}${elapsed}`;
 }

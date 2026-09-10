@@ -6,11 +6,16 @@ import type { ConversationTurn } from "@intx/types/runtime";
 import type { PermissionGate } from "../../../src/permission/gate.js";
 import { createApprovalResume } from "../../../src/session/approval-resume.js";
 import { createSessionOperationQueue } from "../../../src/tui/session-operation-queue.js";
-import { runWhileAgentBusy, type RunnerState } from "../../../src/tui/runner/state.js";
+import {
+  runWhileAgentBusy,
+  type RunnerState,
+} from "../../../src/tui/runner/state.js";
 
 function stubBusyState() {
   const rebuilds: number[] = [];
-  const state: Pick<RunnerState, "inFlight" | "reloadIfIdle"> & { pendingReload: boolean } = {
+  const state: Pick<RunnerState, "inFlight" | "reloadIfIdle"> & {
+    pendingReload: boolean;
+  } = {
     inFlight: 0,
     pendingReload: false,
     reloadIfIdle: () => {
@@ -73,7 +78,10 @@ describe("runWhileAgentBusy vs pendingReload", () => {
 const SUSPENDED: SendResult = {
   type: "suspended",
   correlationId: "corr-1",
-  approvalSnapshot: { name: "run_shell", arguments: { command: "curl -sS https://example.com" } },
+  approvalSnapshot: {
+    name: "run_shell",
+    arguments: { command: "curl -sS https://example.com" },
+  },
 } as unknown as SendResult;
 
 function userTurn(): ConversationTurn {
@@ -88,7 +96,9 @@ describe("pendingReload during resolveSuspended vs deliver enqueue", () => {
   test("does not rebuild until handle returns and deliver has run", async () => {
     const events: string[] = [];
     const { enqueue, awaitTail } = createSessionOperationQueue();
-    const state: Pick<RunnerState, "inFlight" | "reloadIfIdle"> & { pendingReload: boolean } = {
+    const state: Pick<RunnerState, "inFlight" | "reloadIfIdle"> & {
+      pendingReload: boolean;
+    } = {
       inFlight: 0,
       pendingReload: false,
       reloadIfIdle: () => {

@@ -188,6 +188,8 @@ describe("runtime shutdown", () => {
     expect(result.kind).toBe("rejected");
     if (result.kind !== "rejected") throw new Error("expected leftover reject");
     expect(result.err).toBeInstanceOf(Error);
-    expect((result.err as Error).message).toMatch(/still live after 2000ms reap/);
+    expect((result.err as Error).message).toMatch(
+      /still live after 2000ms reap/,
+    );
   });
 });

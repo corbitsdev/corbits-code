@@ -14,7 +14,10 @@ import { ASK_DIRECTOR_WAKE_PREFIX } from "../subagent/fleet-report.js";
 
 export interface RouteQueuedDeliveryArgs {
   send: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
-  deliverSteer: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
+  deliverSteer: (
+    text: string,
+    attachments?: readonly PendingImageAttachment[],
+  ) => void;
   /**
    * True only while the bridge is draining steers at a live parent
    * tool.boundary (or inference.done with tools still outstanding). Read
@@ -23,7 +26,9 @@ export interface RouteQueuedDeliveryArgs {
   parentCycleLive: () => boolean;
 }
 
-export function routeQueuedDelivery(args: RouteQueuedDeliveryArgs): ProductHostDeliver {
+export function routeQueuedDelivery(
+  args: RouteQueuedDeliveryArgs,
+): ProductHostDeliver {
   return (text, kind, attachments) => {
     if (kind === "steer" && args.parentCycleLive()) {
       args.deliverSteer(text, attachments);
@@ -33,7 +38,8 @@ export function routeQueuedDelivery(args: RouteQueuedDeliveryArgs): ProductHostD
   };
 }
 
-export const SESSION_IDENTITY_ABORT_REASON = "session identity changed; approval request denied";
+export const SESSION_IDENTITY_ABORT_REASON =
+  "session identity changed; approval request denied";
 
 export function createDeliveryGeneration(onBump?: () => void) {
   let generation = 0;
@@ -68,16 +74,25 @@ export interface CreateLiveSteerDeliverArgs {
    * if the second ingest finishes first.
    */
   enqueue: (op: () => Promise<void>) => Promise<void>;
-  ingest: (text: string, attachments: readonly PendingImageAttachment[]) => Promise<IngestedSteer>;
+  ingest: (
+    text: string,
+    attachments: readonly PendingImageAttachment[],
+  ) => Promise<IngestedSteer>;
   /** Agent.deliver (or the sessionOps enqueue that wraps it). */
-  deliver: (text: string, attachments: readonly PendingImageAttachment[]) => void;
+  deliver: (
+    text: string,
+    attachments: readonly PendingImageAttachment[],
+  ) => void;
   captureGeneration: () => () => boolean;
   onFailure: (err: unknown) => void;
 }
 
 export interface CreateLeftoverSendArgs {
   enqueue: (op: () => Promise<void>) => Promise<void>;
-  ingest: (text: string, attachments: readonly PendingImageAttachment[]) => Promise<IngestedSteer>;
+  ingest: (
+    text: string,
+    attachments: readonly PendingImageAttachment[],
+  ) => Promise<IngestedSteer>;
   /**
    * Post-ingest hop (agentProxy.send). Must not ingest again — leftover
    * ingest already ran in this wrapper.
@@ -94,7 +109,10 @@ export interface CreateLeftoverSendArgs {
 
 interface GenerationGatedHopArgs {
   enqueue: (op: () => Promise<void>) => Promise<void>;
-  ingest: (text: string, attachments: readonly PendingImageAttachment[]) => Promise<IngestedSteer>;
+  ingest: (
+    text: string,
+    attachments: readonly PendingImageAttachment[],
+  ) => Promise<IngestedSteer>;
   hop: (text: string, attachments: readonly PendingImageAttachment[]) => void;
   recordSent?: (text: string) => void;
   captureGeneration: () => () => boolean;

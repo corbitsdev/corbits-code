@@ -69,7 +69,11 @@ function stagedLogin(profile: string): LoginCompletion {
   return {
     profile: {
       name: profile,
-      tokens: { access: "test-access", refresh: "test-refresh", expiresAt: 10_000 },
+      tokens: {
+        access: "test-access",
+        refresh: "test-refresh",
+        expiresAt: 10_000,
+      },
       createdAt: 1,
     },
     commit: async () => undefined,
@@ -80,7 +84,10 @@ function stagedLogin(profile: string): LoginCompletion {
 // afterEach can free them regardless of which assertion in a test fails.
 const activeHarnesses: Harness[] = [];
 
-async function createHarness(opts: { width: number; height: number }): Promise<Harness> {
+async function createHarness(opts: {
+  width: number;
+  height: number;
+}): Promise<Harness> {
   const harness = await createRawHarness(opts);
   activeHarnesses.push(harness);
   return harness;
@@ -88,7 +95,8 @@ async function createHarness(opts: { width: number; height: number }): Promise<H
 
 afterEach(() => {
   resetGoModelDiscoveryForTests();
-  while (activeHarnesses.length > 0) defined(activeHarnesses.pop(), "harness").destroy();
+  while (activeHarnesses.length > 0)
+    defined(activeHarnesses.pop(), "harness").destroy();
 });
 
 beforeEach(() => {
@@ -100,7 +108,12 @@ describe("provider setup pure helpers", () => {
     const ollama = providerChoiceById("ollama");
     expect(ollama).toBeDefined();
     expect(ollama?.baseURL).toBe("http://localhost:11434");
-    expect(stepsFor(ollama ?? null)).toEqual(["provider", "name", "baseURL", "model"]);
+    expect(stepsFor(ollama ?? null)).toEqual([
+      "provider",
+      "name",
+      "baseURL",
+      "model",
+    ]);
   });
 
   test("only the API key may be left blank", () => {
@@ -146,7 +159,12 @@ describe("provider setup pure helpers", () => {
     const openai = providerChoiceById("openai");
     expect(openai?.baseURL).toBe("https://api.openai.com/v1");
     // Multi-instance API-key path: pick, name, key, model.
-    expect(stepsFor(openai ?? null)).toEqual(["provider", "name", "apiKey", "model"]);
+    expect(stepsFor(openai ?? null)).toEqual([
+      "provider",
+      "name",
+      "apiKey",
+      "model",
+    ]);
     // A subscription provider swaps the paste for a name-then-sign-in pair.
     expect(stepsFor(providerChoiceById("codex") ?? null)).toEqual([
       "provider",
@@ -164,10 +182,22 @@ describe("provider setup pure helpers", () => {
   });
 
   test("an OAuth account slug is lowercased and constrained to a settings-key-safe charset", () => {
-    expect(validateOAuthProfileSlug("Personal")).toEqual({ ok: true, slug: "personal" });
-    expect(validateOAuthProfileSlug("  work  ")).toEqual({ ok: true, slug: "work" });
-    expect(validateOAuthProfileSlug("")).toEqual({ ok: false, error: "name cannot be empty" });
-    expect(validateOAuthProfileSlug("   ")).toEqual({ ok: false, error: "name cannot be empty" });
+    expect(validateOAuthProfileSlug("Personal")).toEqual({
+      ok: true,
+      slug: "personal",
+    });
+    expect(validateOAuthProfileSlug("  work  ")).toEqual({
+      ok: true,
+      slug: "work",
+    });
+    expect(validateOAuthProfileSlug("")).toEqual({
+      ok: false,
+      error: "name cannot be empty",
+    });
+    expect(validateOAuthProfileSlug("   ")).toEqual({
+      ok: false,
+      error: "name cannot be empty",
+    });
     expect(validateOAuthProfileSlug("codex/personal").ok).toBe(false);
     expect(validateOAuthProfileSlug("my account").ok).toBe(false);
     expect(validateOAuthProfileSlug("-personal").ok).toBe(false);
@@ -197,7 +227,8 @@ describe("provider setup pure helpers", () => {
     for (const choice of choices) {
       if (choice.custom) continue;
       expect(choice.baseURL.length).toBeGreaterThan(0);
-      if (choice.id !== "ollama") expect(choice.defaultModel.length).toBeGreaterThan(0);
+      if (choice.id !== "ollama")
+        expect(choice.defaultModel.length).toBeGreaterThan(0);
     }
     expect(providerChoiceRows(choices)[0]?.label).toContain("OpenAI");
   });
@@ -227,9 +258,14 @@ describe("provider setup pure helpers", () => {
     // account. Exact-id matching alone would only ever find zero or one.
     const codexChoice = providerChoiceById("codex");
     if (codexChoice === undefined) throw new Error("expected a codex choice");
-    expect(connectedAccountCount(codexChoice, [{ name: "codex/default" }])).toBe(1);
     expect(
-      connectedAccountCount(codexChoice, [{ name: "codex/default" }, { name: "codex/work" }]),
+      connectedAccountCount(codexChoice, [{ name: "codex/default" }]),
+    ).toBe(1);
+    expect(
+      connectedAccountCount(codexChoice, [
+        { name: "codex/default" },
+        { name: "codex/work" },
+      ]),
     ).toBe(2);
     expect(connectedAccountCount(codexChoice, [])).toBe(0);
   });
@@ -239,8 +275,11 @@ describe("provider setup pure helpers", () => {
     // key is the legacy single-instance row; "openai/work" is a sibling.
     // Unrelated names like "openai-eu" must not count.
     const openaiChoice = providerChoiceById("openai");
-    if (openaiChoice === undefined) throw new Error("expected an openai choice");
-    expect(connectedAccountCount(openaiChoice, [{ name: "openai-eu" }])).toBe(0);
+    if (openaiChoice === undefined)
+      throw new Error("expected an openai choice");
+    expect(connectedAccountCount(openaiChoice, [{ name: "openai-eu" }])).toBe(
+      0,
+    );
     expect(connectedAccountCount(openaiChoice, [{ name: "openai" }])).toBe(1);
     expect(
       connectedAccountCount(openaiChoice, [
@@ -254,16 +293,19 @@ describe("provider setup pure helpers", () => {
   test("instance slug helpers map legacy bare keys and compound names", () => {
     expect(instanceSlugsForKind("openai", [])).toEqual([]);
     expect(instanceSlugsForKind("openai", ["openai"])).toEqual(["default"]);
-    expect(instanceSlugsForKind("openai", ["openai", "openai/work", "anthropic"])).toEqual([
-      "default",
-      "work",
-    ]);
+    expect(
+      instanceSlugsForKind("openai", ["openai", "openai/work", "anthropic"]),
+    ).toEqual(["default", "work"]);
     expect(resolveApiKeyInstanceName("openai", "work", [])).toBe("openai/work");
-    expect(resolveApiKeyInstanceName("openai", "default", ["openai"])).toBe("openai");
-    expect(resolveApiKeyInstanceName("openai", "default", ["openai/default"])).toBe(
+    expect(resolveApiKeyInstanceName("openai", "default", ["openai"])).toBe(
+      "openai",
+    );
+    expect(
+      resolveApiKeyInstanceName("openai", "default", ["openai/default"]),
+    ).toBe("openai/default");
+    expect(resolveApiKeyInstanceName("openai", "default", [])).toBe(
       "openai/default",
     );
-    expect(resolveApiKeyInstanceName("openai", "default", [])).toBe("openai/default");
   });
 
   test("model rows come from the provider catalog plus a free-text escape", () => {
@@ -277,15 +319,24 @@ describe("provider setup pure helpers", () => {
   });
 
   test("step headline names the step and how many remain", () => {
-    expect(stepHeadline(["provider", "apiKey", "model"], 0)).toBe("step 1 of 3 · provider");
-    expect(stepHeadline(["provider", "apiKey", "model"], 2)).toBe("step 3 of 3 · model");
+    expect(stepHeadline(["provider", "apiKey", "model"], 0)).toBe(
+      "step 1 of 3 · provider",
+    );
+    expect(stepHeadline(["provider", "apiKey", "model"], 2)).toBe(
+      "step 3 of 3 · model",
+    );
   });
 
   test("the OAuth name step is headlined and summarized as an account name", () => {
     const codex = providerChoiceById("codex") ?? null;
     const steps = stepsFor(codex);
     expect(stepHeadline(steps, 1, codex)).toBe("step 2 of 4 · account name");
-    const rows = summaryRows(steps, 2, { ...EMPTY, oauthProfile: "work" }, codex);
+    const rows = summaryRows(
+      steps,
+      2,
+      { ...EMPTY, oauthProfile: "work" },
+      codex,
+    );
     expect(rows[1]).toMatchObject({ label: "account name", value: "work" });
   });
 
@@ -293,15 +344,28 @@ describe("provider setup pure helpers", () => {
     const openai = providerChoiceById("openai") ?? null;
     const steps = stepsFor(openai);
     expect(stepHeadline(steps, 1, openai)).toBe("step 2 of 4 · account name");
-    const rows = summaryRows(steps, 2, { ...EMPTY, oauthProfile: "work" }, openai);
+    const rows = summaryRows(
+      steps,
+      2,
+      { ...EMPTY, oauthProfile: "work" },
+      openai,
+    );
     expect(rows[1]).toMatchObject({ label: "account name", value: "work" });
   });
 
   test("summary rows mark done, current, and pending steps", () => {
     const values: ProviderFormValues = { ...EMPTY, name: "openai" };
     const choice = providerChoiceById("openai") ?? null;
-    const rows = summaryRows(["provider", "apiKey", "model"], 1, values, choice);
-    expect(rows[0]).toMatchObject({ state: "done", value: "OpenAI API — API key" });
+    const rows = summaryRows(
+      ["provider", "apiKey", "model"],
+      1,
+      values,
+      choice,
+    );
+    expect(rows[0]).toMatchObject({
+      state: "done",
+      value: "OpenAI API — API key",
+    });
     expect(rows[1]?.state).toBe("current");
     expect(rows[2]).toMatchObject({ state: "pending", value: "—" });
   });
@@ -321,10 +385,12 @@ describe("provider setup pure helpers", () => {
 
   test("failures say what to fix", () => {
     expect(failureGuidance("testing", null)).toContain("base url");
-    expect(failureGuidance("saving", null)).toContain("settings could not be written");
-    expect(failureGuidance("testing", providerChoiceById("codex") ?? null, false)).not.toContain(
-      "save anyway",
+    expect(failureGuidance("saving", null)).toContain(
+      "settings could not be written",
     );
+    expect(
+      failureGuidance("testing", providerChoiceById("codex") ?? null, false),
+    ).not.toContain("save anyway");
   });
 });
 
@@ -356,7 +422,11 @@ async function pressEscape(harness: Harness): Promise<void> {
 }
 
 /** Move the pick-list to `id`, then accept it. */
-async function pickRow(harness: Harness, ids: readonly string[], id: string): Promise<void> {
+async function pickRow(
+  harness: Harness,
+  ids: readonly string[],
+  id: string,
+): Promise<void> {
   const target = ids.indexOf(id);
   for (let i = 0; i < target; i++) harness.pressKey("ARROW_DOWN");
   harness.pressKey("Enter");
@@ -437,7 +507,9 @@ async function mountLogin(opts: {
     createRenderer: async () => harness.renderer,
     startLogin: opts.start,
     listOAuthProfiles: opts.listOAuthProfiles ?? (async () => []),
-    ...(opts.loginTimeoutMs !== undefined ? { loginTimeoutMs: opts.loginTimeoutMs } : {}),
+    ...(opts.loginTimeoutMs !== undefined
+      ? { loginTimeoutMs: opts.loginTimeoutMs }
+      : {}),
   });
   await harness.renderOnce();
   return { done, harness };
@@ -461,7 +533,10 @@ async function clearOAuthNameField(harness: Harness): Promise<void> {
  * The flush after Enter lets the submit-time collision re-check resolve
  * before the caller inspects the result.
  */
-async function nameOAuthAccount(harness: Harness, name?: string): Promise<void> {
+async function nameOAuthAccount(
+  harness: Harness,
+  name?: string,
+): Promise<void> {
   if (name === undefined) {
     await flush(harness);
   } else {
@@ -482,7 +557,10 @@ describe("runProviderSetup Ollama discovery", () => {
       },
       showTelemetryNotice: false,
       createRenderer: async () => harness.renderer,
-      discoverOllamaModels: async () => ({ status: "models", models: ["qwen3"] }),
+      discoverOllamaModels: async () => ({
+        status: "models",
+        models: ["qwen3"],
+      }),
     });
     await harness.renderOnce();
 
@@ -500,7 +578,8 @@ describe("runProviderSetup Ollama discovery", () => {
     const openAIIndex = PROVIDER_IDS.indexOf("openai");
     const ollamaIndex = PROVIDER_IDS.indexOf("ollama");
     const key = ollamaIndex < openAIIndex ? "ARROW_UP" : "ARROW_DOWN";
-    for (let i = 0; i < Math.abs(ollamaIndex - openAIIndex); i++) harness.pressKey(key);
+    for (let i = 0; i < Math.abs(ollamaIndex - openAIIndex); i++)
+      harness.pressKey(key);
     harness.pressKey("Enter");
     await flush(harness);
     harness.pressKey("Enter");
@@ -541,7 +620,9 @@ describe("runProviderSetup Ollama discovery", () => {
     await flush(harness);
     pending[0]?.({ status: "empty" });
     await flush(harness);
-    expect(harness.captureCharFrame()).toContain("Ollama is running, but no models are installed");
+    expect(harness.captureCharFrame()).toContain(
+      "Ollama is running, but no models are installed",
+    );
 
     harness.pressKey("Enter");
     await flush(harness);
@@ -553,7 +634,9 @@ describe("runProviderSetup Ollama discovery", () => {
     await flush(harness);
     pending[2]?.({ status: "malformed", message: "data must be an array" });
     await flush(harness);
-    expect(harness.captureCharFrame()).toContain("Ollama returned an invalid models response");
+    expect(harness.captureCharFrame()).toContain(
+      "Ollama returned an invalid models response",
+    );
     expect(harness.captureCharFrame()).not.toContain("Ollama is not running");
 
     harness.pressKey("Enter");
@@ -822,7 +905,11 @@ describe("runProviderSetup sign-in", () => {
     expect(opts[0]?.oauth).toMatchObject({
       kind: "codex",
       providerName: "codex/default",
-      tokens: { access: "test-access", refresh: "test-refresh", expiresAt: 10_000 },
+      tokens: {
+        access: "test-access",
+        refresh: "test-refresh",
+        expiresAt: 10_000,
+      },
     });
     expect(opts[0]?.oauth?.commit).toBeFunction();
   });
@@ -842,9 +929,12 @@ describe("runProviderSetup sign-in", () => {
           cancel: () => undefined,
         }),
         onSubmit: async (values, _setPhase, opts) => {
-          if (opts.oauth === undefined) throw new Error("expected staged OAuth credentials");
+          if (opts.oauth === undefined)
+            throw new Error("expected staged OAuth credentials");
           if (!opts.skipValidation) {
-            throw new OAuthProviderScopeError("Reconnect Codex with API access.");
+            throw new OAuthProviderScopeError(
+              "Reconnect Codex with API access.",
+            );
           }
           await opts.oauth.commit();
           await saveGlobalSettings(settingsPath, {
@@ -1345,10 +1435,12 @@ describe("runProviderSetup", () => {
 
   test("a failed connection test shows the error, guidance, and save-anyway", async () => {
     const attempts: boolean[] = [];
-    const { done, harness } = await mountSetup(async (_values, _setPhase, opts) => {
-      attempts.push(opts.skipValidation);
-      if (!opts.skipValidation) throw new Error("connection refused");
-    });
+    const { done, harness } = await mountSetup(
+      async (_values, _setPhase, opts) => {
+        attempts.push(opts.skipValidation);
+        if (!opts.skipValidation) throw new Error("connection refused");
+      },
+    );
     await connectOpenAI(harness);
     await harness.renderOnce();
     const frame = harness.captureCharFrame();

@@ -20,14 +20,22 @@ export interface RgLimits {
 // deliver pipe data.
 export interface RgChild {
   pid: number | undefined;
-  stdout: { on: (event: "data", listener: (chunk: unknown) => void) => unknown };
-  stderr: { on: (event: "data", listener: (chunk: unknown) => void) => unknown };
+  stdout: {
+    on: (event: "data", listener: (chunk: unknown) => void) => unknown;
+  };
+  stderr: {
+    on: (event: "data", listener: (chunk: unknown) => void) => unknown;
+  };
   on: ((event: "error", listener: (err: Error) => void) => unknown) &
     ((event: "close", listener: (code: number | null) => void) => unknown);
   kill: (signal?: NodeJS.Signals) => unknown;
 }
 
-export type SpawnRg = (rgArgs: string[], cwd: string, signal: AbortSignal) => RgChild;
+export type SpawnRg = (
+  rgArgs: string[],
+  cwd: string,
+  signal: AbortSignal,
+) => RgChild;
 
 const spawnRg: SpawnRg = (rgArgs, cwd, signal) =>
   spawn("rg", rgArgs, {
@@ -76,7 +84,10 @@ export function runRg(
       resolve(result);
     };
 
-    const timer = setTimeout(() => finish(collector.timeout(timeoutMs)), timeoutMs);
+    const timer = setTimeout(
+      () => finish(collector.timeout(timeoutMs)),
+      timeoutMs,
+    );
 
     child.stdout.on("data", (chunk) => finish(collector.push(String(chunk))));
     child.stderr.on("data", (chunk) => {
@@ -84,7 +95,8 @@ export function runRg(
     });
     child.on("error", (err) => {
       // ENOENT means rg is not installed: signal a fallback, not an error.
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") finish({ kind: "unavailable" });
+      if ((err as NodeJS.ErrnoException).code === "ENOENT")
+        finish({ kind: "unavailable" });
       else finish({ kind: "error", message: err.message });
     });
     // Defer close settlement to the next immediate turn so any stdout `data`

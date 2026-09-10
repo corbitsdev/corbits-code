@@ -38,7 +38,8 @@ export interface HistoryBlock {
 }
 
 /** Body for a resumed error the transcript recorded without its message. */
-export const MISSING_ERROR_DETAIL = "this step failed and the details were not saved";
+export const MISSING_ERROR_DETAIL =
+  "this step failed and the details were not saved";
 
 /** Bodies for blocks that survived to hydration carrying nothing paintable. */
 export const EMPTY_VIEW_DETAIL = "this reply was a view with no text";
@@ -184,7 +185,9 @@ export function hydrateHistoryRows(blocks: unknown): StreamRow[] {
 /** Argument payload of a tool_call block, wherever the block carries it. */
 function callArguments(block: HistoryBlock): string | undefined {
   if (block.content !== undefined) return block.content;
-  return block.arguments !== undefined && block.arguments.length > 0 ? block.arguments : undefined;
+  return block.arguments !== undefined && block.arguments.length > 0
+    ? block.arguments
+    : undefined;
 }
 
 /**
@@ -218,7 +221,9 @@ function pushHistoryBlock(rows: StreamRow[], block: HistoryBlock): void {
 /**
  * Convenience: map an already-typed block list (e.g. from turns-to-blocks).
  */
-export function rowsFromHistoryBlocks(blocks: readonly HistoryBlock[]): StreamRow[] {
+export function rowsFromHistoryBlocks(
+  blocks: readonly HistoryBlock[],
+): StreamRow[] {
   const rows: StreamRow[] = [];
   for (const block of blocks) {
     pushHistoryBlock(rows, block);

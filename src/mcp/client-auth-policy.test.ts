@@ -50,7 +50,8 @@ await withMockedModule(
     Client: class {
       async connect(): Promise<void> {
         if (clientConnectError !== undefined) {
-          if (clientConnectError instanceof UnauthorizedError) await lastTransportRedirect?.();
+          if (clientConnectError instanceof UnauthorizedError)
+            await lastTransportRedirect?.();
           throw clientConnectError;
         }
       }
@@ -73,7 +74,8 @@ await withMockedModule(
         return { tools: [] };
       }
       async callTool(): Promise<{ content: [] }> {
-        if (lastTransportAuth === undefined) throw new Error("no live HTTP transport");
+        if (lastTransportAuth === undefined)
+          throw new Error("no live HTTP transport");
         await lastTransportAuth();
         return { content: [] };
       }
@@ -86,13 +88,17 @@ await withMockedModule(
 
 await withMockedModule(
   import.meta.resolve("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-  (real: typeof import("@modelcontextprotocol/sdk/client/streamableHttp.js")) => ({
+  (
+    real: typeof import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
+  ) => ({
     ...real,
     StreamableHTTPClientTransport: class {
       constructor(
         _url: URL,
         private readonly options?: {
-          authProvider?: { redirectToAuthorization?: (url: URL) => void | Promise<void> };
+          authProvider?: {
+            redirectToAuthorization?: (url: URL) => void | Promise<void>;
+          };
           requestInit?: RequestInit;
           fetch?: (url: string | URL, init?: RequestInit) => Promise<Response>;
         },
@@ -204,7 +210,11 @@ describe("HTTP MCP auth policy", () => {
       oauth: false,
     });
 
-    expect(result).toEqual({ ok: false, serverName: "exa", error: "401 Unauthorized" });
+    expect(result).toEqual({
+      ok: false,
+      serverName: "exa",
+      error: "401 Unauthorized",
+    });
     expect(callbackStarts).toBe(0);
     expect(providerCreates).toBe(0);
     expect(transportOptions).toEqual([undefined]);
@@ -391,7 +401,9 @@ describe("fetchWithConnectAbort", () => {
       );
     });
 
-    const pending = fetchFn("https://auth.test/token", { signal: request.signal });
+    const pending = fetchFn("https://auth.test/token", {
+      signal: request.signal,
+    });
     expect(seen).toBeDefined();
     expect(seen).not.toBe(connect.signal);
     expect(seen).not.toBe(request.signal);

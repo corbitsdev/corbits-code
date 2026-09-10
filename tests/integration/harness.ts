@@ -53,7 +53,11 @@ export interface IntegrationSession {
 export interface OpenIntegrationSessionOpts {
   permissionGate: PermissionGate;
   /** Reactor authorization override (defaults to permissive). */
-  authorize?: (resource: string, action: string, context: unknown) => Promise<AuthzCallResult>;
+  authorize?: (
+    resource: string,
+    action: string,
+    context: unknown,
+  ) => Promise<AuthzCallResult>;
   systemPrompt?: string;
   /** Pre-inference transforms, delivered the production way: riding deps. */
   contextTransforms?: ContextTransform[];
@@ -97,7 +101,12 @@ export async function openIntegrationSession(
     capabilities: [],
     director: chatDirectorDef.build({}),
     inference: {
-      sources: [{ provider: INTEGRATION_SOURCE.provider, model: INTEGRATION_SOURCE.model }],
+      sources: [
+        {
+          provider: INTEGRATION_SOURCE.provider,
+          model: INTEGRATION_SOURCE.model,
+        },
+      ],
     },
   });
 
@@ -128,7 +137,9 @@ export async function openIntegrationSession(
   return { harness, cwd, workdir, agent, toolset };
 }
 
-export async function closeIntegrationSession(session: IntegrationSession): Promise<void> {
+export async function closeIntegrationSession(
+  session: IntegrationSession,
+): Promise<void> {
   try {
     await session.agent.close();
   } finally {
@@ -176,7 +187,8 @@ export function toolDoneEvents(
   events: ReactorEmittedEvent[],
 ): Extract<ReactorEmittedEvent, { type: "tool.done" }>[] {
   return events.filter(
-    (e): e is Extract<ReactorEmittedEvent, { type: "tool.done" }> => e.type === "tool.done",
+    (e): e is Extract<ReactorEmittedEvent, { type: "tool.done" }> =>
+      e.type === "tool.done",
   );
 }
 
@@ -213,10 +225,17 @@ export async function runUntilSuspended(
       if (event.type === "connector.reply") resolveReply(event.data.content);
     }
   })().catch(() => undefined);
-  void session.harness.run({ wallClockBudgetMs: 30_000 }).catch(() => undefined);
+  void session.harness
+    .run({ wallClockBudgetMs: 30_000 })
+    .catch(() => undefined);
 
   const result = await session.agent.send(message);
-  return { events, result, reply: () => replyPromise, waitSettled: () => settled };
+  return {
+    events,
+    result,
+    reply: () => replyPromise,
+    waitSettled: () => settled,
+  };
 }
 
 /** Deliver an approval decision on the correlationId signal channel. */
@@ -236,7 +255,9 @@ export function deliverDecision(
       interchangeCorrelationId: correlationId,
     },
     flags: [],
-    content: JSON.stringify(message !== undefined ? { outcome, message } : { outcome }),
+    content: JSON.stringify(
+      message !== undefined ? { outcome, message } : { outcome },
+    ),
     signatureStatus: "missing",
   });
 }

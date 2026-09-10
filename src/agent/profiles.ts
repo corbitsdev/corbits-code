@@ -30,8 +30,12 @@ const CapabilityFilterSchema = type({
 // is statically typed for literal strings; a computed string requires a cast
 // through `unknown`. The schema is exercised by tests/unit/data-only-agent
 // and the runtime ReasoningEffort re-export, so drift is caught.
-const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(" | ");
-const ReasoningEffortSchema = type(reasoningEffortLiteral as unknown as "'none'");
+const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(
+  " | ",
+);
+const ReasoningEffortSchema = type(
+  reasoningEffortLiteral as unknown as "'none'",
+);
 
 const InferenceLegSchema = type({
   provider: "string>0",
@@ -133,9 +137,15 @@ export async function loadAgentProfiles(
     if (isReservedDirectorProfile(profile)) continue;
     // Resolve systemPromptPath relative to this directory. The file content
     // becomes systemPromptRole; an explicit systemPromptRole takes precedence.
-    if (profile.systemPromptPath !== undefined && profile.systemPromptRole === undefined) {
+    if (
+      profile.systemPromptPath !== undefined &&
+      profile.systemPromptRole === undefined
+    ) {
       try {
-        const promptRaw = await readFile(join(dir, profile.systemPromptPath), "utf8");
+        const promptRaw = await readFile(
+          join(dir, profile.systemPromptPath),
+          "utf8",
+        );
         profile.systemPromptRole = promptRaw.trim();
       } catch {
         // Missing prompt file is non-fatal — the profile loads without a role.

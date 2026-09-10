@@ -27,7 +27,9 @@ describe("subtree teardown", () => {
   test("destroys every descendant, not just the node itself", async () => {
     await withTestRenderer(async (h) => {
       const box = new BoxRenderable(h.renderer as CliRenderer, { id: "box" });
-      const inner = new BoxRenderable(h.renderer as CliRenderer, { id: "inner" });
+      const inner = new BoxRenderable(h.renderer as CliRenderer, {
+        id: "inner",
+      });
       const leaf = new TextRenderable(h.renderer as CliRenderer, {
         id: "leaf",
         content: "leaf",
@@ -56,8 +58,12 @@ describe("subtree teardown", () => {
 
       // A landing row is either still mounted or destroyed; anything detached
       // and undestroyed is a stranded native buffer.
-      const survivors = new Set(descendants(h.root as unknown as BoxRenderable));
-      const stranded = landingRows.filter((row) => !survivors.has(row) && !row.isDestroyed);
+      const survivors = new Set(
+        descendants(h.root as unknown as BoxRenderable),
+      );
+      const stranded = landingRows.filter(
+        (row) => !survivors.has(row) && !row.isDestroyed,
+      );
       expect(stranded.map((row) => row.id)).toEqual([]);
     });
   });

@@ -1,5 +1,9 @@
 import { test, expect, describe } from "bun:test";
-import { formatXaiUsage, formatXaiUsageCompact, type XaiUsage } from "../../src/auth/xai/usage.js";
+import {
+  formatXaiUsage,
+  formatXaiUsageCompact,
+  type XaiUsage,
+} from "../../src/auth/xai/usage.js";
 
 describe("formatXaiUsage", () => {
   test("renders tier and credit percent, no dollar figures", () => {
@@ -40,7 +44,10 @@ describe("formatXaiUsageCompact", () => {
   });
 
   test("falls back for unknown tier", () => {
-    const usage: XaiUsage = { subscriptionTier: "unknown", creditUsagePercent: 7 };
+    const usage: XaiUsage = {
+      subscriptionTier: "unknown",
+      creditUsagePercent: 7,
+    };
     expect(formatXaiUsageCompact(usage)).toBe("Grok 7%");
   });
 });

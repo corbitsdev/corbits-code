@@ -1,5 +1,12 @@
 import { describe, test, expect } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -17,7 +24,9 @@ import {
 } from "./project-trust.js";
 import type { MCPServerConfig } from "../config/settings.js";
 
-async function withTempHome(fn: (home: string, cwd: string) => Promise<void>): Promise<void> {
+async function withTempHome(
+  fn: (home: string, cwd: string) => Promise<void>,
+): Promise<void> {
   const home = await mkdtemp(join(tmpdir(), "project-trust-test-"));
   try {
     await fn(home, "/repo/under/test");
@@ -26,7 +35,11 @@ async function withTempHome(fn: (home: string, cwd: string) => Promise<void>): P
   }
 }
 
-const mcpServer = (name: string): MCPServerConfig => ({ name, command: "node", args: [name] });
+const mcpServer = (name: string): MCPServerConfig => ({
+  name,
+  command: "node",
+  args: [name],
+});
 
 describe("project trust store", () => {
   test("connects global MCP servers without local trust and fails closed for local lists", async () => {
@@ -59,7 +72,10 @@ describe("project trust store", () => {
       ]);
 
       const store = await loadProjectTrust(cwd, home);
-      expect(store.trustedPluginPaths.sort()).toEqual(["/plugins/a", "/plugins/b"]);
+      expect(store.trustedPluginPaths.sort()).toEqual([
+        "/plugins/a",
+        "/plugins/b",
+      ]);
 
       // File on disk must be complete, valid JSON — not truncated by an
       // interleaved write.
@@ -81,7 +97,10 @@ describe("project trust store", () => {
       ]);
 
       const store: ProjectTrustStore = await loadProjectTrust(cwd, home);
-      expect(store.trustedPluginPaths.sort()).toEqual(["/plugins/a", "/plugins/b"]);
+      expect(store.trustedPluginPaths.sort()).toEqual([
+        "/plugins/a",
+        "/plugins/b",
+      ]);
       expect(store.trustedMcpFingerprints).toHaveLength(2);
 
       const raw = await readFile(projectTrustPath(cwd, home), "utf8");
@@ -91,8 +110,13 @@ describe("project trust store", () => {
 
   test("many concurrent writers never drop a grant", async () => {
     await withTempHome(async (home, cwd) => {
-      const pluginPaths = Array.from({ length: 20 }, (_, i) => `/plugins/p${i}`);
-      const servers = Array.from({ length: 20 }, (_, i) => mcpServer(`server-${i}`));
+      const pluginPaths = Array.from(
+        { length: 20 },
+        (_, i) => `/plugins/p${i}`,
+      );
+      const servers = Array.from({ length: 20 }, (_, i) =>
+        mcpServer(`server-${i}`),
+      );
 
       await Promise.all([
         ...pluginPaths.map((p) => trustPlugin(cwd, p, home)),
@@ -133,7 +157,10 @@ describe("project trust store", () => {
       await mkdir(dirname(path), { recursive: true });
       await writeFile(
         path,
-        JSON.stringify({ trustedPluginPaths: ["/plugins/a"], trustedMcpFingerprints: [] }),
+        JSON.stringify({
+          trustedPluginPaths: ["/plugins/a"],
+          trustedMcpFingerprints: [],
+        }),
       );
 
       const result = await readProjectTrustStore(cwd, home);
@@ -151,14 +178,20 @@ describe("project trust store", () => {
       await trustPlugin(cwd, "relative/plugin", home);
 
       const store = await loadProjectTrust(cwd, home);
-      expect(store.trustedPluginPaths).toEqual([resolve(cwd, "relative/plugin")]);
+      expect(store.trustedPluginPaths).toEqual([
+        resolve(cwd, "relative/plugin"),
+      ]);
 
       // The grant binds to the project cwd's tree...
       expect(isPluginTrusted(store, "relative/plugin", cwd)).toBe(true);
       // ...not to process.cwd()'s tree, even though it resolves the same
       // relative string.
-      expect(isPluginTrusted(store, "relative/plugin", process.cwd())).toBe(false);
-      expect(isPluginTrusted(store, resolve(process.cwd(), "relative/plugin"))).toBe(false);
+      expect(isPluginTrusted(store, "relative/plugin", process.cwd())).toBe(
+        false,
+      );
+      expect(
+        isPluginTrusted(store, resolve(process.cwd(), "relative/plugin")),
+      ).toBe(false);
     });
   });
 
@@ -185,17 +218,25 @@ describe("project trust store", () => {
     await withTempHome(async (home, cwd) => {
       const path = projectTrustPath(cwd, home);
       await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, JSON.stringify({ repo: 12345, trustedPluginPaths: [] }));
+      await writeFile(
+        path,
+        JSON.stringify({ repo: 12345, trustedPluginPaths: [] }),
+      );
 
       const result = await readProjectTrustStore(cwd, home);
       expect(result.state).toBe("invalid");
-      expect(result.store).toEqual({ trustedPluginPaths: [], trustedMcpFingerprints: [] });
+      expect(result.store).toEqual({
+        trustedPluginPaths: [],
+        trustedMcpFingerprints: [],
+      });
     });
   });
 
   test("grants written via one symlink twin are found via the other (same repo, two spellings)", async () => {
     const home = await mkdtemp(join(tmpdir(), "project-trust-test-home-"));
-    const realRepoParent = await mkdtemp(join(tmpdir(), "project-trust-test-real-"));
+    const realRepoParent = await mkdtemp(
+      join(tmpdir(), "project-trust-test-real-"),
+    );
     const realRepo = join(realRepoParent, "repo");
     await mkdir(realRepo, { recursive: true });
     const linkRepo = join(realRepoParent, "repo-link");
@@ -208,13 +249,17 @@ describe("project trust store", () => {
       await trustMcpServer(linkRepo, mcpServer("via-link"), home);
 
       // Both spellings must key to the same on-disk store file.
-      expect(projectTrustPath(realRepo, home)).toBe(projectTrustPath(linkRepo, home));
+      expect(projectTrustPath(realRepo, home)).toBe(
+        projectTrustPath(linkRepo, home),
+      );
 
       const viaReal = await loadProjectTrust(realRepo, home);
       const viaLink = await loadProjectTrust(linkRepo, home);
       expect(viaReal.trustedPluginPaths).toEqual(["/plugins/a"]);
       expect(viaLink.trustedPluginPaths).toEqual(["/plugins/a"]);
-      expect(viaReal.trustedMcpFingerprints).toEqual(viaLink.trustedMcpFingerprints);
+      expect(viaReal.trustedMcpFingerprints).toEqual(
+        viaLink.trustedMcpFingerprints,
+      );
       expect(viaLink.trustedMcpFingerprints).toHaveLength(1);
 
       // Relaunching "through" the symlink twin still finds the grant valid

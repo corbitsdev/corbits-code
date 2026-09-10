@@ -2,7 +2,10 @@ import { test, expect, describe } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isLocalSettings, normalizeMcpServers } from "../../src/config/settings.js";
+import {
+  isLocalSettings,
+  normalizeMcpServers,
+} from "../../src/config/settings.js";
 import { mcpClientToAgentTools } from "../../src/mcp/plugin.js";
 import { createPermissionGate } from "../../src/permission/gate.js";
 import { loadAuthState, saveAuthState } from "../../src/mcp/auth-store.js";
@@ -17,7 +20,9 @@ describe("isLocalSettings with mcpServers", () => {
   test("accepts valid mcpServers array", () => {
     expect(
       isLocalSettings({
-        mcpServers: [{ name: "acme", command: "npx", args: ["-y", "@acme/mcp"] }],
+        mcpServers: [
+          { name: "acme", command: "npx", args: ["-y", "@acme/mcp"] },
+        ],
       }),
     ).toBe(true);
   });
@@ -26,7 +31,12 @@ describe("isLocalSettings with mcpServers", () => {
     expect(
       isLocalSettings({
         mcpServers: [
-          { name: "mymcp", command: "node", args: ["server.js"], env: { TOKEN: "abc" } },
+          {
+            name: "mymcp",
+            command: "node",
+            args: ["server.js"],
+            env: { TOKEN: "abc" },
+          },
         ],
       }),
     ).toBe(true);
@@ -82,7 +92,10 @@ describe("isLocalSettings with mcpServers", () => {
     expect(
       isLocalSettings({
         mcpServers: {
-          acme: { command: "npx", args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"] },
+          acme: {
+            command: "npx",
+            args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"],
+          },
         },
       }),
     ).toBe(true);
@@ -152,7 +165,9 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       reactorGated: false,
     });
     const tools = mcpClientToAgentTools(client, gate);
-    expect(defined(tools[0], "mcp tool").definition.description).toBe("[github] search_repos tool");
+    expect(defined(tools[0], "mcp tool").definition.description).toBe(
+      "[github] search_repos tool",
+    );
   });
 
   test("tool handler returns call result", async () => {
@@ -161,7 +176,13 @@ describe("mcpClientToAgentTools (production gated path)", () => {
 
     const client: MCPClient = {
       serverName: "myserver",
-      tools: [{ name: "do_thing", description: "does thing", inputSchema: { type: "object" } }],
+      tools: [
+        {
+          name: "do_thing",
+          description: "does thing",
+          inputSchema: { type: "object" },
+        },
+      ],
       async call(toolName, args) {
         capturedName = toolName;
         capturedArgs = args;
@@ -186,7 +207,8 @@ describe("mcpClientToAgentTools (production gated path)", () => {
 
     expect(capturedName).toBe("do_thing");
     expect(capturedArgs).toEqual({ x: 1 });
-    if (typeof result === "string") throw new Error("expected structured ToolResult");
+    if (typeof result === "string")
+      throw new Error("expected structured ToolResult");
     expect(result.content).toBe("done");
     expect(result.isError).toBeUndefined();
   });
@@ -215,7 +237,8 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       new AbortController().signal,
     );
 
-    if (typeof result === "string") throw new Error("expected structured ToolResult");
+    if (typeof result === "string")
+      throw new Error("expected structured ToolResult");
     expect(result.isError).toBe(true);
     expect(result.content).toBe("server error");
   });
@@ -240,7 +263,8 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       new AbortController().signal,
     );
     expect(asked).toBe(1);
-    if (typeof result === "string") throw new Error("expected structured ToolResult");
+    if (typeof result === "string")
+      throw new Error("expected structured ToolResult");
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Blocked by permission policy");
   });
@@ -252,16 +276,25 @@ describe("normalizeMcpServers", () => {
   });
 
   test("passes through array format unchanged", () => {
-    const input = [{ name: "acme", command: "npx", args: ["-y", "mcp-remote"] }];
+    const input = [
+      { name: "acme", command: "npx", args: ["-y", "mcp-remote"] },
+    ];
     expect(normalizeMcpServers(input)).toEqual(input);
   });
 
   test("converts object format to array format", () => {
     const input = {
-      acme: { command: "npx", args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"] },
+      acme: {
+        command: "npx",
+        args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"],
+      },
     };
     expect(normalizeMcpServers(input)).toEqual([
-      { name: "acme", command: "npx", args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"] },
+      {
+        name: "acme",
+        command: "npx",
+        args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"],
+      },
     ]);
   });
 
@@ -282,7 +315,11 @@ describe("normalizeMcpServers", () => {
     const result = normalizeMcpServers(input);
     expect(result).toHaveLength(2);
     expect(result).toContainEqual({ name: "a", command: "cmd-a" });
-    expect(result).toContainEqual({ name: "b", command: "cmd-b", args: ["--x"] });
+    expect(result).toContainEqual({
+      name: "b",
+      command: "cmd-b",
+      args: ["--x"],
+    });
   });
 
   test("returns undefined for invalid array entry", () => {
@@ -297,14 +334,20 @@ describe("normalizeMcpServers", () => {
 describe("normalizeMcpServers with http transport", () => {
   test("accepts an http server by url", () => {
     expect(
-      normalizeMcpServers({ acme: { type: "http", url: "https://mcp.acme.app/mcp" } }),
-    ).toEqual([{ name: "acme", type: "http", url: "https://mcp.acme.app/mcp" }]);
+      normalizeMcpServers({
+        acme: { type: "http", url: "https://mcp.acme.app/mcp" },
+      }),
+    ).toEqual([
+      { name: "acme", type: "http", url: "https://mcp.acme.app/mcp" },
+    ]);
   });
 
   test("infers http when only url is given", () => {
-    expect(isLocalSettings({ mcpServers: { acme: { url: "https://mcp.acme.app/mcp" } } })).toBe(
-      true,
-    );
+    expect(
+      isLocalSettings({
+        mcpServers: { acme: { url: "https://mcp.acme.app/mcp" } },
+      }),
+    ).toBe(true);
   });
 
   test("rejects an http server with no url", () => {
@@ -312,11 +355,16 @@ describe("normalizeMcpServers with http transport", () => {
   });
 
   test("rejects an unknown transport type", () => {
-    expect(normalizeMcpServers({ acme: { type: "ws", url: "wss://x" } })).toBeUndefined();
+    expect(
+      normalizeMcpServers({ acme: { type: "ws", url: "wss://x" } }),
+    ).toBeUndefined();
   });
 });
 
-const acmeAuthIdentity = { serverName: "acme", serverURL: "https://mcp.acme.app/mcp" };
+const acmeAuthIdentity = {
+  serverName: "acme",
+  serverURL: "https://mcp.acme.app/mcp",
+};
 
 describe("MCP auth store", () => {
   const tokens: OAuthTokens = { access_token: "tok", token_type: "Bearer" };
@@ -325,7 +373,11 @@ describe("MCP auth store", () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
       expect(await loadAuthState(acmeAuthIdentity, home)).toEqual({});
-      await saveAuthState(acmeAuthIdentity, { tokens, codeVerifier: "verifier" }, home);
+      await saveAuthState(
+        acmeAuthIdentity,
+        { tokens, codeVerifier: "verifier" },
+        home,
+      );
       expect(await loadAuthState(acmeAuthIdentity, home)).toEqual({
         tokens,
         codeVerifier: "verifier",
@@ -363,12 +415,16 @@ describe("OAuth provider", () => {
         onAuthURL: (name, url) => seen.push({ name, url }),
         home,
       });
-      provider.redirectToAuthorization(new URL("https://acme.app/oauth/authorize?client_id=abc"));
+      provider.redirectToAuthorization(
+        new URL("https://acme.app/oauth/authorize?client_id=abc"),
+      );
       expect(seen).toEqual([
         { name: "acme", url: "https://acme.app/oauth/authorize?client_id=abc" },
       ]);
       expect(provider.redirectUrl).toBe("http://127.0.0.1:5599/callback");
-      expect(provider.clientMetadata.redirect_uris).toEqual(["http://127.0.0.1:5599/callback"]);
+      expect(provider.clientMetadata.redirect_uris).toEqual([
+        "http://127.0.0.1:5599/callback",
+      ]);
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -410,7 +466,10 @@ describe("OAuth provider", () => {
         onAuthURL: () => undefined,
         home,
       });
-      expect(second.tokens()).toEqual({ access_token: "abc", token_type: "Bearer" });
+      expect(second.tokens()).toEqual({
+        access_token: "abc",
+        token_type: "Bearer",
+      });
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -437,7 +496,9 @@ describe("OAuth provider", () => {
       await provider.resetAuthorization();
 
       expect(provider.tokens()).toBeUndefined();
-      expect(() => provider.codeVerifier()).toThrow("No PKCE code verifier saved");
+      expect(() => provider.codeVerifier()).toThrow(
+        "No PKCE code verifier saved",
+      );
       expect(await provider.state?.()).not.toBe(oldState);
       expect(await loadAuthState(acmeAuthIdentity, home)).toEqual({});
     } finally {
@@ -457,7 +518,10 @@ describe("dynamic tool runner", () => {
     const runner = createDynamicToolRunner([makeTool("base", "base-result")]);
     runner.addTools([makeTool("mcp__acme__list", "late-result")]);
 
-    expect(runner.currentDefinitions().map((d) => d.name)).toEqual(["base", "mcp__acme__list"]);
+    expect(runner.currentDefinitions().map((d) => d.name)).toEqual([
+      "base",
+      "mcp__acme__list",
+    ]);
     const result = await runner.run(
       { id: "c1", name: "mcp__acme__list", arguments: {} },
       new AbortController().signal,
@@ -493,9 +557,9 @@ describe("dynamic tool runner", () => {
     expect(runner.currentDefinitions().map((d) => d.name)).toEqual(["base"]);
 
     expect(() => runner.removeTools(["mcp__acme__list"])).not.toThrow();
-    expect(() => runner.addTools([makeTool("mcp__acme__list", "again")])).not.toThrow(
-      DuplicateToolError,
-    );
+    expect(() =>
+      runner.addTools([makeTool("mcp__acme__list", "again")]),
+    ).not.toThrow(DuplicateToolError);
     const restored = await runner.run(
       { id: "c2", name: "mcp__acme__list", arguments: {} },
       new AbortController().signal,

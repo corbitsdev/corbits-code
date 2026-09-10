@@ -16,12 +16,16 @@ import { EXA_MCP_SERVER_NAME } from "./exa.js";
 
 export interface GlobalSettingsWriter {
   readonly enqueue: <T>(job: () => Promise<T>) => Promise<T>;
-  readonly update: (apply: (base: Settings) => Settings | null) => Promise<Settings | null>;
+  readonly update: (
+    apply: (base: Settings) => Settings | null,
+  ) => Promise<Settings | null>;
   readonly updateAt: (
     path: string,
     apply: (base: Settings) => Settings | null,
   ) => Promise<Settings | null>;
-  readonly mutate: (apply: (base: Settings) => Settings | null) => Promise<"ok" | "skipped">;
+  readonly mutate: (
+    apply: (base: Settings) => Settings | null,
+  ) => Promise<"ok" | "skipped">;
   readonly mutateAt: (
     path: string,
     apply: (base: Settings) => Settings | null,
@@ -42,7 +46,10 @@ export function createGlobalSettingsWriter(
   path: string,
   deps: Partial<GlobalSettingsWriterDeps> = {},
 ): GlobalSettingsWriter {
-  const writerDeps: GlobalSettingsWriterDeps = { ...defaultWriterDeps, ...deps };
+  const writerDeps: GlobalSettingsWriterDeps = {
+    ...defaultWriterDeps,
+    ...deps,
+  };
   let tail = Promise.resolve();
   const enqueue = <T>(job: () => Promise<T>): Promise<T> => {
     const run = tail.then(job);
@@ -113,7 +120,10 @@ export function createLocalSettingsWriter(
   path: string,
   deps: Partial<LocalSettingsWriterDeps> = {},
 ): LocalSettingsWriter {
-  const writerDeps: LocalSettingsWriterDeps = { ...defaultLocalWriterDeps, ...deps };
+  const writerDeps: LocalSettingsWriterDeps = {
+    ...defaultLocalWriterDeps,
+    ...deps,
+  };
   let tail = Promise.resolve();
   const enqueue = <T>(job: () => Promise<T>): Promise<T> => {
     const run = tail.then(job);
@@ -153,11 +163,20 @@ export function createLocalSettingsWriter(
 }
 
 export type PersistMCPServerResult =
-  | { readonly ok: true; readonly server: MCPServerConfig; readonly settings: Settings }
+  | {
+      readonly ok: true;
+      readonly server: MCPServerConfig;
+      readonly settings: Settings;
+    }
   | {
       readonly ok: false;
       readonly reason:
-        "invalid-name" | "invalid-url" | "duplicate" | "active" | "skipped" | "local-shadow";
+        | "invalid-name"
+        | "invalid-url"
+        | "duplicate"
+        | "active"
+        | "skipped"
+        | "local-shadow";
     };
 
 export type PersistMCPServerListResult =
@@ -194,7 +213,11 @@ export function parseAbsoluteHTTPURL(value: string): URL | null {
     const url = new URL(trimmed);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     if (url.username !== "" || url.password !== "") return null;
-    if (url.hostname.length === 0 || url.hostname === "." || url.hostname.startsWith(".")) {
+    if (
+      url.hostname.length === 0 ||
+      url.hostname === "." ||
+      url.hostname.startsWith(".")
+    ) {
       return null;
     }
     return url;
@@ -216,7 +239,8 @@ export async function persistGlobalHTTPMCPServer(
 ): Promise<PersistMCPServerResult> {
   const name = rawName.trim();
   const parsedURL = parseAbsoluteHTTPURL(rawURL);
-  if (validateMCPServerName(name) !== null) return { ok: false, reason: "invalid-name" };
+  if (validateMCPServerName(name) !== null)
+    return { ok: false, reason: "invalid-name" };
   if (parsedURL === null) return { ok: false, reason: "invalid-url" };
   if (source === "local") return { ok: false, reason: "local-shadow" };
 
@@ -246,7 +270,9 @@ function withoutEnabled(row: MCPServerSettingsEntry): MCPServerSettingsEntry {
   return rest;
 }
 
-function omitMcpServers<T extends { mcpServers?: MCPServerSettingsEntry[] }>(base: T): T {
+function omitMcpServers<T extends { mcpServers?: MCPServerSettingsEntry[] }>(
+  base: T,
+): T {
   const next = { ...base };
   delete next.mcpServers;
   return next;
@@ -275,7 +301,10 @@ export function setMCPServerEntryEnabled(
 export function removeMCPServerEntry(
   entries: MCPServerSettingsEntry[],
   name: string,
-): { entries: MCPServerSettingsEntry[]; removed: MCPServerSettingsEntry } | null {
+): {
+  entries: MCPServerSettingsEntry[];
+  removed: MCPServerSettingsEntry;
+} | null {
   const index = entries.findIndex((entry) => entry.name === name);
   if (index === -1) return null;
   const removed = entries[index];
@@ -300,7 +329,8 @@ async function deleteRemovedAuth(
   removed: MCPServerSettingsEntry | undefined,
   home: string,
 ): Promise<void> {
-  if (removed === undefined || !("url" in removed) || removed.url === undefined) return;
+  if (removed === undefined || !("url" in removed) || removed.url === undefined)
+    return;
   await deleteAuthState({ serverName: name, serverURL: removed.url }, home);
 }
 

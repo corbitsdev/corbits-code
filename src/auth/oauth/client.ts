@@ -21,7 +21,11 @@ export interface OAuthClientConfig {
 // Build the authorization URL the user opens to grant access. The challenge
 // binds this request to the PKCE verifier held locally; `state` is the CSRF
 // nonce the redirect must echo back unchanged.
-export function buildAuthorizeUrl(config: OAuthClientConfig, pkce: Pkce, state: string): string {
+export function buildAuthorizeUrl(
+  config: OAuthClientConfig,
+  pkce: Pkce,
+  state: string,
+): string {
   const url = new URL(config.authorizeUrl);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", config.clientId);
@@ -54,7 +58,9 @@ export class OAuthTokenEndpointError extends Error {
   readonly detail: string;
 
   constructor(label: string, status: number, detail: string) {
-    super(`${label} token endpoint returned ${String(status)}${detail ? `: ${detail}` : ""}`);
+    super(
+      `${label} token endpoint returned ${String(status)}${detail ? `: ${detail}` : ""}`,
+    );
     this.name = "OAuthTokenEndpointError";
     this.status = status;
     this.detail = detail;
@@ -98,7 +104,10 @@ export async function postToken(
   // the agent forever when the endpoint stalls.
   const res = await fetch(config.tokenUrl, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      accept: "application/json",
+    },
     body: body.toString(),
     signal: AbortSignal.timeout(config.tokenTimeoutMs),
   });

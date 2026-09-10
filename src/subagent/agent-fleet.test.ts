@@ -23,7 +23,10 @@ import { createSubAgentSessionStore } from "./session-store.js";
 import { INTENT_DEFAULT_DIRECTOR } from "../agent/directors/registry.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
-import { AGENTS_PANEL_LINGER_MS, formatAgentsPanel } from "../tui/chrome-state.js";
+import {
+  AGENTS_PANEL_LINGER_MS,
+  formatAgentsPanel,
+} from "../tui/chrome-state.js";
 import { forcedStopReport } from "./stop-policy.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 import { INTERVENTION_FILE } from "./intervention-log.js";
@@ -107,21 +110,35 @@ function waitUntilMailboxTerminal(
 }
 
 async function callToolRaw(
-  tool: ReturnType<typeof createSpawnAgentTool> | ReturnType<typeof createWaitAgentsTool>,
+  tool:
+    | ReturnType<typeof createSpawnAgentTool>
+    | ReturnType<typeof createWaitAgentsTool>,
   args: Record<string, unknown>,
 ): Promise<{ content: string; isError?: boolean }> {
-  if (tool.kind !== "full") throw new Error(`expected full tool, got ${tool.kind}`);
+  if (tool.kind !== "full")
+    throw new Error(`expected full tool, got ${tool.kind}`);
   const result = await tool.handler(
-    { id: `call-${Math.random()}`, name: tool.definition.name, arguments: args },
+    {
+      id: `call-${Math.random()}`,
+      name: tool.definition.name,
+      arguments: args,
+    },
     new AbortController().signal,
   );
   const content =
-    typeof result.content === "string" ? result.content : JSON.stringify(result.content);
-  return { content, ...(result.isError !== undefined ? { isError: result.isError } : {}) };
+    typeof result.content === "string"
+      ? result.content
+      : JSON.stringify(result.content);
+  return {
+    content,
+    ...(result.isError !== undefined ? { isError: result.isError } : {}),
+  };
 }
 
 async function callTool(
-  tool: ReturnType<typeof createSpawnAgentTool> | ReturnType<typeof createWaitAgentsTool>,
+  tool:
+    | ReturnType<typeof createSpawnAgentTool>
+    | ReturnType<typeof createWaitAgentsTool>,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const { content } = await callToolRaw(tool, args);
@@ -147,7 +164,9 @@ describe("spawn_agent", () => {
     expect(elapsed).toBeLessThan(1000);
 
     // Worker is still pending; store confirms it has not finished.
-    expect(deps.sessions.get(result.agent_id as string)?.status).toBe("running");
+    expect(deps.sessions.get(result.agent_id as string)?.status).toBe(
+      "running",
+    );
 
     gate.resolve({ report: "done" });
   });
@@ -210,7 +229,10 @@ describe("spawn_agent", () => {
     expect(result.status).toBe("running");
     expect(captured?.directorId).toBe("plugin-reviewer");
     expect(captured?.systemPromptRole).toBe("You are the plugin reviewer.");
-    expect(captured?.capabilities).toEqual({ mode: "allow", tools: ["read_file"] });
+    expect(captured?.capabilities).toEqual({
+      mode: "allow",
+      tools: ["read_file"],
+    });
     expect(captured?.tier).toBe("leaf");
     expect(captured?.orchestrator).toBeUndefined();
   });
@@ -229,20 +251,34 @@ describe("spawn_agent + wait_agents", () => {
       return defined(gates[i]).promise;
     });
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const spawned = await Promise.all(
       [0, 1, 2].map((i) =>
-        callTool(spawn, { description: `job-${i}`, prompt: "do it", intent: "explore" }),
+        callTool(spawn, {
+          description: `job-${i}`,
+          prompt: "do it",
+          intent: "explore",
+        }),
       ),
     );
     const ids = spawned.map((s) => s.agent_id as string);
 
     defined(gates[0]).resolve({ report: "first report" });
 
-    const waited = await callTool(wait, { targets: [ids[0]], timeout_ms: 5000 });
+    const waited = await callTool(wait, {
+      targets: [ids[0]],
+      timeout_ms: 5000,
+    });
     expect(waited.timed_out).toBe(false);
-    const results = waited.results as { agent_id: string; status: string; report?: string }[];
+    const results = waited.results as {
+      agent_id: string;
+      status: string;
+      report?: string;
+    }[];
     expect(results).toHaveLength(1);
     expect(defined(results[0]).status).toBe("done");
     expect(defined(results[0]).report).toBe("first report");
@@ -259,7 +295,10 @@ describe("spawn_agent + wait_agents", () => {
     const gate = deferred<RunSubAgentResult>();
     const deps = makeDeps(async () => gate.promise);
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const spawned = await callTool(spawn, {
       description: "slow job",
@@ -270,7 +309,10 @@ describe("spawn_agent + wait_agents", () => {
 
     const first = await callTool(wait, { targets: [id], timeout_ms: 50 });
     expect(first.timed_out).toBe(true);
-    const firstResults = first.results as { agent_id: string; status: string }[];
+    const firstResults = first.results as {
+      agent_id: string;
+      status: string;
+    }[];
     expect(defined(firstResults[0]).status).toBe("running");
 
     // Not cancelled, not failed — still running.
@@ -290,14 +332,28 @@ describe("spawn_agent + wait_agents", () => {
   });
 
   test("wait_agents with no targets waits on all uncollected agents in this fleet", async () => {
-    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
     let callIndex = 0;
     const deps = makeDeps(async () => defined(gates[callIndex++]).promise);
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
-    await callTool(spawn, { description: "a", prompt: "do it", intent: "explore" });
-    await callTool(spawn, { description: "b", prompt: "do it", intent: "explore" });
+    await callTool(spawn, {
+      description: "a",
+      prompt: "do it",
+      intent: "explore",
+    });
+    await callTool(spawn, {
+      description: "b",
+      prompt: "do it",
+      intent: "explore",
+    });
 
     defined(gates[0]).resolve({ report: "a done" });
     const result = await callTool(wait, { timeout_ms: 5000 });
@@ -325,9 +381,15 @@ describe("spawn_agent + wait_agents", () => {
     // 50), so 25 of them all stay resumable; mailbox pin + wait_agents is
     // still asserted below as the collect path regardless.
     const COUNT = 25;
-    const deps = makeDeps(async () => ({ report: "irrelevant", agentRetained: true }));
+    const deps = makeDeps(async () => ({
+      report: "irrelevant",
+      agentRetained: true,
+    }));
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const ids: string[] = [];
     for (let i = 0; i < COUNT; i++) {
@@ -348,7 +410,11 @@ describe("spawn_agent + wait_agents", () => {
 
     // Every single one is retrievable through wait_agents too.
     const waited = await callTool(wait, { targets: ids, timeout_ms: 5000 });
-    const results = waited.results as { agent_id: string; status: string; report?: string }[];
+    const results = waited.results as {
+      agent_id: string;
+      status: string;
+      report?: string;
+    }[];
     expect(results).toHaveLength(COUNT);
     for (const result of results) {
       expect(result.status).toBe("done");
@@ -366,7 +432,9 @@ describe("spawn_agent + wait_agents", () => {
           resolve();
           return;
         }
-        params.signal?.addEventListener("abort", () => resolve(), { once: true });
+        params.signal?.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
       });
       await new Promise((r) => setTimeout(r, 10));
       return {
@@ -375,7 +443,10 @@ describe("spawn_agent + wait_agents", () => {
       };
     });
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const spawned = await callTool(spawn, {
       description: "cancel salvage",
@@ -413,14 +484,19 @@ describe("spawn_agent + wait_agents", () => {
           resolve();
           return;
         }
-        params.signal?.addEventListener("abort", () => resolve(), { once: true });
+        params.signal?.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
       });
       const err = new Error("aborted");
       err.name = "AbortError";
       throw err;
     });
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const spawned = await callTool(spawn, {
       description: "catch cancel",
@@ -432,7 +508,11 @@ describe("spawn_agent + wait_agents", () => {
 
     const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
     expect(waited.timed_out).toBe(false);
-    const results = waited.results as { status: string; error?: string; report?: string }[];
+    const results = waited.results as {
+      status: string;
+      error?: string;
+      report?: string;
+    }[];
     expect(defined(results[0]).status).toBe("interrupted");
     expect(defined(results[0]).error).toBeUndefined();
     expect(deps.sessions.get(id)?.status).toBe("cancelled");
@@ -444,7 +524,10 @@ describe("spawn_agent + wait_agents", () => {
       stopReason: "incomplete-report",
     }));
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const spawned = await callTool(spawn, {
       description: "incomplete salvage",
@@ -461,7 +544,9 @@ describe("spawn_agent + wait_agents", () => {
     }[];
     expect(defined(results[0]).status).toBe("done");
     expect(defined(results[0]).stop_reason).toBe("incomplete-report");
-    expect(defined(results[0]).report).toContain("narrated instead of writing a report envelope");
+    expect(defined(results[0]).report).toContain(
+      "narrated instead of writing a report envelope",
+    );
     expect(defined(results[0]).error).toBeUndefined();
   });
 
@@ -470,7 +555,10 @@ describe("spawn_agent + wait_agents", () => {
       throw new Error("provider blew up");
     });
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const spawned = await callTool(spawn, {
       description: "failed run",
@@ -498,7 +586,10 @@ describe("spawn_agent + wait_agents", () => {
       interrupted: true,
     }));
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const spawned = await callTool(spawn, {
       description: "interrupt salvage",
@@ -515,16 +606,23 @@ describe("spawn_agent + wait_agents", () => {
     }[];
     expect(defined(results[0]).status).toBe("interrupted");
     expect(defined(results[0]).stop_reason).toBe("interrupted");
-    expect(defined(results[0]).report).toContain("interrupted before finishing");
+    expect(defined(results[0]).report).toContain(
+      "interrupted before finishing",
+    );
     expect(defined(results[0]).error).toBeUndefined();
   });
 });
 
 describe("spawn_agent same-cwd concurrency", () => {
   test("two concurrent implement-intent spawn_agent calls against the same cwd both start", async () => {
-    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
     let callIndex = 0;
-    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, { cwd: "/repo" });
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
     const spawn = createSpawnAgentTool(deps);
 
     const first = await callTool(spawn, {
@@ -549,9 +647,14 @@ describe("spawn_agent same-cwd concurrency", () => {
 
   test("two concurrent shared-cwd spawn_agent lanes log concurrent-lane-overlap", async () => {
     const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-"));
-    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
     let callIndex = 0;
-    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, { cwd: "/repo" });
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
     deps.getWorkdirBase = () => dir;
     const spawn = createSpawnAgentTool(deps);
 
@@ -595,7 +698,10 @@ describe("wait mailbox session tombstone and pin", () => {
     const COUNT = MAX_FLEET_RECORDS + 50;
     const deps = makeDeps(async () => ({ report: "x".repeat(1000) }));
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const ids: string[] = [];
     for (let i = 0; i < COUNT; i++) {
@@ -621,7 +727,10 @@ describe("wait mailbox session tombstone and pin", () => {
     const COUNT = MAX_FLEET_RECORDS + 50;
     const deps = makeDeps(async () => ({ report: "x".repeat(1000) }));
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
 
     const ids: string[] = [];
     for (let i = 0; i < COUNT; i++) {
@@ -636,7 +745,10 @@ describe("wait mailbox session tombstone and pin", () => {
 
     // The earliest spawned agent's payload should have been tombstoned —
     // never collected, so it was evicted once the cap was exceeded.
-    const waited = await callTool(wait, { targets: [defined(ids[0])], timeout_ms: 5000 });
+    const waited = await callTool(wait, {
+      targets: [defined(ids[0])],
+      timeout_ms: 5000,
+    });
     const results = waited.results as {
       agent_id: string;
       status: string;
@@ -667,26 +779,46 @@ describe("wait mailbox session tombstone and pin", () => {
       { sessions },
     );
     const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({ sessions, fleetRecords: deps.fleetRecords });
+    const wait = createWaitAgentsTool({
+      sessions,
+      fleetRecords: deps.fleetRecords,
+    });
     if (spawn.kind !== "full") throw new Error("expected full tool");
     const args = { description: "job", prompt: "do it", intent: "explore" };
     const signal = new AbortController().signal;
 
-    await spawn.handler({ id: "reuse-id", name: "spawn_agent", arguments: args }, signal);
+    await spawn.handler(
+      { id: "reuse-id", name: "spawn_agent", arguments: args },
+      signal,
+    );
     firstRun.resolve({ report: "ok" });
     await callTool(wait, { targets: ["reuse-id"], timeout_ms: 5000 });
 
-    await spawn.handler({ id: "reuse-id", name: "spawn_agent", arguments: args }, signal);
+    await spawn.handler(
+      { id: "reuse-id", name: "spawn_agent", arguments: args },
+      signal,
+    );
     secondRun.resolve({ report: "ok" });
     await waitUntilMailboxTerminal(deps.fleetRecords, sessions, "reuse-id");
 
-    const extra1 = sessions.start({ description: "flood-1", agentId: "a", brief: "b" });
+    const extra1 = sessions.start({
+      description: "flood-1",
+      agentId: "a",
+      brief: "b",
+    });
     sessions.complete(extra1.id, "flood-1");
-    const extra2 = sessions.start({ description: "flood-2", agentId: "a", brief: "b" });
+    const extra2 = sessions.start({
+      description: "flood-2",
+      agentId: "a",
+      brief: "b",
+    });
     sessions.complete(extra2.id, "flood-2");
 
     expect(sessions.get("reuse-id")).toBeDefined();
-    const waited = await callTool(wait, { targets: ["reuse-id"], timeout_ms: 1000 });
+    const waited = await callTool(wait, {
+      targets: ["reuse-id"],
+      timeout_ms: 1000,
+    });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { status: string }[];
     expect(defined(results[0]).status).toBe("done");
@@ -699,14 +831,32 @@ describe("wait mailbox session tombstone and pin", () => {
       now: () => ++t,
     });
     const mailbox = createFleetMailbox(sessions);
-    sessions.start({ id: "reuse", description: "old", agentId: "a", brief: "b" });
+    sessions.start({
+      id: "reuse",
+      description: "old",
+      agentId: "a",
+      brief: "b",
+    });
     mailbox.register("reuse");
     sessions.complete("reuse", "old report");
-    sessions.start({ id: "reuse", description: "new", agentId: "a", brief: "b" });
+    sessions.start({
+      id: "reuse",
+      description: "new",
+      agentId: "a",
+      brief: "b",
+    });
     sessions.complete("reuse", "new report");
-    const extra = sessions.start({ description: "other", agentId: "a", brief: "b" });
+    const extra = sessions.start({
+      description: "other",
+      agentId: "a",
+      brief: "b",
+    });
     sessions.complete(extra.id, "other");
-    const extra2 = sessions.start({ description: "prune", agentId: "a", brief: "b" });
+    const extra2 = sessions.start({
+      description: "prune",
+      agentId: "a",
+      brief: "b",
+    });
     sessions.complete(extra2.id, "prune");
     expect(sessions.get("reuse")).toBeUndefined();
     const snap = mailbox.peek("reuse");
@@ -770,7 +920,9 @@ describe("wait_agents caller scope", () => {
     const waited = await callTool(wait, { timeout_ms: 50 });
     expect(waited.timed_out).toBe(true);
     const results = waited.results as { agent_id: string; status: string }[];
-    expect(results.map((r) => r.agent_id)).toEqual([spawned.agent_id as string]);
+    expect(results.map((r) => r.agent_id)).toEqual([
+      spawned.agent_id as string,
+    ]);
     expect(results.every((r) => r.agent_id !== foreign.id)).toBe(true);
 
     gate.resolve({ report: "done" });
@@ -814,8 +966,16 @@ describe("wait_agents caller scope", () => {
 
     const own = await callTool(wait, { targets: [child.id], timeout_ms: 1000 });
     expect(own.timed_out).toBe(false);
-    const ownResults = own.results as { agent_id: string; status: string; report?: string }[];
-    expect(ownResults[0]).toEqual({ agent_id: child.id, status: "done", report: "child done" });
+    const ownResults = own.results as {
+      agent_id: string;
+      status: string;
+      report?: string;
+    }[];
+    expect(ownResults[0]).toEqual({
+      agent_id: child.id,
+      status: "done",
+      report: "child done",
+    });
 
     if (wait.kind !== "full") throw new Error("expected full tool");
     const denied = await wait.handler(
@@ -831,7 +991,10 @@ describe("wait_agents caller scope", () => {
   });
 
   test("mode=all stays blocked until every target is terminal", async () => {
-    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
     let callIndex = 0;
     const deps = makeDeps(async () => defined(gates[callIndex++]).promise);
     const spawn = createSpawnAgentTool(deps);
@@ -853,20 +1016,31 @@ describe("wait_agents caller scope", () => {
     const ids = [first.agent_id as string, second.agent_id as string];
 
     defined(gates[0]).resolve({ report: "a done" });
-    const partial = await callTool(wait, { targets: ids, mode: "all", timeout_ms: 50 });
+    const partial = await callTool(wait, {
+      targets: ids,
+      mode: "all",
+      timeout_ms: 50,
+    });
     expect(partial.timed_out).toBe(true);
     const partialResults = partial.results as { status: string }[];
     expect(partialResults.some((r) => r.status === "running")).toBe(true);
 
     defined(gates[1]).resolve({ report: "b done" });
-    const finished = await callTool(wait, { targets: ids, mode: "all", timeout_ms: 5000 });
+    const finished = await callTool(wait, {
+      targets: ids,
+      mode: "all",
+      timeout_ms: 5000,
+    });
     expect(finished.timed_out).toBe(false);
     const finishedResults = finished.results as { status: string }[];
     expect(finishedResults.every((r) => r.status === "done")).toBe(true);
   });
 
   test("mode=all with one interrupted target stays blocked until siblings finish", async () => {
-    const gates = [deferred<RunSubAgentResult>(), deferred<RunSubAgentResult>()];
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
     let callIndex = 0;
     const deps = makeDeps(async (params) => {
       params.onAgentReady?.({
@@ -904,22 +1078,48 @@ describe("wait_agents caller scope", () => {
     // sibling is still running.
     if (interrupt.kind !== "full") throw new Error("expected full tool");
     await interrupt.handler(
-      { id: "int-1", name: "interrupt_agent", arguments: { target: defined(ids[0]) } },
+      {
+        id: "int-1",
+        name: "interrupt_agent",
+        arguments: { target: defined(ids[0]) },
+      },
       new AbortController().signal,
     );
 
-    const partial = await callTool(wait, { targets: ids, mode: "all", timeout_ms: 50 });
+    const partial = await callTool(wait, {
+      targets: ids,
+      mode: "all",
+      timeout_ms: 50,
+    });
     expect(partial.timed_out).toBe(true);
-    const partialResults = partial.results as { agent_id: string; status: string }[];
-    expect(partialResults.find((r) => r.agent_id === defined(ids[0]))?.status).toBe("interrupted");
-    expect(partialResults.find((r) => r.agent_id === defined(ids[1]))?.status).toBe("running");
+    const partialResults = partial.results as {
+      agent_id: string;
+      status: string;
+    }[];
+    expect(
+      partialResults.find((r) => r.agent_id === defined(ids[0]))?.status,
+    ).toBe("interrupted");
+    expect(
+      partialResults.find((r) => r.agent_id === defined(ids[1]))?.status,
+    ).toBe("running");
 
     defined(gates[1]).resolve({ report: "b done" });
-    const finished = await callTool(wait, { targets: ids, mode: "all", timeout_ms: 5000 });
+    const finished = await callTool(wait, {
+      targets: ids,
+      mode: "all",
+      timeout_ms: 5000,
+    });
     expect(finished.timed_out).toBe(false);
-    const finishedResults = finished.results as { agent_id: string; status: string }[];
-    expect(finishedResults.find((r) => r.agent_id === defined(ids[0]))?.status).toBe("interrupted");
-    expect(finishedResults.find((r) => r.agent_id === defined(ids[1]))?.status).toBe("done");
+    const finishedResults = finished.results as {
+      agent_id: string;
+      status: string;
+    }[];
+    expect(
+      finishedResults.find((r) => r.agent_id === defined(ids[0]))?.status,
+    ).toBe("interrupted");
+    expect(
+      finishedResults.find((r) => r.agent_id === defined(ids[1]))?.status,
+    ).toBe("done");
     // Leave the interrupted gate unresolved — interrupt unblocked the wait
     // without the run settling.
   });
@@ -943,14 +1143,20 @@ describe("wait_agents caller scope", () => {
     const ac = new AbortController();
     const started = Date.now();
     const pending = wait.handler(
-      { id: "wait-1", name: "wait_agents", arguments: { targets: [id], timeout_ms: 5000 } },
+      {
+        id: "wait-1",
+        name: "wait_agents",
+        arguments: { targets: [id], timeout_ms: 5000 },
+      },
       ac.signal,
     );
     ac.abort();
     const result = await pending;
     expect(Date.now() - started).toBeLessThan(500);
     const content =
-      typeof result.content === "string" ? result.content : JSON.stringify(result.content);
+      typeof result.content === "string"
+        ? result.content
+        : JSON.stringify(result.content);
     const parsed = JSON.parse(content) as {
       timed_out: boolean;
       results: { status: string }[];
@@ -1006,7 +1212,9 @@ describe("interrupt_agent unblocks wait_agents", () => {
       status: string;
       stop_reason?: string;
     }[];
-    expect(results).toEqual([{ agent_id: id, status: "interrupted", stop_reason: "interrupted" }]);
+    expect(results).toEqual([
+      { agent_id: id, status: "interrupted", stop_reason: "interrupted" },
+    ]);
     expect(deps.sessions.get(id)?.lifecycleStatus).toBe("interrupted");
     expect(deps.sessions.get(id)?.status).toBe("running");
     expect(deps.sessions.get(id)?.stopReason).toBe("interrupted");
@@ -1029,7 +1237,8 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const id = spawned.agent_id as string;
 
     settle.resolve({
-      report: "## Summary\nStopped.\n## Findings\npartial\n## Blockers\ninterrupted\n## Paths\n",
+      report:
+        "## Summary\nStopped.\n## Findings\npartial\n## Blockers\ninterrupted\n## Paths\n",
       interrupted: true,
     });
 
@@ -1102,9 +1311,16 @@ describe("interrupt_agent unblocks wait_agents", () => {
     });
     const id = spawned.agent_id as string;
     const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
-    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    await callTool(sendInput, {
+      target: id,
+      message: "stop that",
+      interrupt: true,
+    });
     followupGate.resolve("later");
-    gate.resolve({ report: "original interrupted", interrupted: true } as RunSubAgentResult);
+    gate.resolve({
+      report: "original interrupted",
+      interrupted: true,
+    } as RunSubAgentResult);
     const waited = await waiting;
     expect(waited.timed_out).toBe(false);
     const results = waited.results as {
@@ -1164,12 +1380,14 @@ describe("interrupt_agent unblocks wait_agents", () => {
     // immediate terminal interrupted), and list must agree with lifecycle.
     const pending = await callTool(wait, { targets: [id], timeout_ms: 50 });
     expect(pending.timed_out).toBe(true);
-    expect(defined((pending.results as { status: string }[])[0]).status).toBe("running");
+    expect(defined((pending.results as { status: string }[])[0]).status).toBe(
+      "running",
+    );
 
     const listed = await callTool(list, {});
-    const entry = (listed.agents as { agent_id: string; status: string; lifecycle: string }[]).find(
-      (a) => a.agent_id === id,
-    );
+    const entry = (
+      listed.agents as { agent_id: string; status: string; lifecycle: string }[]
+    ).find((a) => a.agent_id === id);
     expect(entry?.status).toBe("running");
     expect(entry?.lifecycle).toBe("running");
 
@@ -1188,7 +1406,10 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
     // When the queued followup finishes, its report must surface via wait.
     followupGate.resolve("followup report");
-    gate.resolve({ report: "original interrupted", interrupted: true } as RunSubAgentResult);
+    gate.resolve({
+      report: "original interrupted",
+      interrupted: true,
+    } as RunSubAgentResult);
     const done = await callTool(wait, { targets: [id], timeout_ms: 5000 });
     expect(done.timed_out).toBe(false);
     const doneResults = done.results as { status: string; report?: string }[];
@@ -1230,14 +1451,25 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const id = spawned.agent_id as string;
 
     const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
-    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    await callTool(sendInput, {
+      target: id,
+      message: "stop that",
+      interrupt: true,
+    });
     if (close.kind !== "full") throw new Error("expected full tool");
     const closing = close.handler(
-      { id: "close-during-followup", name: "close_agent", arguments: { target: id } },
+      {
+        id: "close-during-followup",
+        name: "close_agent",
+        arguments: { target: id },
+      },
       new AbortController().signal,
     );
     followupGate.resolve("followup during close");
-    gate.resolve({ report: "original interrupted", interrupted: true } as RunSubAgentResult);
+    gate.resolve({
+      report: "original interrupted",
+      interrupted: true,
+    } as RunSubAgentResult);
 
     const waited = await waiting;
     expect(waited.timed_out).toBe(false);
@@ -1286,16 +1518,25 @@ describe("interrupt_agent unblocks wait_agents", () => {
     });
     const id = spawned.agent_id as string;
 
-    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    await callTool(sendInput, {
+      target: id,
+      message: "stop that",
+      interrupt: true,
+    });
     if (close.kind !== "full") throw new Error("expected full tool");
     const closing = close.handler(
-      { id: "close-held-then-followup", name: "close_agent", arguments: { target: id } },
+      {
+        id: "close-held-then-followup",
+        name: "close_agent",
+        arguments: { target: id },
+      },
       new AbortController().signal,
     );
 
     followupGate.resolve("followup after close overlay");
     await new Promise<void>((resolve) => {
-      const done = (): boolean => deps.sessions.get(id)?.lifecycle.state === "completed";
+      const done = (): boolean =>
+        deps.sessions.get(id)?.lifecycle.state === "completed";
       if (done()) {
         resolve();
         return;
@@ -1314,9 +1555,9 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
     const listed = await callTool(list, {});
-    const entry = (listed.agents as { agent_id: string; status: string }[]).find(
-      (a) => a.agent_id === id,
-    );
+    const entry = (
+      listed.agents as { agent_id: string; status: string }[]
+    ).find((a) => a.agent_id === id);
     expect(entry?.status).toBe("interrupted");
 
     const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
@@ -1326,7 +1567,10 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
     closeHold.resolve(undefined);
     await closing;
-    gate.resolve({ report: "original interrupted", interrupted: true } as RunSubAgentResult);
+    gate.resolve({
+      report: "original interrupted",
+      interrupted: true,
+    } as RunSubAgentResult);
   });
 
   test("completeAfterInterrupt does not clear a close overlay", () => {
@@ -1374,11 +1618,16 @@ describe("interrupt_agent unblocks wait_agents", () => {
       intent: "explore",
     });
     const id = spawned.agent_id as string;
-    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    await callTool(sendInput, {
+      target: id,
+      message: "stop that",
+      interrupt: true,
+    });
     followupGate.reject(new Error("followup failed"));
     await new Promise((resolve) => setTimeout(resolve, 20));
     gate.resolve({
-      report: "## Summary\nStopped.\n## Findings\nsalvage\n## Blockers\ninterrupted\n## Paths\n",
+      report:
+        "## Summary\nStopped.\n## Findings\nsalvage\n## Blockers\ninterrupted\n## Paths\n",
       interrupted: true,
     } as RunSubAgentResult);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1424,12 +1673,21 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(sent.status).toBe("interrupted");
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("pending_init");
 
-    const queuedWait = await callTool(wait, { targets: [worker.id], timeout_ms: 50 });
+    const queuedWait = await callTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 50,
+    });
     expect(queuedWait.timed_out).toBe(true);
-    expect(defined((queuedWait.results as { status: string }[])[0]).status).toBe("queued");
+    expect(
+      defined((queuedWait.results as { status: string }[])[0]).status,
+    ).toBe("queued");
     const queuedList = await callTool(list, {});
     const queuedEntry = (
-      queuedList.agents as { agent_id: string; status: string; lifecycle: string }[]
+      queuedList.agents as {
+        agent_id: string;
+        status: string;
+        lifecycle: string;
+      }[]
     ).find((a) => a.agent_id === worker.id);
     expect(queuedEntry?.status).toBe("queued");
     expect(queuedEntry?.lifecycle).toBe("pending_init");
@@ -1438,12 +1696,21 @@ describe("interrupt_agent unblocks wait_agents", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
-    const runningWait = await callTool(wait, { targets: [worker.id], timeout_ms: 50 });
+    const runningWait = await callTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 50,
+    });
     expect(runningWait.timed_out).toBe(true);
-    expect(defined((runningWait.results as { status: string }[])[0]).status).toBe("running");
+    expect(
+      defined((runningWait.results as { status: string }[])[0]).status,
+    ).toBe("running");
     const runningList = await callTool(list, {});
     const runningEntry = (
-      runningList.agents as { agent_id: string; status: string; lifecycle: string }[]
+      runningList.agents as {
+        agent_id: string;
+        status: string;
+        lifecycle: string;
+      }[]
     ).find((a) => a.agent_id === worker.id);
     expect(runningEntry?.status).toBe("running");
     expect(runningEntry?.lifecycle).toBe("running");
@@ -1488,7 +1755,9 @@ describe("interrupt_agent unblocks wait_agents", () => {
       status: string;
       stop_reason?: string;
     }[];
-    expect(results).toEqual([{ agent_id: id, status: "interrupted", stop_reason: "interrupted" }]);
+    expect(results).toEqual([
+      { agent_id: id, status: "interrupted", stop_reason: "interrupted" },
+    ]);
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
     expect(deps.fleetRecords.peek(id)?.collected).toBe(true);
 
@@ -1535,11 +1804,16 @@ describe("interrupt_agent unblocks wait_agents", () => {
     );
 
     const early = await callTool(wait, { targets: [id], timeout_ms: 5000 });
-    expect(defined((early.results as { status: string }[])[0]).status).toBe("interrupted");
-    expect(defined((early.results as { report?: string }[])[0]).report).toBeUndefined();
+    expect(defined((early.results as { status: string }[])[0]).status).toBe(
+      "interrupted",
+    );
+    expect(
+      defined((early.results as { report?: string }[])[0]).report,
+    ).toBeUndefined();
 
     settle.resolve({
-      report: "## Summary\nStopped.\n## Findings\nsalvage\n## Blockers\ninterrupted\n## Paths\n",
+      report:
+        "## Summary\nStopped.\n## Findings\nsalvage\n## Blockers\ninterrupted\n## Paths\n",
       interrupted: true,
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1570,7 +1844,10 @@ describe("interrupt_agent unblocks wait_agents", () => {
     fleetRecords.interrupt(worker.id);
 
     const wait = createWaitAgentsTool({ sessions, fleetRecords });
-    const waited = await callTool(wait, { targets: [worker.id], timeout_ms: 1000 });
+    const waited = await callTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 1000,
+    });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { status: string }[];
     expect(defined(results[0]).status).toBe("interrupted");
@@ -1609,7 +1886,11 @@ describe("interrupt_agent unblocks wait_agents", () => {
       intent: "explore",
     });
     const id = spawned.agent_id as string;
-    await callTool(sendInput, { target: id, message: "stop that", interrupt: true });
+    await callTool(sendInput, {
+      target: id,
+      message: "stop that",
+      interrupt: true,
+    });
     followupGate.resolve("followup report");
     await new Promise((resolve) => setTimeout(resolve, 20));
     const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
@@ -1690,7 +1971,10 @@ describe("list_agents", () => {
       { id: "list-1", name: "list_agents", arguments: {} },
       new AbortController().signal,
     );
-    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const content =
+      typeof raw.content === "string"
+        ? raw.content
+        : JSON.stringify(raw.content);
     const parsed = JSON.parse(content) as {
       agents: {
         agent_id: string;
@@ -1747,7 +2031,10 @@ describe("list_agents", () => {
       { id: "list-stop-1", name: "list_agents", arguments: {} },
       new AbortController().signal,
     );
-    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const content =
+      typeof raw.content === "string"
+        ? raw.content
+        : JSON.stringify(raw.content);
     const parsed = JSON.parse(content) as {
       agents: { agent_id: string; status: string; stop_reason?: string }[];
     };
@@ -1796,7 +2083,10 @@ describe("list_agents", () => {
       { id: "list-ask-1", name: "list_agents", arguments: {} },
       new AbortController().signal,
     );
-    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const content =
+      typeof raw.content === "string"
+        ? raw.content
+        : JSON.stringify(raw.content);
     const parsed = JSON.parse(content) as {
       agents: {
         agent_id: string;
@@ -1812,7 +2102,9 @@ describe("list_agents", () => {
     expect(defined(parsed.agents[0]).status).toBe("awaiting_director");
     expect(defined(parsed.agents[0]).collected).toBe(false);
     expect(defined(parsed.agents[0]).description).toBe("need a path");
-    expect(defined(parsed.agents[0]).question).toBe("which file should I edit?");
+    expect(defined(parsed.agents[0]).question).toBe(
+      "which file should I edit?",
+    );
     expect(defined(parsed.agents[0]).question_id).toBe("ask-1");
     expect(list.definition.description).toContain("question_id");
     gate.resolve({ report: "done" });
@@ -1855,8 +2147,12 @@ describe("list_agents", () => {
     expect(finishedAt).toBeNumber();
     const inside = finishedAt + 1_000;
     expect(fleetProgress(agents, inside).running).toBe(0);
-    expect(formatAgentsPanel(agents, undefined, inside)?.[0]?.status).toBe("interrupted");
-    expect(formatAgentsPanel(agents, undefined, finishedAt + AGENTS_PANEL_LINGER_MS)).toBeNull();
+    expect(formatAgentsPanel(agents, undefined, inside)?.[0]?.status).toBe(
+      "interrupted",
+    );
+    expect(
+      formatAgentsPanel(agents, undefined, finishedAt + AGENTS_PANEL_LINGER_MS),
+    ).toBeNull();
     gate.resolve({ report: "done", interrupted: true });
   });
 });
@@ -2140,7 +2436,9 @@ describe("ask_director wait handshake", () => {
       interrupt: () => undefined,
       followup: async () => "",
       deliver: () => {
-        throw new Error("soft send_input must not deliver while an ask is pending");
+        throw new Error(
+          "soft send_input must not deliver while an ask is pending",
+        );
       },
     };
   }
@@ -2193,12 +2491,16 @@ describe("ask_director wait handshake", () => {
 
     const after = await callTool(wait, { targets: [id], timeout_ms: 50 });
     expect(after.timed_out).toBe(true);
-    expect(defined((after.results as { status: string }[])[0]).status).toBe("running");
+    expect(defined((after.results as { status: string }[])[0]).status).toBe(
+      "running",
+    );
 
     gate.resolve({ report: "done" });
     const done = await callTool(wait, { targets: [id], timeout_ms: 5000 });
     expect(done.timed_out).toBe(false);
-    expect(defined((done.results as { status: string }[])[0]).status).toBe("done");
+    expect(defined((done.results as { status: string }[])[0]).status).toBe(
+      "done",
+    );
   });
 
   test("mode=all unblocks on any ask", async () => {
@@ -2248,8 +2550,12 @@ describe("ask_director wait handshake", () => {
     });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { agent_id: string; status: string }[];
-    expect(results.find((r) => r.agent_id === asking.agent_id)?.status).toBe("awaiting_director");
-    expect(results.find((r) => r.agent_id === running.agent_id)?.status).toBe("running");
+    expect(results.find((r) => r.agent_id === asking.agent_id)?.status).toBe(
+      "awaiting_director",
+    );
+    expect(results.find((r) => r.agent_id === running.agent_id)?.status).toBe(
+      "running",
+    );
     firstGate.resolve({ report: "a" });
     secondGate.resolve({ report: "b" });
   });
@@ -2263,7 +2569,12 @@ describe("ask_director wait handshake", () => {
       sessions.complete(id, "report");
       mailbox.register(id);
     }
-    sessions.start({ id: "asking", description: "need answer", agentId: "a", brief: "b" });
+    sessions.start({
+      id: "asking",
+      description: "need answer",
+      agentId: "a",
+      brief: "b",
+    });
     sessions.markRunning("asking");
     mailbox.register("asking");
     expect(
@@ -2288,7 +2599,12 @@ describe("ask_director wait handshake", () => {
   test("hasUncollectedTerminal is false for a session with a pending ask", () => {
     const sessions = createSubAgentSessionStore();
     const mailbox = createFleetMailbox(sessions);
-    sessions.start({ id: "asking", description: "need answer", agentId: "a", brief: "b" });
+    sessions.start({
+      id: "asking",
+      description: "need answer",
+      agentId: "a",
+      brief: "b",
+    });
     sessions.markRunning("asking");
     mailbox.register("asking");
     expect(
@@ -2328,9 +2644,9 @@ describe("ask_director wait handshake", () => {
     };
     process.on("unhandledRejection", onUnhandled);
     try {
-      expect(() => defined(port).register({ question: "late?", questionId: "ask-1" })).toThrow(
-        "could not register",
-      );
+      expect(() =>
+        defined(port).register({ question: "late?", questionId: "ask-1" }),
+      ).toThrow("could not register");
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unhandled).toEqual([]);
     } finally {
@@ -2357,12 +2673,17 @@ describe("admission queue", () => {
         prompt: "do it",
         intent: "explore",
       });
-      results.push({ agent_id: result.agent_id as string, status: result.status as string });
+      results.push({
+        agent_id: result.agent_id as string,
+        status: result.status as string,
+      });
     }
     expect(results).toHaveLength(20);
-    expect(results.every((r) => typeof r.agent_id === "string" && r.agent_id.length > 0)).toBe(
-      true,
-    );
+    expect(
+      results.every(
+        (r) => typeof r.agent_id === "string" && r.agent_id.length > 0,
+      ),
+    ).toBe(true);
     expect(results.filter((r) => r.status === "running")).toHaveLength(2);
     expect(results.filter((r) => r.status === "queued")).toHaveLength(18);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -2377,24 +2698,37 @@ describe("admission queue", () => {
       { id: "list-q", name: "list_agents", arguments: {} },
       new AbortController().signal,
     );
-    const content = typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+    const content =
+      typeof raw.content === "string"
+        ? raw.content
+        : JSON.stringify(raw.content);
     const parsed = JSON.parse(content) as { agents: { status: string }[] };
     expect(parsed.agents.filter((a) => a.status === "queued")).toHaveLength(18);
     expect(parsed.agents.filter((a) => a.status === "running")).toHaveLength(2);
 
-    const queuedId = defined(results.find((r) => r.status === "queued")).agent_id;
+    const queuedId = defined(
+      results.find((r) => r.status === "queued"),
+    ).agent_id;
     const wait = createWaitAgentsTool({
       sessions: deps.sessions,
       fleetRecords: deps.fleetRecords,
     });
-    const waited = await callTool(wait, { targets: [queuedId], timeout_ms: 50 });
+    const waited = await callTool(wait, {
+      targets: [queuedId],
+      timeout_ms: 50,
+    });
     expect(waited.timed_out).toBe(true);
-    const waitResults = waited.results as { agent_id: string; status: string }[];
+    const waitResults = waited.results as {
+      agent_id: string;
+      status: string;
+    }[];
     expect(waitResults).toEqual([{ agent_id: queuedId, status: "queued" }]);
 
     gate.resolve({ report: "ok" });
     await Promise.all(
-      results.map((r) => waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, r.agent_id)),
+      results.map((r) =>
+        waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, r.agent_id),
+      ),
     );
   });
 
@@ -2417,7 +2751,11 @@ describe("admission queue", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(started).toBe(1);
     gate.resolve({ report: "ok" });
-    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, result.agent_id as string);
+    await waitUntilMailboxTerminal(
+      deps.fleetRecords,
+      deps.sessions,
+      result.agent_id as string,
+    );
   });
 
   test("close_agent of a queued spawn does not start the run", async () => {
@@ -2450,16 +2788,28 @@ describe("admission queue", () => {
     });
     if (close.kind !== "full") throw new Error("expected full tool");
     await close.handler(
-      { id: "close-q", name: "close_agent", arguments: { target: queued.agent_id } },
+      {
+        id: "close-q",
+        name: "close_agent",
+        arguments: { target: queued.agent_id },
+      },
       new AbortController().signal,
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(started).toBe(1);
-    expect(deps.sessions.get(queued.agent_id as string)?.lifecycleStatus).toBe("shutdown");
-    expect(deps.fleetRecords.peek(queued.agent_id as string)?.status).toBe("interrupted");
+    expect(deps.sessions.get(queued.agent_id as string)?.lifecycleStatus).toBe(
+      "shutdown",
+    );
+    expect(deps.fleetRecords.peek(queued.agent_id as string)?.status).toBe(
+      "interrupted",
+    );
 
     gate.resolve({ report: "ok" });
-    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, first.agent_id as string);
+    await waitUntilMailboxTerminal(
+      deps.fleetRecords,
+      deps.sessions,
+      first.agent_id as string,
+    );
   });
 
   test("interrupt_agent of a queued spawn does not start the run", async () => {
@@ -2492,16 +2842,28 @@ describe("admission queue", () => {
     });
     if (interrupt.kind !== "full") throw new Error("expected full tool");
     await interrupt.handler(
-      { id: "int-q", name: "interrupt_agent", arguments: { target: queued.agent_id } },
+      {
+        id: "int-q",
+        name: "interrupt_agent",
+        arguments: { target: queued.agent_id },
+      },
       new AbortController().signal,
     );
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(started).toBe(1);
-    expect(deps.sessions.get(queued.agent_id as string)?.lifecycleStatus).toBe("interrupted");
-    expect(deps.fleetRecords.peek(queued.agent_id as string)?.status).toBe("interrupted");
+    expect(deps.sessions.get(queued.agent_id as string)?.lifecycleStatus).toBe(
+      "interrupted",
+    );
+    expect(deps.fleetRecords.peek(queued.agent_id as string)?.status).toBe(
+      "interrupted",
+    );
 
     gate.resolve({ report: "ok" });
-    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, first.agent_id as string);
+    await waitUntilMailboxTerminal(
+      deps.fleetRecords,
+      deps.sessions,
+      first.agent_id as string,
+    );
   });
 
   test("interrupt_agent of an admitted spawn without a handle does not start leftover work", async () => {
@@ -2514,7 +2876,9 @@ describe("admission queue", () => {
       intent: "explore",
     });
     expect(result.status).toBe("running");
-    expect(deps.sessions.get(result.agent_id as string)?.lifecycleStatus).toBe("pending_init");
+    expect(deps.sessions.get(result.agent_id as string)?.lifecycleStatus).toBe(
+      "pending_init",
+    );
 
     const interrupt = createInterruptAgentTool({
       sessions: deps.sessions,
@@ -2522,12 +2886,20 @@ describe("admission queue", () => {
     });
     if (interrupt.kind !== "full") throw new Error("expected full tool");
     const raw = await interrupt.handler(
-      { id: "int-setup", name: "interrupt_agent", arguments: { target: result.agent_id } },
+      {
+        id: "int-setup",
+        name: "interrupt_agent",
+        arguments: { target: result.agent_id },
+      },
       new AbortController().signal,
     );
     expect(raw.content).toContain('"status":"interrupted"');
-    expect(deps.sessions.get(result.agent_id as string)?.lifecycleStatus).toBe("interrupted");
-    expect(deps.fleetRecords.peek(result.agent_id as string)?.status).toBe("interrupted");
+    expect(deps.sessions.get(result.agent_id as string)?.lifecycleStatus).toBe(
+      "interrupted",
+    );
+    expect(deps.fleetRecords.peek(result.agent_id as string)?.status).toBe(
+      "interrupted",
+    );
     gate.resolve({ report: "ok" });
   });
 
@@ -2562,7 +2934,10 @@ describe("admission queue", () => {
 
     const startedAt = Date.now();
     expect(deps.sessions.cancel(queuedId)).toBe(true);
-    const waited = await callTool(wait, { targets: [queuedId], timeout_ms: 200 });
+    const waited = await callTool(wait, {
+      targets: [queuedId],
+      timeout_ms: 200,
+    });
     const elapsed = Date.now() - startedAt;
     expect(elapsed).toBeLessThan(200);
     expect(waited.timed_out).toBe(false);
@@ -2577,7 +2952,11 @@ describe("admission queue", () => {
     expect(started).toBe(1);
 
     gate.resolve({ report: "ok" });
-    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, first.agent_id as string);
+    await waitUntilMailboxTerminal(
+      deps.fleetRecords,
+      deps.sessions,
+      first.agent_id as string,
+    );
   });
 
   test("start() threads fleet admission onto RunSubAgentParams", async () => {
@@ -2592,7 +2971,11 @@ describe("admission queue", () => {
       prompt: "do it",
       intent: "explore",
     });
-    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, result.agent_id as string);
+    await waitUntilMailboxTerminal(
+      deps.fleetRecords,
+      deps.sessions,
+      result.agent_id as string,
+    );
     expect(captured?.admission).toBe(deps.admission);
   });
 
@@ -2606,8 +2989,16 @@ describe("admission queue", () => {
     });
     deps.admission = admission;
     const spawn = createSpawnAgentTool(deps);
-    const a = await callTool(spawn, { description: "a", prompt: "do it", intent: "explore" });
-    const b = await callTool(spawn, { description: "b", prompt: "do it", intent: "explore" });
+    const a = await callTool(spawn, {
+      description: "a",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const b = await callTool(spawn, {
+      description: "b",
+      prompt: "do it",
+      intent: "explore",
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(started).toBe(2);
     admission.setCapacity(0);
@@ -2617,8 +3008,16 @@ describe("admission queue", () => {
     expect(deps.sessions.get(b.agent_id as string)?.status).toBe("running");
     gate.resolve({ report: "ok" });
     await Promise.all([
-      waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, a.agent_id as string),
-      waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, b.agent_id as string),
+      waitUntilMailboxTerminal(
+        deps.fleetRecords,
+        deps.sessions,
+        a.agent_id as string,
+      ),
+      waitUntilMailboxTerminal(
+        deps.fleetRecords,
+        deps.sessions,
+        b.agent_id as string,
+      ),
     ]);
   });
 });

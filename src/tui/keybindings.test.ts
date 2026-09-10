@@ -84,7 +84,8 @@ function chordBytes(token: string): string | null {
   const alt = /^Alt\+(.+)$/.exec(token);
   if (alt?.[1] !== undefined) {
     const rest = alt[1];
-    const inner = NAMED_SEQUENCES[rest] ?? (rest.length === 1 ? rest.toLowerCase() : null);
+    const inner =
+      NAMED_SEQUENCES[rest] ?? (rest.length === 1 ? rest.toLowerCase() : null);
     return inner === null ? null : `\x1b${inner}`;
   }
 
@@ -102,8 +103,14 @@ function chordsOf(keys: string): readonly (string | null)[] {
     const bytes = chordBytes(token.trim());
     // A token nothing can encode and that is not the known kitty-only chord is
     // a typo in the catalog, not an untestable chord.
-    if (bytes === null && token.trim() !== "Ctrl+Enter" && token.trim() !== "Shift+Tab") {
-      throw new Error(`catalog row "${keys}" has unreadable chord "${token.trim()}"`);
+    if (
+      bytes === null &&
+      token.trim() !== "Ctrl+Enter" &&
+      token.trim() !== "Shift+Tab"
+    ) {
+      throw new Error(
+        `catalog row "${keys}" has unreadable chord "${token.trim()}"`,
+      );
     }
     return bytes;
   });
@@ -126,7 +133,9 @@ type Probe = (ctx: ProbeContext) => Promise<void> | void;
 
 type Group = "editing" | "surfaces" | "session" | "host";
 
-const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: Probe }>> = {
+const PROBES: Readonly<
+  Record<string, { readonly group: Group; readonly probe: Probe }>
+> = {
   "Ctrl+B / Ctrl+F": {
     group: "editing",
     probe: ({ h, shell, chords }) => {
@@ -330,7 +339,9 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
       const before = streamRowCount(shell);
       press(h, chords[0]);
       expect(streamRowCount(shell)).toBe(before + 1);
-      expect(streamRowAt(shell, before)?.text).toBe("no subagent session to observe");
+      expect(streamRowAt(shell, before)?.text).toBe(
+        "no subagent session to observe",
+      );
       expect(shell.observe).toBeNull();
 
       // Host wires a live session: the same chord enters it for real.
@@ -353,8 +364,18 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
     probe: ({ h, shell, chords }) => {
       const at = shell.streamLog.length;
       const body = [[{ text: "detail", fg: "#ffffff" }]];
-      appendStreamRow(shell, { role: "tool", text: "a", summary: "sa", detail: body });
-      appendStreamRow(shell, { role: "tool", text: "b", summary: "sb", detail: body });
+      appendStreamRow(shell, {
+        role: "tool",
+        text: "a",
+        summary: "sa",
+        detail: body,
+      });
+      appendStreamRow(shell, {
+        role: "tool",
+        text: "b",
+        summary: "sb",
+        detail: body,
+      });
       press(h, chords[0]);
       // Bulk, not newest-only: both rows move together.
       expect(streamRowAt(shell, at)?.expanded).toBe(true);
@@ -571,7 +592,8 @@ const PROBES: Readonly<Record<string, { readonly group: Group; readonly probe: P
     // prompt default, which is only true while the host claims no key of its
     // own. Quitting is Ctrl+C twice and nothing else.
     probe: async ({ h, shell, chords, hasExited }) => {
-      if (hasExited === undefined) throw new Error("Ctrl+D must be probed on a mounted host");
+      if (hasExited === undefined)
+        throw new Error("Ctrl+D must be probed on a mounted host");
       shellFocusPrompt(shell);
 
       shell.prompt.value = "abc";
@@ -601,7 +623,8 @@ function breakKillSequence(h: Harness): void {
 }
 
 function press(h: Harness, bytes: string | null | undefined): void {
-  if (bytes === null || bytes === undefined) throw new Error("no bytes to press");
+  if (bytes === null || bytes === undefined)
+    throw new Error("no bytes to press");
   h.mockInput.pressKey(bytes);
 }
 
@@ -641,7 +664,9 @@ function attachOnNextPrompt(shell: AppShell, id: string): Promise<void> {
   return attached;
 }
 
-function recordSubmits(shell: AppShell): { readonly text: string; readonly kind: string }[] {
+function recordSubmits(
+  shell: AppShell,
+): { readonly text: string; readonly kind: string }[] {
   const sent: { text: string; kind: string }[] = [];
   setShellBridgeHooks(shell, {
     onSubmit: (text, kind) => sent.push({ text, kind }),
@@ -688,9 +713,9 @@ async function runGroup(group: Group): Promise<void> {
 
 describe("every catalog row is driven against real behavior", () => {
   test("no row is left without a probe", () => {
-    const missing = SHELL_SHORTCUTS.filter((row) => PROBES[row.keys] === undefined).map(
-      (row) => row.keys,
-    );
+    const missing = SHELL_SHORTCUTS.filter(
+      (row) => PROBES[row.keys] === undefined,
+    ).map((row) => row.keys);
     expect(missing).toEqual([]);
   });
 
@@ -718,7 +743,11 @@ describe("every catalog row is driven against real behavior", () => {
  * not a bare shell, so a host listener that shadows the prompt fails here.
  */
 describe("the runner host does not shadow the prompt bindings the catalog claims", () => {
-  const PROMPT_DEFAULT_ROWS = ["Ctrl+B / Ctrl+F", "Alt+B / Alt+F", "Arrow keys"] as const;
+  const PROMPT_DEFAULT_ROWS = [
+    "Ctrl+B / Ctrl+F",
+    "Alt+B / Alt+F",
+    "Arrow keys",
+  ] as const;
 
   test("prompt defaults survive the host", async () => {
     const harness = await createHarness({ width: 80, height: 24 });
@@ -745,7 +774,11 @@ describe("the runner host does not shadow the prompt bindings the catalog claims
       for (const keys of PROMPT_DEFAULT_ROWS) {
         const entry = PROBES[keys];
         if (entry === undefined) throw new Error(`no probe for ${keys}`);
-        await entry.probe({ h: harness, shell: host.shell, chords: chordsOf(keys) });
+        await entry.probe({
+          h: harness,
+          shell: host.shell,
+          chords: chordsOf(keys),
+        });
       }
       // Ctrl+D is the sharpest case: the host used to claim it to quit.
       const ctrlD = PROBES["Ctrl+D"];

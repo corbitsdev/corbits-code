@@ -30,9 +30,14 @@ function bodyRows(view: ReturnType<typeof createOverlayView>): string[] {
     .map((row) => row.content.chunks.map((chunk) => chunk.text).join(""));
 }
 
-function bodySelect(view: ReturnType<typeof createOverlayView>): SelectRenderable {
-  const found = view.body.getChildren().find((row) => row instanceof SelectRenderable);
-  if (!(found instanceof SelectRenderable)) throw new Error("expected the overlay list");
+function bodySelect(
+  view: ReturnType<typeof createOverlayView>,
+): SelectRenderable {
+  const found = view.body
+    .getChildren()
+    .find((row) => row instanceof SelectRenderable);
+  if (!(found instanceof SelectRenderable))
+    throw new Error("expected the overlay list");
   return found;
 }
 
@@ -61,7 +66,12 @@ async function paletteFrame(
       return h
         .captureCharFrame()
         .split("\n")
-        .map((line) => line.replace(/^\s*│/, "").replace(/│\s*$/, "").trimEnd());
+        .map((line) =>
+          line
+            .replace(/^\s*│/, "")
+            .replace(/│\s*$/, "")
+            .trimEnd(),
+        );
     },
     { width, height: 32 },
   );
@@ -156,8 +166,14 @@ describe("overlay view", () => {
         80,
       );
       const painted = bodySelect(view).options;
-      expect(painted.map((option) => option.name)).toEqual(["Go with B", "Skip B"]);
-      expect(painted.map((option) => option.value)).toEqual(["ask-b:0", "ask-b:1"]);
+      expect(painted.map((option) => option.name)).toEqual([
+        "Go with B",
+        "Skip B",
+      ]);
+      expect(painted.map((option) => option.value)).toEqual([
+        "ask-b:0",
+        "ask-b:1",
+      ]);
       expect(painted.map((option) => option.value)).not.toContain("ask-a:0");
     });
   });
@@ -177,17 +193,19 @@ describe("overlay view", () => {
         mcpAddHint: false,
       };
       view.paintTitle(title, 120);
-      expect(view.title.content.chunks.map((chunk) => chunk.text).join("")).toBe(
+      expect(
+        view.title.content.chunks.map((chunk) => chunk.text).join(""),
+      ).toBe(
         " model · Esc cancel · Enter choose · Alt+A /connect add provider · Alt+D set default",
       );
       view.paintTitle({ ...title, hasChoices: false }, 80);
-      expect(view.title.content.chunks.map((chunk) => chunk.text).join("")).toBe(
-        " model · Esc dismiss",
-      );
+      expect(
+        view.title.content.chunks.map((chunk) => chunk.text).join(""),
+      ).toBe(" model · Esc dismiss");
       view.paintTitle({ ...title, answer: { active: true } }, 80);
-      expect(view.title.content.chunks.map((chunk) => chunk.text).join("")).toBe(
-        " model · Esc back to choices · Enter send",
-      );
+      expect(
+        view.title.content.chunks.map((chunk) => chunk.text).join(""),
+      ).toBe(" model · Esc back to choices · Enter send");
     });
   });
 

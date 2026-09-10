@@ -1,11 +1,18 @@
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "./branding.js";
-import { primeCrashReporting, writeCrashReport, type CrashKind } from "./crash/report.js";
+import {
+  primeCrashReporting,
+  writeCrashReport,
+  type CrashKind,
+} from "./crash/report.js";
 import { getActiveRun, markCrashed } from "./session/active-run.js";
 import { getActiveDisposeHost } from "./session/active-host.js";
 import { saveCrashState } from "./session/state.js";
 import { loadConfig, CliHelpError, CliUserError } from "./config/index.js";
-import { ensureTelemetrySettings, globalSettingsPath } from "./config/settings.js";
+import {
+  ensureTelemetrySettings,
+  globalSettingsPath,
+} from "./config/settings.js";
 import { installFileLogSink } from "./logging/sink.js";
 import { flushPerfToOtel } from "./perf/index.js";
 import { createTelemetry, telemetryDisabledByEnv } from "./telemetry/index.js";
@@ -18,10 +25,15 @@ import { runTUI } from "./tui/runner/index.js";
 export interface Runners {
   runTUI: (config: import("./config/index.js").Config) => Promise<number>;
   runExec: (config: import("./config/index.js").Config) => Promise<number>;
-  runOnboarding: (config: import("./config/index.js").UnconfiguredConfig) => Promise<number>;
+  runOnboarding: (
+    config: import("./config/index.js").UnconfiguredConfig,
+  ) => Promise<number>;
 }
 
-export async function mainWithRunners(argv: readonly string[], runners: Runners): Promise<number> {
+export async function mainWithRunners(
+  argv: readonly string[],
+  runners: Runners,
+): Promise<number> {
   // Must run before any other line: @intx/log installs a console sink as a
   // side effect of import, and loadConfig itself can log (e.g. healed
   // settings). Once installed, this replaces that default so nothing —
@@ -37,7 +49,8 @@ export async function mainWithRunners(argv: readonly string[], runners: Runners)
   // Exec has no Ink banner; unconfigured TUI goes to onboarding without the
   // main-screen notice. Surface fail-open diagnostics on stderr for those
   // paths so junk local files are never silent.
-  const surfaceDiagnosticsOnStderr = config.command === "exec" || !config.configured;
+  const surfaceDiagnosticsOnStderr =
+    config.command === "exec" || !config.configured;
   if (surfaceDiagnosticsOnStderr && config.settingsDiagnostics !== undefined) {
     for (const d of config.settingsDiagnostics) {
       process.stderr.write(`settings: ${d.message}\n  fix: ${d.fix}\n`);
@@ -53,13 +66,15 @@ export async function mainWithRunners(argv: readonly string[], runners: Runners)
   // Env kills short-circuit before ensureTelemetrySettings so a disabled run
   // never touches the settings file (no installationId generation).
   if (!telemetryDisabledByEnv()) {
-    const settings = await ensureTelemetrySettings(globalSettingsPath()).catch((err: unknown) => {
-      getLogger([LOG_NAMESPACE_ROOT, "telemetry"]).warn(
-        "Failed to ensure telemetry settings at startup: {error}",
-        { error: err },
-      );
-      return null;
-    });
+    const settings = await ensureTelemetrySettings(globalSettingsPath()).catch(
+      (err: unknown) => {
+        getLogger([LOG_NAMESPACE_ROOT, "telemetry"]).warn(
+          "Failed to ensure telemetry settings at startup: {error}",
+          { error: err },
+        );
+        return null;
+      },
+    );
     // Consent by proceeding: until the disclosure has been shown, the
     // default disabled no-op singleton stays in place so no event of any
     // kind can leave the process. The disclosure surfaces activate telemetry
@@ -129,7 +144,11 @@ async function awaitActiveDisposeHost(context: string): Promise<void> {
       Promise.resolve(dispose()),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`runtime teardown exceeded ${RUNTIME_TEARDOWN_DEADLINE_MS}ms`));
+          reject(
+            new Error(
+              `runtime teardown exceeded ${RUNTIME_TEARDOWN_DEADLINE_MS}ms`,
+            ),
+          );
         }, RUNTIME_TEARDOWN_DEADLINE_MS);
         if (typeof timer.unref === "function") timer.unref();
       }),
@@ -145,7 +164,10 @@ async function awaitActiveDisposeHost(context: string): Promise<void> {
 
 // Exported so an integration test can register these process-level handlers
 // and inject a crash without spawning the full TUI stack.
-export async function handleFatal(kind: CrashKind, error: unknown): Promise<void> {
+export async function handleFatal(
+  kind: CrashKind,
+  error: unknown,
+): Promise<void> {
   if (terminating) return;
   terminating = true;
   // OpenTUI's own uncaughtException/unhandledRejection listener only logs
@@ -173,7 +195,10 @@ export async function handleFatal(kind: CrashKind, error: unknown): Promise<void
   // author-chosen — an application or plugin error subclass can be as
   // identifying as any other free text — so only the language's own error
   // types are reported by name.
-  getTelemetry().capture("crash", { kind, error_class: classifyErrorClass(error) });
+  getTelemetry().capture("crash", {
+    kind,
+    error_class: classifyErrorClass(error),
+  });
   await getTelemetry().flush();
   process.exit(1);
 }
@@ -234,7 +259,9 @@ export function installCrashHandlers(): void {
 // crash report is written for it. Callers must markCrashed() before this so
 // chained saveState renames cannot clobber the terminal write (same contract
 // as the uncaughtException path).
-async function finalizeActiveRunOnSignal(signal: NodeJS.Signals): Promise<void> {
+async function finalizeActiveRunOnSignal(
+  signal: NodeJS.Signals,
+): Promise<void> {
   const run = getActiveRun();
   if (run === null) return;
   try {

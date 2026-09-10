@@ -133,15 +133,26 @@ describe("Codex tool proxy mount", () => {
       readRawFile: async () => ({ content: "ok" }),
       runManageTasks: async () => ({ content: "ok" }),
     });
-    expect(proxies.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
+    expect(proxies.map((t) => t.definition.name)).toEqual([
+      "apply_patch",
+      "shell",
+      "update_plan",
+    ]);
 
     const allow = new Set<string>(BUILD_TOOLS);
     const kept = proxies.filter((t) => allow.has(t.definition.name));
-    expect(kept.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
+    expect(kept.map((t) => t.definition.name)).toEqual([
+      "apply_patch",
+      "shell",
+      "update_plan",
+    ]);
 
     const docsAllow = new Set<string>(DOCS_TOOLS);
     const docsKept = proxies.filter((t) => docsAllow.has(t.definition.name));
-    expect(docsKept.map((t) => t.definition.name)).toEqual(["apply_patch", "update_plan"]);
+    expect(docsKept.map((t) => t.definition.name)).toEqual([
+      "apply_patch",
+      "update_plan",
+    ]);
   });
 
   test("runSubAgent-shaped mount: docs capability filter denies shell, keeps update_plan", () => {
@@ -158,11 +169,18 @@ describe("Codex tool proxy mount", () => {
       allowDelete: allowDeleteFromCapabilities(docsCapabilities),
       allowShell: allowShellFromCapabilities(docsCapabilities),
     });
-    expect(proxies.map((t) => t.definition.name)).toEqual(["apply_patch", "shell", "update_plan"]);
+    expect(proxies.map((t) => t.definition.name)).toEqual([
+      "apply_patch",
+      "shell",
+      "update_plan",
+    ]);
 
     const docsAllow = new Set<string>(DOCS_TOOLS);
     const docsKept = proxies.filter((t) => docsAllow.has(t.definition.name));
-    expect(docsKept.map((t) => t.definition.name)).toEqual(["apply_patch", "update_plan"]);
+    expect(docsKept.map((t) => t.definition.name)).toEqual([
+      "apply_patch",
+      "update_plan",
+    ]);
   });
 
   test("non-Codex runSubAgent-shaped mount produces no proxies at all", () => {
@@ -171,8 +189,14 @@ describe("Codex tool proxy mount", () => {
       runTool: async () => ({ content: "ok" }),
       readRawFile: async () => ({ content: "ok" }),
       runManageTasks: async () => ({ content: "ok" }),
-      allowDelete: allowDeleteFromCapabilities({ mode: "allow", tools: BUILD_TOOLS }),
-      allowShell: allowShellFromCapabilities({ mode: "allow", tools: BUILD_TOOLS }),
+      allowDelete: allowDeleteFromCapabilities({
+        mode: "allow",
+        tools: BUILD_TOOLS,
+      }),
+      allowShell: allowShellFromCapabilities({
+        mode: "allow",
+        tools: BUILD_TOOLS,
+      }),
     });
     expect(proxies).toEqual([]);
   });

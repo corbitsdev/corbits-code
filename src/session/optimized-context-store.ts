@@ -2,7 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { type } from "arktype";
 import git from "isomorphic-git";
-import { createIsogitStore, type CommitSigner } from "@intx/storage-isogit/node";
+import {
+  createIsogitStore,
+  type CommitSigner,
+} from "@intx/storage-isogit/node";
 import {
   ContentBlock,
   type AuditStore,
@@ -60,7 +63,8 @@ async function pathExists(fullPath: string): Promise<boolean> {
     await fs.promises.access(fullPath);
     return true;
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return false;
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      return false;
     throw cause;
   }
 }
@@ -72,7 +76,9 @@ function blobExtensionFor(contentType: string | undefined): string {
 
 function sanitizeCallId(callId: string): string {
   if (callId.includes("..") || callId.includes("/")) {
-    throw new Error(`callId contains unsafe characters: ${JSON.stringify(callId)}`);
+    throw new Error(
+      `callId contains unsafe characters: ${JSON.stringify(callId)}`,
+    );
   }
   return callId.replace(UNSAFE_FILENAME_CHARS, "_");
 }
@@ -154,15 +160,21 @@ function parseSegmentTurns(
         continue;
       }
       if (tolerateTornTail && isLast) break;
-      throw new Error(`${fileName} has malformed JSON at line ${i + 1}`, { cause });
+      throw new Error(`${fileName} has malformed JSON at line ${i + 1}`, {
+        cause,
+      });
     }
     const result = ConversationTurnSchema(raw);
     if (result instanceof type.errors) {
       if (skipMalformed) {
-        log.warn?.(`skipping unexpected structure at ${fileName} line ${i + 1}`);
+        log.warn?.(
+          `skipping unexpected structure at ${fileName} line ${i + 1}`,
+        );
         continue;
       }
-      throw new Error(`${fileName} has unexpected structure at line ${i + 1}: ${result.summary}`);
+      throw new Error(
+        `${fileName} has unexpected structure at line ${i + 1}: ${result.summary}`,
+      );
     }
     turns.push(result);
   }
@@ -202,9 +214,12 @@ async function loadMetadataSoft(
   try {
     return await loadMetadata();
   } catch (cause) {
-    log.warn("metadata.json unreadable during resilient load; using empty defaults", {
-      cause: cause instanceof Error ? cause.message : String(cause),
-    });
+    log.warn(
+      "metadata.json unreadable during resilient load; using empty defaults",
+      {
+        cause: cause instanceof Error ? cause.message : String(cause),
+      },
+    );
     return emptyMetadata();
   }
 }
@@ -242,7 +257,9 @@ function longestWellFormedExtraCount(
 ): number {
   for (let keepExtras = parsedExtras.length; keepExtras >= 0; keepExtras--) {
     const turns =
-      keepExtras === 0 ? baseTurns : [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
+      keepExtras === 0
+        ? baseTurns
+        : [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
     if (toolSequenceIsWellFormed(turns)) return keepExtras;
   }
   return 0;
@@ -281,7 +298,10 @@ async function unlinkExtraSegmentsFrom(
  * Orphan-tail recovery lives on `load()`, not here: this path must stay
  * O(window) so resume does not re-pay full-history I/O on healthy sessions.
  */
-export async function loadRecentTurns(dir: string, minTurns: number): Promise<ConversationTurn[]> {
+export async function loadRecentTurns(
+  dir: string,
+  minTurns: number,
+): Promise<ConversationTurn[]> {
   const segments = await listSegmentFiles(dir, TURNS_FILE);
   if (segments.length === 0) return [];
 
@@ -296,7 +316,12 @@ export async function loadRecentTurns(dir: string, minTurns: number): Promise<Co
     // transcript to one bad line, and name the segment in any error that does
     // escape (CL-5935). Reactor load uses the same skip path for mid-file
     // garbage so resume does not die (CL-7052).
-    const turns = parseSegmentTurns(text, i === segments.length - 1, name, true);
+    const turns = parseSegmentTurns(
+      text,
+      i === segments.length - 1,
+      name,
+      true,
+    );
     collectedNewestFirst.push(turns);
     total += turns.length;
     if (total >= minTurns) break;
@@ -314,7 +339,10 @@ async function listIndexPaths(dir: string): Promise<Set<string>> {
   return new Set(await git.listFiles({ fs, dir }));
 }
 
-async function extraSegmentNamesAtCommit(dir: string, hash: string): Promise<string[]> {
+async function extraSegmentNamesAtCommit(
+  dir: string,
+  hash: string,
+): Promise<string[]> {
   const listing = await git.listFiles({ fs, dir, ref: hash });
   const present = new Set(listing);
   const names: string[] = [];
@@ -326,12 +354,19 @@ async function extraSegmentNamesAtCommit(dir: string, hash: string): Promise<str
   return names;
 }
 
-async function blobTextAtCommit(dir: string, hash: string, filepath: string): Promise<string> {
+async function blobTextAtCommit(
+  dir: string,
+  hash: string,
+  filepath: string,
+): Promise<string> {
   const { blob } = await git.readBlob({ fs, dir, oid: hash, filepath });
   return new TextDecoder().decode(blob);
 }
 
-async function resetIndexPaths(dir: string, filepaths: readonly string[]): Promise<void> {
+async function resetIndexPaths(
+  dir: string,
+  filepaths: readonly string[],
+): Promise<void> {
   for (const filepath of filepaths) {
     try {
       await git.resetIndex({ fs, dir, filepath });
@@ -434,7 +469,11 @@ export async function createSessionStores(
 
     if (keepExtras < parsedExtras.length) {
       // Segment file index for the first extra is 1.
-      const removed = await unlinkExtraSegmentsFrom(dir, keepExtras + 1, pendingSegmentPaths);
+      const removed = await unlinkExtraSegmentsFrom(
+        dir,
+        keepExtras + 1,
+        pendingSegmentPaths,
+      );
       log.warn(
         "dropped {removed} orphan turn segment(s) starting at index {fromIndex} (malformed tool sequence when concatenated)",
         { removed, fromIndex: keepExtras + 1 },
@@ -460,12 +499,18 @@ export async function createSessionStores(
         const baseResult = await base.load(signal);
         const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
         if (extraTexts.length === 0) return baseResult;
-        const turns = await loadTurnsWithoutMalformedToolSequence(baseResult.turns, extraTexts);
+        const turns = await loadTurnsWithoutMalformedToolSequence(
+          baseResult.turns,
+          extraTexts,
+        );
         return { ...baseResult, turns };
       } catch (cause) {
-        log.warn("base context store load failed; recovering turns from disk segments", {
-          cause: cause instanceof Error ? cause.message : String(cause),
-        });
+        log.warn(
+          "base context store load failed; recovering turns from disk segments",
+          {
+            cause: cause instanceof Error ? cause.message : String(cause),
+          },
+        );
         let baseTurns: ConversationTurn[];
         try {
           // Prefer resilient parse of segment 0 alone so orphan-tail heal still runs.
@@ -482,7 +527,9 @@ export async function createSessionStores(
           // Unrecoverable: rethrow with the file name in the message.
           throw new Error(
             `failed to load ${TURNS_FILE}: ${
-              parseCause instanceof Error ? parseCause.message : String(parseCause)
+              parseCause instanceof Error
+                ? parseCause.message
+                : String(parseCause)
             }`,
             { cause: parseCause },
           );
@@ -491,7 +538,10 @@ export async function createSessionStores(
         const turns =
           extraTexts.length === 0
             ? baseTurns
-            : await loadTurnsWithoutMalformedToolSequence(baseTurns, extraTexts);
+            : await loadTurnsWithoutMalformedToolSequence(
+                baseTurns,
+                extraTexts,
+              );
         const metadata = await loadMetadataSoft(() => base.loadMetadata());
         return { turns, ...metadata };
       }
@@ -521,7 +571,8 @@ export async function createSessionStores(
     writeManifest: (records, signal) => base.writeManifest(records, signal),
     writeTurns: (turns) => writeSegmented(writeTurnsSegmented, turns),
     writeMetadata: (metadata, signal) => base.writeMetadata(metadata, signal),
-    readManifestHistory: (limit, signal) => base.readManifestHistory(limit, signal),
+    readManifestHistory: (limit, signal) =>
+      base.readManifestHistory(limit, signal),
     async writeBlob(key, bytes, contentType, signal) {
       await base.writeBlob(key, bytes, contentType, signal);
       const filename = `${sanitizeCallId(key)}${blobExtensionFor(contentType)}`;
@@ -532,7 +583,10 @@ export async function createSessionStores(
         const toAdd: string[] = [];
         const toRemove: string[] = [];
 
-        for (const filepath of [...pendingSegmentPaths, ...pendingBlobFilepaths]) {
+        for (const filepath of [
+          ...pendingSegmentPaths,
+          ...pendingBlobFilepaths,
+        ]) {
           if (await pathExists(path.join(dir, filepath))) toAdd.push(filepath);
           else toRemove.push(filepath);
         }
@@ -543,7 +597,9 @@ export async function createSessionStores(
         await reconcileSegmentStaging(dir, PROMPT_FILE, toAdd, toRemove);
 
         const add = extraCommitPaths([...new Set(toAdd)]);
-        const remove = extraCommitPaths([...new Set(toRemove)]).filter((p) => !add.includes(p));
+        const remove = extraCommitPaths([...new Set(toRemove)]).filter(
+          (p) => !add.includes(p),
+        );
         const extraPaths = [...new Set([...add, ...remove])];
 
         try {

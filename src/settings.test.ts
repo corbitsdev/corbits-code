@@ -1,5 +1,12 @@
 import { describe, test, expect } from "bun:test";
-import { chmod, mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  writeFile,
+  rm,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 
@@ -46,7 +53,12 @@ const twoProviders: Settings = {
   defaultProvider: "a",
   providers: {
     a: { baseURL: "https://a/v1", apiKey: "a-key", models: ["a-model"] },
-    b: { baseURL: "https://b/v1", apiKey: "b-key", models: ["b-model"], defaultModel: "b-model" },
+    b: {
+      baseURL: "https://b/v1",
+      apiKey: "b-key",
+      models: ["b-model"],
+      defaultModel: "b-model",
+    },
   },
 };
 
@@ -69,67 +81,84 @@ describe("MCP settings validation", () => {
   test("rejects empty and transport-less non-Exa entries", () => {
     expect(normalizeMcpServers({ exa: {} })).toBeUndefined();
     expect(normalizeMcpServers({ unknown: { enabled: true } })).toBeUndefined();
-    expect(normalizeMcpServers({ unknown: { enabled: false } })).toBeUndefined();
+    expect(
+      normalizeMcpServers({ unknown: { enabled: false } }),
+    ).toBeUndefined();
   });
 
   test("accepts transport-bearing Exa rows with enabled", () => {
-    expect(normalizeMcpServers({ exa: { enabled: true, url: "https://mcp.exa.ai/mcp" } })).toEqual([
-      { name: "exa", enabled: true, url: "https://mcp.exa.ai/mcp" },
-    ]);
-    expect(normalizeMcpServers({ exa: { enabled: false, command: "custom-exa" } })).toEqual([
-      { name: "exa", command: "custom-exa", enabled: false },
-    ]);
+    expect(
+      normalizeMcpServers({
+        exa: { enabled: true, url: "https://mcp.exa.ai/mcp" },
+      }),
+    ).toEqual([{ name: "exa", enabled: true, url: "https://mcp.exa.ai/mcp" }]);
+    expect(
+      normalizeMcpServers({ exa: { enabled: false, command: "custom-exa" } }),
+    ).toEqual([{ name: "exa", command: "custom-exa", enabled: false }]);
   });
 
   test("preserves a custom transport-bearing server named Exa", () => {
-    expect(normalizeMcpServers({ exa: { url: "https://example.test/custom" } })).toEqual([
-      { name: "exa", url: "https://example.test/custom" },
-    ]);
+    expect(
+      normalizeMcpServers({ exa: { url: "https://example.test/custom" } }),
+    ).toEqual([{ name: "exa", url: "https://example.test/custom" }]);
   });
 
   test("normalizes optional enabled on transport rows", () => {
     expect(
       normalizeMcpServers({
-        linear: { type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+        linear: {
+          type: "http",
+          url: "https://mcp.linear.app/mcp",
+          enabled: false,
+        },
       }),
     ).toEqual([
-      { name: "linear", type: "http", url: "https://mcp.linear.app/mcp", enabled: false },
+      {
+        name: "linear",
+        type: "http",
+        url: "https://mcp.linear.app/mcp",
+        enabled: false,
+      },
     ]);
-    expect(normalizeMcpServers({ linear: { url: "https://mcp.linear.app/mcp" } })).toEqual([
-      { name: "linear", url: "https://mcp.linear.app/mcp" },
-    ]);
+    expect(
+      normalizeMcpServers({ linear: { url: "https://mcp.linear.app/mcp" } }),
+    ).toEqual([{ name: "linear", url: "https://mcp.linear.app/mcp" }]);
   });
 });
 
 describe("normalizeOpenAICompatibleBaseURL", () => {
   test("preserves a plain base URL", () => {
-    expect(normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1")).toBe(
-      "https://provider.example.com/v1",
-    );
+    expect(
+      normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1"),
+    ).toBe("https://provider.example.com/v1");
   });
 
   test("removes a trailing slash from a base URL", () => {
-    expect(normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1/")).toBe(
-      "https://provider.example.com/v1",
-    );
+    expect(
+      normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1/"),
+    ).toBe("https://provider.example.com/v1");
   });
 
   test("normalizes a full chat completions endpoint to its base URL", () => {
     expect(
-      normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1/chat/completions"),
+      normalizeOpenAICompatibleBaseURL(
+        "https://provider.example.com/v1/chat/completions",
+      ),
     ).toBe("https://provider.example.com/v1");
   });
 
   test("normalizes a full chat completions endpoint with trailing slash", () => {
     expect(
-      normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1/chat/completions/"),
+      normalizeOpenAICompatibleBaseURL(
+        "https://provider.example.com/v1/chat/completions/",
+      ),
     ).toBe("https://provider.example.com/v1");
   });
 
   test("trims whitespace around pasted URLs", () => {
-    expect(normalizeOpenAICompatibleBaseURL("  https://provider.example.com/v1  ")).toBe(
-      "https://provider.example.com/v1",
-    );
+    expect(
+      normalizeOpenAICompatibleBaseURL("  https://provider.example.com/v1  "),
+    ).toBe("https://provider.example.com/v1");
   });
 
   test("accepts localhost http URLs", () => {
@@ -140,20 +169,22 @@ describe("normalizeOpenAICompatibleBaseURL", () => {
 
   test("strips query and hash from pasted endpoint URLs", () => {
     expect(
-      normalizeOpenAICompatibleBaseURL("https://provider.example.com/v1/chat/completions?x=1#frag"),
+      normalizeOpenAICompatibleBaseURL(
+        "https://provider.example.com/v1/chat/completions?x=1#frag",
+      ),
     ).toBe("https://provider.example.com/v1");
   });
 
   test("rejects malformed URL input with an actionable error", () => {
-    expect(() => normalizeOpenAICompatibleBaseURL("provider.example.com/v1")).toThrow(
-      /expected an absolute URL/,
-    );
+    expect(() =>
+      normalizeOpenAICompatibleBaseURL("provider.example.com/v1"),
+    ).toThrow(/expected an absolute URL/);
   });
 
   test("rejects non-http URL schemes", () => {
-    expect(() => normalizeOpenAICompatibleBaseURL("file:///tmp/provider")).toThrow(
-      /expected http or https/,
-    );
+    expect(() =>
+      normalizeOpenAICompatibleBaseURL("file:///tmp/provider"),
+    ).toThrow(/expected http or https/);
   });
 });
 
@@ -185,7 +216,11 @@ describe("resolveProvider", () => {
   test("falls back to the first model when no defaultModel", () => {
     const settings: Settings = {
       providers: {
-        only: { baseURL: "https://o/v1", apiKey: "o-key", models: ["first", "second"] },
+        only: {
+          baseURL: "https://o/v1",
+          apiKey: "o-key",
+          models: ["first", "second"],
+        },
       },
     };
     const r = resolveProvider({ settings, local: null, cli: {} });
@@ -195,14 +230,20 @@ describe("resolveProvider", () => {
 
   test("a sole provider is used without a defaultProvider", () => {
     const settings: Settings = {
-      providers: { solo: { baseURL: "https://s/v1", apiKey: "s-key", models: ["s-model"] } },
+      providers: {
+        solo: { baseURL: "https://s/v1", apiKey: "s-key", models: ["s-model"] },
+      },
     };
     const r = resolveProvider({ settings, local: null, cli: {} });
     expect(r.providerName).toBe("solo");
   });
 
   test("local selection overrides defaultProvider", () => {
-    const r = resolveProvider({ settings: twoProviders, local: { provider: "b" }, cli: {} });
+    const r = resolveProvider({
+      settings: twoProviders,
+      local: { provider: "b" },
+      cli: {},
+    });
     expect(r.providerName).toBe("b");
     expect(r.apiKey).toBe("b-key");
     expect(r.model).toBe("b-model");
@@ -235,12 +276,20 @@ describe("resolveProvider", () => {
 
   test("throws when cli provider is not configured", () => {
     expect(() =>
-      resolveProvider({ settings: twoProviders, local: null, cli: { provider: "c" } }),
+      resolveProvider({
+        settings: twoProviders,
+        local: null,
+        cli: { provider: "c" },
+      }),
     ).toThrow(/not found/);
   });
 
   test("falls back from a missing local selection to defaultProvider", () => {
-    const r = resolveProvider({ settings: twoProviders, local: { provider: "zzz" }, cli: {} });
+    const r = resolveProvider({
+      settings: twoProviders,
+      local: { provider: "zzz" },
+      cli: {},
+    });
     expect(r.providerName).toBe("a");
     expect(r.apiKey).toBe("a-key");
     expect(r.model).toBe("a-model");
@@ -249,7 +298,9 @@ describe("resolveProvider", () => {
   test("falls back from a typo defaultProvider to a resolvable sibling", () => {
     const settings: Settings = {
       defaultProvider: "typo",
-      providers: { solo: { baseURL: "https://s/v1", apiKey: "s-key", models: ["s-model"] } },
+      providers: {
+        solo: { baseURL: "https://s/v1", apiKey: "s-key", models: ["s-model"] },
+      },
     };
     const r = resolveProvider({ settings, local: null, cli: {} });
     expect(r.providerName).toBe("solo");
@@ -271,7 +322,11 @@ describe("resolveProvider", () => {
     const settings: Settings = {
       defaultProvider: "broken",
       providers: {
-        broken: { baseURL: "https://broken/v1", apiKey: "", models: ["broken-model"] },
+        broken: {
+          baseURL: "https://broken/v1",
+          apiKey: "",
+          models: ["broken-model"],
+        },
         ...firepass.providers,
       },
     };
@@ -284,23 +339,31 @@ describe("resolveProvider", () => {
     const settings: Settings = {
       defaultProvider: "firepass",
       providers: {
-        broken: { baseURL: "https://broken/v1", apiKey: "", models: ["broken-model"] },
+        broken: {
+          baseURL: "https://broken/v1",
+          apiKey: "",
+          models: ["broken-model"],
+        },
         ...firepass.providers,
       },
     };
-    expect(() => resolveProvider({ settings, local: null, cli: { provider: "broken" } })).toThrow(
-      /missing: apiKey/,
-    );
-    expect(() => resolveProvider({ settings, local: null, cli: { provider: "broken" } })).toThrow(
-      /Could not resolve an inference provider/,
-    );
+    expect(() =>
+      resolveProvider({ settings, local: null, cli: { provider: "broken" } }),
+    ).toThrow(/missing: apiKey/);
+    expect(() =>
+      resolveProvider({ settings, local: null, cli: { provider: "broken" } }),
+    ).toThrow(/Could not resolve an inference provider/);
   });
 
   test("throws the missing-fields error when no remaining provider is resolvable", () => {
     const settings: Settings = {
       defaultProvider: "typo",
       providers: {
-        broken: { baseURL: "https://broken/v1", apiKey: "", models: ["broken-model"] },
+        broken: {
+          baseURL: "https://broken/v1",
+          apiKey: "",
+          models: ["broken-model"],
+        },
       },
     };
     expect(() => resolveProvider({ settings, local: null, cli: {} })).toThrow(
@@ -373,9 +436,9 @@ describe("resolveProvider", () => {
   });
 
   test("throws listing every missing field", () => {
-    expect(() => resolveProvider({ settings: null, local: null, cli: {} })).toThrow(
-      /missing: provider, baseURL, apiKey, model/,
-    );
+    expect(() =>
+      resolveProvider({ settings: null, local: null, cli: {} }),
+    ).toThrow(/missing: provider, baseURL, apiKey, model/);
   });
 
   test("does not pick a catalog sibling when nothing was selected", () => {
@@ -393,7 +456,9 @@ describe("resolveProvider", () => {
 
 describe("validators", () => {
   test("isSettings rejects a provider missing baseURL", () => {
-    expect(isSettings({ providers: { x: { apiKey: "k", models: ["m"] } } })).toBe(false);
+    expect(
+      isSettings({ providers: { x: { apiKey: "k", models: ["m"] } } }),
+    ).toBe(false);
   });
 
   test("isSettings accepts a valid shape", () => {
@@ -436,13 +501,18 @@ describe("validators", () => {
   });
 
   test("isSettings accepts showPromptCost", () => {
-    expect(isSettings({ providers: firepass.providers, showPromptCost: true })).toBe(true);
+    expect(
+      isSettings({ providers: firepass.providers, showPromptCost: true }),
+    ).toBe(true);
   });
 
   test("isSettings accepts dangerouslySkipPermissions", () => {
-    expect(isSettings({ providers: firepass.providers, dangerouslySkipPermissions: true })).toBe(
-      true,
-    );
+    expect(
+      isSettings({
+        providers: firepass.providers,
+        dangerouslySkipPermissions: true,
+      }),
+    ).toBe(true);
   });
 
   test("isLocalSettings rejects credentials", () => {
@@ -490,7 +560,9 @@ describe("healOpenCodeGoProviders", () => {
     };
     expect(healOpenCodeGoProviders(settings)).toEqual(["go/personal"]);
     expect(settings.providers["go/personal"]?.opencodeGo).toBe(true);
-    expect(settings.providers["go/personal"]?.baseURL).toBe(OPENCODE_GO_BASE_URL);
+    expect(settings.providers["go/personal"]?.baseURL).toBe(
+      OPENCODE_GO_BASE_URL,
+    );
   });
 
   test("leaves bare Zen providers alone", () => {
@@ -556,7 +628,9 @@ describe("healOpenCodeGoProviders", () => {
     };
     expect(healOpenCodeGoProviders(settings)).toEqual([]);
     expect(settings.providers["go-proxy"]?.opencodeGo).toBeUndefined();
-    expect(settings.providers["go-proxy"]?.baseURL).toBe("https://go.internal.example/zen/go/v1");
+    expect(settings.providers["go-proxy"]?.baseURL).toBe(
+      "https://go.internal.example/zen/go/v1",
+    );
   });
 });
 
@@ -579,11 +653,15 @@ describe("loaders", () => {
       );
       const loaded = await loadSettings(path);
       expect(loaded?.providers["go/personal"]?.opencodeGo).toBe(true);
-      expect(loaded?.providers["go/personal"]?.baseURL).toBe(OPENCODE_GO_BASE_URL);
+      expect(loaded?.providers["go/personal"]?.baseURL).toBe(
+        OPENCODE_GO_BASE_URL,
+      );
       // Hard cutover: rewritten on disk, not only in memory.
       const reloaded = await loadSettings(path);
       expect(reloaded?.providers["go/personal"]?.opencodeGo).toBe(true);
-      expect(reloaded?.providers["go/personal"]?.baseURL).toBe(OPENCODE_GO_BASE_URL);
+      expect(reloaded?.providers["go/personal"]?.baseURL).toBe(
+        OPENCODE_GO_BASE_URL,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -624,12 +702,16 @@ describe("loaders", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     const writes: string[] = [];
     const originalWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
-      return (originalWrite as (c: string | Uint8Array, ...r: unknown[]) => boolean)(
-        chunk,
-        ...rest,
+    process.stderr.write = ((
+      chunk: string | Uint8Array,
+      ...rest: unknown[]
+    ) => {
+      writes.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
       );
+      return (
+        originalWrite as (c: string | Uint8Array, ...r: unknown[]) => boolean
+      )(chunk, ...rest);
     }) as typeof process.stderr.write;
     try {
       const path = join(dir, "settings.json");
@@ -651,7 +733,9 @@ describe("loaders", () => {
         }),
       );
       await loadSettings(path);
-      const notice = writes.find((w) => w.includes("healed OpenCode Go providers"));
+      const notice = writes.find((w) =>
+        w.includes("healed OpenCode Go providers"),
+      );
       expect(notice).toBeDefined();
       expect(notice).toContain("go/personal");
       expect(notice).not.toContain("zen");
@@ -665,12 +749,16 @@ describe("loaders", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     const writes: string[] = [];
     const originalWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-      writes.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
-      return (originalWrite as (c: string | Uint8Array, ...r: unknown[]) => boolean)(
-        chunk,
-        ...rest,
+    process.stderr.write = ((
+      chunk: string | Uint8Array,
+      ...rest: unknown[]
+    ) => {
+      writes.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
       );
+      return (
+        originalWrite as (c: string | Uint8Array, ...r: unknown[]) => boolean
+      )(chunk, ...rest);
     }) as typeof process.stderr.write;
     try {
       const path = join(dir, "settings.json");
@@ -688,7 +776,9 @@ describe("loaders", () => {
         }),
       );
       await loadSettings(path);
-      expect(writes.some((w) => w.includes("healed OpenCode Go providers"))).toBe(false);
+      expect(
+        writes.some((w) => w.includes("healed OpenCode Go providers")),
+      ).toBe(false);
     } finally {
       process.stderr.write = originalWrite;
       await rm(dir, { recursive: true, force: true });
@@ -715,7 +805,9 @@ describe("loaders", () => {
       await chmod(dir, 0o555);
       const loaded = await loadSettings(path);
       expect(loaded?.providers["go/personal"]?.opencodeGo).toBe(true);
-      expect(loaded?.providers["go/personal"]?.baseURL).toBe(OPENCODE_GO_BASE_URL);
+      expect(loaded?.providers["go/personal"]?.baseURL).toBe(
+        OPENCODE_GO_BASE_URL,
+      );
     } finally {
       await chmod(dir, 0o755).catch(() => undefined);
       await rm(dir, { recursive: true, force: true });
@@ -735,8 +827,13 @@ describe("loaders", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, "settings.json");
-      await writeFile(path, JSON.stringify({ providers: { x: { models: [] } } }));
-      await expect(loadSettings(path)).rejects.toThrow(/Invalid settings schema/);
+      await writeFile(
+        path,
+        JSON.stringify({ providers: { x: { models: [] } } }),
+      );
+      await expect(loadSettings(path)).rejects.toThrow(
+        /Invalid settings schema/,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -746,8 +843,13 @@ describe("loaders", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, "settings.json");
-      await writeFile(path, JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" }));
-      await expect(loadSettings(path)).rejects.toThrow(/Invalid settings schema/);
+      await writeFile(
+        path,
+        JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" }),
+      );
+      await expect(loadSettings(path)).rejects.toThrow(
+        /Invalid settings schema/,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -762,7 +864,10 @@ describe("loaders", () => {
       const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
       try {
         const path = join(dir, "settings.json");
-        await writeFile(path, JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" }));
+        await writeFile(
+          path,
+          JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" }),
+        );
         const projected = Object.fromEntries(
           providerNames.map((name) => [
             name,
@@ -775,9 +880,13 @@ describe("loaders", () => {
           ]),
         );
 
-        const recovered = await loadSettingsRecoveringClobberedOAuthSelection(path, projected, {
-          persist: true,
-        });
+        const recovered = await loadSettingsRecoveringClobberedOAuthSelection(
+          path,
+          projected,
+          {
+            persist: true,
+          },
+        );
         expect(recovered).toEqual({
           defaultProvider: "codex/work",
           providers: {
@@ -839,7 +948,11 @@ describe("loaders", () => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
-        JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex", apiKey: "nope" }),
+        JSON.stringify({
+          provider: "codex/work",
+          model: "gpt-5.1-codex",
+          apiKey: "nope",
+        }),
       );
       await expect(
         loadSettingsRecoveringClobberedOAuthSelection(
@@ -863,7 +976,10 @@ describe("loaders", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, "settings.json");
-      const original = JSON.stringify({ provider: "codex/missing", model: "gpt-5.1-codex" });
+      const original = JSON.stringify({
+        provider: "codex/missing",
+        model: "gpt-5.1-codex",
+      });
       await writeFile(path, original);
       await expect(
         loadSettingsRecoveringClobberedOAuthSelection(
@@ -888,7 +1004,10 @@ describe("loaders", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, "settings.json");
-      const original = JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" });
+      const original = JSON.stringify({
+        provider: "codex/work",
+        model: "gpt-5.1-codex",
+      });
       await writeFile(path, original);
       const recovered = await loadSettingsRecoveringClobberedOAuthSelection(
         path,
@@ -941,10 +1060,14 @@ describe("loaders", () => {
       await writeFile(
         path,
         JSON.stringify({
-          providers: { a: { baseURL: "https://a/v1", apiKey: "k", models: ["m"] } },
+          providers: {
+            a: { baseURL: "https://a/v1", apiKey: "k", models: ["m"] },
+          },
           workflowProfiles: { fast: { implement: "m" } },
           web: "exa",
-          plugins: { exa: { enabled: true, credentials: { apiKey: "exa-key" } } },
+          plugins: {
+            exa: { enabled: true, credentials: { apiKey: "exa-key" } },
+          },
           pluginPaths: ["/abs/plugins/exa", "./local-plugin"],
           discoverClaudePlugins: true,
         }),
@@ -955,7 +1078,10 @@ describe("loaders", () => {
       expect(loaded?.plugins).toEqual({
         exa: { enabled: true, credentials: { apiKey: "exa-key" } },
       });
-      expect(loaded?.pluginPaths).toEqual(["/abs/plugins/exa", "./local-plugin"]);
+      expect(loaded?.pluginPaths).toEqual([
+        "/abs/plugins/exa",
+        "./local-plugin",
+      ]);
       expect(loaded?.discoverClaudePlugins).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -969,7 +1095,13 @@ describe("loaders", () => {
       const path = join(dir, ".corbits", "settings.json");
       await writeFile(
         path,
-        JSON.stringify({ provider: "a", model: "m1", apiKey: "leak", providers: {}, weird: true }),
+        JSON.stringify({
+          provider: "a",
+          model: "m1",
+          apiKey: "leak",
+          providers: {},
+          weird: true,
+        }),
       );
       // Must not throw — app starts with known keys applied.
       const loaded = await loadLocalSettings(path);
@@ -980,9 +1112,11 @@ describe("loaders", () => {
       const result = await loadLocalSettingsResult(path);
       expect(result.settings).toEqual({ provider: "a", model: "m1" });
       expect(result.diagnostics.length).toBeGreaterThan(0);
-      expect(result.diagnostics.some((d) => /credential|apiKey|unknown/i.test(d.message))).toBe(
-        true,
-      );
+      expect(
+        result.diagnostics.some((d) =>
+          /credential|apiKey|unknown/i.test(d.message),
+        ),
+      ).toBe(true);
       expect(result.diagnostics.every((d) => d.fix.length > 0)).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -998,7 +1132,9 @@ describe("loaders", () => {
       const { loadLocalSettingsResult } = await import("./config/settings.js");
       const result = await loadLocalSettingsResult(path);
       expect(result.settings).toBeNull();
-      expect(result.diagnostics.some((d) => /Invalid JSON/i.test(d.message))).toBe(true);
+      expect(
+        result.diagnostics.some((d) => /Invalid JSON/i.test(d.message)),
+      ).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1014,9 +1150,17 @@ describe("loaders", () => {
       // Partial fail-open: cleaned known fields are the base.
       await writeFile(
         path,
-        JSON.stringify({ provider: "a", model: "m1", apiKey: "leak", weird: true }),
+        JSON.stringify({
+          provider: "a",
+          model: "m1",
+          apiKey: "leak",
+          weird: true,
+        }),
       );
-      expect(await loadLocalSettingsWriteBase(path)).toEqual({ provider: "a", model: "m1" });
+      expect(await loadLocalSettingsWriteBase(path)).toEqual({
+        provider: "a",
+        model: "m1",
+      });
 
       // Invalid JSON: skip write — do not collapse to {}.
       await writeFile(path, "{ not json");
@@ -1036,7 +1180,11 @@ describe("loaders", () => {
       const path = join(dir, ".corbits", "settings.json");
       const withTools: Settings = {
         ...firepass,
-        tools: { timeoutMs: 120_000, maxTimeoutMs: 600_000, waitForApproval: false },
+        tools: {
+          timeoutMs: 120_000,
+          maxTimeoutMs: 600_000,
+          waitForApproval: false,
+        },
       };
       await saveGlobalSettings(path, withTools);
       const loaded = await loadSettings(path);
@@ -1061,7 +1209,9 @@ describe("loaders", () => {
     try {
       const path = join(dir, "settings.json");
       // Absent file: a fresh minimal base is a safe write target.
-      expect(await loadGlobalSettingsWriteBase(path)).toEqual({ providers: {} });
+      expect(await loadGlobalSettingsWriteBase(path)).toEqual({
+        providers: {},
+      });
 
       // Readable file: its contents are the base.
       await saveGlobalSettings(path, firepass);
@@ -1080,14 +1230,21 @@ describe("loaders", () => {
   });
 
   test("toolWatchdogFromSettings maps waitForApproval alone", () => {
-    expect(toolWatchdogFromSettings({ providers: {}, tools: { waitForApproval: true } })).toEqual({
+    expect(
+      toolWatchdogFromSettings({
+        providers: {},
+        tools: { waitForApproval: true },
+      }),
+    ).toEqual({
       waitForApproval: true,
     });
     expect(toolWatchdogFromSettings({ providers: {} })).toBeUndefined();
   });
 
   test("toolWatchdogFromSettings maps mcp.timeoutMs alone (no tools.* set)", () => {
-    expect(toolWatchdogFromSettings({ providers: {}, mcp: { timeoutMs: 45_000 } })).toEqual({
+    expect(
+      toolWatchdogFromSettings({ providers: {}, mcp: { timeoutMs: 45_000 } }),
+    ).toEqual({
       mcpTimeoutMs: 45_000,
     });
   });
@@ -1123,7 +1280,10 @@ describe("persistSkipPermissionsDefault", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, "settings.json");
-      await saveGlobalSettings(path, { ...firepass, dangerouslySkipPermissions: true });
+      await saveGlobalSettings(path, {
+        ...firepass,
+        dangerouslySkipPermissions: true,
+      });
       expect(await persistSkipPermissionsDefault(path, false)).toBe("ok");
       expect(await loadSettings(path)).toEqual({
         ...firepass,
@@ -1175,15 +1335,23 @@ describe("sessionMode", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-local-"));
     try {
       const path = join(dir, ".corbits", "settings.json");
-      await saveLocalSettings(path, { provider: "a", sessionMode: "orchestrator" });
-      expect(await loadLocalSettings(path)).toEqual({ provider: "a", sessionMode: "orchestrator" });
+      await saveLocalSettings(path, {
+        provider: "a",
+        sessionMode: "orchestrator",
+      });
+      expect(await loadLocalSettings(path)).toEqual({
+        provider: "a",
+        sessionMode: "orchestrator",
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
   test("rejects invalid sessionMode", () => {
-    expect(isSettings({ providers: firepass.providers, sessionMode: "fleet" })).toBe(false);
+    expect(
+      isSettings({ providers: firepass.providers, sessionMode: "fleet" }),
+    ).toBe(false);
     expect(isLocalSettings({ provider: "a", sessionMode: 1 })).toBe(false);
   });
 });
@@ -1193,7 +1361,10 @@ test("loadSettings round-trips showPromptCost", async () => {
   try {
     const path = join(dir, ".corbits", "settings.json");
     await saveGlobalSettings(path, { ...firepass, showPromptCost: true });
-    expect(await loadSettings(path)).toEqual({ ...firepass, showPromptCost: true });
+    expect(await loadSettings(path)).toEqual({
+      ...firepass,
+      showPromptCost: true,
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1203,10 +1374,22 @@ test("loadSettings round-trips dangerouslySkipPermissions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
   try {
     const path = join(dir, ".corbits", "settings.json");
-    await saveGlobalSettings(path, { ...firepass, dangerouslySkipPermissions: true });
-    expect(await loadSettings(path)).toEqual({ ...firepass, dangerouslySkipPermissions: true });
-    await saveGlobalSettings(path, { ...firepass, dangerouslySkipPermissions: false });
-    expect(await loadSettings(path)).toEqual({ ...firepass, dangerouslySkipPermissions: false });
+    await saveGlobalSettings(path, {
+      ...firepass,
+      dangerouslySkipPermissions: true,
+    });
+    expect(await loadSettings(path)).toEqual({
+      ...firepass,
+      dangerouslySkipPermissions: true,
+    });
+    await saveGlobalSettings(path, {
+      ...firepass,
+      dangerouslySkipPermissions: false,
+    });
+    expect(await loadSettings(path)).toEqual({
+      ...firepass,
+      dangerouslySkipPermissions: false,
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1242,8 +1425,14 @@ describe("lastChangelogVersion", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, ".corbits", "settings.json");
-      await saveGlobalSettings(path, { ...firepass, lastChangelogVersion: "0.2.85" });
-      expect(await loadSettings(path)).toEqual({ ...firepass, lastChangelogVersion: "0.2.85" });
+      await saveGlobalSettings(path, {
+        ...firepass,
+        lastChangelogVersion: "0.2.85",
+      });
+      expect(await loadSettings(path)).toEqual({
+        ...firepass,
+        lastChangelogVersion: "0.2.85",
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1305,8 +1494,12 @@ describe("saveGlobalSettings", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, ".corbits", "settings.json");
-      const invalid = { providers: { x: { models: [] } } } as unknown as Settings;
-      await expect(saveGlobalSettings(path, invalid)).rejects.toThrow(/invalid global settings/);
+      const invalid = {
+        providers: { x: { models: [] } },
+      } as unknown as Settings;
+      await expect(saveGlobalSettings(path, invalid)).rejects.toThrow(
+        /invalid global settings/,
+      );
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1318,8 +1511,14 @@ describe("saveLocalSettings", () => {
     const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
     try {
       const path = join(dir, ".corbits", "settings.json");
-      await saveLocalSettings(path, { provider: "firepass", model: "fp-small" });
-      expect(await loadLocalSettings(path)).toEqual({ provider: "firepass", model: "fp-small" });
+      await saveLocalSettings(path, {
+        provider: "firepass",
+        model: "fp-small",
+      });
+      expect(await loadLocalSettings(path)).toEqual({
+        provider: "firepass",
+        model: "fp-small",
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1349,13 +1548,18 @@ describe("saveLocalSettings", () => {
     try {
       await mkdir(join(dir, ".corbits"), { recursive: true });
       const path = join(dir, ".corbits", "settings.json");
-      await writeFile(path, JSON.stringify({ model: "m", reasoningEffort: "legendary" }));
+      await writeFile(
+        path,
+        JSON.stringify({ model: "m", reasoningEffort: "legendary" }),
+      );
       // Fail open: keep model, drop invalid effort, surface diagnostic.
       expect(await loadLocalSettings(path)).toEqual({ model: "m" });
       const { loadLocalSettingsResult } = await import("./config/settings.js");
       const result = await loadLocalSettingsResult(path);
       expect(result.settings).toEqual({ model: "m" });
-      expect(result.diagnostics.some((d) => /reasoningEffort/i.test(d.message))).toBe(true);
+      expect(
+        result.diagnostics.some((d) => /reasoningEffort/i.test(d.message)),
+      ).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1377,7 +1581,9 @@ describe("saveLocalSettings", () => {
     try {
       const path = join(dir, ".corbits", "settings.json");
       // Force an invalid shape past the type system to prove the guard holds.
-      const leaky = { provider: "a", apiKey: "leak" } as unknown as { provider?: string };
+      const leaky = { provider: "a", apiKey: "leak" } as unknown as {
+        provider?: string;
+      };
       await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/allowed/);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -1404,7 +1610,10 @@ describe("recent and favorite model helpers", () => {
   });
 
   test("pushRecentModel leaves defaultProvider untouched", () => {
-    const s: Settings = { providers: firepass.providers, defaultProvider: "firepass" };
+    const s: Settings = {
+      providers: firepass.providers,
+      defaultProvider: "firepass",
+    };
     const next = pushRecentModel(s, { provider: "other", model: "m1" });
     expect(next.defaultProvider).toBe("firepass");
   });
@@ -1446,7 +1655,10 @@ describe("recent and favorite model helpers", () => {
   });
 
   test("setDefaultModel with a missing provider still sets defaultProvider and does not invent a providers key", () => {
-    const s: Settings = { providers: firepass.providers, defaultProvider: "firepass" };
+    const s: Settings = {
+      providers: firepass.providers,
+      defaultProvider: "firepass",
+    };
     const next = setDefaultModel(s, { provider: "missing", model: "m1" });
     expect(next.defaultProvider).toBe("missing");
     expect(next.providers).toEqual(s.providers);

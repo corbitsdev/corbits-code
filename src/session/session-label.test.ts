@@ -28,7 +28,9 @@ afterEach(async () => {
 });
 
 test("truncateSessionLabel collapses whitespace", () => {
-  expect(truncateSessionLabel("  fix   resume\nflow  ")).toBe("fix resume flow");
+  expect(truncateSessionLabel("  fix   resume\nflow  ")).toBe(
+    "fix resume flow",
+  );
 });
 
 test("resolveSessionLabel uses run.json task when set", async () => {

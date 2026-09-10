@@ -40,9 +40,12 @@ describe("normalizeToolDefinitionsForProvider", () => {
 
   test("present description and kimi view description share primitives guidance (no dual prose drift)", () => {
     expect(PRESENT_VIEW_PRIMITIVES_GUIDANCE.length).toBeGreaterThan(0);
-    expect(presentDefinition.description).toContain(PRESENT_VIEW_PRIMITIVES_GUIDANCE);
-    const viewDesc = (KIMI_PRESENT_INPUT_SCHEMA.properties.view as { description: string })
-      .description;
+    expect(presentDefinition.description).toContain(
+      PRESENT_VIEW_PRIMITIVES_GUIDANCE,
+    );
+    const viewDesc = (
+      KIMI_PRESENT_INPUT_SCHEMA.properties.view as { description: string }
+    ).description;
     expect(viewDesc).toContain(PRESENT_VIEW_PRIMITIVES_GUIDANCE);
   });
 
@@ -69,7 +72,9 @@ describe("normalizeToolDefinitionsForProvider", () => {
     expect(schema.required).toEqual(["view"]);
     // Richer non-recursive shape: view is oneOf of primitives, not bare freeform.
     expect(Array.isArray(schema.properties?.view?.oneOf)).toBe(true);
-    expect((schema.properties?.view?.oneOf ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(
+      (schema.properties?.view?.oneOf ?? []).length,
+    ).toBeGreaterThanOrEqual(4);
     expect(schema.properties?.view?.description).toContain("Primitives:");
     // Description + examples stay on the tool for model guidance.
     expect(defined(present).description).toBe(recursivePresent.description);
@@ -89,7 +94,9 @@ describe("normalizeToolDefinitionsForProvider", () => {
       structuredClone(KIMI_PRESENT_INPUT_SCHEMA) as typeof present.inputSchema,
     );
     // Stable JSON pin of the full wire schema object.
-    expect(JSON.stringify(present.inputSchema)).toBe(JSON.stringify(KIMI_PRESENT_INPUT_SCHEMA));
+    expect(JSON.stringify(present.inputSchema)).toBe(
+      JSON.stringify(KIMI_PRESENT_INPUT_SCHEMA),
+    );
   });
 
   test("opencode-go + kimi-k3 rewrites present (model-id gate)", () => {
@@ -107,7 +114,9 @@ describe("normalizeToolDefinitionsForProvider", () => {
       providerName: "openai-compat",
       model: "kimi-k3",
     });
-    expect(schemaHasRef(defined(out.find((d) => d.name === "present")).inputSchema)).toBe(false);
+    expect(
+      schemaHasRef(defined(out.find((d) => d.name === "present")).inputSchema),
+    ).toBe(false);
   });
 
   test("non-kimi providers get identity schemas (recursive present kept)", () => {

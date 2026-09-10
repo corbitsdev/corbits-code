@@ -1,4 +1,7 @@
-import { OPENCODE_GO_DISPLAY_NAME, OPENCODE_GO_PROVIDER_ID } from "./constants.js";
+import {
+  OPENCODE_GO_DISPLAY_NAME,
+  OPENCODE_GO_PROVIDER_ID,
+} from "./constants.js";
 
 /**
  * True when the URL or base is the public OpenCode Go gateway.
@@ -18,7 +21,10 @@ export function isOpenCodeGoURL(urlOrBase: string | undefined): boolean {
   if (trimmed.length === 0) return false;
   try {
     const url = new URL(trimmed);
-    if (url.hostname !== "opencode.ai" && !url.hostname.endsWith(".opencode.ai")) {
+    if (
+      url.hostname !== "opencode.ai" &&
+      !url.hostname.endsWith(".opencode.ai")
+    ) {
       return false;
     }
     // Strip trailing slashes, then compare path segments case-insensitively.

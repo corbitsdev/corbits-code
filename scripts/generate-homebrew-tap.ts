@@ -67,12 +67,15 @@ end
 `;
 }
 
-async function readFormulaRenames(path: string): Promise<Record<string, string>> {
+async function readFormulaRenames(
+  path: string,
+): Promise<Record<string, string>> {
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return {};
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      return {};
     throw cause;
   }
 
@@ -105,7 +108,10 @@ export async function generateHomebrewTap(
   await writeFile(renamesPath, renameMetadata);
 }
 
-function parseRelease(args: string[]): { tapDir: string; release: HomebrewRelease } {
+function parseRelease(args: string[]): {
+  tapDir: string;
+  release: HomebrewRelease;
+} {
   if (args.length !== 6) {
     throw new Error(
       "usage: generate-homebrew-tap.ts TAP_DIR VERSION MACOS_ARM64 MACOS_X64 LINUX_ARM64 LINUX_X64",

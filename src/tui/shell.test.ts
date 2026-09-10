@@ -20,7 +20,11 @@ import {
 import { createAppShell } from "./shell/index";
 import { isTranscriptFollowing, stickyMode } from "./shell/internals";
 import { closeInsetOverlay, openInsetOverlay } from "./shell/overlay-host";
-import { applyShellCancelLast, interruptShell, submitPrompt } from "./shell/prompt";
+import {
+  applyShellCancelLast,
+  interruptShell,
+  submitPrompt,
+} from "./shell/prompt";
 import { transcriptRowLayout } from "./shell/transcript";
 
 /** The transient notice row sits directly above the prompt box's top rule. */
@@ -46,7 +50,9 @@ describe("createAppShell", () => {
           expect(shell.promptTopRule).toBeDefined();
           expect(shell.promptBottomRule).toBeDefined();
           expect(shell.transcript.stickyScroll).toBe(true);
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
           expect(focusOwner(shell.focus)).toBe("prompt");
           expect(scrollLease(shell.focus)).toBe("transcript");
           await h.renderOnce();
@@ -108,7 +114,9 @@ describe("createAppShell", () => {
           appendTranscript(shell, "after-pin");
           await h.renderOnce();
           expect(isTranscriptFollowing(shell)).toBe(false);
-          expect(Math.abs(shell.transcript.scrollTop - pinnedTop)).toBeLessThan(2);
+          expect(Math.abs(shell.transcript.scrollTop - pinnedTop)).toBeLessThan(
+            2,
+          );
         } finally {
           shell.dispose();
         }
@@ -136,7 +144,8 @@ describe("createAppShell", () => {
           await h.renderOnce();
           expect(noticeText(shell)).toContain("pinned");
 
-          shell.transcript.scrollTop = shell.transcript.scrollHeight - shell.transcript.height;
+          shell.transcript.scrollTop =
+            shell.transcript.scrollHeight - shell.transcript.height;
           await h.renderOnce();
           expect(noticeText(shell)).not.toContain("pinned");
         } finally {
@@ -344,13 +353,21 @@ describe("product skin: stream + queue + overlay", () => {
           expect(frame).toContain("hi there");
           expect(frame).toContain("bash");
           // One agent is answering, so no row spends columns naming it.
-          const inkRows = frame.split("\n").filter((row) => row.trim().length > 0);
-          expect(inkRows.filter((row) => row.includes("● agent"))).toHaveLength(0);
-          expect(inkRows.filter((row) => row.includes(" tool "))).toHaveLength(0);
+          const inkRows = frame
+            .split("\n")
+            .filter((row) => row.trim().length > 0);
+          expect(inkRows.filter((row) => row.includes("● agent"))).toHaveLength(
+            0,
+          );
+          expect(inkRows.filter((row) => row.includes(" tool "))).toHaveLength(
+            0,
+          );
           // User row content is in the scroll buffer (pure paint covered in stream.test).
           expect(
-            paintStreamRow({ role: "user", text: "hello world" }, transcriptRowLayout(shell))
-              .content,
+            paintStreamRow(
+              { role: "user", text: "hello world" },
+              transcriptRowLayout(shell),
+            ).content,
           ).toContain("hello world");
         } finally {
           shell.dispose();
@@ -623,12 +640,16 @@ describe("product skin: stream + queue + overlay", () => {
           wireKeys: false,
         });
         try {
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
           openInsetOverlay(shell);
           // Inset may shrink transcript but still uses resolver floors.
           expect(shell.layout.overlayHeight).toBeGreaterThan(0);
           closeInsetOverlay(shell);
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(IDLE_TRANSCRIPT_FLOOR);
+          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
+            IDLE_TRANSCRIPT_FLOOR,
+          );
         } finally {
           shell.dispose();
         }

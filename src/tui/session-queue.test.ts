@@ -74,7 +74,10 @@ describe("session-queue", () => {
     expect(steersGone.drained.map((i) => i.text)).toEqual(["s2"]);
     expect(steerCount(steersGone.state)).toBe(0);
     expect(queueCount(steersGone.state)).toBe(2);
-    expect(drainOrder(steersGone.state).map((i) => i.text)).toEqual(["q1", "q2"]);
+    expect(drainOrder(steersGone.state).map((i) => i.text)).toEqual([
+      "q1",
+      "q2",
+    ]);
 
     const onlyQueue = drainOne(steersGone.state, "queue");
     expect(onlyQueue.item?.text).toBe("q1");

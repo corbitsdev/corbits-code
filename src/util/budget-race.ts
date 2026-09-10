@@ -5,13 +5,17 @@
 export const BUDGET_EXPIRED = Symbol("budget-expired");
 
 /** Resolves with BUDGET_EXPIRED once `signal` aborts (immediately if already aborted). */
-export function budgetExpiry(signal: AbortSignal): Promise<typeof BUDGET_EXPIRED> {
+export function budgetExpiry(
+  signal: AbortSignal,
+): Promise<typeof BUDGET_EXPIRED> {
   return new Promise((resolve) => {
     if (signal.aborted) {
       resolve(BUDGET_EXPIRED);
       return;
     }
-    signal.addEventListener("abort", () => resolve(BUDGET_EXPIRED), { once: true });
+    signal.addEventListener("abort", () => resolve(BUDGET_EXPIRED), {
+      once: true,
+    });
   });
 }
 

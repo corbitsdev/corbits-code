@@ -9,7 +9,10 @@
  */
 
 import { scrubSecrets } from "../web/secret-scrub.js";
-import { isProductMutationTool, productMutationPaths } from "../agent/product-mutation-tools.js";
+import {
+  isProductMutationTool,
+  productMutationPaths,
+} from "../agent/product-mutation-tools.js";
 
 /** Hard cap so a long command cannot shove the row's other columns off-screen. */
 export const TOOL_PREVIEW_MAX = 48;
@@ -38,7 +41,9 @@ function extractSubject(name: string, rawArgs: string): string | null {
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) return null;
     // Non-JSON payload — only useful when short enough to be the whole subject.
     const oneLine = trimmed.replace(/\s+/g, " ");
-    return oneLine.length > 0 && oneLine.length <= TOOL_PREVIEW_MAX ? oneLine : null;
+    return oneLine.length > 0 && oneLine.length <= TOOL_PREVIEW_MAX
+      ? oneLine
+      : null;
   }
 
   const tool = name.toLowerCase();
@@ -86,7 +91,15 @@ function extractSubject(name: string, rawArgs: string): string | null {
   }
 
   // Generic fallback: first short scalar among common subject keys.
-  for (const key of ["path", "command", "query", "pattern", "url", "description", "prompt"]) {
+  for (const key of [
+    "path",
+    "command",
+    "query",
+    "pattern",
+    "url",
+    "description",
+    "prompt",
+  ]) {
     const value = stringField(args, key);
     if (value !== null) return value;
   }
@@ -96,14 +109,18 @@ function extractSubject(name: string, rawArgs: string): string | null {
 function parseObject(raw: string): Record<string, unknown> | null {
   try {
     const value: unknown = JSON.parse(raw);
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      return null;
     return value as Record<string, unknown>;
   } catch {
     return null;
   }
 }
 
-function stringField(args: Record<string, unknown>, key: string): string | null {
+function stringField(
+  args: Record<string, unknown>,
+  key: string,
+): string | null {
   const value = args[key];
   if (typeof value !== "string") return null;
   const trimmed = value.trim();

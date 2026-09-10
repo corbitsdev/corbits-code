@@ -27,9 +27,10 @@ function run(
   limits: { timeoutMs?: number; maxOutputBytes?: number } = {},
   spawnChild?: SpawnRg,
 ): Promise<ToolResult> {
-  const handler = defined(ripgrepPlugin(cwd, limits, spawnChild).middleware, "ripgrep middleware")(
-    fallback,
-  );
+  const handler = defined(
+    ripgrepPlugin(cwd, limits, spawnChild).middleware,
+    "ripgrep middleware",
+  )(fallback);
   return handler(call, new AbortController().signal);
 }
 
@@ -60,7 +61,8 @@ function scriptedSpawn(stdout: string, code: number | null): SpawnRg {
       },
       stderr: { on: () => undefined },
       on: ((event: string, listener: (arg: never) => void) => {
-        if (event === "close") onClose = listener as (code: number | null) => void;
+        if (event === "close")
+          onClose = listener as (code: number | null) => void;
       }) as RgChild["on"],
       kill: () => undefined,
     };
@@ -113,7 +115,11 @@ test("search_files routes through ripgrep and lists files", async () => {
 });
 
 test("unrelated tools fall through to the next handler", async () => {
-  const result = await run({ id: "c", name: "read_file", arguments: { path: "x" } });
+  const result = await run({
+    id: "c",
+    name: "read_file",
+    arguments: { path: "x" },
+  });
   expect(result.content).toBe("FALLBACK");
 });
 
@@ -151,7 +157,11 @@ test("the output byte cap holds when ripgrep is unavailable", async () => {
     await writeFile(join(dir, "big.txt"), "match line here\n".repeat(5000));
     await withoutRipgrep(async () => {
       const result = await run(
-        { id: "c", name: "grep", arguments: { pattern: "match", path: dir, max_results: 5000 } },
+        {
+          id: "c",
+          name: "grep",
+          arguments: { pattern: "match", path: dir, max_results: 5000 },
+        },
         { maxOutputBytes: 200 },
       );
       expect(result.isError).toBeUndefined();
@@ -170,16 +180,24 @@ test("a grep result that hits both the byte cap and the match-count cap announce
   // 400 matched lines emitted directly, bypassing a real `rg` process so
   // nothing upstream of ripgrep-plugin.ts pre-limits the line count.
   const result = await run(
-    { id: "c", name: "grep", arguments: { pattern: "match", path: cwd, max_results: 3 } },
+    {
+      id: "c",
+      name: "grep",
+      arguments: { pattern: "match", path: cwd, max_results: 3 },
+    },
     { maxOutputBytes: 200 },
     scriptedSpawn("big.txt:1:match line here\n".repeat(400), 0),
   );
 
   expect(result.isError).toBeUndefined();
   const content = String(result.content);
-  expect(content.split("\n").filter((l) => l.includes("match line here")).length).toBe(3);
+  expect(
+    content.split("\n").filter((l) => l.includes("match line here")).length,
+  ).toBe(3);
   expect((content.match(/showing first/g) ?? []).length).toBe(1);
-  expect(content).not.toMatch(/exceeded \d+ bytes|timed out|\[output truncated/);
+  expect(content).not.toMatch(
+    /exceeded \d+ bytes|timed out|\[output truncated/,
+  );
 });
 
 // Composed through buildCorePosixToolPlugins, not a hand-assembled pair:
@@ -208,7 +226,10 @@ async function grepThroughRealChain(dir: string): Promise<string> {
 }
 
 async function writeOversizedHaystack(dir: string): Promise<void> {
-  const lines = Array.from({ length: 5000 }, (_, i) => `line ${i} ${"x".repeat(300)}`);
+  const lines = Array.from(
+    { length: 5000 },
+    (_, i) => `line ${i} ${"x".repeat(300)}`,
+  );
   await writeFile(join(dir, "big.txt"), lines.join("\n") + "\n");
 }
 

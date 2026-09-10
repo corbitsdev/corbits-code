@@ -56,20 +56,38 @@ test("a straggler snapshot started before a terminal write does not overwrite it
   const sessionId = "sess-race";
 
   delayNextWrite = true;
-  const straggler = saveState(cwd, sessionId, state({ status: "running" }), home);
-  const terminal = saveState(cwd, sessionId, state({ status: "done", finishedAt: 999 }), home);
+  const straggler = saveState(
+    cwd,
+    sessionId,
+    state({ status: "running" }),
+    home,
+  );
+  const terminal = saveState(
+    cwd,
+    sessionId,
+    state({ status: "done", finishedAt: 999 }),
+    home,
+  );
 
   await Promise.all([straggler, terminal]);
 
   const final = await loadState(cwd, sessionId, home);
-  expect(final).toMatchObject({ kind: "ok", state: { status: "done", finishedAt: 999 } });
+  expect(final).toMatchObject({
+    kind: "ok",
+    state: { status: "done", finishedAt: 999 },
+  });
 });
 
 test("a persisted terminal status agrees with the active-run handle without a second call site", async () => {
   const sessionId = "sess-terminal";
   setActiveRun({ sessionId, cwd, task: "task", startedAt: 1 });
 
-  await finalizeRunState(cwd, sessionId, state({ status: "done", finishedAt: 1000 }), home);
+  await finalizeRunState(
+    cwd,
+    sessionId,
+    state({ status: "done", finishedAt: 1000 }),
+    home,
+  );
 
   const persisted = await loadState(cwd, sessionId, home);
   expect(persisted).toMatchObject({ kind: "ok", state: { status: "done" } });

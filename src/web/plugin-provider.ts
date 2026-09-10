@@ -15,7 +15,9 @@ export interface WebPluginCandidate {
   factory: (options: unknown) => WebProvider | Promise<WebProvider>;
 }
 
-export function collectWebPlugins(modules: PluginModule[]): WebPluginCandidate[] {
+export function collectWebPlugins(
+  modules: PluginModule[],
+): WebPluginCandidate[] {
   const out: WebPluginCandidate[] = [];
   for (const mod of modules) {
     if (mod.manifest?.kind !== "web") continue;
@@ -23,7 +25,9 @@ export function collectWebPlugins(modules: PluginModule[]): WebPluginCandidate[]
     out.push({
       id: mod.manifest.id,
       name: mod.manifest.name,
-      ...(mod.manifest.description !== undefined ? { description: mod.manifest.description } : {}),
+      ...(mod.manifest.description !== undefined
+        ? { description: mod.manifest.description }
+        : {}),
       credentials: mod.manifest.credentials ?? [],
       factory: mod.createWebProvider as WebPluginCandidate["factory"],
     });
@@ -42,7 +46,9 @@ export function selectWebPlugin(
   if (webOverride !== undefined && webOverride.length > 0) {
     return candidates.find((c) => c.id === webOverride);
   }
-  const enabled = candidates.filter((c) => pluginConfig[c.id]?.enabled === true);
+  const enabled = candidates.filter(
+    (c) => pluginConfig[c.id]?.enabled === true,
+  );
   return enabled.length === 1 ? enabled[0] : undefined;
 }
 
@@ -65,7 +71,11 @@ export async function resolveWebProviderFromPlugins(args: {
   pluginConfig: Record<string, PluginConfig>;
   webOverride: string | undefined;
 }): Promise<ActiveWebProvider | undefined> {
-  const selected = selectWebPlugin(args.candidates, args.pluginConfig, args.webOverride);
+  const selected = selectWebPlugin(
+    args.candidates,
+    args.pluginConfig,
+    args.webOverride,
+  );
   if (selected === undefined) {
     // A configured override that matches no discovered plugin is almost always a
     // typo or a removed plugin — surface it instead of silently using local.

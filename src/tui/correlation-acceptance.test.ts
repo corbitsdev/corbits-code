@@ -50,7 +50,10 @@ describe("createCorrelationAcceptance", () => {
     });
     await Promise.resolve();
     expect(settled).toBe(false);
-    acceptance.observe({ type: "tool.start", data: { call: { id: "call-1" } } });
+    acceptance.observe({
+      type: "tool.start",
+      data: { call: { id: "call-1" } },
+    });
     await pending;
     expect(settled).toBe(true);
   });

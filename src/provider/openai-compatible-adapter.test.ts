@@ -13,7 +13,10 @@ const source = {
 } as unknown as Parameters<typeof createOpenAICompatibleAdapter>[0];
 
 const messages: ConversationTurn[] = [
-  { role: "user", content: [{ type: "text", text: "hi" }] } as unknown as ConversationTurn,
+  {
+    role: "user",
+    content: [{ type: "text", text: "hi" }],
+  } as unknown as ConversationTurn,
 ];
 
 function bodyFor(options: InferenceOptions): Record<string, unknown> {
@@ -31,23 +34,35 @@ describe("openai-compatible adapter image input", () => {
         timestamp: 0,
         content: [
           { type: "text", text: "what is this?" },
-          { type: "image", source: { kind: "base64", mimeType: "image/png", data: "aW1hZ2U=" } },
+          {
+            type: "image",
+            source: { kind: "base64", mimeType: "image/png", data: "aW1hZ2U=" },
+          },
         ],
       },
     ];
-    const built = adapter.buildRequest(turns, "gpt-5.1", {} as InferenceOptions);
+    const built = adapter.buildRequest(
+      turns,
+      "gpt-5.1",
+      {} as InferenceOptions,
+    );
     const body = JSON.parse(built.body) as { messages: { content: unknown }[] };
 
     expect(body.messages[0]?.content).toEqual([
       { type: "text", text: "what is this?" },
-      { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+      {
+        type: "image_url",
+        image_url: { url: "data:image/png;base64,aW1hZ2U=" },
+      },
     ]);
   });
 });
 
 describe("openai-compatible adapter providerOptions passthrough", () => {
   test("merges reasoning_effort from providerOptions into the request body", () => {
-    const body = bodyFor({ providerOptions: { reasoning_effort: "high" } } as InferenceOptions);
+    const body = bodyFor({
+      providerOptions: { reasoning_effort: "high" },
+    } as InferenceOptions);
     expect(body["reasoning_effort"]).toBe("high");
   });
 
@@ -70,7 +85,10 @@ describe("openai-compatible adapter SSE parse count", () => {
     let calls = 0;
     JSON.parse = ((text: string, reviver?: unknown) => {
       calls += 1;
-      return (originalParse as (t: string, r?: unknown) => unknown)(text, reviver);
+      return (originalParse as (t: string, r?: unknown) => unknown)(
+        text,
+        reviver,
+      );
     }) as typeof JSON.parse;
     try {
       adapter.parseResponse(sseData);
@@ -110,19 +128,31 @@ describe("openai-compatible adapter reasoning_content handling", () => {
   ] as unknown as ConversationTurn[];
 
   function messagesFor(model: string): Record<string, unknown>[] {
-    const adapter = createOpenAICompatibleAdapter({ ...source, model } as typeof source);
-    const built = adapter.buildRequest(withThinking, model, {} as InferenceOptions);
-    return (JSON.parse(built.body) as { messages: Record<string, unknown>[] }).messages;
+    const adapter = createOpenAICompatibleAdapter({
+      ...source,
+      model,
+    } as typeof source);
+    const built = adapter.buildRequest(
+      withThinking,
+      model,
+      {} as InferenceOptions,
+    );
+    return (JSON.parse(built.body) as { messages: Record<string, unknown>[] })
+      .messages;
   }
 
   test("strips reasoning_content from input messages for DeepSeek models", () => {
-    const assistant = messagesFor("deepseek-v4").find((m) => m["role"] === "assistant");
+    const assistant = messagesFor("deepseek-v4").find(
+      (m) => m["role"] === "assistant",
+    );
     expect(assistant).toBeDefined();
     expect("reasoning_content" in defined(assistant)).toBe(false);
   });
 
   test("keeps reasoning_content for non-DeepSeek models", () => {
-    const assistant = messagesFor("kimi-k2").find((m) => m["role"] === "assistant");
+    const assistant = messagesFor("kimi-k2").find(
+      (m) => m["role"] === "assistant",
+    );
     expect(assistant?.["reasoning_content"]).toBe("ponder");
   });
 });

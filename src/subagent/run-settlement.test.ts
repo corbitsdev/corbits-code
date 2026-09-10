@@ -35,7 +35,9 @@ test("rejected workers settle prior rollups with the latest observed model", asy
             yield {
               type: "tool.start",
               seq: 1,
-              data: { call: { id: "call-1", name: "read_file", arguments: {} } },
+              data: {
+                call: { id: "call-1", name: "read_file", arguments: {} },
+              },
             } as ReactorEmittedEvent;
             yield {
               type: "tool.done",
@@ -49,7 +51,12 @@ test("rejected workers settle prior rollups with the latest observed model", asy
               type: "inference.done",
               seq: 3,
               data: {
-                turn: { role: "assistant", content: [], model: "backup-model", timestamp: 0 },
+                turn: {
+                  role: "assistant",
+                  content: [],
+                  model: "backup-model",
+                  timestamp: 0,
+                },
                 usage: {
                   input: 11,
                   output: 7,

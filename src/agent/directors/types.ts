@@ -24,7 +24,12 @@ export const DIRECTOR_IDS = [
 
 export type DirectorId = (typeof DIRECTOR_IDS)[number];
 
-export type TaskIntent = "explore" | "implement" | "plan" | "review" | "general";
+export type TaskIntent =
+  | "explore"
+  | "implement"
+  | "plan"
+  | "review"
+  | "general";
 
 /**
  * Fleet authority tier (CL-6941). Runtime-enforced at the tool-mount point in
@@ -40,7 +45,13 @@ export type SubagentTier = "orchestrator" | "nested-orchestrator" | "leaf";
 
 /** Static model-role tag used by resolveEffortForRole / defaultEffortForDirector. */
 export type ModelRole =
-  "orchestrator" | "implement" | "explore" | "review" | "plan" | "docs" | "test";
+  | "orchestrator"
+  | "implement"
+  | "explore"
+  | "review"
+  | "plan"
+  | "docs"
+  | "test";
 
 export interface ToolEnvelope {
   /** Tools mounted when present — prefer small allowlists over deny-everything. */

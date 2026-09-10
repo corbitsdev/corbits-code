@@ -10,7 +10,10 @@ import { noticeText } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
 import { withTestRenderer } from "./harness.js";
 import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
-import { STALL_NOTICE_MESSAGE, STALL_RECOVERY_MESSAGE } from "./stall-watchdog.js";
+import {
+  STALL_NOTICE_MESSAGE,
+  STALL_RECOVERY_MESSAGE,
+} from "./stall-watchdog.js";
 
 type Harness = Awaited<ReturnType<typeof setup>>;
 
@@ -70,10 +73,16 @@ describe("turn progress label", () => {
         });
         expect(t.shell.lockupPhase).toBe("thinking");
 
-        t.bridge.handle({ type: "inference.text.delta", data: { token: "hi" } });
+        t.bridge.handle({
+          type: "inference.text.delta",
+          data: { token: "hi" },
+        });
         expect(t.shell.lockupPhase).toBe("working");
 
-        t.bridge.handle({ type: "inference.text.delta", data: { token: " there" } });
+        t.bridge.handle({
+          type: "inference.text.delta",
+          data: { token: " there" },
+        });
         expect(t.shell.lockupPhase).toBe("working");
 
         t.bridge.handle({
@@ -134,8 +143,14 @@ describe("turn progress label", () => {
           data: { message: { content: "list the root" } },
         });
         t.bridge.handle({ type: "inference.start", data: {} });
-        t.bridge.handle({ type: "inference.text.delta", data: { token: "I'll " } });
-        t.bridge.handle({ type: "inference.text.delta", data: { token: "look." } });
+        t.bridge.handle({
+          type: "inference.text.delta",
+          data: { token: "I'll " },
+        });
+        t.bridge.handle({
+          type: "inference.text.delta",
+          data: { token: "look." },
+        });
         t.bridge.handle({
           type: "inference.tool_call.start",
           data: { name: "bash", callId: "c1" },
@@ -156,13 +171,21 @@ describe("turn progress label", () => {
         });
         t.bridge.handle({
           type: "tool.done",
-          data: { result: { callId: "c1", name: "bash", content: "AGENTS.md" } },
+          data: {
+            result: { callId: "c1", name: "bash", content: "AGENTS.md" },
+          },
         });
 
         t.bridge.handle({ type: "inference.start", data: {} });
-        t.bridge.handle({ type: "inference.text.delta", data: { token: "done." } });
+        t.bridge.handle({
+          type: "inference.text.delta",
+          data: { token: "done." },
+        });
         t.bridge.handle({ type: "inference.done", data: {} });
-        t.bridge.handle({ type: "connector.reply", data: { content: "done." } });
+        t.bridge.handle({
+          type: "connector.reply",
+          data: { content: "done." },
+        });
 
         expect(t.shell.lockupPhase).toBeNull();
         expect(t.bridge.turn.isProcessing).toBe(false);
@@ -186,7 +209,10 @@ describe("turn progress label", () => {
       const t: Harness = await setup(h);
       try {
         t.bridge.handle({ type: "inference.start", data: {} });
-        t.bridge.handle({ type: "inference.text.delta", data: { token: "hi" } });
+        t.bridge.handle({
+          type: "inference.text.delta",
+          data: { token: "hi" },
+        });
         expect(t.shell.lockupPhase).not.toBeNull();
 
         t.bridge.interrupt();
@@ -267,13 +293,17 @@ describe("quota auto-retry", () => {
 
         t.advance(60_000);
         t.tick();
-        expect(t.port.calls).toEqual([{ op: "sendImmediate", text: "run the build" }]);
+        expect(t.port.calls).toEqual([
+          { op: "sendImmediate", text: "run the build" },
+        ]);
         expect(t.shell.statusFlash).toBe("rate limit cleared — resubmitting");
 
         // Window is closed — a later tick must not replay the prompt again.
         t.advance(60_000);
         t.tick();
-        expect(t.port.calls.filter((c) => c.op === "sendImmediate")).toHaveLength(1);
+        expect(
+          t.port.calls.filter((c) => c.op === "sendImmediate"),
+        ).toHaveLength(1);
       } finally {
         t.bridge.dispose();
       }
@@ -382,7 +412,10 @@ describe("stall watchdog", () => {
         // the silence it was reporting. handle() itself has to take it down;
         // waiting for the next tick leaves a window where the turn can settle
         // and cancel the cadence, which would strand the banner forever.
-        t.bridge.handle({ type: "inference.text.delta", data: { token: "ok" } });
+        t.bridge.handle({
+          type: "inference.text.delta",
+          data: { token: "ok" },
+        });
         expect(t.shell.statusFlash).not.toBe(STALL_NOTICE_MESSAGE);
       } finally {
         t.bridge.dispose();
@@ -417,7 +450,10 @@ describe("stall watchdog", () => {
         t.bridge.submit("build it", "immediate");
         // Tokens actually started flowing, then everything went silent —
         // the one shape auto-abort still acts on.
-        t.bridge.handle({ type: "inference.text.delta", data: { token: "ok" } });
+        t.bridge.handle({
+          type: "inference.text.delta",
+          data: { token: "ok" },
+        });
         t.port.clear();
 
         t.advance(500);
@@ -563,7 +599,10 @@ describe("stall watchdog", () => {
       const t: Harness = await setup(h);
       try {
         t.bridge.submit("build it", "immediate");
-        t.bridge.handle({ type: "inference.text.delta", data: { token: "ok" } });
+        t.bridge.handle({
+          type: "inference.text.delta",
+          data: { token: "ok" },
+        });
         t.bridge.handle({
           type: "inference.tool_call.end",
           data: { name: "bash", callId: "c1" },
@@ -647,7 +686,10 @@ describe("reasoning settles to a summary", () => {
             data: { token: "weighing the call sites" },
           });
           t.advance(burst);
-          t.bridge.handle({ type: "inference.text.delta", data: { token: "done" } });
+          t.bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "done" },
+          });
         }
 
         // Both bursts belong to one turn, so they share one row — and its

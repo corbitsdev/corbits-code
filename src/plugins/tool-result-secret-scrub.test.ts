@@ -1,6 +1,9 @@
 import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
-import { CREDENTIAL_REDACTION, scrubSecretShapedContent } from "./tool-result-secret-scrub.js";
+import {
+  CREDENTIAL_REDACTION,
+  scrubSecretShapedContent,
+} from "./tool-result-secret-scrub.js";
 import { toolResultSecretScrubPlugin } from "./tool-result-secret-scrub-plugin.js";
 import { resultTruncationPlugin } from "./result-truncation-plugin.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
@@ -24,11 +27,14 @@ MIIEpAIBAAKCAQEA7
   });
 
   test("is idempotent for redacted query parameters", () => {
-    const text = "GET https://provider.invalid/v1?api_key=plain-value&model=test";
+    const text =
+      "GET https://provider.invalid/v1?api_key=plain-value&model=test";
     const once = scrubSecretShapedContent(text);
 
     expect(scrubSecretShapedContent(once)).toBe(once);
-    expect(once).toBe(`GET https://provider.invalid/v1?api_key=${CREDENTIAL_REDACTION}&model=test`);
+    expect(once).toBe(
+      `GET https://provider.invalid/v1?api_key=${CREDENTIAL_REDACTION}&model=test`,
+    );
   });
 
   test("passes benign documentation mentioning API keys", () => {
@@ -41,11 +47,16 @@ MIIEpAIBAAKCAQEA7
 describe("toolResultSecretScrubPlugin", () => {
   const next =
     (content: string) =>
-    async (call: ToolCall): Promise<ToolResult> => ({ callId: call.id, content });
+    async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content,
+    });
 
   test("scrubs grep tool results", async () => {
     const plugin = toolResultSecretScrubPlugin();
-    const handler = defined(plugin.middleware)(next("secrets/.env:1:TOKEN=supersecretvalue"));
+    const handler = defined(plugin.middleware)(
+      next("secrets/.env:1:TOKEN=supersecretvalue"),
+    );
     const result = await handler(
       { id: "c1", name: "grep", arguments: { pattern: "TOKEN" } },
       new AbortController().signal,
@@ -56,7 +67,8 @@ describe("toolResultSecretScrubPlugin", () => {
 
   test("preserves query redaction through the long-result middleware chain", async () => {
     const content =
-      "GET https://provider.invalid/v1?api_key=plain-value&model=test\n" + "x".repeat(11_000);
+      "GET https://provider.invalid/v1?api_key=plain-value&model=test\n" +
+      "x".repeat(11_000);
     const scrub = toolResultSecretScrubPlugin();
     const truncate = resultTruncationPlugin();
     if (scrub.middleware === undefined || truncate.middleware === undefined) {
@@ -69,9 +81,14 @@ describe("toolResultSecretScrubPlugin", () => {
       new AbortController().signal,
     );
 
-    if (typeof result.content !== "string") throw new Error("expected text tool result");
-    expect(result.content).toContain(`api_key=${CREDENTIAL_REDACTION}&model=test`);
-    expect(result.content.match(/\[redacted: looks like a credential\]/g)).toHaveLength(1);
+    if (typeof result.content !== "string")
+      throw new Error("expected text tool result");
+    expect(result.content).toContain(
+      `api_key=${CREDENTIAL_REDACTION}&model=test`,
+    );
+    expect(
+      result.content.match(/\[redacted: looks like a credential\]/g),
+    ).toHaveLength(1);
   });
 
   // search_agents is listed in SCRUBBABLE_TOOLS for future unified scrubbing, but

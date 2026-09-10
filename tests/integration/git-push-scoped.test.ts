@@ -6,7 +6,14 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  chmodSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,10 +28,16 @@ let fakeBinDir: string;
 let env: NodeJS.ProcessEnv;
 
 function run(args: string[], opts: { cwd?: string } = {}) {
-  return new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-    const child = spawn(SCRIPT, args, { cwd: opts.cwd ?? root, env, stdio: "ignore" });
-    child.on("exit", (code, signal) => resolve({ code, signal }));
-  });
+  return new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+    (resolve) => {
+      const child = spawn(SCRIPT, args, {
+        cwd: opts.cwd ?? root,
+        env,
+        stdio: "ignore",
+      });
+      child.on("exit", (code, signal) => resolve({ code, signal }));
+    },
+  );
 }
 
 function initBareRemote(name: string): string {
@@ -53,7 +66,10 @@ beforeEach(() => {
 
   // Isolated global config: a known sentinel that must never change.
   globalConfigPath = join(root, "global-gitconfig");
-  writeFileSync(globalConfigPath, "[user]\n\tname = Sentinel\n\temail = sentinel@example.com\n");
+  writeFileSync(
+    globalConfigPath,
+    "[user]\n\tname = Sentinel\n\temail = sentinel@example.com\n",
+  );
 
   // Stub `gh` on PATH so the script's `command -v gh` check passes without
   // depending on a real GitHub CLI install or credentials.
@@ -116,12 +132,17 @@ describe("git-push-scoped", () => {
     writeFileSync(hookPath, "#!/usr/bin/env bash\nsleep 5\n");
     chmodSync(hookPath, 0o755);
 
-    const child = spawn(SCRIPT, ["origin", "main"], { cwd: work, env, stdio: "ignore" });
-    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-      (resolve) => {
-        child.on("exit", (code, signal) => resolve({ code, signal }));
-      },
-    );
+    const child = spawn(SCRIPT, ["origin", "main"], {
+      cwd: work,
+      env,
+      stdio: "ignore",
+    });
+    const exited = new Promise<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+    }>((resolve) => {
+      child.on("exit", (code, signal) => resolve({ code, signal }));
+    });
 
     await new Promise((resolve) => setTimeout(resolve, 300));
     child.kill("SIGKILL");

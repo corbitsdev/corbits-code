@@ -22,7 +22,12 @@ import {
   type Agent,
   type AuthorizeFn,
 } from "@intx/agent";
-import type { Compactor, ContextStore, InferenceSource, ToolDefinition } from "@intx/types/runtime";
+import type {
+  Compactor,
+  ContextStore,
+  InferenceSource,
+  ToolDefinition,
+} from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { ID_PREFIX } from "../branding.js";
@@ -86,7 +91,10 @@ import {
   type LifecycleHookManager,
 } from "./hooks.js";
 import { createRunSink, type RunSink } from "./run-sink.js";
-import { createCycleTextRecorder, type CycleTextRecorder } from "./stream-journal.js";
+import {
+  createCycleTextRecorder,
+  type CycleTextRecorder,
+} from "./stream-journal.js";
 import {
   buildSessionSourcesFromConfig,
   createApprovalPersist,
@@ -109,7 +117,9 @@ export async function assembleInferenceBase(
   onPricingError?: (err: unknown) => void,
 ): Promise<Awaited<ReturnType<typeof createInferenceDependencies>>> {
   const inferenceDeps = await createInferenceDependencies();
-  const seed = seedPricingMetadataFromCache({ cachePath: defaultPricingCachePath() });
+  const seed = seedPricingMetadataFromCache({
+    cachePath: defaultPricingCachePath(),
+  });
   if (onPricingError === undefined) {
     await seed;
   } else {
@@ -150,7 +160,9 @@ export interface SessionTrust {
  * plugins. Untrusted origins load metadata-only, identically for both
  * runners — only the skip channel differs (diagnostics batch vs stderr).
  */
-export async function assembleSessionTrust(args: SessionTrustArgs): Promise<SessionTrust> {
+export async function assembleSessionTrust(
+  args: SessionTrustArgs,
+): Promise<SessionTrust> {
   const projectTrust = await loadProjectTrust(args.cwd);
   const pathTrust = await migratePathTrustFromPluginPaths(
     args.pluginPaths ?? [],
@@ -158,7 +170,8 @@ export async function assembleSessionTrust(args: SessionTrustArgs): Promise<Sess
     undefined,
     { onMigrated: reportPathTrustMigration },
   );
-  const isProjectPluginTrusted = (pluginPath: string) => isPluginTrusted(projectTrust, pluginPath);
+  const isProjectPluginTrusted = (pluginPath: string) =>
+    isPluginTrusted(projectTrust, pluginPath);
   const isRegisteredPathTrusted = (pluginPath: string) =>
     isPathPluginTrusted(pathTrust, pluginPath);
   // Created lazily so callers without an earlier batch (exec) share the same
@@ -238,7 +251,9 @@ export interface SessionGate {
  * only in how approval reaches an operator (modal vs stdin) and whether
  * grants are re-emitted — both arrive as callbacks.
  */
-export async function assembleSessionGate(args: SessionGateArgs): Promise<SessionGate> {
+export async function assembleSessionGate(
+  args: SessionGateArgs,
+): Promise<SessionGate> {
   const seededApprovals = await loadSeededApprovals(args.cwd, args.sessionId);
   const gate = createPermissionGate({
     approvals: seededApprovals,
@@ -248,7 +263,11 @@ export async function assembleSessionGate(args: SessionGateArgs): Promise<Sessio
     providerName: args.providerName,
     model: args.model,
     requestApproval: args.requestApproval,
-    persist: createApprovalPersist(args.cwd, args.getActiveProviderModel, args.onPersistNotice),
+    persist: createApprovalPersist(
+      args.cwd,
+      args.getActiveProviderModel,
+      args.onPersistNotice,
+    ),
     approvalLog: createApprovalLog(sessionDir(args.cwd, args.sessionId)),
     interactive: args.interactive,
     skipPermissions: args.skipPermissions,
@@ -278,7 +297,10 @@ export function resolveLiveSessionSources(
   config: MainSessionSourceConfig,
   sessionId: string,
 ): LiveSessionSources {
-  const { sources, defaultSource } = buildSessionSourcesFromConfig(config, sessionId);
+  const { sources, defaultSource } = buildSessionSourcesFromConfig(
+    config,
+    sessionId,
+  );
   const selected = sources[0];
   if (selected === undefined) {
     throw new Error("Selected inference source was not assembled");
@@ -311,10 +333,15 @@ export function createAdvertisedToolset(args: {
     advertisedToolNamesForSessionMode(args.sessionMode, args.toolAvailability);
   const activated = createActivatedToolTracker();
   // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
-  const computeAdvertised = (all: readonly ToolDefinition[]): ToolDefinition[] =>
-    normalizeToolDefinitionsForProvider(advertisedTools(all, activated.list(), prefix), {
-      ...args.getProvider(),
-    });
+  const computeAdvertised = (
+    all: readonly ToolDefinition[],
+  ): ToolDefinition[] =>
+    normalizeToolDefinitionsForProvider(
+      advertisedTools(all, activated.list(), prefix),
+      {
+        ...args.getProvider(),
+      },
+    );
   return { activated, computeAdvertised };
 }
 
@@ -388,7 +415,9 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           onActivateTools: (names) => {
             if (!wiring.activateTools(names)) return;
             directorHolder.instance?.updateToolDefinitions(
-              wiring.computeAdvertised(wiring.getDynamicRunner().currentDefinitions()),
+              wiring.computeAdvertised(
+                wiring.getDynamicRunner().currentDefinitions(),
+              ),
             );
             wiring.onToolsPromoted?.();
           },
@@ -437,7 +466,9 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       // transforms up from there.
       deps: {
         ...wiring.inferenceDeps,
-        contextTransforms: [createAttachmentRehydrateTransform((key) => storage.readBlob(key))],
+        contextTransforms: [
+          createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
+        ],
       },
       audit,
       sessionId: wiring.getSessionId(),

@@ -66,7 +66,9 @@ describe("formatPluginWarningsSummary", () => {
       'agent c: skill "style" referenced but not found in skill search path',
       'agent c: skill "brand-identity" referenced but not found in skill search path',
     ]);
-    expect(summary).toBe("plugins: 3 skills missing: brand-identity, style, philosophy");
+    expect(summary).toBe(
+      "plugins: 3 skills missing: brand-identity, style, philosophy",
+    );
   });
 
   test("dedupes a skill across warnings from independent collectors, not just within one", () => {
@@ -87,7 +89,10 @@ describe("formatPluginWarningsSummary", () => {
       'agent b: skill "philosophy" referenced but not found in skill search path',
     );
 
-    const merged = [...discoveryDiag.warnings, ...profileResolutionDiag.warnings];
+    const merged = [
+      ...discoveryDiag.warnings,
+      ...profileResolutionDiag.warnings,
+    ];
     const summary = formatPluginWarningsSummary(merged);
     expect(summary).toBe("plugins: 2 skills missing: style, philosophy");
   });
@@ -110,7 +115,9 @@ describe("pluginWarningSubjectId / warningsForPluginEntry", () => {
         'agent a: skill "style" referenced but not found in skill search path',
       ),
     ).toBe("a");
-    expect(pluginWarningSubjectId('tool-plugin: failed to start "exa": boom')).toBe("exa");
+    expect(
+      pluginWarningSubjectId('tool-plugin: failed to start "exa": boom'),
+    ).toBe("exa");
     expect(pluginWarningSubjectId("other problem")).toBeUndefined();
   });
 
@@ -125,7 +132,9 @@ describe("pluginWarningSubjectId / warningsForPluginEntry", () => {
         id: "pack",
         agentProfiles: [{ id: "a" }],
       }),
-    ).toEqual(['agent a: skill "style" referenced but not found in skill search path']);
+    ).toEqual([
+      'agent a: skill "style" referenced but not found in skill search path',
+    ]);
     expect(warningsForPluginEntry(warnings, { id: "exa" })).toEqual([
       'tool-plugin: failed to start "exa": boom',
     ]);
@@ -156,7 +165,9 @@ describe("emitPluginWarningSummary", () => {
 describe("emitPluginWarningLog", () => {
   test("never writes to stderr — interactive TUI holds the alt screen and a raw write corrupts the frame", () => {
     const diag = createPluginLoadDiagnostics();
-    diag.warnings.push('agent a: skill "style" referenced but not found in skill search path');
+    diag.warnings.push(
+      'agent a: skill "style" referenced but not found in skill search path',
+    );
     const originalWrite = process.stderr.write.bind(process.stderr);
     let stderrCalls = 0;
     process.stderr.write = ((..._args: unknown[]) => {
@@ -191,7 +202,9 @@ describe("plugin load diagnostics wiring", () => {
     });
     expect(mod).not.toBeNull();
     expect(diag.warnings.length).toBeGreaterThanOrEqual(2);
-    expect(diag.warnings.every((w) => w.includes("referenced but not found"))).toBe(true);
+    expect(
+      diag.warnings.every((w) => w.includes("referenced but not found")),
+    ).toBe(true);
 
     const summary = formatPluginWarningsSummary(diag.warnings);
     expect(summary).toBeDefined();

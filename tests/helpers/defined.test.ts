@@ -9,6 +9,8 @@ test("returns a present value", () => {
 });
 
 test("throws when the value is null or undefined", () => {
-  expect(() => defined(undefined, "missing")).toThrow("expected missing to be defined");
+  expect(() => defined(undefined, "missing")).toThrow(
+    "expected missing to be defined",
+  );
   expect(() => defined(null, "empty")).toThrow("expected empty to be defined");
 });

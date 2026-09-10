@@ -45,9 +45,15 @@ export interface PluginsAdmin {
   // A trust-grant load (enabling a metadata-only plugin) can surface skill-miss
   // and similar warnings; the optional message lets the caller show them
   // instead of dropping them on the floor.
-  saveConfig: (id: string, cfg: PluginConfig) => Promise<{ message?: string } | undefined>;
+  saveConfig: (
+    id: string,
+    cfg: PluginConfig,
+  ) => Promise<{ message?: string } | undefined>;
   setWebOverride: (id: string | undefined) => Promise<void>;
-  verify: (id: string, credentials: Record<string, string>) => Promise<VerifyResult>;
+  verify: (
+    id: string,
+    credentials: Record<string, string>,
+  ) => Promise<VerifyResult>;
   // Register a plugin from an arbitrary file/dir path, persisting it so it loads
   // on future startups. Returns the new plugin id on success.
   addPath: (path: string) => Promise<AddPathResult>;

@@ -20,7 +20,10 @@ import { formatToolExecutionTimeoutMessage } from "../plugins/tool-time-budget.j
 /** Short grace for hang-past-grace unit tests (keeps suite under bun default 5s). */
 const TEST_SALVAGE_GRACE_MS = 80;
 
-const stringTool = (name: string, handler: () => Promise<string>): AgentTool => ({
+const stringTool = (
+  name: string,
+  handler: () => Promise<string>,
+): AgentTool => ({
   kind: "string",
   definition: {
     name,
@@ -32,36 +35,56 @@ const stringTool = (name: string, handler: () => Promise<string>): AgentTool => 
 
 describe("tool execution watchdog", () => {
   test("resolveToolExecutionTimeoutMs clamps to max", () => {
-    expect(resolveToolExecutionTimeoutMs({ defaultMs: 9_999_999, maxMs: 100 })).toBe(100);
+    expect(
+      resolveToolExecutionTimeoutMs({ defaultMs: 9_999_999, maxMs: 100 }),
+    ).toBe(100);
   });
 
   test("spawn_agent with no settings timeout is unbounded", () => {
     expect(
-      resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "spawn_agent", arguments: {} }),
+      resolveToolExecutionTimeoutMs(undefined, {
+        id: "1",
+        name: "spawn_agent",
+        arguments: {},
+      }),
     ).toBeUndefined();
   });
 
   test("wait_agents with no settings timeout is unbounded", () => {
     expect(
-      resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "wait_agents", arguments: {} }),
+      resolveToolExecutionTimeoutMs(undefined, {
+        id: "1",
+        name: "wait_agents",
+        arguments: {},
+      }),
     ).toBeUndefined();
   });
 
   test("spawn_agent is exempt from the settings watchdog", () => {
     // Dispatch returns immediately; the generic per-tool budget must not abort it.
     const call = { id: "1", name: "spawn_agent", arguments: {} };
-    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
     expect(
-      resolveToolExecutionTimeoutMs({ defaultMs: 660_000, maxMs: 1_800_000 }, call),
+      resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call),
+    ).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs(
+        { defaultMs: 660_000, maxMs: 1_800_000 },
+        call,
+      ),
     ).toBeUndefined();
   });
 
   test("wait_agents is exempt from the settings watchdog", () => {
     // Collect can outlast settings.tools.timeoutMs while workers still run.
     const call = { id: "1", name: "wait_agents", arguments: {} };
-    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
     expect(
-      resolveToolExecutionTimeoutMs({ defaultMs: 660_000, maxMs: 1_800_000 }, call),
+      resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call),
+    ).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs(
+        { defaultMs: 660_000, maxMs: 1_800_000 },
+        call,
+      ),
     ).toBeUndefined();
   });
 
@@ -71,15 +94,17 @@ describe("tool execution watchdog", () => {
       name: "run_shell",
       arguments: { command: "sleep 60", timeout: 5_000, background: true },
     };
-    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, background)).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, background),
+    ).toBeUndefined();
     const foreground = {
       id: "2",
       name: "run_shell",
       arguments: { command: "sleep 60", timeout: 5_000 },
     };
-    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, foreground)).toBe(
-      5_000 + RUN_SHELL_WATCHDOG_SLACK_MS,
-    );
+    expect(
+      resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, foreground),
+    ).toBe(5_000 + RUN_SHELL_WATCHDOG_SLACK_MS);
   });
 
   test("shell_collect is exempt from the settings watchdog", () => {
@@ -88,12 +113,18 @@ describe("tool execution watchdog", () => {
       name: "shell_collect",
       arguments: { shell_id: "x", action: "collect", wait_ms: 4_000 },
     };
-    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call),
+    ).toBeUndefined();
   });
 
   test("ask_director with no settings timeout is unbounded", () => {
     expect(
-      resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "ask_director", arguments: {} }),
+      resolveToolExecutionTimeoutMs(undefined, {
+        id: "1",
+        name: "ask_director",
+        arguments: {},
+      }),
     ).toBeUndefined();
   });
 
@@ -101,9 +132,14 @@ describe("tool execution watchdog", () => {
     // Awaiting the director can outlast settings.tools.timeoutMs; aborting
     // would cancel the pending ask so later send_input steers instead of answering.
     const call = { id: "1", name: "ask_director", arguments: {} };
-    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
     expect(
-      resolveToolExecutionTimeoutMs({ defaultMs: 660_000, maxMs: 1_800_000 }, call),
+      resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call),
+    ).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs(
+        { defaultMs: 660_000, maxMs: 1_800_000 },
+        call,
+      ),
     ).toBeUndefined();
   });
 
@@ -147,7 +183,9 @@ describe("tool execution watchdog", () => {
   test("omitted config does not arm a default watchdog", () => {
     expect(resolveToolExecutionTimeoutMs(undefined)).toBeUndefined();
     expect(resolveToolExecutionTimeoutMs({})).toBeUndefined();
-    expect(resolveToolExecutionTimeoutMs({ waitForApproval: true })).toBeUndefined();
+    expect(
+      resolveToolExecutionTimeoutMs({ waitForApproval: true }),
+    ).toBeUndefined();
   });
 
   test("settings timeout without max clamps to MAX_TOOL_EXECUTION_TIMEOUT_MS", () => {
@@ -158,7 +196,11 @@ describe("tool execution watchdog", () => {
 
   test("run_shell requested 5-hour timeout is not clamped", () => {
     const requested = 18_000_000;
-    const call = { id: "1", name: "run_shell", arguments: { timeout: requested } };
+    const call = {
+      id: "1",
+      name: "run_shell",
+      arguments: { timeout: requested },
+    };
     const ms = resolveToolExecutionTimeoutMs(undefined, call);
     expect(ms).toBe(requested + RUN_SHELL_WATCHDOG_SLACK_MS);
     expect(ms).toBeGreaterThan(MAX_TOOL_EXECUTION_TIMEOUT_MS);
@@ -166,14 +208,25 @@ describe("tool execution watchdog", () => {
 
   test("tools.maxTimeoutMs does not cap a longer requested run_shell timeout", () => {
     const requested = 18_000_000;
-    const call = { id: "1", name: "run_shell", arguments: { timeout: requested } };
-    const ms = resolveToolExecutionTimeoutMs({ defaultMs: 660_000, maxMs: 100_000 }, call);
+    const call = {
+      id: "1",
+      name: "run_shell",
+      arguments: { timeout: requested },
+    };
+    const ms = resolveToolExecutionTimeoutMs(
+      { defaultMs: 660_000, maxMs: 100_000 },
+      call,
+    );
     expect(ms).toBe(requested + RUN_SHELL_WATCHDOG_SLACK_MS);
   });
 
   test("omitted run_shell timeout is unbounded (shell-guard also has no default)", () => {
     expect(
-      resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "run_shell", arguments: {} }),
+      resolveToolExecutionTimeoutMs(undefined, {
+        id: "1",
+        name: "run_shell",
+        arguments: {},
+      }),
     ).toBeUndefined();
     expect(
       resolveToolExecutionTimeoutMs(undefined, {
@@ -195,18 +248,26 @@ describe("tool execution watchdog", () => {
 
   test("non-shell tools still honor tools.maxTimeoutMs", () => {
     const call = { id: "1", name: "read_file", arguments: {} };
-    expect(resolveToolExecutionTimeoutMs({ defaultMs: 9_999_999, maxMs: 100 }, call)).toBe(100);
+    expect(
+      resolveToolExecutionTimeoutMs({ defaultMs: 9_999_999, maxMs: 100 }, call),
+    ).toBe(100);
   });
 
   test("mcp tool calls are bounded by default even with no config (CL-6895)", () => {
     const call = { id: "1", name: "mcp__linear__get_issue", arguments: {} };
-    expect(resolveToolExecutionTimeoutMs(undefined, call)).toBe(DEFAULT_MCP_TOOL_TIMEOUT_MS);
-    expect(resolveToolExecutionTimeoutMs({}, call)).toBe(DEFAULT_MCP_TOOL_TIMEOUT_MS);
+    expect(resolveToolExecutionTimeoutMs(undefined, call)).toBe(
+      DEFAULT_MCP_TOOL_TIMEOUT_MS,
+    );
+    expect(resolveToolExecutionTimeoutMs({}, call)).toBe(
+      DEFAULT_MCP_TOOL_TIMEOUT_MS,
+    );
   });
 
   test("mcp.timeoutMs overrides the mcp default", () => {
     const call = { id: "1", name: "mcp__linear__get_issue", arguments: {} };
-    expect(resolveToolExecutionTimeoutMs({ mcpTimeoutMs: 45_000 }, call)).toBe(45_000);
+    expect(resolveToolExecutionTimeoutMs({ mcpTimeoutMs: 45_000 }, call)).toBe(
+      45_000,
+    );
   });
 
   test("tools.defaultMs alone (no mcpTimeoutMs) does not affect the mcp default", () => {
@@ -218,7 +279,12 @@ describe("tool execution watchdog", () => {
 
   test("tools.maxTimeoutMs still caps a longer mcp.timeoutMs override", () => {
     const call = { id: "1", name: "mcp__linear__get_issue", arguments: {} };
-    expect(resolveToolExecutionTimeoutMs({ mcpTimeoutMs: 9_999_999, maxMs: 100 }, call)).toBe(100);
+    expect(
+      resolveToolExecutionTimeoutMs(
+        { mcpTimeoutMs: 9_999_999, maxMs: 100 },
+        call,
+      ),
+    ).toBe(100);
   });
 
   test("non-positive or non-finite mcp.timeoutMs falls back to the default instead of a 1ms timeout", () => {
@@ -243,9 +309,12 @@ describe("tool execution watchdog", () => {
   });
 
   test("fast tool completes under watchdog", async () => {
-    const runner = createDynamicToolRunner([stringTool("ping", async () => "pong")], {
-      defaultMs: 200,
-    });
+    const runner = createDynamicToolRunner(
+      [stringTool("ping", async () => "pong")],
+      {
+        defaultMs: 200,
+      },
+    );
     const result = await runner.run(
       { id: "1", name: "ping", arguments: {} },
       new AbortController().signal,
@@ -285,23 +354,37 @@ describe("tool execution watchdog", () => {
       new AbortController().signal,
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("mcp__linear__get_issue timed out after 0s");
+    expect(result.content).toContain(
+      "mcp__linear__get_issue timed out after 0s",
+    );
     expect(result.content).toContain("the server may be wedged");
   }, 10_000);
 
   test("concurrent mcp tool calls each time out independently", async () => {
     const runner = createDynamicToolRunner(
       [
-        stringTool("mcp__linear__get_issue", () => new Promise<string>(() => undefined)),
+        stringTool(
+          "mcp__linear__get_issue",
+          () => new Promise<string>(() => undefined),
+        ),
         stringTool("mcp__linear__list_issues", async () => "ok"),
       ],
       { mcpTimeoutMs: 30 },
     );
     const signal = new AbortController().signal;
     const [hung1, hung2, fast] = await Promise.all([
-      runner.run({ id: "1", name: "mcp__linear__get_issue", arguments: {} }, signal),
-      runner.run({ id: "2", name: "mcp__linear__get_issue", arguments: {} }, signal),
-      runner.run({ id: "3", name: "mcp__linear__list_issues", arguments: {} }, signal),
+      runner.run(
+        { id: "1", name: "mcp__linear__get_issue", arguments: {} },
+        signal,
+      ),
+      runner.run(
+        { id: "2", name: "mcp__linear__get_issue", arguments: {} },
+        signal,
+      ),
+      runner.run(
+        { id: "3", name: "mcp__linear__list_issues", arguments: {} },
+        signal,
+      ),
     ]);
     expect(hung1.isError).toBe(true);
     expect(hung1.content).toContain("mcp__linear__get_issue timed out");
@@ -328,7 +411,8 @@ describe("tool execution watchdog", () => {
     const parent = new AbortController();
     const salvage = {
       callId: "3",
-      content: "## Summary\nPartial work salvaged\n\n## Findings\ngate.ts mapped",
+      content:
+        "## Summary\nPartial work salvaged\n\n## Findings\ngate.ts mapped",
     };
     const pending = runWithToolExecutionWatchdog(
       { id: "3", name: "wait_agents", arguments: {} },
@@ -404,7 +488,10 @@ describe("tool execution watchdog", () => {
       pending,
       new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new Error("watchdog did not settle after parent abort + grace")),
+          () =>
+            reject(
+              new Error("watchdog did not settle after parent abort + grace"),
+            ),
           TEST_SALVAGE_GRACE_MS + 500,
         ),
       ),
@@ -445,7 +532,10 @@ describe("tool execution watchdog", () => {
       pending,
       new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new Error("watchdog did not settle after parent abort + grace")),
+          () =>
+            reject(
+              new Error("watchdog did not settle after parent abort + grace"),
+            ),
           TEST_SALVAGE_GRACE_MS + 500,
         ),
       ),
@@ -455,9 +545,15 @@ describe("tool execution watchdog", () => {
   });
 
   test("isUsableToolExecuteResult rejects errors and empty bodies", () => {
-    expect(isUsableToolExecuteResult({ callId: "1", content: "ok" })).toBe(true);
-    expect(isUsableToolExecuteResult({ callId: "1", content: "  " })).toBe(false);
-    expect(isUsableToolExecuteResult({ callId: "1", content: "err", isError: true })).toBe(false);
+    expect(isUsableToolExecuteResult({ callId: "1", content: "ok" })).toBe(
+      true,
+    );
+    expect(isUsableToolExecuteResult({ callId: "1", content: "  " })).toBe(
+      false,
+    );
+    expect(
+      isUsableToolExecuteResult({ callId: "1", content: "err", isError: true }),
+    ).toBe(false);
   });
 
   test("preferExecuteSalvageAfterAbort returns body within grace", async () => {
@@ -660,6 +756,8 @@ describe("tool execution watchdog", () => {
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: false },
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toBe(formatToolExecutionTimeoutMessage("parked", 40));
+    expect(result.content).toBe(
+      formatToolExecutionTimeoutMessage("parked", 40),
+    );
   });
 });

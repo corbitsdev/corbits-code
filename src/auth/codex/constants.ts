@@ -26,7 +26,12 @@ export const CODEX_CALLBACK_PORT = 1455;
 export const CODEX_CALLBACK_PATH = "/auth/callback";
 export const CODEX_REDIRECT_URI = `http://localhost:${String(CODEX_CALLBACK_PORT)}${CODEX_CALLBACK_PATH}`;
 
-export const CODEX_SCOPES = ["openid", "profile", "email", "offline_access"] as const;
+export const CODEX_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "offline_access",
+] as const;
 
 // Inference surface reached with the subscription token. NOTE: the Codex
 // backend serves the OpenAI *Responses* API at `${CODEX_BASE_URL}/codex/

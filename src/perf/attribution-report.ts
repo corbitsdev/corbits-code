@@ -148,7 +148,10 @@ function spanById(spans: readonly PerfSpan[]): Map<string, PerfSpan> {
  * Nested exclusive children (e.g. tool under subagent) must not also fill the
  * exclusive tools bucket — their wall is already inside the parent exclusive.
  */
-function hasExclusiveAncestor(span: PerfSpan, byId: Map<string, PerfSpan>): boolean {
+function hasExclusiveAncestor(
+  span: PerfSpan,
+  byId: Map<string, PerfSpan>,
+): boolean {
   let parentId = span.parentId;
   while (parentId !== undefined) {
     const parent = byId.get(parentId);
@@ -212,7 +215,11 @@ function openPhasesUnder(
  * nested tool under subagent does not double-count against turn wall.
  * Nested diagnostics (ttft / stream / transport) and counts always accumulate.
  */
-function accumulate(bucket: ExclusiveBucket, span: PerfSpan, skipExclusiveNs: boolean): void {
+function accumulate(
+  bucket: ExclusiveBucket,
+  span: PerfSpan,
+  skipExclusiveNs: boolean,
+): void {
   const dur = spanDurationNs(span) ?? 0;
   switch (span.name as SpanName) {
     case "inference":
@@ -282,7 +289,10 @@ function categorySharesFromBucket(
   permissionWaitCount: number,
 ): CategoryShare[] {
   const attributed =
-    bucket.inferenceNs + bucket.toolNs + bucket.permissionWaitNs + bucket.subagentNs;
+    bucket.inferenceNs +
+    bucket.toolNs +
+    bucket.permissionWaitNs +
+    bucket.subagentNs;
   const otherNs = wallNs > 0 ? Math.max(0, wallNs - attributed) : 0;
 
   return [
@@ -355,13 +365,17 @@ function countTopExclusiveUnder(
  * dumps still produce usable share percentages; openPhases lists still-running
  * phases so the report is not read as a complete hang diagnosis.
  */
-export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionReport {
+export function attributionFromSpans(
+  spans: readonly PerfSpan[],
+): AttributionReport {
   const byParent = childrenOf(spans);
   const byId = spanById(spans);
   const turnSpans = spans
     .filter((s) => s.name === "turn")
     .slice()
-    .sort((a, b) => (a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0));
+    .sort((a, b) =>
+      a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0,
+    );
 
   const turns: TurnAttribution[] = turnSpans.map((turn) => {
     const bucket = emptyBucket();
@@ -369,15 +383,30 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
 
     const { wallNs: turnNs, open } = turnWallNs(turn, byParent);
     const openPhases = open ? openPhasesUnder(turn.id, byParent, turn) : [];
-    const inferenceCount = countTopExclusiveUnder(turn.id, byParent, byId, "inference");
-    const permissionWaitCount = countTopExclusiveUnder(turn.id, byParent, byId, "permission.wait");
+    const inferenceCount = countTopExclusiveUnder(
+      turn.id,
+      byParent,
+      byId,
+      "inference",
+    );
+    const permissionWaitCount = countTopExclusiveUnder(
+      turn.id,
+      byParent,
+      byId,
+      "permission.wait",
+    );
 
     return {
       turnId: turn.id,
       turnNs,
       open,
       openPhases,
-      categories: categorySharesFromBucket(bucket, turnNs, inferenceCount, permissionWaitCount),
+      categories: categorySharesFromBucket(
+        bucket,
+        turnNs,
+        inferenceCount,
+        permissionWaitCount,
+      ),
       inference: inferenceSplit(bucket.ttftNs, bucket.streamNs),
       toolCount: bucket.toolCount,
       subagentCount: bucket.subagentCount,
@@ -407,8 +436,18 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
       }
     }
     accumulateTree(turn.id, byParent, byId, sessionBucket);
-    inferenceCount += countTopExclusiveUnder(turn.id, byParent, byId, "inference");
-    permissionWaitCount += countTopExclusiveUnder(turn.id, byParent, byId, "permission.wait");
+    inferenceCount += countTopExclusiveUnder(
+      turn.id,
+      byParent,
+      byId,
+      "inference",
+    );
+    permissionWaitCount += countTopExclusiveUnder(
+      turn.id,
+      byParent,
+      byId,
+      "permission.wait",
+    );
   }
 
   // No turn roots (partial / orphan snapshot): fall back to flat exclusive sums
@@ -420,7 +459,10 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
       if (span.name === "inference" && !hasExclusiveAncestor(span, byId)) {
         inferenceCount += 1;
       }
-      if (span.name === "permission.wait" && !hasExclusiveAncestor(span, byId)) {
+      if (
+        span.name === "permission.wait" &&
+        !hasExclusiveAncestor(span, byId)
+      ) {
         permissionWaitCount += 1;
       }
       if (span.endNs === undefined) sessionOpenPhases.add(span.name);
@@ -452,7 +494,9 @@ export function attributionFromSpans(spans: readonly PerfSpan[]): AttributionRep
       completedTurnCount,
       transportNs: sessionBucket.transportNs,
       transportShareOfInference:
-        sessionBucket.inferenceNs === 0 ? 0 : sessionBucket.transportNs / sessionBucket.inferenceNs,
+        sessionBucket.inferenceNs === 0
+          ? 0
+          : sessionBucket.transportNs / sessionBucket.inferenceNs,
     },
     turns,
   };
@@ -536,7 +580,9 @@ export function formatAttributionReport(report: AttributionReport): string {
     `Session wall: ${ms(s.wallNs)}  turns=${s.turnCount} (completed=${s.completedTurnCount})`,
   );
   if (s.open) {
-    lines.push(`Open (incomplete): still-running phases: ${formatOpenPhases(s.openPhases)}`);
+    lines.push(
+      `Open (incomplete): still-running phases: ${formatOpenPhases(s.openPhases)}`,
+    );
     lines.push(
       "  Exclusive shares below use completed descendants only — not a full stall diagnosis.",
     );
@@ -570,10 +616,14 @@ export function formatAttributionReport(report: AttributionReport): string {
         `  turn ${t.turnId}${openTag}  wall=${ms(t.turnNs)}  tools=${t.toolCount}  subagents=${t.subagentCount}`,
       );
       if (t.open) {
-        lines.push(`    open phases: ${formatOpenPhases(t.openPhases)}  (shares incomplete)`);
+        lines.push(
+          `    open phases: ${formatOpenPhases(t.openPhases)}  (shares incomplete)`,
+        );
       }
       for (const c of t.categories) {
-        lines.push(`    ${c.category.padEnd(16)} ${pct(c.share).padStart(6)}  ${ms(c.ns)}`);
+        lines.push(
+          `    ${c.category.padEnd(16)} ${pct(c.share).padStart(6)}  ${ms(c.ns)}`,
+        );
       }
     }
   }

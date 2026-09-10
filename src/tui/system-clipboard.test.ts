@@ -51,7 +51,8 @@ describe("system clipboard", () => {
         },
       }),
       async () => {
-        const { createSystemClipboard: fresh } = await import("./system-clipboard.js");
+        const { createSystemClipboard: fresh } =
+          await import("./system-clipboard.js");
         await fresh(boundary).writeText("hi");
       },
     );
@@ -83,8 +84,8 @@ describe("system clipboard", () => {
       host: { status: "failed", error: new Error("no helper") },
       terminal: { status: "local-failure", capability: "supported" },
     });
-    await expect(createSystemClipboard(boundary, service).writeText("payload")).rejects.toThrow(
-      /host: failed, terminal: local-failure/,
-    );
+    await expect(
+      createSystemClipboard(boundary, service).writeText("payload"),
+    ).rejects.toThrow(/host: failed, terminal: local-failure/);
   });
 });

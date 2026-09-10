@@ -51,7 +51,8 @@ describe("dedupePluginModules", () => {
     const other = userInstall("other");
     const result = dedupePluginModules([repo, other]);
     expect(
-      defined(result.find((m) => m.manifest?.id === "other")).shadowedRepoDefaultEnabled,
+      defined(result.find((m) => m.manifest?.id === "other"))
+        .shadowedRepoDefaultEnabled,
     ).toBeUndefined();
   });
 
@@ -80,7 +81,9 @@ describe("isPluginModuleEnabled with dedupe shadowing", () => {
     const repo = repoDefaultEnabled("scout");
     const user = userInstall("scout");
     const [survivor] = dedupePluginModules([repo, user]);
-    expect(isPluginModuleEnabled(defined(survivor), { scout: { enabled: false } })).toBe(false);
+    expect(
+      isPluginModuleEnabled(defined(survivor), { scout: { enabled: false } }),
+    ).toBe(false);
   });
 
   test("disablePluginSettings then isPluginModuleEnabled is false for shadowedRepoDefaultEnabled", () => {

@@ -51,7 +51,10 @@ describe("editDiffFromArgs", () => {
 
   test("treats write_file content as the new side against an empty old side", () => {
     expect(
-      editDiffFromArgs("write_file", JSON.stringify({ path: "x.ts", content: "line" })),
+      editDiffFromArgs(
+        "write_file",
+        JSON.stringify({ path: "x.ts", content: "line" }),
+      ),
     ).toEqual({ oldText: "", newText: "line", path: "x.ts" });
   });
 
@@ -69,14 +72,22 @@ describe("renderDiff", () => {
   });
 
   test("collapses unchanged runs when contextLines is set", () => {
-    const oldText = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
+    const oldText = Array.from({ length: 20 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
     const newText = oldText.replace("line 0", "CHANGED");
-    const text = renderDiff(oldText, newText, 40, { contextLines: 2 }).map(textOf).join("\n");
+    const text = renderDiff(oldText, newText, 40, { contextLines: 2 })
+      .map(textOf)
+      .join("\n");
     expect(text).toContain("unchanged line");
   });
 
   test("word-level LCS keeps shared tokens as context and paints only the delta", () => {
-    const lines = renderDiff("const foo = bar(x, y);", "const foo = baz(x, y);", 80);
+    const lines = renderDiff(
+      "const foo = bar(x, y);",
+      "const foo = baz(x, y);",
+      80,
+    );
     const delBody = defined(lines[0]).slice(2);
     const addBody = defined(lines[1]).slice(2);
     const delChanged = delBody
@@ -91,7 +102,9 @@ describe("renderDiff", () => {
     expect(addChanged).toContain("baz");
     expect(delChanged).not.toContain("const");
     expect(addChanged).not.toContain("const");
-    expect(delBody.some((s) => s.text.includes("const") && s.fg === DIFF_FG.context)).toBe(true);
+    expect(
+      delBody.some((s) => s.text.includes("const") && s.fg === DIFF_FG.context),
+    ).toBe(true);
   });
 
   test("changed intra-line tokens are bold; shared tokens are not", () => {
@@ -114,8 +127,16 @@ describe("renderDiff", () => {
   test("unpaired adds and removals take the add/remove tone whole-line", () => {
     const [removed] = renderDiff("old line", "", 40);
     const [added] = renderDiff("", "new line", 40);
-    expect(defined(removed).slice(1).every((s) => s.fg === DIFF_FG.del)).toBe(true);
-    expect(defined(added).slice(1).every((s) => s.fg === DIFF_FG.add)).toBe(true);
+    expect(
+      defined(removed)
+        .slice(1)
+        .every((s) => s.fg === DIFF_FG.del),
+    ).toBe(true);
+    expect(
+      defined(added)
+        .slice(1)
+        .every((s) => s.fg === DIFF_FG.add),
+    ).toBe(true);
   });
 
   test("context rows take the muted context tone", () => {
@@ -163,17 +184,27 @@ describe("renderDiff line numbers", () => {
   });
 
   test("line numbers stay right-aligned as the file grows past one digit", () => {
-    const oldText = Array.from({ length: 12 }, (_, i) => `line ${i}`).join("\n");
+    const oldText = Array.from({ length: 12 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
     const newText = oldText.replace("line 0", "CHANGED");
-    const widths = new Set(renderDiff(oldText, newText, 80).map((line) => defined(line[0]).text.length));
+    const widths = new Set(
+      renderDiff(oldText, newText, 80).map(
+        (line) => defined(line[0]).text.length,
+      ),
+    );
     expect(widths.size).toBe(1);
   });
 
   test("collapsed context marker carries no line number", () => {
-    const oldText = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
+    const oldText = Array.from({ length: 20 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
     const newText = oldText.replace("line 0", "CHANGED");
     const lines = renderDiff(oldText, newText, 40, { contextLines: 2 });
-    const marker = lines.find((line) => textOf(line).includes("unchanged line"));
+    const marker = lines.find((line) =>
+      textOf(line).includes("unchanged line"),
+    );
     expect(marker).toBeDefined();
     expect(defined(defined(marker)[0]).text.trim()).toBe("");
   });
@@ -198,13 +229,20 @@ describe("editDiffView", () => {
   test("returns null for non-edit tools and no-op edits", () => {
     expect(editDiffView("read_file", "{}")).toBeNull();
     expect(
-      editDiffView("edit_file", JSON.stringify({ old_string: "same", new_string: "same" })),
+      editDiffView(
+        "edit_file",
+        JSON.stringify({ old_string: "same", new_string: "same" }),
+      ),
     ).toBeNull();
   });
 
   test("caps a huge write_file body with a truncation marker", () => {
-    const content = Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n");
-    const view = defined(editDiffView("write_file", JSON.stringify({ content })));
+    const content = Array.from({ length: 200 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
+    const view = defined(
+      editDiffView("write_file", JSON.stringify({ content })),
+    );
     expect(view.added).toBe(200);
     expect(view.lines.length).toBeLessThan(200);
     expect(textOf(defined(view.lines.at(-1)))).toContain("more diff lines");
@@ -245,7 +283,10 @@ describe("toolCallRow", () => {
 
 describe("diffPlainText", () => {
   test("joins segment text back into a copyable body", () => {
-    const view = editDiffView("edit_file", JSON.stringify({ old_string: "a", new_string: "b" }));
+    const view = editDiffView(
+      "edit_file",
+      JSON.stringify({ old_string: "a", new_string: "b" }),
+    );
     expect(diffPlainText(defined(view))).toBe("- a\n+ b");
   });
 });

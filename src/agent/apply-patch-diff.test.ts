@@ -6,7 +6,10 @@ import { createPosixTools } from "@intx/tools-posix";
 import { createToolRunner } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 
-import { createCodexToolProxies, type CodexRunTool } from "./codex-tool-proxies.js";
+import {
+  createCodexToolProxies,
+  type CodexRunTool,
+} from "./codex-tool-proxies.js";
 import { createCodexReadRawFile } from "./codex-read-raw-file.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -46,7 +49,10 @@ async function makeApplyPatch(
       new AbortController().signal,
     );
     return {
-      content: typeof result.content === "string" ? result.content : JSON.stringify(result.content),
+      content:
+        typeof result.content === "string"
+          ? result.content
+          : JSON.stringify(result.content),
       ...(result.isError === true ? { isError: true } : {}),
     };
   };
@@ -124,7 +130,11 @@ describe("apply_patch Update File matches raw content, not read_file's numbered 
     try {
       await writeFile(join(cwd, "gone.txt"), "bye\n");
       const tools = await makeApplyPatch(cwd);
-      const input = ["*** Begin Patch", "*** Delete File: gone.txt", "*** End Patch"].join("\n");
+      const input = [
+        "*** Begin Patch",
+        "*** Delete File: gone.txt",
+        "*** End Patch",
+      ].join("\n");
 
       const result = await invokeApplyPatch(tools, input);
 
@@ -139,9 +149,12 @@ describe("apply_patch Update File matches raw content, not read_file's numbered 
     const cwd = await mkdtemp(join(tmpdir(), "apply-patch-diff-"));
     try {
       const tools = await makeApplyPatch(cwd);
-      const input = ["*** Begin Patch", "*** Add File: new.txt", "+hello", "*** End Patch"].join(
-        "\n",
-      );
+      const input = [
+        "*** Begin Patch",
+        "*** Add File: new.txt",
+        "+hello",
+        "*** End Patch",
+      ].join("\n");
 
       const result = await invokeApplyPatch(tools, input);
 
@@ -218,7 +231,10 @@ describe("apply_patch Update File refuses reads outside the sanctioned workspace
       // skipPermissions: true (yolo) — secret-guard has no bypass, unlike containment.
       const tools = await makeApplyPatch(cwd, { skipPermissions: true });
 
-      const result = await invokeApplyPatch(tools, insertionOnlyMoveInput(".env", "leaked.txt"));
+      const result = await invokeApplyPatch(
+        tools,
+        insertionOnlyMoveInput(".env", "leaked.txt"),
+      );
 
       expect(result.isError).toBe(true);
       expect(String(result.content)).toMatch(/sensitive file/i);
@@ -230,17 +246,24 @@ describe("apply_patch Update File refuses reads outside the sanctioned workspace
   });
 
   test("../ traversal to a secret file is refused (secret-guard applies to relative paths too)", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "apply-patch-cl6966-secret-parent-"));
+    const parent = await mkdtemp(
+      join(tmpdir(), "apply-patch-cl6966-secret-parent-"),
+    );
     const cwd = join(parent, "workspace");
     await mkdir(cwd);
     try {
       await writeFile(join(parent, ".env"), "API_KEY=super-secret\n");
       const tools = await makeApplyPatch(cwd, { skipPermissions: false });
 
-      const result = await invokeApplyPatch(tools, insertionOnlyMoveInput("../.env", "leaked.txt"));
+      const result = await invokeApplyPatch(
+        tools,
+        insertionOnlyMoveInput("../.env", "leaked.txt"),
+      );
 
       expect(result.isError).toBe(true);
-      expect(String(result.content)).toMatch(/sensitive file|escapes working directory/i);
+      expect(String(result.content)).toMatch(
+        /sensitive file|escapes working directory/i,
+      );
       expect(await Bun.file(join(cwd, "leaked.txt")).exists()).toBe(false);
     } finally {
       await rm(parent, { recursive: true, force: true });

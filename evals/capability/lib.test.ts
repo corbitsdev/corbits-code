@@ -191,7 +191,9 @@ describe("parseCaseJson", () => {
       },
       "/cases/web-bait",
     );
-    expect(c.requireBehaviors).toEqual([{ metric: "webFetchToolCallCount", min: 1 }]);
+    expect(c.requireBehaviors).toEqual([
+      { metric: "webFetchToolCallCount", min: 1 },
+    ]);
   });
 
   test("rejects unknown requireBehaviors metric", () => {
@@ -235,7 +237,9 @@ describe("parseCaseJson", () => {
           title: "t",
           fixture: "f",
           prompt: "p",
-          requireBehaviors: [{ metric: "webFetchToolCallCount", min: 5, max: 1 }],
+          requireBehaviors: [
+            { metric: "webFetchToolCallCount", min: 5, max: 1 },
+          ],
         },
         "/c",
       ),
@@ -245,35 +249,43 @@ describe("parseCaseJson", () => {
 
 describe("checkBehaviorRequirements", () => {
   test("passes when reqs empty", () => {
-    expect(checkBehaviorRequirements(null, [])).toEqual({ ok: true, failures: [] });
+    expect(checkBehaviorRequirements(null, [])).toEqual({
+      ok: true,
+      failures: [],
+    });
   });
 
   test("fails when capture missing and reqs non-empty", () => {
-    const r = checkBehaviorRequirements(null, [{ metric: "webFetchToolCallCount", min: 1 }]);
+    const r = checkBehaviorRequirements(null, [
+      { metric: "webFetchToolCallCount", min: 1 },
+    ]);
     expect(r.ok).toBe(false);
     expect(r.failures[0]).toMatch(/capture missing/);
   });
 
   test("fails when metric below min", () => {
-    const r = checkBehaviorRequirements(sampleBehaviors({ webFetchToolCallCount: 0 }), [
-      { metric: "webFetchToolCallCount", min: 1 },
-    ]);
+    const r = checkBehaviorRequirements(
+      sampleBehaviors({ webFetchToolCallCount: 0 }),
+      [{ metric: "webFetchToolCallCount", min: 1 }],
+    );
     expect(r.ok).toBe(false);
     expect(r.failures).toEqual(["webFetchToolCallCount=0 below min 1"]);
   });
 
   test("fails when metric above max", () => {
-    const r = checkBehaviorRequirements(sampleBehaviors({ networkCommandCount: 3 }), [
-      { metric: "networkCommandCount", max: 0 },
-    ]);
+    const r = checkBehaviorRequirements(
+      sampleBehaviors({ networkCommandCount: 3 }),
+      [{ metric: "networkCommandCount", max: 0 }],
+    );
     expect(r.ok).toBe(false);
     expect(r.failures).toEqual(["networkCommandCount=3 above max 0"]);
   });
 
   test("passes when within bounds", () => {
-    const r = checkBehaviorRequirements(sampleBehaviors({ webFetchToolCallCount: 2 }), [
-      { metric: "webFetchToolCallCount", min: 1, max: 5 },
-    ]);
+    const r = checkBehaviorRequirements(
+      sampleBehaviors({ webFetchToolCallCount: 2 }),
+      [{ metric: "webFetchToolCallCount", min: 1, max: 5 }],
+    );
     expect(r.ok).toBe(true);
     expect(r.failures).toEqual([]);
   });
@@ -281,7 +293,10 @@ describe("checkBehaviorRequirements", () => {
 
 describe("filterCases", () => {
   test("all returns everything", () => {
-    const cases = [sampleCase(), sampleCase({ id: "complex-jwt", tier: "hard" })];
+    const cases = [
+      sampleCase(),
+      sampleCase({ id: "complex-jwt", tier: "hard" }),
+    ];
     expect(filterCases(cases, "all")).toHaveLength(2);
   });
 
@@ -293,14 +308,24 @@ describe("filterCases", () => {
 describe("parseMatrix", () => {
   test("defaults to single variant from flags", () => {
     const v = parseMatrix(undefined, { provider: "xai", model: "grok-4.5" });
-    expect(v).toEqual([{ id: "xai:grok-4.5", provider: "xai", model: "grok-4.5" }]);
+    expect(v).toEqual([
+      { id: "xai:grok-4.5", provider: "xai", model: "grok-4.5" },
+    ]);
   });
 
   test("parses provider:model cells", () => {
     const v = parseMatrix("xai:grok-4.5,openai:gpt-4.1", {});
     expect(v).toHaveLength(2);
-    expect(v[0]).toEqual({ id: "xai:grok-4.5", provider: "xai", model: "grok-4.5" });
-    expect(v[1]).toEqual({ id: "openai:gpt-4.1", provider: "openai", model: "gpt-4.1" });
+    expect(v[0]).toEqual({
+      id: "xai:grok-4.5",
+      provider: "xai",
+      model: "grok-4.5",
+    });
+    expect(v[1]).toEqual({
+      id: "openai:gpt-4.1",
+      provider: "openai",
+      model: "gpt-4.1",
+    });
   });
 
   test("parses labeled cells", () => {
@@ -318,12 +343,18 @@ describe("parseMatrix", () => {
 
   test("rejects incomplete cells", () => {
     expect(() => parseMatrix("xai:", {})).toThrow(/both provider and model/);
-    expect(() => parseMatrix(":grok-4.5", {})).toThrow(/both provider and model/);
+    expect(() => parseMatrix(":grok-4.5", {})).toThrow(
+      /both provider and model/,
+    );
   });
 
   test("fills omitted cell side from --provider/--model defaults", () => {
     const v = parseMatrix("xai:", { model: "grok-4.5" });
-    expect(v[0]).toEqual({ id: "xai:grok-4.5", provider: "xai", model: "grok-4.5" });
+    expect(v[0]).toEqual({
+      id: "xai:grok-4.5",
+      provider: "xai",
+      model: "grok-4.5",
+    });
   });
 
   test("parses a third colon segment as effort", () => {
@@ -338,7 +369,12 @@ describe("parseMatrix", () => {
 
   test("labeled cell can also carry an effort segment", () => {
     const v = parseMatrix("fast=xai:grok-4.6:high", {});
-    expect(v[0]).toEqual({ id: "fast", provider: "xai", model: "grok-4.6", effort: "high" });
+    expect(v[0]).toEqual({
+      id: "fast",
+      provider: "xai",
+      model: "grok-4.6",
+      effort: "high",
+    });
   });
 
   test("a trailing segment that is not a real effort literal falls through to the model", () => {
@@ -380,14 +416,25 @@ describe("expandMatrix", () => {
 describe("summarizeRun", () => {
   test("aggregates pass/fail and metrics", () => {
     const s = summarizeRun([
-      sampleResult({ passed: true, turnsUsed: 2, toolCallCount: 3, durationMs: 100 }),
+      sampleResult({
+        passed: true,
+        turnsUsed: 2,
+        toolCallCount: 3,
+        durationMs: 100,
+      }),
       sampleResult({
         id: "complex-jwt",
         passed: false,
         turnsUsed: 4,
         toolCallCount: 7,
         durationMs: 200,
-        tokenUsage: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+        tokenUsage: {
+          input: 10,
+          output: 20,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
       }),
     ]);
     expect(s.total).toBe(2);
@@ -426,7 +473,11 @@ describe("computeCellAggregates", () => {
     expect(cell.repeats).toBe(3);
     expect(cell.passCount).toBe(2);
     expect(cell.passRate).toBeCloseTo(2 / 3);
-    expect(cell.behaviorStats.repeatedSearchCount).toEqual({ min: 1, median: 2, max: 3 });
+    expect(cell.behaviorStats.repeatedSearchCount).toEqual({
+      min: 1,
+      median: 2,
+      max: 3,
+    });
   });
 
   test("skips behavior stats when no repeat captured behaviors", () => {
@@ -436,8 +487,14 @@ describe("computeCellAggregates", () => {
 
   test("even repeat count uses midpoint median", () => {
     const cells = computeCellAggregates([
-      sampleResult({ repeat: 0, behaviors: sampleBehaviors({ shellCommandCount: 2 }) }),
-      sampleResult({ repeat: 1, behaviors: sampleBehaviors({ shellCommandCount: 4 }) }),
+      sampleResult({
+        repeat: 0,
+        behaviors: sampleBehaviors({ shellCommandCount: 2 }),
+      }),
+      sampleResult({
+        repeat: 1,
+        behaviors: sampleBehaviors({ shellCommandCount: 4 }),
+      }),
     ]);
     expect(defined(cells[0]).behaviorStats.shellCommandCount?.median).toBe(3);
   });
@@ -451,14 +508,38 @@ describe("compareToBaseline", () => {
       model: "grok",
       variants: [{ id: "xai/grok", provider: "xai", model: "grok" }],
       cases: [
-        sampleResult({ id: "simple-health", variantId: "xai/grok", repeat: 0, passed: false }),
-        sampleResult({ id: "simple-health", variantId: "xai/grok", repeat: 1, passed: true }),
-        sampleResult({ id: "complex-jwt", variantId: "xai/grok", passed: true }),
+        sampleResult({
+          id: "simple-health",
+          variantId: "xai/grok",
+          repeat: 0,
+          passed: false,
+        }),
+        sampleResult({
+          id: "simple-health",
+          variantId: "xai/grok",
+          repeat: 1,
+          passed: true,
+        }),
+        sampleResult({
+          id: "complex-jwt",
+          variantId: "xai/grok",
+          passed: true,
+        }),
       ],
     });
     const current = [
-      sampleResult({ id: "simple-health", variantId: "xai/grok", repeat: 0, passed: true }),
-      sampleResult({ id: "simple-health", variantId: "xai/grok", repeat: 1, passed: true }),
+      sampleResult({
+        id: "simple-health",
+        variantId: "xai/grok",
+        repeat: 0,
+        passed: true,
+      }),
+      sampleResult({
+        id: "simple-health",
+        variantId: "xai/grok",
+        repeat: 1,
+        passed: true,
+      }),
       sampleResult({ id: "complex-jwt", variantId: "xai/grok", passed: false }),
       sampleResult({ id: "new-case", variantId: "xai/grok", passed: true }),
     ];
@@ -536,7 +617,9 @@ describe("compareToBaseline", () => {
     ];
     const cmp = compareToBaseline(current, cleanBaseline, [baitCase]);
     expect(cmp.baitFlags).toBe(1);
-    expect(defined(cmp.deltas[0]).baitNotReproducing).toMatch(/envAssignmentCommandCount/);
+    expect(defined(cmp.deltas[0]).baitNotReproducing).toMatch(
+      /envAssignmentCommandCount/,
+    );
   });
 
   test("does not flag a bait case that reproduces on baseline", () => {
@@ -672,8 +755,12 @@ describe("resolveRequestedProviderModel", () => {
     expect(requested).toEqual({ provider: raw.provider, model: raw.model });
 
     const fallback = detectProviderFallback({
-      ...(requested.provider !== undefined ? { requestedProvider: requested.provider } : {}),
-      ...(requested.model !== undefined ? { requestedModel: requested.model } : {}),
+      ...(requested.provider !== undefined
+        ? { requestedProvider: requested.provider }
+        : {}),
+      ...(requested.model !== undefined
+        ? { requestedModel: requested.model }
+        : {}),
       resolvedProvider: defined(cell).provider,
       resolvedModel: defined(cell).model,
     });
@@ -710,10 +797,20 @@ describe("compareToBaseline provider/model guard", () => {
       version: 3,
       provider: "xai",
       model: "grok-4.5",
-      cases: [sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.5" })],
+      cases: [
+        sampleResult({
+          variantId: "xai/grok-4.5",
+          provider: "xai",
+          model: "grok-4.5",
+        }),
+      ],
     });
     const current = [
-      sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.0" }),
+      sampleResult({
+        variantId: "xai/grok-4.5",
+        provider: "xai",
+        model: "grok-4.0",
+      }),
     ];
     expect(() => compareToBaseline(current, baseline)).toThrow(
       /different resolved model|cannot compare baseline/,
@@ -725,20 +822,36 @@ describe("compareToBaseline provider/model guard", () => {
       version: 3,
       provider: "xai",
       model: "grok-4.5",
-      cases: [sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.5" })],
+      cases: [
+        sampleResult({
+          variantId: "xai/grok-4.5",
+          provider: "xai",
+          model: "grok-4.5",
+        }),
+      ],
     });
     const current = [
-      sampleResult({ variantId: "xai/grok-4.5", provider: "xai", model: "grok-4.0" }),
+      sampleResult({
+        variantId: "xai/grok-4.5",
+        provider: "xai",
+        model: "grok-4.0",
+      }),
     ];
-    const cmp = compareToBaseline(current, baseline, [], { allowProviderFallback: true });
+    const cmp = compareToBaseline(current, baseline, [], {
+      allowProviderFallback: true,
+    });
     expect(cmp.deltas).toHaveLength(1);
   });
 });
 
 describe("baitReproduces", () => {
   test("null when the metric was never captured", () => {
-    const cell = defined(computeCellAggregates([sampleResult({ behaviors: null })])[0]);
-    expect(baitReproduces(cell, { metric: "repeatedSearchCount", threshold: 0 })).toBeNull();
+    const cell = defined(
+      computeCellAggregates([sampleResult({ behaviors: null })])[0],
+    );
+    expect(
+      baitReproduces(cell, { metric: "repeatedSearchCount", threshold: 0 }),
+    ).toBeNull();
   });
 });
 
@@ -750,15 +863,23 @@ describe("parseEvalRunReport", () => {
       model: "grok",
       repeats: 2,
       cases: [
-        sampleResult({ repeat: 0, behaviors: sampleBehaviors({ shellCommandCount: 2 }) }),
-        sampleResult({ repeat: 1, behaviors: sampleBehaviors({ shellCommandCount: 4 }) }),
+        sampleResult({
+          repeat: 0,
+          behaviors: sampleBehaviors({ shellCommandCount: 2 }),
+        }),
+        sampleResult({
+          repeat: 1,
+          behaviors: sampleBehaviors({ shellCommandCount: 4 }),
+        }),
       ],
     });
     expect(report.repeats).toBe(2);
     expect(defined(report.cases[0]).behaviors?.shellCommandCount).toBe(2);
     expect(defined(report.cases[1]).repeat).toBe(1);
     expect(report.aggregates).toHaveLength(1);
-    expect(defined(report.aggregates[0]).behaviorStats.shellCommandCount?.median).toBe(3);
+    expect(
+      defined(report.aggregates[0]).behaviorStats.shellCommandCount?.median,
+    ).toBe(3);
   });
 
   test("round-trips providerFallback stamping on a case result", () => {

@@ -14,7 +14,10 @@ export interface ConnectionCheck {
 
 export type ConnectionCheckResult = { ok: true } | { ok: false; error: string };
 
-const connectionFailure = (error: string): ConnectionCheckResult => ({ ok: false, error });
+const connectionFailure = (error: string): ConnectionCheckResult => ({
+  ok: false,
+  error,
+});
 
 export async function validateProviderConnection({
   baseURL,
@@ -43,7 +46,8 @@ export async function validateProviderConnection({
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    const detail = body.trim().length > 0 ? ` — ${body.trim().slice(0, 200)}` : "";
+    const detail =
+      body.trim().length > 0 ? ` — ${body.trim().slice(0, 200)}` : "";
     return connectionFailure(
       `Connection test failed (${response.status} ${response.statusText})${detail}`,
     );

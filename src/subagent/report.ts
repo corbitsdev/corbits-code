@@ -8,7 +8,12 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 /** Typed spawn intent — optional on `spawn_agent`; omit Intent section when unset. */
-export type TaskIntent = "explore" | "implement" | "review" | "plan" | "general";
+export type TaskIntent =
+  | "explore"
+  | "implement"
+  | "review"
+  | "plan"
+  | "general";
 
 // Extract the tool name from a sub-agent stream event. tool.start carries the
 // call name at execution time; counting starts only (not ends) keeps the
@@ -23,13 +28,18 @@ export function subAgentToolName(event: ReactorEmittedEvent): string | null {
 // Append a short activity footer so the parent model (and the operator reading
 // the tool result) can see what the sub-agent actually did. Without this the
 // only signal is the free-form reply, which models often omit tool details from.
-export function appendActivitySummary(reply: string, toolNames: readonly string[]): string {
+export function appendActivitySummary(
+  reply: string,
+  toolNames: readonly string[],
+): string {
   if (toolNames.length === 0) return reply;
   const counts = new Map<string, number>();
   for (const name of toolNames) {
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
-  const parts = [...counts.entries()].map(([name, n]) => (n > 1 ? `${name}×${n}` : name));
+  const parts = [...counts.entries()].map(([name, n]) =>
+    n > 1 ? `${name}×${n}` : name,
+  );
   return `${reply}\n\n[tools: ${parts.join(", ")}]`;
 }
 
@@ -52,7 +62,12 @@ export interface DispatchBrief {
 }
 
 export function buildDispatchBrief(brief: DispatchBrief): string {
-  const parts: string[] = [`# Dispatch brief: ${brief.description}`, "", "## Goal", brief.prompt];
+  const parts: string[] = [
+    `# Dispatch brief: ${brief.description}`,
+    "",
+    "## Goal",
+    brief.prompt,
+  ];
   if (brief.context !== undefined && brief.context.trim().length > 0) {
     parts.push("", "## Context", brief.context.trim());
   }
@@ -99,7 +114,12 @@ export function buildDispatchBrief(brief: DispatchBrief): string {
 }
 
 /** Headings `parseSubAgentReport` recognizes. Presence of all four is the completeness gate. */
-const REPORT_ENVELOPE_HEADINGS = ["Summary", "Findings", "Blockers", "Paths"] as const;
+const REPORT_ENVELOPE_HEADINGS = [
+  "Summary",
+  "Findings",
+  "Blockers",
+  "Paths",
+] as const;
 
 /** True iff `text` has all four report headings (`^##\s+Name\s*$` per line, case-insensitive). */
 export function hasReportEnvelope(text: string): boolean {
@@ -133,7 +153,8 @@ export function parseSubAgentReport(reply: string): SubAgentReport {
   const matches = [...text.matchAll(headingRe)];
   if (matches.length === 0) {
     return {
-      summary: text.length > 0 ? text : "Sub-agent finished without a textual result.",
+      summary:
+        text.length > 0 ? text : "Sub-agent finished without a textual result.",
       findings: "",
       blockers: "",
       paths: "",
@@ -160,7 +181,10 @@ export function formatSubAgentReport(report: SubAgentReport): string {
   if (report.stopped !== undefined && report.stopped.length > 0) {
     lines.push(`Stopped: ${report.stopped}`, "");
   }
-  lines.push("## Summary", report.summary.length > 0 ? report.summary : "(no summary)");
+  lines.push(
+    "## Summary",
+    report.summary.length > 0 ? report.summary : "(no summary)",
+  );
   if (report.findings.length > 0) {
     lines.push("", "## Findings", report.findings);
   }

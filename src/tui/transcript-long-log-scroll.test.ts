@@ -146,7 +146,10 @@ describe("long-log transcript scrolling", () => {
           // retention cap it must still touch one node, not the eviction
           // notice's presence forcing a full repaintTranscriptWindow.
           const lastIndex = streamRowCount(shell) - 1;
-          replaceStreamRowAt(shell, lastIndex, { role: "assistant", text: "edited" });
+          replaceStreamRowAt(shell, lastIndex, {
+            role: "assistant",
+            text: "edited",
+          });
           await settle(h);
 
           expect(removed).toBeLessThanOrEqual(1);

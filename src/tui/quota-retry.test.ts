@@ -30,7 +30,9 @@ describe("shouldAutoRetryQuota", () => {
   // stopped turn is never silently replayed by the quota auto-retry loop.
   test("does not replay a cleared last-sent message after an interrupt", () => {
     expect(shouldAutoRetryQuota({ ...base, lastSentMessage: "" })).toBe(false);
-    expect(shouldAutoRetryQuota({ ...base, lastSentMessage: "   " })).toBe(false);
+    expect(shouldAutoRetryQuota({ ...base, lastSentMessage: "   " })).toBe(
+      false,
+    );
   });
 });
 

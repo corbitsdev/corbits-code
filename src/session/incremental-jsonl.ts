@@ -32,7 +32,8 @@ async function pathExists(fullPath: string): Promise<boolean> {
     await fs.promises.access(fullPath);
     return true;
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return false;
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      return false;
     throw cause;
   }
 }
@@ -56,7 +57,10 @@ export function segmentFileName(baseName: string, index: number): string {
  * starting at segment zero and stopping at the first gap. Returns an empty list
  * when the base segment is absent.
  */
-export async function listSegmentFiles(dir: string, baseName: string): Promise<string[]> {
+export async function listSegmentFiles(
+  dir: string,
+  baseName: string,
+): Promise<string[]> {
   if (!(await pathExists(path.join(dir, baseName)))) return [];
   const names = [baseName];
   for (let index = 1; ; index++) {
@@ -73,7 +77,10 @@ export async function listSegmentFiles(dir: string, baseName: string): Promise<s
  * the base nor any numbered segment exists. Used by the writer to unlink stale
  * tails after a rewrite when in-memory segment count is unknown.
  */
-export async function highestSegmentIndex(dir: string, baseName: string): Promise<number> {
+export async function highestSegmentIndex(
+  dir: string,
+  baseName: string,
+): Promise<number> {
   let highest = -1;
   if (await pathExists(path.join(dir, baseName))) highest = 0;
 
@@ -88,7 +95,8 @@ export async function highestSegmentIndex(dir: string, baseName: string): Promis
   try {
     entries = await fs.promises.readdir(dir);
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return highest;
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      return highest;
     throw cause;
   }
   for (const entry of entries) {
@@ -105,7 +113,10 @@ export async function highestSegmentIndex(dir: string, baseName: string): Promis
  * order. The base segment is read separately by the underlying store, so this
  * returns only the tail segments the store does not already know about.
  */
-export async function readExtraSegmentTexts(dir: string, baseName: string): Promise<string[]> {
+export async function readExtraSegmentTexts(
+  dir: string,
+  baseName: string,
+): Promise<string[]> {
   const names = await listSegmentFiles(dir, baseName);
   const texts: string[] = [];
   for (const name of names.slice(1)) {
@@ -154,7 +165,10 @@ export function createSegmentedJSONLWriter(
       }
     }
 
-    const unchanged = state !== null && prefix === state.refs.length && records.length === prefix;
+    const unchanged =
+      state !== null &&
+      prefix === state.refs.length &&
+      records.length === prefix;
     if (unchanged) return { modifiedPaths: [] };
 
     const prevSegStarts = state?.segStarts ?? [0];
@@ -180,7 +194,8 @@ export function createSegmentedJSONLWriter(
     if (firstSegStartRecord === undefined) {
       throw new Error("jsonl first segment start missing");
     }
-    const firstSegEndRecord = prevSegStarts[firstSeg + 1] ?? state?.refs.length ?? 0;
+    const firstSegEndRecord =
+      prevSegStarts[firstSeg + 1] ?? state?.refs.length ?? 0;
     const firstSegEndOffset = prevOffsets[firstSegEndRecord];
     const firstSegStartOffset = prevOffsets[firstSegStartRecord];
     if (firstSegEndOffset === undefined || firstSegStartOffset === undefined) {
@@ -200,7 +215,9 @@ export function createSegmentedJSONLWriter(
       keepBytes: number;
       text: string;
     }
-    const plan: PlanEntry[] = [{ index: firstSeg, keepBytes: keepBytesInFirstSeg, text: "" }];
+    const plan: PlanEntry[] = [
+      { index: firstSeg, keepBytes: keepBytesInFirstSeg, text: "" },
+    ];
     const newSegStarts = prevSegStarts.slice(0, firstSeg + 1);
 
     let activeIndex = firstSeg;
@@ -232,7 +249,10 @@ export function createSegmentedJSONLWriter(
       const isFirst = entry.index === firstSeg;
       const existingBytes = isFirst ? prevFirstSegBytes : 0;
       const untouched =
-        isFirst && entry.text === "" && entry.keepBytes === existingBytes && state !== null;
+        isFirst &&
+        entry.text === "" &&
+        entry.keepBytes === existingBytes &&
+        state !== null;
       if (untouched) continue;
 
       const name = segmentFileName(baseName, entry.index);
@@ -254,13 +274,15 @@ export function createSegmentedJSONLWriter(
           // the in-memory records that belong in this segment, then append
           // the planned text (the post-prefix lines for this segment).
           const keptRecords = records.slice(firstSegStartRecord, prefix);
-          const fullText = keptRecords.map((r) => lineFor(r)).join("") + entry.text;
+          const fullText =
+            keptRecords.map((r) => lineFor(r)).join("") + entry.text;
           await fs.promises.writeFile(full, fullText);
         } else {
           const handle = await fs.promises.open(full, "r+");
           try {
             await handle.truncate(entry.keepBytes);
-            if (entry.text.length > 0) await handle.write(entry.text, entry.keepBytes);
+            if (entry.text.length > 0)
+              await handle.write(entry.text, entry.keepBytes);
           } finally {
             await handle.close();
           }

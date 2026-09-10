@@ -26,7 +26,8 @@ import type { PermissionRequest } from "../permission/types.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "approval-resume"]);
 
-export const APPROVAL_DROPPED_NOTICE = "Approval dropped because the session changed.";
+export const APPROVAL_DROPPED_NOTICE =
+  "Approval dropped because the session changed.";
 
 const ApprovalSnapshotShape = type({
   name: "string",
@@ -62,7 +63,8 @@ export function requestFromApprovalSnapshot(
   const [request] = buildRequests(call);
   if (request === undefined) return null;
   const anySecret =
-    request.tool === "run_shell" && commandReferencesSensitivePath(request.subject) !== undefined;
+    request.tool === "run_shell" &&
+    commandReferencesSensitivePath(request.subject) !== undefined;
   return anySecret ? { ...request, scopes: [] } : request;
 }
 
@@ -82,7 +84,8 @@ function settledAfterSuspend(
       (block) =>
         block.type === "tool_result" &&
         block.content.some(
-          (part) => part.type === "text" && part.text === APPROVAL_TIMEOUT_RESULT_TEXT,
+          (part) =>
+            part.type === "text" && part.text === APPROVAL_TIMEOUT_RESULT_TEXT,
         ),
     );
 }
@@ -92,7 +95,9 @@ function decisionMessage(
   outcome: "approved" | "rejected",
   message?: string,
 ) {
-  const body: { outcome: "approved" | "rejected"; message?: string } = { outcome };
+  const body: { outcome: "approved" | "rejected"; message?: string } = {
+    outcome,
+  };
   if (message !== undefined && message.length > 0) body.message = message;
   return {
     ref: { uid: 0, mailbox: "approval" },
@@ -116,7 +121,10 @@ export function createApprovalResume(args: {
   getAgent: () => Pick<Agent, "deliver" | "history"> | undefined;
   // TUI session queue. When present, each decision is awaited through this
   // seam; exec omits it and uses getAgent().deliver.
-  deliver?: (message: InboundMessage, stillCurrent: () => boolean) => void | Promise<void>;
+  deliver?: (
+    message: InboundMessage,
+    stillCurrent: () => boolean,
+  ) => void | Promise<void>;
   // TUI: capture at handle() start so interrupt, /clear, or /new during the
   // overlay aborts the gate and drops the decision. Exec omits this.
   captureGeneration?: () => () => boolean;
@@ -149,7 +157,9 @@ export function createApprovalResume(args: {
       const cancelParked = (): void => {
         if (cancelled) return;
         cancelled = true;
-        parkedAgent.deliver(decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE));
+        parkedAgent.deliver(
+          decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE),
+        );
       };
       args.registerParkedCancel?.(cancelParked);
 
@@ -159,7 +169,9 @@ export function createApprovalResume(args: {
       };
 
       try {
-        const deliverDecision = async (message: InboundMessage): Promise<void> => {
+        const deliverDecision = async (
+          message: InboundMessage,
+        ): Promise<void> => {
           if (!stillCurrent()) return;
           if (args.deliver !== undefined) {
             await args.deliver(message, stillCurrent);
@@ -183,16 +195,27 @@ export function createApprovalResume(args: {
           // gate.
           args.registerParkedCancel?.(undefined);
           await deliverDecision(
-            decisionMessage(correlationId, "rejected", "approval surface unavailable"),
+            decisionMessage(
+              correlationId,
+              "rejected",
+              "approval surface unavailable",
+            ),
           );
           return true;
         }
 
-        const request = requestFromApprovalSnapshot(approvalSnapshot, correlationId);
+        const request = requestFromApprovalSnapshot(
+          approvalSnapshot,
+          correlationId,
+        );
         if (request === null) {
           args.registerParkedCancel?.(undefined);
           await deliverDecision(
-            decisionMessage(correlationId, "rejected", "approval surface unavailable"),
+            decisionMessage(
+              correlationId,
+              "rejected",
+              "approval surface unavailable",
+            ),
           );
           return true;
         }
@@ -203,7 +226,9 @@ export function createApprovalResume(args: {
           return true;
         }
         args.registerParkedCancel?.(undefined);
-        if (settledAfterSuspend(await requireAgent().history(), turnsAtSuspend)) {
+        if (
+          settledAfterSuspend(await requireAgent().history(), turnsAtSuspend)
+        ) {
           // The reactor already answered the parked call (its approval timeout
           // fired while the surface was still up). Delivering now would append
           // the raw decision JSON as an uncorrelated user turn — drop and log.
@@ -211,7 +236,9 @@ export function createApprovalResume(args: {
           return true;
         }
         if (outcome === undefined || !outcome.allow) {
-          await deliverDecision(decisionMessage(correlationId, "rejected", outcome?.message));
+          await deliverDecision(
+            decisionMessage(correlationId, "rejected", outcome?.message),
+          );
           return true;
         }
         await deliverDecision(decisionMessage(correlationId, "approved"));

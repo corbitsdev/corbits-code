@@ -29,7 +29,10 @@ function toolContentTrimmed(result: ToolResult): string {
 
 describe("runGuardedShell", () => {
   test("captures stdout", async () => {
-    const { output, exitCode } = await runGuardedShell({ command: "echo hello" }, neverAbort());
+    const { output, exitCode } = await runGuardedShell(
+      { command: "echo hello" },
+      neverAbort(),
+    );
     expect(exitCode).toBe(0);
     expect(output).toContain("hello");
   });
@@ -50,7 +53,10 @@ describe("runGuardedShell", () => {
 
   test("merges settings.env into the spawn environment on top of process.env", async () => {
     const { output } = await runGuardedShell(
-      { command: "echo $CORBITS_TEST_ENV_VAR", env: { CORBITS_TEST_ENV_VAR: "from-settings" } },
+      {
+        command: "echo $CORBITS_TEST_ENV_VAR",
+        env: { CORBITS_TEST_ENV_VAR: "from-settings" },
+      },
       neverAbort(),
     );
     expect(output).toContain("from-settings");
@@ -81,7 +87,8 @@ describe("runGuardedShell", () => {
     const cap = 8_192;
     const { output, outputTruncated, exitCode } = await runGuardedShell(
       {
-        command: "python3 -c \"print('START' + 'a' * 20000 + 'END' + 'b' * 20000)\"",
+        command:
+          "python3 -c \"print('START' + 'a' * 20000 + 'END' + 'b' * 20000)\"",
         timeout: 5_000,
         maxOutputBytes: cap,
       },
@@ -140,7 +147,10 @@ describe("runGuardedShell", () => {
     const token = `ic_guard_abort_${randomUUID()}`;
     const cmd = `bash -c 'IC_GUARD_TAG=${token} sleep 600 & IC_GUARD_TAG=${token} exec sleep 600'`;
     const controller = new AbortController();
-    const promise = runGuardedShell({ command: cmd, timeout: 30_000 }, controller.signal);
+    const promise = runGuardedShell(
+      { command: cmd, timeout: 30_000 },
+      controller.signal,
+    );
     setTimeout(() => controller.abort(), 80);
     await expect(promise).rejects.toThrow(/aborted/);
     await new Promise((r) => setTimeout(r, 300));
@@ -151,7 +161,10 @@ describe("runGuardedShell", () => {
 
   test("abort kills the process group", async () => {
     const controller = new AbortController();
-    const promise = runGuardedShell({ command: "sleep 60", timeout: 30_000 }, controller.signal);
+    const promise = runGuardedShell(
+      { command: "sleep 60", timeout: 30_000 },
+      controller.signal,
+    );
     setTimeout(() => controller.abort(), 50);
     await expect(promise).rejects.toThrow(/aborted/);
   });
@@ -160,12 +173,16 @@ describe("runGuardedShell", () => {
 describe("resolveShellTimeoutMs", () => {
   test("omitted timeout with no default is undefined (no timer)", () => {
     expect(resolveShellTimeoutMs(undefined, undefined)).toBeUndefined();
-    expect(resolveShellTimeoutMs(undefined, undefined, undefined)).toBeUndefined();
+    expect(
+      resolveShellTimeoutMs(undefined, undefined, undefined),
+    ).toBeUndefined();
   });
 
   test("maxMs alone does not invent a timeout", () => {
     expect(resolveShellTimeoutMs(undefined, undefined, 100)).toBeUndefined();
-    expect(resolveShellTimeoutMs(undefined, undefined, 600_000)).toBeUndefined();
+    expect(
+      resolveShellTimeoutMs(undefined, undefined, 600_000),
+    ).toBeUndefined();
   });
 
   test("non-positive requested timeout falls back to default when set", () => {
@@ -180,7 +197,9 @@ describe("resolveShellTimeoutMs", () => {
 
   test("requested timeout well above 10 minutes is not clamped when maxMs is omitted", () => {
     expect(resolveShellTimeoutMs(5_400_000, undefined)).toBe(5_400_000);
-    expect(resolveShellTimeoutMs(5_400_000, undefined, undefined)).toBe(5_400_000);
+    expect(resolveShellTimeoutMs(5_400_000, undefined, undefined)).toBe(
+      5_400_000,
+    );
     expect(resolveShellTimeoutMs(900_000, 15_000)).toBe(900_000);
   });
 
@@ -205,13 +224,22 @@ describe("background run_shell (shellGuardPlugin)", () => {
     content: "FALLBACK",
   });
 
-  function handlerWith(registry?: ReturnType<typeof createBackgroundShellRegistry>) {
-    return defined(shellGuardPlugin(process.cwd(), undefined, undefined, {
-      ...(registry !== undefined ? { getBackgroundShellRegistry: () => registry } : {}),
-    }).middleware)(fallback);
+  function handlerWith(
+    registry?: ReturnType<typeof createBackgroundShellRegistry>,
+  ) {
+    return defined(
+      shellGuardPlugin(process.cwd(), undefined, undefined, {
+        ...(registry !== undefined
+          ? { getBackgroundShellRegistry: () => registry }
+          : {}),
+      }).middleware,
+    )(fallback);
   }
 
-  function runWith(registry: ReturnType<typeof createBackgroundShellRegistry>, call: ToolCall) {
+  function runWith(
+    registry: ReturnType<typeof createBackgroundShellRegistry>,
+    call: ToolCall,
+  ) {
     return handlerWith(registry)(call, neverAbort());
   }
 
@@ -224,7 +252,10 @@ describe("background run_shell (shellGuardPlugin)", () => {
       arguments: { command: "sleep 0.5; echo finished", background: true },
     });
     expect(result.isError).toBeUndefined();
-    const parsed = JSON.parse(String(result.content)) as { shell_id: string; status: string };
+    const parsed = JSON.parse(String(result.content)) as {
+      shell_id: string;
+      status: string;
+    };
     expect(parsed.status).toBe("running");
     expect(parsed.shell_id.length).toBeGreaterThan(0);
     // The START call resolved while the child was still sleeping.
@@ -236,7 +267,11 @@ describe("background run_shell (shellGuardPlugin)", () => {
 
   test("without a registry wired, background fails closed and spawns nothing", async () => {
     const result = await handlerWith(undefined)(
-      { id: "bg2", name: "run_shell", arguments: { command: "echo hi", background: true } },
+      {
+        id: "bg2",
+        name: "run_shell",
+        arguments: { command: "echo hi", background: true },
+      },
       neverAbort(),
     );
     expect(result.isError).toBe(true);
@@ -247,7 +282,11 @@ describe("background run_shell (shellGuardPlugin)", () => {
     const registry = createBackgroundShellRegistry();
     const handler = handlerWith(registry);
     await handler(
-      { id: "bg3", name: "run_shell", arguments: { command: "cd /", background: true } },
+      {
+        id: "bg3",
+        name: "run_shell",
+        arguments: { command: "cd /", background: true },
+      },
       neverAbort(),
     );
     const after = await handler(
@@ -293,7 +332,10 @@ describe("advertiseShellGuardTimeout", () => {
       120_000,
     );
     const timeout = (
-      rewritten.inputSchema["properties"] as Record<string, { description: string }>
+      rewritten.inputSchema["properties"] as Record<
+        string,
+        { description: string }
+      >
     )["timeout"];
     expect(timeout?.description).toContain("120000");
     expect(timeout?.description).not.toContain("30000");
@@ -316,7 +358,10 @@ describe("advertiseShellGuardTimeout", () => {
       },
     });
     const timeout = (
-      rewritten.inputSchema["properties"] as Record<string, { description: string }>
+      rewritten.inputSchema["properties"] as Record<
+        string,
+        { description: string }
+      >
     )["timeout"];
     expect(timeout?.description).toMatch(/no default|omit/i);
     expect(timeout?.description).not.toContain("30000");
@@ -343,11 +388,16 @@ describe("advertiseShellGuardTimeout", () => {
       },
     });
     const background = (
-      rewritten.inputSchema["properties"] as Record<string, { description: string }>
+      rewritten.inputSchema["properties"] as Record<
+        string,
+        { description: string }
+      >
     )["background"];
     expect(background).toBeDefined();
     expect(background?.description).toContain("shell_collect");
-    expect(background?.description).toMatch(/does not change the retained shell cwd/i);
+    expect(background?.description).toMatch(
+      /does not change the retained shell cwd/i,
+    );
   });
 });
 
@@ -358,7 +408,9 @@ describe("shellGuardPlugin", () => {
   });
 
   function run(call: ToolCall): Promise<ToolResult> {
-    const handler = defined(shellGuardPlugin(process.cwd()).middleware)(fallback);
+    const handler = defined(shellGuardPlugin(process.cwd()).middleware)(
+      fallback,
+    );
     return handler(call, neverAbort());
   }
 
@@ -373,11 +425,17 @@ describe("shellGuardPlugin", () => {
   });
 
   test("plugin-level env is applied to run_shell's spawn environment", async () => {
-    const handler = defined(shellGuardPlugin(process.cwd(), undefined, {
-      CORBITS_TEST_ENV_VAR: "plugin-env",
-    }).middleware)(fallback);
+    const handler = defined(
+      shellGuardPlugin(process.cwd(), undefined, {
+        CORBITS_TEST_ENV_VAR: "plugin-env",
+      }).middleware,
+    )(fallback);
     const result = await handler(
-      { id: "c-env", name: "run_shell", arguments: { command: "echo $CORBITS_TEST_ENV_VAR" } },
+      {
+        id: "c-env",
+        name: "run_shell",
+        arguments: { command: "echo $CORBITS_TEST_ENV_VAR" },
+      },
       neverAbort(),
     );
     expect(result.content).toContain("plugin-env");
@@ -395,16 +453,24 @@ describe("shellGuardPlugin", () => {
   });
 
   test("clamps a per-command timeout override to the configured max", async () => {
-    const handler = defined(shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware)(fallback);
+    const handler = defined(
+      shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware,
+    )(fallback);
     const result = await handler(
-      { id: "c2b", name: "run_shell", arguments: { command: "sleep 60", timeout: 900_000 } },
+      {
+        id: "c2b",
+        name: "run_shell",
+        arguments: { command: "sleep 60", timeout: 900_000 },
+      },
       neverAbort(),
     );
     expect(result.content).toMatch(/timed out after 100ms/);
   });
 
   test("applies a configured default timeout when none is passed", async () => {
-    const handler = defined(shellGuardPlugin(process.cwd(), { defaultMs: 90 }).middleware)(fallback);
+    const handler = defined(
+      shellGuardPlugin(process.cwd(), { defaultMs: 90 }).middleware,
+    )(fallback);
     const result = await handler(
       { id: "c2c", name: "run_shell", arguments: { command: "sleep 60" } },
       neverAbort(),
@@ -413,9 +479,15 @@ describe("shellGuardPlugin", () => {
   });
 
   test("omitted timeout with no settings default does not time out", async () => {
-    const handler = defined(shellGuardPlugin(process.cwd()).middleware)(fallback);
+    const handler = defined(shellGuardPlugin(process.cwd()).middleware)(
+      fallback,
+    );
     const result = await handler(
-      { id: "c2d", name: "run_shell", arguments: { command: "sleep 0.2; echo ok" } },
+      {
+        id: "c2d",
+        name: "run_shell",
+        arguments: { command: "sleep 0.2; echo ok" },
+      },
       neverAbort(),
     );
     expect(result.content).toContain("ok");
@@ -423,9 +495,15 @@ describe("shellGuardPlugin", () => {
   });
 
   test("maxMs alone does not invent a timeout when the model omits timeout", async () => {
-    const handler = defined(shellGuardPlugin(process.cwd(), { maxMs: 50 }).middleware)(fallback);
+    const handler = defined(
+      shellGuardPlugin(process.cwd(), { maxMs: 50 }).middleware,
+    )(fallback);
     const result = await handler(
-      { id: "c2e", name: "run_shell", arguments: { command: "sleep 0.2; echo ok" } },
+      {
+        id: "c2e",
+        name: "run_shell",
+        arguments: { command: "sleep 0.2; echo ok" },
+      },
       neverAbort(),
     );
     expect(result.content).toContain("ok");
@@ -448,7 +526,9 @@ describe("shellGuardPlugin", () => {
         "     1\tpartial\n\nread_file [timed out before completing] for big.log — use a smaller offset/limit. This is not an empty file.",
       isError: true,
     });
-    const handler = defined(shellGuardPlugin(process.cwd()).middleware)(stockTimeout);
+    const handler = defined(shellGuardPlugin(process.cwd()).middleware)(
+      stockTimeout,
+    );
     const result = await handler(
       { id: "c3b", name: "read_file", arguments: { path: "big.log" } },
       neverAbort(),
@@ -460,9 +540,15 @@ describe("shellGuardPlugin", () => {
 
   test("applies a search-tool budget via abort signal", async () => {
     let sawAbort = false;
-    const slow = async (_call: ToolCall, signal: AbortSignal): Promise<ToolResult> =>
+    const slow = async (
+      _call: ToolCall,
+      signal: AbortSignal,
+    ): Promise<ToolResult> =>
       new Promise((resolve) => {
-        const timer = setTimeout(() => resolve({ callId: "c4", content: "too-late" }), 5_000);
+        const timer = setTimeout(
+          () => resolve({ callId: "c4", content: "too-late" }),
+          5_000,
+        );
         signal.addEventListener(
           "abort",
           () => {
@@ -516,9 +602,11 @@ describe("shellGuardPlugin", () => {
   test("allowOutsideCwd getter allows retaining cwd outside the session workspace", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-escape-cwd-yolo-"));
     let allow = false;
-    const handler = defined(shellGuardPlugin(root, undefined, undefined, {
-      allowOutsideCwd: () => allow,
-    }).middleware)(fallback);
+    const handler = defined(
+      shellGuardPlugin(root, undefined, undefined, {
+        allowOutsideCwd: () => allow,
+      }).middleware,
+    )(fallback);
     const blocked = await handler(
       { id: "e1", name: "run_shell", arguments: { command: "cd .. && pwd" } },
       neverAbort(),
@@ -541,7 +629,11 @@ describe("shellGuardPlugin", () => {
     await mkdir(nested);
     const handler = defined(shellGuardPlugin(root).middleware)(fallback);
     const fail = await handler(
-      { id: "cf1", name: "run_shell", arguments: { command: "cd nested && false" } },
+      {
+        id: "cf1",
+        name: "run_shell",
+        arguments: { command: "cd nested && false" },
+      },
       neverAbort(),
     );
     expect(String(fail.content)).toMatch(/exit code/);
@@ -602,8 +694,14 @@ describe("shellGuardPlugin", () => {
     await mkdir(b);
     const handlerA = defined(shellGuardPlugin(root).middleware)(fallback);
     const handlerB = defined(shellGuardPlugin(root).middleware)(fallback);
-    await handlerA({ id: "ia", name: "run_shell", arguments: { command: "cd a" } }, neverAbort());
-    await handlerB({ id: "ib", name: "run_shell", arguments: { command: "cd b" } }, neverAbort());
+    await handlerA(
+      { id: "ia", name: "run_shell", arguments: { command: "cd a" } },
+      neverAbort(),
+    );
+    await handlerB(
+      { id: "ib", name: "run_shell", arguments: { command: "cd b" } },
+      neverAbort(),
+    );
     const pwdA = await handlerA(
       { id: "pa", name: "run_shell", arguments: { command: "pwd" } },
       neverAbort(),
@@ -655,11 +753,19 @@ describe("shellGuardPlugin", () => {
     const handler = defined(shellGuardPlugin(root).middleware)(fallback);
     await Promise.all([
       handler(
-        { id: "f1", name: "run_shell", arguments: { command: `cd ${JSON.stringify(a)}` } },
+        {
+          id: "f1",
+          name: "run_shell",
+          arguments: { command: `cd ${JSON.stringify(a)}` },
+        },
         neverAbort(),
       ),
       handler(
-        { id: "f2", name: "run_shell", arguments: { command: `cd ${JSON.stringify(b)}` } },
+        {
+          id: "f2",
+          name: "run_shell",
+          arguments: { command: `cd ${JSON.stringify(b)}` },
+        },
         neverAbort(),
       ),
     ]);
@@ -722,11 +828,15 @@ describe("shellGuardPlugin", () => {
   });
 
   test("treats timeout 0 as the configured default", async () => {
-    const handler = defined(shellGuardPlugin(process.cwd(), { defaultMs: 90, maxMs: 100 }).middleware)(
-      fallback,
-    );
+    const handler = defined(
+      shellGuardPlugin(process.cwd(), { defaultMs: 90, maxMs: 100 }).middleware,
+    )(fallback);
     const result = await handler(
-      { id: "tz", name: "run_shell", arguments: { command: "sleep 60", timeout: 0 } },
+      {
+        id: "tz",
+        name: "run_shell",
+        arguments: { command: "sleep 60", timeout: 0 },
+      },
       neverAbort(),
     );
     expect(result.content).toMatch(/timed out after 90ms/);
@@ -736,7 +846,8 @@ describe("shellGuardPlugin", () => {
     // Reproduces the non-abortable fallback grep: next() never settles and never
     // observes the abort. The guard must stop waiting once the budget fires
     // instead of awaiting the walk forever.
-    const hangs = (): Promise<ToolResult> => new Promise<ToolResult>(() => undefined);
+    const hangs = (): Promise<ToolResult> =>
+      new Promise<ToolResult>(() => undefined);
     const plugin = shellGuardPlugin(process.cwd());
     const controller = new AbortController();
     const handler = defined(plugin.middleware)(hangs);
@@ -767,9 +878,11 @@ describe("shellGuardPlugin", () => {
         if ((probe.stdout?.trim() ?? "").length > 0) break;
         await new Promise((r) => setTimeout(r, 50));
       }
-      expect(spawnSync("pgrep", ["-f", token], { encoding: "utf8" }).stdout?.trim() ?? "").not.toBe(
-        "",
-      );
+      expect(
+        spawnSync("pgrep", ["-f", token], {
+          encoding: "utf8",
+        }).stdout?.trim() ?? "",
+      ).not.toBe("");
       expect(plugin.dispose).toBeDefined();
       await defined(plugin.dispose)();
       await new Promise((r) => setTimeout(r, 300));
@@ -805,7 +918,9 @@ describe("shellGuardPlugin", () => {
         await new Promise((r) => setTimeout(r, 50));
       }
       expect(
-        spawnSync("pgrep", ["-f", token1], { encoding: "utf8" }).stdout?.trim() ?? "",
+        spawnSync("pgrep", ["-f", token1], {
+          encoding: "utf8",
+        }).stdout?.trim() ?? "",
       ).not.toBe("");
 
       const queued = handler(
@@ -829,9 +944,13 @@ describe("shellGuardPlugin", () => {
       await new Promise((r) => setTimeout(r, 200));
 
       const leftover1 =
-        spawnSync("pgrep", ["-f", token1], { encoding: "utf8" }).stdout?.trim() ?? "";
+        spawnSync("pgrep", ["-f", token1], {
+          encoding: "utf8",
+        }).stdout?.trim() ?? "";
       const leftover2 =
-        spawnSync("pgrep", ["-f", token2], { encoding: "utf8" }).stdout?.trim() ?? "";
+        spawnSync("pgrep", ["-f", token2], {
+          encoding: "utf8",
+        }).stdout?.trim() ?? "";
       expect(leftover1).toBe("");
       expect(leftover2).toBe("");
       if (leftover2.length > 0) {

@@ -52,7 +52,10 @@ export type FlushPerfToOtelOptions = FlushToOtelOptions & {
 
 /** OTLP JSON attribute value (subset we emit). */
 export type OtlpAnyValue =
-  { stringValue: string } | { intValue: string } | { doubleValue: number } | { boolValue: boolean };
+  | { stringValue: string }
+  | { intValue: string }
+  | { doubleValue: number }
+  | { boolValue: boolean };
 
 export interface OtlpKeyValue {
   key: string;
@@ -89,7 +92,10 @@ function defaultWallAnchor(): { monoNs: bigint; unixNs: bigint } {
 }
 
 /** Convert monotonic ns to unix epoch ns using a shared wall/mono anchor. */
-export function monoToUnixNano(monoNs: bigint, anchor: { monoNs: bigint; unixNs: bigint }): bigint {
+export function monoToUnixNano(
+  monoNs: bigint,
+  anchor: { monoNs: bigint; unixNs: bigint },
+): bigint {
   return anchor.unixNs + (monoNs - anchor.monoNs);
 }
 
@@ -98,7 +104,10 @@ export function monoToUnixNano(monoNs: bigint, anchor: { monoNs: bigint; unixNs:
  * Must be non-all-zero; hash guarantees a full 64-bit space.
  */
 export function otelSpanId(perfId: string): string {
-  return createHash("sha256").update(`span:${perfId}`).digest("hex").slice(0, 16);
+  return createHash("sha256")
+    .update(`span:${perfId}`)
+    .digest("hex")
+    .slice(0, 16);
 }
 
 export function newOtelTraceId(): string {
@@ -115,7 +124,9 @@ export function otlpTracesUrl(endpoint: string): string {
   return `${base}/v1/traces`;
 }
 
-export function tagsToOtlpAttributes(tags: PerfSpan["tags"] | undefined): OtlpKeyValue[] {
+export function tagsToOtlpAttributes(
+  tags: PerfSpan["tags"] | undefined,
+): OtlpKeyValue[] {
   // Defense in depth: re-sanitize even though start/end/mark already did.
   const safe = sanitizeTags(tags as Record<string, unknown> | undefined);
   if (safe === undefined) return [];
@@ -148,7 +159,10 @@ function resourceAttributes(config: EnabledOtelExportConfig): OtlpKeyValue[] {
   }
   // service.name is guaranteed by resolveOtelExportConfig, but keep explicit.
   if (!attrs.some((a) => a.key === "service.name")) {
-    attrs.push({ key: "service.name", value: { stringValue: config.serviceName } });
+    attrs.push({
+      key: "service.name",
+      value: { stringValue: config.serviceName },
+    });
   }
   attrs.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return attrs;
@@ -174,7 +188,8 @@ export function buildOtlpPayload(
     const endUnix = monoToUnixNano(endMono, anchor);
     // Guard inverted times if clock anchor is weird in tests.
     const startTimeUnixNano = startUnix <= endUnix ? startUnix : endUnix;
-    const endTimeUnixNano = endUnix >= startTimeUnixNano ? endUnix : startTimeUnixNano;
+    const endTimeUnixNano =
+      endUnix >= startTimeUnixNano ? endUnix : startTimeUnixNano;
 
     const otlp: OtlpSpan = {
       traceId,

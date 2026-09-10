@@ -37,7 +37,9 @@ describe("background shell through the agent toolset", () => {
         new AbortController().signal,
       );
       expect(started.isError).not.toBe(true);
-      const parsed = JSON.parse(String(started.content)) as { shell_id: string };
+      const parsed = JSON.parse(String(started.content)) as {
+        shell_id: string;
+      };
       const snapshotNow = await toolset.dynamicRunner.run(
         {
           id: "bg-collect",
@@ -46,12 +48,18 @@ describe("background shell through the agent toolset", () => {
         },
         new AbortController().signal,
       );
-      expect(JSON.parse(String(snapshotNow.content))).toMatchObject({ status: "running" });
+      expect(JSON.parse(String(snapshotNow.content))).toMatchObject({
+        status: "running",
+      });
       const final = await toolset.dynamicRunner.run(
         {
           id: "bg-collect2",
           name: "shell_collect",
-          arguments: { shell_id: parsed.shell_id, action: "collect", wait_ms: 5_000 },
+          arguments: {
+            shell_id: parsed.shell_id,
+            action: "collect",
+            wait_ms: 5_000,
+          },
         },
         new AbortController().signal,
       );
@@ -66,7 +74,9 @@ describe("background shell through the agent toolset", () => {
       expect(exits).toHaveLength(1);
       expect(defined(exits[0]).id).toBe(parsed.shell_id);
       const message = buildShellBackgroundMessage(defined(exits[0]));
-      expect(message.headers.messageId).toBe(`bg-shell-${parsed.shell_id}@local`);
+      expect(message.headers.messageId).toBe(
+        `bg-shell-${parsed.shell_id}@local`,
+      );
       expect(message.ref.mailbox).toBe("system");
       expect(message.flags).not.toContain(OPERATOR_ORIGINATED_FLAG);
       expect(message.content).toContain("exit code 0");
@@ -95,7 +105,9 @@ describe("background shell through the agent toolset", () => {
         },
         new AbortController().signal,
       );
-      const { shell_id } = JSON.parse(String(started.content)) as { shell_id: string };
+      const { shell_id } = JSON.parse(String(started.content)) as {
+        shell_id: string;
+      };
       const cancelled = await toolset.dynamicRunner.run(
         {
           id: "c-cancel",
@@ -104,7 +116,9 @@ describe("background shell through the agent toolset", () => {
         },
         new AbortController().signal,
       );
-      expect(JSON.parse(String(cancelled.content))).toMatchObject({ status: "cancelling" });
+      expect(JSON.parse(String(cancelled.content))).toMatchObject({
+        status: "cancelling",
+      });
       await new Promise((r) => setTimeout(r, 300));
       const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
       expect(probe.stdout?.trim() ?? "").toBe("");

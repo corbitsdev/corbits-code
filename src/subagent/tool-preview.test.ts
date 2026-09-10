@@ -4,14 +4,20 @@ import { defined } from "../../tests/helpers/defined.js";
 
 describe("toolCallPreview", () => {
   test("a shell call's subject is the command, not the tool name", () => {
-    expect(toolCallPreview("run_shell", JSON.stringify({ command: "bun test ./src" }))).toBe(
-      "bun test ./src",
-    );
+    expect(
+      toolCallPreview(
+        "run_shell",
+        JSON.stringify({ command: "bun test ./src" }),
+      ),
+    ).toBe("bun test ./src");
   });
 
   test("a file tool's subject is the path", () => {
     expect(
-      toolCallPreview("read_file", JSON.stringify({ path: "src/subagent/session-store.ts" })),
+      toolCallPreview(
+        "read_file",
+        JSON.stringify({ path: "src/subagent/session-store.ts" }),
+      ),
     ).toBe("src/subagent/session-store.ts");
   });
 
@@ -21,12 +27,17 @@ describe("toolCallPreview", () => {
 +Hello
 *** End Patch
 `;
-    expect(toolCallPreview("apply_patch", JSON.stringify({ input }))).toBe("hello.txt");
+    expect(toolCallPreview("apply_patch", JSON.stringify({ input }))).toBe(
+      "hello.txt",
+    );
   });
 
   test("grep shows the pattern", () => {
     expect(
-      toolCallPreview("grep", JSON.stringify({ pattern: "currentToolPreview", path: "src" })),
+      toolCallPreview(
+        "grep",
+        JSON.stringify({ pattern: "currentToolPreview", path: "src" }),
+      ),
     ).toBe("currentToolPreview");
   });
 
@@ -45,7 +56,9 @@ describe("toolCallPreview", () => {
   test("empty or unknown args degrade to null so the lane falls back to the tool name", () => {
     expect(toolCallPreview("run_shell", "")).toBeNull();
     expect(toolCallPreview("run_shell", "{}")).toBeNull();
-    expect(toolCallPreview("unknown_tool", JSON.stringify({ foo: 1 }))).toBeNull();
+    expect(
+      toolCallPreview("unknown_tool", JSON.stringify({ foo: 1 })),
+    ).toBeNull();
   });
 
   test("long subjects are hard-capped so they cannot shove other columns off the row", () => {
@@ -59,14 +72,19 @@ describe("toolCallPreview", () => {
 
   test("newlines collapse to a single-line subject", () => {
     expect(
-      toolCallPreview("run_shell", JSON.stringify({ command: "bun test\n  --filter agent" })),
+      toolCallPreview(
+        "run_shell",
+        JSON.stringify({ command: "bun test\n  --filter agent" }),
+      ),
     ).toBe("bun test --filter agent");
   });
 
   test("secret-shaped fragments are scrubbed before the subject leaves the helper", () => {
     const preview = toolCallPreview(
       "run_shell",
-      JSON.stringify({ command: "curl https://api.example.com/?api_key=supersecretvalue" }),
+      JSON.stringify({
+        command: "curl https://api.example.com/?api_key=supersecretvalue",
+      }),
     );
     expect(preview).not.toBeNull();
     expect(preview).not.toContain("supersecretvalue");

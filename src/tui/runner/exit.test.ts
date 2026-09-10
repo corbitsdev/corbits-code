@@ -6,7 +6,10 @@ import { defined } from "../../../tests/helpers/defined.js";
 import { finalizeTUIRun } from "./exit.js";
 import type { RunnerServices, RunnerState } from "./state.js";
 
-function stubQuit(args: { awaitTail: () => Promise<void>; shutdownRuntime: () => Promise<void> }): {
+function stubQuit(args: {
+  awaitTail: () => Promise<void>;
+  shutdownRuntime: () => Promise<void>;
+}): {
   state: RunnerState;
   services: RunnerServices;
 } {
@@ -98,7 +101,8 @@ describe("finalizeTUIRun quit order", () => {
     try {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(errorSpy).toHaveBeenCalled();
-      const logged = errorSpy.mock.calls as unknown as readonly (readonly unknown[])[];
+      const logged = errorSpy.mock
+        .calls as unknown as readonly (readonly unknown[])[];
       const first = logged[0];
       expect(first).toBeDefined();
       expect(String(first?.[0])).toMatch(/shutdown/i);

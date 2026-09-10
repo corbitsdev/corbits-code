@@ -8,15 +8,21 @@ describe("composePromptActionBarModelLabel", () => {
 
   test("includes profile before model and effort when set", () => {
     expect(
-      composePromptActionBarModelLabel({ profile: "work", model: "gpt-5", effort: "high" }),
+      composePromptActionBarModelLabel({
+        profile: "work",
+        model: "gpt-5",
+        effort: "high",
+      }),
     ).toBe("work · gpt-5 · high");
   });
 
   test("omits effort segment when absent or empty", () => {
-    expect(composePromptActionBarModelLabel({ model: "gpt-5", effort: "" })).toBe("gpt-5");
-    expect(composePromptActionBarModelLabel({ profile: "work", model: "gpt-5" })).toBe(
-      "work · gpt-5",
-    );
+    expect(
+      composePromptActionBarModelLabel({ model: "gpt-5", effort: "" }),
+    ).toBe("gpt-5");
+    expect(
+      composePromptActionBarModelLabel({ profile: "work", model: "gpt-5" }),
+    ).toBe("work · gpt-5");
   });
 
   test("shows profile alone when model and effort are absent", () => {
@@ -24,9 +30,13 @@ describe("composePromptActionBarModelLabel", () => {
   });
 
   test("omits empty model segment", () => {
-    expect(composePromptActionBarModelLabel({ profile: "work", model: "", effort: "high" })).toBe(
-      "work · high",
-    );
+    expect(
+      composePromptActionBarModelLabel({
+        profile: "work",
+        model: "",
+        effort: "high",
+      }),
+    ).toBe("work · high");
   });
 
   test("returns undefined when no segments apply", () => {
