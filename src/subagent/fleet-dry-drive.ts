@@ -68,10 +68,83 @@ function isPromiseLike(value: unknown): value is Promise<unknown> {
   return typeof value === "object" && value !== null && "then" in value;
 }
 
-function clipField(text: string | undefined): string | undefined {
+/** Session blob-store write; same shape as ContextStore.writeBlob. */
+export type FleetDryBlobWriter = (
+  key: string,
+  bytes: Uint8Array,
+  contentType: string,
+) => void | Promise<void>;
+
+/** Distinct from leisure `{callId}:full` so a reactor size-cap cannot clobber this spill. */
+export function fleetDrySpillKey(
+  agentId: string,
+  field: "report" | "error",
+): string {
+  return `fleet-dry:${agentId}:${field}`;
+}
+
+function truncationNotice(args: {
+  maxChars: number;
+  remaining: number;
+  fullLength: number;
+  uri?: string;
+}): string {
+  const { maxChars, remaining, fullLength, uri } = args;
+  if (uri === undefined) {
+    return (
+      `\n[output truncated at ${maxChars.toLocaleString()} chars — ` +
+      `${remaining.toLocaleString()} chars discarded, NOT retrievable ` +
+      `(no blob store is configured; re-running gives the same cut). ` +
+      `Use offset/limit or a narrower query.]`
+    );
+  }
+  return (
+    `\n[output truncated at ${maxChars.toLocaleString()} chars — ` +
+    `${remaining.toLocaleString()} more chars omitted here. The full result ` +
+    `(${fullLength.toLocaleString()} chars, text/plain) is saved at ${uri}` +
+    ` — use read_file with that URI (offset/limit supported) to see the rest.]`
+  );
+}
+
+function truncateWithReservedNotice(
+  text: string,
+  maxChars: number,
+  buildNotice: (keptLen: number) => string,
+): string {
+  let keptLen = maxChars;
+  for (let i = 0; i < 8; i++) {
+    const notice = buildNotice(keptLen);
+    const total = keptLen + notice.length;
+    if (total <= maxChars) return text.slice(0, keptLen) + notice;
+    keptLen -= total - maxChars;
+    if (keptLen < 0) keptLen = 0;
+  }
+  const notice = buildNotice(keptLen);
+  return (text.slice(0, keptLen) + notice).slice(0, maxChars);
+}
+
+function clipField(
+  text: string | undefined,
+  agentId: string,
+  field: "report" | "error",
+  writeBlob?: FleetDryBlobWriter,
+): string | undefined {
   if (text === undefined) return undefined;
   if (text.length <= FLEET_DRY_REPORT_CHARS) return text;
-  return `${text.slice(0, FLEET_DRY_REPORT_CHARS - 1).trimEnd()}…`;
+  let uri: string | undefined;
+  if (writeBlob !== undefined) {
+    const key = fleetDrySpillKey(agentId, field);
+    uri = `tool-output:///${key}`;
+    void writeBlob(key, new TextEncoder().encode(text), "text/plain");
+  }
+  return truncateWithReservedNotice(text, FLEET_DRY_REPORT_CHARS, (keptLen) =>
+    truncationNotice({
+      maxChars: FLEET_DRY_REPORT_CHARS,
+      remaining: text.length - keptLen,
+      fullLength: text.length,
+      ...(uri !== undefined ? { uri } : {}),
+    }),
+  );
 }
 
 export function projectMailboxRecord(
@@ -117,9 +190,20 @@ export function takeAndProjectMailboxRecord(
 
 function clipCollectedReport(
   report: CollectedWorkerReport,
+  writeBlob?: FleetDryBlobWriter,
 ): CollectedWorkerReport {
-  const clippedReport = clipField(report.report);
-  const clippedError = clipField(report.error);
+  const clippedReport = clipField(
+    report.report,
+    report.agent_id,
+    "report",
+    writeBlob,
+  );
+  const clippedError = clipField(
+    report.error,
+    report.agent_id,
+    "error",
+    writeBlob,
+  );
   return {
     ...report,
     ...(clippedReport !== undefined ? { report: clippedReport } : {}),
@@ -131,6 +215,7 @@ export function collectUncollectedTerminals(
   mailbox: FleetDryMailbox | undefined,
   lanes: readonly FleetDryLane[],
   consume: boolean,
+  writeBlob?: FleetDryBlobWriter,
 ): CollectedWorkerReport[] {
   if (mailbox === undefined) return [];
   const byId = new Map(lanes.map((lane) => [lane.id, lane]));
@@ -144,7 +229,7 @@ export function collectUncollectedTerminals(
       ? takeAndProjectMailboxRecord(mailbox, id, byId.get(id))
       : projectMailboxRecord(id, peeked, byId.get(id));
     if (projected === undefined) continue;
-    reports.push(clipCollectedReport(projected));
+    reports.push(clipCollectedReport(projected, writeBlob));
   }
   return reports;
 }
@@ -180,6 +265,7 @@ export function driveOpenTasksAfterFleetDry(args: {
   deferredDryEdge?: boolean;
   mailbox: FleetDryMailbox | undefined;
   lanes: readonly FleetDryLane[];
+  writeBlob?: FleetDryBlobWriter;
   beginSystemContinuation: (prompt: string) => void;
   send: (prompt: string) => unknown;
   onSendFailure?: () => void;
@@ -196,7 +282,12 @@ export function driveOpenTasksAfterFleetDry(args: {
   ) {
     return false;
   }
-  const reports = collectUncollectedTerminals(args.mailbox, args.lanes, false);
+  const reports = collectUncollectedTerminals(
+    args.mailbox,
+    args.lanes,
+    false,
+    args.writeBlob,
+  );
   const prompt = buildFleetDryContinuationPrompt(tasks, reports);
   const takeReports = (): void => {
     for (const report of reports) {

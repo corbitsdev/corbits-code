@@ -200,12 +200,19 @@ export function wirePostStartup(
   sessionBridge.setDryOpenTaskDriver(() => {
     const send = state.sendWithAttemptIdentity;
     if (send === undefined) return false;
+    const storage = state.currentStorage;
     return driveOpenTasksAfterFleetDry({
       deferredDryEdge: true,
       openTasks: services.directorHolder.instance?.getTasks() ?? [],
       parentProcessing: false,
       mailbox: services.toolset.fleetRecords,
       lanes: services.subAgentSessions.list(),
+      ...(storage !== null
+        ? {
+            writeBlob: (key, bytes, contentType) =>
+              storage.writeBlob(key, bytes, contentType),
+          }
+        : {}),
       beginSystemContinuation: (prompt) => {
         sessionBridge.beginSystemContinuation(prompt);
       },
