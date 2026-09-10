@@ -80,6 +80,7 @@
     "tar": "^7.5.1"
   },
   "dependencies": {
+    "@corbits/codex-provider": "github:corbitsdev/corbits-codex-provider",
     "@corbits/openai-responses": "github:corbitsdev/corbits-openai-responses",
     "@corbits/xai-provider": "github:corbitsdev/corbits-xai-provider",
     "@intx/agent": "workspace:*",
