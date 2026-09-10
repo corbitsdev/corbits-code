@@ -512,7 +512,7 @@ describe("disposeExecRuntime", () => {
     ).rejects.toThrow("plugin dispose failed");
   });
 
-  test("cancels every live worker with the close reason before the agent closes", async () => {
+  test("cancels every live worker with the close reason after toolset dispose", async () => {
     const store = createSubAgentSessionStore();
     const first = store.start({ description: "a", agentId: "w1", brief: "b" });
     const second = store.start({ description: "b", agentId: "w2", brief: "b" });
@@ -526,27 +526,29 @@ describe("disposeExecRuntime", () => {
       subAgentSessions: store,
     });
 
-    // Cancellation must precede teardown so no worker outlives the runtime.
-    expect(calls).toEqual(["cancel:first", "cancel:second", "agent", "toolset"]);
+    // Posix/toolset first so a hung close cannot skip reap; then cancel, then close.
+    expect(calls).toEqual(["toolset", "cancel:first", "cancel:second", "agent"]);
     expect(store.get(first.id)?.status).toBe("cancelled");
     expect(store.get(second.id)?.status).toBe("cancelled");
     expect(store.get(first.id)?.stopReason).toBe("cancelled — Session closed");
     expect(store.get(second.id)?.stopReason).toBe("cancelled — Session closed");
   });
 
-  test("a failing agent close still disposes the toolset and resolves", async () => {
+  test("a failing agent close still disposes the toolset and rejects", async () => {
     const store = createSubAgentSessionStore();
     const worker = store.start({ description: "bg", agentId: "w", brief: "b" });
     store.registerCancel(worker.id, () => undefined);
 
     let disposed = 0;
-    await disposeExecRuntime({
-      agent: {
-        close: () => Promise.reject(new Error("close exploded")),
-      },
-      toolset: { dispose: async () => void (disposed += 1) },
-      subAgentSessions: store,
-    });
+    await expect(
+      disposeExecRuntime({
+        agent: {
+          close: () => Promise.reject(new Error("close exploded")),
+        },
+        toolset: { dispose: async () => void (disposed += 1) },
+        subAgentSessions: store,
+      }),
+    ).rejects.toThrow("close exploded");
 
     expect(store.get(worker.id)?.status).toBe("cancelled");
     expect(disposed).toBe(1);
