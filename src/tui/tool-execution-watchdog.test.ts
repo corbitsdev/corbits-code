@@ -64,6 +64,32 @@ describe("tool execution watchdog", () => {
     ).toBeUndefined();
   });
 
+  test("background run_shell start is exempt; foreground arms requested+slack", () => {
+    const background = {
+      id: "1",
+      name: "run_shell",
+      arguments: { command: "sleep 60", timeout: 5_000, background: true },
+    };
+    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, background)).toBeUndefined();
+    const foreground = {
+      id: "2",
+      name: "run_shell",
+      arguments: { command: "sleep 60", timeout: 5_000 },
+    };
+    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, foreground)).toBe(
+      5_000 + RUN_SHELL_WATCHDOG_SLACK_MS,
+    );
+  });
+
+  test("shell_collect is exempt from the settings watchdog", () => {
+    const call = {
+      id: "1",
+      name: "shell_collect",
+      arguments: { shell_id: "x", action: "collect", wait_ms: 4_000 },
+    };
+    expect(resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call)).toBeUndefined();
+  });
+
   test("ask_director with no settings timeout is unbounded", () => {
     expect(
       resolveToolExecutionTimeoutMs(undefined, { id: "1", name: "ask_director", arguments: {} }),

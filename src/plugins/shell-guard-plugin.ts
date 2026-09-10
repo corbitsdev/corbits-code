@@ -1,6 +1,7 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import type { ToolPlugin } from "@intx/tools-posix";
+import { killProcessTree, type BackgroundShellRegistry } from "../shell/background-shell.js";
 import { formatSearchTimeoutMessage, TIMEOUT_PREFIX } from "./tool-time-budget.js";
 import { BUDGET_EXPIRED, budgetExpiry, withTimeout } from "../util/budget-race.js";
 import type { ToolDefinition } from "@intx/types/runtime";
@@ -81,6 +82,13 @@ export function advertiseShellGuardTimeout(
         "Optional working directory for this call only (does not change the session shell cwd retained across calls)",
     };
   }
+  nextProperties["background"] = {
+    type: "boolean",
+    description:
+      "Set true to run without holding the turn open (prefer this for builds, test suites, and dev servers). " +
+      "Returns a shell_id immediately; the exit status and output are delivered when the process finishes. " +
+      "Use shell_collect to collect or cancel. Does not change the retained shell cwd.",
+  };
   return {
     ...definition,
     inputSchema: {
@@ -196,25 +204,6 @@ export class BoundedShellOutput {
       output: this.head.toString("utf8") + marker + tail.toString("utf8"),
       truncated: true,
     };
-  }
-}
-
-function killProcessTree(child: ChildProcess): void {
-  if (child.pid === undefined) return;
-  try {
-    if (process.platform === "win32") {
-      child.kill("SIGKILL");
-    } else {
-      // Negative PID signals the whole process group. With detached:true the
-      // shell is the group leader, so grandchildren (find, grep, …) die too.
-      process.kill(-child.pid, "SIGKILL");
-    }
-  } catch {
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // already exited
-    }
   }
 }
 
@@ -336,6 +325,9 @@ export interface ShellGuardPluginOptions {
   // outside the session root. A getter is resolved per call so `/yolo`
   // mid-session takes effect without rebuilding the plugin stack.
   allowOutsideCwd?: boolean | (() => boolean);
+  // Live getter for the background-shell registry. Unwired (undefined result)
+  // makes `background: true` fail closed: nothing spawns, no handle returns.
+  getBackgroundShellRegistry?: () => BackgroundShellRegistry | undefined;
 }
 
 function resolveAllowOutsideCwd(value: boolean | (() => boolean) | undefined): boolean {
@@ -412,6 +404,33 @@ export function shellGuardPlugin(
             defaultMs,
             timeoutConfig?.maxMs,
           );
+          if (call.arguments.background === true) {
+            const registry = options.getBackgroundShellRegistry?.();
+            if (registry === undefined) {
+              return {
+                callId: call.id,
+                content: "background shell is not available in this session",
+                isError: true,
+              };
+            }
+            const started = registry.start({
+              command,
+              cwd: executionCwd,
+              ...(effectiveTimeout !== undefined ? { timeoutMs: effectiveTimeout } : {}),
+              maxOutputBytes,
+              ...(env !== undefined ? { env } : {}),
+            });
+            if ("error" in started) {
+              return { callId: call.id, content: started.error, isError: true };
+            }
+            // No pwd probe and no retained-cwd mutation: the background shell
+            // never runs in the foreground shell's session, so a `cd` inside it
+            // affects only its own process.
+            return {
+              callId: call.id,
+              content: JSON.stringify({ shell_id: started.id, status: "running" }),
+            };
+          }
           const wrappedCommand = wrapCommandWithPwdProbe(command);
           try {
             const { output, exitCode, timedOut, outputTruncated } = await runGuardedShell(

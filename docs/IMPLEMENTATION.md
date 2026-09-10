@@ -118,6 +118,7 @@ src/
     permission-plugin.ts       Tiered operator approval
   shell/
     run-shell-authz.ts         Shared run_shell deny policy (authz + permission)
+    background-shell.ts        Background run_shell registry (start/collect/cancel/disposeAll)
     verify-plugin.ts           Write/edit verification (per-path lock)
     file-mutation-lock.ts      Serialize mutations per file for verify
     lsp-hint-plugin.ts         TS/JS LSP setup hint on unavailable server
@@ -185,7 +186,12 @@ Unmatched shell auto-allows, including contained non-force `git worktree add`/`r
 
 `ChatInputProps` carries `isProcessing?: boolean` and `onInterrupt?: (message: string) => void`. When `isProcessing` is true, drain timing is **parent-idle** vs **session-idle**:
 
-- **Enter** soft-steers while the parent is busy — enqueues kind `"steer"` and delivers at the next **parent** `tool.boundary` (the parent tool finishing, not a child). Does not interrupt. **Parent-idle** is when the primary Skywalker turn is not inside an in-flight parent tool; a long parent `run_shell` or awaiting `wait_agents` is parent-busy and holds steers.
+- **Enter** soft-steers while the parent is busy — enqueues kind `"steer"` and delivers at the next **parent** `tool.boundary` (the parent tool finishing, not a child). Does not interrupt. **Parent-idle** is when the primary Skywalker turn is not inside an in-flight parent tool; a long parent **foreground** `run_shell` or awaiting `wait_agents` is parent-busy and holds steers. A `run_shell` started with `background: true` returns at once and releases the boundary; its completion is delivered as a system message (`buildShellBackgroundMessage`, mailbox `system`, no operator-originated flag — it re-enters the reactor without counting as operator input) on a later turn.
+
+#### Background shell mode
+
+`run_shell` accepts `background: true` (shell-guard plugin, after the permission chain — a denied command spawns nothing). The starting call resolves `cwd`/`timeout` as usual, skips the pwd probe, spawns a detached process group via the registry in `src/shell/background-shell.ts`, and returns `{shell_id, status: "running"}` immediately; the retained shell cwd is never mutated by a background run. Limits: 8 running, 8 completed entries (ring; evicted ids collect as not-found — truncated output is spilled to a `tool-output:///bg-shell-<id>` blob named in the completion message). On process exit the host delivers `buildShellBackgroundMessage(exit)` (exit status, timed-out marker, ~2KB output preview, spill URI) through the same continuation channel as compaction — wired in all three loop hosts (TUI, exec, sub-agent). `shell_collect` (`{shell_id, action: "collect"|"cancel", wait_ms?}`, default non-blocking) retrieves status/output or kills the process group; it is ungated by design (cancel only kills the session's own child). Timeout keeps its meaning: expiry kills the group and reports exit code 124 with `timed_out: true`. The tool watchdog exempts background starts and `shell_collect` (same list as `spawn_agent`/`wait_agents`). Toolset dispose calls `disposeAll("session closed")` before the posix teardown, so `/clear`, interrupt, and reload kill every live background process group.
+
 - **Alt+Enter** queues a follow-up (kind `"queue"`) delivered only on **session-idle** — parent-idle **and** no live fleet lanes (`run` goes idle). Session-idle Alt+Enter is a no-op. **Ctrl+C** stops the run.
 
 Idle-with-fleet is shipped: after a non-blocking `spawn_agent` dispatch the parent turn can settle while workers keep running. The runner emits a `fleet` event carrying the live-lane count; the bridge holds the run busy on that count, so mid-hold Enter upgrades to a new primary turn (sent immediately) instead of queueing a steer, follow-ups keep waiting for true session-idle, and any steer left pending at the hold's engagement delivers immediately — the parent it was steering has already stopped.
@@ -250,7 +256,7 @@ Provider and model configuration lives in JSON settings files. The global file h
   }
   ```
 
-  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. Fleet wait tools are exempt: a dispatched sub-agent is bounded by stall, opt-in `deadlineMs`, and operator cancel, not the generic per-tool budget.
+  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. Fleet wait tools are exempt: a dispatched sub-agent is bounded by stall, opt-in `deadlineMs`, and operator cancel, not the generic per-tool budget. Background shell is exempt too: a `run_shell` with `background: true` arms nothing (the process's own timeout bounds it) and `shell_collect` never arms (a bounded poll over a process that outlives the turn).
   - `waitForApproval` (default **true** when unset) — freeze that budget while a permission prompt is open so a late approve still runs the tool. **Settings → Tools** toggles this live for the next tool call and persists it here. When **false**, the budget keeps ticking during the prompt; on expiry the tool is skipped and the modal is auto-dismissed. The freeze is bounded: after **30 minutes** with the prompt still unanswered the budget resumes ticking on its own, so a prompt that never becomes visible (overlay open, UI gone) cannot hang a tool run indefinitely.
 
   Optional `mcp` block bounds MCP tool calls (`mcp__*` names) specifically — unlike `tools.*`, this arms **unconditionally** even with no settings at all, defaulting to **5 minutes**, since a wedged MCP server otherwise hangs a call forever with nothing to bound it (CL-6895):

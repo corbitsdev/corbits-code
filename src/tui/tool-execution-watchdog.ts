@@ -90,11 +90,18 @@ export function resolveToolExecutionTimeoutMs(
   if (
     call?.name === "spawn_agent" ||
     call?.name === "wait_agents" ||
-    call?.name === "ask_director"
+    call?.name === "ask_director" ||
+    // shell_collect with wait_ms is a bounded poll over a background shell that
+    // outlives the turn; aborting the collect would not stop the process.
+    call?.name === "shell_collect"
   ) {
     return undefined;
   }
   if (call?.name === "run_shell") {
+    // A background run returns at once and finishes after tool.boundary; the
+    // watchdog must not arm requested+slack against the START call or it would
+    // abort mid-run. The process's own timeout still bounds it.
+    if (call.arguments.background === true) return undefined;
     const requested = requestedRunShellTimeoutMs(call);
     if (requested !== undefined) {
       return requested + RUN_SHELL_WATCHDOG_SLACK_MS;
