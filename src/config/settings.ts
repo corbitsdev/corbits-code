@@ -1226,10 +1226,14 @@ export interface ResolveInput {
 
 // Resolve the active provider. Precedence per field (highest first):
 //   providerName: --provider > local > settings.defaultProvider > sole provider
-//   model:        --model    > local > provider.defaultModel    > provider.models[0]
+//   If that pick is unusable and --provider was not set, walk local, defaultProvider,
+//   recentModels provider names (newest-first, unique), then remaining catalog keys.
+//   model: --model > local (original pick only) > recent pair (recent fallback only)
+//     > provider.defaultModel > provider.models[0]
 //   baseURL/apiKey: from the selected provider only
 // Credentials and provider definitions come exclusively from the settings
-// catalog; environment variables have no influence on resolution.
+// catalog; environment variables have no influence on resolution. Session-only:
+// this function does not write settings or mutate input.settings.
 export function resolveProvider(input: ResolveInput): ResolvedProvider {
   const { settings, local, cli } = input;
   const providers = settings?.providers ?? {};
@@ -1241,43 +1245,77 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
     throw new Error(`Provider "${cli.provider}" not found in settings (available: ${available}).`);
   }
 
-  const providerName = cli.provider ?? local?.provider ?? settings?.defaultProvider ?? soleKey;
+  const originalName = cli.provider ?? local?.provider ?? settings?.defaultProvider ?? soleKey;
 
-  const selected = providerName !== undefined ? providers[providerName] : undefined;
+  const fieldsFor = (name: string | undefined) => {
+    const selected = name !== undefined ? providers[name] : undefined;
+    const go = isOpenCodeGoProvider({
+      ...(name !== undefined ? { name } : {}),
+      ...(selected?.opencodeGo === true ? { opencodeGo: true as const } : {}),
+      ...(selected?.baseURL !== undefined ? { baseURL: selected.baseURL } : {}),
+    });
+    return {
+      selected,
+      go,
+      baseURL: go ? OPENCODE_GO_BASE_URL : selected?.baseURL,
+      apiKey: selected?.apiKey,
+      keyless: selected?.keyless === true,
+    };
+  };
 
-  const go = isOpenCodeGoProvider({
-    ...(providerName !== undefined ? { name: providerName } : {}),
-    ...(selected?.opencodeGo === true ? { opencodeGo: true as const } : {}),
-    ...(selected?.baseURL !== undefined ? { baseURL: selected.baseURL } : {}),
+  const finish = (
+    name: string,
+    selected: ProviderSettings,
+    go: boolean,
+    baseURL: string,
+    apiKey: string | undefined,
+    keyless: boolean,
+    model: string,
+  ): ResolvedProvider => ({
+    providerName: name,
+    baseURL: go ? OPENCODE_GO_BASE_URL : normalizeOpenAICompatibleBaseURL(baseURL),
+    apiKey: apiKey ?? "",
+    model,
+    ...(keyless ? { keyless: true } : {}),
+    ...(selected.verified === false ? { verified: false } : {}),
   });
-  const baseURL = go ? OPENCODE_GO_BASE_URL : selected?.baseURL;
-  const apiKey = selected?.apiKey;
-  const keyless = selected?.keyless === true;
-  const model = cli.model ?? local?.model ?? resolveDefaultModel(selected);
 
-  // A provider name was selected (from local file or defaultProvider) but is not
-  // actually configured — distinguish this from "nothing configured at all" so
-  // the operator gets an actionable message instead of a generic missing-creds one.
-  const selectedMissing =
-    providerName !== undefined && settings !== null && providers[providerName] === undefined;
+  const tryCandidate = (
+    name: string | undefined,
+    model: string | undefined,
+  ): ResolvedProvider | undefined => {
+    if (name === undefined || name.length === 0) return undefined;
+    const { selected, go, baseURL, apiKey, keyless } = fieldsFor(name);
+    if (selected === undefined) return undefined;
+    const missingApiKey = !keyless && (apiKey === undefined || apiKey.length === 0);
+    if (
+      baseURL === undefined ||
+      baseURL.length === 0 ||
+      missingApiKey ||
+      model === undefined ||
+      model.length === 0
+    ) {
+      return undefined;
+    }
+    return finish(name, selected, go, baseURL, apiKey, keyless, model);
+  };
 
-  const missingApiKey = !keyless && (apiKey === undefined || apiKey.length === 0);
-  if (
-    providerName === undefined ||
-    providerName.length === 0 ||
-    baseURL === undefined ||
-    baseURL.length === 0 ||
-    missingApiKey ||
-    model === undefined ||
-    model.length === 0
-  ) {
+  const nonempty = (value: string | undefined): string | undefined =>
+    value !== undefined && value.length > 0 ? value : undefined;
+
+  const throwOriginal = (): never => {
+    const { selected, baseURL, apiKey, keyless } = fieldsFor(originalName);
+    const model = nonempty(cli.model) ?? nonempty(local?.model) ?? resolveDefaultModel(selected);
+    const selectedMissing =
+      originalName !== undefined && settings !== null && providers[originalName] === undefined;
+    const missingApiKey = !keyless && (apiKey === undefined || apiKey.length === 0);
     const missing: string[] = [];
-    if (providerName === undefined || providerName.length === 0) missing.push("provider");
+    if (originalName === undefined || originalName.length === 0) missing.push("provider");
     if (baseURL === undefined || baseURL.length === 0) missing.push("baseURL");
     if (missingApiKey) missing.push("apiKey");
     if (model === undefined || model.length === 0) missing.push("model");
     const detail = selectedMissing
-      ? ` Selected provider "${providerName}" is not configured in settings (available: ${
+      ? ` Selected provider "${originalName}" is not configured in settings (available: ${
           Object.keys(providers).join(", ") || "none"
         }).`
       : "";
@@ -1286,16 +1324,59 @@ export function resolveProvider(input: ResolveInput): ResolvedProvider {
         `Configure a provider in ${globalSettingsPath()}. ` +
         `See docs/IMPLEMENTATION.md.`,
     );
+  };
+
+  const original = tryCandidate(
+    originalName,
+    nonempty(cli.model) ??
+      nonempty(local?.model) ??
+      resolveDefaultModel(fieldsFor(originalName).selected),
+  );
+  if (original !== undefined) return original;
+  if (cli.provider !== undefined) return throwOriginal();
+  if (originalName === undefined || originalName.length === 0) return throwOriginal();
+
+  const tried = new Set<string>();
+  if (originalName !== undefined) tried.add(originalName);
+
+  const fallbacks: { name: string; model: string | undefined }[] = [];
+  const enqueue = (name: string | undefined, model: string | undefined) => {
+    if (name === undefined || tried.has(name)) return;
+    tried.add(name);
+    fallbacks.push({ name, model });
+  };
+
+  enqueue(
+    local?.provider,
+    nonempty(cli.model) ??
+      resolveDefaultModel(local?.provider !== undefined ? providers[local.provider] : undefined),
+  );
+  enqueue(
+    settings?.defaultProvider,
+    nonempty(cli.model) ??
+      resolveDefaultModel(
+        settings?.defaultProvider !== undefined ? providers[settings.defaultProvider] : undefined,
+      ),
+  );
+  for (const ref of settings?.recentModels ?? []) {
+    if (tried.has(ref.provider)) continue;
+    tried.add(ref.provider);
+    const recentModel = ref.model.length > 0 ? ref.model : undefined;
+    fallbacks.push({
+      name: ref.provider,
+      model: nonempty(cli.model) ?? recentModel ?? resolveDefaultModel(providers[ref.provider]),
+    });
+  }
+  for (const name of providerKeys) {
+    enqueue(name, nonempty(cli.model) ?? resolveDefaultModel(providers[name]));
   }
 
-  return {
-    providerName,
-    baseURL: go ? OPENCODE_GO_BASE_URL : normalizeOpenAICompatibleBaseURL(baseURL),
-    apiKey: apiKey ?? "",
-    model,
-    ...(keyless ? { keyless: true } : {}),
-    ...(selected?.verified === false ? { verified: false } : {}),
-  };
+  for (const candidate of fallbacks) {
+    const resolved = tryCandidate(candidate.name, candidate.model);
+    if (resolved !== undefined) return resolved;
+  }
+
+  return throwOriginal();
 }
 
 import type { InferenceSpec } from "../agent/profile-types.js";
