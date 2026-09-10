@@ -291,6 +291,36 @@ describe("evidenceArchiveSearchPlugin", () => {
     expect(String(hits.content)).toContain(`${ref}:2:beta-hit`);
     expect(String(hits.content)).toContain(`${ref}-3-gamma`);
   });
+
+  test("archive grep max_results caps match hits rather than context lines", async () => {
+    const archive = memoryArchive("sess-max-results-context");
+    const first = await archive.recordAuthorizedPayload({
+      kind: "tool_result",
+      payload: "before-one\nneedle\nafter-one",
+    });
+    const second = await archive.recordAuthorizedPayload({
+      kind: "tool_result",
+      payload: "before-two\nneedle\nafter-two",
+    });
+    const plugin = evidenceArchiveSearchPlugin(() => archive);
+    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const hits = await handler(
+      makeCall("grep", {
+        pattern: "needle",
+        path: "archive:///",
+        context: 1,
+        max_results: 2,
+      }),
+      new AbortController().signal,
+    );
+    const content = String(hits.content);
+    const firstRef = formatArchiveRef(first.occurrenceId);
+    const secondRef = formatArchiveRef(second.occurrenceId);
+    expect(content).toContain(`${firstRef}:2:needle`);
+    expect(content).toContain(`${secondRef}:2:needle`);
+    expect(content).toContain(`${firstRef}-1-before-one`);
+    expect(content).toContain(`${secondRef}-1-before-two`);
+  });
 });
 
 describe("createAgentToolset archive mount", () => {

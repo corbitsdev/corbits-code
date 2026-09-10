@@ -271,16 +271,19 @@ function grepPayloadHits(
   regex: RegExp,
   context: number,
   remaining: number,
-): string[] {
-  if (remaining <= 0) return [];
+): { lines: string[]; matchCount: number } {
+  if (remaining <= 0) return { lines: [], matchCount: 0 };
   const matchLines: number[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (regex.test(lines[i] ?? "")) matchLines.push(i);
     if (matchLines.length >= remaining) break;
   }
-  if (matchLines.length === 0) return [];
+  if (matchLines.length === 0) return { lines: [], matchCount: 0 };
   if (context <= 0) {
-    return matchLines.map((i) => `${ref}:${i + 1}:${lines[i] ?? ""}`);
+    return {
+      lines: matchLines.map((i) => `${ref}:${i + 1}:${lines[i] ?? ""}`),
+      matchCount: matchLines.length,
+    };
   }
   const matchSet = new Set(matchLines);
   const ranges: { start: number; end: number }[] = [];
@@ -304,7 +307,7 @@ function grepPayloadHits(
       out.push(`${ref}${sep}${i + 1}${sep}${lines[i] ?? ""}`);
     }
   }
-  return out;
+  return { lines: out, matchCount: matchLines.length };
 }
 
 async function grepArchive(
@@ -325,13 +328,15 @@ async function grepArchive(
   }
   const occurrences = await selectOccurrences(archive, occurrenceId);
   const hits: string[] = [];
+  let matchCount = 0;
   for (const occ of occurrences) {
     signal.throwIfAborted();
-    if (hits.length >= maxResults) break;
+    if (matchCount >= maxResults) break;
     if (glob !== undefined && !matchesArchiveName(glob, occ)) continue;
     const ref = formatArchiveRef(occ.occurrenceId);
     if (regex.test(metadataBlob(occ))) {
       hits.push(`${ref}:1:${formatHit(occ)}`);
+      matchCount++;
       continue;
     }
     if (occ.gap === true) continue;
@@ -343,9 +348,15 @@ async function grepArchive(
       continue;
     }
     signal.throwIfAborted();
-    hits.push(
-      ...grepPayloadHits(ref, payload.split("\n"), regex, context, maxResults - hits.length),
+    const payloadHits = grepPayloadHits(
+      ref,
+      payload.split("\n"),
+      regex,
+      context,
+      maxResults - matchCount,
     );
+    hits.push(...payloadHits.lines);
+    matchCount += payloadHits.matchCount;
   }
   if (hits.length === 0) return `no matches for /${pattern}/`;
   return hits.join("\n");
