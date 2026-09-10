@@ -768,8 +768,8 @@ function resolveAgentDispatch(input: {
       const known = profiles.map((p) => p.id).sort();
       const hint =
         known.length > 0
-          ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more (results include full system prompt / body; do not read_file plugin paths outside the workspace).`
-          : " No profiles are currently loaded. Call search_agents to discover available agents (results include full system prompt / body).";
+          ? ` Known profiles: ${known.join(", ")}. Call search_agents to discover more.`
+          : " No profiles are currently loaded. Call search_agents to discover available agents.";
       return { error: `Error: unknown agent profile "${agentId}".${hint}` };
     }
     let effortPin: ReasoningEffort | undefined;

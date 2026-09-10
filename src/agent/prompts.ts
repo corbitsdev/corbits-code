@@ -93,7 +93,7 @@ export function buildHarnessFacts(
     ...(dynamicTools
       ? [
           "- Core tools plus the advertised catalog (including skill_search) are resident. Use tool_search to load extra capabilities from plugins or integrations when needed.",
-          "- Use search_agents before dispatching named specialists or teams (results include full profile bodies; do not read_file plugin paths outside the workspace).",
+          "- Use search_agents before dispatching named specialists or teams (ids and descriptions by default; include_body=true for the loaded system prompt). Do not read_file plugin paths outside the workspace.",
           "- The user may send follow-up messages while workers run; they are queued. Enter delivers at the next parent tool.boundary; Alt+Enter on session-idle. A long parent tool holds that boundary. Update your plan, spawn or adjust workers, and keep the operator informed.",
         ]
       : ["- The tools below are your full toolset."]),
@@ -245,7 +245,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   wait_agents:
     "wait for spawned workers by agent_id; returns awaiting_director when a worker asks, without collecting that session",
   search_agents:
-    "find agent profiles by role or team before spawning with spawn_agent(agent=...); results include full system prompt / body so you need not read_file plugin roots outside the workspace",
+    "find agent profiles by role or team before spawning with spawn_agent(agent=...); default results are id, description, and spawn metadata — pass include_body=true for the loaded system prompt / body",
   manage_tasks:
     "maintain your work checklist — create/replace, update status, append, cancel",
   ask_director:
