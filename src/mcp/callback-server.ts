@@ -7,7 +7,7 @@ export interface CallbackServer {
   redirectUrl: string;
   expectState: (state: string) => void;
   // Resolves once the authorization server redirects back with a code, or rejects
-  // if the signal aborts or the server reports an error.
+  // if the signal aborts, the server reports an error, or close() runs.
   waitForCode: (signal: AbortSignal) => Promise<string>;
   close: () => void;
 }
@@ -19,13 +19,13 @@ interface CallbackWaiter {
 }
 
 const CALLBACK_PATH = "/callback";
+const CLOSED_ERROR = "OAuth callback server closed before authorization completed.";
 
-// Start an ephemeral loopback server to receive the OAuth redirect. `serverName`
-// only names the authorization on the page the browser lands on.
-// Binds to a
-// random port on 127.0.0.1 so it never collides with anything and is only
-// reachable locally.
+// Start a loopback server to receive the OAuth redirect. close() fail-closes
+// waitForCode so disposing the toolset cannot leave authorization hung.
+// `serverName` only names the authorization on the page the browser lands on.
 export async function startCallbackServer(serverName?: string): Promise<CallbackServer> {
+  let closed = false;
   let expectedState: string | undefined;
   let pendingResult: CallbackResult | undefined;
   let waiter: CallbackWaiter | undefined;
@@ -36,6 +36,7 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
   };
 
   const deliver = (result: CallbackResult): void => {
+    if (closed) return;
     if (waiter === undefined) {
       pendingResult = result;
       return;
@@ -77,7 +78,9 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
   });
 
   await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
+    server.once("error", (err) => {
+      reject(new Error(`Could not start the OAuth callback server: ${err.message}`));
+    });
     server.listen(0, "127.0.0.1", resolve);
   });
 
@@ -92,6 +95,10 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
     },
     waitForCode: (signal: AbortSignal) =>
       new Promise<string>((resolve, reject) => {
+        if (closed) {
+          reject(new Error(CLOSED_ERROR));
+          return;
+        }
         if (signal.aborted) {
           reject(new Error("aborted"));
           return;
@@ -115,6 +122,18 @@ export async function startCallbackServer(serverName?: string): Promise<Callback
           { once: true },
         );
       }),
-    close: () => server.close(),
+    close: () => {
+      // Rejecting the waiter here is what unblocks toolset disposal: a server
+      // that merely stops listening would leave a pending waitForCode hung.
+      if (closed) return;
+      closed = true;
+      pendingResult = undefined;
+      if (waiter !== undefined) {
+        const activeWaiter = waiter;
+        clearAuthorization();
+        activeWaiter.reject(new Error(CLOSED_ERROR));
+      }
+      server.close();
+    },
   };
 }
