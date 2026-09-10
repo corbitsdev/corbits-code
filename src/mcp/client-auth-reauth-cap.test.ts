@@ -158,7 +158,7 @@ await withMockedModule(
           }
           throw new UnauthorizedError("authorization required");
         }
-        await retryGate;
+        await waitForOptionalGate(retryGate, lastRequestSignal);
         return { content: [] };
       }
       async close(): Promise<void> {}
@@ -520,6 +520,27 @@ describe("HTTP MCP re-auth loop prevention", () => {
     await expect(call).rejects.toHaveProperty("name", "AbortError");
     expect(authURLCount).toBe(0);
     expect(waitForCodeCalls).toBe(0);
+  });
+
+  test("client close after recovery during retry still fires onAuthorized", async () => {
+    finishAuthError = undefined;
+    retryGate = new Promise(() => undefined);
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+      onAuthorized: () => (authorizedCount += 1),
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    callFailuresLeft = 1;
+    const call = connected.client.call("ping", {}, new AbortController().signal);
+    while (finishAuthCalls === 0 || callToolCalls < 2) await Promise.resolve();
+    expect(authorizedCount).toBe(0);
+
+    await connected.client.close();
+
+    await expect(call).rejects.toHaveProperty("name", "AbortError");
+    expect(authorizedCount).toBe(1);
+    expect(authURLCount).toBe(1);
   });
 
   test("late retry success from a prior recovery does not fire onAuthorized after a new recovery starts", async () => {

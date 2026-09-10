@@ -91,6 +91,10 @@ function isRecoverableAuthError(err: unknown): err is UnauthorizedError | OAuthE
   return err instanceof UnauthorizedError || err instanceof OAuthError;
 }
 
+function isAbortError(err: unknown): boolean {
+  return typeof err === "object" && err !== null && "name" in err && err.name === "AbortError";
+}
+
 export const MAX_BROWSER_AUTH_ATTEMPTS = 3;
 export const BROWSER_AUTH_COOLDOWN_MS = 5 * 60_000;
 
@@ -249,9 +253,9 @@ function streamableHTTPTransportOptions(
 }
 
 /**
- * Run interactive OAuth, retry the failed operation, and notify only when the
- * retry itself succeeded — a failed re-auth must leave standing "needs auth"
- * chrome alone.
+ * Run interactive OAuth, retry the failed operation, and notify when the retry
+ * succeeds or is aborted after auth completed — a failed re-auth must leave
+ * standing "needs auth" chrome alone.
  */
 export async function retryAfterInteractiveAuth<T>(
   completeAuth: () => Promise<void>,
@@ -259,9 +263,14 @@ export async function retryAfterInteractiveAuth<T>(
   onAuthorized: (() => void) | undefined,
 ): Promise<T> {
   await completeAuth();
-  const value = await operation();
-  onAuthorized?.();
-  return value;
+  try {
+    const value = await operation();
+    onAuthorized?.();
+    return value;
+  } catch (err) {
+    if (isAbortError(err)) onAuthorized?.();
+    throw err;
+  }
 }
 
 async function driveRecovery(err: UnauthorizedError | OAuthError, context: HTTPAuthContext) {
