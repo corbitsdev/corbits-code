@@ -1423,6 +1423,7 @@ describe("buildGoSource", () => {
       id: "opencode-go",
       apiKey: "sk-go",
       model: "kimi-k2.7-code",
+      sessionId: "sess-1",
     });
 
     expect(source.provider).toBe("opencode-go");

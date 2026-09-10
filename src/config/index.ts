@@ -383,7 +383,7 @@ export function buildGoSource(fields: {
   id: string;
   apiKey?: string;
   model: string;
-  sessionId?: string;
+  sessionId: string;
   reasoningEffort?: ReasoningEffort;
 }): InferenceSource {
   const endpoint = resolveGoEndpoint(fields.model);
@@ -400,13 +400,9 @@ export function buildGoSource(fields: {
       model: fields.model,
       defaults: {
         maxTokens: SOURCE_MAX_TOKENS,
-        ...(fields.sessionId !== undefined
-          ? {
-              providerOptions: {
-                [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
-              },
-            }
-          : {}),
+        providerOptions: {
+          [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+        },
       },
     };
   }
@@ -419,14 +415,10 @@ export function buildGoSource(fields: {
       model: fields.model,
       defaults: {
         maxTokens: SOURCE_MAX_TOKENS,
-        ...(fields.sessionId !== undefined
-          ? {
-              providerOptions: {
-                [OPENAI_SESSION_ID_OPTION]: fields.sessionId,
-                [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
-              },
-            }
-          : {}),
+        providerOptions: {
+          [OPENAI_SESSION_ID_OPTION]: fields.sessionId,
+          [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+        },
       },
     };
   }
@@ -446,14 +438,10 @@ export function buildGoSource(fields: {
     provider: OPENCODE_GO_PROVIDER_ID,
     defaults: {
       ...source.defaults,
-      ...(fields.sessionId !== undefined
-        ? {
-            providerOptions: {
-              ...(source.defaults?.providerOptions ?? {}),
-              [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
-            },
-          }
-        : {}),
+      providerOptions: {
+        ...(source.defaults?.providerOptions ?? {}),
+        [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+      },
     },
   };
 }
