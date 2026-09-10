@@ -400,9 +400,9 @@ Session runtime state lives under the global projects tree (not in the repo):
 - Migration: if a session exists only under in-repo `.agent-state/<session-id>/`, it is moved into the global tree on open/list
 - Atomic JSON writes with schema validation on load
 
-**Worker audit persistence.** Workers initialize a real `@intx/storage-isogit`
-`AuditStore` at `<worker-workdir>/audit-store` (`src/subagent/run.ts`), separate
-from the native context store's Git index. Initialization failure prevents worker
+**Worker audit persistence.** Workers get context and audit from one
+`createSessionStores` call on the worker workdir: the same isomorphic-git
+repo, one index. Initialization failure prevents worker
 execution. The existing agent-owned audit and error collectors persist at
 checkpoint and shutdown; retained worker sessions flush at checkpoint/resume and
 close. The parent still supplies `noopAuditStore()`: collectors exist there too,
