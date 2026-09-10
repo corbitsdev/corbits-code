@@ -1718,6 +1718,193 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
     );
   });
 
+  test("already-dry settle drives once even without a live 1→0 fleet event", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const prompt =
+            "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          let drives = 0;
+          bridge.setDryOpenTaskDriver(() => {
+            drives += 1;
+            bridge.beginSystemContinuation(prompt);
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(drives).toBe(0);
+          expect(shell.session.run).toBe("busy");
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("busy");
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a no-op dry settle does not eat the shot for a later missed 1→0 with open tasks", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const prompt =
+            "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          let openTasks = false;
+          let drives = 0;
+          bridge.setDryOpenTaskDriver(() => {
+            if (!openTasks) return false;
+            drives += 1;
+            bridge.beginSystemContinuation(prompt);
+            return true;
+          });
+          bridge.submit("first turn, no todos", "immediate");
+          bridge.handle({ type: "fleet", running: 0 });
+          settleToollessTurn(bridge);
+          expect(drives).toBe(0);
+          expect(shell.session.run).toBe("idle");
+
+          openTasks = true;
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(drives).toBe(0);
+          expect(shell.session.run).toBe("busy");
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("busy");
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a new live lane resets the dry-episode latch for one more occupancy shot", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const prompt =
+            "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          let drives = 0;
+          bridge.setDryOpenTaskDriver(() => {
+            drives += 1;
+            bridge.beginSystemContinuation(prompt);
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("busy");
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("idle");
+
+          bridge.submit("dispatch more workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          expect(drives).toBe(1);
+          expect(shell.session.run).toBe("busy");
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(drives).toBe(2);
+          expect(shell.session.run).toBe("busy");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("parent still processing does not take the occupancy shot", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          let drives = 0;
+          bridge.setDryOpenTaskDriver(() => {
+            drives += 1;
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(drives).toBe(0);
+          expect(shell.session.run).toBe("busy");
+          expect(bridge.turn.isProcessing).toBe(true);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("live fleet still blocks the occupancy drive", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          let drives = 0;
+          bridge.setDryOpenTaskDriver(() => {
+            drives += 1;
+            return true;
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          expect(drives).toBe(0);
+          expect(shell.session.run).toBe("busy");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("occupancy send failure re-arms, clears continuation hold, and drains follow-ups", async () => {
     await withTestRenderer(
       async (h) => {

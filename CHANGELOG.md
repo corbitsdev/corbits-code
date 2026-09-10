@@ -21,6 +21,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
+- Occupancy takes one dry-episode shot when the parent settles idle even if the
+  live fleet 1→0 edge was never observed.
 - Dry-fleet transcript and `/status` report the outcome tally only
   (`2 done, 1 failed`). They no longer claim `nothing running` when the
   parent may still continue.

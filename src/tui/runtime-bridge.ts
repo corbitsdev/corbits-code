@@ -252,15 +252,15 @@ export interface SessionBridge {
   beginSystemContinuation: (text: string) => void;
   /**
    * Occupancy send failed after beginSystemContinuation. Drop the occupancy
-   * echo so a later matching inbound is not swallowed, re-arm the dry-open
+   * echo so a later matching inbound is not swallowed, re-arm the dry-episode
    * latch, drop the continuation hold, and idle so follow-ups can drain and a
    * later settle can take another occupancy shot.
    */
   abortSystemContinuation: () => void;
   /**
-   * Occupancy owner for dry+open continuation. Called once from
-   * settleRunToIdle when a latched fleet-dry edge is still dry. Return true
-   * if a continuation was sent (run stays busy).
+   * Occupancy owner for dry+open continuation. Called once per dry episode
+   * from settleRunToIdle when the fleet is dry. Return true if a continuation
+   * was sent (run stays busy).
    */
   setDryOpenTaskDriver: (driver: (() => boolean) | undefined) => void;
 }
@@ -425,18 +425,19 @@ export interface BridgeBag {
    */
   flushPendingAskWake: (() => void) | null;
   /**
-   * One deferred occupancy shot for the last live-fleet → 0 edge. Consumed on
-   * settle so a missed wentDry while the parent was processing still drives
-   * once, and a later settle cannot loop.
+   * One occupancy shot per dry episode. Reset when a live lane starts. Consumed
+   * only when the driver actually sends a continuation — a no-op (no open
+   * tasks) must not eat the shot, or a later missed 1→0 with leftover tasks
+   * never drives. A later settle after a true drive cannot loop.
    */
-  pendingDryOpenDrive: boolean;
+  droveOpenTasksThisDry: boolean;
   /**
    * beginSystemContinuation re-armed the turn during the previous cycle's
    * settle. Late connector.reply from that cycle must not settle this one
    * until its own inference.start arrives.
    */
   awaitingContinuationInference: boolean;
-  /** Occupancy driver: collect+send when settle takes the deferred dry shot. */
+  /** Occupancy driver: collect+send when settle takes a dry-episode shot. */
   dryOpenTaskDriver: (() => boolean) | undefined;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
   lastSentMessage: string;
@@ -1021,9 +1022,8 @@ function occupancyHold(bag: BridgeBag, runBusy: boolean): boolean {
  * session-idle. A live fleet holds the run busy after the parent turn settles
  * (idle-with-fleet): Enter upgrades to a new primary turn during the hold and
  * follow-ups keep waiting; the fleet event landing at zero re-enters here to
- * release the hold. A latched dry edge with open tasks takes one occupancy
- * shot here instead of idling, so a wentDry missed while processing cannot
- * disagree with settle.
+ * release the hold. A dry fleet takes one occupancy shot here per dry episode
+ * instead of idling, even if the live 1→0 edge was never observed.
  */
 function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
   if (shell.session.run !== "busy") return;
@@ -1041,15 +1041,19 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     bag.flushPendingAskWake?.();
     return;
   }
-  if (bag.pendingDryOpenDrive) {
-    bag.pendingDryOpenDrive = false;
+  if (!bag.droveOpenTasksThisDry) {
     let driven = false;
     try {
       driven = bag.dryOpenTaskDriver?.() === true;
     } catch {
       driven = false;
     }
-    if (driven) return;
+    // Consume only on a real continuation. A false/no-op leaves the latch
+    // open so a later missed-edge settle with open tasks can still fire.
+    if (driven) {
+      bag.droveOpenTasksThisDry = true;
+      return;
+    }
   }
   shell.session = setRunState(shell.session, "idle");
   bag.awaitingContinuationInference = false;
@@ -1074,12 +1078,9 @@ function applyInbound(
     // queued follow-ups drain now. While the parent is still working the
     // count just updates — the ordinary turn settle does the draining.
     if (event.type === "fleet") {
-      const previous = bag.liveFleet;
       bag.liveFleet = event.running;
       if (event.running > 0) {
-        bag.pendingDryOpenDrive = false;
-      } else if (previous > 0) {
-        bag.pendingDryOpenDrive = true;
+        bag.droveOpenTasksThisDry = false;
       }
       if (event.running === 0 && !bag.turn.isProcessing) {
         settleRunToIdle(shell, bag);
@@ -1185,7 +1186,7 @@ export function attachSessionBridge(
     pendingAskWake: new Map(),
     deliveredAskWake: new Map(),
     flushPendingAskWake: null,
-    pendingDryOpenDrive: false,
+    droveOpenTasksThisDry: false,
     awaitingContinuationInference: false,
     dryOpenTaskDriver: undefined,
     lastSentMessage: "",
@@ -1573,7 +1574,7 @@ export function attachSessionBridge(
     bag.liveFleet = 0;
     bag.pendingAskWake.clear();
     bag.deliveredAskWake.clear();
-    bag.pendingDryOpenDrive = false;
+    bag.droveOpenTasksThisDry = false;
     bag.awaitingContinuationInference = false;
     bag.pendingRowUpdates.clear();
     paintChrome(shell);
@@ -1746,7 +1747,7 @@ export function attachSessionBridge(
         }
       }
       bag.awaitingContinuationInference = false;
-      bag.pendingDryOpenDrive = true;
+      bag.droveOpenTasksThisDry = false;
       bag.lastSentMessage = "";
       flushOpenRow(shell, bag);
       bag.turnThinking = null;
