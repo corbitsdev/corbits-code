@@ -11,6 +11,7 @@ import {
   resultTruncationPlugin,
   spillBlobKey,
   truncateToolResultContent,
+  wrapAgentToolResultTruncation,
 } from "./result-truncation-plugin.js";
 import { toolOutputAbsolutePath } from "./tool-result-materialize.js";
 import { CREDENTIAL_REDACTION } from "./tool-result-secret-scrub.js";
@@ -371,6 +372,164 @@ describe("resultTruncationPlugin", () => {
       new AbortController().signal,
     );
     expect(result.content).toEqual(record);
+    expect(store.blobs.size).toBe(0);
+  });
+
+  test("spills oversized minified fleet JSON for wait_agents and list_agents", async () => {
+    const store = fakeBlobStore();
+    const obj = {
+      results: Array.from({ length: 80 }, (_, i) => ({
+        agent_id: `agent-${i}`,
+        report: "x".repeat(200),
+      })),
+      timed_out: false,
+    };
+    const minified = JSON.stringify(obj);
+    expect(minified.length).toBeGreaterThan(MAX_RESULT_CHARS);
+    const pretty = JSON.stringify(obj, null, 2);
+    const plugin = resultTruncationPlugin({ getBlobWriter: () => store.writeBlob });
+    if (plugin.middleware === undefined) throw new Error("expected middleware");
+    const middleware = plugin.middleware(async (call) => ({
+      callId: call.id,
+      content: minified,
+    }));
+
+    for (const name of ["wait_agents", "list_agents"] as const) {
+      const callId = `call-${name}`;
+      const result = await middleware(
+        { id: callId, name, arguments: {} },
+        new AbortController().signal,
+      );
+      expect(typeof result.content).toBe("string");
+      expect(String(result.content).length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
+      const uri = `tool-output:///${spillBlobKey(callId)}`;
+      expect(String(result.content)).toContain(uri);
+      const recovered = new TextDecoder().decode(await createBlobReader(store).read(uri));
+      expect(recovered).toBe(pretty);
+    }
+  });
+
+  test("spills an oversized search_agents string payload", async () => {
+    const store = fakeBlobStore();
+    const original = `Matching agent profiles:\n\n${"body ".repeat(MAX_RESULT_CHARS)}`;
+    expect(original.length).toBeGreaterThan(MAX_RESULT_CHARS);
+    const plugin = resultTruncationPlugin({ getBlobWriter: () => store.writeBlob });
+    if (plugin.middleware === undefined) throw new Error("expected middleware");
+    const middleware = plugin.middleware(async (call) => ({
+      callId: call.id,
+      content: original,
+    }));
+    const result = await middleware(
+      { id: "call-search", name: "search_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(String(result.content).length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
+    const uri = `tool-output:///${spillBlobKey("call-search")}`;
+    expect(String(result.content)).toContain(uri);
+    const recovered = new TextDecoder().decode(await createBlobReader(store).read(uri));
+    expect(recovered).toBe(original);
+  });
+
+  test("does not truncate isError results even when over the gate", async () => {
+    const store = fakeBlobStore();
+    const original = `Error: ${"x".repeat(MAX_RESULT_CHARS + 500)}`;
+    const plugin = resultTruncationPlugin({ getBlobWriter: () => store.writeBlob });
+    if (plugin.middleware === undefined) throw new Error("expected middleware");
+    const middleware = plugin.middleware(async (call) => ({
+      callId: call.id,
+      content: original,
+      isError: true,
+    }));
+    const result = await middleware(
+      { id: "call-err", name: "wait_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.content).toBe(original);
+    expect(result.isError).toBe(true);
+    expect(store.blobs.size).toBe(0);
+  });
+});
+
+describe("wrapAgentToolResultTruncation", () => {
+  test("spills oversized wait_agents JSON from a kind:full handler", async () => {
+    const store = fakeBlobStore();
+    const payload = { results: [{ report: "x".repeat(MAX_RESULT_CHARS + 500) }] };
+    const minified = JSON.stringify(payload);
+    expect(minified.length).toBeGreaterThan(MAX_RESULT_CHARS);
+    const pretty = JSON.stringify(payload, null, 2);
+    const wrapped = wrapAgentToolResultTruncation(
+      {
+        kind: "full",
+        definition: {
+          name: "wait_agents",
+          description: "wait",
+          inputSchema: { type: "object" },
+        },
+        handler: async (call) => ({ callId: call.id, content: minified }),
+      },
+      { getBlobWriter: () => store.writeBlob },
+    );
+    if (wrapped.kind !== "full") throw new Error("expected full tool");
+    const result = await wrapped.handler(
+      { id: "call-wrap-wait", name: "wait_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(String(result.content).length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
+    const uri = `tool-output:///${spillBlobKey("call-wrap-wait")}`;
+    expect(String(result.content)).toContain(uri);
+    const recovered = new TextDecoder().decode(await createBlobReader(store).read(uri));
+    expect(recovered).toBe(pretty);
+  });
+
+  test("spills oversized search_agents string from a kind:string handler", async () => {
+    const store = fakeBlobStore();
+    const original = `Matching agent profiles:\n\n${"z".repeat(MAX_RESULT_CHARS + 500)}`;
+    const wrapped = wrapAgentToolResultTruncation(
+      {
+        kind: "string",
+        definition: {
+          name: "search_agents",
+          description: "search",
+          inputSchema: { type: "object" },
+        },
+        handler: async () => original,
+      },
+      { getBlobWriter: () => store.writeBlob },
+    );
+    if (wrapped.kind !== "full") throw new Error("expected full wrapper so spill can use callId");
+    const result = await wrapped.handler(
+      { id: "call-wrap-search", name: "search_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(String(result.content).length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
+    const uri = `tool-output:///${spillBlobKey("call-wrap-search")}`;
+    expect(String(result.content)).toContain(uri);
+    const recovered = new TextDecoder().decode(await createBlobReader(store).read(uri));
+    expect(recovered).toBe(original);
+  });
+
+  test("does not truncate isError results from a kind:full handler", async () => {
+    const store = fakeBlobStore();
+    const original = `Error: ${"e".repeat(MAX_RESULT_CHARS + 500)}`;
+    const wrapped = wrapAgentToolResultTruncation(
+      {
+        kind: "full",
+        definition: {
+          name: "wait_agents",
+          description: "wait",
+          inputSchema: { type: "object" },
+        },
+        handler: async (call) => ({ callId: call.id, content: original, isError: true }),
+      },
+      { getBlobWriter: () => store.writeBlob },
+    );
+    if (wrapped.kind !== "full") throw new Error("expected full tool");
+    const result = await wrapped.handler(
+      { id: "call-wrap-err", name: "wait_agents", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.content).toBe(original);
+    expect(result.isError).toBe(true);
     expect(store.blobs.size).toBe(0);
   });
 });

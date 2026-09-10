@@ -1,4 +1,6 @@
+import type { AgentTool } from "@intx/agent";
 import type { ToolPlugin } from "@intx/tools-posix";
+import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import {
   materializeToolResultContent,
   materializeToolResultRecord,
@@ -6,14 +8,6 @@ import {
   type MaterializedToolResult,
 } from "./tool-result-materialize.js";
 import { scrubSecretShapedContent } from "./tool-result-secret-scrub.js";
-
-const TRUNCATABLE_TOOLS = new Set([
-  "read_file",
-  "grep",
-  "run_shell",
-  "search_files",
-  "web_fetch",
-]);
 
 // Characters, not tokens — conversion ratio is roughly 4 chars/token.
 // Match the reactor's default size-cap (vendor/intx-inference assembly.ts) so
@@ -224,50 +218,109 @@ export interface ResultTruncationPluginOptions {
   getContextDir?: () => string | undefined;
 }
 
+function spillOptionsForCall(
+  callId: string,
+  options: ResultTruncationPluginOptions,
+): TruncationSpillOptions | undefined {
+  const writeBlob = options.getBlobWriter?.();
+  const contextDir = options.getContextDir?.();
+  return writeBlob !== undefined
+    ? {
+        callId,
+        writeBlob,
+        ...(contextDir !== undefined ? { contextDir } : {}),
+      }
+    : undefined;
+}
+
+/**
+ * Leisure-materialize and spill a tool result when its compact payload exceeds
+ * {@link MAX_RESULT_CHARS}. Error results are returned unchanged. Shared by the
+ * posix middleware and the AgentTool wrapper so fleet verbs (which never enter
+ * the posix plugin chain) take the same path.
+ */
+export async function applyToolResultTruncation(
+  result: ToolResult,
+  spill?: TruncationSpillOptions,
+): Promise<ToolResult> {
+  if (result.isError) return result;
+
+  const { content } = result;
+  if (typeof content === "string") {
+    const truncated = await truncateToolResultContent(
+      content,
+      MAX_RESULT_CHARS,
+      spill,
+    );
+    if (truncated === content) return result;
+    return { ...result, content: truncated };
+  }
+
+  if (content !== null && typeof content === "object") {
+    const record = content as Record<string, unknown>;
+    const compact = JSON.stringify(record);
+    if (compact.length <= MAX_RESULT_CHARS) return result;
+    const truncated = await truncateToolResultRecord(
+      record,
+      MAX_RESULT_CHARS,
+      spill,
+    );
+    return { ...result, content: truncated };
+  }
+
+  return result;
+}
+
+/**
+ * Wrap an AgentTool so its result hits {@link applyToolResultTruncation}.
+ * `kind: "string"` handlers are lifted to `kind: "full"` so the spill can use
+ * the call id. Factories such as createSearchAgentsTool stay `kind: "string"`
+ * until mount.
+ */
+export function wrapAgentToolResultTruncation(
+  tool: AgentTool,
+  options: ResultTruncationPluginOptions = {},
+): AgentTool {
+  if (tool.kind === "full") {
+    const inner = tool.handler;
+    return {
+      ...tool,
+      handler: async (call: ToolCall, signal: AbortSignal) =>
+        applyToolResultTruncation(
+          await inner(call, signal),
+          spillOptionsForCall(call.id, options),
+        ),
+    };
+  }
+  const inner = tool.handler;
+  return {
+    kind: "full",
+    definition: tool.definition,
+    handler: async (call: ToolCall, signal: AbortSignal) =>
+      applyToolResultTruncation(
+        { callId: call.id, content: await inner(call.arguments, signal) },
+        spillOptionsForCall(call.id, options),
+      ),
+  };
+}
+
+export function wrapAgentToolsWithResultTruncation(
+  tools: readonly AgentTool[],
+  options: ResultTruncationPluginOptions = {},
+): AgentTool[] {
+  return tools.map((tool) => wrapAgentToolResultTruncation(tool, options));
+}
+
 export function resultTruncationPlugin(
   options: ResultTruncationPluginOptions = {},
 ): ToolPlugin {
-  const { getBlobWriter, getContextDir } = options;
   return {
     middleware: (next) => async (call, signal) => {
       const result = await next(call, signal);
-      if (!TRUNCATABLE_TOOLS.has(call.name) || result.isError) return result;
-
-      const writeBlob = getBlobWriter?.();
-      const contextDir = getContextDir?.();
-      const spill =
-        writeBlob !== undefined
-          ? {
-              callId: call.id,
-              writeBlob,
-              ...(contextDir !== undefined ? { contextDir } : {}),
-            }
-          : undefined;
-
-      const { content } = result;
-      if (typeof content === "string") {
-        const truncated = await truncateToolResultContent(
-          content,
-          MAX_RESULT_CHARS,
-          spill,
-        );
-        if (truncated === content) return result;
-        return { ...result, content: truncated };
-      }
-
-      if (content !== null && typeof content === "object") {
-        const record = content as Record<string, unknown>;
-        const compact = JSON.stringify(record);
-        if (compact.length <= MAX_RESULT_CHARS) return result;
-        const truncated = await truncateToolResultRecord(
-          record,
-          MAX_RESULT_CHARS,
-          spill,
-        );
-        return { ...result, content: truncated };
-      }
-
-      return result;
+      return applyToolResultTruncation(
+        result,
+        spillOptionsForCall(call.id, options),
+      );
     },
   };
 }

@@ -49,6 +49,7 @@ import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { createWebFetchTool } from "../tools/web-fetch.js";
 import { createWebSearchTool } from "../tools/web-search.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import { wrapAgentToolsWithResultTruncation } from "../plugins/result-truncation-plugin.js";
 import {
   allowDeleteFromCapabilities,
   allowShellFromCapabilities,
@@ -841,6 +842,8 @@ async function runSubAgentInner(
         }),
       ];
     }
+
+    tools = wrapAgentToolsWithResultTruncation(tools);
 
     const environment = await gatherEnvironment(params.cwd);
     const extensions =

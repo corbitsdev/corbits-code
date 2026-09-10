@@ -21,7 +21,11 @@ import type { PermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "./posix-tool-plugins.js";
 import { createLazyBlobReader } from "./lazy-blob-reader.js";
 import type { BlobReader } from "@intx/types/runtime";
-import type { SpillBlobWriter } from "../plugins/result-truncation-plugin.js";
+import {
+  wrapAgentToolResultTruncation,
+  wrapAgentToolsWithResultTruncation,
+  type SpillBlobWriter,
+} from "../plugins/result-truncation-plugin.js";
 import {
   connectMCPServer as connectMCPClient,
   type MCPClient,
@@ -413,6 +417,10 @@ export async function createAgentToolset(
     );
   }
 
+  const truncationOptions = {
+    ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
+    ...(getContextDir !== undefined ? { getContextDir } : {}),
+  };
   const posixTools = createPosixTools({
     cwd,
     ...(sessionBlobReader !== undefined
@@ -426,8 +434,7 @@ export async function createAgentToolset(
       ...(sessionBlobReader !== undefined
         ? { readFileGuard: { blobReader: sessionBlobReader } }
         : {}),
-      ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
-      ...(getContextDir !== undefined ? { getContextDir } : {}),
+      ...truncationOptions,
       ...(shellEnv !== undefined ? { shellEnv } : {}),
       getBackgroundShellRegistry: () => backgroundShells,
     }),
@@ -698,8 +705,9 @@ export async function createAgentToolset(
     }),
   );
 
-  const primaryTools = baseTools.filter(
-    (tool) => tool.definition.name !== "apply_patch",
+  const primaryTools = wrapAgentToolsWithResultTruncation(
+    baseTools.filter((tool) => tool.definition.name !== "apply_patch"),
+    truncationOptions,
   );
 
   const dynamicRunner = createDynamicToolRunner(primaryTools, toolWatchdog);
@@ -796,9 +804,10 @@ export async function createAgentToolset(
   };
 
   const mountWebFetch = (tool: AgentTool): void => {
+    const wrapped = wrapAgentToolResultTruncation(tool, truncationOptions);
     dynamicRunner.removeTools(["web_fetch"]);
-    dynamicRunner.addTools([tool]);
-    replaceInheritedTool("web_fetch", tool);
+    dynamicRunner.addTools([wrapped]);
+    replaceInheritedTool("web_fetch", wrapped);
   };
 
   const swapBuiltinExaToNative = (): void => {
