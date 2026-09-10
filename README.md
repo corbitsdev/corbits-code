@@ -115,7 +115,8 @@ prompts. Pass `--no-auto` to start in ask-on-every-consequential-action mode
   files, …)
 - Opaque shell wrappers the policy cannot statically inspect (variable expansion
   or command substitution in a wrapper payload)
-- Paths outside the workspace, writes under the session state root, mutating MCP
+- Shell that references a path outside the workspace
+- Writes under the in-workspace session state root, mutating MCP
   tools, and unknown built-ins
 
 ### What auto hard-denies (use the file tools instead)

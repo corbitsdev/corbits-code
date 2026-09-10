@@ -183,7 +183,7 @@ When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOL
 | **deny** | Shell file mutation (redirects, `tee`, in-place stream editors, interpreter `-c`/`-e`/heredoc)                                                                                                                              |
 | **ask**  | Dependency installs / remote runners, recursive `rm`, force or uncontained git worktree add/remove/prune, sensitive-path references, paths outside the workspace (including through a symlink), opaque unparseable wrappers |
 
-Unmatched shell auto-allows, including contained non-force `git worktree add`/`remove`/`prune` and read-only `list`. Writes under the session state root (`~/.corbits/projects/<project-key>/…`, and legacy in-repo `.agent-state` during dual-read), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
+Unmatched shell auto-allows, including contained non-force `git worktree add`/`remove`/`prune` and read-only `list`. Path-arg tools that escape the workspace are denied at authorize time (the same sandbox path-escape enforces at execution). Writes under the in-workspace session state root (legacy `.agent-state`), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
 
 ### Reasoning Effort
 

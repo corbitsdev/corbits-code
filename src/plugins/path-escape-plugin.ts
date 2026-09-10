@@ -59,6 +59,10 @@ function escapeArgs(
   rootsProvider: RootsProvider,
   allowOutside: boolean,
 ): Record<string, unknown> {
+  if (!allowOutside) {
+    const reason = pathEscapeBlockReason(args, cwd, rootsProvider);
+    if (reason !== undefined) throw new Error(reason);
+  }
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
     if (typeof value === "string" && looksLikePath(key)) {
@@ -85,6 +89,24 @@ export function looksLikePath(key: string): boolean {
     key === "filename" ||
     key.endsWith("Path")
   );
+}
+
+// Same sandbox pathEscapePlugin enforces at execution. The permission gate
+// consults this at authorize time so it can deny instead of asking for a call
+// the plugin will reject after Accept.
+export function pathEscapeBlockReason(
+  args: Record<string, unknown>,
+  cwd: string,
+  rootsProvider: RootsProvider = () => [],
+): string | undefined {
+  for (const [key, value] of Object.entries(args)) {
+    if (typeof value !== "string" || !looksLikePath(key)) continue;
+    if (isToolOutputLike(value) || isArchiveLike(value)) continue;
+    if (resolveWorkspacePath(cwd, value, rootsProvider) === undefined) {
+      return `Path escapes working directory: ${value}`;
+    }
+  }
+  return undefined;
 }
 
 function sanitizePath(

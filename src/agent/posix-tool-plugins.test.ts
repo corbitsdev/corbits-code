@@ -158,6 +158,38 @@ describe("buildCorePosixToolPlugins", () => {
     }
   });
 
+  test("skipPermissions allows writing a path outside the workspace", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-skip-write-in-"));
+    const outside = await mkdtemp(join(tmpdir(), "ic-posix-skip-write-out-"));
+    try {
+      const target = join(outside, "other.txt");
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: true,
+        reactorGated: false,
+        cwd,
+      });
+      const runner = createPosixTools({
+        cwd,
+        plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+      });
+      const result = await runner.run(
+        {
+          id: "out-write-1",
+          name: "write_file",
+          arguments: { path: target, content: "from-yolo" },
+        },
+        new AbortController().signal,
+      );
+      expect(result.isError).not.toBe(true);
+      expect(await readFile(target, "utf8")).toBe("from-yolo");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   test("without skipPermissions, path-escape still blocks outside-workspace reads", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ic-posix-bound-in-"));
     const outside = await mkdtemp(join(tmpdir(), "ic-posix-bound-out-"));

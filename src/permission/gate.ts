@@ -20,7 +20,7 @@ import {
   safeWorktreeCommand,
 } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
-import { looksLikePath } from "../plugins/path-escape-plugin.js";
+import { looksLikePath, pathEscapeBlockReason } from "../plugins/path-escape-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import {
@@ -614,12 +614,30 @@ export function createPermissionGate(
     const subAgentIdentity = getSubAgentIdentity();
     const effectiveCwd = subAgentIdentity?.cwd ?? resolvedCwd;
 
+    // Path-escape will hard-reject these at execution unless skipPermissions
+    // (already returned allow above). Deny here rather than showing Accept for
+    // a call that cannot succeed. Match the plugin stack: workers sandbox
+    // against their own cwd and that cwd's worktree roots, not the session
+    // listing (which excludes the session root itself).
+    const escapeRoots =
+      effectiveCwd === resolvedCwd
+        ? rootsProvider
+        : createWorktreeRootsProvider(effectiveCwd);
+    const escapeReason = pathEscapeBlockReason(
+      call.arguments,
+      effectiveCwd,
+      escapeRoots,
+    );
+    if (escapeReason !== undefined) {
+      return { kind: "deny", reason: escapeReason };
+    }
+
     const isRestrictedHere = bindRestrictedToProcessCwd(
       isRestricted,
       effectiveCwd,
     );
-    // A call targeting a restricted path (outside the workspace, or a write
-    // under the session state root) drops from allow to ask, so it never auto-allows on
+    // A call targeting a restricted in-bounds path (a write under the session
+    // state root) drops from allow to ask, so it never auto-allows on
 
     // tier or shell-safety below.
     const restricted = callTargetsRestricted(call, isRestrictedHere);
