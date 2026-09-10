@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConversationTurn, LastCycleSource } from "@intx/types/runtime";
-import { createGrokResponsesAdapter } from "./grok-responses-adapter.js";
+import { createGrokResponsesAdapter } from "./grok-responses.js";
 
 const source: LastCycleSource = {
   sourceId: "xai/test",
@@ -199,15 +199,19 @@ describe("createGrokResponsesAdapter", () => {
 
   test("treats Responses completed, incomplete, and done events as stream-terminal", () => {
     const adapter = createGrokResponsesAdapter(source);
-    expect(typeof adapter.isStreamTerminal).toBe("function");
+    const isStreamTerminal = adapter.isStreamTerminal;
+    expect(typeof isStreamTerminal).toBe("function");
+    if (typeof isStreamTerminal !== "function") {
+      throw new Error("expected isStreamTerminal to be a function");
+    }
     for (const type of ["response.completed", "response.incomplete", "response.done"]) {
-      expect(adapter.isStreamTerminal!(JSON.stringify({ type }))).toBe(true);
+      expect(isStreamTerminal(JSON.stringify({ type }))).toBe(true);
     }
     for (const type of ["response.output_text.delta", "response.created", "response.in_progress"]) {
-      expect(adapter.isStreamTerminal!(JSON.stringify({ type }))).toBe(false);
+      expect(isStreamTerminal(JSON.stringify({ type }))).toBe(false);
     }
-    expect(adapter.isStreamTerminal!("{not json")).toBe(false);
-    expect(adapter.isStreamTerminal!("null")).toBe(false);
-    expect(adapter.isStreamTerminal!('"just a string"')).toBe(false);
+    expect(isStreamTerminal("{not json")).toBe(false);
+    expect(isStreamTerminal("null")).toBe(false);
+    expect(isStreamTerminal('"just a string"')).toBe(false);
   });
 });

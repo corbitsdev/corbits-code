@@ -46,7 +46,7 @@ import {
   GROK_RESPONSES_PROVIDER,
   GROK_SESSION_ID_OPTION,
   GROK_USER_ID_OPTION,
-} from "../provider/grok-responses-adapter.js";
+} from "../provider/grok-responses.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
 import { isOllamaProviderId, ollamaOpenAIBaseURL } from "../provider/ollama.js";
 import { selectableGoModelIds } from "../provider/opencode-go-models.js";
