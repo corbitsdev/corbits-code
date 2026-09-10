@@ -104,11 +104,23 @@ function scanImagePathLine(
     const ch = text[i];
     if (ch === undefined) break;
     if (WRAPPERS.has(ch)) {
+      // Contractions/possessives (`what's`, `don't`) are not quote openers.
+      if (ch === "'" && i > start && isWordChar(text[i - 1])) {
+        i += 1;
+        continue;
+      }
       const close = text.indexOf(ch, i + 1);
       if (close !== -1 && close < end) {
-        const raw = text.slice(i, close + 1);
         const inner = text.slice(i + 1, close);
-        push(raw, normalizeImagePathCandidate(inner, cwd, true));
+        if (looksLikeQuotedImagePath(inner)) {
+          const raw = text.slice(i, close + 1);
+          push(raw, normalizeImagePathCandidate(inner, cwd, true));
+          i = close + 1;
+          continue;
+        }
+        // Balanced quotes around prose are not path wrappers. Search inside
+        // so an absolute path can still be found, then resume after the closer.
+        scanImagePathLine(text, i + 1, close, cwd, push);
         i = close + 1;
         continue;
       }
@@ -128,6 +140,40 @@ function scanImagePathLine(
     }
     i += 1;
   }
+}
+
+function isWordChar(ch: string | undefined): boolean {
+  if (ch === undefined || ch.length !== 1) return false;
+  return (
+    (ch >= "0" && ch <= "9") ||
+    (ch >= "A" && ch <= "Z") ||
+    (ch >= "a" && ch <= "z")
+  );
+}
+
+function looksLikeQuotedImagePath(inner: string): boolean {
+  if (inner.startsWith("file://")) return true;
+  if (inner === "~" || inner.startsWith("~/") || inner.startsWith("~\\"))
+    return true;
+  if (inner.startsWith("/") || inner.startsWith("\\")) return true;
+  if (
+    inner.startsWith("./") ||
+    inner.startsWith("../") ||
+    inner.startsWith(".\\") ||
+    inner.startsWith("..\\")
+  ) {
+    return true;
+  }
+  const drive = inner[0];
+  const sep = inner[2];
+  return (
+    inner.length >= 3 &&
+    drive !== undefined &&
+    sep !== undefined &&
+    ((drive >= "A" && drive <= "Z") || (drive >= "a" && drive <= "z")) &&
+    inner[1] === ":" &&
+    (sep === "/" || sep === "\\")
+  );
 }
 
 function canStartUnquotedPath(text: string, i: number, end: number): boolean {

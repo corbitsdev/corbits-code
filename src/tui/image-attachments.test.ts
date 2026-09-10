@@ -175,6 +175,22 @@ describe("findImagePathMentions", () => {
       { raw: "/repo/second.JPG", path: "/repo/second.JPG" },
     ]);
   });
+
+  test("does not let contractions steal single-quoted path wrappers", () => {
+    const observed = "/tmp/Screenshot 2026-09-10 at 11.42.07\u202fAM.png";
+    expect(findImagePathMentions(`what's in '${observed}'?`, "/repo")).toEqual([
+      { raw: `'${observed}'`, path: observed },
+    ]);
+    expect(
+      findImagePathMentions(`don't use '/tmp/shot.png' please`, "/repo"),
+    ).toEqual([{ raw: "'/tmp/shot.png'", path: "/tmp/shot.png" }]);
+  });
+
+  test("does not let prose quotes invent a relative path over an absolute mention", () => {
+    expect(
+      findImagePathMentions(`He said "look at /tmp/shot.png" today`, "/repo"),
+    ).toEqual([{ raw: "/tmp/shot.png", path: "/tmp/shot.png" }]);
+  });
 });
 
 describe("image attachment helpers", () => {
