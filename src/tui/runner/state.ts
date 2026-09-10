@@ -20,7 +20,6 @@ import { xaiProfileFromProviderName } from "../../config/xai-providers.js";
 import type {
   MCPServerConfig,
   MCPServerSettingsEntry,
-  Settings,
 } from "../../config/settings.js";
 import {
   globalSettingsPath,
