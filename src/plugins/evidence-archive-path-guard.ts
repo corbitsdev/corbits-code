@@ -28,7 +28,11 @@ export function evidenceArchivePathGuardPlugin(): ToolPlugin {
     middleware: (next) => async (call, signal) => {
       if (!PATH_TOOLS.has(call.name)) return next(call, signal);
       for (const [key, value] of Object.entries(call.arguments)) {
-        if (typeof value === "string" && looksLikePath(key) && isProtectedEvidenceLocation(value)) {
+        if (
+          typeof value === "string" &&
+          looksLikePath(key) &&
+          isProtectedEvidenceLocation(value)
+        ) {
           return { callId: call.id, content: DENY_MESSAGE, isError: true };
         }
       }

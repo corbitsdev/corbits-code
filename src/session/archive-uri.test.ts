@@ -15,7 +15,9 @@ describe("archive URI", () => {
     expect(parseArchiveRef("archive:///occ-abc?x=1")).toBe("occ-abc");
     expect(parseArchiveRef("occ-abc")).toBeUndefined();
     expect(parseArchiveRef("archive:///")).toBeUndefined();
-    expect(parseArchiveRef("/tmp/evidence-archive/index.jsonl")).toBeUndefined();
+    expect(
+      parseArchiveRef("/tmp/evidence-archive/index.jsonl"),
+    ).toBeUndefined();
   });
 
   test("treats archive:/// as the virtual search root", () => {
@@ -24,7 +26,9 @@ describe("archive URI", () => {
     expect(isArchiveLike("evidence-archive/index.jsonl")).toBe(false);
     expect(parseArchiveTarget("archive:///")).toEqual({});
     expect(parseArchiveTarget("archive:/")).toEqual({});
-    expect(parseArchiveTarget("archive:///occ-abc")).toEqual({ occurrenceId: "occ-abc" });
+    expect(parseArchiveTarget("archive:///occ-abc")).toEqual({
+      occurrenceId: "occ-abc",
+    });
     expect(parseArchiveTarget("src/foo.ts")).toBeUndefined();
   });
 });

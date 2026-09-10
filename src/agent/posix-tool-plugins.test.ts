@@ -393,7 +393,10 @@ describe("buildCorePosixToolPlugins", () => {
         permissionGate: gate,
         getEvidenceArchive: () => undefined,
       });
-      const shellGuardIndex = findMiddlewareIndex(plugins, "[command timed out after");
+      const shellGuardIndex = findMiddlewareIndex(
+        plugins,
+        "[command timed out after",
+      );
       const archiveIndex = findMiddlewareIndex(
         plugins,
         "evidence archive is not available in this session",

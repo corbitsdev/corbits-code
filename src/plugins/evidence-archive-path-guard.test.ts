@@ -17,23 +17,42 @@ const nextHandler = async (call: ToolCall): Promise<ToolResult> => ({
 
 describe("isProtectedEvidenceLocation", () => {
   test("matches evidence-archive and tool-output/archive-* forms", () => {
-    expect(isProtectedEvidenceLocation("evidence-archive/index.jsonl")).toBe(true);
-    expect(isProtectedEvidenceLocation("/tmp/context/evidence-archive")).toBe(true);
-    expect(isProtectedEvidenceLocation("C:\\tmp\\evidence-archive\\index.jsonl")).toBe(true);
-    expect(isProtectedEvidenceLocation("tool-output/archive-sess-occ-1")).toBe(true);
-    expect(isProtectedEvidenceLocation("tool-output:///archive-sess-occ-1")).toBe(true);
-    expect(isProtectedEvidenceLocation("src/session/compaction-archive.ts")).toBe(false);
-    expect(isProtectedEvidenceLocation("tool-output:///other-spill")).toBe(false);
+    expect(isProtectedEvidenceLocation("evidence-archive/index.jsonl")).toBe(
+      true,
+    );
+    expect(isProtectedEvidenceLocation("/tmp/context/evidence-archive")).toBe(
+      true,
+    );
+    expect(
+      isProtectedEvidenceLocation("C:\\tmp\\evidence-archive\\index.jsonl"),
+    ).toBe(true);
+    expect(isProtectedEvidenceLocation("tool-output/archive-sess-occ-1")).toBe(
+      true,
+    );
+    expect(
+      isProtectedEvidenceLocation("tool-output:///archive-sess-occ-1"),
+    ).toBe(true);
+    expect(
+      isProtectedEvidenceLocation("src/session/compaction-archive.ts"),
+    ).toBe(false);
+    expect(isProtectedEvidenceLocation("tool-output:///other-spill")).toBe(
+      false,
+    );
   });
 });
 
 describe("evidenceArchivePathGuardPlugin", () => {
   test("denies path tools targeting evidence-archive or tool-output/archive-*", async () => {
     const plugin = evidenceArchivePathGuardPlugin();
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const denied = [
       makeCall("read_file", { path: "evidence-archive/index.jsonl" }),
-      makeCall("grep", { path: "/tmp/context/evidence-archive", pattern: "foo" }),
+      makeCall("grep", {
+        path: "/tmp/context/evidence-archive",
+        pattern: "foo",
+      }),
       makeCall("search_files", { path: "evidence-archive" }),
       makeCall("list_dir", { path: "evidence-archive" }),
       makeCall("write_file", { path: "evidence-archive/x", content: "nope" }),
@@ -50,7 +69,9 @@ describe("evidenceArchivePathGuardPlugin", () => {
 
   test("does not deny a grep pattern that mentions evidence-archive", async () => {
     const plugin = evidenceArchivePathGuardPlugin();
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("grep", { path: "src", pattern: "evidence-archive" }),
       new AbortController().signal,
@@ -61,7 +82,9 @@ describe("evidenceArchivePathGuardPlugin", () => {
 
   test("passes ordinary workspace paths", async () => {
     const plugin = evidenceArchivePathGuardPlugin();
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("read_file", { path: "src/session/compaction-archive.ts" }),
       new AbortController().signal,

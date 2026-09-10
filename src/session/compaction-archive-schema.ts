@@ -5,7 +5,9 @@ export const ArchiveKind = type(
 );
 export type ArchiveKind = typeof ArchiveKind.infer;
 
-export const ToolRecordingLifecycle = type("'requested' | 'suspended' | 'denied' | 'admitted'");
+export const ToolRecordingLifecycle = type(
+  "'requested' | 'suspended' | 'denied' | 'admitted'",
+);
 export type ToolRecordingLifecycle = typeof ToolRecordingLifecycle.infer;
 
 export const ArchiveOccurrence = type({

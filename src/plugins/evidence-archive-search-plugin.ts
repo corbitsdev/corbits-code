@@ -1,10 +1,17 @@
 import type { ToolDefinition } from "@intx/types/runtime";
 import type { ToolPlugin } from "@intx/tools-posix";
 
-import { READ_FILE_DEFAULT_MAX_LINES, readBytesBounded } from "./read-file-guard-plugin.js";
+import {
+  READ_FILE_DEFAULT_MAX_LINES,
+  readBytesBounded,
+} from "./read-file-guard-plugin.js";
 import type { CompactionArchive } from "../session/compaction-archive.js";
 import type { ArchiveOccurrence } from "../session/compaction-archive-schema.js";
-import { formatArchiveRef, isArchiveLike, parseArchiveTarget } from "../session/archive-uri.js";
+import {
+  formatArchiveRef,
+  isArchiveLike,
+  parseArchiveTarget,
+} from "../session/archive-uri.js";
 
 const SEARCH_DEFAULT_MAX = 1000;
 const GREP_DEFAULT_MAX = 500;
@@ -14,7 +21,9 @@ function str(value: unknown): string | undefined {
 }
 
 function num(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function globToRegExp(pattern: string): RegExp {
@@ -82,12 +91,18 @@ function patchPathDescription(
 ): ToolDefinition {
   const schema = definition.inputSchema;
   const props = schema["properties"];
-  if (props === undefined || typeof props !== "object" || props === null) return definition;
+  if (props === undefined || typeof props !== "object" || props === null)
+    return definition;
   const properties = props as Record<string, unknown>;
   const pathSchema = properties.path;
   const nextPath =
-    pathSchema !== undefined && typeof pathSchema === "object" && pathSchema !== null
-      ? { ...(pathSchema as Record<string, unknown>), description: pathDescription }
+    pathSchema !== undefined &&
+    typeof pathSchema === "object" &&
+    pathSchema !== null
+      ? {
+          ...(pathSchema as Record<string, unknown>),
+          description: pathDescription,
+        }
       : { type: "string", description: pathDescription };
   return {
     ...definition,
@@ -102,7 +117,9 @@ function patchPathDescription(
   };
 }
 
-export function advertiseArchiveSurface(definition: ToolDefinition): ToolDefinition {
+export function advertiseArchiveSurface(
+  definition: ToolDefinition,
+): ToolDefinition {
   if (definition.name === "read_file") {
     return patchPathDescription(
       definition,
@@ -132,7 +149,11 @@ export function evidenceArchiveSearchPlugin(
 ): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
-      if (call.name !== "read_file" && call.name !== "grep" && call.name !== "search_files") {
+      if (
+        call.name !== "read_file" &&
+        call.name !== "grep" &&
+        call.name !== "search_files"
+      ) {
         return next(call, signal);
       }
       const path = str(call.arguments.path);
@@ -171,7 +192,8 @@ export function evidenceArchiveSearchPlugin(
               isError: true,
             };
           }
-          const maxResults = num(call.arguments.max_results) ?? SEARCH_DEFAULT_MAX;
+          const maxResults =
+            num(call.arguments.max_results) ?? SEARCH_DEFAULT_MAX;
           return {
             callId: call.id,
             content: await searchArchiveFiles(
@@ -194,7 +216,10 @@ export function evidenceArchiveSearchPlugin(
         const maxResults = num(call.arguments.max_results) ?? GREP_DEFAULT_MAX;
         const glob = str(call.arguments.glob);
         const contextArg = num(call.arguments.context);
-        const context = contextArg !== undefined && contextArg > 0 ? Math.floor(contextArg) : 0;
+        const context =
+          contextArg !== undefined && contextArg > 0
+            ? Math.floor(contextArg)
+            : 0;
         return {
           callId: call.id,
           content: await grepArchive(
@@ -229,10 +254,13 @@ async function readArchiveOccurrence(
   }
   const text = await archive.readAuthorizedPayload(occurrenceId);
   const offsetArg = num(args.offset);
-  const offset = offsetArg !== undefined && offsetArg > 0 ? Math.floor(offsetArg) : 0;
+  const offset =
+    offsetArg !== undefined && offsetArg > 0 ? Math.floor(offsetArg) : 0;
   const limitArg = num(args.limit);
   const limit =
-    limitArg !== undefined && limitArg > 0 ? Math.floor(limitArg) : READ_FILE_DEFAULT_MAX_LINES;
+    limitArg !== undefined && limitArg > 0
+      ? Math.floor(limitArg)
+      : READ_FILE_DEFAULT_MAX_LINES;
   const result = await readBytesBounded(
     new TextEncoder().encode(text),
     offset,
@@ -324,7 +352,9 @@ async function grepArchive(
   try {
     regex = new RegExp(pattern);
   } catch (err) {
-    throw new Error(`invalid regex: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `invalid regex: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
   const occurrences = await selectOccurrences(archive, occurrenceId);
   const hits: string[] = [];

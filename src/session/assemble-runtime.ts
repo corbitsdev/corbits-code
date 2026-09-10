@@ -545,7 +545,10 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       authorize:
         primaryArchive === undefined
           ? wiring.authorize
-          : wrapAuthorizeWithEvidenceArchive(wiring.authorize, () => primaryArchive),
+          : wrapAuthorizeWithEvidenceArchive(
+              wiring.authorize,
+              () => primaryArchive,
+            ),
       directors: createDirectorRegistry({
         factories: [chatDirectorDef.factory],
         defaultId: `${ID_PREFIX}/chat`,
@@ -554,11 +557,16 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         "pruning-compactor":
           primaryArchive === undefined
             ? wiring.getCompactor()
-            : wrapCompactorWithCompletenessGate(wiring.getCompactor(), primaryArchive),
+            : wrapCompactorWithCompletenessGate(
+                wiring.getCompactor(),
+                primaryArchive,
+              ),
       },
     });
     const admittedAgent =
-      primaryArchive === undefined ? agent : createPrimaryDeliveryAdmission(agent, primaryArchive);
+      primaryArchive === undefined
+        ? agent
+        : createPrimaryDeliveryAdmission(agent, primaryArchive);
     wiring.onBuilt(admittedAgent, storageForAgent);
     return admittedAgent;
   };

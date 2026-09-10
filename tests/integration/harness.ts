@@ -23,7 +23,11 @@ import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
 import type { AuthzCallResult } from "@intx/inference";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { setupHarness, type Harness } from "@intx/inference-testing";
-import type { ContextTransform, ContextStore, InferenceSource } from "@intx/types/runtime";
+import type {
+  ContextTransform,
+  ContextStore,
+  InferenceSource,
+} from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { createAgentWithLiveToolDispatch } from "../../src/agent/live-tool-dispatch.js";
@@ -42,7 +46,10 @@ import {
   type CompactionArchive,
 } from "../../src/session/compaction-archive.js";
 import { assertReplySend } from "../../src/subagent/run.js";
-import { createModelSummarizer, type CompletionFn } from "../../src/session/summarizer.js";
+import {
+  createModelSummarizer,
+  type CompletionFn,
+} from "../../src/session/summarizer.js";
 import {
   buildCompactionContinuationMessage,
   createSessionPruningCompactor,
@@ -87,8 +94,12 @@ export async function openIntegrationSession(
   const harness = setupHarness();
   const cwd = mkdtempSync(join(tmpdir(), "corbits-integration-cwd-"));
   const workdir = join(cwd, ".agent-state", "integration-session");
-  const evidenceArchiveHolder: { current: CompactionArchive | undefined } = { current: undefined };
-  const storageHolder: { current: ContextStore | undefined } = { current: undefined };
+  const evidenceArchiveHolder: { current: CompactionArchive | undefined } = {
+    current: undefined,
+  };
+  const storageHolder: { current: ContextStore | undefined } = {
+    current: undefined,
+  };
 
   const toolset = await createAgentToolset({
     cwd,
@@ -111,7 +122,10 @@ export async function openIntegrationSession(
         onTasksChange: () => undefined,
         inactivityTimeoutMs: 750_000,
         ...(opts.compactionCompletion !== undefined
-          ? { requestContinuation: () => agent.deliver(buildCompactionContinuationMessage()) }
+          ? {
+              requestContinuation: () =>
+                agent.deliver(buildCompactionContinuationMessage()),
+            }
           : {}),
       }),
   });
@@ -149,7 +163,8 @@ export async function openIntegrationSession(
     const archive = createCompactionArchive({
       sessionId: "integration-session",
       contextDir: workdir,
-      writeBlob: (key, bytes, contentType) => storage.writeBlob(key, bytes, contentType),
+      writeBlob: (key, bytes, contentType) =>
+        storage.writeBlob(key, bytes, contentType),
       readBlob: (key) => storage.readBlob(key),
     });
     primaryArchive = archive;

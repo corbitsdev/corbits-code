@@ -437,9 +437,13 @@ test("worker prompt does not advertise archive:///; primary chat prompt does", (
   expect(worker).not.toContain("archive:///");
   const primary = buildChatSystemPrompt();
   expect(primary).toContain("archive:///");
-  expect(buildAvailableTools(["read_file", "grep", "search_files"])).not.toContain("archive:///");
   expect(
-    buildAvailableTools(["read_file", "grep", "search_files"], { advertiseArchive: true }),
+    buildAvailableTools(["read_file", "grep", "search_files"]),
+  ).not.toContain("archive:///");
+  expect(
+    buildAvailableTools(["read_file", "grep", "search_files"], {
+      advertiseArchive: true,
+    }),
   ).toContain("archive:///");
 });
 

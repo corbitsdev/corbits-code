@@ -31,18 +31,33 @@ import {
   type TurnResult,
 } from "./harness.js";
 
-const PersistedTurn = type({ role: "string", content: ContentBlock.array(), timestamp: "number" });
-const WireRequest = type({ messages: type({ role: "string", content: "unknown" }).array() });
-const usage = (input: number) => ({ input, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 });
+const PersistedTurn = type({
+  role: "string",
+  content: ContentBlock.array(),
+  timestamp: "number",
+});
+const WireRequest = type({
+  messages: type({ role: "string", content: "unknown" }).array(),
+});
+const usage = (input: number) => ({
+  input,
+  output: 1,
+  cacheRead: 0,
+  cacheWrite: 0,
+  thinking: 0,
+});
 
 function observedWork(events: TurnResult["events"]): Work[] {
   return events.flatMap((event) => {
     if (event.type !== "tool.start") return [];
     const call = event.data.call;
     const done = events.find(
-      (candidate) => candidate.type === "tool.done" && candidate.data.result.callId === call.id,
+      (candidate) =>
+        candidate.type === "tool.done" &&
+        candidate.data.result.callId === call.id,
     );
-    if (done?.type !== "tool.done") throw new Error(`Missing tool result: ${call.id}`);
+    if (done?.type !== "tool.done")
+      throw new Error(`Missing tool result: ${call.id}`);
     const result = done.data.result;
     const failedShellExit =
       call.name === "run_shell" &&
@@ -52,7 +67,8 @@ function observedWork(events: TurnResult["events"]): Work[] {
       {
         name: call.name,
         argumentsKey: JSON.stringify(call.arguments),
-        outcome: result.isError === true || failedShellExit ? "failure" : "success",
+        outcome:
+          result.isError === true || failedShellExit ? "failure" : "success",
         purpose: call.id.startsWith("fold-") ? "verification" : "action",
       },
     ];
@@ -88,7 +104,9 @@ async function withTimeout<T>(promise: Promise<T>): Promise<T> {
 // Each response is selectable only if its exact evidence set is in the actual wire request.
 function queueEvidenceReply(session: IntegrationSession, callId: string) {
   for (let mask = 0; mask < 1 << REQUIRED_EVIDENCE.length; mask++) {
-    const facts = REQUIRED_EVIDENCE.filter((_, index) => (mask & (1 << index)) !== 0);
+    const facts = REQUIRED_EVIDENCE.filter(
+      (_, index) => (mask & (1 << index)) !== 0,
+    );
     const text = evidenceText(facts) || "Missing all required evidence.";
     const stream = session.harness.scenario.createStream();
     stream.enqueueAll(wire.completeResponse("anthropic", { text }), {
@@ -103,7 +121,9 @@ function queueEvidenceReply(session: IntegrationSession, callId: string) {
         facts.every((fact) =>
           recovered.some(
             (answer) =>
-              answer.id === fact.id && answer.source === fact.source && answer.value === fact.value,
+              answer.id === fact.id &&
+              answer.source === fact.source &&
+              answer.value === fact.value,
           ),
         )
       );
@@ -128,15 +148,22 @@ describe("integration — compaction mechanics baseline", () => {
         for (let attempt = 0; attempt < 2; attempt++) {
           session.harness.scenario.replyOnce("anthropic", {
             text: `Run diagnostic attempt ${attempt}.`,
-            toolCalls: [{ name: "run_shell", args: { command: "exit 7", timeout: 5000 } }],
+            toolCalls: [
+              { name: "run_shell", args: { command: "exit 7", timeout: 5000 } },
+            ],
           });
-          session.harness.scenario.replyOnce("anthropic", { text: "Diagnostic finished." });
+          session.harness.scenario.replyOnce("anthropic", {
+            text: "Diagnostic finished.",
+          });
           const { events } = await withTimeout(
             runUntilDone(session, `Diagnose attempt ${attempt}.`),
           );
           trace.push(...observedWork(events));
         }
-        expect(trace.map((work) => work.outcome)).toEqual(["failure", "failure"]);
+        expect(trace.map((work) => work.outcome)).toEqual([
+          "failure",
+          "failure",
+        ]);
         expect(repeatedWork(trace).repeatedFailedAttempts).toBe(1);
       } finally {
         await closeIntegrationSession(session);
@@ -185,7 +212,9 @@ describe("integration — compaction mechanics baseline", () => {
       });
       try {
         queueEvidenceReply(session, "absent-evidence");
-        const { reply } = await withTimeout(runUntilDone(session, "absent-evidence"));
+        const { reply } = await withTimeout(
+          runUntilDone(session, "absent-evidence"),
+        );
         expect(reply).toBe("Missing all required evidence.");
         expect(recoverEvidence(reply)).toEqual([]);
       } finally {
@@ -208,7 +237,9 @@ describe("integration — compaction mechanics baseline", () => {
         compactionCompletion: async (turns) => {
           const context = turns
             .flatMap((turn) =>
-              turn.content.flatMap((block) => (block.type === "text" ? [block.text] : [])),
+              turn.content.flatMap((block) =>
+                block.type === "text" ? [block.text] : [],
+              ),
             )
             .join("\n");
           summaryInputs.push(context);
@@ -234,9 +265,18 @@ describe("integration — compaction mechanics baseline", () => {
           await withTimeout(runUntilDone(session, message));
         }
         for (const toolCall of [
-          { name: "run_shell", args: { command: "bun diagnose.ts", timeout: 5000 } },
-          { name: "read_file", args: { path: "diagnostic.log", offset: 0, limit: 4000 } },
-          { name: "read_file", args: { path: "diagnostic.log", offset: 1500, limit: 1 } },
+          {
+            name: "run_shell",
+            args: { command: "bun diagnose.ts", timeout: 5000 },
+          },
+          {
+            name: "read_file",
+            args: { path: "diagnostic.log", offset: 0, limit: 4000 },
+          },
+          {
+            name: "read_file",
+            args: { path: "diagnostic.log", offset: 1500, limit: 1 },
+          },
         ]) {
           session.harness.scenario.replyOnce("anthropic", {
             text: "Inspecting evidence.",
@@ -252,7 +292,9 @@ describe("integration — compaction mechanics baseline", () => {
           );
           trace.push(...observedWork(events));
         }
-        const evidenceBefore = recoverEvidence(JSON.stringify((await snapshot(session)).turns));
+        const evidenceBefore = recoverEvidence(
+          JSON.stringify((await snapshot(session)).turns),
+        );
         expect(evidenceBefore).toEqual([...REQUIRED_EVIDENCE]);
         for (let fold = 0; fold < BASELINE.folds; fold++) {
           for (let growth = 0; growth < BASELINE.growthTurnsPerFold; growth++) {
@@ -260,10 +302,13 @@ describe("integration — compaction mechanics baseline", () => {
               text: `Checked independent audit item ${fold}-${growth}.`,
               headUsage: usage(BASELINE.syntheticLowInput),
             });
-            await withTimeout(runUntilDone(session, `Verify audit item ${fold}-${growth}.`));
+            await withTimeout(
+              runUntilDone(session, `Verify audit item ${fold}-${growth}.`),
+            );
           }
           const before = await snapshot(session);
-          const requestCount = session.harness.scenario.matchedRequests().length;
+          const requestCount =
+            session.harness.scenario.matchedRequests().length;
           session.harness.scenario.replyOnce("anthropic", {
             text: `Verify diagnostic row ${fold}.`,
             toolCalls: [
@@ -282,7 +327,9 @@ describe("integration — compaction mechanics baseline", () => {
           );
           trace.push(...observedWork(events));
           const after = await snapshot(session);
-          const inferenceCount = events.filter((event) => event.type === "inference.start").length;
+          const inferenceCount = events.filter(
+            (event) => event.type === "inference.start",
+          ).length;
           const observation: Fold = {
             requestedAtCall: requestCount + 1,
             beforeHash: before.hash,
@@ -292,7 +339,9 @@ describe("integration — compaction mechanics baseline", () => {
             persisted:
               after.turns.filter((turn) =>
                 turn.content.some(
-                  (block) => block.type === "text" && block.text.startsWith(COMPACTED_PREFIX),
+                  (block) =>
+                    block.type === "text" &&
+                    block.text.startsWith(COMPACTED_PREFIX),
                 ),
               ).length === 1,
             continuedAtCall: inferenceCount >= 2 ? requestCount + 2 : null,

@@ -87,13 +87,21 @@ export interface HistoricalEvidenceItem {
 }
 
 export interface CompactionArchive {
-  recordAuthorizedPayload(input: RecordAuthorizedPayloadInput): Promise<ArchiveOccurrence>;
-  recordExistingBlobReference(input: RecordExistingBlobInput): Promise<ArchiveOccurrence>;
+  recordAuthorizedPayload(
+    input: RecordAuthorizedPayloadInput,
+  ): Promise<ArchiveOccurrence>;
+  recordExistingBlobReference(
+    input: RecordExistingBlobInput,
+  ): Promise<ArchiveOccurrence>;
   noteToolRequested(call: ToolCallRecordingInput): Promise<void>;
-  finalizeToolRecording(input: FinalizeToolRecordingInput): Promise<ArchiveOccurrence>;
+  finalizeToolRecording(
+    input: FinalizeToolRecordingInput,
+  ): Promise<ArchiveOccurrence>;
   readAuthorizedPayload(occurrenceId: string): Promise<string>;
   listOccurrences(): Promise<ArchiveOccurrence[]>;
-  certifyRange(expectedOccurrenceIds: readonly string[]): Promise<CompletenessCertificate>;
+  certifyRange(
+    expectedOccurrenceIds: readonly string[],
+  ): Promise<CompletenessCertificate>;
   importHistoricalEvidence(
     items: readonly HistoricalEvidenceItem[],
   ): Promise<HistoricalImportResult>;
@@ -115,7 +123,8 @@ export function applyRecordingPolicyToText(text: string): string {
 
 export function applyRecordingPolicyToValue(value: unknown): unknown {
   if (typeof value === "string") return applyRecordingPolicyToText(value);
-  if (Array.isArray(value)) return value.map((item) => applyRecordingPolicyToValue(item));
+  if (Array.isArray(value))
+    return value.map((item) => applyRecordingPolicyToValue(item));
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
@@ -153,7 +162,8 @@ export function isControlOrEmptyInbound(message: InboundMessage): boolean {
   const content = message.content ?? "";
   const attachments = message.attachments ?? [];
   if (content.length === 0 && attachments.length === 0) return true;
-  if (message.ref.mailbox === "approval" || message.ref.mailbox === "system") return true;
+  if (message.ref.mailbox === "approval" || message.ref.mailbox === "system")
+    return true;
   if (message.headers.interchangeCorrelationId !== undefined) {
     // Correlated approval/control deliveries carry decision JSON; do not scrub.
     if (message.headers.interchangeType !== "conversation.message") return true;
@@ -168,7 +178,9 @@ export function isControlOrEmptyInbound(message: InboundMessage): boolean {
  * `createInboundTurn`; the archive records that history text, not the
  * pre-envelope inbound string. Workers omit this hook.
  */
-export function admitPrimaryInboundMessage(message: InboundMessage): InboundMessage {
+export function admitPrimaryInboundMessage(
+  message: InboundMessage,
+): InboundMessage {
   if (isControlOrEmptyInbound(message)) return message;
   const content = message.content ?? "";
   if (content.length === 0) return message;
@@ -234,7 +246,12 @@ async function archiveAdmittedInbound(
 // so archive hashes equal createInboundTurn history text.
 function sendFromHeader(rest: readonly unknown[]): string {
   const opts = rest[0];
-  if (opts !== undefined && typeof opts === "object" && opts !== null && "from" in opts) {
+  if (
+    opts !== undefined &&
+    typeof opts === "object" &&
+    opts !== null &&
+    "from" in opts
+  ) {
     const from = opts.from;
     if (typeof from === "string" && from.length > 0) return from;
   }
@@ -259,7 +276,8 @@ export function createPrimaryDeliveryAdmission<
     },
     send(content: string | InboundMessage, ...rest: never[]) {
       if (typeof content === "string") {
-        const admitted = content.length === 0 ? content : applyRecordingPolicyToText(content);
+        const admitted =
+          content.length === 0 ? content : applyRecordingPolicyToText(content);
         if (archive === undefined || admitted.length === 0) {
           return agent.send(admitted, ...rest);
         }
@@ -307,7 +325,9 @@ function trackPendingWrite(archive: object, write: Promise<unknown>): void {
   void tracked.finally(() => set.delete(tracked));
 }
 
-export async function awaitArchivePendingWrites(archive: object): Promise<void> {
+export async function awaitArchivePendingWrites(
+  archive: object,
+): Promise<void> {
   const set = pendingWrites.get(archive);
   if (set === undefined || set.size === 0) return;
   await Promise.all([...set]);
@@ -315,9 +335,20 @@ export async function awaitArchivePendingWrites(archive: object): Promise<void> 
 
 export function wrapAuthorizeWithEvidenceArchive<
   TResult extends { effect: string | null },
-  TAuthorize extends (resource: string, action: string, context: unknown) => Promise<TResult>,
->(authorize: TAuthorize, getArchive: () => CompactionArchive | undefined): TAuthorize {
-  const wrapped = (async (resource: string, action: string, context: unknown) => {
+  TAuthorize extends (
+    resource: string,
+    action: string,
+    context: unknown,
+  ) => Promise<TResult>,
+>(
+  authorize: TAuthorize,
+  getArchive: () => CompactionArchive | undefined,
+): TAuthorize {
+  const wrapped = (async (
+    resource: string,
+    action: string,
+    context: unknown,
+  ) => {
     const archive = getArchive();
     const call =
       context !== null &&
@@ -325,7 +356,11 @@ export function wrapAuthorizeWithEvidenceArchive<
       "id" in context &&
       "name" in context &&
       "arguments" in context
-        ? (context as { id: string; name: string; arguments: Record<string, unknown> })
+        ? (context as {
+            id: string;
+            name: string;
+            arguments: Record<string, unknown>;
+          })
         : undefined;
 
     if (archive !== undefined && call !== undefined && action === "invoke") {
@@ -342,10 +377,16 @@ export function wrapAuthorizeWithEvidenceArchive<
       archive !== undefined &&
       call !== undefined &&
       action === "invoke" &&
-      (result.effect === "allow" || result.effect === "deny" || result.effect === "ask")
+      (result.effect === "allow" ||
+        result.effect === "deny" ||
+        result.effect === "ask")
     ) {
       const lifecycle =
-        result.effect === "allow" ? "admitted" : result.effect === "deny" ? "denied" : "suspended";
+        result.effect === "allow"
+          ? "admitted"
+          : result.effect === "deny"
+            ? "denied"
+            : "suspended";
       await archive.finalizeToolRecording({
         callId: call.id,
         name: call.name,
@@ -359,9 +400,15 @@ export function wrapAuthorizeWithEvidenceArchive<
   return wrapped;
 }
 
-function encodePayload(payload: unknown): { bytes: Uint8Array; contentType: string } {
+function encodePayload(payload: unknown): {
+  bytes: Uint8Array;
+  contentType: string;
+} {
   if (typeof payload === "string") {
-    return { bytes: new TextEncoder().encode(payload), contentType: "text/plain" };
+    return {
+      bytes: new TextEncoder().encode(payload),
+      contentType: "text/plain",
+    };
   }
   return {
     bytes: new TextEncoder().encode(JSON.stringify(payload)),
@@ -371,17 +418,24 @@ function encodePayload(payload: unknown): { bytes: Uint8Array; contentType: stri
 
 function occurrenceBlobKey(sessionId: string, occurrenceId: string): string {
   // ContextStore.writeBlob rejects slash-containing keys (sanitizeCallId).
-  return assertSafeBlobKey(`archive-${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}-${occurrenceId}`);
+  return assertSafeBlobKey(
+    `archive-${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}-${occurrenceId}`,
+  );
 }
 
 function assertSafeBlobKey(key: string): string {
   if (key.includes("/") || key.includes("..")) {
-    throw new Error(`blob key contains unsafe characters: ${JSON.stringify(key)}`);
+    throw new Error(
+      `blob key contains unsafe characters: ${JSON.stringify(key)}`,
+    );
   }
   return key;
 }
 
-async function appendIndex(contextDir: string, occurrence: ArchiveOccurrence): Promise<void> {
+async function appendIndex(
+  contextDir: string,
+  occurrence: ArchiveOccurrence,
+): Promise<void> {
   const file = indexPath(contextDir);
   await fs.promises.mkdir(path.dirname(file), { recursive: true });
   await fs.promises.appendFile(file, `${JSON.stringify(occurrence)}\n`, "utf8");
@@ -403,7 +457,8 @@ async function readIndex(contextDir: string): Promise<ArchiveOccurrence[]> {
     }
     return out;
   } catch (cause) {
-    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return [];
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      return [];
     throw cause;
   }
 }
@@ -427,12 +482,17 @@ function mintOccurrenceId(parts: {
   return `occ-${createHash("sha256").update(material).digest("hex").slice(0, 24)}`;
 }
 
-export function createCompactionArchive(opts: CreateCompactionArchiveOpts): CompactionArchive {
+export function createCompactionArchive(
+  opts: CreateCompactionArchiveOpts,
+): CompactionArchive {
   const { sessionId, contextDir, writeBlob, readBlob } = opts;
   const now = opts.now ?? (() => Date.now());
   const requested = new Map<string, ToolCallRecordingInput>();
   async function persistOccurrence(
-    input: RecordAuthorizedPayloadInput & { blobKey?: string; skipWrite?: boolean },
+    input: RecordAuthorizedPayloadInput & {
+      blobKey?: string;
+      skipWrite?: boolean;
+    },
   ): Promise<ArchiveOccurrence> {
     const recordedAt = now();
     const { bytes, contentType } = encodePayload(input.payload ?? "");
@@ -445,7 +505,9 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
       ...(input.lifecycle !== undefined ? { lifecycle: input.lifecycle } : {}),
       recordedAt,
     });
-    const blobKey = assertSafeBlobKey(input.blobKey ?? occurrenceBlobKey(sessionId, occurrenceId));
+    const blobKey = assertSafeBlobKey(
+      input.blobKey ?? occurrenceBlobKey(sessionId, occurrenceId),
+    );
     if (input.skipWrite !== true && input.gap !== true) {
       await writeBlob(blobKey, bytes, contentType);
     }
@@ -458,7 +520,9 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
       recordedAt,
       ...(input.callId !== undefined ? { callId: input.callId } : {}),
       ...(input.lifecycle !== undefined ? { lifecycle: input.lifecycle } : {}),
-      ...(input.provenance !== undefined ? { provenance: input.provenance } : {}),
+      ...(input.provenance !== undefined
+        ? { provenance: input.provenance }
+        : {}),
       ...(input.gap === true ? { gap: true } : {}),
     });
     if (occurrence instanceof type.errors) {
@@ -499,7 +563,9 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
         blobKey,
         recordedAt,
         ...(input.callId !== undefined ? { callId: input.callId } : {}),
-        ...(input.provenance !== undefined ? { provenance: input.provenance } : {}),
+        ...(input.provenance !== undefined
+          ? { provenance: input.provenance }
+          : {}),
         ...(gap ? { gap: true } : {}),
       });
       if (occurrence instanceof type.errors) {
@@ -515,7 +581,9 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
     },
 
     async finalizeToolRecording(input) {
-      const recordedArgs = authorizedToolArgsRepresentation(input.executionArgs);
+      const recordedArgs = authorizedToolArgsRepresentation(
+        input.executionArgs,
+      );
       if (input.lifecycle === "denied") {
         return persistOccurrence({
           kind: "tool_failure",
@@ -559,8 +627,10 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
     async readAuthorizedPayload(occurrenceId) {
       const occurrences = await readIndex(contextDir);
       const hit = occurrences.find((o) => o.occurrenceId === occurrenceId);
-      if (hit === undefined) throw new Error(`unknown occurrence ${occurrenceId}`);
-      if (hit.gap === true) throw new Error(`occurrence ${occurrenceId} is an explicit gap`);
+      if (hit === undefined)
+        throw new Error(`unknown occurrence ${occurrenceId}`);
+      if (hit.gap === true)
+        throw new Error(`occurrence ${occurrenceId} is an explicit gap`);
       const bytes = await readBlob(hit.blobKey);
       return new TextDecoder().decode(bytes);
     },
@@ -616,7 +686,9 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
         certifiedAt: now(),
       });
       if (certificate instanceof type.errors) {
-        throw new Error(`invalid completeness certificate: ${certificate.summary}`);
+        throw new Error(
+          `invalid completeness certificate: ${certificate.summary}`,
+        );
       }
       return certificate;
     },
@@ -645,7 +717,10 @@ export function createCompactionArchive(opts: CreateCompactionArchiveOpts): Comp
           gapOccurrenceIds.push(occ.occurrenceId);
         }
       }
-      const result = HistoricalImportResult({ importedOccurrenceIds, gapOccurrenceIds });
+      const result = HistoricalImportResult({
+        importedOccurrenceIds,
+        gapOccurrenceIds,
+      });
       if (result instanceof type.errors) {
         throw new Error(`invalid historical import result: ${result.summary}`);
       }
@@ -686,16 +761,21 @@ function coveringOccurrence(
         const liveHash = hashLiveImageData(unit.data);
         if (liveHash === undefined) return false;
         return (
-          occ.contentHash === liveHash || attachmentByteHashes.get(occ.occurrenceId) === liveHash
+          occ.contentHash === liveHash ||
+          attachmentByteHashes.get(occ.occurrenceId) === liveHash
         );
       }
       if (unit.kind === "text") {
         if (unit.role === undefined || unit.text === undefined) return false;
         if (occ.kind !== textKindForRole(unit.role)) return false;
-        return occ.contentHash === hashAuthorizedBytes(new TextEncoder().encode(unit.text));
+        return (
+          occ.contentHash ===
+          hashAuthorizedBytes(new TextEncoder().encode(unit.text))
+        );
       }
       if (unit.callId === undefined || occ.callId !== unit.callId) return false;
-      if (unit.kind === "tool_call") return occ.kind === "tool_args" || occ.kind === "tool_failure";
+      if (unit.kind === "tool_call")
+        return occ.kind === "tool_args" || occ.kind === "tool_failure";
       return occ.kind === "tool_result" || occ.kind === "overflow_blob";
     });
     if (match === undefined) return { ids, unmatched: true };
@@ -747,7 +827,8 @@ async function attachmentByteHashes(
 function sameContentUnit(a: ContentUnit, b: ContentUnit): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "image") {
-    if (a.blobKey !== undefined || b.blobKey !== undefined) return a.blobKey === b.blobKey;
+    if (a.blobKey !== undefined || b.blobKey !== undefined)
+      return a.blobKey === b.blobKey;
     return a.data === b.data;
   }
   if (a.kind === "text") return a.role === b.role && a.text === b.text;

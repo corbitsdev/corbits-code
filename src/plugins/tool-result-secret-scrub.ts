@@ -78,7 +78,8 @@ export function scrubSecretShapedContent(text: string): string {
  */
 export function scrubSecretShapedValue(value: unknown): unknown {
   if (typeof value === "string") return scrubSecretShapedContent(value);
-  if (Array.isArray(value)) return value.map((item) => scrubSecretShapedValue(item));
+  if (Array.isArray(value))
+    return value.map((item) => scrubSecretShapedValue(item));
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {

@@ -50,7 +50,8 @@ export async function ageImageBlocks(
         await options.archive.recordAuthorizedPayload({
           kind: "attachment",
           payload: {
-            status: block.source.kind === "url" ? "unsupported-url" : "reference",
+            status:
+              block.source.kind === "url" ? "unsupported-url" : "reference",
             sourceKind: block.source.kind,
           },
           provenance: "attachment-age:non-base64",

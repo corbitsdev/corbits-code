@@ -8,7 +8,10 @@ import {
   type MaterializedToolResult,
 } from "./tool-result-materialize.js";
 import { scrubSecretShapedContent } from "./tool-result-secret-scrub.js";
-import { hashAuthorizedBytes, type CompactionArchive } from "../session/compaction-archive.js";
+import {
+  hashAuthorizedBytes,
+  type CompactionArchive,
+} from "../session/compaction-archive.js";
 
 // Characters, not tokens — conversion ratio is roughly 4 chars/token.
 // Match the reactor's default size-cap (vendor/intx-inference assembly.ts) so
@@ -232,7 +235,8 @@ async function archiveAuthorizedResult(
     kind: "tool_result",
     payload: content,
     callId,
-    provenance: isError === true ? "posix:error" : "posix:post-policy-pre-truncation",
+    provenance:
+      isError === true ? "posix:error" : "posix:post-policy-pre-truncation",
   });
 }
 

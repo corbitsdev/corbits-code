@@ -60,7 +60,12 @@ export function mcpClientTools(
   client: MCPClient,
   spillOptions: McpSpillOptions = {},
 ): AgentTool[] {
-  const { getBlobWriter, getContextDir, excludeToolNames = [], getEvidenceArchive } = spillOptions;
+  const {
+    getBlobWriter,
+    getContextDir,
+    excludeToolNames = [],
+    getEvidenceArchive,
+  } = spillOptions;
   const excluded = new Set(excludeToolNames);
 
   return client.tools

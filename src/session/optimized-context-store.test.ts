@@ -728,10 +728,13 @@ function turnTexts(turns: ConversationTurn[]): string[] {
 }
 
 async function gitLsTree(dir: string): Promise<string[]> {
-  const proc = Bun.spawn(["git", "-C", dir, "ls-tree", "-r", "--name-only", "HEAD"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const proc = Bun.spawn(
+    ["git", "-C", dir, "ls-tree", "-r", "--name-only", "HEAD"],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   const [exitCode, stdout, stderr] = await Promise.all([
     proc.exited,
     new Response(proc.stdout).text(),
@@ -760,7 +763,10 @@ describe("createOptimizedContextStore unpublished rewrite", () => {
 
     await store.commit({ message: "publish compact" });
     const published = await store.load();
-    expect(turnTexts(published.turns)).toEqual(["[Compacted prior context]", "keep-b"]);
+    expect(turnTexts(published.turns)).toEqual([
+      "[Compacted prior context]",
+      "keep-b",
+    ]);
   });
 
   test("omitting commit leaves a new store on the old generation", async () => {
@@ -798,11 +804,17 @@ describe("createOptimizedContextStore unpublished rewrite", () => {
     fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n");
     fs.chmodSync(hook, 0o755);
 
-    await expect(store.commit({ message: "publish compact" })).rejects.toThrow();
+    await expect(
+      store.commit({ message: "publish compact" }),
+    ).rejects.toThrow();
 
     const loaded = await store.load();
     expect(turnTexts(loaded.turns)).toEqual(["keep-a", "keep-b", "drop-me"]);
-    expect(turnTexts(await store.readAt(published.hash))).toEqual(["keep-a", "keep-b", "drop-me"]);
+    expect(turnTexts(await store.readAt(published.hash))).toEqual([
+      "keep-a",
+      "keep-b",
+      "drop-me",
+    ]);
   });
 
   test("append writeTurns is still visible before commit", async () => {

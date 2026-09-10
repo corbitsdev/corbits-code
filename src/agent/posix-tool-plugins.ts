@@ -95,7 +95,9 @@ export function buildCorePosixToolPlugins(
   // regardless.
   const allowOutside = (): boolean => permissionGate.getSkipPermissions();
   const truncationOptions =
-    getBlobWriter !== undefined || getContextDir !== undefined || getEvidenceArchive !== undefined
+    getBlobWriter !== undefined ||
+    getContextDir !== undefined ||
+    getEvidenceArchive !== undefined
       ? {
           ...(getBlobWriter !== undefined ? { getBlobWriter } : {}),
           ...(getContextDir !== undefined ? { getContextDir } : {}),

@@ -6,7 +6,10 @@
 // when earlier ones fill the window. Gap rows contribute metadata only.
 
 import type { CompactionArchive } from "./compaction-archive.js";
-import type { ArchiveKind, ArchiveOccurrence } from "./compaction-archive-schema.js";
+import type {
+  ArchiveKind,
+  ArchiveOccurrence,
+} from "./compaction-archive-schema.js";
 import { formatArchiveRef } from "./archive-uri.js";
 
 export const SUMMARY_EXCERPT_DEFAULT_BUDGET_CHARS = 80_000;

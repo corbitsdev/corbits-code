@@ -846,7 +846,10 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
       }),
     );
     turns.push(
-      makeTurn({ role: "user", content: [{ type: "text", text: "recent ask" }] }),
+      makeTurn({
+        role: "user",
+        content: [{ type: "text", text: "recent ask" }],
+      }),
     );
 
     const output1 = (await compactor.apply(turns, mockStrategyCtx)).output;
@@ -970,7 +973,9 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
     const result1 = await compactor.apply(turns, mockStrategyCtx);
     expect(result1.output).toBe(turns);
     expect(result1.record.reason).toBe("summarize failed");
-    expect(firstText(defined(result1.output[0]))).not.toContain(COMPACTED_PREFIX);
+    expect(firstText(defined(result1.output[0]))).not.toContain(
+      COMPACTED_PREFIX,
+    );
 
     const result2 = await compactor.apply(
       grow(result1.output, 16, "ok"),

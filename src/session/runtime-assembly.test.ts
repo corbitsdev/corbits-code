@@ -490,12 +490,17 @@ describe("createSessionPruningCompactor", () => {
       content: [{ type: "text", text: `t${i}` }],
       timestamp: now,
     }));
-    const folded = await folding.apply(many as never, { state: {} as never, trigger: "test" });
+    const folded = await folding.apply(many as never, {
+      state: {} as never,
+      trigger: "test",
+    });
     expect(folds).toHaveLength(1);
     expect(folds[0]?.turnsBefore).toBe(8);
     expect(
       folded.output[0]?.content.some(
-        (block) => block.type === "text" && block.text.startsWith("[Compacted prior context]"),
+        (block) =>
+          block.type === "text" &&
+          block.text.startsWith("[Compacted prior context]"),
       ),
     ).toBe(true);
 

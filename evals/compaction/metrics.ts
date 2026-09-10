@@ -1,11 +1,19 @@
 import { type } from "arktype";
 
-export const Evidence = type({ id: "string", source: "string", value: "string" });
+export const Evidence = type({
+  id: "string",
+  source: "string",
+  value: "string",
+});
 export type Evidence = typeof Evidence.infer;
 
 export const Measurement = type.or(
   { status: "'unavailable'", reason: "string" },
-  { status: "'reported' | 'estimated' | 'synthetic'", value: "number >= 0", unit: "string" },
+  {
+    status: "'reported' | 'estimated' | 'synthetic'",
+    value: "number >= 0",
+    unit: "string",
+  },
 );
 export type Measurement = typeof Measurement.infer;
 
@@ -54,8 +62,10 @@ export function repeatedWork(trace: readonly Work[]) {
     }
     if (seen.has(key)) {
       if (work.name === "read_file") repeatedReads++;
-      if (["grep", "search_files", "web_search"].includes(work.name)) repeatedSearches++;
-      if (["write_file", "edit_file", "apply_patch"].includes(work.name)) duplicatedEdits++;
+      if (["grep", "search_files", "web_search"].includes(work.name))
+        repeatedSearches++;
+      if (["write_file", "edit_file", "apply_patch"].includes(work.name))
+        duplicatedEdits++;
     }
     if (failures.has(key)) repeatedFailedAttempts++;
     seen.add(key);
@@ -81,7 +91,9 @@ export function grade(args: {
   const recoveredFacts = args.expected.filter((fact) =>
     args.recovered.some(
       (answer) =>
-        answer.id === fact.id && answer.source === fact.source && answer.value === fact.value,
+        answer.id === fact.id &&
+        answer.source === fact.source &&
+        answer.value === fact.value,
     ),
   ).length;
   const work = repeatedWork(args.trace);
@@ -89,7 +101,10 @@ export function grade(args: {
   const completion = args.artifact === args.expectedArtifact;
   const factualRecovery = recoveredFacts === args.expected.length;
   const repeatedActions =
-    work.repeatedReads + work.repeatedSearches + work.repeatedFailedAttempts + work.duplicatedEdits;
+    work.repeatedReads +
+    work.repeatedSearches +
+    work.repeatedFailedAttempts +
+    work.duplicatedEdits;
   return {
     completion,
     factualRecovery,
@@ -98,14 +113,20 @@ export function grade(args: {
     persistedFolds,
     qualifying: persistedFolds >= 3,
     ...work,
-    passed: completion && factualRecovery && persistedFolds >= 3 && repeatedActions === 0,
+    passed:
+      completion &&
+      factualRecovery &&
+      persistedFolds >= 3 &&
+      repeatedActions === 0,
   };
 }
 
 /** The responder receives only inference-visible text, never grader expectations. */
 export function recoverEvidence(context: string): Evidence[] {
   const facts = new Map<string, Evidence>();
-  for (const match of context.matchAll(/\[\[evidence:([^|\]\n]+)\|([^|\]\n]+)\|([^\]\n]+)\]\]/g)) {
+  for (const match of context.matchAll(
+    /\[\[evidence:([^|\]\n]+)\|([^|\]\n]+)\|([^\]\n]+)\]\]/g,
+  )) {
     const [, id, source, value] = match;
     if (id !== undefined && source !== undefined && value !== undefined) {
       facts.set(id, { id, source, value });

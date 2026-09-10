@@ -27,11 +27,14 @@ MIIEpAIBAAKCAQEA7
   });
 
   test("is idempotent for redacted query parameters", () => {
-    const text = "GET https://provider.invalid/v1?api_key=sk-live-secret-value-here&model=test";
+    const text =
+      "GET https://provider.invalid/v1?api_key=sk-live-secret-value-here&model=test";
     const once = scrubSecretShapedContent(text);
 
     expect(scrubSecretShapedContent(once)).toBe(once);
-    expect(once).toBe(`GET https://provider.invalid/v1?api_key=${CREDENTIAL_REDACTION}&model=test`);
+    expect(once).toBe(
+      `GET https://provider.invalid/v1?api_key=${CREDENTIAL_REDACTION}&model=test`,
+    );
   });
 
   test("passes benign documentation mentioning API keys", () => {
@@ -70,7 +73,9 @@ describe("toolResultSecretScrubPlugin", () => {
 
   test("scrubs grep tool results", async () => {
     const plugin = toolResultSecretScrubPlugin();
-    const handler = plugin.middleware!(next("secrets/.env:1:TOKEN=supersecretvalue"));
+    const handler = plugin.middleware!(
+      next("secrets/.env:1:TOKEN=supersecretvalue"),
+    );
     const result = await handler(
       { id: "c1", name: "grep", arguments: { pattern: "TOKEN" } },
       new AbortController().signal,
@@ -118,9 +123,14 @@ describe("toolResultSecretScrubPlugin", () => {
       new AbortController().signal,
     );
 
-    if (typeof result.content !== "string") throw new Error("expected text tool result");
-    expect(result.content).toContain(`api_key=${CREDENTIAL_REDACTION}&model=test`);
-    expect(result.content.match(/\[redacted: looks like a credential\]/g)).toHaveLength(1);
+    if (typeof result.content !== "string")
+      throw new Error("expected text tool result");
+    expect(result.content).toContain(
+      `api_key=${CREDENTIAL_REDACTION}&model=test`,
+    );
+    expect(
+      result.content.match(/\[redacted: looks like a credential\]/g),
+    ).toHaveLength(1);
   });
 
   // search_agents is listed in SCRUBBABLE_TOOLS for future unified scrubbing, but

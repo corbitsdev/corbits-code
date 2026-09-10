@@ -15,7 +15,9 @@ export function parseArchiveRef(value: string): string | undefined {
 }
 
 /** Root `archive:///` has no occurrenceId; a ref includes one. */
-export function parseArchiveTarget(value: string): { occurrenceId?: string } | undefined {
+export function parseArchiveTarget(
+  value: string,
+): { occurrenceId?: string } | undefined {
   if (!isArchiveLike(value)) return undefined;
   const rest = value.slice(ARCHIVE_URI_PREFIX.length).replace(/^\/+/, "");
   const occurrenceId = rest.split(/[/?#]/)[0] ?? "";

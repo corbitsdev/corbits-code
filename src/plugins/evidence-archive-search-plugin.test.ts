@@ -9,7 +9,10 @@ import {
   evidenceArchiveSearchPlugin,
 } from "./evidence-archive-search-plugin.js";
 import { formatArchiveRef } from "../session/archive-uri.js";
-import { createCompactionArchive, type CompactionArchive } from "../session/compaction-archive.js";
+import {
+  createCompactionArchive,
+  type CompactionArchive,
+} from "../session/compaction-archive.js";
 import { CATALOG_TOOL_NAMES, CORE_TOOL_NAMES } from "../agent/tool-search.js";
 
 function makeCall(name: string, args: Record<string, unknown>): ToolCall {
@@ -84,7 +87,9 @@ describe("evidenceArchiveSearchPlugin", () => {
       provenance: "primary-admission",
     });
     const plugin = evidenceArchiveSearchPlugin(() => archive);
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
 
     const hits = await handler(
       makeCall("search_files", { pattern: "*", path: "archive:///" }),
@@ -95,10 +100,15 @@ describe("evidenceArchiveSearchPlugin", () => {
     expect(String(hits.content)).not.toContain(occ.blobKey);
 
     const grepHits = await handler(
-      makeCall("grep", { pattern: "unique-payload-alpha", path: "archive:///" }),
+      makeCall("grep", {
+        pattern: "unique-payload-alpha",
+        path: "archive:///",
+      }),
       new AbortController().signal,
     );
-    expect(String(grepHits.content)).toContain(formatArchiveRef(occ.occurrenceId));
+    expect(String(grepHits.content)).toContain(
+      formatArchiveRef(occ.occurrenceId),
+    );
     expect(String(grepHits.content)).toContain("unique-payload-alpha");
     expect(String(grepHits.content)).not.toContain(occ.blobKey);
 
@@ -120,10 +130,15 @@ describe("evidenceArchiveSearchPlugin", () => {
       gap: true,
     });
     const plugin = evidenceArchiveSearchPlugin(() => archive);
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
 
     const payloadHits = await handler(
-      makeCall("grep", { pattern: "gap-payload-must-not-search", path: "archive:///" }),
+      makeCall("grep", {
+        pattern: "gap-payload-must-not-search",
+        path: "archive:///",
+      }),
       new AbortController().signal,
     );
     expect(String(payloadHits.content)).toContain("no matches");
@@ -133,7 +148,9 @@ describe("evidenceArchiveSearchPlugin", () => {
       makeCall("grep", { pattern: "attachment-missing", path: "archive:///" }),
       new AbortController().signal,
     );
-    expect(String(metaHits.content)).toContain(formatArchiveRef(gap.occurrenceId));
+    expect(String(metaHits.content)).toContain(
+      formatArchiveRef(gap.occurrenceId),
+    );
     expect(String(metaHits.content)).toContain("gap");
     expect(reads).toEqual([]);
 
@@ -154,7 +171,9 @@ describe("evidenceArchiveSearchPlugin", () => {
       payload: "other-session-only",
     });
     const plugin = evidenceArchiveSearchPlugin(() => primary);
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
 
     const forged = await handler(
       makeCall("read_file", { path: "archive:///occ-forged-not-in-index" }),
@@ -179,13 +198,17 @@ describe("evidenceArchiveSearchPlugin", () => {
 
   test("read_file pages archive payloads with offset and limit", async () => {
     const archive = memoryArchive("sess-page");
-    const lines = Array.from({ length: 8 }, (_, i) => `archive-line-${i}`).join("\n");
+    const lines = Array.from({ length: 8 }, (_, i) => `archive-line-${i}`).join(
+      "\n",
+    );
     const occ = await archive.recordAuthorizedPayload({
       kind: "tool_result",
       payload: lines,
     });
     const plugin = evidenceArchiveSearchPlugin(() => archive);
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const body = await handler(
       makeCall("read_file", {
         path: formatArchiveRef(occ.occurrenceId),
@@ -202,8 +225,12 @@ describe("evidenceArchiveSearchPlugin", () => {
   });
 
   test("passes ordinary workspace paths through", async () => {
-    const plugin = evidenceArchiveSearchPlugin(() => memoryArchive("sess-pass"));
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const plugin = evidenceArchiveSearchPlugin(() =>
+      memoryArchive("sess-pass"),
+    );
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const result = await handler(
       makeCall("grep", { pattern: "foo", path: "src" }),
       new AbortController().signal,
@@ -218,21 +245,32 @@ describe("evidenceArchiveSearchPlugin", () => {
       payload: "plain-payload-without-scheme",
     });
     const plugin = evidenceArchiveSearchPlugin(() => archive);
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
 
     const uriHits = await handler(
       makeCall("grep", { pattern: "archive", path: "archive:///" }),
       new AbortController().signal,
     );
     expect(String(uriHits.content)).toContain("no matches");
-    expect(String(uriHits.content)).not.toContain(formatArchiveRef(occ.occurrenceId));
+    expect(String(uriHits.content)).not.toContain(
+      formatArchiveRef(occ.occurrenceId),
+    );
 
     const payloadHits = await handler(
-      makeCall("grep", { pattern: "plain-payload-without-scheme", path: "archive:///" }),
+      makeCall("grep", {
+        pattern: "plain-payload-without-scheme",
+        path: "archive:///",
+      }),
       new AbortController().signal,
     );
-    expect(String(payloadHits.content)).toContain(formatArchiveRef(occ.occurrenceId));
-    expect(String(payloadHits.content)).toContain("plain-payload-without-scheme");
+    expect(String(payloadHits.content)).toContain(
+      formatArchiveRef(occ.occurrenceId),
+    );
+    expect(String(payloadHits.content)).toContain(
+      "plain-payload-without-scheme",
+    );
   });
 
   test("archive grep and search_files honor abort before loading remaining payloads", async () => {
@@ -246,7 +284,9 @@ describe("evidenceArchiveSearchPlugin", () => {
       payload: "abort-second",
     });
     const plugin = evidenceArchiveSearchPlugin(() => archive);
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const controller = new AbortController();
     const reads: string[] = [];
     const orig = archive.readAuthorizedPayload.bind(archive);
@@ -281,9 +321,15 @@ describe("evidenceArchiveSearchPlugin", () => {
       payload: "alpha\nbeta-hit\ngamma",
     });
     const plugin = evidenceArchiveSearchPlugin(() => archive);
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const hits = await handler(
-      makeCall("grep", { pattern: "beta-hit", path: "archive:///", context: 1 }),
+      makeCall("grep", {
+        pattern: "beta-hit",
+        path: "archive:///",
+        context: 1,
+      }),
       new AbortController().signal,
     );
     const ref = formatArchiveRef(occ.occurrenceId);
@@ -303,7 +349,9 @@ describe("evidenceArchiveSearchPlugin", () => {
       payload: "before-two\nneedle\nafter-two",
     });
     const plugin = evidenceArchiveSearchPlugin(() => archive);
-    const handler = plugin.middleware ? plugin.middleware(nextHandler) : nextHandler;
+    const handler = plugin.middleware
+      ? plugin.middleware(nextHandler)
+      : nextHandler;
     const hits = await handler(
       makeCall("grep", {
         pattern: "needle",
@@ -337,21 +385,29 @@ describe("createAgentToolset archive mount", () => {
       permissionGate,
       onOperatorGate: async () => ({ kind: "option", index: 0 }),
     });
-    const workerNames = worker.dynamicRunner.currentDefinitions().map((d) => d.name);
+    const workerNames = worker.dynamicRunner
+      .currentDefinitions()
+      .map((d) => d.name);
     expect(workerNames).not.toContain("search_archive");
     expect(workerNames).not.toContain("read_archive");
     const workerRead = worker.dynamicRunner
       .currentDefinitions()
       .find((d) => d.name === "read_file");
     expect(workerRead?.description ?? "").not.toContain("archive:///");
-    const workerGrep = worker.dynamicRunner.currentDefinitions().find((d) => d.name === "grep");
+    const workerGrep = worker.dynamicRunner
+      .currentDefinitions()
+      .find((d) => d.name === "grep");
     expect(workerGrep?.description ?? "").not.toContain("archive:///");
-    expect(JSON.stringify(workerGrep?.inputSchema ?? {})).not.toContain("archive:///");
+    expect(JSON.stringify(workerGrep?.inputSchema ?? {})).not.toContain(
+      "archive:///",
+    );
     const workerSearch = worker.dynamicRunner
       .currentDefinitions()
       .find((d) => d.name === "search_files");
     expect(workerSearch?.description ?? "").not.toContain("archive:///");
-    expect(JSON.stringify(workerSearch?.inputSchema ?? {})).not.toContain("archive:///");
+    expect(JSON.stringify(workerSearch?.inputSchema ?? {})).not.toContain(
+      "archive:///",
+    );
     await worker.dispose();
 
     const primary = await createAgentToolset({
@@ -360,14 +416,18 @@ describe("createAgentToolset archive mount", () => {
       onOperatorGate: async () => ({ kind: "option", index: 0 }),
       getEvidenceArchive: () => undefined,
     });
-    const primaryNames = primary.dynamicRunner.currentDefinitions().map((d) => d.name);
+    const primaryNames = primary.dynamicRunner
+      .currentDefinitions()
+      .map((d) => d.name);
     expect(primaryNames).not.toContain("search_archive");
     expect(primaryNames).not.toContain("read_archive");
     const primaryRead = primary.dynamicRunner
       .currentDefinitions()
       .find((d) => d.name === "read_file");
     expect(primaryRead?.description).toContain("archive:///");
-    const primaryGrep = primary.dynamicRunner.currentDefinitions().find((d) => d.name === "grep");
+    const primaryGrep = primary.dynamicRunner
+      .currentDefinitions()
+      .find((d) => d.name === "grep");
     expect(primaryGrep?.description).toContain("archive:///");
     const primarySearch = primary.dynamicRunner
       .currentDefinitions()

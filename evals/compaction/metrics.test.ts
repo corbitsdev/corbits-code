@@ -30,17 +30,25 @@ const baseline = {
 
 describe("compaction baseline grading", () => {
   test("requires evidence actually visible to the scripted responder", () => {
-    expect(recoverEvidence("[[evidence:region|operator:correction|west]]")).toEqual([fact]);
+    expect(
+      recoverEvidence("[[evidence:region|operator:correction|west]]"),
+    ).toEqual([fact]);
     expect(recoverEvidence("The region was mentioned earlier.")).toEqual([]);
     expect(
-      grade({ ...baseline, recovered: recoverEvidence("evidence removed") }).factualRecovery,
+      grade({ ...baseline, recovered: recoverEvidence("evidence removed") })
+        .factualRecovery,
     ).toBe(false);
   });
 
   test("rejects wrong values, sources, and altered artifacts independently", () => {
     expect(grade(baseline).passed).toBe(true);
-    expect(grade({ ...baseline, recovered: [{ ...fact, value: "east" }] }).passed).toBe(false);
-    expect(grade({ ...baseline, recovered: [{ ...fact, source: "invented" }] }).passed).toBe(false);
+    expect(
+      grade({ ...baseline, recovered: [{ ...fact, value: "east" }] }).passed,
+    ).toBe(false);
+    expect(
+      grade({ ...baseline, recovered: [{ ...fact, source: "invented" }] })
+        .passed,
+    ).toBe(false);
     const altered = grade({ ...baseline, artifact: "east\n" });
     expect(altered.completion).toBe(false);
     expect(altered.factualRecovery).toBe(true);
@@ -50,9 +58,13 @@ describe("compaction baseline grading", () => {
     expect(grade({ ...baseline, folds: [] }).qualifying).toBe(false);
     for (const fold of folds) {
       expect(qualifyingFold({ ...fold, persisted: false })).toBe(false);
-      expect(qualifyingFold({ ...fold, afterHash: fold.beforeHash })).toBe(false);
+      expect(qualifyingFold({ ...fold, afterHash: fold.beforeHash })).toBe(
+        false,
+      );
       expect(qualifyingFold({ ...fold, continuedAtCall: null })).toBe(false);
-      expect(qualifyingFold({ ...fold, afterTurns: fold.beforeTurns })).toBe(false);
+      expect(qualifyingFold({ ...fold, afterTurns: fold.beforeTurns })).toBe(
+        false,
+      );
     }
     expect(grade({ ...baseline, recovered: [] }).requiredFacts).toBe(1);
   });
@@ -89,16 +101,23 @@ describe("compaction baseline grading", () => {
   });
 
   test("missing usage is unavailable, not zero or an unlabelled estimate", () => {
-    expect(Measurement({ status: "unavailable", reason: "offline" }) instanceof type.errors).toBe(
-      false,
-    );
     expect(
-      Measurement({ status: "reported", value: -1, unit: "tokens" }) instanceof type.errors,
-    ).toBe(true);
-    expect(Measurement({ value: 0, unit: "tokens" }) instanceof type.errors).toBe(true);
-    expect(
-      Measurement({ status: "synthetic", value: 200000, unit: "trigger tokens" }) instanceof
+      Measurement({ status: "unavailable", reason: "offline" }) instanceof
         type.errors,
+    ).toBe(false);
+    expect(
+      Measurement({ status: "reported", value: -1, unit: "tokens" }) instanceof
+        type.errors,
+    ).toBe(true);
+    expect(
+      Measurement({ value: 0, unit: "tokens" }) instanceof type.errors,
+    ).toBe(true);
+    expect(
+      Measurement({
+        status: "synthetic",
+        value: 200000,
+        unit: "trigger tokens",
+      }) instanceof type.errors,
     ).toBe(false);
   });
 });

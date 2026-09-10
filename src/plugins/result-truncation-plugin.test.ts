@@ -641,7 +641,9 @@ describe("archive then truncate", () => {
       },
     } as unknown as CompactionArchive;
     const oversized = "x".repeat(MAX_RESULT_CHARS + 50);
-    const plugin = resultTruncationPlugin({ getEvidenceArchive: () => archive });
+    const plugin = resultTruncationPlugin({
+      getEvidenceArchive: () => archive,
+    });
     if (plugin.middleware === undefined) throw new Error("expected middleware");
     const middleware = plugin.middleware(async (call) => ({
       callId: call.id,
@@ -679,7 +681,9 @@ describe("archive then truncate", () => {
         };
       },
     } as unknown as CompactionArchive;
-    const plugin = resultTruncationPlugin({ getEvidenceArchive: () => archive });
+    const plugin = resultTruncationPlugin({
+      getEvidenceArchive: () => archive,
+    });
     if (plugin.middleware === undefined) throw new Error("expected middleware");
     const middleware = plugin.middleware(async (call) => ({
       callId: call.id,

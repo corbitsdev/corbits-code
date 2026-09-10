@@ -1,6 +1,9 @@
 import type { ToolPlugin } from "@intx/tools-posix";
 import type { ToolResult } from "@intx/types/runtime";
-import { scrubSecretShapedContent, scrubSecretShapedValue } from "./tool-result-secret-scrub.js";
+import {
+  scrubSecretShapedContent,
+  scrubSecretShapedValue,
+} from "./tool-result-secret-scrub.js";
 
 // Posix-middleware scrub path only. search_agents is listed for future unified
 // scrubbing if it ever rides this middleware; live scrub for profile bodies is in

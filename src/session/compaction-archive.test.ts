@@ -23,7 +23,9 @@ function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "compaction-archive-"));
 }
 
-function inbound(partial: Partial<InboundMessage> & { content?: string }): InboundMessage {
+function inbound(
+  partial: Partial<InboundMessage> & { content?: string },
+): InboundMessage {
   return {
     ref: { uid: 1, mailbox: "INBOX" },
     headers: {
@@ -37,7 +39,9 @@ function inbound(partial: Partial<InboundMessage> & { content?: string }): Inbou
     flags: [],
     signatureStatus: "missing",
     content: partial.content ?? "",
-    ...(partial.attachments !== undefined ? { attachments: partial.attachments } : {}),
+    ...(partial.attachments !== undefined
+      ? { attachments: partial.attachments }
+      : {}),
     ...(partial.ref !== undefined ? { ref: partial.ref } : {}),
   };
 }
@@ -67,7 +71,8 @@ describe("recording policy", () => {
 
   test("authorized tool args representation does not mutate execution args", () => {
     const args = {
-      command: "curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345' https://x",
+      command:
+        "curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345' https://x",
     };
     const recorded = authorizedToolArgsRepresentation(args);
     expect(recorded.command).toContain(CREDENTIAL_REDACTION);
@@ -82,7 +87,9 @@ describe("primary message admission", () => {
     });
     const admitted = admitPrimaryInboundMessage(message);
     expect(admitted.content).toContain(CREDENTIAL_REDACTION);
-    expect(admitted.content).not.toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
+    expect(admitted.content).not.toContain(
+      "sk-abcdefghijklmnopqrstuvwxyz012345",
+    );
     expect(message.content).toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
   });
 
@@ -109,7 +116,9 @@ describe("primary message admission", () => {
   });
 
   test("does not scrub binary attachment payloads", () => {
-    const bytes = new TextEncoder().encode("sk-abcdefghijklmnopqrstuvwxyz012345");
+    const bytes = new TextEncoder().encode(
+      "sk-abcdefghijklmnopqrstuvwxyz012345",
+    );
     const message = inbound({
       content: "see image",
       attachments: [{ name: "a.png", contentType: "image/png", data: bytes }],
@@ -135,8 +144,12 @@ describe("primary message admission", () => {
       },
     };
     const wrapped = createPrimaryDeliveryAdmission(agent);
-    wrapped.deliver(inbound({ content: "leak sk-abcdefghijklmnopqrstuvwxyz012345" }));
-    await wrapped.send(inbound({ content: "also sk-abcdefghijklmnopqrstuvwxyz012345" }));
+    wrapped.deliver(
+      inbound({ content: "leak sk-abcdefghijklmnopqrstuvwxyz012345" }),
+    );
+    await wrapped.send(
+      inbound({ content: "also sk-abcdefghijklmnopqrstuvwxyz012345" }),
+    );
     expect(delivered).toHaveLength(2);
     expect(delivered[0]!.content).toContain(CREDENTIAL_REDACTION);
     expect(delivered[1]!.content).toContain(CREDENTIAL_REDACTION);
@@ -172,7 +185,9 @@ describe("primary message admission", () => {
       },
     };
     const wrapped = createPrimaryDeliveryAdmission(agent, archive);
-    wrapped.deliver(inbound({ content: "constraint sk-abcdefghijklmnopqrstuvwxyz012345" }));
+    wrapped.deliver(
+      inbound({ content: "constraint sk-abcdefghijklmnopqrstuvwxyz012345" }),
+    );
     await archive.awaitPendingWrites();
     expect(delivered).toHaveLength(1);
     const admitted = delivered[0]!.content!;
@@ -181,10 +196,14 @@ describe("primary message admission", () => {
     const occurrences = await archive.listOccurrences();
     expect(occurrences).toHaveLength(1);
     expect(occurrences[0]!.kind).toBe("user_message");
-    const archived = await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId);
+    const archived = await archive.readAuthorizedPayload(
+      occurrences[0]!.occurrenceId,
+    );
     const history = createInboundTurn(delivered[0]!);
     const historyText = history?.content.find((block) => block.type === "text");
-    expect(historyText?.type === "text" ? historyText.text : undefined).toBe(archived);
+    expect(historyText?.type === "text" ? historyText.text : undefined).toBe(
+      archived,
+    );
     expect(archived.startsWith("[From: user@local]\n\n")).toBe(true);
     expect(archived.endsWith(admitted)).toBe(true);
   });
@@ -210,7 +229,8 @@ describe("primary message admission", () => {
         /* unused */
       },
       async send(content: string | InboundMessage) {
-        if (typeof content !== "string") throw new Error("expected string send");
+        if (typeof content !== "string")
+          throw new Error("expected string send");
         sent.push(content);
         return { ok: true as const };
       },
@@ -223,9 +243,9 @@ describe("primary message admission", () => {
     expect(sent[0]).not.toContain(secret);
     const occurrences = await archive.listOccurrences();
     expect(occurrences).toHaveLength(1);
-    expect(await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId)).toBe(
-      `[From: user@local]\n\n${sent[0]!}`,
-    );
+    expect(
+      await archive.readAuthorizedPayload(occurrences[0]!.occurrenceId),
+    ).toBe(`[From: user@local]\n\n${sent[0]!}`);
   });
 });
 
@@ -365,10 +385,14 @@ describe("compaction archive storage", () => {
     });
     expect(denied.lifecycle).toBe("denied");
     expect(denied.kind).toBe("tool_failure");
-    const payload = JSON.parse(await archive.readAuthorizedPayload(denied.occurrenceId));
+    const payload = JSON.parse(
+      await archive.readAuthorizedPayload(denied.occurrenceId),
+    );
     expect(payload.lifecycle).toBe("denied");
     expect(payload.arguments.token).toBe(CREDENTIAL_REDACTION);
-    expect(JSON.stringify(payload)).not.toContain("sk-abcdefghijklmnopqrstuvwxyz012345");
+    expect(JSON.stringify(payload)).not.toContain(
+      "sk-abcdefghijklmnopqrstuvwxyz012345",
+    );
     // Execution args object remains untouched for the runner.
     expect(forbiddenArgs.token).toBe("sk-abcdefghijklmnopqrstuvwxyz012345");
   });
@@ -389,7 +413,11 @@ describe("compaction archive storage", () => {
       },
     });
     const args = { path: "README.md" };
-    await archive.noteToolRequested({ id: "ask-1", name: "read_file", arguments: args });
+    await archive.noteToolRequested({
+      id: "ask-1",
+      name: "read_file",
+      arguments: args,
+    });
     const suspended = await archive.finalizeToolRecording({
       callId: "ask-1",
       name: "read_file",
@@ -443,7 +471,10 @@ describe("compaction archive storage", () => {
     });
     expect(missing.gap).toBe(true);
 
-    const cert = await archive.certifyRange([overflow.occurrenceId, missing.occurrenceId]);
+    const cert = await archive.certifyRange([
+      overflow.occurrenceId,
+      missing.occurrenceId,
+    ]);
     expect(cert.status).toBe("incomplete");
     expect(cert.unverifiedBlobIds).toContain(missing.occurrenceId);
   });
@@ -466,7 +497,12 @@ describe("compaction archive storage", () => {
 
     const result = await archive.importHistoricalEvidence([
       { kind: "user_message", payload: "present fact", available: true },
-      { kind: "tool_result", payload: "lost", available: false, callId: "old-1" },
+      {
+        kind: "tool_result",
+        payload: "lost",
+        available: false,
+        callId: "old-1",
+      },
     ]);
     expect(result.importedOccurrenceIds).toHaveLength(1);
     expect(result.gapOccurrenceIds).toHaveLength(1);
@@ -512,7 +548,8 @@ describe("compaction archive storage", () => {
     const archive = createCompactionArchive({
       sessionId: "sess-store-keys",
       contextDir: dir,
-      writeBlob: (key, bytes, contentType) => store.writeBlob(key, bytes, contentType),
+      writeBlob: (key, bytes, contentType) =>
+        store.writeBlob(key, bytes, contentType),
       readBlob: (key) => store.readBlob(key),
     });
     const occ = await archive.recordAuthorizedPayload({
@@ -521,7 +558,9 @@ describe("compaction archive storage", () => {
     });
     expect(occ.blobKey.includes("/")).toBe(false);
     expect(occ.blobKey.includes("..")).toBe(false);
-    expect(await archive.readAuthorizedPayload(occ.occurrenceId)).toBe("hello-store");
+    expect(await archive.readAuthorizedPayload(occ.occurrenceId)).toBe(
+      "hello-store",
+    );
   });
 
   test("rejects slash-containing blob keys so they cannot nest under tool-output", async () => {
@@ -553,7 +592,9 @@ describe("compaction archive storage", () => {
 });
 
 describe("wrapCompactorWithCompletenessGate", () => {
-  const ctx = { trigger: "test" } as unknown as import("@intx/types/runtime").StrategyContext;
+  const ctx = {
+    trigger: "test",
+  } as unknown as import("@intx/types/runtime").StrategyContext;
 
   function truncating(name: string): import("@intx/types/runtime").Compactor {
     return {
@@ -600,7 +641,8 @@ describe("wrapCompactorWithCompletenessGate", () => {
   }
 
   test("incomplete archive returns identity history and drops stats blobs", async () => {
-    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { wrapCompactorWithCompletenessGate } =
+      await import("./compaction-archive.js");
     const { archive } = memoryArchive();
     const inner = truncating("pruning-compactor");
     const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
@@ -613,14 +655,23 @@ describe("wrapCompactorWithCompletenessGate", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool_call", id: "call-drop", name: "read_file", arguments: { path: "a.ts" } },
+          {
+            type: "tool_call",
+            id: "call-drop",
+            name: "read_file",
+            arguments: { path: "a.ts" },
+          },
         ],
         timestamp: 2,
       },
       {
         role: "user",
         content: [
-          { type: "tool_result", callId: "call-drop", content: [{ type: "text", text: "ok" }] },
+          {
+            type: "tool_result",
+            callId: "call-drop",
+            content: [{ type: "text", text: "ok" }],
+          },
         ],
         timestamp: 3,
       },
@@ -633,7 +684,8 @@ describe("wrapCompactorWithCompletenessGate", () => {
   });
 
   test("complete archive covering dropped callIds allows the rewrite", async () => {
-    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { wrapCompactorWithCompletenessGate } =
+      await import("./compaction-archive.js");
     const { archive } = memoryArchive();
     await archive.recordAuthorizedPayload({
       kind: "tool_args",
@@ -661,14 +713,23 @@ describe("wrapCompactorWithCompletenessGate", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool_call", id: "call-drop", name: "read_file", arguments: { path: "a.ts" } },
+          {
+            type: "tool_call",
+            id: "call-drop",
+            name: "read_file",
+            arguments: { path: "a.ts" },
+          },
         ],
         timestamp: 2,
       },
       {
         role: "user",
         content: [
-          { type: "tool_result", callId: "call-drop", content: [{ type: "text", text: "ok" }] },
+          {
+            type: "tool_result",
+            callId: "call-drop",
+            content: [{ type: "text", text: "ok" }],
+          },
         ],
         timestamp: 3,
       },
@@ -681,7 +742,8 @@ describe("wrapCompactorWithCompletenessGate", () => {
   });
 
   test("explicit gap records are not required for completeness", async () => {
-    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { wrapCompactorWithCompletenessGate } =
+      await import("./compaction-archive.js");
     const { archive } = memoryArchive();
     await archive.importHistoricalEvidence([
       { kind: "user_message", available: false, callId: "historical-gap" },
@@ -696,7 +758,10 @@ describe("wrapCompactorWithCompletenessGate", () => {
       payload: "secret-fact",
     });
 
-    const wrapped = wrapCompactorWithCompletenessGate(truncating("pruning-compactor"), archive);
+    const wrapped = wrapCompactorWithCompletenessGate(
+      truncating("pruning-compactor"),
+      archive,
+    );
     const turns: import("@intx/types/runtime").ConversationTurn[] = [
       {
         role: "user",
@@ -706,7 +771,11 @@ describe("wrapCompactorWithCompletenessGate", () => {
       {
         role: "user",
         content: [
-          { type: "tool_result", callId: "call-drop", content: [{ type: "text", text: "ok" }] },
+          {
+            type: "tool_result",
+            callId: "call-drop",
+            content: [{ type: "text", text: "ok" }],
+          },
         ],
         timestamp: 2,
       },
@@ -717,9 +786,13 @@ describe("wrapCompactorWithCompletenessGate", () => {
   });
 
   test("image-only dropped turns require covering attachment evidence", async () => {
-    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { wrapCompactorWithCompletenessGate } =
+      await import("./compaction-archive.js");
     const { archive } = memoryArchive();
-    const wrapped = wrapCompactorWithCompletenessGate(truncating("pruning-compactor"), archive);
+    const wrapped = wrapCompactorWithCompletenessGate(
+      truncating("pruning-compactor"),
+      archive,
+    );
     const pngBytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
     const png = base64Encode(pngBytes);
     const turns: import("@intx/types/runtime").ConversationTurn[] = [
@@ -755,7 +828,9 @@ describe("wrapCompactorWithCompletenessGate", () => {
     const admitted = createPrimaryDeliveryAdmission(agent, archive);
     await admitted.send(
       inbound({
-        attachments: [{ name: "shot.png", contentType: "image/png", data: pngBytes }],
+        attachments: [
+          { name: "shot.png", contentType: "image/png", data: pngBytes },
+        ],
       }),
     );
     const allowed = await wrapped.apply(turns, ctx);
@@ -764,9 +839,13 @@ describe("wrapCompactorWithCompletenessGate", () => {
   });
 
   test("dropped list_dir and write_file results fail-close until archived", async () => {
-    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { wrapCompactorWithCompletenessGate } =
+      await import("./compaction-archive.js");
     const { archive } = memoryArchive();
-    const wrapped = wrapCompactorWithCompletenessGate(truncating("pruning-compactor"), archive);
+    const wrapped = wrapCompactorWithCompletenessGate(
+      truncating("pruning-compactor"),
+      archive,
+    );
     const turns: import("@intx/types/runtime").ConversationTurn[] = [
       {
         role: "user",
@@ -775,25 +854,47 @@ describe("wrapCompactorWithCompletenessGate", () => {
       },
       {
         role: "assistant",
-        content: [{ type: "tool_call", id: "ld", name: "list_dir", arguments: { path: "." } }],
+        content: [
+          {
+            type: "tool_call",
+            id: "ld",
+            name: "list_dir",
+            arguments: { path: "." },
+          },
+        ],
         timestamp: 2,
       },
       {
         role: "user",
         content: [
-          { type: "tool_result", callId: "ld", content: [{ type: "text", text: "src/\n" }] },
+          {
+            type: "tool_result",
+            callId: "ld",
+            content: [{ type: "text", text: "src/\n" }],
+          },
         ],
         timestamp: 3,
       },
       {
         role: "assistant",
-        content: [{ type: "tool_call", id: "wf", name: "write_file", arguments: { path: "a.ts" } }],
+        content: [
+          {
+            type: "tool_call",
+            id: "wf",
+            name: "write_file",
+            arguments: { path: "a.ts" },
+          },
+        ],
         timestamp: 4,
       },
       {
         role: "user",
         content: [
-          { type: "tool_result", callId: "wf", content: [{ type: "text", text: "wrote" }] },
+          {
+            type: "tool_result",
+            callId: "wf",
+            content: [{ type: "text", text: "wrote" }],
+          },
         ],
         timestamp: 5,
       },
@@ -839,7 +940,8 @@ describe("wrapCompactorWithCompletenessGate", () => {
   });
 
   test("cloned keep-window turns are not treated as dropped", async () => {
-    const { wrapCompactorWithCompletenessGate } = await import("./compaction-archive.js");
+    const { wrapCompactorWithCompletenessGate } =
+      await import("./compaction-archive.js");
     const { archive } = memoryArchive();
     await archive.recordAuthorizedPayload({
       kind: "user_message",
@@ -849,7 +951,9 @@ describe("wrapCompactorWithCompletenessGate", () => {
       name: "pruning-compactor",
       version: "1",
       async apply(turns) {
-        const kept = turns.slice(-1).map((turn) => ({ ...turn, content: [...turn.content] }));
+        const kept = turns
+          .slice(-1)
+          .map((turn) => ({ ...turn, content: [...turn.content] }));
         return {
           output: kept,
           record: {

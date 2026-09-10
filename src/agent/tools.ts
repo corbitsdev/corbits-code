@@ -562,7 +562,8 @@ export async function createAgentToolset(
       let definition = advertiseEditFileLineRange(
         advertiseShellGuardTimeout(tool.definition, shellTimeout?.defaultMs),
       );
-      if (getEvidenceArchive !== undefined) definition = advertiseArchiveSurface(definition);
+      if (getEvidenceArchive !== undefined)
+        definition = advertiseArchiveSurface(definition);
       return { ...tool, definition };
     }),
     createListDirTool(cwd, {

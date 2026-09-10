@@ -797,7 +797,9 @@ function coalesceAdjacentTextTurns(
   return out;
 }
 
-function separateAdjacentUserTurns(turns: ConversationTurn[]): ConversationTurn[] {
+function separateAdjacentUserTurns(
+  turns: ConversationTurn[],
+): ConversationTurn[] {
   const out: ConversationTurn[] = [];
   for (const turn of turns) {
     const prev = out[out.length - 1];
@@ -958,10 +960,7 @@ export function createPruningCompactor(
         const candidate = scoredOlder[i];
         if (candidate === undefined) continue;
         const candidateTurn = olderTurns[candidate.index];
-        if (
-          candidateTurn !== undefined &&
-          isFoldableHandoffTurn(candidateTurn)
-        )
+        if (candidateTurn !== undefined && isFoldableHandoffTurn(candidateTurn))
           continue;
         if (
           candidate.score < ANCHOR_SCORE_THRESHOLD ||
@@ -989,7 +988,8 @@ export function createPruningCompactor(
 
       for (const idx of [...anchorIndices]) {
         const turn = olderTurns[idx];
-        if (turn !== undefined && isFoldableHandoffTurn(turn)) anchorIndices.delete(idx);
+        if (turn !== undefined && isFoldableHandoffTurn(turn))
+          anchorIndices.delete(idx);
       }
 
       // Ascending original order keeps the concatenated [anchors, recent]

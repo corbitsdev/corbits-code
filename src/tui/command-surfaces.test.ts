@@ -245,8 +245,12 @@ describe("settings surface", () => {
         false,
       );
       expect(shell.overlayItems.some((l) => l.includes("scope"))).toBe(false);
-      expect(shell.overlayItems.some((l) => l.includes("compaction"))).toBe(false);
-      expect(shell.overlayItems.some((l) => l.includes("summarize"))).toBe(false);
+      expect(shell.overlayItems.some((l) => l.includes("compaction"))).toBe(
+        false,
+      );
+      expect(shell.overlayItems.some((l) => l.includes("summarize"))).toBe(
+        false,
+      );
     });
   });
 

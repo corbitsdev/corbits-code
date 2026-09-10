@@ -32,10 +32,13 @@ test("prefers user messages over tool results and keeps the full payload", async
       occ({ occurrenceId: "occ-result", kind: "tool_result", callId: "c1" }),
       occ({ occurrenceId: "occ-user", kind: "user_message" }),
     ],
-    readAuthorizedPayload: async (id) => (id === "occ-user" ? userBody : "RESULT_BODY"),
+    readAuthorizedPayload: async (id) =>
+      id === "occ-user" ? userBody : "RESULT_BODY",
   });
   expect(excerpt.indexOf("USER_BODY")).toBeGreaterThanOrEqual(0);
-  expect(excerpt.indexOf("USER_BODY")).toBeLessThan(excerpt.indexOf("RESULT_BODY"));
+  expect(excerpt.indexOf("USER_BODY")).toBeLessThan(
+    excerpt.indexOf("RESULT_BODY"),
+  );
   expect(excerpt).toContain(userBody);
   expect(excerpt).toContain("archive:///occ-user");
 });
@@ -43,7 +46,12 @@ test("prefers user messages over tool results and keeps the full payload", async
 test("gap rows contribute metadata only", async () => {
   const excerpt = await buildArchiveSummaryExcerpt({
     listOccurrences: async () => [
-      occ({ occurrenceId: "occ-gap", kind: "tool_result", callId: "c9", gap: true }),
+      occ({
+        occurrenceId: "occ-gap",
+        kind: "tool_result",
+        callId: "c9",
+        gap: true,
+      }),
     ],
     readAuthorizedPayload: async () => {
       throw new Error("gap rows must not load a payload");
@@ -79,7 +87,8 @@ test("marks over-budget occurrences as omitted instead of dropping them silently
         occ({ occurrenceId: "occ-user", kind: "user_message" }),
         occ({ occurrenceId: "occ-result", kind: "tool_result" }),
       ],
-      readAuthorizedPayload: async (id) => (id === "occ-user" ? "USER" : "RESULT"),
+      readAuthorizedPayload: async (id) =>
+        id === "occ-user" ? "USER" : "RESULT",
     },
     80,
   );
@@ -95,7 +104,8 @@ test("omits an occurrence whose full payload cannot fit, without slicing it", as
         occ({ occurrenceId: "occ-big", kind: "user_message" }),
         occ({ occurrenceId: "occ-small", kind: "user_message" }),
       ],
-      readAuthorizedPayload: async (id) => (id === "occ-big" ? `BIG${"x".repeat(500)}` : "SMALL"),
+      readAuthorizedPayload: async (id) =>
+        id === "occ-big" ? `BIG${"x".repeat(500)}` : "SMALL",
     },
     80,
   );
@@ -131,7 +141,8 @@ test("join separators are not charged against the first section", async () => {
       ],
       readAuthorizedPayload: async (id) => (id === "occ-a" ? "AAAA" : "BB"),
     },
-    "### user_message archive:///occ-a\nAAAA\n\n### user_message archive:///occ-b\nBB".length,
+    "### user_message archive:///occ-a\nAAAA\n\n### user_message archive:///occ-b\nBB"
+      .length,
   );
   expect(excerpt).toContain("AAAA");
   expect(excerpt).toContain("BB");

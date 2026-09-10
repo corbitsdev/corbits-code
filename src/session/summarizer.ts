@@ -13,7 +13,10 @@ import { createDefaultDependencies } from "@intx/inference/providers";
 import { getLogger } from "@intx/log";
 import type { ConversationTurn, InferenceSource } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import { buildArchiveSummaryExcerpt, type SummaryExcerptArchive } from "./summary-excerpt.js";
+import {
+  buildArchiveSummaryExcerpt,
+  type SummaryExcerptArchive,
+} from "./summary-excerpt.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "session", "summarizer"]);
 
@@ -144,7 +147,9 @@ export function buildSummaryPrompt(
   excerpt?: string,
 ): string {
   const body =
-    excerpt !== undefined && excerpt.length > 0 ? excerpt : condenseTurns(turns);
+    excerpt !== undefined && excerpt.length > 0
+      ? excerpt
+      : condenseTurns(turns);
   return `${workflowPreamble(ctx)}Session excerpt:\n\n${body}`;
 }
 
@@ -209,7 +214,10 @@ export function createModelSummarizer(
   return async (turns, ctx) => {
     try {
       const archive = options.getArchive?.();
-      const excerpt = archive !== undefined ? await buildArchiveSummaryExcerpt(archive) : undefined;
+      const excerpt =
+        archive !== undefined
+          ? await buildArchiveSummaryExcerpt(archive)
+          : undefined;
       const promptTurns: ConversationTurn[] = [
         {
           role: "system",
@@ -218,7 +226,9 @@ export function createModelSummarizer(
         },
         {
           role: "user",
-          content: [{ type: "text", text: buildSummaryPrompt(turns, ctx, excerpt) }],
+          content: [
+            { type: "text", text: buildSummaryPrompt(turns, ctx, excerpt) },
+          ],
           timestamp: 0,
         },
       ];
