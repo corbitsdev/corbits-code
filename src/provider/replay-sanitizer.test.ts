@@ -6,8 +6,7 @@ import type { ConversationTurn, LastCycleSource } from "@intx/types/runtime";
 import {
   CODEX_RESPONSES_PROVIDER,
   createCodexResponsesAdapter,
-  tagSignature,
-} from "./codex-responses-adapter.js";
+} from "./codex-responses.js";
 import { createGrokResponsesAdapter } from "./grok-responses.js";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
 import {
@@ -417,7 +416,7 @@ describe("withReplaySanitizer", () => {
       provider: CODEX_RESPONSES_PROVIDER,
       model: "gpt-5.1-codex",
     });
-    const signature = tagSignature(CODEX_RESPONSES_PROVIDER, "cipher");
+    const signature = `${CODEX_RESPONSES_PROVIDER}:cipher`;
     const turns: ConversationTurn[] = [
       { role: "user", content: [{ type: "text", text: "hi" }], timestamp: 1 },
       {
