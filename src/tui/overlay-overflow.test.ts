@@ -227,13 +227,14 @@ describe("gate-wire approval overflow on short terminal", () => {
         primeSession(shell);
         const dispose = wireGates(emitter, shell);
         emitter.emit("permission.gate", {
+          id: "req-1",
           request,
           resolve: (outcome: unknown) => {
             resolved = outcome;
           },
         });
 
-        const choices = permissionChoicesFromRequest(request);
+        const choices = permissionChoicesFromRequest(request, "req-1");
         expect(shell.overlayKind).toBe("permissions");
         expect(shell.overlayItems).toEqual([...choices.items]);
         const list = shell.overlayList!;
@@ -269,6 +270,7 @@ describe("gate-wire approval overflow on short terminal", () => {
         primeSession(shell);
         const dispose = wireGates(emitter, shell);
         emitter.emit("operator.gate", {
+          id: "ask-1",
           question: tallBody,
           options: [...options],
           resolve: (result: unknown) => {
@@ -276,7 +278,7 @@ describe("gate-wire approval overflow on short terminal", () => {
           },
         });
 
-        const choices = operatorChoicesFromOptions(options);
+        const choices = operatorChoicesFromOptions(options, "ask-1");
         expect(shell.overlayKind).toBe("operator");
         expect(shell.overlayItems).toEqual([...choices.items]);
         const list = shell.overlayList!;
@@ -312,7 +314,7 @@ describe("gate-wire approval overflow on short terminal", () => {
       try {
         primeSession(shell);
         const dispose = wireGates(emitter, shell);
-        emitter.emit("permission.gate", { request, resolve: () => {} });
+        emitter.emit("permission.gate", { id: "req-1", request, resolve: () => {} });
 
         const body = permissionBodyFromRequest(request, { hint: true });
         // The raw body still carries the collapsed-command hint — only what

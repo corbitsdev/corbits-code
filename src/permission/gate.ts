@@ -42,6 +42,20 @@ import { NOOP_APPROVAL_LOG, type ApprovalLog, type ApprovalOutcomeKind } from ".
 // Closes out an operator prompt: ends the wait span and records the outcome.
 // buildRequests yields at most one request per tool call, and the two prompt
 // sites below are mutually exclusive, so this runs once per prompt shown.
+function finishApprovalWait(
+  telemetry: Telemetry,
+  waitSpanId: string,
+  tool: string,
+  outcome: ApprovalOutcome | undefined,
+): void {
+  const decision = outcome !== undefined && outcome.allow ? "allow" : "deny";
+  end(waitSpanId, outcome !== undefined ? { decision } : undefined);
+  telemetry.capture("permission_prompt", {
+    decision,
+    permission_kind: classifyPermissionKind(tool),
+  });
+}
+
 // Classifies a settled ApprovalOutcome into the approval-log taxonomy.
 // gate-wire.ts's timeout/abort auto-denies carry a fixed message text (see
 // autoDeny in gate-wire.ts and the timeout branch in tui/request-approval.ts's
@@ -56,20 +70,6 @@ function classifyOutcome(outcome: ApprovalOutcome | undefined): ApprovalOutcomeK
     return "deny";
   }
   return outcome.persist !== undefined ? "allow-with-scope" : "allow-once";
-}
-
-function finishApprovalWait(
-  telemetry: Telemetry,
-  waitSpanId: string,
-  tool: string,
-  outcome: ApprovalOutcome | undefined,
-): void {
-  const decision = outcome !== undefined && outcome.allow ? "allow" : "deny";
-  end(waitSpanId, outcome !== undefined ? { decision } : undefined);
-  telemetry.capture("permission_prompt", {
-    decision,
-    permission_kind: classifyPermissionKind(tool),
-  });
 }
 
 export type GateVerdict = { allowed: true } | { allowed: false; reason: string };

@@ -438,10 +438,12 @@ export function activeOverlayItemId(shell: AppShell, list: OverlayList): string 
 export function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList;
   if (!list) return;
+  const bag = shellInternals(shell);
   shell.overlayView.paintList(
     {
       kind: shell.overlayKind,
       items: shell.overlayItems,
+      ...(bag !== undefined ? { itemIds: bag.primaryBindings.itemIds } : {}),
       paletteCommands: shell.paletteCommands,
       list,
       bodyLines: shell.overlayBodyLines,

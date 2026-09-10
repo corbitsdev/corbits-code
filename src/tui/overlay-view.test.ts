@@ -116,6 +116,52 @@ describe("overlay view", () => {
     });
   });
 
+  test("repainting a list replaces labels and values so sequential asks cannot keep stale rows", async () => {
+    await withTestRenderer(async (h) => {
+      const view = createOverlayView(h.renderer);
+      h.renderer.root.add(view.host);
+      const list = createOverlayList(h.renderer, { count: 2, items: 2 });
+      const base = {
+        kind: "operator" as const,
+        paletteCommands: [],
+        list,
+        bodyLines: [],
+        bodyFgs: [],
+        answer: null,
+        describe: () => undefined,
+      };
+      view.paintList(
+        {
+          ...base,
+          items: ["Stay on A", "Leave A"],
+          itemIds: ["ask-a:0", "ask-a:1"],
+        },
+        80,
+      );
+      expect(bodySelect(view).options.map((option) => option.name)).toEqual([
+        "Stay on A",
+        "Leave A",
+      ]);
+      expect(bodySelect(view).options.map((option) => option.value)).toEqual([
+        "ask-a:0",
+        "ask-a:1",
+      ]);
+
+      view.paintList(
+        {
+          ...base,
+          items: ["Go with B", "Skip B"],
+          itemIds: ["ask-b:0", "ask-b:1"],
+        },
+        80,
+      );
+      const painted = bodySelect(view).options;
+      expect(painted.map((option) => option.name)).toEqual(["Go with B", "Skip B"]);
+      expect(painted.map((option) => option.value)).toEqual(["ask-b:0", "ask-b:1"]);
+      expect(painted.map((option) => option.value)).not.toContain("ask-a:0");
+    });
+  });
+
   test("title hints follow offered actions and answer ownership", async () => {
     await withTestRenderer(async (h) => {
       const view = createOverlayView(h.renderer);

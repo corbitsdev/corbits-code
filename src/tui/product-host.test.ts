@@ -193,6 +193,7 @@ describe("mountProductHost", () => {
         scopes: [],
       };
       emitter.emit("permission.gate", {
+        id: "req-1",
         request,
         resolve: (outcome: unknown) => {
           resolved = outcome;
@@ -212,6 +213,7 @@ describe("mountProductHost", () => {
     const { host, emitter } = await mountHeadless();
     try {
       emitter.emit("operator.gate", {
+        id: "ask-1",
         question: "Proceed?",
         options: ["Cancel", "Continue"],
         resolve: (_result: unknown) => {},

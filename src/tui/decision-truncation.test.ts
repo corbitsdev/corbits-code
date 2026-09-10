@@ -90,6 +90,7 @@ describe("decision choice rendering", () => {
       const emitter = new EventEmitter();
       const dispose = wireGates(emitter, shell);
       emitter.emit("permission.gate", {
+        id: "req-1",
         request: hintRequest,
         resolve: () => {},
       });

@@ -321,6 +321,153 @@ describe("overlay accept callbacks", () => {
     );
   });
 
+  test("gate accept with a painted value missing from live itemIds dispatches that id instead of remapping by index", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          const accepted: OverlaySelection[] = [];
+          let cancelled = 0;
+          openPermissionsOverlay(shell, {
+            items: ["Reject", "Accept once"],
+            itemIds: ["req-b:__deny__", "req-b:__once__"],
+            isGate: true,
+            echoChoice: false,
+            onAccept: (s) => accepted.push(s),
+            onCancel: () => {
+              cancelled += 1;
+            },
+          });
+          moveOverlaySelection(shell, 1);
+          const list = shell.overlayList;
+          if (!list) throw new Error("expected an open overlay list");
+          list.select.options = [
+            { name: "Reject", description: "", value: "req-a:__deny__" },
+            { name: "Accept once", description: "", value: "req-a:__once__" },
+          ];
+          list.select.setSelectedIndex(1);
+          acceptOverlaySelection(shell);
+          expect(accepted).toEqual([
+            {
+              kind: "permissions",
+              index: 1,
+              label: "Accept once",
+              id: "req-a:__once__",
+            },
+          ]);
+          expect(cancelled).toBe(0);
+          expect(shell.overlayList).toBeNull();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("stranded operator gate Enter fail-closes via onAccept without id, not onCancel", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          const accepted: OverlaySelection[] = [];
+          let cancelled = 0;
+          openOperatorOverlay(shell, {
+            body: "Proceed?",
+            choices: [],
+            isGate: true,
+            echoChoice: false,
+            onAccept: (s) => accepted.push(s),
+            onCancel: () => {
+              cancelled += 1;
+            },
+          });
+          acceptOverlaySelection(shell);
+          expect(accepted).toEqual([{ kind: "operator", index: 0, label: "" }]);
+          expect(cancelled).toBe(0);
+          expect(shell.overlayList).toBeNull();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("gate Enter on an empty permission list fail-closes via onAccept without id, not onCancel", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          const accepted: OverlaySelection[] = [];
+          let cancelled = 0;
+          openPermissionsOverlay(shell, {
+            items: [],
+            itemIds: [],
+            isGate: true,
+            echoChoice: false,
+            onAccept: (s) => accepted.push(s),
+            onCancel: () => {
+              cancelled += 1;
+            },
+          });
+          acceptOverlaySelection(shell);
+          expect(accepted).toEqual([{ kind: "permissions", index: 0, label: "" }]);
+          expect(cancelled).toBe(0);
+          expect(shell.overlayList).toBeNull();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("sequential operator opens paint B's labels and ids, not A's", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          openOperatorOverlay(shell, {
+            body: "Ask A?",
+            choices: ["Stay on A", "Leave A"],
+            itemIds: ["ask-a:0", "ask-a:1"],
+          });
+          expect(shell.overlayList?.select.options.map((option) => option.name)).toEqual([
+            "Stay on A",
+            "Leave A",
+          ]);
+          closeInsetOverlay(shell);
+
+          openOperatorOverlay(shell, {
+            body: "Ask B?",
+            choices: ["Go with B", "Skip B"],
+            itemIds: ["ask-b:0", "ask-b:1"],
+          });
+          const painted = shell.overlayList?.select.options ?? [];
+          expect(painted.map((option) => option.name)).toEqual(["Go with B", "Skip B"]);
+          expect(painted.map((option) => option.value)).toEqual(["ask-b:0", "ask-b:1"]);
+          expect(painted.map((option) => option.value)).not.toContain("ask-a:0");
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("operator accept fires shell-level onOperator when no per-open", async () => {
     await withTestRenderer(
       async (h) => {

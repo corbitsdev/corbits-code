@@ -740,14 +740,30 @@ export function acceptOverlaySelection(shell: AppShell): void {
     confirmCopySelection(shell);
     return;
   }
-  // Nothing to choose: Enter must not synthesize a phantom row and resolve the
-  // gate with it. The answer field (when offered) already claimed Enter.
-  if (shell.overlayItems.length === 0) return;
+
+  const bag = shellInternals(shell);
+  const kind = shell.overlayKind ?? "demo";
+  // Empty chooser: Enter must not synthesize a phantom row. Stay open when a
+  // free-text answer field is the way to reply, or when this is not a live
+  // gate. A live gate with nowhere to answer fail-closes via onAccept with no
+  // id so the helper can mark unavailable instead of hanging or impersonating
+  // Esc/Reject through onCancel.
+  if (shell.overlayItems.length === 0) {
+    if (bag?.primaryBindings.isGate !== true || overlayAnswerState(shell) !== null) return;
+    const perOpen = bag.primaryBindings.onAccept ?? null;
+    bag.primaryBindings.onCancel = null;
+    const release = reserveOverlayHost(shell);
+    closeInsetOverlay(shell);
+    try {
+      dispatchOverlayAccept(shell, { kind, index: 0, label: "" }, perOpen);
+    } finally {
+      release();
+    }
+    return;
+  }
 
   const idx = shell.overlayList.activeIndex;
   const label = shell.overlayItems[idx] ?? `item ${idx}`;
-  const kind = shell.overlayKind ?? "demo";
-  const bag = shellInternals(shell);
 
   if (kind === "palette") {
     const cmd = shell.paletteCommands[idx];
@@ -774,9 +790,29 @@ export function acceptOverlaySelection(shell: AppShell): void {
     return;
   }
 
-  const id = bag?.primaryBindings.itemIds[idx];
-  // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open.
-  if (id === "") return;
+  const painted = shell.overlayList.select.getSelectedOption()?.value;
+  const itemIds = bag?.primaryBindings.itemIds ?? [];
+  const idKeyed = typeof painted === "string" && itemIds.includes(painted);
+  // Gate accept is id-keyed. A painted Select value missing from the live
+  // itemIds is a stale or mismatched row — remapping via index would bind
+  // Enter to the new question's same-index choice. Dispatch the painted id
+  // (or omit id) so the gate helper fail-closes as unavailable instead of
+  // impersonating Reject through onCancel.
+  let id: string | undefined;
+  if (idKeyed) {
+    id = painted;
+  } else if (bag?.primaryBindings.isGate !== true) {
+    id = itemIds[idx];
+  } else if (typeof painted === "string") {
+    id = painted;
+  }
+  // Type-to-filter plants "(no matches)" with an empty-id sentinel. Stay open
+  // on non-gate lists. A live gate must not dead-end — omit the sentinel so
+  // the helper fail-closes as unavailable.
+  if (id === "") {
+    if (bag?.primaryBindings.isGate !== true) return;
+    id = undefined;
+  }
   const value = bag?.primaryBindings.itemValues[idx];
   const selection: OverlaySelection = {
     kind,

@@ -253,6 +253,7 @@ describe("@ popup narrows as you type", () => {
 
         let resolved: unknown;
         emitter.emit("permission.gate", {
+          id: "req-1",
           request: {
             tool: "run_shell",
             action: "Run shell command",
@@ -305,6 +306,7 @@ describe("@ popup narrows as you type", () => {
         const pending = openAtMentionSuggestions(shell);
 
         emitter.emit("permission.gate", {
+          id: "req-1",
           request: {
             tool: "run_shell",
             action: "Run shell command",

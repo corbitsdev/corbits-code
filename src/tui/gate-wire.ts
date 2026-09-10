@@ -18,7 +18,11 @@ import {
   setOverlayBody,
 } from "./shell/overlay-host.js";
 import { EXPAND_KEY } from "./stream.js";
-import type { OperatorGateEvent, PermissionGateEvent } from "./gate-events.js";
+import {
+  APPROVAL_UNAVAILABLE_MESSAGE,
+  type OperatorGateEvent,
+  type PermissionGateEvent,
+} from "./gate-events.js";
 import {
   createPermissionRequestQueue,
   wirePermissionGrantReconciliation,
@@ -40,13 +44,13 @@ export const PERMISSION_EXPAND_KEY = EXPAND_KEY;
 export interface PermissionGateChoices {
   readonly items: readonly string[];
   readonly itemIds: readonly string[];
-  /** Parallel to items — index into this on accept. */
+  /** Parallel to itemIds — looked up by selection id. */
   readonly outcomes: readonly ApprovalOutcome[];
 }
 
 export interface GateSelection {
   readonly index: number;
-  /** When present, preferred over index for outcome lookup. */
+  /** When present, the only lookup key. Omitted id fail-closes. */
   readonly id?: string;
 }
 
@@ -57,22 +61,26 @@ export interface GateSelection {
  * the list (see permissionBodyFromRequest) instead of being truncated inside
  * a choice row.
  */
-export function permissionChoicesFromRequest(request: PermissionRequest): PermissionGateChoices {
+export function permissionChoicesFromRequest(
+  request: PermissionRequest,
+  askId: string,
+): PermissionGateChoices {
   const items: string[] = [];
   const itemIds: string[] = [];
   const outcomes: ApprovalOutcome[] = [];
+  const rowId = (part: string): string => `${askId}:${part}`;
 
   items.push("Reject");
-  itemIds.push(PERMISSION_DENY_ID);
+  itemIds.push(rowId(PERMISSION_DENY_ID));
   outcomes.push({ allow: false });
 
   items.push("Accept once");
-  itemIds.push(PERMISSION_ONCE_ID);
+  itemIds.push(rowId(PERMISSION_ONCE_ID));
   outcomes.push({ allow: true });
 
   for (const scope of request.scopes) {
     items.push(scope.label);
-    itemIds.push(scope.id);
+    itemIds.push(rowId(scope.id));
     outcomes.push({
       allow: true,
       ...(scope.pattern !== null ? { persist: scope as ApprovalScope } : {}),
@@ -83,20 +91,21 @@ export function permissionChoicesFromRequest(request: PermissionRequest): Permis
 }
 
 /**
- * Map overlay selection index/id → ApprovalOutcome.
- * Unknown / out-of-range defaults to deny (safe closed).
+ * Map overlay selection id → ApprovalOutcome.
+ * Unknown or omitted id fail-closes as unavailable. No index fallback.
  */
 export function approvalOutcomeFromSelection(
   choices: PermissionGateChoices,
   selection: GateSelection,
 ): ApprovalOutcome {
-  if (selection.id !== undefined) {
-    const byId = choices.itemIds.indexOf(selection.id);
-    if (byId >= 0) {
-      return choices.outcomes[byId] ?? { allow: false };
-    }
+  if (selection.id === undefined) {
+    return { allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE };
   }
-  return choices.outcomes[selection.index] ?? { allow: false };
+  const byId = choices.itemIds.indexOf(selection.id);
+  if (byId >= 0) {
+    return choices.outcomes[byId] ?? { allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE };
+  }
+  return { allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE };
 }
 
 export interface PermissionBodyOpts {
@@ -148,40 +157,35 @@ export interface OperatorGateChoices {
 }
 
 /**
- * Operator options → list rows. itemIds are decimal index strings ("0", "1", …)
- * so hosts can round-trip without a parallel outcomes array.
+ * Operator options → list rows. itemIds are `${askId}:${index}` so sequential
+ * asks cannot collide on render-order index.
  */
-export function operatorChoicesFromOptions(options: readonly string[]): OperatorGateChoices {
+export function operatorChoicesFromOptions(
+  options: readonly string[],
+  askId: string,
+): OperatorGateChoices {
   return {
     items: [...options],
-    itemIds: options.map((_, i) => String(i)),
+    itemIds: options.map((_, i) => `${askId}:${i}`),
   };
 }
 
 /**
  * Map selection → OperatorResult.
- * Out-of-range or missing option → cancel (safe closed).
+ * Unknown or omitted id → cancel. No index fallback.
  */
 export function operatorResultFromSelection(
-  options: readonly string[],
+  choices: OperatorGateChoices,
   selection: GateSelection,
 ): OperatorResult {
-  let index = selection.index;
-  if (selection.id !== undefined) {
-    const parsed = Number.parseInt(selection.id, 10);
-    if (
-      Number.isInteger(parsed) &&
-      parsed >= 0 &&
-      parsed < options.length &&
-      String(parsed) === selection.id
-    ) {
-      index = parsed;
-    }
-  }
-  if (index < 0 || index >= options.length) {
+  if (selection.id === undefined) {
     return { kind: "cancel" };
   }
-  return { kind: "option", index };
+  const byId = choices.itemIds.indexOf(selection.id);
+  if (byId >= 0) {
+    return { kind: "option", index: byId };
+  }
+  return { kind: "cancel" };
 }
 
 export function operatorCancelResult(): OperatorResult {
@@ -294,7 +298,11 @@ export function wireGates(
   function onPermission(ev: PermissionGateEvent): void {
     hooks.onGateOpened();
     const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
-    const choices = permissionChoicesFromRequest(ev.request);
+    if (typeof ev.id !== "string" || ev.id.length === 0) {
+      resolve({ allow: false, message: APPROVAL_UNAVAILABLE_MESSAGE });
+      return;
+    }
+    const choices = permissionChoicesFromRequest(ev.request, ev.id);
     const collapsedBody = permissionBodyFromRequest(ev.request, { hint: true });
     // Nothing was collapsed → no expand affordance, so the overlay leaves the
     // bare key unclaimed.
@@ -370,10 +378,11 @@ export function wireGates(
         // Esc must settle the awaited promise (as a deny), not abandon it —
         // an unresolved gate hangs the run until the process is killed.
         onCancel: () => {
+          const denyId = choices.itemIds[0];
           settle(
             approvalOutcomeFromSelection(choices, {
               index: 0,
-              id: PERMISSION_DENY_ID,
+              ...(denyId !== undefined ? { id: denyId } : {}),
             }),
           );
         },
@@ -417,7 +426,11 @@ export function wireGates(
   function onOperator(ev: OperatorGateEvent): void {
     hooks.onGateOpened();
     const resolve = onceClosed(hooks.onGateClosed, ev.resolve);
-    const choices = operatorChoicesFromOptions(ev.options);
+    if (typeof ev.id !== "string" || ev.id.length === 0) {
+      resolve(operatorCancelResult());
+      return;
+    }
+    const choices = operatorChoicesFromOptions(ev.options, ev.id);
     // Guarded the same way as the permission gate: correctness must not rest
     // on callers of closeInsetOverlay remembering to null the cancel hook
     // before dispatching accept — a future accept-via-close path that forgets
@@ -461,7 +474,7 @@ export function wireGates(
           clearTimers();
           operatorTeardowns.delete(teardown);
           resolve(
-            operatorResultFromSelection(ev.options, {
+            operatorResultFromSelection(choices, {
               index: sel.index,
               ...(sel.id !== undefined ? { id: sel.id } : {}),
             }),

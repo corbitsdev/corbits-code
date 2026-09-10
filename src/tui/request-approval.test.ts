@@ -99,6 +99,24 @@ describe("createGateRequestApproval", () => {
     captured?.resolve({ allow: true });
     expect((await pending).allow).toBe(true);
   });
+
+  test("mints a unique event id without reading PermissionRequest", async () => {
+    const ids: string[] = [];
+    const requestApproval = createGateRequestApproval({
+      emitGate: (event) => {
+        ids.push(event.id);
+        event.resolve({ allow: true });
+        return true;
+      },
+      approvalTimeout: noTimeout,
+    });
+    expect((await requestApproval(request)).allow).toBe(true);
+    expect((await requestApproval(request)).allow).toBe(true);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toEqual(expect.any(String));
+    expect(ids[0]?.length).toBeGreaterThan(0);
+    expect(ids[1]).not.toBe(ids[0]);
+  });
 });
 
 // attachApprovalBudget is the mechanism createGateRequestApproval builds on
