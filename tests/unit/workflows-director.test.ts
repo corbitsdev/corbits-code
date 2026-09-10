@@ -12,6 +12,7 @@ import { WorkflowRuntime } from "../../src/workflows/runtime.js";
 import { WorkflowCoordinator } from "../../src/workflows/coordinator.js";
 import type { CapabilityMap } from "../../src/workflows/capabilities.js";
 import type { Workflow } from "../../src/workflows/types.js";
+import { COMPACT_SPACER_TEXT, LEGACY_COMPACT_SPACER_TEXT } from "../../src/session/compactor.js";
 
 const usage: TokenUsage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 };
 
@@ -371,4 +372,25 @@ test("auto-continuation falls back after 3 consecutive text-only turns", async (
   const actions = Array.isArray(result) ? result : [result];
   expect(hasInfer(result)).toBe(false);
   expect(actions.some((a) => a.type === "wait" || a.type === "reply")).toBe(true);
+});
+
+test("after spacer echo-cap a non-gate workflow step does not empty-settle", async () => {
+  const runtime = new WorkflowRuntime(emptyCaps, (n) => (n === "flow" ? flow : undefined));
+  runtime.start(flow);
+  const coordinator = new WorkflowCoordinator(runtime);
+  const director = createChatDirector("BASE", [], {
+    onTasksChange: () => {},
+    workflowCoordinator: coordinator,
+  });
+  const caps = makeCapabilities();
+
+  for (let i = 0; i < 2; i++) {
+    const nudged = await director.decide(textTurn(LEGACY_COMPACT_SPACER_TEXT), state, caps);
+    expect(hasInfer(nudged)).toBe(true);
+  }
+  const afterCap = await director.decide(textTurn(COMPACT_SPACER_TEXT), state, caps);
+  const actions = Array.isArray(afterCap) ? afterCap : [afterCap];
+  expect(actions.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(false);
+  expect(hasInfer(afterCap)).toBe(true);
+  expect(ephemeralNudgeText(afterCap)).toContain("workflow step");
 });

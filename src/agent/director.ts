@@ -10,7 +10,11 @@ import type {
   ConversationTurn,
   RetryPolicy,
 } from "@intx/types/runtime";
-import { type SessionMetadata, type TaskBoundary } from "../session/compactor.js";
+import {
+  type SessionMetadata,
+  type TaskBoundary,
+  isCompactSpacerEchoTurn,
+} from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import { createCompactionGovernor, type CompactionGovernor } from "./compaction.js";
 import { onTurnBoundary } from "./reactor-events.js";
@@ -72,11 +76,13 @@ function inferWithNudge(
 //
 // Assumes a terminal bare wait always means the turn is over. That holds for
 // every current wait path: DefaultDirector in conversational mode (the only
-// mode ChatDirector uses) yields one only on an empty model turn, and its halt
-// path already carries a reply; the compaction, workflow, and open-task
-// rewrites either keep those terminals or replace them with an infer.
-// A future wait that pauses mid-turn while expecting more work must not be
-// settled here.
+// mode ChatDirector uses) yields one only on an empty model turn; exhausted
+// spacer-echo incompleteness uses the same wait so loop-protection, workflow,
+// and open-task rails can rewrite it to infer first. This helper only settles
+// a leftover wait into an empty reply. The halt path already carries a reply;
+// compaction, workflow, and open-task rewrites either keep those terminals or
+// replace them with an infer. A future wait that pauses mid-turn while
+// expecting more work must not be settled here.
 function ensureCycleSettlesWithReply(
   actions: ReactorAction | ReactorAction[],
   capabilities: ReactorCapabilities,
@@ -98,6 +104,9 @@ function ensureCycleSettlesWithReply(
 const MAX_OPEN_TASK_NUDGES = 3;
 const MAX_DECLINED_OPEN_TASK_NUDGES = 2;
 const MAX_INFERENCE_RECOVERIES = 2;
+const MAX_SPACER_ECHO_NUDGES = 2;
+
+const SPACER_ECHO_NUDGE = "Continue the task. Do not repeat internal markers.";
 
 const IDLE_OPEN_TASK_NUDGE =
   "\n\nYou are ending your turn while tasks are still open (todo/doing). " +
@@ -394,6 +403,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private idleTerminationNudges = 0;
   private declinedTerminationNudges = 0;
   private inferenceRecoveries = 0;
+  private spacerEchoNudges = 0;
   private lastInferenceTurnHadContent = false;
   private operatorJustResponded = false;
   private tasks: Task[] = [];
@@ -633,6 +643,7 @@ class ChatDirectorImpl extends DefaultDirector {
       this.idleTerminationNudges = 0;
       this.declinedTerminationNudges = 0;
       this.inferenceRecoveries = 0;
+      this.spacerEchoNudges = 0;
       this.toolOnlyStreak = 0;
       this.toolOnlyNudgeFired = false;
       this.pendingToolOnlyNudge = false;
@@ -682,9 +693,10 @@ class ChatDirectorImpl extends DefaultDirector {
     if (onTurnBoundary(event)) {
       this.turnCount++;
       const hasToolCalls = event.turn.content.some((b) => b.type === "tool_call");
-      const hasText = event.turn.content.some(
-        (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
-      );
+      const hasText =
+        event.turn.content.some(
+          (b) => b.type === "text" && typeof b.text === "string" && b.text.length > 0,
+        ) && !isCompactSpacerEchoTurn(event.turn);
       this.lastInferenceTurnHadContent = hasToolCalls || hasText;
 
       // toolOnlyStreak is narration-sensitive: any turn with text clears it
@@ -710,7 +722,12 @@ class ChatDirectorImpl extends DefaultDirector {
         if (hasToolCalls) {
           this.workflowIdleTurns = 0;
         } else {
-          this.workflowIdleTurns++;
+          // Echo-nudge cycles are incompleteness, not a contentful idle beat.
+          // Count them only after the echo budget is spent so the step-nudge
+          // rail still has its three turns before the stuck reply.
+          const spacerEchoStillNudging =
+            isCompactSpacerEchoTurn(event.turn) && this.spacerEchoNudges < MAX_SPACER_ECHO_NUDGES;
+          if (!spacerEchoStillNudging) this.workflowIdleTurns++;
         }
       }
       for (const block of event.turn.content) {
@@ -795,8 +812,20 @@ class ChatDirectorImpl extends DefaultDirector {
       this.compaction.noteInferenceDone(event, turns);
     }
 
+    if (event.type === "inference.done" && isCompactSpacerEchoTurn(event.turn)) {
+      if (this.spacerEchoNudges < MAX_SPACER_ECHO_NUDGES) {
+        this.spacerEchoNudges++;
+        return inferWithNudge(capabilities, SPACER_ECHO_NUDGE);
+      }
+    }
+
     const base = await super.decide(event, state, capabilities);
-    const baseActions = Array.isArray(base) ? base : [base];
+    let baseActions = Array.isArray(base) ? base : [base];
+    const spacerEchoExhausted =
+      event.type === "inference.done" && isCompactSpacerEchoTurn(event.turn);
+    if (spacerEchoExhausted) {
+      baseActions = baseActions.map((a) => (a.type === "reply" ? capabilities.wait() : a));
+    }
 
     this.compaction.noteIdleTurn(event, baseActions);
     const compacted = this.compaction.interceptActions(event, baseActions, capabilities);
@@ -816,12 +845,11 @@ class ChatDirectorImpl extends DefaultDirector {
 
     const coordinator = this.workflowCoordinator;
     if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
-      const actions = Array.isArray(base) ? base : [base];
-      const hasTerminal = actions.some((a) => a.type === "wait" || a.type === "reply");
-      if (hasTerminal && this.lastInferenceTurnHadContent) {
+      const hasTerminal = baseActions.some((a) => a.type === "wait" || a.type === "reply");
+      if (hasTerminal && (this.lastInferenceTurnHadContent || spacerEchoExhausted)) {
         if (this.operatorJustResponded) {
           this.operatorJustResponded = false;
-          return base;
+          return baseActions;
         }
         if (this.workflowIdleTurns >= 3) {
           if (hasActiveTasks(this.tasks)) this.logTerminationWithOpenTasks("workflow-idle-stall");
@@ -840,7 +868,7 @@ class ChatDirectorImpl extends DefaultDirector {
           `\n\nYou have not yet completed this workflow step. ` +
           `If this step is complete, ${stepClause}. ` +
           `Otherwise continue working with tools.`;
-        const passThrough = actions.filter(
+        const passThrough = baseActions.filter(
           (a): a is Exclude<ReactorAction, { type: "wait" } | { type: "reply" }> =>
             a.type !== "wait" && a.type !== "reply",
         );
@@ -872,7 +900,7 @@ class ChatDirectorImpl extends DefaultDirector {
       }
     }
 
-    return base;
+    return baseActions;
   }
 }
 

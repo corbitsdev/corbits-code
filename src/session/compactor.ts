@@ -221,7 +221,12 @@ export const COMPACTED_PREFIX = "[Compacted prior context]";
 
 // Inserted between a frozen prefix that ends on a user summary and a newly
 // appended user summary so the assembled history stays role-alternating.
-export const COMPACT_SPACER_TEXT = "[compaction]";
+// Visible, non-format (not Unicode Cf) sentinel so Chat Completions adapters
+// keep a non-empty assistant turn. Identity is the reserved producer id on
+// `compactSpacerTurn`, not this text and not a missing `model` field.
+export const COMPACT_SPACER_TEXT = "[compact]";
+export const LEGACY_COMPACT_SPACER_TEXT = "[compaction]";
+export const HARNESS_COMPACT_SPACER_MODEL = "harness";
 
 const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
   keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
@@ -699,15 +704,45 @@ function firstTextBlock(turn: ConversationTurn): string | undefined {
   return undefined;
 }
 
+function joinedTextBlocks(turn: ConversationTurn): string {
+  let out = "";
+  for (const block of turn.content) {
+    if (block.type === "text") out += block.text;
+  }
+  return out;
+}
+
+function isCompactSpacerSentinel(text: string): boolean {
+  return text === COMPACT_SPACER_TEXT || text === LEGACY_COMPACT_SPACER_TEXT;
+}
+
+export function assistantTextIsCompactSpacerEcho(text: string): boolean {
+  return isCompactSpacerSentinel(text.trim());
+}
+
+export function isCompactSpacerEchoTurn(turn: ConversationTurn): boolean {
+  for (const block of turn.content) {
+    if (block.type === "tool_call") return false;
+  }
+  return assistantTextIsCompactSpacerEcho(joinedTextBlocks(turn));
+}
+
 function isCompactedSummaryTurn(turn: ConversationTurn): boolean {
   if (turn.role !== "user") return false;
   const text = firstTextBlock(turn);
   return text !== undefined && text.startsWith(COMPACTED_PREFIX);
 }
 
-function isCompactSpacerTurn(turn: ConversationTurn): boolean {
+// Harness spacers stamp `model: "harness"`. Missing `model` is unattributed
+// (replay sanitizer), except persisted `[compaction]` spacers from before
+// producer-id stamping, which still freeze. Model-produced copies always
+// carry a real model id and must not enter the frozen prefix.
+export function isHarnessCompactSpacer(turn: ConversationTurn): boolean {
   if (turn.role !== "assistant") return false;
-  return firstTextBlock(turn) === COMPACT_SPACER_TEXT;
+  const text = firstTextBlock(turn);
+  if (text === undefined || !isCompactSpacerSentinel(text)) return false;
+  if (turn.model === HARNESS_COMPACT_SPACER_MODEL) return true;
+  return turn.model === undefined && text === LEGACY_COMPACT_SPACER_TEXT;
 }
 
 // Leading run of prior summaries plus the spacers between them. Walks from
@@ -718,7 +753,7 @@ function frozenPrefixLength(turns: readonly ConversationTurn[]): number {
   let i = 0;
   while (i < turns.length && isCompactedSummaryTurn(turns[i]!)) {
     i++;
-    if (i < turns.length && isCompactSpacerTurn(turns[i]!)) i++;
+    if (i < turns.length && isHarnessCompactSpacer(turns[i]!)) i++;
   }
   return i;
 }
@@ -728,6 +763,7 @@ function compactSpacerTurn(timestamp: number): ConversationTurn {
     role: "assistant",
     content: [{ type: "text", text: COMPACT_SPACER_TEXT }],
     timestamp,
+    model: HARNESS_COMPACT_SPACER_MODEL,
   };
 }
 
@@ -736,7 +772,7 @@ export function createPruningCompactor(config: Partial<CompactorConfig> = {}): C
 
   return {
     name: "pruning-compactor",
-    version: "1.4.0",
+    version: "1.4.1",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,

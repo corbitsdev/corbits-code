@@ -3,7 +3,12 @@ import { createChatDirector, askOperatorDefinition } from "./agent/director.js";
 import { createAgentToolset } from "./agent/tools.js";
 import { advertisedTools, createActivatedToolTracker } from "./agent/tool-search.js";
 import { createPermissionGate } from "./permission/gate.js";
-import { COMPACTOR_KEEP_RECENT_TURNS, compactorNoOpFloor } from "./session/compactor.js";
+import {
+  COMPACTOR_KEEP_RECENT_TURNS,
+  COMPACT_SPACER_TEXT,
+  LEGACY_COMPACT_SPACER_TEXT,
+  compactorNoOpFloor,
+} from "./session/compactor.js";
 import type { SessionMetadata, TaskBoundary } from "./session/compactor.js";
 import { validateActions, type ExtendedInferenceOptions } from "@intx/inference";
 import type {
@@ -1066,5 +1071,157 @@ describe("transient nudges", () => {
     const nudgeText = options?.ephemeralTurns?.[0]?.content?.find((b) => b.type === "text");
     expect(nudgeText?.type === "text" ? nudgeText.text : "").toContain("tasks are still open");
     expect(options?.systemPrompt).toBe("stable-base");
+  });
+});
+
+describe("chatDirector spacer echo", () => {
+  const longState = {
+    turns: Array.from({ length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 }, () => ({
+      role: "user",
+      content: [],
+      timestamp: 0,
+    })),
+  } as unknown as ReactorState;
+
+  function spacerInferenceDone(text: string): ReactorInboundEvent {
+    return {
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        model: "omen-alpha",
+        timestamp: 0,
+        content: [{ type: "text", text }],
+      },
+      usage: { input: 999_999, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+      source: { model: "omen-alpha" },
+    } as unknown as ReactorInboundEvent;
+  }
+
+  function messageReceived(content: string): ReactorInboundEvent {
+    return {
+      type: "message.received",
+      message: { role: "user", content },
+    } as unknown as ReactorInboundEvent;
+  }
+
+  test("spacer-only assistant reply is not a finished turn", async () => {
+    for (const text of [LEGACY_COMPACT_SPACER_TEXT, COMPACT_SPACER_TEXT]) {
+      const director = createChatDirector("base", [], { onTasksChange: () => {} });
+      const actions = actionsArray(
+        await director.decide(spacerInferenceDone(text), mockState, mockCapabilities),
+      );
+      expect(actions.some((a) => a.type === "infer")).toBe(true);
+      expect(actions.some((a) => a.type === "reply" && "content" in a && a.content === text)).toBe(
+        false,
+      );
+    }
+  });
+
+  test("spacer-echo does not arm idle compact, including after the nudge cap", async () => {
+    let continuations = 0;
+    const director = createChatDirector("base", [], {
+      onTasksChange: () => {},
+      requestContinuation: () => {
+        continuations++;
+      },
+    });
+    for (let i = 0; i < 2; i++) {
+      const nudged = actionsArray(
+        await director.decide(
+          spacerInferenceDone(LEGACY_COMPACT_SPACER_TEXT),
+          longState,
+          mockCapabilities,
+        ),
+      );
+      expect(nudged.some((a) => a.type === "infer")).toBe(true);
+      expect(continuations).toBe(0);
+    }
+    const settled = actionsArray(
+      await director.decide(spacerInferenceDone(COMPACT_SPACER_TEXT), longState, mockCapabilities),
+    );
+    expect(settled.some((a) => a.type === "infer")).toBe(false);
+    expect(settled.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(
+      true,
+    );
+    expect(continuations).toBe(0);
+  });
+
+  test("echo-nudge cap is two then empty settle, and resets on message.received", async () => {
+    const director = createChatDirector("base", [], { onTasksChange: () => {} });
+    for (let i = 0; i < 2; i++) {
+      const nudged = actionsArray(
+        await director.decide(
+          spacerInferenceDone(LEGACY_COMPACT_SPACER_TEXT),
+          mockState,
+          mockCapabilities,
+        ),
+      );
+      expect(nudged.some((a) => a.type === "infer")).toBe(true);
+      expect(nudged.some((a) => a.type === "reply")).toBe(false);
+    }
+    const exhausted = actionsArray(
+      await director.decide(spacerInferenceDone(COMPACT_SPACER_TEXT), mockState, mockCapabilities),
+    );
+    expect(exhausted.some((a) => a.type === "infer")).toBe(false);
+    expect(exhausted.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(
+      true,
+    );
+
+    await director.decide(messageReceived("keep going"), mockState, mockCapabilities);
+    const afterReset = actionsArray(
+      await director.decide(
+        spacerInferenceDone(LEGACY_COMPACT_SPACER_TEXT),
+        mockState,
+        mockCapabilities,
+      ),
+    );
+    expect(afterReset.some((a) => a.type === "infer")).toBe(true);
+  });
+
+  test("after echo-cap with open tasks, falls through to open-task rails", async () => {
+    const director = createChatDirector("base", [], { onTasksChange: () => {} });
+    await director.decide(
+      makeInferenceDoneEvent([
+        {
+          id: "mt",
+          name: "manage_tasks",
+          args: { action: "create", tasks: [{ id: "t1", title: "work", status: "doing" }] },
+        },
+      ]),
+      mockState,
+      mockCapabilities,
+    );
+    for (let i = 0; i < 2; i++) {
+      const nudged = actionsArray(
+        await director.decide(
+          spacerInferenceDone(LEGACY_COMPACT_SPACER_TEXT),
+          mockState,
+          mockCapabilities,
+        ),
+      );
+      expect(nudged.some((a) => a.type === "infer")).toBe(true);
+    }
+    const afterCap = actionsArray(
+      await director.decide(spacerInferenceDone(COMPACT_SPACER_TEXT), mockState, mockCapabilities),
+    );
+    expect(afterCap.some((a) => a.type === "infer")).toBe(true);
+    expect(afterCap.some((a) => a.type === "reply" && "content" in a && a.content === "")).toBe(
+      false,
+    );
+    for (let i = 0; i < 2; i++) {
+      const nudged = actionsArray(
+        await director.decide(
+          spacerInferenceDone(COMPACT_SPACER_TEXT),
+          mockState,
+          mockCapabilities,
+        ),
+      );
+      expect(nudged.some((a) => a.type === "infer")).toBe(true);
+    }
+    const exhausted = actionsArray(
+      await director.decide(spacerInferenceDone(COMPACT_SPACER_TEXT), mockState, mockCapabilities),
+    );
+    expect(exhausted.some((a) => a.type === "infer")).toBe(false);
+    expect(exhausted.some((a) => a.type === "reply")).toBe(true);
   });
 });
