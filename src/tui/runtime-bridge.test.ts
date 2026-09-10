@@ -1379,9 +1379,11 @@ describe("idle-with-fleet (CL-7057)", () => {
           // busy and the follow-up does not drain at mere parent-idle.
           expect(shell.session.run).toBe("busy");
           expect(shell.lockupPhase).not.toBeNull();
-          expect((LIVE_ACTIVITY_WORDS as readonly string[]).includes(shell.lockupPhase ?? "")).toBe(
-            true,
-          );
+          expect(
+            (LIVE_ACTIVITY_WORDS as readonly string[]).includes(
+              shell.lockupPhase ?? "",
+            ),
+          ).toBe(true);
           expect(badgeCount(shell.session)).toBe(1);
           expect(port.calls).toEqual([]);
           await h.renderOnce();
@@ -1621,9 +1623,11 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
           bridge.handle({ type: "fleet", running: 0 });
           expect(drives).toBe(0);
           expect(shell.session.run).toBe("busy");
+          expect(shell.lockupPhase).not.toBeNull();
           settleToollessTurn(bridge);
           expect(drives).toBe(1);
           expect(shell.session.run).toBe("busy");
+          expect(shell.lockupPhase).not.toBeNull();
           bridge.submit("when it finishes, summarize", "queue");
           expect(badgeCount(shell.session)).toBe(1);
           port.clear();

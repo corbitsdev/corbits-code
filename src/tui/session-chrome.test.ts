@@ -68,7 +68,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
       null,
     );
     // Recovery is silent — never paint "stalled" in the ticker.
-    expect(label).toBe("creating");
+    expect(label).toBe("working");
     expect(ACTIVITY_STATES).toContain(defined(label));
   });
 
@@ -150,7 +150,7 @@ describe("resolveTurnLabel", () => {
     ).toBeUndefined();
   });
 
-  test("tool phase maps to its semantic activity, never the raw name", () => {
+  test("occupied lockup cycles live-activity words, never the raw tool name", () => {
     expect(
       resolveTurnLabel(
         {
@@ -162,10 +162,23 @@ describe("resolveTurnLabel", () => {
         false,
         null,
       ),
-    ).toBe("grinding");
+    ).toBe("working");
+    expect(
+      resolveTurnLabel(
+        {
+          isProcessing: true,
+          status: "running",
+          currentToolName: "grep",
+          streamingType: "tool",
+          nowMs: LIVE_WORD_MS,
+        },
+        false,
+        null,
+      ),
+    ).toBe("warping");
   });
 
-  test("thinking and text phases", () => {
+  test("thinking and text phases cycle the same live-activity words", () => {
     const base = {
       isProcessing: true,
       status: "running" as const,
@@ -173,7 +186,14 @@ describe("resolveTurnLabel", () => {
     };
     expect(
       resolveTurnLabel({ ...base, streamingType: "thinking" }, false, null),
-    ).toBe("thinking");
+    ).toBe("working");
+    expect(
+      resolveTurnLabel(
+        { ...base, streamingType: "thinking", nowMs: LIVE_WORD_MS },
+        false,
+        null,
+      ),
+    ).toBe("warping");
     expect(
       resolveTurnLabel({ ...base, streamingType: "text" }, false, null),
     ).toBe("working");
@@ -367,7 +387,7 @@ describe("fleet state in the top-level indicator", () => {
       resolveTurnLabel(parentAwaitingChildren, false, null),
     );
     expect(resolveTurnLabel(parentAwaitingChildren, true, none)).toBe(
-      "imagining",
+      "working",
     );
     expect(resolveRampPhase(parentAwaitingChildren, true, none)).toBe(
       "working",
@@ -401,6 +421,20 @@ describe("fleet state in the top-level indicator", () => {
     };
     expect(resolveTurnLabel(idleParent, false, fleet(2, 0))).toBe("working");
     expect(resolveRampPhase(idleParent, false, fleet(2, 0))).toBe("working");
+    expect(
+      resolveTurnLabel(
+        { ...idleParent, nowMs: LIVE_WORD_MS },
+        false,
+        fleet(2, 0),
+      ),
+    ).toBe("warping");
+    expect(
+      resolveTurnLabel(
+        { ...idleParent, sessionActive: true, nowMs: LIVE_WORD_MS },
+        false,
+        fleet(0, 0),
+      ),
+    ).toBe("warping");
   });
 
   test("live-activity words cycle while the session is occupied", () => {

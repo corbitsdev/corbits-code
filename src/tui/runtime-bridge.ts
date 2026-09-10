@@ -1011,6 +1011,11 @@ function drainLiveSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
   }
 }
 
+function occupancyHold(bag: BridgeBag, runBusy: boolean): boolean {
+  if (bag.liveFleet > 0 || bag.awaitingContinuationInference) return true;
+  return runBusy && bag.pendingDryOpenDrive;
+}
+
 /**
  * Release the run to idle and drain everything queued — but only at true
  * session-idle. A live fleet holds the run busy after the parent turn settles
@@ -1287,7 +1292,7 @@ export function attachSessionBridge(
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
       nowMs,
-      sessionActive: bag.liveFleet > 0,
+      sessionActive: occupancyHold(bag, shell.session.run === "busy"),
     };
     const fleet = fleetProgress(bag.agentSessions, nowMs);
     const label = resolveTurnLabel(input, isStalled, fleet);
@@ -1386,13 +1391,19 @@ export function attachSessionBridge(
       if (onTurnBoundary(event) && bag.turn.activeToolCalls.length > 0) {
         drainLiveSteersAtBoundary(shell, bag);
       }
-      if (settled) settleRun();
+      if (settled) {
+        settleRun();
+        paintPhase();
+      }
       return;
     }
     if (isBridgeInbound(event)) {
       applyInbound(shell, bag, event);
     }
-    if (settled) settleRun();
+    if (settled) {
+      settleRun();
+      paintPhase();
+    }
   };
 
   const recordLastSent = (

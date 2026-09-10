@@ -97,14 +97,13 @@ that appears mid-prose.
 While a turn is live — or the session is still occupied by a live fleet
 or a pending dry-fleet continuation — the lockup slot swaps the wordmark
 for a semantic activity word — never the raw tool, MCP server, or plugin
-identifier that is actually executing. `resolveTurnLabel`
-(`src/tui/session-chrome.ts`) maps execution onto the closed set
-`ACTIVITY_STATES` exported from that module. Live occupation cycles
+identifier that is actually executing. Live occupation cycles
 `LIVE_ACTIVITY_WORDS` (`working`, `warping`, `buzzing`, `grinding`,
 `thinking`, `doing`, `cooking`, `creating`, `imagining`, `inventing`)
 on `LIVE_WORD_MS`; gated turns still read `waiting` or `stopping`.
-That export is the source of truth for what the slot can say, not this
-list. It is led by a single density cell
+`ACTIVITY_STATES` exported from the session chrome module is the source
+of truth for what the slot can say, not this list. It is led by a single
+density cell
 (`rampPulse`, `src/tui/ramp.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
 

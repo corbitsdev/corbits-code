@@ -76,42 +76,15 @@ export const LIVE_ACTIVITY_WORDS = [
 /** How long each live-activity word holds before the next. */
 export const LIVE_WORD_MS = 4_000;
 
-/**
- * Execution → activity-state mapping, kept in this one place with an
- * explicit fallback so a newly added tool (built-in, MCP, or plugin) renders
- * a generic "working" state instead of leaking its identifier — no ticker
- * change is required to add a tool correctly.
- */
-const TOOL_ACTIVITY_STATES: Readonly<Record<string, ActivityState>> = {
-  read_file: "grinding",
-  search_files: "grinding",
-  grep: "grinding",
-  list_dir: "grinding",
-  web_search: "grinding",
-  web_fetch: "grinding",
-  write_file: "creating",
-  edit_file: "creating",
-  run_shell: "creating",
-  delete_file: "creating",
-  manage_tasks: "imagining",
-  task: "imagining",
-  tool_search: "grinding",
-  search_agents: "grinding",
-  ask_operator: "waiting",
-  submit_output: "doing",
-};
-
-function activityStateForTool(name: string | null): ActivityState {
-  if (name === null) return "working";
-  return TOOL_ACTIVITY_STATES[name] ?? "working";
-}
-
 function liveActivityWord(nowMs: number): ActivityState {
   const index = Math.floor(nowMs / LIVE_WORD_MS) % LIVE_ACTIVITY_WORDS.length;
   return LIVE_ACTIVITY_WORDS[index] ?? "working";
 }
 
-function sessionIsLive(input: TurnLabelInput, fleet: FleetProgress | null): boolean {
+function sessionIsLive(
+  input: TurnLabelInput,
+  fleet: FleetProgress | null,
+): boolean {
   if (input.isProcessing) return true;
   if (input.sessionActive === true) return true;
   return fleet !== null && fleet.running > 0;
@@ -141,20 +114,14 @@ export function resolveTurnLabel(
   // Stopping is this parent turn aborting. A settled parent with live
   // lanes is still occupied — don't let a leftover stopping status blank
   // the lockup or freeze it on "stopping".
-  if (input.isProcessing && (input.status === "stopping" || input.status === "stopped")) {
+  if (
+    input.isProcessing &&
+    (input.status === "stopping" || input.status === "stopped")
+  ) {
     return "stopping";
   }
   if (!occupied) return undefined;
-  // Live fleet / parent continuation means the session is working — recovery
-  // is silent. Never paint "stalled" for the operator.
-  const fleetLive = fleet !== null && fleet.running > 0;
-  if (fleetLive || input.sessionActive === true) {
-    return liveActivityWord(input.nowMs ?? 0);
-  }
   void isStalled;
-  if (input.currentToolName !== null)
-    return activityStateForTool(input.currentToolName);
-  if (input.streamingType === "thinking") return "thinking";
   return liveActivityWord(input.nowMs ?? 0);
 }
 

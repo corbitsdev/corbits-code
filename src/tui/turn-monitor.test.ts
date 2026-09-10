@@ -10,6 +10,7 @@ import { noticeText } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
 import { withTestRenderer } from "./harness.js";
 import { RUNTIME_FLASH_MS } from "./runtime-notices.js";
+import { LIVE_WORD_MS } from "./session-chrome.js";
 import {
   STALL_NOTICE_MESSAGE,
   STALL_RECOVERY_MESSAGE,
@@ -71,7 +72,7 @@ describe("turn progress label", () => {
           type: "inference.thinking.delta",
           data: { token: "hm" },
         });
-        expect(t.shell.lockupPhase).toBe("thinking");
+        expect(t.shell.lockupPhase).toBe("working");
 
         t.bridge.handle({
           type: "inference.text.delta",
@@ -111,13 +112,13 @@ describe("turn progress label", () => {
         expect(t.shell.lockupPhase).toBe("working");
         const started = t.shell.lockupChangedMs;
 
-        t.advance(500);
+        t.advance(LIVE_WORD_MS);
         t.bridge.handle({
           type: "inference.thinking.delta",
           data: { token: "hm" },
         });
-        expect(t.shell.lockupPhase).toBe("thinking");
-        // A new phase restamps the fade so the crossfade starts over.
+        expect(t.shell.lockupPhase).toBe("warping");
+        // A new word restamps the fade so the crossfade starts over.
         expect(t.shell.lockupChangedMs).toBeGreaterThan(started);
 
         t.bridge.handle({ type: "reactor.done", data: {} });

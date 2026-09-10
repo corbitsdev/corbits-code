@@ -235,7 +235,9 @@ describe("fleetDigest", () => {
   });
 
   test("a dry fleet is the outcome tally, not an idle claim", () => {
-    expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe("1 done");
+    expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe(
+      "1 done",
+    );
     expect(fleetDigest([], T0)).toBe("");
   });
 
