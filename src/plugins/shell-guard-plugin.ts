@@ -250,8 +250,12 @@ export async function runGuardedShell(
   args: RunShellArgs,
   signal: AbortSignal,
   liveChildren?: Set<ChildProcess>,
+  isDisposed?: () => boolean,
 ): Promise<GuardedShellResult> {
   signal.throwIfAborted();
+  if (isDisposed?.()) {
+    throw new Error("run_shell refused: shell guard disposed");
+  }
 
   // Arm setTimeout only when a positive timeout was resolved. No built-in default.
   const timeoutMs = args.timeout !== undefined && args.timeout > 0 ? args.timeout : undefined;
@@ -395,12 +399,19 @@ export function shellGuardPlugin(
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
   const liveChildren = new Set<ChildProcess>();
+  let disposed = false;
   let disposal: Promise<void> | undefined;
   // Serialize run_shell so concurrent tools cannot race retained cwd updates
   // (last-writer-wins or a non-cd call finishing after a cd and resetting cwd).
   let shellChain: Promise<unknown> = Promise.resolve();
   const enqueueShell = <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = shellChain.then(fn, fn);
+    const runUnlessDisposed = (): Promise<T> => {
+      if (disposed) {
+        return Promise.reject(new Error("run_shell refused: shell guard disposed"));
+      }
+      return fn();
+    };
+    const run = shellChain.then(runUnlessDisposed, runUnlessDisposed);
     shellChain = run.then(
       () => undefined,
       () => undefined,
@@ -492,6 +503,7 @@ export function shellGuardPlugin(
               },
               signal,
               liveChildren,
+              () => disposed,
             );
             const parsed = parsePwdProbeOutput(output);
             if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
@@ -523,7 +535,11 @@ export function shellGuardPlugin(
               isError: true,
             };
           }
-        });
+        }).catch((err: unknown) => ({
+          callId: call.id,
+          content: err instanceof Error ? err.message : String(err),
+          isError: true,
+        }));
       }
 
       if (SEARCH_TOOLS.has(call.name)) {
@@ -579,7 +595,12 @@ export function shellGuardPlugin(
     },
     dispose: () => {
       if (disposal !== undefined) return disposal;
-      disposal = reapLiveChildren(liveChildren);
+      disposed = true;
+      disposal = (async () => {
+        await reapLiveChildren(liveChildren);
+        await shellChain;
+        await reapLiveChildren(liveChildren);
+      })();
       return disposal;
     },
   };

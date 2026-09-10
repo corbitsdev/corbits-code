@@ -782,6 +782,106 @@ describe("shellGuardPlugin", () => {
     }
   });
 
+  test("dispose refuses a queued run_shell so it cannot stay running after reap", async () => {
+    if (process.platform === "win32") return;
+    const plugin = shellGuardPlugin(process.cwd());
+    const handler = plugin.middleware!(fallback);
+    const token1 = `ic_guard_queued1_${randomUUID()}`;
+    const token2 = `ic_guard_queued2_${randomUUID()}`;
+    const first = handler(
+      {
+        id: "q-live",
+        name: "run_shell",
+        arguments: { command: `IC_GUARD_TAG=${token1} sleep 600` },
+      },
+      neverAbort(),
+    );
+    try {
+      const started = Date.now();
+      while (Date.now() - started < 5_000) {
+        const probe = spawnSync("pgrep", ["-f", token1], { encoding: "utf8" });
+        if ((probe.stdout?.trim() ?? "").length > 0) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(
+        spawnSync("pgrep", ["-f", token1], { encoding: "utf8" }).stdout?.trim() ?? "",
+      ).not.toBe("");
+
+      const queued = handler(
+        {
+          id: "q-wait",
+          name: "run_shell",
+          arguments: { command: `IC_GUARD_TAG=${token2} sleep 600` },
+        },
+        neverAbort(),
+      );
+
+      let disposeError: unknown;
+      try {
+        await plugin.dispose!();
+      } catch (err) {
+        disposeError = err;
+      }
+
+      await first;
+      await Promise.race([queued, new Promise((r) => setTimeout(r, 400))]);
+      await new Promise((r) => setTimeout(r, 200));
+
+      const leftover1 =
+        spawnSync("pgrep", ["-f", token1], { encoding: "utf8" }).stdout?.trim() ?? "";
+      const leftover2 =
+        spawnSync("pgrep", ["-f", token2], { encoding: "utf8" }).stdout?.trim() ?? "";
+      expect(leftover1).toBe("");
+      expect(leftover2).toBe("");
+      if (leftover2.length > 0) {
+        expect(disposeError).toBeDefined();
+      } else {
+        const queuedResult = await queued;
+        expect(queuedResult.isError).toBe(true);
+        expect(String(queuedResult.content)).toMatch(/disposed/);
+        expect(disposeError).toBeUndefined();
+      }
+      spawnSync("pkill", ["-9", "-f", token2]);
+      await Promise.race([queued, new Promise((r) => setTimeout(r, 1_000))]);
+    } finally {
+      spawnSync("pkill", ["-9", "-f", token1]);
+      spawnSync("pkill", ["-9", "-f", token2]);
+    }
+  }, 15_000);
+
+  test("overlapping dispose joins the in-flight reap", async () => {
+    if (process.platform === "win32") return;
+    const plugin = shellGuardPlugin(process.cwd());
+    const handler = plugin.middleware!(fallback);
+    const token = `ic_guard_join_${randomUUID()}`;
+    const running = handler(
+      {
+        id: "join-live",
+        name: "run_shell",
+        arguments: { command: `IC_GUARD_TAG=${token} sleep 600` },
+      },
+      neverAbort(),
+    );
+    try {
+      const started = Date.now();
+      while (Date.now() - started < 5_000) {
+        const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+        if ((probe.stdout?.trim() ?? "").length > 0) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(plugin.dispose).toBeDefined();
+      const first = plugin.dispose!();
+      const second = plugin.dispose!();
+      expect(second).toBe(first);
+      await Promise.all([first, second]);
+      await running;
+      const after = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+      expect(after.stdout?.trim() ?? "").toBe("");
+    } finally {
+      spawnSync("pkill", ["-9", "-f", token]);
+    }
+  });
+
   test("dispose fails when a child survives the reap window", async () => {
     const child = Object.assign(new EventEmitter(), {
       exitCode: null,
