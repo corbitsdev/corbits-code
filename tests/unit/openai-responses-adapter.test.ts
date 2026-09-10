@@ -89,3 +89,12 @@ describe("openai-responses x-opencode-session header", () => {
     expect(req.headers["x-opencode-session"]).toBeUndefined();
   });
 });
+
+describe("openai-responses Retry-After extraction", () => {
+  test("extracts Retry-After pacing from response headers", () => {
+    const responses = adapter();
+    expect(responses.extractRetryAfterMs?.(new Headers({ "retry-after": "7" }))).toBe(7_000);
+    expect(responses.extractRetryAfterMs?.(new Headers({ "retry-after-ms": "1500" }))).toBe(1_500);
+    expect(responses.extractRetryAfterMs?.(new Headers({}))).toBeUndefined();
+  });
+});

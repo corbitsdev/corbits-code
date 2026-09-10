@@ -421,7 +421,7 @@ describe("inference.error text", () => {
       mapProductionEvent({ type: "connector.reply", data: { content: "generic reply" } }, ctx),
     ).toContainEqual({
       type: "assistant",
-      text: "Work Provider failed (retryable): Rate limited — retrying…. Try again.",
+      text: "Work Provider failed (retryable): Rate limited. Wait a moment and try again.",
     });
   });
 

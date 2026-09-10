@@ -13,6 +13,7 @@ import type {
 import {
   RESPONSES_TOOL_NAME_LIMIT,
   createResponsesBlockIndexer,
+  extractResponsesRetryAfterMs,
   isResponsesStreamTerminal,
   parseJSONResponse,
   parseResponse,
@@ -233,5 +234,6 @@ export function createOpenAIResponsesAdapter(source: LastCycleSource): ProviderA
     parseResponse: (sseData) => parseResponse(sseData, indexer, source, OPENAI_RESPONSES_PROVIDER),
     parseJSONResponse,
     isStreamTerminal: isResponsesStreamTerminal,
+    extractRetryAfterMs: extractResponsesRetryAfterMs,
   };
 }

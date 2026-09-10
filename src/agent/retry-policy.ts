@@ -13,6 +13,7 @@ import { getProcessAdmissionQueue, type AdmissionQueue } from "../subagent/admis
 // so the user can switch providers or decide when to retry manually.
 export const MAX_BLIND_WAIT_MS = 30_000;
 const DEFAULT_PRESSURE_PAUSE_MS = 1_000;
+const RATE_LIMIT_HANG_MS = 86_400_000;
 
 export interface CorbitsRetryPolicyOptions {
   /**
@@ -49,6 +50,22 @@ export function createCorbitsRetryPolicy(options?: CorbitsRetryPolicyOptions): R
       const pauseMs = Math.min(error.retryAfterMs ?? DEFAULT_PRESSURE_PAUSE_MS, MAX_BLIND_WAIT_MS);
       const provider = withProvider.providerId ?? stampedProviderId ?? "unknown";
       admission.notePressure(provider, now() + pauseMs);
+      // The vendored default retries `retryable` on a fixed 500/1000ms
+      // schedule and ignores Retry-After. A 429 carries the server's pacing
+      // instruction: honor the full window. Capping at MAX_BLIND_WAIT_MS and
+      // retrying early burns the attempt budget while the server is still
+      // closed (the 45s xAI/Codex fixtures). Days-long Retry-After is a hang
+      // — abort rather than park the session. Attempt abort comes from
+      // defaultPolicy so this path cannot drift from MAX_ATTEMPTS.
+      if (error.retryAfterMs !== undefined) {
+        if (error.retryAfterMs >= RATE_LIMIT_HANG_MS) return { kind: "abort" };
+        const retryAfterMs = error.retryAfterMs;
+        const honorRetryAfter = (decision: RetryDecision): RetryDecision =>
+          decision.kind === "retry" ? { kind: "retry", delayMs: retryAfterMs } : decision;
+        const decision = defaultPolicy({ ...situation, error });
+        if (decision instanceof Promise) return decision.then(honorRetryAfter);
+        return honorRetryAfter(decision);
+      }
     }
     if (
       error.category === "quota_exhausted" &&
