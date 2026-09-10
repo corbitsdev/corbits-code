@@ -74,6 +74,7 @@ export async function loadProfile(path: string): Promise<ProfileConfig | null> {
 export async function resolveProfile(
   cwd: string,
   profileName?: string,
+  home: string = homedir(),
 ): Promise<ProfileConfig> {
   const projectProfile = await loadProfile(projectProfilePath(cwd));
 
@@ -81,8 +82,11 @@ export async function resolveProfile(
 
   let namedProfile: ProfileConfig | null = null;
   if (namedProfileName !== undefined) {
-    const namedPath = join(profilesDir(), `${namedProfileName}.json`);
+    const namedPath = join(profilesDir(home), `${namedProfileName}.json`);
     namedProfile = await loadProfile(namedPath);
+    if (namedProfile === null) {
+      throw new Error(`Profile not found: ${namedPath}`);
+    }
   }
 
   // Merge: project profile fields override named profile fields.

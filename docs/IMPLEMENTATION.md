@@ -337,7 +337,7 @@ prerequisites; Ollama installation remains outside this flow.
 Profiles supply per-project or named-profile overrides for `model` and `systemPromptExtensions` (the only allowed keys; any other key is rejected on load).
 
 - Project profile: `.corbits/profile.json` in the repo root — committed, credential-free.
-- Named profiles: `~/.corbits/profiles/<name>.json` — user-level overrides, inherited via the `profile` key or the `--profile` flag.
+- Named profiles: `~/.corbits/profiles/<name>.json` — user-level overrides, inherited via the `profile` key or the `--profile` flag. A missing named file fails closed. A missing project `profile.json` overlay is optional.
 
 ```json
 {

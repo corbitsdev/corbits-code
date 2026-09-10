@@ -85,6 +85,31 @@ test("resolveProfile returns empty object when no profile files exist", async ()
   expect(result).toEqual({});
 });
 
+test("resolveProfile throws when --profile names a missing file", async () => {
+  const home = makeTmp();
+  const cwd = makeTmp();
+  await mkdir(cwd, { recursive: true });
+  const name = "does-not-exist";
+  const missingPath = join(profilesDir(home), `${name}.json`);
+  expect(await loadProfile(missingPath)).toBeNull();
+  await expect(resolveProfile(cwd, name, home)).rejects.toThrow(missingPath);
+});
+
+test("resolveProfile loads a valid named profile", async () => {
+  const home = makeTmp();
+  const cwd = makeTmp();
+  await mkdir(cwd, { recursive: true });
+  const namedDir = join(home, ".corbits", "profiles");
+  await mkdir(namedDir, { recursive: true });
+  await writeFile(
+    join(namedDir, "work.json"),
+    JSON.stringify({ model: "named-model" }),
+  );
+  const result = await resolveProfile(cwd, "work", home);
+  expect(result.model).toBe("named-model");
+  expect(result.profile).toBe("work");
+});
+
 test("resolveProfile applies project profile fields", async () => {
   const cwd = makeTmp();
   const dir = join(cwd, ".corbits");
@@ -101,16 +126,20 @@ test("resolveProfile applies project profile fields", async () => {
   expect(result.systemPromptExtensions).toEqual(["ext1"]);
 });
 
-test("resolveProfile surfaces profile name when set", async () => {
+test("resolveProfile throws when a named profile key points at a missing file", async () => {
+  const home = makeTmp();
   const cwd = makeTmp();
   const dir = join(cwd, ".corbits");
   await mkdir(dir, { recursive: true });
+  const name = "no-such-named-profile";
   await writeFile(
     join(dir, "profile.json"),
-    JSON.stringify({ profile: "work" }),
+    JSON.stringify({ profile: name }),
   );
-  const result = await resolveProfile(cwd);
-  expect(result.profile).toBe("work");
+  const missingPath = join(profilesDir(home), `${name}.json`);
+  await expect(resolveProfile(cwd, undefined, home)).rejects.toThrow(
+    missingPath,
+  );
 });
 
 test("resolveProfile: project profile fields override named profile fields", async () => {
