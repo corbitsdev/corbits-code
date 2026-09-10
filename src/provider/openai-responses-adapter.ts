@@ -19,6 +19,7 @@ import {
   parseResponse,
   signatureForModel,
 } from "./codex-responses-adapter.js";
+import { OPENCODE_SESSION_ID_OPTION, optionString } from "./opencode-session.js";
 
 // Generic OpenAI Responses API adapter (POST /responses). Used by OpenCode Go
 // models that speak Responses rather than Chat Completions (e.g. gpt-5.6-luna).
@@ -29,7 +30,6 @@ export const OPENAI_RESPONSES_PROVIDER = "openai-responses";
 
 // Key the source stashes in defaults.providerOptions for this adapter.
 export const OPENAI_SESSION_ID_OPTION = "openaiSessionId";
-export const OPENCODE_SESSION_ID_OPTION = "opencodeSessionId";
 
 type ResponsesInputContentPart =
   | { type: "input_text"; text: string }
@@ -158,14 +158,6 @@ function toResponsesTools(options: InferenceOptions): unknown[] | undefined {
     description: t.description,
     parameters: t.inputSchema,
   }));
-}
-
-export function optionString(
-  options: InferenceOptions,
-  key: string,
-): string | undefined {
-  const value = options.providerOptions?.[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 // Keeps the LAST occurrence of each duplicate function_call / function_call_output

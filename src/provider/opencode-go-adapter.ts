@@ -1,9 +1,6 @@
 import type { BuiltRequest, ProviderAdapter } from "@intx/inference";
 import { createOpenAICompatibleAdapter } from "./openai-compatible-adapter.js";
-import {
-  OPENCODE_SESSION_ID_OPTION,
-  optionString,
-} from "./openai-responses-adapter.js";
+import { OPENCODE_SESSION_ID_OPTION, optionString } from "./opencode-session.js";
 
 type AdapterSource = Parameters<typeof createOpenAICompatibleAdapter>[0];
 

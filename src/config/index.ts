@@ -53,8 +53,8 @@ import { selectableGoModelIds } from "../provider/opencode-go-models.js";
 import {
   OPENAI_RESPONSES_PROVIDER,
   OPENAI_SESSION_ID_OPTION,
-  OPENCODE_SESSION_ID_OPTION,
 } from "../provider/openai-responses-adapter.js";
+import { OPENCODE_SESSION_ID_OPTION } from "../provider/opencode-session.js";
 import { OPENCODE_GO_MESSAGES_PROVIDER } from "../provider/opencode-go-anthropic-adapter.js";
 import { xaiUserIdFromAccessToken } from "../auth/xai/session.js";
 import {
