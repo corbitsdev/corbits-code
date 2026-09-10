@@ -90,7 +90,7 @@ registered for dispatch as soon as the server connects (including later in the
 same turn) and surfaced on demand through dynamic tool discovery
 (`tool_search`).
 
-In the TUI, `/mcp` and `/mcps` open the same live server surface. Press **Alt+A**
+In the TUI, `/mcp` opens the live server surface. Press **Alt+A**
 to add a named absolute HTTP(S) endpoint to global settings and connect it in the
 current session. Names may contain letters, numbers, single underscores, and
 hyphens; the `__` tool-namespace delimiter is reserved. The add is unavailable

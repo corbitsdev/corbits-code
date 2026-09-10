@@ -24,6 +24,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
+- The slash menu exposes `/mcp` only. `/mcps` is no longer an alias for
+  the same overlay.
 - Sequential TUI ask and permission selectors paint the live question's option
   labels. Overlay rows bind by an ask id minted at emit, not render-order
   index. A stale or empty accept fail-closes as unavailable rather than
