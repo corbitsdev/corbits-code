@@ -214,46 +214,6 @@ describe("observeFleet", () => {
     const { updates } = observeFleet(seeded, after, T0 + 1000);
     expect(updates).toEqual(["2 failed, 2 cancelled"]);
   });
-
-  test("a dry fleet appends orchestrator continuing only when the parent is still working", () => {
-    const seeded = observeFleet(
-      createFleetWatch(),
-      [lane({ id: "api" }), lane({ id: "docs", status: "done" })],
-      T0,
-    ).watch;
-    const lanes = [
-      lane({ id: "api", status: "done" as const, report: "done" }),
-      lane({ id: "docs", status: "done" as const }),
-    ];
-    expect(observeFleet(seeded, lanes, T0 + 1000).updates).toEqual(["2 done"]);
-    expect(
-      observeFleet(seeded, lanes, T0 + 1000, {
-        orchestratorContinuing: true,
-      }).updates,
-    ).toEqual(["2 done · orchestrator continuing"]);
-  });
-
-  test("orchestrator continuing is not added while a specialist lane is still running", () => {
-    const seeded = observeFleet(
-      createFleetWatch(),
-      [lane({ id: "build" }), lane({ id: "docs" })],
-      T0,
-    ).watch;
-    const { updates } = observeFleet(
-      seeded,
-      [
-        lane({
-          id: "build",
-          status: "failed",
-          error: "typecheck exited 1",
-        }),
-        lane({ id: "docs" }),
-      ],
-      T0 + 1000,
-      { orchestratorContinuing: true },
-    );
-    expect(updates).toEqual(["build failed — typecheck exited 1"]);
-  });
 });
 
 describe("fleetDigest", () => {
@@ -274,10 +234,8 @@ describe("fleetDigest", () => {
     expect(digest).toBe("2 running (api 1:20, docs 0:20) · 1 done · 1 failed");
   });
 
-  test("a dry fleet with outcomes is the tally only — idle does not claim the job closed", () => {
-    expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe(
-      "1 done",
-    );
+  test("a dry fleet is the outcome tally, not an idle claim", () => {
+    expect(fleetDigest([lane({ id: "api", status: "done" })], T0)).toBe("1 done");
     expect(fleetDigest([], T0)).toBe("");
   });
 
@@ -291,31 +249,6 @@ describe("fleetDigest", () => {
         T0,
       ),
     ).toBe("1 failed · 1 cancelled");
-  });
-
-  test("orchestrator continuing is a dry-fleet suffix, never a live-lane claim", () => {
-    expect(
-      fleetDigest([lane({ id: "api", status: "done" })], T0, {
-        orchestratorContinuing: true,
-      }),
-    ).toBe("1 done · orchestrator continuing");
-    expect(fleetDigest([], T0, { orchestratorContinuing: true })).toBe(
-      "orchestrator continuing",
-    );
-    expect(
-      fleetDigest(
-        [
-          lane({
-            id: "api",
-            startedAt: T0 - 80_000,
-            lastActivityAt: T0 - 1000,
-          }),
-          lane({ id: "web", status: "done" }),
-        ],
-        T0,
-        { orchestratorContinuing: true },
-      ),
-    ).toBe("1 running (api 1:20) · 1 done");
   });
 });
 

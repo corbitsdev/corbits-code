@@ -185,25 +185,23 @@ type Change =
   | { readonly kind: "cancelled"; readonly line: string }
   | { readonly kind: "stalled"; readonly line: string };
 
+export interface FleetReportOptions {
+  readonly stallMs?: number;
+}
+
 export interface FleetObservation {
   readonly watch: FleetWatch;
   /** Ready-to-print lines, already coalesced. Usually empty. */
   readonly updates: readonly string[];
 }
 
-export interface FleetReportOpts {
-  readonly stallMs?: number;
-  readonly orchestratorContinuing?: boolean;
-}
-
 export function observeFleet(
   previous: FleetWatch,
   lanes: readonly FleetLane[],
   nowMs: number,
-  opts: FleetReportOpts = {},
+  options: FleetReportOptions = {},
 ): FleetObservation {
-  const stallMs = opts.stallMs ?? DEFAULT_STALL_MS;
-  const orchestratorContinuing = opts.orchestratorContinuing === true;
+  const stallMs = options.stallMs ?? DEFAULT_STALL_MS;
   const marks = new Map<string, LaneMark>();
   const changes: Change[] = [];
   let running = 0;
@@ -269,9 +267,7 @@ export function observeFleet(
   if (wentDry) {
     return {
       watch,
-      updates: [
-        clip(dryFleetLine(lanes, orchestratorContinuing), MAX_UPDATE_CHARS),
-      ],
+      updates: [clip(idleSummary(lanes), MAX_UPDATE_CHARS)],
     };
   }
 
@@ -355,20 +351,6 @@ function idleSummary(lanes: readonly FleetLane[]): string {
   }).join(", ");
 }
 
-function withOrchestratorContinuing(line: string, continuing: boolean): string {
-  if (!continuing) return line;
-  return line.length === 0
-    ? "orchestrator continuing"
-    : `${line} · orchestrator continuing`;
-}
-
-function dryFleetLine(
-  lanes: readonly FleetLane[],
-  orchestratorContinuing: boolean,
-): string {
-  return withOrchestratorContinuing(idleSummary(lanes), orchestratorContinuing);
-}
-
 /**
  * The answer to "where are we" on demand — the same picture the unprompted
  * lines build up to, in one row, so asking never costs an interrupt.
@@ -376,13 +358,9 @@ function dryFleetLine(
 export function fleetDigest(
   lanes: readonly FleetLane[],
   nowMs: number,
-  opts: FleetReportOpts = {},
+  options: FleetReportOptions = {},
 ): string {
-  const stallMs = opts.stallMs ?? DEFAULT_STALL_MS;
-  const orchestratorContinuing = opts.orchestratorContinuing === true;
-  if (lanes.length === 0) {
-    return orchestratorContinuing ? "orchestrator continuing" : "";
-  }
+  const stallMs = options.stallMs ?? DEFAULT_STALL_MS;
   const running = lanes.filter((l) => l.status === "running");
   const parts: string[] = [];
   if (running.length > 0) {
@@ -402,8 +380,5 @@ export function fleetDigest(
   parts.push(
     ...formatOutcomeParts(outcomeCounts(lanes), { includeZeroDone: false }),
   );
-  const digest = parts.join(" · ");
-  // Live lanes already name themselves; the suffix is only for a dry fleet.
-  if (running.length > 0) return digest;
-  return withOrchestratorContinuing(digest, orchestratorContinuing);
+  return parts.join(" · ");
 }

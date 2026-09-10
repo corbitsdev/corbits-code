@@ -35,7 +35,6 @@ import {
 } from "../../cost/cost-summary.js";
 import { contextTokensFromUsage } from "../../provider/context-window.js";
 import { fleetDigest } from "../../subagent/index.js";
-import { hasActiveTasks } from "../../agent/tasks.js";
 import { renameSession } from "../../session/index.js";
 import { truncateSessionLabel } from "../../session/session-label.js";
 import { surfaceSystemNotice, attachClipboardImage } from "../shell/prompt.js";
@@ -167,11 +166,7 @@ export function createCommandLayer(
     },
     startWorkflow: (name) => services.workflowHost.start(name),
     getFleetStatus: () =>
-      fleetDigest(services.subAgentSessions.list(), Date.now(), {
-        orchestratorContinuing:
-          hostOf(state).bridge.turn.isProcessing ||
-          hasActiveTasks(services.directorHolder.instance?.getTasks() ?? []),
-      }),
+      fleetDigest(services.subAgentSessions.list(), Date.now()),
     renameSession: (name) => {
       const trimmed = name.trim();
       if (trimmed.length === 0) return "Session name cannot be empty";

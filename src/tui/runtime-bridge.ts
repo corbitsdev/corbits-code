@@ -1286,15 +1286,18 @@ export function attachSessionBridge(
       status: turn.status,
       currentToolName: turn.currentToolName,
       streamingType: turn.streamingType,
+      nowMs,
+      sessionActive: bag.liveFleet > 0,
     };
     const fleet = fleetProgress(bag.agentSessions, nowMs);
     const label = resolveTurnLabel(input, isStalled, fleet);
+    const sessionLive = label !== undefined;
     if (label === undefined) {
       // The bottom-left status slot rides the same re-entry as the landing
       // mark, so it crossfades between phases without a timer of its own.
       setLockupFrame(shell, {
         nowMs,
-        animating: turn.isProcessing,
+        animating: false,
         phase: null,
         rampPhase: null,
         stalledForMs: null,
@@ -1309,7 +1312,7 @@ export function attachSessionBridge(
     const stalledFor = stalledForMs(nowMs, rampPhase === "stalled");
     setLockupFrame(shell, {
       nowMs,
-      animating: turn.isProcessing,
+      animating: sessionLive,
       phase: label,
       rampPhase,
       stalledForMs: stalledFor,

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { defined } from "../../tests/helpers/defined.js";
 import {
   ACTIVITY_STATES,
+  LIVE_WORD_MS,
   classifyAgentSendFailure,
   classifySendFailureMessage,
   resolveRampPhase,
@@ -67,7 +68,7 @@ describe("resolveTurnLabel closed-set guarantee", () => {
       null,
     );
     // Recovery is silent — never paint "stalled" in the ticker.
-    expect(label).toBe("building");
+    expect(label).toBe("creating");
     expect(ACTIVITY_STATES).toContain(defined(label));
   });
 
@@ -134,6 +135,21 @@ describe("resolveTurnLabel", () => {
     ).toBe("stopping");
   });
 
+  test("a settled interrupt does not keep the stopping label", () => {
+    expect(
+      resolveTurnLabel(
+        {
+          isProcessing: false,
+          status: "stopping",
+          currentToolName: null,
+          streamingType: null,
+        },
+        false,
+        null,
+      ),
+    ).toBeUndefined();
+  });
+
   test("tool phase maps to its semantic activity, never the raw name", () => {
     expect(
       resolveTurnLabel(
@@ -146,7 +162,7 @@ describe("resolveTurnLabel", () => {
         false,
         null,
       ),
-    ).toBe("researching");
+    ).toBe("grinding");
   });
 
   test("thinking and text phases", () => {
@@ -351,7 +367,7 @@ describe("fleet state in the top-level indicator", () => {
       resolveTurnLabel(parentAwaitingChildren, false, null),
     );
     expect(resolveTurnLabel(parentAwaitingChildren, true, none)).toBe(
-      "planning",
+      "imagining",
     );
     expect(resolveRampPhase(parentAwaitingChildren, true, none)).toBe(
       "working",
@@ -373,5 +389,28 @@ describe("fleet state in the top-level indicator", () => {
         fleet(6, 3),
       ),
     ).toBe("stopping");
+  });
+
+  test("a settled parent with live lanes still names activity in the lockup", () => {
+    const idleParent = {
+      isProcessing: false,
+      status: "done" as const,
+      currentToolName: null,
+      streamingType: null,
+      sessionActive: true,
+    };
+    expect(resolveTurnLabel(idleParent, false, fleet(2, 0))).toBe("working");
+    expect(resolveRampPhase(idleParent, false, fleet(2, 0))).toBe("working");
+  });
+
+  test("live-activity words cycle while the session is occupied", () => {
+    const live = {
+      isProcessing: true,
+      status: "running" as const,
+      currentToolName: null,
+      streamingType: null,
+      nowMs: LIVE_WORD_MS,
+    };
+    expect(resolveTurnLabel(live, false, null)).toBe("warping");
   });
 });

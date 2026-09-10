@@ -14,6 +14,7 @@ import { streamRowCount } from "./shell/transcript";
 import { STEER_WAIT_NOTICE_MS } from "./notice-line";
 import { withTestRenderer } from "./harness";
 import { badgeCount } from "./session-queue";
+import { LIVE_ACTIVITY_WORDS } from "./session-chrome";
 
 describe("mapReactorLike", () => {
   test("message.received → user", () => {
@@ -1377,6 +1378,10 @@ describe("idle-with-fleet (CL-7057)", () => {
           // The parent turn settled but the fleet is live: the run stays
           // busy and the follow-up does not drain at mere parent-idle.
           expect(shell.session.run).toBe("busy");
+          expect(shell.lockupPhase).not.toBeNull();
+          expect((LIVE_ACTIVITY_WORDS as readonly string[]).includes(shell.lockupPhase ?? "")).toBe(
+            true,
+          );
           expect(badgeCount(shell.session)).toBe(1);
           expect(port.calls).toEqual([]);
           await h.renderOnce();

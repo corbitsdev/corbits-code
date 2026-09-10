@@ -22,6 +22,7 @@ export {
   pendingAskWakeText,
   type FleetLane,
   type FleetObservation,
+  type FleetReportOptions,
   type FleetWatch,
   type PendingAskWake,
 } from "./fleet-report.js";

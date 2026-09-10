@@ -94,13 +94,17 @@ and `@mention` tokens anywhere paint `UI.action`. Bare skill or agent words
 (`implement`, `emil`, `brand review`) stay unstyled, as does a `/review`
 that appears mid-prose.
 
-While a turn is live the lockup slot swaps the wordmark for a semantic
-activity word — never the raw tool, MCP server, or plugin identifier that is
-actually executing. `resolveTurnLabel` (`src/tui/session-chrome.ts`)
-maps execution onto the closed set `ACTIVITY_STATES` exported from that
-module (`thinking`, `planning`, `researching`, `building`, `working`,
-`waiting`, `stalled`, `stopping`); that export is the source
-of truth for what the slot can say, not this list. It is led by a single density cell
+While a turn is live — or the session is still occupied by a live fleet
+or a pending dry-fleet continuation — the lockup slot swaps the wordmark
+for a semantic activity word — never the raw tool, MCP server, or plugin
+identifier that is actually executing. `resolveTurnLabel`
+(`src/tui/session-chrome.ts`) maps execution onto the closed set
+`ACTIVITY_STATES` exported from that module. Live occupation cycles
+`LIVE_ACTIVITY_WORDS` (`working`, `warping`, `buzzing`, `grinding`,
+`thinking`, `doing`, `cooking`, `creating`, `imagining`, `inventing`)
+on `LIVE_WORD_MS`; gated turns still read `waiting` or `stopping`.
+That export is the source of truth for what the slot can say, not this
+list. It is led by a single density cell
 (`rampPulse`, `src/tui/ramp.ts`). The cell, not the word,
 is what says whether the session is healthy, and it carries four states:
 
@@ -120,16 +124,16 @@ printed identically, so the only way to tell them apart was to wait.
 waiting on something outside itself — and are told apart by motion: `blocked`
 holds perfectly still, which is the signal that the session is waiting on _you_.
 
-While fleet agents are running, the slot reports the _fleet_, not the parent.
-`resolveTurnLabel` and `resolveRampPhase` take a `FleetProgress` roll-up and
-rank it above the parent's own stall clock: with live lanes the parent is
-idle by design, so its silence says nothing about whether the session is
-progressing, and reporting it was how a session with every lane wedged still
-read as `working`. A fleet with no stalled lane reads `working`; one
-stalled lane makes the whole indicator read `stalled`, which is the state that
-should pull an operator's eye to the panel. A blocked gate and a stopping turn
-still outrank the fleet. With zero running fleet agents the roll-up is empty and
-every path through both functions behaves exactly as it does for a plain
+While fleet agents are running, the slot stays live even when the parent
+turn has settled (idle-with-fleet). `resolveTurnLabel` and
+`resolveRampPhase` take a `FleetProgress` roll-up plus session occupancy:
+with live lanes the parent is idle by design, so its silence says nothing
+about whether the session is progressing, and blanking the lockup made a
+busy fleet look hung. Occupied sessions keep cycling a live-activity
+word; recovery stays silent rather than painting `stalled`. A blocked
+gate and a stopping turn still outrank the fleet. With zero running fleet
+agents and no pending continuation the roll-up is empty and every path
+through both functions behaves exactly as it does for a plain
 single-agent turn.
 
 The stall phase is driven by the watchdog's own silence clock
@@ -257,10 +261,8 @@ while other work is still running, and **one** dry-fleet line when the last
 lane finishes
 (`N done`; failed and cancelled counts appear only
 when non-zero, e.g. `N done, M failed, K cancelled`).
-When the parent is still in a turn or still has todo/doing work, that
-line appends `orchestrator continuing`. The suffix is omitted when the
-orchestrator is idle, and is not added while specialist lanes are still
-running. An empty fleet with no outcomes does not claim the job closed.
+The line does not claim the run is idle — the parent often continues.
+The prompt-box lockup is what names that occupation, not this tally.
 Per-lane `done — summary` walls and live `dispatched` re-announcements
 are never printed. That dry-fleet line stays operator-facing. If tasks
 are still todo/doing, the runtime re-enters the parent with collected
