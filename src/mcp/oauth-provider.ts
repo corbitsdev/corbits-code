@@ -51,9 +51,7 @@ function redirectUrisInclude(
 }
 
 function isAbortError(err: unknown): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  if ("name" in err && err.name === "AbortError") return true;
-  return err instanceof Error && err.name === "Error";
+  return typeof err === "object" && err !== null && "name" in err && err.name === "AbortError";
 }
 
 // Dynamic client registration bakes in the loopback redirect_uri (ephemeral port).
