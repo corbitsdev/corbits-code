@@ -2,7 +2,7 @@
  * Session assembly for the TUI runner: everything the old runTUI closure
  * built once inside its try block before the first agent build — the session
  * lifecycle (hooks sink, run sink, cycle recorder), the permission gate,
- * plugin/tool resolution, the agent toolset, the workflow controller, and
+ * plugin/tool resolution, the agent toolset, the workflow host, and
  * the chat agent factory. Returns the const `RunnerServices` bag index.ts
  * threads through the other runner modules; mutable bindings live on
  * RunnerState.
@@ -65,7 +65,7 @@ import { createAgentToolset, type MCPServerState, type OperatorResult } from "..
 import type { ToolAvailability } from "../../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../../agent/lsp-availability.js";
 import type { SessionMode } from "../../config/session-mode.js";
-import { WorkflowController } from "../workflow-controller.js";
+import { WorkflowHost, type WorkflowHostState } from "../../workflows/host.js";
 import type { ToolWatchdogConfig } from "../tool-execution-watchdog.js";
 import { deliverAgentMessage } from "../deliver-agent-message.js";
 import { createProviderFailureAttemptTracker } from "../provider/failure-attempt.js";
@@ -251,10 +251,10 @@ export async function assembleTUISession(
   const toolAvailability: ToolAvailability = {
     languageServerAvailable: detectLanguageServerAvailable(config.cwd),
   };
-  // The workflow controller is built below, after the toolset; the holder lets
+  // The workflow host is built below, after the toolset; the holder lets
   // submit_output's handler complete the live workflow without a
   // construction-order cycle.
-  const workflowControllerHolder: { instance?: WorkflowController } = {};
+  const workflowHostHolder: { instance?: WorkflowHost } = {};
 
   const toolset = await createAgentToolset({
     cwd: config.cwd,
@@ -275,9 +275,9 @@ export async function assembleTUISession(
         liveAgent(state).deliver(buildShellBackgroundMessage(exit)),
       );
     },
-    isWorkflowActive: () => workflowControllerHolder.instance?.isActive() === true,
+    isWorkflowActive: () => workflowHostHolder.instance?.isActive() === true,
     completeWorkflowStep: (stepId) =>
-      workflowControllerHolder.instance?.complete(stepId) ?? "not-current",
+      workflowHostHolder.instance?.complete(stepId) ?? "not-current",
     ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     onOperatorGate: (question, options) =>
       new Promise<OperatorResult>((resolve) => {
@@ -359,15 +359,20 @@ export async function assembleTUISession(
   const hostHolder: { instance?: RunnerHost } = {};
 
   // Owns the workflow lifecycle: slash-command starts, capability overrides,
-  // resume, and publishing status to the App via the emitter.
-  const workflowController = new WorkflowController({
+  // resume, and publishing status via the emitter. The TUI only renders.
+  const workflowHost = new WorkflowHost({
     cwd: config.cwd,
-    emitter,
     getSessionId: () => state.sessionId,
     getToolDefinitions: () => toolset.dynamicRunner.currentDefinitions(),
     getDirector: () => directorHolder.instance,
+    onChange: () => {
+      emitter.emit("workflow", {
+        current: workflowHost.status(),
+        history: workflowHost.history(),
+      } satisfies WorkflowHostState);
+    },
   });
-  workflowControllerHolder.instance = workflowController;
+  workflowHostHolder.instance = workflowHost;
 
   // Dynamic tool discovery: only the fixed built-in prefix plus activated
   // tools reach the wire, so the provider cache prefix holds steady; MCP
@@ -433,7 +438,7 @@ export async function assembleTUISession(
     deps: start.inferenceDeps,
   });
   const summaryContext = (): SummaryContext | undefined => {
-    const status = workflowController.status();
+    const status = workflowHost.status();
     if (!status.active) return undefined;
     return {
       workflow: {
@@ -471,6 +476,7 @@ export async function assembleTUISession(
       state.reloadIfIdle?.();
     },
     getWorkdir: () => state.workdir,
+    getSessionId: () => state.sessionId,
     authorize: createReactorAuthorize(permissionGate),
     inferenceDeps: start.inferenceDeps,
     getSources: () => (state.liveSources.length > 0 ? state.liveSources : [state.liveSource]),
@@ -535,8 +541,7 @@ export async function assembleTUISession(
     systemPrompt,
     directorHolder,
     hostHolder,
-    workflowControllerHolder,
-    workflowController,
+    workflowHost,
     activatedToolNames,
     computeAdvertised,
     buildAgent: chatAgent.buildAgent,

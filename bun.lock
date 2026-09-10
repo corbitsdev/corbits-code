@@ -7,6 +7,7 @@
       "dependencies": {
         "@intx/agent": "workspace:*",
         "@intx/authz": "workspace:*",
+        "@intx/crypto": "0.3.0",
         "@intx/harness": "workspace:*",
         "@intx/hub-sessions": "0.3.0",
         "@intx/inference": "workspace:*",
@@ -23,6 +24,7 @@
         "@opentui/core": "0.5.10",
         "arktype": "catalog:",
         "highlight.js": "^11.11.1",
+        "isomorphic-git": "catalog:",
       },
       "devDependencies": {
         "@eslint/js": "^9.39.0",

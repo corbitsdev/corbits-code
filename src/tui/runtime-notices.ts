@@ -208,3 +208,57 @@ export function subAgentProgress(raw: unknown): SubAgentProgress | null {
   if (parsed instanceof type.errors) return null;
   return parsed;
 }
+
+export interface WorkflowNoticePayload {
+  readonly current: {
+    readonly active: boolean;
+    readonly name?: string | undefined;
+    readonly stepIndex: number;
+    readonly total: number;
+    readonly label: string;
+  };
+  readonly history: readonly { readonly name?: string | undefined }[];
+}
+
+const workflowHistoryEntry = type({ "name?": "string | undefined" });
+
+const workflowPayload = type({
+  current: {
+    active: "boolean",
+    "name?": "string | undefined",
+    stepIndex: "number",
+    total: "number",
+    label: "string",
+  },
+  history: workflowHistoryEntry.array(),
+});
+
+export function workflowPayloadInfo(raw: unknown): WorkflowNoticePayload | null {
+  const parsed = workflowPayload(raw);
+  if (parsed instanceof type.errors) return null;
+  return parsed;
+}
+
+/**
+ * Live workflow projection. Active named steps flash the current step;
+ * complete flashes only on the active→idle transition when last history has a name.
+ */
+export function workflowNotice(
+  payload: WorkflowNoticePayload,
+  opts?: { wasActive?: boolean },
+): RuntimeNotice | null {
+  const { current, history } = payload;
+  if (current.active && current.name !== undefined && current.name.length > 0) {
+    return {
+      kind: "flash",
+      text: `workflow ${current.name} · step ${current.stepIndex + 1}/${current.total}: ${current.label}`,
+    };
+  }
+  if (!current.active && opts?.wasActive === true) {
+    const last = history.at(-1);
+    if (last?.name !== undefined && last.name.length > 0) {
+      return { kind: "flash", text: `workflow ${last.name} complete` };
+    }
+  }
+  return null;
+}

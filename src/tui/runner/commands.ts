@@ -139,7 +139,7 @@ export function createCommandLayer(state: RunnerState, services: RunnerServices)
       });
       return maskContextMeterWhenNoTurns(summary, services.runSink.getTurnCount());
     },
-    startWorkflow: (name) => services.workflowController.start(name),
+    startWorkflow: (name) => services.workflowHost.start(name),
     getFleetStatus: () => fleetDigest(services.subAgentSessions.list(), Date.now()),
     renameSession: (name) => {
       const trimmed = name.trim();
@@ -181,7 +181,7 @@ export function createCommandLayer(state: RunnerState, services: RunnerServices)
         void state.sendWithAttemptIdentity?.(userInboundMessage(result.text, []));
         return;
       case "workflow":
-        state.systemNotice?.(services.workflowController.start(result.name));
+        state.systemNotice?.(services.workflowHost.start(result.name));
         return;
       case "noop":
         return;

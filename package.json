@@ -82,6 +82,7 @@
   "dependencies": {
     "@intx/agent": "workspace:*",
     "@intx/authz": "workspace:*",
+    "@intx/crypto": "0.3.0",
     "@intx/inference": "workspace:*",
     "@intx/log": "workspace:*",
     "@intx/storage-isogit": "workspace:*",
@@ -97,7 +98,8 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentui/core": "0.5.10",
     "arktype": "catalog:",
-    "highlight.js": "^11.11.1"
+    "highlight.js": "^11.11.1",
+    "isomorphic-git": "catalog:"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

@@ -42,7 +42,7 @@ async function withWorker(
   const cwd = await mkdtemp(join(tmpdir(), "worker-permission-"));
   const harness = setupHarness();
   const workdirBase = join(cwd, "state");
-  const auditPath = join(workdirBase, "subagents", "worker", "audit-store");
+  const auditPath = join(workdirBase, "subagents", "worker");
   const params: RunSubAgentParams = {
     id: "worker",
     cwd,
@@ -703,7 +703,7 @@ test.serial(
         if (nested === undefined) throw new Error("missing nested worker");
         expect(nested.finishedAt).toBeDefined();
         expect(await Bun.file(join(cwd, "probe.txt")).exists()).toBe(false);
-        const auditPath = join(params.workdirBase, "subagents", nested.id, "audit-store");
+        const auditPath = join(params.workdirBase, "subagents", nested.id);
         const store = await createIsogitStore(auditPath);
         const [sessionId] = await readdir(join(auditPath, "state", "audit"));
         if (sessionId === undefined) throw new Error("missing nested audit");

@@ -107,8 +107,7 @@ export interface RunnerServices {
     instance?: ReturnType<typeof import("../../agent/director.js").createChatDirector>;
   };
   hostHolder: { instance?: RunnerHost };
-  workflowControllerHolder: { instance?: import("../workflow-controller.js").WorkflowController };
-  workflowController: import("../workflow-controller.js").WorkflowController;
+  workflowHost: import("../../workflows/host.js").WorkflowHost;
   activatedToolNames: Awaited<
     ReturnType<typeof import("../../session/assemble-runtime.js").createAdvertisedToolset>
   >["activated"];

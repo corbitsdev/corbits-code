@@ -1,24 +1,13 @@
-import type { EventEmitter } from "node:events";
 import { join } from "node:path";
 import type { ToolDefinition } from "@intx/types/runtime";
 
 import { sessionDir } from "../session/index.js";
-import { CAPABILITIES, detectCapabilities, type CapabilityMap } from "../workflows/capabilities.js";
-import { WorkflowCoordinator } from "../workflows/coordinator.js";
-import { findWorkflow, WORKFLOWS } from "../workflows/index.js";
-import { WorkflowRuntime } from "../workflows/runtime.js";
-import {
-  loadWorkflowState,
-  saveWorkflowState,
-  warnWorkflowPersistenceFailure,
-} from "../workflows/state.js";
-import type {
-  CapabilityName,
-  StepStatus,
-  Workflow,
-  WorkflowCompleteResult,
-} from "../workflows/types.js";
-import type { WorkflowEvent } from "../workflows/runtime.js";
+import { CAPABILITIES, detectCapabilities, type CapabilityMap } from "./capabilities.js";
+import { WorkflowCoordinator } from "./coordinator.js";
+import { findWorkflow, WORKFLOWS } from "./index.js";
+import { WorkflowRuntime, type WorkflowEvent } from "./runtime.js";
+import { loadWorkflowState, saveWorkflowState, warnWorkflowPersistenceFailure } from "./state.js";
+import type { CapabilityName, StepStatus, Workflow, WorkflowCompleteResult } from "./types.js";
 
 export interface CapabilityStatus {
   name: CapabilityName;
@@ -45,16 +34,15 @@ export interface WorkflowStatus {
   completedAt?: number;
 }
 
-export interface WorkflowControllerState {
+export interface WorkflowHostState {
   current: WorkflowStatus;
   history: WorkflowStatus[];
 }
 
 type SetCoordinator = (coordinator: WorkflowCoordinator | undefined) => void;
 
-export interface WorkflowControllerArgs {
+export interface WorkflowHostArgs {
   cwd: string;
-  emitter: EventEmitter;
   getSessionId: () => string;
   getToolDefinitions: () => ToolDefinition[];
   // The live chat director; the workflow coordinator is attached to it when a
@@ -63,12 +51,12 @@ export interface WorkflowControllerArgs {
   // Overrides the state-tree home (defaults to the real user home). Tests
   // pass a sandboxed dir here so persist()/resume() never touch ~/.corbits.
   home?: string;
+  onChange?: () => void;
 }
 
-// Owns the workflow lifecycle for the TUI: starting, capability overrides,
-// resume, and publishing status to the UI via the "workflow" emitter event.
-// Framework-agnostic so it can be unit-tested without React.
-export class WorkflowController {
+// Owns workflow lifecycle: starting, capability overrides, resume, and
+// persisting state. UI layers subscribe via onChange and render status().
+export class WorkflowHost {
   private runtime: WorkflowRuntime | undefined;
   private coordinator: WorkflowCoordinator | undefined;
   private overrides = new Set<CapabilityName>();
@@ -78,16 +66,15 @@ export class WorkflowController {
   // history on workflow-complete, where isActive() is already false.
   private lastActiveStatus: WorkflowStatus | undefined;
 
-  constructor(private readonly args: WorkflowControllerArgs) {}
+  constructor(private readonly args: WorkflowHostArgs) {}
 
-  // Re-attach the active coordinator to a freshly rebuilt director (the TUI
-  // rebuilds the agent when MCP servers connect). Safe to call with no active
-  // workflow — it just clears any stale coordinator.
+  // Re-attach the active coordinator to a freshly rebuilt director. Safe to
+  // call with no active workflow — it just clears any stale coordinator.
   reattach(): void {
     this.args.getDirector()?.setWorkflowCoordinator(this.coordinator);
   }
 
-  // Drop the active workflow and history (e.g. on /clear, which starts a fresh session).
+  // Drop the active workflow and history (e.g. on /clear).
   reset(): void {
     this.runtime = undefined;
     this.coordinator = undefined;
@@ -95,7 +82,7 @@ export class WorkflowController {
     this.completedWorkflows = [];
     this.lastActiveStatus = undefined;
     this.args.getDirector()?.setWorkflowCoordinator(undefined);
-    this.publish();
+    this.notify();
   }
 
   history(): WorkflowStatus[] {
@@ -118,10 +105,10 @@ export class WorkflowController {
     return WORKFLOWS.map((w) => ({ name: w.name, description: w.description }));
   }
 
-  private publish(): void {
+  private notify(): void {
     const current = this.status();
     if (current.active) this.lastActiveStatus = current;
-    this.args.emitter.emit("workflow", { current, history: this.completedWorkflows });
+    this.args.onChange?.();
   }
 
   private persist(): void {
@@ -145,7 +132,7 @@ export class WorkflowController {
       runtime,
       () => {
         this.persist();
-        this.publish();
+        this.notify();
       },
       workflow.stepThrough === true,
     );
@@ -156,7 +143,7 @@ export class WorkflowController {
     if (restore !== true) {
       runtime.start(workflow);
       this.persist();
-      this.publish();
+      this.notify();
     }
     return runtime;
   }
@@ -175,12 +162,8 @@ export class WorkflowController {
         }
       }
       this.persist();
-      this.publish();
+      this.notify();
     });
-  }
-
-  private attach(workflow: Workflow): void {
-    this.attachRuntime(workflow);
   }
 
   // Start a workflow by name. If one is already active, the first call asks for
@@ -198,7 +181,7 @@ export class WorkflowController {
       }
     }
     this.pendingReplace = undefined;
-    this.attach(workflow);
+    this.attachRuntime(workflow);
     return `Started ${name} workflow.`;
   }
 
@@ -211,7 +194,7 @@ export class WorkflowController {
     if (workflow === undefined) return;
     const runtime = this.attachRuntime(workflow, true);
     runtime.restore(state);
-    this.publish();
+    this.notify();
   }
 
   // Toggle a capability off/on for this run. Affects not-yet-reached steps of an
@@ -220,7 +203,7 @@ export class WorkflowController {
     if (this.overrides.has(name)) this.overrides.delete(name);
     else this.overrides.add(name);
     this.runtime?.setCapabilities(this.capabilityMap());
-    this.publish();
+    this.notify();
     return this.overrides.has(name)
       ? `Disabled capability: ${name}.`
       : `Enabled capability: ${name}.`;

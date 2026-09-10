@@ -290,7 +290,7 @@ export function wirePostStartup(
       }
       // Now that the capability map reflects connected MCP servers, restore any
       // persisted workflow. New workflows are manual-only slash commands.
-      await services.workflowController.resume();
+      await services.workflowHost.resume();
     })
     .catch((err: unknown) => {
       // Fire-and-forget: an aborted connect on exit is expected and ignored;

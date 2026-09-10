@@ -400,9 +400,9 @@ Session runtime state lives under the global projects tree (not in the repo):
 - Migration: if a session exists only under in-repo `.agent-state/<session-id>/`, it is moved into the global tree on open/list
 - Atomic JSON writes with schema validation on load
 
-**Worker audit persistence.** Workers initialize a real `@intx/storage-isogit`
-`AuditStore` at `<worker-workdir>/audit-store` (`src/subagent/run.ts`), separate
-from the native context store's Git index. Initialization failure prevents worker
+**Worker audit persistence.** Workers get context and audit from one
+`createSessionStores` call on the worker workdir: the same isomorphic-git
+repo, one index. Initialization failure prevents worker
 execution. The existing agent-owned audit and error collectors persist at
 checkpoint and shutdown; retained worker sessions flush at checkpoint/resume and
 close. The parent still supplies `noopAuditStore()`: collectors exist there too,
@@ -415,18 +415,19 @@ error collector; there is no added retry subsystem or side-effect rollback.
 
 `createOptimizedContextStore` (`src/session/optimized-context-store.ts`) wraps the
 Interchange git store to keep per-checkpoint cost independent of session length.
-Checkpoint commits go through system git and use the operator's global
-`user.name` / `user.email` when both are set, so commit-author hooks see a real
-identity; otherwise they fall back to Interchange's harness author
-(`interchange-harness`, `harness@interchange.local`).
+Checkpoint commits go through isomorphic-git (`base.commit()` after staging extra
+segment files and blobs). Author and committer are Interchange's harness identity
+(`interchange-harness`, `harness@interchange.local`); a `CommitSigner` from
+`commit-signer.ts` signs each commit. The wrapper never shells out to system git.
 The append-only snapshots (`turns.jsonl`, `prompt.jsonl`) are written as rolling
 segments (`turns-0001.jsonl`, ...) that seal at 256KB, so `git add` re-hashes only
 the small active segment instead of the whole growing file. Segment zero keeps the
 original filename, so a legacy monolithic `turns.jsonl` reads back as its own first
 segment. `load` and `readAt` concatenate every segment in order; a torn final line
-in the active segment (from a crash mid-write) is dropped on resume. Only tool-output
-blobs new since the last commit are staged, and stale segments deleted by a
-history rewrite (compaction) are removed from the tree on the next commit. The
+in the active segment (from a crash mid-write) is dropped on resume. The wrapper
+stages extra tool-output blobs it wrote since the last commit; vendor
+`base.commit()` also stages the whole `tool-output/` tree. Stale segments deleted
+by a history rewrite (compaction) are removed from the tree on the next commit. The
 per-commit git tree still grows one entry per spilled tool-output blob across the
 session; that tree re-write is inherent to git and left as residual cost.
 
@@ -485,13 +486,14 @@ Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `tests
 
 ### Bounded audit collector retention between checkpoints
 
-Agent-owned audit collectors buffer completed tool results until checkpoint or
-shutdown flush, including when a noop store is supplied. Workers use the durable
-store described under State Persistence; the parent's noop store does not make
-collector retention inapplicable. Long, checkpoint-sparse runs can retain
+Production chat and sub-agent assembly persist audit via the same isogit
+object as context storage (`createSessionStores`), plus a stable `sessionId`.
+Agent-owned audit collectors still buffer completed tool results until
+checkpoint or shutdown flush. Long, checkpoint-sparse runs can retain
 unbounded results. Bounded retention remains owned by the `@intx/inference`
 audit collector: opportunistic flushing or capped result bodies must preserve
-metadata.
+metadata. If a collector is introduced in front of the isogit audit methods,
+add a bounded wrapper in `src/` and re-run hardening tests.
 
 Other wave items (read bounds, shell truncation, process-group kill, grep caps, plugin spawn mitigation, per-tool watchdog, inference retry UX) are implemented or partially mitigated in `src/` with co-located tests; the two items above remain upstream-owned.
 

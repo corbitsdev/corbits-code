@@ -13,6 +13,8 @@ import {
   mcpNotice,
   mcpServerState,
   subAgentProgress,
+  workflowNotice,
+  workflowPayloadInfo,
 } from "./runtime-notices.js";
 
 const hook = {
@@ -165,5 +167,107 @@ describe("payload validation", () => {
     expect(compactionFoldInfo({ turnsBefore: 42 })).toBeNull();
     expect(compactionFoldInfo(null)).toBeNull();
     expect(compactionFoldInfo("nope")).toBeNull();
+  });
+
+  test("workflow payloads require current + history and reject junk", () => {
+    expect(
+      workflowPayloadInfo({
+        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        history: [],
+      }),
+    ).toEqual({
+      current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+      history: [],
+    });
+    expect(workflowPayloadInfo({ current: { active: true } })).toBeNull();
+    expect(workflowPayloadInfo(null)).toBeNull();
+    expect(workflowPayloadInfo("nope")).toBeNull();
+  });
+
+  test("live inactive payload with name: undefined and extra status keys parses", () => {
+    const parsed = workflowPayloadInfo({
+      current: {
+        active: false,
+        name: undefined,
+        stepIndex: 0,
+        total: 0,
+        label: "",
+        steps: [{ id: "a" }],
+        capabilities: ["x"],
+      },
+      history: [{ name: "ship", extra: true }],
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed?.current.active).toBe(false);
+    expect(parsed?.current.name).toBeUndefined();
+    expect(parsed?.history.at(-1)?.name).toBe("ship");
+  });
+});
+
+describe("workflowNotice", () => {
+  test("active named step flashes index+1 and label", () => {
+    expect(
+      workflowNotice({
+        current: { active: true, name: "ship", stepIndex: 0, total: 2, label: "build" },
+        history: [],
+      }),
+    ).toEqual({
+      kind: "flash",
+      text: "workflow ship · step 1/2: build",
+    });
+  });
+
+  test("inactive with last history name flashes complete only when wasActive", () => {
+    const payload = {
+      current: {
+        active: false,
+        name: undefined as string | undefined,
+        stepIndex: 1,
+        total: 2,
+        label: "done",
+      },
+      history: [{ name: "ship" }],
+    };
+    expect(workflowNotice(payload, { wasActive: true })).toEqual({
+      kind: "flash",
+      text: "workflow ship complete",
+    });
+    expect(workflowNotice(payload, { wasActive: false })).toBeNull();
+    expect(workflowNotice(payload)).toBeNull();
+  });
+
+  test("idle snapshots say nothing", () => {
+    expect(
+      workflowNotice({
+        current: { active: false, stepIndex: 0, total: 0, label: "" },
+        history: [],
+      }),
+    ).toBeNull();
+    expect(
+      workflowNotice({
+        current: { active: true, stepIndex: 0, total: 1, label: "x" },
+        history: [],
+      }),
+    ).toBeNull();
+  });
+
+  test("active live payload with extra keys still flashes the step", () => {
+    const parsed = workflowPayloadInfo({
+      current: {
+        active: true,
+        name: "ship",
+        stepIndex: 0,
+        total: 2,
+        label: "build",
+        steps: [],
+        capabilities: [],
+      },
+      history: [],
+    });
+    expect(parsed).not.toBeNull();
+    expect(workflowNotice(parsed!)).toEqual({
+      kind: "flash",
+      text: "workflow ship · step 1/2: build",
+    });
   });
 });

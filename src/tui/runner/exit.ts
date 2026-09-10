@@ -284,7 +284,7 @@ export async function createRunLifecycle(
         state.currentAgent = await services.buildAgent();
         state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
         // The rebuild made a fresh director; re-attach the active workflow.
-        services.workflowController.reattach();
+        services.workflowHost.reattach();
       } catch (err) {
         recordRunError(state, err);
         state.fatalBuildError = agentRebuildFailure(err);
@@ -453,7 +453,7 @@ export async function createRunLifecycle(
           state.currentAgent = await services.buildAgent();
           services.cycleRecorder.reset();
           state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
-          services.workflowController.reattach();
+          services.workflowHost.reattach();
           state.fatalBuildError = null;
         } catch (err) {
           recordRunError(state, err);
@@ -533,7 +533,7 @@ export async function createRunLifecycle(
         state.streamPromise = consumeStream(liveAgent(state).stream(), streamSink);
         await persistRunSnapshot("running");
         // A fresh session drops any active workflow.
-        services.workflowController.reset();
+        services.workflowHost.reset();
         state.fatalBuildError = null;
         // Sink and director are empty now — repaint so the meter stays hidden
         // rather than showing the pre-clear occupancy until the next turn.

@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent } from "@intx/agent";
-import type { Compactor, ContextStore, ToolDefinition } from "@intx/types/runtime";
+import type { AuditStore, Compactor, ContextStore, ToolDefinition } from "@intx/types/runtime";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
 import {
@@ -109,22 +109,25 @@ function stubInferenceDeps(): ChatAgentWiring["inferenceDeps"] {
 }
 
 describe("assembleChatAgent", () => {
-  test("getWorkdir and getCompactor run at buildAgent time, not assemble time", async () => {
+  test("getWorkdir, getSessionId, and getCompactor run at buildAgent time", async () => {
     const storeDirs: string[] = [];
     const agentWorkdirs: string[] = [];
+    const agentSessionIds: string[] = [];
+    const agentAudits: AuditStore[] = [];
+    const agentStorages: ContextStore[] = [];
     const agentCompactors: Compactor[] = [];
     const fakeStorage = {
       readBlob: async () => new Uint8Array(),
-    } as unknown as ContextStore;
+    } as unknown as ContextStore & AuditStore;
     const fakeAgent = { close: async () => {} } as unknown as Agent;
 
     await withMockedModuleDuring(
       import.meta.resolve("./optimized-context-store.js"),
       (real: typeof import("./optimized-context-store.js")) => ({
         ...real,
-        createOptimizedContextStore: async (dir: string) => {
+        createSessionStores: async (dir: string) => {
           storeDirs.push(dir);
-          return fakeStorage;
+          return { storage: fakeStorage, audit: fakeStorage };
         },
       }),
       async () => {
@@ -134,9 +137,18 @@ describe("assembleChatAgent", () => {
             ...real,
             createAgentWithLiveToolDispatch: async (
               _def: unknown,
-              env: { workdir: string; compactors: { "pruning-compactor": Compactor } },
+              env: {
+                workdir: string;
+                sessionId?: string;
+                storage: ContextStore;
+                audit: AuditStore;
+                compactors: { "pruning-compactor": Compactor };
+              },
             ) => {
               agentWorkdirs.push(env.workdir);
+              if (env.sessionId !== undefined) agentSessionIds.push(env.sessionId);
+              agentStorages.push(env.storage);
+              agentAudits.push(env.audit);
               agentCompactors.push(env.compactors["pruning-compactor"]);
               return fakeAgent;
             },
@@ -144,8 +156,10 @@ describe("assembleChatAgent", () => {
           async () => {
             const { assembleChatAgent } = await import("./assemble-runtime.js");
             const workdirCalls: string[] = [];
+            const sessionIdCalls: string[] = [];
             const compactorCalls: string[] = [];
             let liveDir = "/assemble-dir";
+            let liveSessionId = "assemble-session";
             let liveCompactor = stubCompactor("assemble");
 
             const { buildAgent } = assembleChatAgent({
@@ -166,6 +180,10 @@ describe("assembleChatAgent", () => {
                 workdirCalls.push(liveDir);
                 return liveDir;
               },
+              getSessionId: () => {
+                sessionIdCalls.push(liveSessionId);
+                return liveSessionId;
+              },
               inferenceDeps: stubInferenceDeps(),
               getSources: () => [
                 {
@@ -185,20 +203,27 @@ describe("assembleChatAgent", () => {
             });
 
             expect(workdirCalls).toEqual([]);
+            expect(sessionIdCalls).toEqual([]);
             expect(compactorCalls).toEqual([]);
             expect(storeDirs).toEqual([]);
             expect(agentWorkdirs).toEqual([]);
 
             liveDir = "/build-dir";
+            liveSessionId = "build-session";
             liveCompactor = stubCompactor("build");
             const builtCompactor = liveCompactor;
 
             await buildAgent();
 
             expect(workdirCalls).toEqual(["/build-dir"]);
+            expect(sessionIdCalls).toEqual(["build-session"]);
             expect(compactorCalls).toEqual(["build"]);
             expect(storeDirs).toEqual(["/build-dir"]);
             expect(agentWorkdirs).toEqual(["/build-dir"]);
+            expect(agentSessionIds).toEqual(["build-session"]);
+            expect(agentStorages).toEqual([fakeStorage]);
+            expect(agentAudits).toEqual([fakeStorage]);
+            expect(Object.is(agentAudits[0], agentStorages[0])).toBe(true);
             expect(agentCompactors).toEqual([builtCompactor]);
           },
         );
