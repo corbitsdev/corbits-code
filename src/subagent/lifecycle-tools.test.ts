@@ -15,6 +15,13 @@ import {
 import { createAdmissionQueue } from "./admission.js";
 import { defined } from "../../tests/helpers/defined.js";
 
+function parseFleetJson(content: string): Record<string, unknown> {
+  expect(content).toContain("\n");
+  const parsed = JSON.parse(content) as Record<string, unknown>;
+  expect(JSON.stringify(parsed, null, 2)).toBe(content);
+  return parsed;
+}
+
 async function callTool(
   tool:
     | ReturnType<typeof createCloseAgentTool>
@@ -38,7 +45,7 @@ async function callTool(
     typeof result.content === "string"
       ? result.content
       : JSON.stringify(result.content);
-  return JSON.parse(content);
+  return parseFleetJson(content);
 }
 
 describe("close_agent", () => {
@@ -659,6 +666,7 @@ describe("resume_agent", () => {
       new AbortController().signal,
     );
     expect(empty.isError).toBe(true);
+    expect(String(empty.content).startsWith("Error:")).toBe(true);
     expect(String(empty.content)).toContain("non-empty message");
 
     const oversize = await resumeAgent.handler(

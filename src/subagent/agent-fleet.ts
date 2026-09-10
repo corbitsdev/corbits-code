@@ -619,6 +619,10 @@ function fleetResult(callId: string, content: string): ToolResult {
   return { callId, content, ...(isError ? { isError: true } : {}) };
 }
 
+function fleetJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
 /** Resolve agent=/intent= to a closed director. */
 export function resolveDirectorDispatch(
   agentId: string | undefined,
@@ -1450,10 +1454,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         start,
       });
       if (status === "queued") deps.fleetRecords.markQueued(session.id);
-      return fleetResult(
-        call.id,
-        JSON.stringify({ agent_id: session.id, status }),
-      );
+      return fleetResult(call.id, fleetJson({ agent_id: session.id, status }));
     },
   });
 }
@@ -1551,7 +1552,7 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
       if (targets.length === 0) {
         return fleetResult(
           call.id,
-          JSON.stringify({ results: [], timed_out: false }),
+          fleetJson({ results: [], timed_out: false }),
         );
       }
 
@@ -1627,10 +1628,7 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         };
       });
 
-      return fleetResult(
-        call.id,
-        JSON.stringify({ results, timed_out: timedOut }),
-      );
+      return fleetResult(call.id, fleetJson({ results, timed_out: timedOut }));
     },
   });
 }
@@ -1678,7 +1676,7 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
             : {}),
         };
       });
-      return fleetResult(call.id, JSON.stringify({ agents }));
+      return fleetResult(call.id, fleetJson({ agents }));
     },
   });
 }
