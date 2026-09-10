@@ -403,7 +403,6 @@ async function main(): Promise<void> {
       "--model",
       opts.model,
       "--dangerously-skip-permissions",
-      "--force",
       prompt,
     ];
 

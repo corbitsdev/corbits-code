@@ -542,8 +542,7 @@ terminal's own text selection and copy work by default, with no Alt+M dance
 required. The resume picker lists the 10 most recently persisted sessions
 for this checkout — completed, failed, and crashed included. Recency is
 the last write to `run.json`, not start time. Type to filter by name
-(printable keys claim the `>` row, same as the model picker); `--force`
-is not a list filter.
+(printable keys claim the `>` row, same as the model picker).
 
 ## The prompt box
 

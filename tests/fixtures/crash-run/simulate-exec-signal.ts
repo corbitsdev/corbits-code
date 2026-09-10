@@ -58,7 +58,6 @@ await withMockedModuleDuring(
       providerName: "test-provider",
       model: "test-model",
       providers: {},
-      force: false,
       dangerouslySkipPermissions: true,
       autoMode: false,
       sessionId,

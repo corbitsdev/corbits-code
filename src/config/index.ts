@@ -458,7 +458,6 @@ export interface Config {
   verified?: boolean;
   cwd: string;
   task: string;
-  force: boolean;
   dangerouslySkipPermissions: boolean;
   // True when dangerouslySkipPermissions came from the persisted global
   // default rather than this invocation's CLI flag. Entry points use this to
@@ -529,7 +528,6 @@ export interface UnconfiguredConfig {
   configured: false;
   cwd: string;
   task: string;
-  force: boolean;
   dangerouslySkipPermissions: boolean;
   skipPermissionsFromSettings: boolean;
   auto: boolean;
@@ -573,7 +571,6 @@ Flags:
   --model <id>                model for the active provider
   --profile <name>            settings profile
   --resume                    interactive session picker
-  --force                     override an existing run state
   --director <id>             exec-only: run as this director (default: skywalker)
   --dangerously-skip-permissions
                                skip permission prompts for this run only;
@@ -684,7 +681,6 @@ export async function loadConfig(
   }
 
   let cwd = process.cwd();
-  let force = false;
   let dangerouslySkipPermissions = false;
   // Auto mode is the default: non-destructive consequential actions (file
   // writes/edits and unconstrained shell) run without prompting, while shell
@@ -702,7 +698,7 @@ export async function loadConfig(
   const positional: string[] = [];
 
   const requireValue = (flag: string, value: string | undefined): string => {
-    // Flag-shaped tokens are never option values. `--provider --force` and a
+    // Flag-shaped tokens are never option values. `--provider --auto` and a
     // trailing `--provider` both surface as a missing value rather than binding
     // the next flag (or accepting `--help`, which is already handled above).
     if (value === undefined || isFlagToken(value)) {
@@ -732,10 +728,6 @@ export async function loadConfig(
     }
     if (arg === "--profile") {
       profileFlag = requireValue("--profile", args[++i]);
-      continue;
-    }
-    if (arg === "--force") {
-      force = true;
       continue;
     }
     if (arg === "--director") {
@@ -914,7 +906,6 @@ export async function loadConfig(
       configured: false,
       cwd,
       task,
-      force,
       dangerouslySkipPermissions,
       skipPermissionsFromSettings,
       auto,
@@ -984,7 +975,6 @@ export async function loadConfig(
     ...resolved,
     cwd,
     task: resumeTask,
-    force,
     dangerouslySkipPermissions,
     skipPermissionsFromSettings,
     auto,

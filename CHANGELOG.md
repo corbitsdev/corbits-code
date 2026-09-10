@@ -13,6 +13,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Removed
+
+- `--force` is no longer accepted. It had no runtime effect; resume and the
+  session picker already include failed and done sessions without it.
+
 ## [0.3.20] - 2026-09-10
 
 ### Added
@@ -376,8 +381,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   reply. `send_input` steers only an in-flight running turn. Closed workers
   stay closed.
 - `corbits resume` orders sessions by last persist. The picker shows the 10
-  most recent sessions and type-to-filter narrows that list. Default rows are
-  running and cancelled; `--force` includes failed and done.
+  most recent sessions across all statuses and type-to-filter narrows that
+  list.
 
 ### TUI
 
