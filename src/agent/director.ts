@@ -526,6 +526,7 @@ class ChatDirectorImpl extends DefaultDirector {
         ...action.options,
         tools,
         retryPolicy: action.options?.retryPolicy ?? this.retryPolicy,
+        systemPrompt: action.options?.systemPrompt ?? this._systemPrompt,
       };
       if (this.inactivityTimeoutMs !== undefined)
         options.inactivityTimeoutMs = this.inactivityTimeoutMs;

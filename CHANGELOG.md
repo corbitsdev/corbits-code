@@ -28,6 +28,8 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   labels. Overlay rows bind by an ask id minted at emit, not render-order
   index. A stale or empty accept fail-closes as unavailable rather than
   impersonating Reject; Escape still denies.
+- After context compaction, ChatGPT Codex requests keep the operating prompt as
+  instructions.
 
 ## [0.3.18] - 2026-09-08
 

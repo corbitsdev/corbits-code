@@ -194,6 +194,7 @@ describe("SubAgentDirector tool failure recovery", () => {
 
     const resumed = inferAction(await director.decide(messageReceived(""), longState, caps));
     const resumedTexts = ephemeralTexts(resumed);
+    expect(resumed.options?.systemPrompt).toBe("system");
     expect(resumedTexts).toHaveLength(1);
     expect(resumedTexts?.[0]).toContain("A tool call failed");
 
@@ -260,6 +261,7 @@ describe("SubAgentDirector tool failure recovery", () => {
 
     const resumed = inferAction(await director.decide(messageReceived(""), state, caps));
     const resumedTexts = ephemeralTexts(resumed);
+    expect(resumed.options?.systemPrompt).toBe("system");
     expect(resumedTexts).toHaveLength(1);
     expect(resumedTexts?.[0]).toContain("A tool call failed");
 
@@ -298,6 +300,7 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(continuations).toBe(1);
 
     const resumed = inferAction(await director.decide(messageReceived(""), state, caps));
+    expect(resumed.options?.systemPrompt).toBe("system");
     expect(ephemeralTexts(resumed)).toBeUndefined();
   });
 });

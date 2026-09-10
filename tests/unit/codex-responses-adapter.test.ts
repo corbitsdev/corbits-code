@@ -8,6 +8,7 @@ import {
   CODEX_RESPONSES_PROVIDER,
 } from "../../src/provider/codex-responses-adapter.js";
 import { GROK_RESPONSES_PROVIDER } from "../../src/provider/grok-responses-adapter.js";
+import { COMPACTED_PREFIX } from "../../src/session/compactor.js";
 import { BEARER_CREDENTIAL_SENTINEL } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions, LastCycleSource } from "@intx/types/runtime";
 
@@ -85,6 +86,35 @@ describe("codex-responses buildRequest", () => {
       },
     ]);
     expect(body["tool_choice"]).toBe("auto");
+  });
+
+  // Adapter mapping only: compacted history still uses instructions, not a
+  // developer item. ChatDirector tests own the lock that infer carries the
+  // constructor systemPrompt after compaction or recovery.
+  test("sends compacted history with the system prompt as instructions and no developer item", () => {
+    const systemPrompt = "Corbits operating prompt";
+    const turns: ConversationTurn[] = [
+      userTurn(`${COMPACTED_PREFIX}\nPrior work summarized.`),
+      { role: "assistant", timestamp: 0, content: [{ type: "text", text: "ok" }] },
+      userTurn("continue"),
+    ];
+    const body = JSON.parse(
+      adapter().buildRequest(turns, "gpt-5-codex", { ...baseOptions, systemPrompt }).body,
+    ) as Record<string, unknown>;
+    expect(body["instructions"]).toBe(systemPrompt);
+    const input = body["input"] as {
+      role?: string;
+      content?: { text?: string }[];
+    }[];
+    expect(input).toHaveLength(3);
+    expect(input[0]?.role).toBe("user");
+    expect(input[1]?.role).toBe("assistant");
+    expect(input[2]?.role).toBe("user");
+    expect(input[0]?.content?.[0]?.text?.startsWith(COMPACTED_PREFIX)).toBe(true);
+    expect(input.every((item) => item.role !== "developer")).toBe(true);
+    expect(input.some((item) => item.content?.some((block) => block.text === systemPrompt))).toBe(
+      false,
+    );
   });
 
   test.each([undefined, "", "Corbits operating prompt"])(

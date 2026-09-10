@@ -510,15 +510,15 @@ describe("chatDirector compaction", () => {
     } as unknown as ReactorInboundEvent;
   }
 
-  function chatDirectorWithContinuation(onContinuation?: () => void) {
-    return createChatDirector("", [], {
+  function chatDirectorWithContinuation(systemPrompt: string, onContinuation?: () => void) {
+    return createChatDirector(systemPrompt, [], {
       onTasksChange: () => {},
       requestContinuation: onContinuation ?? (() => {}),
     });
   }
 
   test("compacts at the tool.done pause once over threshold", async () => {
-    const director = chatDirectorWithContinuation();
+    const director = chatDirectorWithContinuation("Corbits operating prompt");
     await director.decide(overThresholdToolTurn(), longState, mockCapabilities);
     const actions = actionsArray(
       await director.decide(makeToolDoneEvent("t1"), longState, mockCapabilities),
@@ -535,6 +535,10 @@ describe("chatDirector compaction", () => {
       await director.decide(messageReceived(""), longState, mockCapabilities),
     );
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
+    const infer = resumed.find((a) => a.type === "infer");
+    const options: ExtendedInferenceOptions | undefined =
+      infer?.type === "infer" ? infer.options : undefined;
+    expect(options?.systemPrompt).toBe("Corbits operating prompt");
   });
 
   // CL-6910: `timeout`/`retryable` are owned entirely by the harness's own
@@ -545,7 +549,7 @@ describe("chatDirector compaction", () => {
   // turn); it now falls through to the base director's terminal
   // checkpoint + reply instead of recovering.
   test("does not re-issue inference for a timeout already exhausted by the harness", async () => {
-    const director = chatDirectorWithContinuation();
+    const director = chatDirectorWithContinuation("");
     const timeout = {
       type: "inference.error",
       error: { category: "timeout", message: "request timed out" },
@@ -557,7 +561,7 @@ describe("chatDirector compaction", () => {
   });
 
   test("recovers an internally aborted inference but keeps explicit abort terminal", async () => {
-    const director = chatDirectorWithContinuation();
+    const director = chatDirectorWithContinuation("Corbits operating prompt");
     const internalAbort = {
       type: "inference.error",
       error: {
@@ -570,6 +574,10 @@ describe("chatDirector compaction", () => {
       await director.decide(internalAbort, longState, mockCapabilities),
     );
     expect(recovered.some((action) => action.type === "infer")).toBe(true);
+    const infer = recovered.find((action) => action.type === "infer");
+    const options: ExtendedInferenceOptions | undefined =
+      infer?.type === "infer" ? infer.options : undefined;
+    expect(options?.systemPrompt).toBe("Corbits operating prompt");
 
     const explicitAbort = {
       type: "abort",
@@ -581,7 +589,7 @@ describe("chatDirector compaction", () => {
   });
 
   test("does not auto-recover user-stop aborted inference errors", async () => {
-    const director = chatDirectorWithContinuation();
+    const director = chatDirectorWithContinuation("");
     const userStopAbort = {
       type: "inference.error",
       error: {
@@ -602,7 +610,10 @@ describe("chatDirector compaction", () => {
 
   test("a context_overflow inference error triggers compact-and-retry, not a terminal reply", async () => {
     let continuations = 0;
-    const director = chatDirectorWithContinuation(() => continuations++);
+    const director = chatDirectorWithContinuation(
+      "Corbits operating prompt",
+      () => continuations++,
+    );
     const actions = actionsArray(
       await director.decide(overflowError(), longState, mockCapabilities),
     );
@@ -615,10 +626,14 @@ describe("chatDirector compaction", () => {
       await director.decide(messageReceived(""), longState, mockCapabilities),
     );
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
+    const infer = resumed.find((a) => a.type === "infer");
+    const options: ExtendedInferenceOptions | undefined =
+      infer?.type === "infer" ? infer.options : undefined;
+    expect(options?.systemPrompt).toBe("Corbits operating prompt");
   });
 
   test("overflow recovery is bounded so an incompressible history cannot loop forever", async () => {
-    const director = chatDirectorWithContinuation();
+    const director = chatDirectorWithContinuation("");
     for (let i = 0; i < 2; i++) {
       const actions = actionsArray(
         await director.decide(overflowError(), longState, mockCapabilities),
@@ -633,7 +648,7 @@ describe("chatDirector compaction", () => {
   });
 
   test("chat posture is preserved: an idle turn never terminates the session", async () => {
-    const director = chatDirectorWithContinuation();
+    const director = chatDirectorWithContinuation("");
     const idle = actionsArray(
       await director.decide(textInferenceDone(10), longState, mockCapabilities),
     );
@@ -1038,7 +1053,7 @@ describe("transient nudges", () => {
       source: "test",
     }) as unknown as ReactorInboundEvent;
 
-  test("open-task nudge uses ephemeralTurns, not systemPrompt", async () => {
+  test("open-task nudge uses ephemeralTurns and keeps the stable system prompt", async () => {
     const director = createChatDirector("stable-base", [], { onTasksChange: () => {} });
     await director.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
     const actions = actionsArray(await director.decide(textTurn(), mockState, mockCapabilities));
@@ -1050,6 +1065,6 @@ describe("transient nudges", () => {
     expect(options?.ephemeralTurns?.length ?? 0).toBeGreaterThan(0);
     const nudgeText = options?.ephemeralTurns?.[0]?.content?.find((b) => b.type === "text");
     expect(nudgeText?.type === "text" ? nudgeText.text : "").toContain("tasks are still open");
-    expect(options?.systemPrompt).toBeUndefined();
+    expect(options?.systemPrompt).toBe("stable-base");
   });
 });

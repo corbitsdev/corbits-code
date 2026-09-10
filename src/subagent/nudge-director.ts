@@ -86,6 +86,7 @@ function isNonEmptyParentMessage(event: ReactorInboundEvent): boolean {
 export class SubAgentDirector extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   private readonly retryPolicy: RetryPolicy;
+  private readonly _systemPrompt: string;
   /** When true (CritiqueDirector), empty readCounts is not a successful complete. */
   private readonly requireEvidence: boolean;
   private turnsCompleted = 0;
@@ -177,6 +178,7 @@ export class SubAgentDirector extends DefaultDirector {
     retryPolicy: RetryPolicy = createCorbitsRetryPolicy(),
   ) {
     super(systemPrompt, toolDefinitions, {});
+    this._systemPrompt = systemPrompt;
     this.compaction = createCompactionGovernor(requestContinuation, systemPrompt, toolDefinitions);
     this.stallTimeoutMs = stallTimeoutMs;
     this.now = now;
@@ -197,6 +199,7 @@ export class SubAgentDirector extends DefaultDirector {
         infer({
           ...(options ?? {}),
           retryPolicy: options?.retryPolicy ?? this.retryPolicy,
+          systemPrompt: options?.systemPrompt ?? this._systemPrompt,
         }),
     };
     // A real parent follow-up re-opens the brief; empty continuations do not.
