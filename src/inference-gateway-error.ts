@@ -239,6 +239,55 @@ function textHasXaiQuotaMarkers(...parts: string[]): boolean {
 }
 
 /**
+ * xAI / Grok capacity and overload phrases that arrive as protocol_mismatch
+ * (message-only or JSON raw) when the stream is not valid SSE. Exact
+ * "Service temporarily unavailable" is intentional — do not widen to the
+ * gateway "service unavailable" substring, which would rematch quota copy.
+ */
+const XAI_CAPACITY_TEXT_MARKERS = [
+  "currently at capacity",
+  "overloaded",
+  "high demand",
+] as const;
+
+const XAI_CAPACITY_EXACT_MESSAGES = new Set([
+  "service temporarily unavailable",
+]);
+
+function textSuggestsXaiCapacity(...parts: string[]): boolean {
+  const combined = parts.join("\n").toLowerCase();
+  if (XAI_CAPACITY_TEXT_MARKERS.some((marker) => combined.includes(marker))) {
+    return true;
+  }
+  // Exact phrase is message-only; do not substring-match so quota suffixes stay out.
+  return XAI_CAPACITY_EXACT_MESSAGES.has(parts[0]?.trim().toLowerCase() ?? "");
+}
+
+/**
+ * Remap attributable xAI / Grok capacity protocol_mismatch errors to retryable.
+ * Unknown providers and OpenCode Go stay terminal. Never remaps quota_exhausted.
+ */
+export function normalizeXaiCapacityError(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
+  if (error.category !== "protocol_mismatch") return error;
+  if (!isKnownXaiProviderId(error.providerId)) return error;
+  if (!textSuggestsXaiCapacity(error.message ?? "", stringFromRaw(error.raw))) {
+    return error;
+  }
+
+  return {
+    category: "retryable",
+    message: GATEWAY_OVERLOAD_USER_MESSAGE,
+    statusCode: error.statusCode ?? 503,
+    ...(error.raw !== undefined ? { raw: error.raw } : {}),
+    ...(error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
+  };
+}
+
+/**
  * True when a known-xAI HTTP 429 looks like a short rate limit rather than a
  * usage/quota window. Used by both retry normalization and transcript copy —
  * FRIENDLY_BY_CATEGORY would otherwise paint every quota_exhausted 429 as
@@ -400,8 +449,9 @@ function normalizeCodexUsageLimitError(
  * Reclassify gateway overload errors so the default retry policy treats them as
  * transient instead of aborting on protocol_mismatch. Also normalizes OpenCode
  * Go quota/rate-limit shapes (including HTTP 400 mis-status), known-xAI short
- * 429s, Codex usage limits (nested detail.error with resets_in_seconds), and
- * known-Codex short 429s that are not usage_limit_reached.
+ * 429s, attributable xAI capacity protocol_mismatch, Codex usage limits
+ * (nested detail.error with resets_in_seconds), and known-Codex short 429s that
+ * are not usage_limit_reached.
  */
 export function normalizeInferenceErrorForRetry(
   error: InferenceErrorWithGoContext,
@@ -411,6 +461,9 @@ export function normalizeInferenceErrorForRetry(
 
   const xaiNormalized = normalizeXaiRateLimitError(error);
   if (xaiNormalized !== error) return xaiNormalized;
+
+  const xaiCapacity = normalizeXaiCapacityError(error);
+  if (xaiCapacity !== error) return xaiCapacity;
 
   const codexNormalized = normalizeCodexUsageLimitError(error);
   if (codexNormalized !== error) return codexNormalized;

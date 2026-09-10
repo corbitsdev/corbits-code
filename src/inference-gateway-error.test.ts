@@ -281,6 +281,78 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalized).toBe(error);
   });
 
+  test("known-xAI message-only capacity protocol error becomes retryable", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "protocol_mismatch",
+      message: "The model is currently at capacity. Please try again later.",
+      providerId: "xai/default",
+      retryAfterMs: 2_500,
+    });
+    expect(normalized.category).toBe("retryable");
+    expect(normalized.retryAfterMs).toBe(2_500);
+  });
+
+  test("known-xAI JSON-bodied high-demand protocol error becomes retryable", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "protocol_mismatch",
+      message: "malformed JSON in SSE data payload",
+      providerId: "xai/default",
+      raw: {
+        error: {
+          message: "The service is unavailable due to high demand",
+        },
+      },
+    });
+    expect(normalized.category).toBe("retryable");
+  });
+
+  test("known-xAI exact temporary-unavailable phrase becomes retryable", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "protocol_mismatch",
+      message: "Service temporarily unavailable",
+      providerId: "xai/default",
+    });
+    expect(normalized.category).toBe("retryable");
+  });
+
+  test("explicit Grok adapter overload protocol error becomes retryable", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "protocol_mismatch",
+      message: "The upstream service is overloaded",
+      providerId: "grok-responses",
+    });
+    expect(normalized.category).toBe("retryable");
+  });
+
+  test("unknown provider capacity protocol_mismatch stays unchanged", () => {
+    const error = {
+      category: "protocol_mismatch" as const,
+      message: "The model is currently at capacity",
+      providerId: "openai",
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("OpenCode Go capacity prose stays protocol_mismatch", () => {
+    const error = {
+      category: "protocol_mismatch" as const,
+      message: "The model is currently at capacity",
+      providerId: "opencode-go/default",
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("known-xAI quota exhaustion stays non-retryable despite capacity prose", () => {
+    const error = {
+      category: "quota_exhausted" as const,
+      message: "Service temporarily unavailable: quota exhausted",
+      statusCode: 429,
+      providerId: "xai/default",
+      retryAfterMs: 86_400_000,
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
   test("known-xAI bare 429 reclassifies as retryable", () => {
     const bare = {
       category: "quota_exhausted" as const,
