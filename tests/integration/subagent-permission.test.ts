@@ -485,7 +485,7 @@ test.serial(
   20000,
 );
 
-test("storing parent-gated MCP tools then wrapping again still calls requestApproval", async () => {
+test("storing parent-gated MCP tools then wrapping again denies without requestApproval", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "worker-permission-"));
   let asks = 0;
   let calls = 0;
@@ -522,12 +522,13 @@ test("storing parent-gated MCP tools then wrapping again still calls requestAppr
     const doubleWrapped = gateAgentTools(parentGated, workerPermissionGate(parent));
     const tool = doubleWrapped[0];
     if (tool?.kind !== "full") throw new Error("expected full inherited MCP tool");
-    await tool.handler(
+    const result = await tool.handler(
       { id: "c1", name: "mcp__probe__mutate", arguments: {} },
       new AbortController().signal,
     );
-    expect(asks).toBe(1);
-    expect(calls).toBe(1);
+    expect(asks).toBe(0);
+    expect(calls).toBe(0);
+    expect(result.isError).toBe(true);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }

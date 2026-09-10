@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createPermissionGate } from "./gate.js";
 import {
   createReactorAuthorize,
@@ -32,6 +35,43 @@ const gate = (opts?: { interactive?: boolean; auto?: boolean }) =>
       throw new Error("worker must never ask");
     },
   });
+
+test("worker grant after a denied write allows a later call id through gateToolCall", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "worker-grant-"));
+  const path = join(cwd, "probe.txt");
+  const policy = createPermissionGate({
+    cwd,
+    approvals: [],
+    interactive: false,
+    auto: false,
+    skipPermissions: false,
+    reactorGated: true,
+    requestApproval: async () => {
+      throw new Error("worker must never ask");
+    },
+  });
+  const workerGate = workerPermissionGate(policy);
+  const first: ToolCall = {
+    id: "call_auto_0",
+    name: "write_file",
+    arguments: { path, content: "unauthorized" },
+  };
+  const second: ToolCall = {
+    id: "call_auto_1",
+    name: "write_file",
+    arguments: { path, content: "unauthorized" },
+  };
+  expect((await workerGate.authorizeCall(first)).effect).toBe("deny");
+  policy.setSeededApprovals([{ tool: "write_file", pattern: path }]);
+  expect((await workerGate.authorizeCall(second)).effect).toBe("allow");
+  let called = false;
+  const result = await gateToolCall(workerGate, second, new AbortController().signal, async () => {
+    called = true;
+    return { callId: second.id, content: "executed", isError: false };
+  });
+  expect(result.isError).toBe(false);
+  expect(called).toBe(true);
+});
 
 test("worker maps unresolved ask to deny while main reactor suspends", async () => {
   const policy = gate();
