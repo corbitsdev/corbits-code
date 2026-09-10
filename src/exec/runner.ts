@@ -22,6 +22,7 @@ import {
   type SubAgentSessionStore,
 } from "../subagent/index.js";
 import { getProcessAdmissionQueue } from "../subagent/admission.js";
+import { awaitCloseWithoutHidingLeftover } from "../subagent/dispose.js";
 import type { ContextStore, InferenceSource, InboundMessage } from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
@@ -44,6 +45,7 @@ import {
   sessionDir,
 } from "../session/index.js";
 import { setActiveRun } from "../session/active-run.js";
+import { setActiveDisposeHost, clearActiveDisposeHost } from "../session/active-host.js";
 import { finalizeRunState, saveState, type ConnectedMcpServer } from "../session/state.js";
 import { resolveExecRunStatus, type RunSink } from "../session/run-sink.js";
 import { createRunSummary } from "../session/hooks.js";
@@ -126,30 +128,69 @@ export function execUserFailureMessage(
 }
 
 /**
- * Headless analogue of TUI `runtime-shutdown`: abort live workers, then close
- * the primary agent and dispose the toolset. `cancelAll` is fire-and-forget —
- * it does not serialize `closeOne`.
+ * Headless analogue of TUI `runtime-shutdown`: dispose the toolset (posix
+ * process-group reap) before waiting on agent.close so a hung close cannot
+ * skip killing detached run_shell children. `cancelAll` is awaited so a
+ * leftover-child throw is visible. Once-only per runtime object so the send
+ * path, `finally`, and signal host cannot double-dispose.
  */
-export async function disposeExecRuntime(args: {
+const execDisposeInFlight = new WeakMap<object, Promise<void>>();
+
+function rethrowExecDisposeFailures(failures: unknown[]): void {
+  const first = failures[0];
+  if (first === undefined) return;
+  if (failures.length === 1) throw first;
+  throw new AggregateError(failures, "exec runtime dispose failed");
+}
+
+export function disposeExecRuntime(args: {
   agent: { close: () => Promise<unknown> } | null;
   toolset: { dispose: () => Promise<unknown> } | null;
   subAgentSessions: Pick<SubAgentSessionStore, "cancelAll"> | null;
 }): Promise<void> {
-  args.subAgentSessions?.cancelAll("Session closed");
-  if (args.agent !== null) {
-    await args.agent.close().catch((err: unknown) => {
-      logger.debug("agent.close during exec finally failed: {error}", {
-        error: formatCaughtError(err),
-      });
-    });
+  const key = args.toolset ?? args.agent ?? args.subAgentSessions;
+  if (key !== null) {
+    const existing = execDisposeInFlight.get(key);
+    if (existing !== undefined) return existing;
   }
+
+  const run = runExecDispose(args);
+  if (key !== null) execDisposeInFlight.set(key, run);
+  return run;
+}
+
+async function runExecDispose(args: {
+  agent: { close: () => Promise<unknown> } | null;
+  toolset: { dispose: () => Promise<unknown> } | null;
+  subAgentSessions: Pick<SubAgentSessionStore, "cancelAll"> | null;
+}): Promise<void> {
+  const failures: unknown[] = [];
   if (args.toolset !== null) {
-    await args.toolset.dispose().catch((err: unknown) => {
+    try {
+      await args.toolset.dispose();
+    } catch (err: unknown) {
       logger.debug("toolset.dispose during exec finally failed: {error}", {
         error: formatCaughtError(err),
       });
-    });
+      failures.push(err);
+    }
   }
+  try {
+    await args.subAgentSessions?.cancelAll("Session closed");
+  } catch (err) {
+    failures.push(err);
+  }
+  if (args.agent !== null) {
+    try {
+      await awaitCloseWithoutHidingLeftover(args.agent.close(), failures[0]);
+    } catch (err: unknown) {
+      logger.debug("agent.close during exec finally failed: {error}", {
+        error: formatCaughtError(err),
+      });
+      failures.push(err);
+    }
+  }
+  rethrowExecDisposeFailures(failures);
 }
 
 /**
@@ -288,6 +329,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
   let runSink: RunSink | null = null;
   let providerFailureObserved = false;
   let providerError: InferenceErrorLike | undefined;
+  let result: ExecResult | undefined;
 
   const persist = async (
     status: "running" | "done" | "failed" | "cancelled",
@@ -490,6 +532,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
     });
     toolset = agentToolset;
+    setActiveDisposeHost(() => disposeExecRuntime({ agent, toolset, subAgentSessions }));
 
     const systemPrompt =
       overlay.systemPrompt ??
@@ -797,7 +840,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       stderr.write(`Error: ${userMessage}\n`);
       const persistStatus = summaryStatus === "cancelled" ? "cancelled" : "failed";
       await persist(persistStatus, { error: diagnosticMessage });
-      return {
+      result = {
         exitCode: 1,
         sessionId,
         text: textOut,
@@ -810,10 +853,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
         provider: config.providerName,
         model: config.model,
       };
+      return result;
     }
 
     await persist("done");
-    return {
+    result = {
       exitCode: 0,
       sessionId,
       text: textOut,
@@ -825,13 +869,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
       provider: config.providerName,
       model: config.model,
     };
+    return result;
   } catch (err) {
     const diagnosticMessage = formatCaughtError(err);
     logger.error("exec failed: {error}", { error: diagnosticMessage });
     const userMessage = execUserFailureMessage(config, err, providerFailureObserved, providerError);
     stderr.write(`Error: ${userMessage}\n`);
     await persist("failed", { error: diagnosticMessage });
-    return {
+    result = {
       exitCode: 1,
       sessionId,
       text: textOut,
@@ -844,8 +889,21 @@ export async function runExec(config: Config): Promise<ExecResult> {
       provider: config.providerName,
       model: config.model,
     };
+    return result;
   } finally {
-    await disposeExecRuntime({ agent, toolset, subAgentSessions });
+    try {
+      await disposeExecRuntime({ agent, toolset, subAgentSessions });
+    } catch (err: unknown) {
+      const message = formatCaughtError(err);
+      logger.error("runtime dispose failed: {error}", { error: message });
+      stderr.write(`Error: runtime dispose failed: ${message}\n`);
+      if (result !== undefined) {
+        result.exitCode = 1;
+        result.status = "failed";
+        result.error = `runtime dispose failed: ${message}`;
+      }
+    }
+    clearActiveDisposeHost();
   }
 }
 

@@ -72,6 +72,80 @@ describe("sub-agent teardown", () => {
     expect(disposeCount).toBe(2);
   });
 
+  test("disposeSubAgentSession reaps posix tools before waiting on agent.close", async () => {
+    const order: string[] = [];
+    let releaseClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const pending = disposeSubAgentSession({
+      agent: {
+        close: async () => {
+          order.push("close-start");
+          await closeGate;
+          order.push("close-end");
+        },
+      },
+      posixTools: {
+        dispose: async () => {
+          order.push("posix");
+        },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual(["posix", "close-start"]);
+    releaseClose();
+    await pending;
+    expect(order).toEqual(["posix", "close-start", "close-end"]);
+  });
+
+  test("disposeSubAgentSession does not treat a throwing posix dispose as success", async () => {
+    const posixTools = {
+      dispose: async () => {
+        throw new Error("1 shell child process still live after 2000ms reap");
+      },
+    };
+
+    await expect(
+      disposeSubAgentSession({
+        agent: { close: async () => undefined },
+        posixTools,
+      }),
+    ).rejects.toThrow(/still live after 2000ms reap/);
+  });
+
+  test("disposeSubAgentSession surfaces leftover posix dispose when agent.close hangs", async () => {
+    const posixTools = {
+      dispose: async () => {
+        throw new Error("1 shell child process still live after 2000ms reap");
+      },
+    };
+    let closeStarted = false;
+    const pending = disposeSubAgentSession({
+      agent: {
+        close: () => {
+          closeStarted = true;
+          return new Promise<void>(() => {});
+        },
+      },
+      posixTools,
+    });
+    const result = await Promise.race([
+      pending.then(
+        () => ({ kind: "resolved" as const }),
+        (err: unknown) => ({ kind: "rejected" as const, err }),
+      ),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        setTimeout(() => resolve({ kind: "timeout" }), 200);
+      }),
+    ]);
+    expect(closeStarted).toBe(true);
+    expect(result.kind).toBe("rejected");
+    if (result.kind !== "rejected") throw new Error("expected leftover reject");
+    expect(result.err).toBeInstanceOf(Error);
+    expect((result.err as Error).message).toMatch(/still live after 2000ms reap/);
+  });
+
   test("spawn registry tracks in-flight plugin tool calls", async () => {
     const { plugin, snapshot } = createSubAgentSpawnRegistryPlugin();
     expect(plugin.middleware).toBeDefined();
@@ -96,9 +170,10 @@ describe("sub-agent teardown", () => {
     expect(snapshot().inFlightToolCalls).toBe(0);
   });
 
-  test("teardown limits document missing global spawn registry", () => {
+  test("teardown limits document shell-guard dispose reaping", () => {
     expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("posixTools.dispose");
-    expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("spawn hooks");
+    expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("shell-guard");
+    expect(SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS).toContain("ripgrep");
   });
 });
 

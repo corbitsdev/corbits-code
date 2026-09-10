@@ -7,7 +7,7 @@
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
-import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
+import { awaitBoundedTeardown, DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
 import {
   isAlreadyClosed,
   isLiveStrip,
@@ -21,6 +21,20 @@ import { toolCallPreview } from "./tool-preview.js";
 import type { AdmissionQueue, AdmissionStatus } from "./admission.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]);
+
+async function invokeCloseBounded(
+  close: (deadlineMs?: number) => Promise<void>,
+  deadlineMs: number,
+): Promise<void> {
+  try {
+    await awaitBoundedTeardown(close(deadlineMs), deadlineMs);
+  } catch (err: unknown) {
+    log.warn("session close raced deadline: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+}
 
 export type SubAgentSessionStatus = "running" | "done" | "failed" | "cancelled";
 
@@ -194,8 +208,11 @@ export interface SubAgentSessionStore {
   // Abort a running session and mark it cancelled. Returns true when a running
   // session was cancelled; false if missing or already terminal.
   cancel(id: string, reason?: string): boolean;
-  // Cancel every running session. Returns the ids that transitioned.
-  cancelAll(reason?: string): string[];
+  // Cancel every running session. Closes retained workers with the same
+  // deadline race as closeOne: leftover-child throws and hung closes reject
+  // instead of reporting success while children may still be live. Returns
+  // the ids that transitioned to cancelled.
+  cancelAll(reason?: string): Promise<string[]>;
   // CL-6943: flips a "pending_init" session to "running" once its agent
   // object actually exists. No-op on an unknown id or one already past init.
   markRunning(id: string): void;
@@ -1226,14 +1243,12 @@ export function createSubAgentSessionStore(
       // Bounded here too, defense-in-depth against a caller-registered
       // close that does not honor its own deadline argument — a wedged
       // descendant must not hang the whole close_agent call.
-      await Promise.race([
-        close(deadlineMs).catch((err: unknown) => {
-          log.warn("session close raced deadline: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }),
-        new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
-      ]);
+      let closeError: unknown;
+      try {
+        await invokeCloseBounded(close, deadlineMs);
+      } catch (err: unknown) {
+        closeError = err;
+      }
       if (keepFailed) {
         // fail() already stamped failed; invoke leftover teardown without
         // rewriting that to shutdown.
@@ -1243,6 +1258,7 @@ export function createSubAgentSessionStore(
         deliverHandles.delete(id);
         runInFlight.delete(id);
         pruneCompleted();
+        if (closeError !== undefined) throw closeError;
         const after = sessions.get(id);
         return after === undefined ? "not_found" : projectLifecycleStatus(after.lifecycle);
       }
@@ -1266,6 +1282,7 @@ export function createSubAgentSessionStore(
       deliverHandles.delete(id);
       runInFlight.delete(id);
       pruneCompleted();
+      if (closeError !== undefined) throw closeError;
       return "shutdown";
     },
 
@@ -1481,7 +1498,7 @@ export function createSubAgentSessionStore(
       return cancelSession(id, reason);
     },
 
-    cancelAll(reason = DEFAULT_CANCEL_REASON): string[] {
+    async cancelAll(reason = DEFAULT_CANCEL_REASON): Promise<string[]> {
       // Snapshot before cancelSession: markCancelled clears retained, and a
       // resumed retained worker is strip-live so the first loop would otherwise
       // skip the close-handle pass (CL-7001).
@@ -1493,10 +1510,17 @@ export function createSubAgentSessionStore(
       for (const session of running) {
         if (cancelSession(session.id, reason)) cancelled.push(session.id);
       }
+      const pendingCloses: Promise<void>[] = [];
       for (const id of retainedIds) {
         const session = sessions.get(id);
         if (session === undefined || session.lifecycle.state === "shutdown") continue;
-        releaseHandles(id);
+        const close = closeHandles.get(id);
+        cancelAskInternal(id, "session handles released");
+        closeHandles.delete(id);
+        cancelHandles.delete(id);
+        interruptHandles.delete(id);
+        followupHandles.delete(id);
+        deliverHandles.delete(id);
         mutate(id, (s) => {
           s.lifecycle = {
             state: "shutdown",
@@ -1505,6 +1529,15 @@ export function createSubAgentSessionStore(
           };
           s.retained = false;
         });
+        if (close !== undefined) {
+          pendingCloses.push(invokeCloseBounded(close, DEFAULT_CLOSE_DEADLINE_MS));
+        }
+      }
+      const results = await Promise.allSettled(pendingCloses);
+      const failures = results.flatMap((r) => (r.status === "rejected" ? [r.reason] : []));
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "session cancelAll close failed");
       }
       return cancelled;
     },

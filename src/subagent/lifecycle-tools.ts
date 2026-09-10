@@ -41,8 +41,8 @@ export const closeAgentToolDefinition: ToolDefinition = {
   description:
     "Permanently close a worker session by agent_id, closing its descendants first. Bounded " +
     `by a ~${Math.round(DEFAULT_CLOSE_DEADLINE_MS / 1000)}s cleanup deadline per session so a wedged worker cannot hang ` +
-    "this call — a session that misses the deadline is still marked shutdown; its teardown just " +
-    "keeps running in the background. Unblocks any in-flight wait_agents on these ids immediately with " +
+    "this call — a session that misses the deadline is still marked shutdown and the call fails " +
+    "instead of reporting success while children may still be live. Unblocks any in-flight wait_agents on these ids immediately with " +
     "status 'interrupted'. Closing is permanent: a closed session cannot be resumed.",
   inputSchema: {
     type: "object",
@@ -184,14 +184,28 @@ export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
         .map((s) => ({ id: s.id, parentSessionId: s.parentSessionId }));
       const order = descendantsClosingOrder(nodes, target);
       const closed: { agent_id: string; status: AgentLifecycleStatus }[] = [];
+      const failures: unknown[] = [];
       for (const id of order) {
         // Terminalize the wait mailbox before teardown. closeOne flips strip
         // status to "cancelled", which kills the soft-interrupt fallback that
         // still requires status === "running" — without this, in-flight
         // wait_agents hangs until timeout.
         deps.fleetRecords.interrupt(id);
-        const status = await deps.sessions.closeOne(id, DEFAULT_CLOSE_DEADLINE_MS);
-        closed.push({ agent_id: id, status });
+        try {
+          const status = await deps.sessions.closeOne(id, DEFAULT_CLOSE_DEADLINE_MS);
+          closed.push({ agent_id: id, status });
+        } catch (err: unknown) {
+          failures.push(err);
+          const after = deps.sessions.get(id);
+          closed.push({
+            agent_id: id,
+            status: after === undefined ? "not_found" : after.lifecycleStatus,
+          });
+        }
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "close_agent leftover dispose failed");
       }
       const own = closed.find((c) => c.agent_id === target);
       return lifecycleResult(

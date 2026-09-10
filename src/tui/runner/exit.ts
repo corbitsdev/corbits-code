@@ -43,29 +43,37 @@ const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 export function resetSessionForRotation(
   state: Pick<RunnerState, "withFleetPublicationSuspended">,
   services: Pick<RunnerServices, "deliveryGeneration" | "emitter" | "subAgentSessions">,
-): void {
+): Promise<string[]> {
+  let cancelledWorkers: Promise<string[]> = Promise.resolve([]);
   const reset = (): void => {
     services.deliveryGeneration.bump();
     cancelFeedbackCapture();
     services.emitter.emit("session.clear");
-    services.subAgentSessions.cancelAll("Session cleared");
+    cancelledWorkers = services.subAgentSessions.cancelAll("Session cleared");
   };
   if (state.withFleetPublicationSuspended === undefined) {
     reset();
   } else {
     state.withFleetPublicationSuspended(reset);
   }
+  return cancelledWorkers;
 }
 
 export interface ResolveExitCodeArgs {
   runError: string | undefined;
   sinkError: string | undefined;
   status: RunSummary["status"];
+  teardownFailed?: boolean;
 }
 
 export function resolveExitCode(args: ResolveExitCodeArgs): number {
-  const { runError, sinkError, status } = args;
-  if (runError !== undefined || sinkError !== undefined || status !== "done") {
+  const { runError, sinkError, status, teardownFailed } = args;
+  if (
+    teardownFailed === true ||
+    runError !== undefined ||
+    sinkError !== undefined ||
+    status !== "done"
+  ) {
     return 1;
   }
   return 0;
@@ -465,12 +473,13 @@ export async function createRunLifecycle(
   // abort handles → child agent.close) before clearing the session store so
   // /clear does not leave orphaned child reactors burning tokens.
   const newSession = (): void => {
-    resetSessionForRotation(state, services);
+    const cancelledWorkers = resetSessionForRotation(state, services);
     // Backend rotation is always enqueued regardless of contention; the queue
     // serialises it behind any in-progress op. Sub-agents nest under the new
     // session automatically because getWorkdirBase reads the live sessionId.
     void enqueueOp(async () => {
       try {
+        await cancelledWorkers;
         // Tear the old agent down and dispose the recorder before workdir is
         // repointed: the pump can deliver stray deltas until the stream
         // settles, and a dead cycle's partial must land in the session that
@@ -549,9 +558,21 @@ export async function finalizeTUIRun(
   services: RunnerServices,
 ): Promise<number> {
   await hostOf(state).waitUntilExit();
-  // Stop inference and every worker before persistence, hooks, or telemetry can
-  // delay process exit. Closing the terminal is a process-lifetime boundary.
-  await state.shutdownRuntime?.();
+  // Stop workers before awaiting the session-op tail so a hung enqueue cannot
+  // delay abort/reap. Persistence, hooks, and telemetry stay after stop.
+  // Toolset dispose lives inside shutdownRuntime so quit, crash, and signals
+  // share one owner.
+  let teardownFailed = false;
+  try {
+    await state.shutdownRuntime?.();
+  } catch (err) {
+    teardownFailed = true;
+    tuiLogger.error("runtime shutdown failed: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+  await services.sessionOps.awaitTail();
+
   state.stopFleetReporting?.();
   // Quitting mid-stream is an abnormal end for the in-flight cycle: nothing
   // downstream delivers its terminal event once the app is gone.
@@ -613,17 +634,16 @@ export async function finalizeTUIRun(
   // PerfTrace OTEL export runs once at process exit in main (flushPerfToOtel).
   await getTelemetry().flush();
 
-  await services.sessionOps.awaitTail();
   try {
     await state.streamPromise;
   } catch {
     // ignore
   }
-  await services.toolset.dispose();
 
   return resolveExitCode({
     runError: state.runError,
     sinkError,
     status: services.runSink.getStatus(),
+    teardownFailed,
   });
 }

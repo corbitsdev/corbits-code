@@ -128,15 +128,14 @@ export function wirePostStartup(
 
   const shutdownRuntime = createRuntimeShutdown({
     disposeHost: hostOf(state).dispose,
-    cancelWorkers: () => {
-      services.subAgentSessions.cancelAll("Session closed");
+    cancelWorkers: async () => {
+      await services.subAgentSessions.cancelAll("Session closed");
     },
     closeAgent: () => liveAgent(state).close(),
+    disposeToolset: () => services.toolset.dispose(),
   });
   state.shutdownRuntime = shutdownRuntime;
-  services.crashGuard.setDisposeHost(() => {
-    void shutdownRuntime();
-  });
+  services.crashGuard.setDisposeHost(() => shutdownRuntime());
   setActiveDisposeHost(() => services.crashGuard.invokeDisposeHost());
 
   // Harness inference.error events omit providerId; stamp the live catalog id

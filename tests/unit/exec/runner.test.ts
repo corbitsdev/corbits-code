@@ -15,6 +15,7 @@ import {
 } from "../../../src/exec/runner.js";
 import { BUILD_TOOLS, SKYWALKER_TOOLS } from "../../../src/agent/directors/tool-sets.js";
 import { clearActiveRun, getActiveRun, setActiveRun } from "../../../src/session/active-run.js";
+import { getActiveDisposeHost } from "../../../src/session/active-host.js";
 import { loadState, type RunState } from "../../../src/session/state.js";
 import type { AgentToolset } from "../../../src/agent/tools.js";
 import { createSubAgentSessionStore } from "../../../src/subagent/session-store.js";
@@ -288,6 +289,89 @@ describe("runExec", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test("dispose failure after toolset exists is once-only and forces a nonzero exit", async () => {
+    const previous = getActiveRun();
+    clearActiveRun();
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-exec-dispose-cwd-"));
+    const home = mkdtempSync(join(tmpdir(), "corbits-exec-dispose-home-"));
+    const sessionId = "exec-dispose-fail";
+    let disposeCalls = 0;
+    const dummySource = { id: "test", provider: "test", model: "test" } as InferenceSource;
+    const stderrChunks: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+      stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
+      return origWrite(chunk as never, ...(rest as never[]));
+    }) as typeof process.stderr.write;
+    try {
+      await withMockedModuleDuring(
+        import.meta.resolve("node:os"),
+        (real: typeof import("node:os")) => ({ ...real, homedir: () => home }),
+        async () => {
+          await withMockedModuleDuring(
+            import.meta.resolve("../../../src/agent/tools.js"),
+            (real: typeof import("../../../src/agent/tools.js")) => ({
+              ...real,
+              createAgentToolset: async (): Promise<AgentToolset> =>
+                ({
+                  dispose: () => {
+                    disposeCalls += 1;
+                    return Promise.reject(new Error("plugin dispose failed"));
+                  },
+                }) as AgentToolset,
+            }),
+            async () => {
+              await withMockedModuleDuring(
+                import.meta.resolve("../../../src/session/assemble-runtime.js"),
+                (real: typeof import("../../../src/session/assemble-runtime.js")) => ({
+                  ...real,
+                  resolveLiveSessionSources: () => ({
+                    sources: [dummySource],
+                    defaultSource: dummySource.id,
+                    selected: dummySource,
+                  }),
+                  assembleChatAgent: () => ({
+                    directorHolder: {},
+                    buildAgent: async () => {
+                      throw new Error("buildAgent should not run");
+                    },
+                  }),
+                  assembleSessionLifecycle: async () => {
+                    expect(getActiveDisposeHost()).not.toBeNull();
+                    throw new Error("stop-after-toolset");
+                  },
+                }),
+                async () => {
+                  const { runExec: runExecUnderMock } = await import("../../../src/exec/runner.js");
+                  const result = await runExecUnderMock({
+                    ...bareConfig("do the thing"),
+                    cwd,
+                    sessionId,
+                    director: "builder",
+                    globalSettingsPath: join(home, "settings.json"),
+                    providers: [],
+                  });
+                  expect(result.exitCode).toBe(1);
+                  expect(result.status).toBe("failed");
+                  expect(result.error).toMatch(/plugin dispose failed|runtime dispose failed/i);
+                  expect(stderrChunks.join("")).toMatch(/runtime dispose failed/i);
+                  expect(disposeCalls).toBe(1);
+                  expect(getActiveDisposeHost()).toBeNull();
+                },
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      process.stderr.write = origWrite;
+      if (previous !== null) setActiveRun(previous);
+      else clearActiveRun();
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("disposeExecRuntime", () => {
@@ -316,7 +400,116 @@ describe("disposeExecRuntime", () => {
 
     expect(aborted).toBe(1);
     expect(store.get(worker.id)?.status).toBe("cancelled");
-    expect(calls).toEqual(["agent", "toolset"]);
+    expect(calls).toEqual(["toolset", "agent"]);
+  });
+
+  test("runs teardown only once when called concurrently", async () => {
+    const calls: string[] = [];
+    const toolset = {
+      dispose: async () => {
+        calls.push("toolset");
+      },
+    };
+    const args = {
+      agent: {
+        close: async () => {
+          calls.push("agent");
+        },
+      },
+      toolset,
+      subAgentSessions: null,
+    };
+
+    await Promise.all([disposeExecRuntime(args), disposeExecRuntime(args)]);
+
+    expect(calls).toEqual(["toolset", "agent"]);
+  });
+
+  test("reaps the toolset before waiting on a hung agent close", async () => {
+    const calls: string[] = [];
+    let releaseClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const pending = disposeExecRuntime({
+      agent: {
+        close: async () => {
+          await closeGate;
+          calls.push("agent");
+        },
+      },
+      toolset: {
+        dispose: async () => {
+          calls.push("toolset");
+        },
+      },
+      subAgentSessions: null,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).toEqual(["toolset"]);
+    releaseClose();
+    await pending;
+    expect(calls).toEqual(["toolset", "agent"]);
+  });
+
+  test("rejects leftover-child dispose from the toolset", async () => {
+    await expect(
+      disposeExecRuntime({
+        agent: { close: async () => undefined },
+        toolset: {
+          dispose: async () => {
+            throw new Error("1 shell child process still live after 2000ms reap");
+          },
+        },
+        subAgentSessions: null,
+      }),
+    ).rejects.toThrow(/still live after 2000ms reap/);
+  });
+
+  test("surfaces leftover toolset dispose when agent.close hangs", async () => {
+    let closeStarted = false;
+    const pending = disposeExecRuntime({
+      agent: {
+        close: () => {
+          closeStarted = true;
+          return new Promise<void>(() => {});
+        },
+      },
+      toolset: {
+        dispose: async () => {
+          throw new Error("1 shell child process still live after 2000ms reap");
+        },
+      },
+      subAgentSessions: null,
+    });
+    const result = await Promise.race([
+      pending.then(
+        () => ({ kind: "resolved" as const }),
+        (err: unknown) => ({ kind: "rejected" as const, err }),
+      ),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        setTimeout(() => resolve({ kind: "timeout" }), 200);
+      }),
+    ]);
+    expect(closeStarted).toBe(true);
+    expect(result.kind).toBe("rejected");
+    if (result.kind !== "rejected") throw new Error("expected leftover reject");
+    expect(result.err).toBeInstanceOf(Error);
+    expect((result.err as Error).message).toMatch(/still live after 2000ms reap/);
+  });
+
+  test("rejects when toolset dispose fails", async () => {
+    await expect(
+      disposeExecRuntime({
+        agent: { close: async () => undefined },
+        toolset: {
+          dispose: async () => {
+            throw new Error("plugin dispose failed");
+          },
+        },
+        subAgentSessions: null,
+      }),
+    ).rejects.toThrow("plugin dispose failed");
   });
 });
 

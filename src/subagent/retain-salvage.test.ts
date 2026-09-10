@@ -17,14 +17,11 @@ describe("retained session lifecycle", () => {
     // agentRetained:false, exactly as its real call site does whenever
     // result.agentRetained isn't true.
     store.complete(s.id, "Stopped: deadline\n\nPartial work...", { agentRetained: false });
-    const after = store.get(s.id);
-    console.log("lifecycleStatus:", after?.lifecycleStatus, "retained:", after?.retained);
     const outcome = store.resumeOne(s.id, "more");
-    console.log("resumeOne outcome:", JSON.stringify(outcome));
     expect(outcome.ok).toBe(false);
   });
 
-  test("cancelAll does not close retained completed sessions", () => {
+  test("cancelAll closes salvaged retained completed sessions", async () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
     const s = store.start({
       description: "worker",
@@ -37,8 +34,7 @@ describe("retained session lifecycle", () => {
       closed = true;
     });
     store.complete(s.id, "done");
-    const cancelled = store.cancelAll("parent stop");
-    console.log("cancelAll returned:", cancelled, "| close invoked:", closed);
+    await store.cancelAll("parent stop");
     expect(closed).toBe(true);
   });
 
@@ -63,11 +59,10 @@ describe("retained session lifecycle", () => {
       store.registerClose(s.id, async () => {});
       store.complete(s.id, "done");
     }
-    console.log("sessions retained despite maxRetained=3:", store.list().length);
     expect(store.list().length).toBeLessThanOrEqual(3);
   });
 
-  test("a genuinely retained clean completion IS resumable, and cancelAll releases it", () => {
+  test("a genuinely retained clean completion IS resumable, and cancelAll releases it", async () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
     const s = store.start({
       description: "worker",
@@ -86,7 +81,7 @@ describe("retained session lifecycle", () => {
     store.registerFollowup(s.id, async () => "next");
     expect(store.resumeOne(s.id, "more").ok).toBe(true);
     expect(closed).toBe(false);
-    store.cancelAll("parent stop");
+    await store.cancelAll("parent stop");
     expect(closed).toBe(true);
   });
 

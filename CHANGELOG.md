@@ -48,6 +48,14 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   owns idle rebuild; delivery generation owns session identity, so interrupt,
   /clear, and /new abort the outstanding overlay, skip minting a grant, and
   notify the operator instead of delivering into a rebuilt agent.
+- TUI quit, crash, and process signals await once-only runtime shutdown so live
+  shell-guard children are reaped. Teardown failure after a completed session
+  exits 1; SIGINT, SIGTERM, and SIGHUP still exit 128+n.
+- Persist close_agent surfaces leftover-child dispose failure so a worker
+  that survives reap is not reported as a successful shutdown.
+- Leftover exec dispose is reported as a failed run (stderr + status failed), and
+  parent toolset dispose finishes remaining workers and posix teardown before
+  surfacing leftover-child failure.
 
 ### Changed
 

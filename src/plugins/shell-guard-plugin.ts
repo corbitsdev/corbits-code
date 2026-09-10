@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { realpathSync } from "node:fs";
 import type { ToolPlugin } from "@intx/tools-posix";
 import { killProcessTree, type BackgroundShellRegistry } from "../shell/background-shell.js";
@@ -207,11 +207,55 @@ export class BoundedShellOutput {
   }
 }
 
+function waitChildClose(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    child.once("close", () => resolve());
+    child.once("error", () => resolve());
+  });
+}
+
+const SHELL_GUARD_DISPOSE_REAP_MS = 2_000;
+
+function childStillLive(child: ChildProcess): boolean {
+  return child.exitCode === null && child.signalCode === null;
+}
+
+// Abort SIGKILLs the process group immediately (runGuardedShell onAbort). This
+// window is only a backstop for children still tracked at dispose. Leftovers
+// after it must fail teardown; do not stretch the process-exit 2s deadline.
+export async function reapLiveChildren(liveChildren: Set<ChildProcess>): Promise<void> {
+  const remaining = [...liveChildren];
+  for (const child of remaining) killProcessTree(child);
+  if (remaining.length === 0) return;
+  const closed = Promise.all(remaining.map(waitChildClose));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), SHELL_GUARD_DISPOSE_REAP_MS);
+  });
+  try {
+    const winner = await Promise.race([closed.then(() => "closed" as const), timedOut]);
+    if (winner === "closed") return;
+    const stillLive = remaining.filter(childStillLive);
+    if (stillLive.length > 0) {
+      throw new Error(
+        `${stillLive.length} shell child process${stillLive.length === 1 ? "" : "es"} still live after ${SHELL_GUARD_DISPOSE_REAP_MS}ms reap`,
+      );
+    }
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 export async function runGuardedShell(
   args: RunShellArgs,
   signal: AbortSignal,
+  liveChildren?: Set<ChildProcess>,
+  isDisposed?: () => boolean,
 ): Promise<GuardedShellResult> {
   signal.throwIfAborted();
+  if (isDisposed?.()) {
+    throw new Error("run_shell refused: shell guard disposed");
+  }
 
   // Arm setTimeout only when a positive timeout was resolved. No built-in default.
   const timeoutMs = args.timeout !== undefined && args.timeout > 0 ? args.timeout : undefined;
@@ -230,8 +274,13 @@ export async function runGuardedShell(
       // settings.env overrides layered on top.
       env: args.env !== undefined ? { ...process.env, ...args.env } : undefined,
     });
+    liveChildren?.add(child);
+    const dropLive = () => {
+      liveChildren?.delete(child);
+    };
 
     if (child.stdout === null || child.stderr === null) {
+      dropLive();
       reject(new Error("child process streams are null; stdio misconfigured"));
       return;
     }
@@ -300,10 +349,12 @@ export async function runGuardedShell(
     };
 
     child.on("error", (err) => {
+      dropLive();
       settle(new Error(`failed to spawn command: ${args.command}`, { cause: err }));
     });
 
     child.on("close", (code, sig) => {
+      dropLive();
       if (settled) return;
       const exitCode = code ?? (sig !== null ? 128 : 1);
       finishOutput(exitCode, false);
@@ -347,11 +398,20 @@ export function shellGuardPlugin(
   const maxOutputBytes = timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
   const sessionRoot = realpathSync(cwd);
   let retainedShellCwd = sessionRoot;
+  const liveChildren = new Set<ChildProcess>();
+  let disposed = false;
+  let disposal: Promise<void> | undefined;
   // Serialize run_shell so concurrent tools cannot race retained cwd updates
   // (last-writer-wins or a non-cd call finishing after a cd and resetting cwd).
   let shellChain: Promise<unknown> = Promise.resolve();
   const enqueueShell = <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = shellChain.then(fn, fn);
+    const runUnlessDisposed = (): Promise<T> => {
+      if (disposed) {
+        return Promise.reject(new Error("run_shell refused: shell guard disposed"));
+      }
+      return fn();
+    };
+    const run = shellChain.then(runUnlessDisposed, runUnlessDisposed);
     shellChain = run.then(
       () => undefined,
       () => undefined,
@@ -442,6 +502,8 @@ export function shellGuardPlugin(
                 ...(env !== undefined ? { env } : {}),
               },
               signal,
+              liveChildren,
+              () => disposed,
             );
             const parsed = parsePwdProbeOutput(output);
             if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
@@ -473,7 +535,11 @@ export function shellGuardPlugin(
               isError: true,
             };
           }
-        });
+        }).catch((err: unknown) => ({
+          callId: call.id,
+          content: err instanceof Error ? err.message : String(err),
+          isError: true,
+        }));
       }
 
       if (SEARCH_TOOLS.has(call.name)) {
@@ -526,6 +592,16 @@ export function shellGuardPlugin(
       }
 
       return next(call, signal);
+    },
+    dispose: () => {
+      if (disposal !== undefined) return disposal;
+      disposed = true;
+      disposal = (async () => {
+        await reapLiveChildren(liveChildren);
+        await shellChain;
+        await reapLiveChildren(liveChildren);
+      })();
+      return disposal;
     },
   };
 }

@@ -65,6 +65,16 @@ describe("resolveExitCode", () => {
     });
     expect(code).toBe(0);
   });
+
+  test("returns 1 when teardown failed even if status is done", () => {
+    const code = resolveExitCode({
+      runError: undefined,
+      sinkError: undefined,
+      status: "done",
+      teardownFailed: true,
+    });
+    expect(code).toBe(1);
+  });
 });
 
 describe("resolveLocalSettingsPath", () => {

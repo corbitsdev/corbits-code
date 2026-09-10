@@ -130,6 +130,7 @@ import {
   disposeSubAgentSession,
   isSubAgentCancelError,
   DEFAULT_CLOSE_DEADLINE_MS,
+  awaitBoundedTeardown,
 } from "./dispose.js";
 import {
   createFleetMailbox,
@@ -1106,12 +1107,6 @@ async function runSubAgentInner(
         } catch {
           // close is idempotent; ignore races with disposeSubAgentSession.
         }
-        try {
-          backgroundShells.disposeAll("sub-agent closed");
-          await posixTools.dispose();
-        } catch {
-          // ignore
-        }
       })();
     };
     if (runController.signal.aborted) {
@@ -1123,33 +1118,33 @@ async function runSubAgentInner(
     // Hand the caller a bounded, idempotent close it can call at any time
     // (close_agent) — independent of whether this run ends up retained.
     // Aborting first stops a still-running turn before tearing down; on an
-    // already-finished turn the abort is a no-op. The timeout races teardown
-    // itself so a wedged descendant cannot hang the caller — see dispose.ts
-    // for the close()-ordering issue that can stall it.
+    // already-finished turn the abort is a no-op. posix dispose/reap runs
+    // before waiting on agent.close so a wedged close cannot skip killing
+    // detached run_shell children. The deadline abandons a hung close and
+    // fails rather than reporting success while children may still be live.
     if (params.onAgentReady !== undefined) {
       const boundedClose = async (deadlineMs = DEFAULT_CLOSE_DEADLINE_MS): Promise<void> => {
         if (!runController.signal.aborted) runController.abort(new Error("closed by close_agent"));
-        const teardown = disposeSubAgentSession({
-          signal: runController.signal,
-          ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
-          agent,
-          ...(streamPromise !== undefined ? { streamPromise } : {}),
-          posixTools,
-        }).catch(() => {
-          // Best-effort: a wedged descendant must not reject the caller.
-        });
-        await Promise.race([
-          teardown,
-          new Promise<void>((resolve) => setTimeout(resolve, deadlineMs)),
-        ]);
-        // The finally block kept the parent-abort forwarding listener alive
-        // for a persisted session (see runController.dispose's doc); now that
-        // this session is actually closing, tear it down for real.
-        runController.dispose();
+        try {
+          await awaitBoundedTeardown(
+            disposeSubAgentSession({
+              signal: runController.signal,
+              ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
+              agent,
+              ...(streamPromise !== undefined ? { streamPromise } : {}),
+              posixTools,
+            }),
+            deadlineMs,
+          );
+        } finally {
+          // The finally block kept the parent-abort forwarding listener alive
+          // for a persisted session (see runController.dispose's doc); now that
+          // this session is actually closing, tear it down for real.
+          runController.dispose();
+        }
       };
       // Interrupt only fires interruptController — never runController/
-      // close, so it cannot hit the close()-ordering wedge documented in
-      // dispose.ts.
+      // close, so it cannot hang teardown on a wedged agent.close.
       const interrupt = (): void => {
         if (!interruptController.signal.aborted) {
           interruptController.abort(new Error("interrupted by interrupt_agent"));

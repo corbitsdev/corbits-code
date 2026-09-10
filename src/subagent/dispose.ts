@@ -39,14 +39,62 @@ export const DEFAULT_CLOSE_DEADLINE_MS = 30_000;
 
 /**
  * Honest limits for plugin-spawn teardown (for operator docs and output notes).
- * Corbits Code can dispose posix tools and LSP sidecars per sub-agent session; OS
- * children spawned inside shell-guard and ripgrep middleware are aborted via the
- * tool AbortSignal on cancel/close but are not centrally registered without
- * upstream spawn hooks on those plugins.
+ * Corbits Code disposes posix tools and LSP sidecars per sub-agent session.
+ * Shell-guard tracks live `run_shell` children and kills the process group on
+ * plugin dispose (`posixTools.dispose`). Ripgrep detached spawns are not
+ * tracked in a global registry.
  */
 export const SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS =
-  "Per sub-agent session Corbits Code runs agent.close(), drains in-flight tool middleware (best-effort), then posixTools.dispose() (LSP and plugin dispose callbacks). " +
-  "run_shell and ripgrep spawns honor AbortSignal process-group kill but are not tracked in a global registry until shell-guard/ripgrep expose spawn hooks.";
+  "Per sub-agent session Corbits Code runs posixTools.dispose() (LSP and plugin dispose callbacks, including in-flight tool drain), then agent.close() and stream drain. " +
+  "run_shell children are tracked in the shell-guard plugin and killed on posixTools.dispose; ripgrep detached spawns are not tracked in a global registry.";
+
+/** Fail a hung close instead of resolving as successful teardown. */
+export async function awaitBoundedTeardown(
+  teardown: Promise<void>,
+  deadlineMs: number,
+): Promise<void> {
+  let teardownError: unknown;
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      teardown.then(
+        () => undefined,
+        (err: unknown) => {
+          teardownError = err;
+        },
+      ),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, deadlineMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+  if (teardownError !== undefined) throw teardownError;
+  if (timedOut) throw new Error(`session close exceeded ${deadlineMs}ms`);
+}
+
+/**
+ * Always start `close`. Await it only when posix/toolset dispose already
+ * succeeded; a leftover throw must not wait unbounded on a hung close.
+ */
+export async function awaitCloseWithoutHidingLeftover(
+  close: Promise<unknown>,
+  leftover: unknown,
+): Promise<void> {
+  if (leftover === undefined) {
+    await close;
+    return;
+  }
+  void close.then(
+    () => undefined,
+    () => undefined,
+  );
+}
 
 export interface SubAgentSpawnSnapshot {
   inFlightToolCalls: number;
@@ -110,19 +158,21 @@ export async function disposeSubAgentSession(input: SubAgentSessionDisposeInput)
   if (input.signal !== undefined && input.closeOnAbort !== undefined) {
     input.signal.removeEventListener("abort", input.closeOnAbort);
   }
-  try {
-    await input.agent?.close();
-  } catch {
-    // ignore
-  }
-  try {
-    await input.streamPromise;
-  } catch {
-    // ignore
-  }
+  let posixError: unknown;
   try {
     await input.posixTools.dispose();
-  } catch {
-    // LSP shutdown can fail when several sub-agents exit together.
+  } catch (err: unknown) {
+    posixError = err;
   }
+  try {
+    await awaitCloseWithoutHidingLeftover(input.agent?.close() ?? Promise.resolve(), posixError);
+  } catch {
+    // ignore
+  }
+  try {
+    await awaitCloseWithoutHidingLeftover(input.streamPromise ?? Promise.resolve(), posixError);
+  } catch {
+    // ignore
+  }
+  if (posixError !== undefined) throw posixError;
 }
