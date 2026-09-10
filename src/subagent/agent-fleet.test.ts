@@ -135,6 +135,13 @@ async function callToolRaw(
   };
 }
 
+function parseFleetJson(content: string): Record<string, unknown> {
+  expect(content).toContain("\n");
+  const parsed = JSON.parse(content) as Record<string, unknown>;
+  expect(JSON.stringify(parsed, null, 2)).toBe(content);
+  return parsed;
+}
+
 async function callTool(
   tool:
     | ReturnType<typeof createSpawnAgentTool>
@@ -142,7 +149,7 @@ async function callTool(
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const { content } = await callToolRaw(tool, args);
-  return JSON.parse(content);
+  return parseFleetJson(content);
 }
 
 describe("spawn_agent", () => {
@@ -196,6 +203,7 @@ describe("spawn_agent", () => {
     });
 
     expect(result.isError).toBe(true);
+    expect(result.content.startsWith("Error:")).toBe(true);
     expect(result.content).toContain("profile orchestrators are not supported");
     expect(runCalled).toBe(false);
     expect(deps.sessions.list()).toEqual([]);
@@ -289,6 +297,17 @@ describe("spawn_agent + wait_agents", () => {
 
     defined(gates[1]).resolve({ report: "second" });
     defined(gates[2]).resolve({ report: "third" });
+  });
+
+  test("wait_agents with no uncollected agents returns empty pretty-printed results", async () => {
+    const deps = makeDeps(async () => ({ report: "unused" }));
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const { content } = await callToolRaw(wait, { timeout_ms: 50 });
+    const parsed = parseFleetJson(content);
+    expect(parsed).toEqual({ results: [], timed_out: false });
   });
 
   test("wait_agents times out on a still-running agent without cancelling it, and can be called again", async () => {
@@ -1975,7 +1994,7 @@ describe("list_agents", () => {
       typeof raw.content === "string"
         ? raw.content
         : JSON.stringify(raw.content);
-    const parsed = JSON.parse(content) as {
+    const parsed = parseFleetJson(content) as {
       agents: {
         agent_id: string;
         status: string;
@@ -2893,7 +2912,15 @@ describe("admission queue", () => {
       },
       new AbortController().signal,
     );
-    expect(raw.content).toContain('"status":"interrupted"');
+    const interrupted = parseFleetJson(
+      typeof raw.content === "string"
+        ? raw.content
+        : JSON.stringify(raw.content),
+    );
+    expect(interrupted).toEqual({
+      agent_id: result.agent_id,
+      status: "interrupted",
+    });
     expect(deps.sessions.get(result.agent_id as string)?.lifecycleStatus).toBe(
       "interrupted",
     );

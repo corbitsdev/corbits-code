@@ -32,6 +32,10 @@ function lifecycleResult(callId: string, content: string): ToolResult {
   return { callId, content, ...(isError ? { isError: true } : {}) };
 }
 
+function fleetJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
 const CloseAgentArgs = type({
   target: "string",
 });
@@ -185,7 +189,7 @@ export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
       if (deps.sessions.get(target) === undefined) {
         return lifecycleResult(
           call.id,
-          JSON.stringify({
+          fleetJson({
             agent_id: target,
             status: "not_found" satisfies AgentLifecycleStatus,
           }),
@@ -228,7 +232,7 @@ export function createCloseAgentTool(deps: CloseAgentToolDeps): AgentTool {
       const own = closed.find((c) => c.agent_id === target);
       return lifecycleResult(
         call.id,
-        JSON.stringify({
+        fleetJson({
           agent_id: target,
           status: own?.status ?? "shutdown",
           closed,
@@ -299,7 +303,7 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
       }
       return lifecycleResult(
         call.id,
-        JSON.stringify({ agent_id: target, status: outcome.status }),
+        fleetJson({ agent_id: target, status: outcome.status }),
       );
     },
   });
@@ -361,7 +365,7 @@ export function createInterruptAgentTool(
       deps.fleetRecords.interrupt(target);
       return lifecycleResult(
         call.id,
-        JSON.stringify({
+        fleetJson({
           agent_id: target,
           status: "interrupted" satisfies AgentLifecycleStatus,
         }),
@@ -474,7 +478,7 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
       }
       return lifecycleResult(
         call.id,
-        JSON.stringify({ agent_id: target, status: outcome.status }),
+        fleetJson({ agent_id: target, status: outcome.status }),
       );
     },
   });
