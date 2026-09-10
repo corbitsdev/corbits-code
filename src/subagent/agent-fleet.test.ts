@@ -664,6 +664,45 @@ describe("spawn_agent same-cwd concurrency", () => {
     defined(gates[1]).resolve({ report: "two done" });
   });
 
+  test("a terminal but unsettled shared-cwd lane does not conflict with a later spawn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-terminal-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    const first = await callTool(spawn, {
+      description: "build one",
+      prompt: "implement thing one",
+      intent: "implement",
+      success_criteria: ["thing one ships"],
+    });
+    const firstId = first.agent_id as string;
+    expect(deps.sessions.cancel(firstId)).toBe(true);
+    expect(deps.sessions.get(firstId)?.finishedAt).toBeNumber();
+
+    await callTool(spawn, {
+      description: "build two",
+      prompt: "implement thing two",
+      intent: "implement",
+      success_criteria: ["thing two ships"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(
+      readFile(join(dir, INTERVENTION_FILE), "utf8"),
+    ).rejects.toThrow();
+
+    defined(gates[0]).resolve({ report: "one cancelled" });
+    defined(gates[1]).resolve({ report: "two done" });
+  });
+
   test("two concurrent shared-cwd spawn_agent lanes log concurrent-lane-overlap", async () => {
     const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-"));
     const gates = [

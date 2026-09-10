@@ -868,10 +868,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
   // will run in — worktree-isolated lanes always get a fresh, disjoint path
   // here, so this can only ever fire in the shared-cwd fallback, which is
   // exactly where two lanes really can stomp each other's writes.
-  // Keyed by call.id so a completed lane (removed when the worker settles)
-  // is never mistaken for one still running: sequential dispatches to the
-  // same cwd are always clean. Tracking lasts the worker lifetime, not the
-  // immediate spawn_agent return.
+  // Keyed by call.id for finally cleanup. The session store is authoritative
+  // for liveness: cancel (and other terminals) can stamp finishedAt before the
+  // run promise settles and reaches finally, so a map entry alone is not proof
+  // the lane is still working.
   const activeLanes = new Map<string, { description: string; cwd: string }>();
   let conflictLog: InterventionSink | null = null;
   const recordConflict = (event: Parameters<InterventionSink>[0]): void => {
@@ -1244,6 +1244,15 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           // files, only that they could.
           const laneCwd = worktreeCwd ?? deps.cwd;
           for (const [otherId, other] of activeLanes) {
+            const otherSession = deps.sessions.get(otherId);
+            if (
+              otherSession === undefined ||
+              (otherSession.lifecycle.state !== "pending_init" &&
+                otherSession.lifecycle.state !== "running")
+            ) {
+              activeLanes.delete(otherId);
+              continue;
+            }
             if (other.cwd !== laneCwd) continue;
             recordConflict({
               id: "concurrent-lane-overlap",
