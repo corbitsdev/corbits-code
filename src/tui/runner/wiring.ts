@@ -201,7 +201,7 @@ export function wirePostStartup(
     const send = state.sendWithAttemptIdentity;
     if (send === undefined) return false;
     const storage = state.currentStorage;
-    return driveOpenTasksAfterFleetDry({
+    const driven = driveOpenTasksAfterFleetDry({
       deferredDryEdge: true,
       openTasks: services.directorHolder.instance?.getTasks() ?? [],
       parentProcessing: false,
@@ -221,6 +221,9 @@ export function wirePostStartup(
         sessionBridge.abortSystemContinuation();
       },
     });
+    if (driven === false) return false;
+    void driven;
+    return true;
   });
   sessionBridge.setMailboxMailDriver(() => {
     const send = state.sendWithAttemptIdentity;
