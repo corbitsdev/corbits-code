@@ -55,9 +55,9 @@ describe("/connect command", () => {
 });
 
 describe("MCP commands", () => {
-  it("keeps /mcp and aliases /mcps to the same surface", () => {
+  it("registers /mcp for the overlay and does not register /mcps", () => {
     expect(getCommand("mcp")?.handler("", makeCtx())).toEqual({ type: "overlay", overlay: "mcp" });
-    expect(getCommand("mcps")?.handler("", makeCtx())).toEqual({ type: "overlay", overlay: "mcp" });
+    expect(getCommand("mcps")).toBeUndefined();
   });
 });
 
