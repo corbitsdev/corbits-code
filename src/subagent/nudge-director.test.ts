@@ -84,13 +84,20 @@ function inferenceDone(
 }
 
 function inferenceDoneText(text: string, inputTokens = 0): ReactorInboundEvent {
+  return inferenceDoneContent([{ type: "text", text }], inputTokens);
+}
+
+function inferenceDoneContent(
+  content: readonly Record<string, unknown>[],
+  inputTokens = 0,
+): ReactorInboundEvent {
   return {
     type: "inference.done",
     turn: {
       role: "assistant",
       model: "test",
       timestamp: 0,
-      content: [{ type: "text", text }],
+      content,
     },
     usage: {
       input: inputTokens,
@@ -418,6 +425,107 @@ const REPORT_ENVELOPE = [
   "## Paths",
   "src/gate.ts",
 ].join("\n");
+
+describe("SubAgentDirector verbatim tool markup recovery", () => {
+  const verbatimToolCall =
+    '<tool_call><function=read_file>{"path":"src/index.ts"}</function></tool_call>';
+
+  test("nudges once for explicit tool-call wrapper text before report policy", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    const correction = actions(
+      await director.decide(inferenceDoneText(verbatimToolCall), state, caps),
+    );
+    expect(correction).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-verbatim-tool-call-nudge",
+    });
+    expect(ephemeralTexts(inferAction(correction))?.[0]).toContain(
+      "real tool call",
+    );
+
+    const reportNudge = actions(
+      await director.decide(inferenceDoneText(verbatimToolCall), state, caps),
+    );
+    expect(reportNudge).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
+
+    const stopped = actions(
+      await director.decide(inferenceDoneText(verbatimToolCall), state, caps),
+    );
+    expect(stopped).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report",
+    });
+  });
+
+  test("does not treat arbitrary XML or thinking as verbatim tool calls", async () => {
+    const caps = capabilities();
+    const arbitraryXML = new SubAgentDirector("system", [], undefined, 30);
+    const arbitraryResult = actions(
+      await arbitraryXML.decide(
+        inferenceDoneText("<read_file>src/index.ts</read_file>"),
+        state,
+        caps,
+      ),
+    );
+    expect(arbitraryResult).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
+
+    const thinkingOnly = new SubAgentDirector("system", [], undefined, 30);
+    const thinkingResult = actions(
+      await thinkingOnly.decide(
+        inferenceDoneContent([
+          { type: "thinking", thinking: verbatimToolCall },
+        ]),
+        state,
+        caps,
+      ),
+    );
+    expect(thinkingResult).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
+  });
+
+  test("resets correction only after genuine tool activity or parent follow-up", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDoneText(verbatimToolCall), state, caps);
+    const narration = actions(
+      await director.decide(inferenceDoneText("Still working"), state, caps),
+    );
+    expect(narration).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+    const afterTool = actions(
+      await director.decide(inferenceDoneText(verbatimToolCall), state, caps),
+    );
+    expect(afterTool).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-verbatim-tool-call-nudge",
+    });
+
+    await director.decide(messageReceived("Try again"), state, caps);
+    const afterFollowup = actions(
+      await director.decide(inferenceDoneText(verbatimToolCall), state, caps),
+    );
+    expect(afterFollowup).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-verbatim-tool-call-nudge",
+    });
+  });
+});
 
 describe("SubAgentDirector incomplete-report wiring", () => {
   test("tool-less narration after tools gets one wrap-up nudge, not a complete", async () => {
