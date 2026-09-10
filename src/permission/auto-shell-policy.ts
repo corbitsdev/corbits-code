@@ -121,6 +121,9 @@ export const AUTO_SHELL_RULES: AutoShellRule[] = [
       // trailing `|` as in `>|` / `>>|`) to a target that is not an fd dup
       // (`2>&1`) or a safe pseudo-device (`> /dev/null`, a TTY).
       /[0-9]?>>?\|?\s*(?!&|\/dev\/(?:null|stdout|stderr|stdin|tty|pts\/|fd\/))[^\s|;&)]/,
+      // bash `>& word` is `>word 2>&1` when word is not an fd number or `-`.
+      // `2>&1` and `n>&-` stay unmatched; `>& /dev/null` stays a safe sink.
+      /[0-9]?>&\s*(?!(?:[0-9]+|-|\/dev\/(?:null|stdout|stderr|stdin|tty|pts\/|fd\/)\S*)(?:\s|$|[|;&)]))[^\s|;&)]/,
       // tee writes its stdin to one or more files.
       /(?:^|[\n;&|({]\s*)tee\b/,
       // In-place stream editors: sed -i, perl -pi -e, ruby -i.
