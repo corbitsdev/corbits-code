@@ -216,6 +216,61 @@ describe("readFileBounded", () => {
     );
   });
 
+  test("pages a giant one-line blob by wrapping through the byte window", async () => {
+    const giant = `HEAD-${"x".repeat(READ_FILE_MAX_BYTES)}-TAIL`;
+    const bytes = new TextEncoder().encode(giant);
+    const { content, isError } = await readBytesBounded(
+      bytes,
+      0,
+      Number.POSITIVE_INFINITY,
+      neverAbort(),
+      "tool-output:///giant-line",
+    );
+    expect(isError).toBeUndefined();
+    expect(content).toContain("HEAD-");
+    expect(content).not.toContain("-TAIL");
+    expect(content).not.toContain("line truncated");
+    expect(content).toContain("output limit");
+    expect(content).toContain("Use offset=");
+    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(
+      READ_FILE_MAX_BYTES,
+    );
+    const body = content.split("\n\n")[0] ?? "";
+    const numbered = body.trimEnd().split("\n");
+    expect(numbered.length).toBeGreaterThan(1);
+    for (const line of numbered) {
+      const text = line.replace(/^\s*\d+\t/, "");
+      expect(text.length).toBeLessThanOrEqual(READ_FILE_MAX_LINE_LENGTH);
+    }
+  });
+
+  test("returns a pretty-printed blob past the 2000-line file cap when it fits the byte window", async () => {
+    const pretty = `${JSON.stringify(
+      Array.from({ length: READ_FILE_DEFAULT_MAX_LINES + 500 }, (_, i) => i),
+      null,
+      2,
+    )}\n`;
+    const bytes = new TextEncoder().encode(pretty);
+    const { content, isError } = await readBytesBounded(
+      bytes,
+      0,
+      Number.POSITIVE_INFINITY,
+      neverAbort(),
+      "tool-output:///pretty-json",
+    );
+    expect(isError).toBeUndefined();
+    const sourceLines = pretty.trimEnd().split("\n").length;
+    expect(sourceLines).toBeGreaterThan(READ_FILE_DEFAULT_MAX_LINES);
+    const body = content.split("\n\n")[0] ?? "";
+    expect(body.trimEnd().split("\n").length).toBe(sourceLines);
+    expect(content).toContain(String(READ_FILE_DEFAULT_MAX_LINES + 499));
+    expect(content).not.toContain("line limit");
+    expect(content).not.toContain("Use offset=");
+    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(
+      READ_FILE_MAX_BYTES,
+    );
+  });
+
   test("offset past the scan ceiling reports the scan limit, not a fake EOF", async () => {
     // Many short lines totaling more than the scan ceiling; a huge offset can
     // never be reached within one scan pass.
@@ -311,6 +366,78 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).not.toContain("row-9");
     expect(result.content).not.toContain("row-12");
     expect(result.content).not.toBe("FALLBACK");
+  });
+
+  test("pages a giant one-line tool-output blob across byte windows and resumes via the minted cursor", async () => {
+    const encoder = new TextEncoder();
+    const payload = `HEAD-${"x".repeat(READ_FILE_MAX_BYTES)}-TAIL`;
+    const blobReader = createBlobReader({
+      async readBlob(key) {
+        if (key === "giant-line") return encoder.encode(payload);
+        throw new Error(`missing ${key}`);
+      },
+    });
+    const plugin = readFileGuardPlugin(dir, { blobReader });
+    const middleware = defined(plugin.middleware)(fallback);
+    const first = await middleware(
+      {
+        id: "g1",
+        name: "read_file",
+        arguments: { path: "tool-output:///giant-line" },
+      },
+      neverAbort(),
+    );
+    expect(first.isError).toBeFalsy();
+    const firstContent = String(first.content);
+    expect(firstContent).toContain("HEAD-");
+    expect(firstContent).not.toContain("-TAIL");
+    expect(firstContent).not.toContain("line truncated");
+    expect(firstContent).toContain("output limit");
+    expect(Buffer.byteLength(firstContent, "utf8")).toBeLessThanOrEqual(
+      READ_FILE_MAX_BYTES,
+    );
+    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(firstContent);
+    expect(match).not.toBeNull();
+    const nextPath = (match as RegExpExecArray)[1] as string;
+    expect(nextPath).toMatch(/^tool-output:\/\/\//);
+
+    const second = await middleware(
+      { id: "g2", name: "read_file", arguments: { path: nextPath } },
+      neverAbort(),
+    );
+    expect(second.isError).toBeFalsy();
+    expect(String(second.content)).toContain("-TAIL");
+  });
+
+  test("returns pretty-printed tool-output past the 2000-line file cap when it fits the byte window", async () => {
+    const encoder = new TextEncoder();
+    const pretty = `${JSON.stringify(
+      Array.from({ length: READ_FILE_DEFAULT_MAX_LINES + 500 }, (_, i) => i),
+      null,
+      2,
+    )}\n`;
+    const blobReader = createBlobReader({
+      async readBlob(key) {
+        if (key === "pretty-json") return encoder.encode(pretty);
+        throw new Error(`missing ${key}`);
+      },
+    });
+    const result = await run(
+      {
+        id: "pretty1",
+        name: "read_file",
+        arguments: { path: "tool-output:///pretty-json" },
+      },
+      blobReader,
+    );
+    expect(result.isError).toBeFalsy();
+    const content = String(result.content);
+    expect(pretty.trimEnd().split("\n").length).toBeGreaterThan(
+      READ_FILE_DEFAULT_MAX_LINES,
+    );
+    expect(content).toContain(String(READ_FILE_DEFAULT_MAX_LINES + 499));
+    expect(content).not.toContain("line limit");
+    expect(content).not.toContain('Use path="tool-output:///');
   });
 
   test("pages tool-output blobs above the display ceiling instead of rejecting the spill", async () => {
