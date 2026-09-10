@@ -10,7 +10,6 @@ import { withTestRenderer } from "./harness";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
 import { createAppShell } from "./shell/index";
 import {
-  isCollapsibleRow,
   paintStreamRow,
   toolSentenceLines,
   type RowLayout,
@@ -21,6 +20,12 @@ import { pendingCallIndex, pushToolCall, pushToolResult } from "./tool-rows";
 const LAYOUT: RowLayout = { width: 72, multiAgent: false };
 
 const painted = (row: StreamRow): string => paintStreamRow(row, LAYOUT).content;
+
+const collapsed = (row: StreamRow): string =>
+  toolSentenceLines(row)
+    .flat()
+    .map((segment) => segment.text)
+    .join("");
 
 const LINEAR_ISSUES = JSON.stringify({
   issues: [
@@ -81,7 +86,7 @@ describe("a call and its answer", () => {
     expect(rows[0]?.detail).toBeUndefined();
   });
 
-  test("mark the row failed, keeping the failure out of the collapsed line", () => {
+  test("mark the row failed and put the error on the collapsed line", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
       name: "fetch",
@@ -95,7 +100,61 @@ describe("a call and its answer", () => {
     expect(rows.length).toBe(1);
     expect(rows[0]?.failed).toBe(true);
     expect(painted(defined(rows[0]))).toContain("×");
-    expect(rows[0]?.detail?.length).toBeGreaterThan(0);
+    expect(collapsed(defined(rows[0]))).toContain("connection refused");
+  });
+
+  test("a failed read_file of a missing tool-output URI shows the error on the collapsed line", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "read_file",
+      arguments: JSON.stringify({ path: "tool-output:///missing-blob" }),
+    });
+    pushToolResult(rows, {
+      name: "read_file",
+      content: 'Blob not found for key: "missing-blob"',
+      isError: true,
+    });
+    expect(rows[0]?.failed).toBe(true);
+    expect(painted(defined(rows[0]))).toContain("×");
+    expect(collapsed(defined(rows[0]))).toContain("Blob not found");
+    expect(collapsed(defined(rows[0]))).toContain(
+      "tool-output:///missing-blob",
+    );
+  });
+
+  test("a failed read_file of a missing filesystem path shows the error on the collapsed line", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "read_file",
+      arguments: JSON.stringify({ path: "/no/such/file.ts" }),
+    });
+    pushToolResult(rows, {
+      name: "read_file",
+      content: "file not found: /no/such/file.ts",
+      isError: true,
+    });
+    expect(rows[0]?.failed).toBe(true);
+    expect(painted(defined(rows[0]))).toContain("×");
+    expect(collapsed(defined(rows[0]))).toContain("file not found");
+    expect(collapsed(defined(rows[0]))).toContain("/no/such/file.ts");
+  });
+
+  test("a successful read_file keeps the path as the subject and the success mark", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "read_file",
+      arguments: JSON.stringify({ path: "src/a.ts" }),
+    });
+    pushToolResult(rows, {
+      name: "read_file",
+      content: "export const a = 1;\n",
+    });
+    expect(rows[0]?.failed).toBeUndefined();
+    expect(painted(defined(rows[0]))).toContain("✓");
+    expect(painted(defined(rows[0]))).not.toContain("×");
+    expect(collapsed(defined(rows[0]))).toContain("src/a.ts");
+    expect(collapsed(defined(rows[0]))).not.toContain("file not found");
+    expect(collapsed(defined(rows[0]))).not.toContain("Blob not found");
   });
 
   test("a resolved sub-agent dispatch drops its live elapsed-time trailer for the real answer", () => {
@@ -256,12 +315,9 @@ describe("parallel calls to the same tool", () => {
     expect(rows[1]?.pending).toBe(true);
   });
 
-  // Acceptance criterion: a failed sub-agent surfaces its error inline
-  // (expandable), not a bare mark with nothing behind it. `mergeToolRows` /
-  // `toolResultRow` already carry the failed result's own text into `detail`
-  // — untouched by this fix, but only reachable per-call once results resolve
-  // to the right row instead of a neighbour's.
-  test("a failed call keeps its error text behind the expand arrow", () => {
+  // A failed call must show its error on the collapsed line, not only behind
+  // the expand arrow.
+  test("a failed call shows its error text on the collapsed line", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
       name: "spawn_agent",
@@ -278,8 +334,8 @@ describe("parallel calls to the same tool", () => {
       callId: "c1",
     });
     expect(rows[0]?.failed).toBe(true);
-    expect(isCollapsibleRow(defined(rows[0]))).toBe(true);
-    expect(rows[0]?.detail?.[0]?.[0]?.text).toContain("boom");
+    expect(painted(defined(rows[0]))).toContain("×");
+    expect(collapsed(defined(rows[0]))).toContain("boom");
   });
 });
 

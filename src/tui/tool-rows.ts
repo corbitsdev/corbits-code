@@ -44,16 +44,38 @@ function appendRunLine(
 /** Longest an answer's own words may run before they belong behind the arrow. */
 const MAX_ADDENDUM = 40;
 
+/** Failed-result addendum: same budget as `mergedToolCollapsedPreview` errors. */
+const MAX_ERROR_ADDENDUM = 72;
+
 /**
- * What an answer adds to the line its call already wrote: a count, a short
- * status — never prose, and never the payload itself. A fetched page, a file
- * body or a search dump says nothing on one line and would push the subject
- * (the URL, the path, the query) off the row, so anything unbounded is left
- * behind the expand key.
+ * Flatten a failed payload the way the collapsed log preview does: one line,
+ * abbreviated, so the operator can read why without expanding.
+ */
+function failedAddendum(payload: string): string | undefined {
+  const oneLine = payload
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join(" ");
+  if (oneLine.length === 0) return undefined;
+  return oneLine.length <= MAX_ERROR_ADDENDUM
+    ? oneLine
+    : `${oneLine.slice(0, MAX_ERROR_ADDENDUM - 1)}…`;
+}
+
+/**
+ * What an answer adds to the line its call already wrote. A success contributes
+ * a count or a short status — never prose, and never the payload itself. A
+ * failure contributes the error, abbreviated, because that is the one thing
+ * the operator must be able to read without pressing expand. A fetched page, a
+ * file body or a search dump says nothing on one line and would push the
+ * subject (the URL, the path, the query) off the row, so anything unbounded
+ * is left behind the expand key.
  */
 export function resultAddendum(result: StreamRow): string | undefined {
   const payload = result.text.trim();
   if (payload.length === 0) return undefined;
+  if (result.failed === true) return failedAddendum(payload);
   const records = extractMcpRecords(payload);
   if (records !== null) return countNoun(records.items.length, "result");
   const lines = payload.split("\n");
@@ -73,7 +95,8 @@ function countNoun(count: number, noun: string): string {
  * The row keeps saying what the call was — the URL fetched, the path read, the
  * query searched. That is the stable identifier, and it is the one thing the
  * payload can never be trusted to reproduce. The answer contributes the marker,
- * a short factual addendum where it has one, and the body behind the arrow.
+ * a short factual addendum where it has one (the error, when it failed), and
+ * the body behind the arrow.
  */
 export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const failed = result.failed === true;
@@ -83,11 +106,14 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
     stat: _stat,
     ...answered
   } = call;
-  const addendum = failed ? undefined : resultAddendum(result);
+  const addendum = resultAddendum(result);
   // A live sub-agent's elapsed-time trailer is scaffolding for the wait, not a
   // fact about the call the way a diff's own +/- count is — the answer's stat
   // must win over it rather than being shadowed by whatever it last read.
-  const callStat = call.agentWorking !== undefined ? undefined : call.stat;
+  // A failure's error likewise beats a leftover +/- count: the operator needs
+  // the reason, not a diff that did not land.
+  const callStat =
+    failed || call.agentWorking !== undefined ? undefined : call.stat;
   const base: StreamRow = {
     ...answered,
     text: result.text,
