@@ -207,8 +207,8 @@ export async function handleFatal(
 // (e.g. a throw inside a fire-and-forget `void` call), so run.json was never
 // closed out. getActiveRun surfaces the in-flight session set by the in-flight
 // runner (TUI or exec), with
-// enough (task, startedAt, model) carried on the handle itself that no read
-// of run.json is needed — a readFile here would be exactly the kind of
+// enough (task, startedAt, model, turnsUsed) carried on the handle itself that
+// no read of run.json is needed — a readFile here would be exactly the kind of
 // unbounded crash-path I/O primeCrashReporting (src/crash/report.ts) exists
 // to avoid for git: a stalled disk or network mount would block process.exit
 // forever. The write itself goes through saveCrashState, which bypasses the
@@ -222,7 +222,7 @@ async function finalizeActiveRunOnCrash(error: unknown): Promise<void> {
   try {
     await saveCrashState(run.cwd, run.sessionId, {
       status: "crashed",
-      turnsUsed: 0,
+      turnsUsed: run.turnsUsed,
       task: run.task,
       startedAt: run.startedAt,
       finishedAt: Date.now(),
@@ -267,7 +267,7 @@ async function finalizeActiveRunOnSignal(
   try {
     await saveCrashState(run.cwd, run.sessionId, {
       status: "failed",
-      turnsUsed: 0,
+      turnsUsed: run.turnsUsed,
       task: run.task,
       startedAt: run.startedAt,
       finishedAt: Date.now(),

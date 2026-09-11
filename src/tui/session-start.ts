@@ -15,6 +15,7 @@ import type { Telemetry } from "../telemetry/index.js";
 import { clearActiveDisposeHost } from "../session/active-host.js";
 import {
   clearActiveRun,
+  getActiveRun,
   setActiveRun,
   type RunStateHandle,
 } from "../session/active-run.js";
@@ -111,6 +112,7 @@ export function createTUICrashGuard(
     // escaped throw during the flushPartialOnCrash await just above would
     // still reach that listener with the handle live, so it's cleared here
     // too to close that earlier window.
+    const turnsUsed = getActiveRun()?.turnsUsed ?? 0;
     clearActiveRun();
     clearActiveDisposeHost();
     await flushPartialOnCrash().catch((flushErr: unknown) => {
@@ -129,7 +131,7 @@ export function createTUICrashGuard(
     const message = err instanceof Error ? err.message : String(err);
     await finalizeRunState(live.cwd, live.sessionId, {
       status: "failed",
-      turnsUsed: 0,
+      turnsUsed,
       task:
         live.runTaskTitle.trim().length > 0
           ? live.runTaskTitle.trim()
@@ -284,6 +286,7 @@ export async function prepareTUISession(
     task:
       runTaskTitle.trim().length > 0 ? runTaskTitle.trim() : "(conversation)",
     startedAt,
+    turnsUsed: resumeSeed.turnsUsed,
     model: `${config.providerName}:${config.model}`,
   };
   setActiveRun(activeRunHandle);

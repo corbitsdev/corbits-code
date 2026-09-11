@@ -70,7 +70,11 @@ import {
   sessionContextDir,
   sessionDir,
 } from "../session/index.js";
-import { setActiveRun } from "../session/active-run.js";
+import {
+  setActiveRun,
+  syncRunStateHandle,
+  type RunStateHandle,
+} from "../session/active-run.js";
 import {
   setActiveDisposeHost,
   clearActiveDisposeHost,
@@ -377,6 +381,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
   let providerFailureObserved = false;
   let providerError: InferenceErrorLike | undefined;
   let result: ExecResult | undefined;
+  const activeRunHandle: RunStateHandle = {
+    sessionId,
+    cwd: config.cwd,
+    task,
+    startedAt,
+    turnsUsed: 0,
+    model: `${config.providerName}:${config.model}`,
+  };
 
   const persist = async (
     status: "running" | "done" | "failed" | "cancelled",
@@ -384,12 +396,20 @@ export async function runExec(config: Config): Promise<ExecResult> {
   ): Promise<void> => {
     if (finalized && status === "running") return;
     if (status !== "running") finalized = true;
-    const snapshot = {
-      status,
-      turnsUsed: runSink?.getTurnCount() ?? turnsUsed,
+    const model = `${config.providerName}:${config.model}`;
+    const nextTurnsUsed = runSink?.getTurnCount() ?? turnsUsed;
+    syncRunStateHandle(activeRunHandle, {
+      turnsUsed: nextTurnsUsed,
       task,
       startedAt,
-      model: `${config.providerName}:${config.model}`,
+      model,
+    });
+    const snapshot = {
+      status,
+      turnsUsed: nextTurnsUsed,
+      task,
+      startedAt,
+      model,
       mcpServers: connectedMcp,
       ...(status !== "running" ? { finishedAt: Date.now() } : {}),
       ...(extra?.error !== undefined ? { error: extra.error } : {}),
@@ -398,13 +418,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       status === "running"
         ? saveState(config.cwd, sessionId, snapshot).then(() => {
             if (!finalized) {
-              setActiveRun({
-                sessionId,
-                cwd: config.cwd,
-                task,
-                startedAt,
-                model: `${config.providerName}:${config.model}`,
-              });
+              setActiveRun(activeRunHandle);
             }
           })
         : finalizeRunState(config.cwd, sessionId, snapshot);

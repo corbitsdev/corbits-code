@@ -43,6 +43,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
+- Crash and signal finalizers preserve `turnsUsed` from the in-memory active-run
+  handle instead of writing `0`, so a signaled or crashed session keeps the
+  turn count already persisted by mid-run snapshots.
 - Occupancy takes one dry-episode shot when the parent settles idle even if the
   live fleet 1→0 edge was never observed.
 - Dry-fleet transcript and `/status` report the outcome tally only

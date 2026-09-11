@@ -53,6 +53,7 @@ describe("integration — crash finalizes run.json", () => {
       expect(state.error).toContain("simulated crash");
       expect(state.task).toBe("simulated crash task");
       expect(state.model).toBe("test-provider:test-model");
+      expect(state.turnsUsed).toBe(3);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });
@@ -97,6 +98,7 @@ describe("integration — crash finalizes run.json", () => {
         readFileSync(outgoingRunJsonPath, "utf8"),
       ) as RunState;
       expect(outgoingState.status).toBe("done");
+      expect(outgoingState.turnsUsed).toBe(3);
 
       const rotatedRunJsonPath = join(stdout.trim(), "run.json");
       const rotatedState = JSON.parse(
@@ -108,6 +110,7 @@ describe("integration — crash finalizes run.json", () => {
       expect(rotatedState.status).toBe("crashed");
       expect(rotatedState.finishedAt).toBeGreaterThan(0);
       expect(rotatedState.error).toContain("simulated crash");
+      expect(rotatedState.turnsUsed).toBe(0);
     } finally {
       rmSync(cwd, { recursive: true, force: true });
       rmSync(home, { recursive: true, force: true });
