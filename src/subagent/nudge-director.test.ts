@@ -838,6 +838,137 @@ describe("SubAgentDirector incomplete-report wiring", () => {
   });
 });
 
+const STUB_PLAN_ENVELOPE = [
+  "## Summary",
+  "Plan ready.",
+  "",
+  "## Findings",
+  "None.",
+  "",
+  "## Blockers",
+  "None.",
+  "",
+  "## Paths",
+  "None.",
+].join("\n");
+
+const PASS_PLAN_ENVELOPE = [
+  "## Summary",
+  "Plan for the salvage gate.",
+  "",
+  "## Findings",
+  "### Files / paths",
+  "src/subagent/report.ts",
+  "",
+  "### Acceptance criteria",
+  "Stub plan Findings salvage as incomplete-report.",
+  "",
+  "### Non-goals",
+  "Do not finish CL-6946.",
+  "",
+  "### Risks",
+  "A headings-only complete would auto-dispatch builder on a stub.",
+  "",
+  "### Ordered steps",
+  "Add hasPlanFindings, then wire evaluateSubAgentStop.",
+  "",
+  "## Blockers",
+  "None.",
+  "",
+  "## Paths",
+  "src/subagent/report.ts",
+].join("\n");
+
+describe("SubAgentDirector plan-substance wiring", () => {
+  test("stub plan Findings with requirePlanSubstance nudges for the five parts, not four headings", async () => {
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      30,
+      Date.now,
+      false,
+      true,
+    );
+    const caps = capabilities();
+
+    const result = actions(
+      await director.decide(inferenceDoneText(STUB_PLAN_ENVELOPE), state, caps),
+    );
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
+    expect(result.some((action) => action.type === "reply")).toBe(false);
+    const texts = ephemeralTexts(inferAction(result));
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("files/paths");
+    expect(texts?.[0]).toContain("acceptance criteria");
+    expect(texts?.[0]).toContain("non-goals");
+    expect(texts?.[0]).toContain("risks");
+    expect(texts?.[0]).toContain("ordered steps");
+    expect(texts?.[0]).not.toContain(
+      "Write your final report now using ## Summary",
+    );
+  });
+
+  test("second stub plan turn salvages incomplete-report with a stub-plan Findings prefix", async () => {
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      30,
+      Date.now,
+      false,
+      true,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDoneText(STUB_PLAN_ENVELOPE), state, caps);
+
+    const result = actions(
+      await director.decide(inferenceDoneText(STUB_PLAN_ENVELOPE), state, caps),
+    );
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report",
+    });
+    const reply = result.find((action) => action.type === "reply");
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply")
+      throw new Error("expected reply action");
+    expect(reply.content).toContain("not an attachable plan");
+    expect(reply.content).toContain("Plan ready.");
+    expect(reply.content).toContain("## Summary");
+  });
+
+  test("pass plan fixture with requirePlanSubstance completes", async () => {
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      30,
+      Date.now,
+      false,
+      true,
+    );
+    const caps = capabilities();
+
+    const result = actions(
+      await director.decide(inferenceDoneText(PASS_PLAN_ENVELOPE), state, caps),
+    );
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-complete",
+    });
+    const reply = result.find((action) => action.type === "reply");
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply")
+      throw new Error("expected reply action");
+    expect(reply.content).toBe(PASS_PLAN_ENVELOPE);
+  });
+});
+
 describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
   test("empty continuation after a valid report reply waits instead of re-inferring", async () => {
     const director = new SubAgentDirector("system", [], undefined, 1000);
@@ -1153,6 +1284,7 @@ describe("SubAgentDirector infer retryPolicy", () => {
       undefined,
       30,
       Date.now,
+      false,
       false,
       retryPolicy,
     );

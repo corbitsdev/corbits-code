@@ -128,6 +128,90 @@ export function hasReportEnvelope(text: string): boolean {
   );
 }
 
+const PLAN_FINDING_SECTIONS = [
+  { id: "files", match: /files?\s*(?:\/|and|&)?\s*paths?/i },
+  { id: "ac", match: /acceptance\s+criteria|\bAC\b/i },
+  { id: "nonGoals", match: /non-?goals?/i },
+  { id: "risks", match: /\brisks?\b/i },
+  { id: "steps", match: /ordered\s+steps|\bsteps\b/i },
+] as const;
+
+type PlanFindingSectionId = (typeof PLAN_FINDING_SECTIONS)[number]["id"];
+
+const PLACEHOLDER_LINE = /^(none\.?|tbd\.?|n\/a\.?|n\.a\.?|\.{2,}|…|-)$/i;
+
+function stripPlanSectionPrefix(line: string): string {
+  return line
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^\d+[.)]\s+/, "")
+    .replace(/^\*\*(.+?)\*\*:?\s*/, "$1 ")
+    .trim();
+}
+
+function classifyPlanSectionLine(
+  line: string,
+): { id: PlanFindingSectionId; rest: string } | null {
+  const stripped = stripPlanSectionPrefix(line);
+  if (stripped.length === 0) return null;
+  for (const section of PLAN_FINDING_SECTIONS) {
+    const match = section.match.exec(stripped);
+    if (match === null || match.index === undefined) continue;
+    // Only treat a line as a section start when the label is the line's heading,
+    // not a later mention in an outline sentence.
+    if (match.index > 0 && /[,;]/.test(stripped.slice(0, match.index))) {
+      continue;
+    }
+    const after = stripped.slice(match.index + match[0].length);
+    const separated = after.match(/^\s*[:.\-–—]\s+(\S.*)$/);
+    return { id: section.id, rest: separated?.[1] ?? "" };
+  }
+  return null;
+}
+
+function isPlaceholderPlanLine(line: string): boolean {
+  const t = line.replace(/^[-*•]\s+/, "").trim();
+  if (t.length === 0) return true;
+  return PLACEHOLDER_LINE.test(t);
+}
+
+function planSectionHasSubstance(body: string): boolean {
+  return body.split(/\r?\n/).some((line) => !isPlaceholderPlanLine(line));
+}
+
+/**
+ * True iff Findings contains labeled files/paths, acceptance criteria,
+ * non-goals, risks, and ordered steps, each with a non-placeholder body line.
+ * Heading presence is `hasReportEnvelope`; this is the plan-lane substance gate.
+ */
+export function hasPlanFindings(text: string): boolean {
+  const findings = parseSubAgentReport(text).findings;
+  if (findings.length === 0) return false;
+  const lines = findings.split(/\r?\n/);
+  const starts: { index: number; id: PlanFindingSectionId; rest: string }[] =
+    [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined) continue;
+    const classified = classifyPlanSectionLine(line);
+    if (classified === null) continue;
+    starts.push({ index: i, ...classified });
+  }
+  const bodies = new Map<PlanFindingSectionId, string>();
+  for (let s = 0; s < starts.length; s++) {
+    const start = starts[s];
+    if (start === undefined) continue;
+    if (bodies.has(start.id)) continue;
+    const next = starts[s + 1];
+    const end = next?.index ?? lines.length;
+    const parts = [start.rest, ...lines.slice(start.index + 1, end)];
+    bodies.set(start.id, parts.join("\n"));
+  }
+  return PLAN_FINDING_SECTIONS.every((section) => {
+    const body = bodies.get(section.id);
+    return body !== undefined && planSectionHasSubstance(body);
+  });
+}
+
 /** Demote ## Summary|Findings|Blockers|Paths lines so nested envelopes stay under Findings. */
 export function demoteNestedReportHeadings(text: string): string {
   // Match parseSubAgentReport: flexible whitespace + case-insensitive section names.

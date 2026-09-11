@@ -45,6 +45,7 @@ export {
   buildDispatchBrief,
   demoteNestedReportHeadings,
   formatSubAgentReport,
+  hasPlanFindings,
   hasReportEnvelope,
   parseSubAgentReport,
   subAgentToolName,
@@ -99,6 +100,7 @@ export {
   createSubAgentRunController,
   runSubAgent,
   shouldRequireEvidence,
+  shouldRequirePlanSubstance,
   type SubAgentRunController,
 } from "./run.js";
 

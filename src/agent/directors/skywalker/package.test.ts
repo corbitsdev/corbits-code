@@ -156,6 +156,9 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("Do not reclassify COMMUNICATION as ORCHESTRATION");
     expect(p).toContain("synthesize what returned");
     expect(p).toContain("do **not** re-fan-out another diagnostic wave");
+    expect(p).toContain(
+      "`incomplete-report` from plan/counsel is not an attachable plan",
+    );
     expect(p).not.toContain("Then start the next worker");
     expect(p).not.toContain("if the job still needs doing");
   });

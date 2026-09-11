@@ -9,6 +9,7 @@ import { onTurnBoundary } from "../agent/reactor-events.js";
 import {
   demoteNestedReportHeadings,
   formatSubAgentReport,
+  hasPlanFindings,
   hasReportEnvelope,
 } from "./report.js";
 import type { ThrashState } from "./thrash.js";
@@ -114,6 +115,8 @@ export function evaluateToolLessNarrationSpiral(
  * When `requireEvidence` is set (CritiqueDirector), an empty `readCounts`
  * is not complete even with all four headings — same incomplete-report
  * nudge then salvage, so a wrap-up envelope cannot fake a real review.
+ * When `requirePlanSubstance` is set (counsel / intent=plan), four headings
+ * with stub Findings are the same spiral — not a finished plan.
  */
 export function evaluateSubAgentStop(input: {
   hasToolCalls: boolean;
@@ -124,6 +127,12 @@ export function evaluateSubAgentStop(input: {
    * narration as a finished review.
    */
   requireEvidence?: boolean;
+  /**
+   * When true (counsel / intent=plan), a four-heading envelope whose Findings
+   * lack files/paths, acceptance criteria, non-goals, risks, and ordered steps
+   * is incomplete-report — not a finished plan.
+   */
+  requirePlanSubstance?: boolean;
   /** Read/search bookkeeping for the evidence gate above. */
   thrashState?: ThrashState;
   /**
@@ -161,6 +170,12 @@ export function evaluateSubAgentStop(input: {
       input.requireEvidence === true &&
       (input.thrashState === undefined ||
         input.thrashState.readCounts.size === 0)
+    ) {
+      return spiralStop();
+    }
+    if (
+      input.requirePlanSubstance === true &&
+      !hasPlanFindings(input.lastAssistantText)
     ) {
       return spiralStop();
     }

@@ -19,7 +19,10 @@ import {
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
   resolveSubAgentDeadlineMs,
+  hasReportEnvelope,
+  hasPlanFindings,
   shouldRequireEvidence,
+  shouldRequirePlanSubstance,
   subAgentToolName,
   SUBAGENT_DEADLINE_MARGIN_MS,
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
@@ -212,6 +215,102 @@ describe("sub-agent stop helpers", () => {
     "src/gate.ts",
   ].join("\n");
 
+  const HEADINGS_ONLY_ENVELOPE = [
+    "## Summary",
+    "",
+    "## Findings",
+    "",
+    "## Blockers",
+    "",
+    "## Paths",
+  ].join("\n");
+
+  const STUB_PLAN_ENVELOPE = [
+    "## Summary",
+    "Plan ready.",
+    "",
+    "## Findings",
+    "None.",
+    "",
+    "## Blockers",
+    "None.",
+    "",
+    "## Paths",
+    "None.",
+  ].join("\n");
+
+  const NUMBERED_TBD_PLAN_FINDINGS = [
+    "1. Files / paths",
+    "   TBD",
+    "2. Acceptance criteria",
+    "   TBD",
+    "3. Non-goals",
+    "   TBD",
+    "4. Risks",
+    "   TBD",
+    "5. Ordered steps",
+    "   TBD",
+  ].join("\n");
+
+  const NUMBERED_TBD_PLAN_ENVELOPE = [
+    "## Summary",
+    "Outline.",
+    "",
+    "## Findings",
+    NUMBERED_TBD_PLAN_FINDINGS,
+    "",
+    "## Blockers",
+    "None.",
+    "",
+    "## Paths",
+    "None.",
+  ].join("\n");
+
+  const OUTLINE_ONLY_PLAN_ENVELOPE = [
+    "## Summary",
+    "Outline.",
+    "",
+    "## Findings",
+    "Files / paths, acceptance criteria, non-goals, risks, ordered steps.",
+    "",
+    "## Blockers",
+    "None.",
+    "",
+    "## Paths",
+    "None.",
+  ].join("\n");
+
+  const PASS_PLAN_FINDINGS = [
+    "### Files / paths",
+    "src/subagent/report.ts",
+    "",
+    "### Acceptance criteria",
+    "Stub plan Findings salvage as incomplete-report.",
+    "",
+    "### Non-goals",
+    "Do not finish CL-6946.",
+    "",
+    "### Risks",
+    "A headings-only complete would auto-dispatch builder on a stub.",
+    "",
+    "### Ordered steps",
+    "Add hasPlanFindings, then wire evaluateSubAgentStop.",
+  ].join("\n");
+
+  const PASS_PLAN_ENVELOPE = [
+    "## Summary",
+    "Plan for the salvage gate.",
+    "",
+    "## Findings",
+    PASS_PLAN_FINDINGS,
+    "",
+    "## Blockers",
+    "None.",
+    "",
+    "## Paths",
+    "src/subagent/report.ts",
+  ].join("\n");
+
   test("evaluateSubAgentStop returns incomplete-report for Summary-only tool-less narration after tools", () => {
     expect(
       evaluateSubAgentStop({
@@ -329,6 +428,74 @@ describe("sub-agent stop helpers", () => {
         lastAssistantText: FULL_REPORT_ENVELOPE,
         thrashState,
         requireEvidence: false,
+      }),
+    ).toBe("complete");
+  });
+
+  test("hasPlanFindings is false for empty Findings, None, numbered TBD titles, and outline-only", () => {
+    expect(hasPlanFindings(HEADINGS_ONLY_ENVELOPE)).toBe(false);
+    expect(hasPlanFindings(STUB_PLAN_ENVELOPE)).toBe(false);
+    expect(hasPlanFindings(NUMBERED_TBD_PLAN_ENVELOPE)).toBe(false);
+    expect(hasPlanFindings(OUTLINE_ONLY_PLAN_ENVELOPE)).toBe(false);
+  });
+
+  test("hasPlanFindings is true when Findings has the five labeled plan sections with substance", () => {
+    expect(hasPlanFindings(PASS_PLAN_ENVELOPE)).toBe(true);
+  });
+
+  test("hasReportEnvelope stays heading-presence only on headings-only text", () => {
+    expect(hasReportEnvelope(HEADINGS_ONLY_ENVELOPE)).toBe(true);
+    expect(hasPlanFindings(HEADINGS_ONLY_ENVELOPE)).toBe(false);
+  });
+
+  test("shouldRequirePlanSubstance is armed for plan intent or counsel, not other directors", () => {
+    expect(shouldRequirePlanSubstance({ directorId: "counsel" })).toBe(true);
+    expect(shouldRequirePlanSubstance({ intent: "plan" })).toBe(true);
+    expect(
+      shouldRequirePlanSubstance({ intent: "plan", directorId: "counsel" }),
+    ).toBe(true);
+    expect(shouldRequirePlanSubstance({ directorId: "critic" })).toBe(false);
+    expect(shouldRequirePlanSubstance({ directorId: "greybeard" })).toBe(false);
+    expect(shouldRequirePlanSubstance({ directorId: "builder" })).toBe(false);
+    expect(shouldRequirePlanSubstance({ directorId: "gaasbot" })).toBe(false);
+    expect(shouldRequirePlanSubstance({ intent: "implement" })).toBe(false);
+    expect(shouldRequirePlanSubstance({ intent: "review" })).toBe(false);
+    expect(shouldRequirePlanSubstance({})).toBe(false);
+  });
+
+  test("evaluateSubAgentStop salvages stub plan Findings when requirePlanSubstance is on", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        requirePlanSubstance: true,
+        lastAssistantText: STUB_PLAN_ENVELOPE,
+      }),
+    ).toBe("incomplete-report");
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        requirePlanSubstance: true,
+        lastAssistantText: STUB_PLAN_ENVELOPE,
+        toolLessNarrationCycles: 2,
+      }),
+    ).toBe("incomplete-report-stop");
+  });
+
+  test("evaluateSubAgentStop still completes the same stub when requirePlanSubstance is omitted", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        lastAssistantText: STUB_PLAN_ENVELOPE,
+      }),
+    ).toBe("complete");
+  });
+
+  test("evaluateSubAgentStop completes a pass plan fixture on the plan lane", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        requirePlanSubstance: true,
+        lastAssistantText: PASS_PLAN_ENVELOPE,
       }),
     ).toBe("complete");
   });

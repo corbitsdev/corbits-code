@@ -13,11 +13,19 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Added
+
+- Plan and counsel workers require substance in Findings (files/paths,
+  acceptance criteria, non-goals, risks, ordered steps). Four headings
+  with stub Findings salvage as `incomplete-report`, not an attachable
+  plan. Implement and review envelope completeness is unchanged.
+
 ### Fixed
 
 - System-originated inbound (`message.received` without the operator flag —
   background shell exits, mailbox mail, fleet-dry and compact continuations)
   paints as a visible system row instead of a user prompt.
+
 
 ## [0.3.21] - 2026-09-11
 

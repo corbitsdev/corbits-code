@@ -439,6 +439,17 @@ export function shouldRequireEvidence(input: {
   return input.directorId === "critic";
 }
 
+/**
+ * Arm plan-substance Findings on counsel or intent=plan. Do not key off
+ * modelRole === "plan" — gaasbot shares that role and is not a plan author.
+ */
+export function shouldRequirePlanSubstance(input: {
+  intent?: TaskIntent;
+  directorId?: string;
+}): boolean {
+  return input.intent === "plan" || input.directorId === "counsel";
+}
+
 const submitResultDefinition: ToolDefinition = {
   name: "submit_result",
   description:
@@ -971,6 +982,7 @@ async function runSubAgentInner(
           modelFamilyPolicy.subAgentStallTimeoutMs,
           Date.now,
           shouldRequireEvidence(params),
+          shouldRequirePlanSubstance(params),
           createCorbitsRetryPolicy({
             providerId: params.provider.providerName,
             admission: params.admission ?? getProcessAdmissionQueue(),
