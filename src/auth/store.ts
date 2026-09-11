@@ -18,7 +18,8 @@ export type { AuthProfile, BaseTokens };
 // for the same provider, so credentials are keyed by a user-chosen profile name
 // within a single file. Tokens are credentials, so the file is owner-only (0o600)
 // and the directory 0o700. Writes go through a temp file + rename so a concurrent
-// reader never observes a torn file.
+// reader never observes a torn file. Same-process writers also queue per auth path
+// so each lock wait starts its own deadline.
 
 export interface AuthStore<TTokens extends BaseTokens> {
   authPath: (home?: string) => string;
@@ -48,8 +49,8 @@ interface AuthFile<TTokens extends BaseTokens> {
 const LOCK_RETRY_MS = 25;
 const LOCK_TIMEOUT_MS = 1_000;
 
-// pid alone is not unique per call — concurrent saves in one process must not
-// share a temp path or the second rename hits ENOENT after the first moves it.
+// Per-call unique temp (pid + counter). Matches mcp/auth-store — pid alone is not
+// unique per call if writeAuthFile ever overlaps in-process.
 let tmpWriteCounter = 0;
 
 // Same-process ops on one auth file queue here so a caller's lock deadline

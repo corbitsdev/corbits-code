@@ -114,8 +114,8 @@ describe("createAuthStore", () => {
     }
   });
 
-  test("queues same-process profile writes so neither save is lost", async () => {
-    const home = await mkdtemp(join(tmpdir(), "oauth-store-same-process-"));
+  test("keeps a same-process burst of profile saves without shared-deadline loss", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-burst-"));
     try {
       const store = createAuthStore<TestTokens>({
         filename: "test-auth.json",
@@ -123,40 +123,39 @@ describe("createAuthStore", () => {
         isTokens: isTestTokens,
       });
 
-      await Promise.all([
-        store.saveProfile(
-          {
-            name: "personal",
-            tokens: { access: "p", refresh: "pr", expiresAt: 1 },
-            createdAt: 1,
-          },
-          home,
+      // Without the per-path queue, a large same-process burst shares one lock
+      // deadline from invoke time and some waiters time out. With the queue,
+      // each save gets its own window and all land.
+      const names = Array.from(
+        { length: 50 },
+        (_, index) => `profile-${String(index)}`,
+      );
+      const results = await Promise.allSettled(
+        names.map((name) =>
+          store.saveProfile(
+            {
+              name,
+              tokens: {
+                access: `access-${name}`,
+                refresh: `refresh-${name}`,
+                expiresAt: 1,
+              },
+              createdAt: 1,
+            },
+            home,
+          ),
         ),
-        store.saveProfile(
-          {
-            name: "work",
-            tokens: { access: "w", refresh: "wr", expiresAt: 2 },
-            createdAt: 2,
-          },
-          home,
-        ),
-      ]);
+      );
 
-      const profiles = await store.listProfiles(home);
-      expect(profiles.map((profile) => profile.name)).toEqual([
-        "personal",
-        "work",
-      ]);
-      expect(profiles.find((profile) => profile.name === "personal")).toEqual({
-        name: "personal",
-        tokens: { access: "p", refresh: "pr", expiresAt: 1 },
-        createdAt: 1,
-      });
-      expect(profiles.find((profile) => profile.name === "work")).toEqual({
-        name: "work",
-        tokens: { access: "w", refresh: "wr", expiresAt: 2 },
-        createdAt: 2,
-      });
+      const failures = results.flatMap((result, index) =>
+        result.status === "rejected"
+          ? [`${names[index]}: ${String(result.reason)}`]
+          : [],
+      );
+      expect(failures).toEqual([]);
+      expect((await store.listProfiles(home)).map((profile) => profile.name)).toEqual(
+        [...names].sort(),
+      );
     } finally {
       await rm(home, { recursive: true, force: true });
     }
@@ -181,6 +180,8 @@ describe("createAuthStore", () => {
 
       // Hold the lock until the head of the same-process queue times out; the
       // queued write must still get its own lock window after we release.
+      // `second` may already be polling when `first` rejects — release must land
+      // inside LOCK_TIMEOUT_MS of that handoff.
       const lockPath = `${store.authPath(home)}.lock`;
       await writeFile(lockPath, "foreign", { mode: 0o600 });
 
