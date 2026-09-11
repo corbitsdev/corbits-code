@@ -451,7 +451,8 @@ export async function createRunLifecycle(
     },
     stream: () => liveAgent(state).stream(),
     deliver: (message) => {
-      state.enqueueAgentDeliver?.(() => liveAgent(state).deliver(message));
+      const targetAgent = liveAgent(state);
+      state.enqueueAgentDeliver?.(() => targetAgent.deliver(message));
     },
     close: () => liveAgent(state).close(),
     setSource: (source) => {

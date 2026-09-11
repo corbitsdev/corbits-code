@@ -75,6 +75,25 @@ describe("stream paint", () => {
     ).not.toContain("steering");
   });
 
+  test("delivery settlement prefixes keep the original row text", () => {
+    expect(
+      userBody({
+        role: "user",
+        text: "exact body",
+        meta: "not-delivered",
+        deliveryStatus: "not-delivered",
+      })[0],
+    ).toContain("[not delivered] exact body");
+    expect(
+      userBody({
+        role: "user",
+        text: "exact body",
+        meta: "delivery-uncertain",
+        deliveryStatus: "uncertain",
+      })[0],
+    ).toContain("[delivery uncertain] exact body");
+  });
+
   test("a long operator message wraps as one left-aligned block", () => {
     const text =
       "please find every call site of the legacy token helper and tell me which of them still run in production";

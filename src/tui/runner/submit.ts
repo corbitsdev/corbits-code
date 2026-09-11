@@ -36,14 +36,16 @@ import {
   createLiveSteerDeliver,
   routeQueuedDelivery,
 } from "../queued-delivery.js";
+import type { AgentDeliveryResult } from "../deliver-agent-message.js";
 import type { InferenceAttemptIdentity } from "./state.js";
 import { tuiSendFailureMessage } from "./send-failure-message.js";
 import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
-import type { Agent } from "@intx/agent";
+import { AgentClosedError, type Agent, type SendResult } from "@intx/agent";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../../subagent/fleet-report.js";
 import { MAILBOX_MAIL_WAKE_PREFIX } from "../../subagent/mailbox-mail-drive.js";
 import {
   hostOf,
+  liveAgent,
   runWhileAgentBusy,
   type RunnerServices,
   type RunnerState,
@@ -254,6 +256,7 @@ export function createSubmitPath(
     err: unknown,
     attempt: InferenceAttemptIdentity,
     providerFailure: ProviderFailureAttempt,
+    presentNotice = true,
   ): void => {
     const failure = classifyAgentSendFailure(
       err,
@@ -265,7 +268,7 @@ export function createSubmitPath(
     if (!shouldSettleUiAfterSendFailure(failure.kind)) return;
     if (failure.kind === "abort") return;
     state.runError = err instanceof Error ? err.message : String(err);
-    if (!providerFailure.presented) {
+    if (presentNotice && !providerFailure.presented) {
       systemNotice(
         tuiSendFailureMessage(
           err,
@@ -283,22 +286,35 @@ export function createSubmitPath(
 
   const sendWithAttemptIdentity = async (
     message: InboundMessage,
-  ): Promise<boolean> => {
+    send: (message: InboundMessage) => Promise<SendResult> = (next) =>
+      live.agentProxy.send(next),
+    presentFailureNotice = true,
+  ): Promise<AgentDeliveryResult> => {
     const attempt = live.attemptIdentity();
     const providerFailure = services.providerFailureAttempts.begin(attempt);
     try {
       await runWhileAgentBusy(state, async () => {
-        const result = await live.agentProxy.send(message);
+        const result = await send(message);
         // An ask-tier call parked on the reactor's approval gate settles the
         // send early; resolve the operator surface here and deliver the
         // decision on the correlationId signal channel so the parked run
         // resumes.
         await services.approvalResume.handle(result);
       });
-      return true;
+      return { status: "accepted" };
     } catch (error) {
-      handleSendFailure(error, attempt, providerFailure);
-      return false;
+      handleSendFailure(error, attempt, providerFailure, presentFailureNotice);
+      if (error instanceof AgentClosedError) {
+        return {
+          status: "not-delivered",
+          reason: "agent-closed",
+          detail: error.message,
+        };
+      }
+      return {
+        status: "uncertain",
+        detail: error instanceof Error ? error.message : String(error),
+      };
     } finally {
       services.providerFailureAttempts.sendSettled(providerFailure);
     }
@@ -392,9 +408,22 @@ export function createDeliverRouting(
           imageAttachmentFromPath,
           pending,
         ),
-      send: (text, pending) => {
+      send: async (text, pending) => {
         state.sendAborted = false;
-        void state.sendWithAttemptIdentity?.(userInboundMessage(text, pending));
+        const send = state.sendWithAttemptIdentity;
+        if (send === undefined) {
+          return {
+            status: "not-delivered",
+            reason: "session-unavailable",
+            detail: "session send path is unavailable",
+          };
+        }
+        const targetAgent = liveAgent(state);
+        return send(
+          userInboundMessage(text, pending),
+          (message) => targetAgent.send(message),
+          false,
+        );
       },
       recordSent: (text) => {
         if (text.trim().length === 0) return;
@@ -422,8 +451,12 @@ export function createDeliverRouting(
           imageAttachmentFromPath,
           pending,
         ),
-      deliver: (text, pending) => {
-        live.agentProxy.deliver(userInboundMessage(text, pending));
+      deliver: (text, pending, settle) => {
+        const targetAgent = liveAgent(state);
+        state.enqueueAgentDeliver?.(
+          () => targetAgent.deliver(userInboundMessage(text, pending)),
+          settle,
+        );
       },
       captureGeneration: services.deliveryGeneration.capture,
       onFailure: (error) =>

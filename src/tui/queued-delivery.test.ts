@@ -8,6 +8,7 @@ import {
   SESSION_IDENTITY_ABORT_REASON,
 } from "./queued-delivery.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
+import type { AgentDeliveryResult } from "./deliver-agent-message.js";
 
 const image: PendingImageAttachment = {
   id: "img-1",
@@ -249,6 +250,30 @@ describe("createLeftoverSend", () => {
     await awaitTail();
     expect(sent).toEqual(["follow-up"]);
     expect(recorded).toEqual(["follow-up"]);
+  });
+
+  test("leftover send preserves an asynchronous closed-agent settlement", async () => {
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const settlements: AgentDeliveryResult[] = [];
+    const closed: AgentDeliveryResult = {
+      status: "not-delivered",
+      reason: "agent-closed",
+      detail: "agent is closed",
+    };
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => ({ text, attachments: [] }),
+      send: async () => closed,
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        throw err;
+      },
+    });
+
+    leftoverSend("follow-up", [], (result) => settlements.push(result));
+    await awaitTail();
+
+    expect(settlements).toEqual([closed]);
   });
 
   test("leftover send skips ingest for ask_director wake and mailbox mail", async () => {

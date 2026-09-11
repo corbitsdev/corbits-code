@@ -5,6 +5,7 @@
 
 import type { PendingImageAttachment } from "./image-attachments.js";
 import type { QueueItem, QueueKind } from "./session-queue.js";
+import type { DeliverySettle } from "./queued-delivery.js";
 import type { SessionPort } from "./runtime-bridge.js";
 
 export type SubmitClassification = "agent" | "local" | "empty";
@@ -28,6 +29,7 @@ export interface LiveSessionPortDeps {
     text: string,
     kind: QueueKind,
     attachments?: readonly PendingImageAttachment[],
+    settle?: DeliverySettle,
   ) => void;
 }
 
@@ -56,8 +58,8 @@ export function createLiveSessionPort(deps: LiveSessionPortDeps): SessionPort {
     interrupt: (): void => {
       deps.interrupt();
     },
-    deliver: (item: QueueItem): void => {
-      deps.deliver(item.text, item.kind, item.attachments);
+    deliver: (item: QueueItem, settle?: DeliverySettle): void => {
+      deps.deliver(item.text, item.kind, item.attachments, settle);
     },
   };
 }

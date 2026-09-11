@@ -84,11 +84,15 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - **Mid-run injection** — Shell `session-queue` items drain at the parent
   `tool.boundary` through `SessionPort.deliver`. Production `routeQueuedDelivery`
   live-injects in-flight parent-boundary steers via `agentProxy.deliver`
-  (`Agent.deliver`) into the live reactor. Idle leftover, idle-with-fleet, and
+  (`Agent.deliver`) into one captured agent identity — never re-reading
+  `currentAgent` after enqueue, so a rebuild cannot silently retarget the
+  message. Idle leftover, idle-with-fleet, and
   post-interrupt steers, plus follow-ups (`kind === "queue"`), use the existing
-  send path. `/clear` and `/new` bump a
+  send path. A definitive `AgentClosedError` (or other not-delivered /
+  uncertain settlement) returns ownership to bridge-owned prompt recovery
+  rather than forwarding to a successor. `/clear` and `/new` bump a
   delivery generation and call `SessionBridge.clearQueuedDelivery()` so queued
-  input from the previous session cannot enter the new one.
+  input and deferred recoveries from the previous session cannot enter the new one.
 - **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail, ensuring in-flight work completes before the agent is torn down.
 
 ### Exec Runner (`src/exec/runner.ts`)

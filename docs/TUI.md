@@ -570,13 +570,21 @@ Two mid-run gestures, two delivery times (CL-6290):
   steer is queued so occupancy can deliver it. The transcript row says
   `[will steer next]` while pending and
   `[steering]` once delivered (`submitPrompt`, `drainSteersAtBoundary` in
-  `runtime-bridge.ts`).
+  `runtime-bridge.ts`). If the captured target agent is already closed when
+  delivery runs, the bridge restores the exact message (and attachments) to an
+  empty prompt, or FIFO-defers behind a draft the operator already typed — it
+  never auto-sends to a rebuilt successor. The transcript row is corrected to
+  `[not delivered]` (or `[delivery uncertain]` for non-closed failures), and
+  another explicit Enter is required before any new logical delivery.
 - **Alt+Enter, mid-run** — follow-up: enqueues kind `"queue"` and delivers
   only on **session-idle** (parent-idle and no live fleet lanes) as a `send`.
   Does not interrupt or reinject. The transcript row says `[will follow up]`
   while pending and `[following up]` once delivered. Idle, or with an empty
   prompt, Alt+Enter does nothing — there is nothing to wait for. (Internal
   `"reinject"` remains in the submit API for tests; no product chord wires it.)
+  Closed-target recovery for follow-ups uses the same prompt-restore / draft-
+  defer ownership as soft steer; `/clear`, `/new`, and dispose discard both
+  in-flight deliveries and deferred recoveries with the old session.
 
 When `steer > 0` and a parent tool has been in flight ≥ `STEER_WAIT_NOTICE_MS`
 (3s), the notice row adds `waiting on <tool>` (e.g. `waiting on run_shell`).

@@ -30,7 +30,7 @@ import {
   setShellBridgeHooks,
   type AppShell,
 } from "./shell/internals.js";
-import { applyShellInterrupt } from "./shell/prompt.js";
+import { applyShellInterrupt, surfaceSystemNotice } from "./shell/prompt.js";
 import { streamRowAt, streamRowCount } from "./shell/transcript.js";
 import { rampAnimating } from "./ramp.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
@@ -66,6 +66,11 @@ import {
   userRowText,
   type PendingImageAttachment,
 } from "./image-attachments.js";
+import {
+  deliveryResultNotice,
+  type AgentDeliveryResult,
+} from "./deliver-agent-message.js";
+import type { DeliverySettle } from "./queued-delivery.js";
 import { toolCallRow } from "./diff.js";
 import { toolResultRow } from "./mcp-view.js";
 import {
@@ -141,7 +146,7 @@ export interface SessionPort {
   /** Hard interrupt current run. */
   interrupt: () => void;
   /** Queue item drained at a tool boundary (or idle). */
-  deliver: (item: QueueItem) => void;
+  deliver: (item: QueueItem, settle?: DeliverySettle) => void;
 }
 
 export type SessionPortHandlers = Partial<SessionPort>;
@@ -416,6 +421,17 @@ export interface BridgeBag {
    * `message.received`; without this the transcript shows the message twice.
    */
   pendingEchoes: string[];
+  /**
+   * Exact queue items popped for delivery but not yet settled. Ownership moves
+   * here from `SessionQueueState.items` so a second boundary cannot redispatch
+   * them, and recovery can restore the original payload on rejection.
+   */
+  pendingDeliveries: Map<string, QueueItem>;
+  /**
+   * Failed deliveries waiting for an empty composer. Never merges into a draft
+   * the operator is already typing; FIFO after each successful submit clears.
+   */
+  pendingPromptRecoveries: QueueItem[];
   /** callId→name / delta bookkeeping for production-shaped events. */
   mapCtx: StreamMapContext;
   disposed: boolean;
@@ -561,6 +577,100 @@ function consumeEcho(bag: BridgeBag, text: string): boolean {
   if (index === -1) return false;
   bag.pendingEchoes.splice(index, 1);
   return true;
+}
+
+function removeOnePendingEcho(bag: BridgeBag, text: string): void {
+  const index = bag.pendingEchoes.indexOf(promptContent(text));
+  if (index === -1) return;
+  bag.pendingEchoes.splice(index, 1);
+}
+
+function composerIsEmpty(shell: AppShell): boolean {
+  return (
+    shell.prompt.value.trim().length === 0 &&
+    shell.pendingAttachments.length === 0
+  );
+}
+
+function restoreQueueItemToPrompt(shell: AppShell, item: QueueItem): void {
+  shell.prompt.value = item.text;
+  shell.pendingAttachments = [...(item.attachments ?? [])];
+  paintChrome(shell);
+}
+
+function markDeliveryRows(
+  shell: AppShell,
+  queueItemId: string,
+  deliveryStatus: "not-delivered" | "uncertain",
+): void {
+  for (let local = shell.streamLog.length - 1; local >= 0; local--) {
+    const row = shell.streamLog[local];
+    if (row?.queueItemId !== queueItemId) continue;
+    const absolute = shell.streamLogBase + local;
+    const knownNotDelivered = deliveryStatus === "not-delivered";
+    replaceStreamRowAt(shell, absolute, {
+      ...row,
+      meta: knownNotDelivered ? "not-delivered" : "delivery-uncertain",
+      deliveryStatus,
+    });
+  }
+}
+
+function settleDrainedDelivery(
+  shell: AppShell,
+  bag: BridgeBag,
+  item: QueueItem,
+  result: AgentDeliveryResult,
+): void {
+  if (bag.disposed) return;
+  if (!bag.pendingDeliveries.has(item.id)) return;
+  bag.pendingDeliveries.delete(item.id);
+  if (result.status === "accepted") return;
+
+  removeOnePendingEcho(bag, item.text);
+  markDeliveryRows(
+    shell,
+    item.id,
+    result.status === "uncertain" ? "uncertain" : "not-delivered",
+  );
+
+  let disposition: "restored" | "deferred" = "restored";
+  if (composerIsEmpty(shell)) {
+    restoreQueueItemToPrompt(shell, item);
+  } else {
+    bag.pendingPromptRecoveries.push(item);
+    disposition = "deferred";
+  }
+  surfaceSystemNotice(shell, deliveryResultNotice(result, disposition));
+  paintChrome(shell);
+}
+
+function dispatchDrainedItem(
+  shell: AppShell,
+  bag: BridgeBag,
+  item: QueueItem,
+): void {
+  bag.pendingDeliveries.set(item.id, item);
+  appendStreamRow(shell, {
+    role: "user",
+    text: userRowText(item.text, item.attachments ?? []),
+    // Distinct from the still-pending "steer"/"queue" tag — this row is
+    // being handed to the run right now. Follow-ups must not say steering.
+    meta: item.kind === "steer" ? "steering" : "following-up",
+    queueItemId: item.id,
+  });
+  bag.pendingEchoes.push(item.text.trim());
+  bag.port.deliver(item, (result) => {
+    settleDrainedDelivery(shell, bag, item, result);
+  });
+}
+
+function restoreNextPromptRecovery(shell: AppShell, bag: BridgeBag): void {
+  if (bag.disposed) return;
+  if (!composerIsEmpty(shell)) return;
+  const next = bag.pendingPromptRecoveries.shift();
+  if (next === undefined) return;
+  restoreQueueItemToPrompt(shell, next);
 }
 
 function messageReceivedContent(event: {
@@ -993,15 +1103,7 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
     const { state, item } = drainOne(shell.session);
     if (!item) break;
     shell.session = state;
-    appendStreamRow(shell, {
-      role: "user",
-      text: userRowText(item.text, item.attachments ?? []),
-      // Distinct from the still-pending "steer"/"queue" tag — this row is
-      // being handed to the run right now. Follow-ups must not say steering.
-      meta: item.kind === "steer" ? "steering" : "following-up",
-    });
-    bag.pendingEchoes.push(item.text.trim());
-    bag.port.deliver(item);
+    dispatchDrainedItem(shell, bag, item);
   }
   paintChrome(shell);
 }
@@ -1016,13 +1118,7 @@ function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
     const { state, item } = drainOne(shell.session, "steer");
     if (!item) break;
     shell.session = state;
-    appendStreamRow(shell, {
-      role: "user",
-      text: userRowText(item.text, item.attachments ?? []),
-      meta: "steering",
-    });
-    bag.pendingEchoes.push(item.text.trim());
-    bag.port.deliver(item);
+    dispatchDrainedItem(shell, bag, item);
   }
   paintChrome(shell);
 }
@@ -1211,6 +1307,8 @@ export function attachSessionBridge(
     port: resolvePort(handlers),
     openRow: null,
     pendingEchoes: [],
+    pendingDeliveries: new Map(),
+    pendingPromptRecoveries: [],
     mapCtx: createStreamMapContext(),
     disposed: false,
     turn: initialTurnState(now()),
@@ -1528,6 +1626,7 @@ export function attachSessionBridge(
       paintChrome(shell);
       paintPhase();
       bag.port.sendImmediate(t, attachments);
+      restoreNextPromptRecovery(shell, bag);
       return;
     }
 
@@ -1535,6 +1634,7 @@ export function attachSessionBridge(
       kind === "steer"
         ? enqueueSteer(shell.session, t, undefined, attachments)
         : enqueue(shell.session, t, "queue", undefined, attachments);
+    const queued = shell.session.items[shell.session.items.length - 1];
     bag.port.enqueue(t, kind);
     if (kind === "steer") bag.waitYieldWake?.();
     // Show the message itself, not the internal transition ("queue +1 →
@@ -1544,8 +1644,10 @@ export function attachSessionBridge(
       role: "user",
       text: userRowText(t, attached),
       meta: kind === "steer" ? "steer" : "queue",
+      ...(queued !== undefined ? { queueItemId: queued.id } : {}),
     });
     paintChrome(shell);
+    restoreNextPromptRecovery(shell, bag);
   };
 
   const sendInternalText = (text: string): void => {
@@ -1618,6 +1720,8 @@ export function attachSessionBridge(
     shell.session = createSessionQueue("idle");
     recordLastSent(null);
     bag.pendingEchoes.length = 0;
+    bag.pendingDeliveries.clear();
+    bag.pendingPromptRecoveries.length = 0;
     bag.liveFleet = 0;
     bag.pendingAskWake.clear();
     bag.deliveredAskWake.clear();
@@ -1823,6 +1927,8 @@ export function attachSessionBridge(
       flushOpenRow(shell, bag);
       bag.disposed = true;
       recordLastSent(null);
+      bag.pendingDeliveries.clear();
+      bag.pendingPromptRecoveries.length = 0;
       bag.pendingAskWake.clear();
       bag.deliveredAskWake.clear();
       bag.flushPendingAskWake = null;

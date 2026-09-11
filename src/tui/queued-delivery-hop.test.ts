@@ -10,9 +10,11 @@ import { withTestRenderer } from "./harness";
 import {
   createLiveSteerDeliver,
   routeQueuedDelivery,
+  type DeliverySettle,
 } from "./queued-delivery.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
-import { badgeCount } from "./session-queue";
+import { badgeCount, type QueueItem } from "./session-queue";
+import type { AgentDeliveryResult } from "./deliver-agent-message.js";
 
 function lastHopPort(bridgeRef: { current: SessionBridge | undefined }) {
   const sends: string[] = [];
@@ -278,6 +280,252 @@ describe("queued delivery last hop", () => {
           bridge.handle({ type: "tool.boundary" });
           expect(sends).toEqual([]);
           expect(steers).toEqual([]);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+});
+
+function makeRecoveryPort(results: AgentDeliveryResult[]) {
+  const calls: { item: QueueItem; settle: DeliverySettle | undefined }[] = [];
+  const sentImmediate: string[] = [];
+  const port = {
+    sendImmediate: (text: string) => {
+      sentImmediate.push(text);
+    },
+    deliver: (item: QueueItem, settle?: DeliverySettle) => {
+      calls.push({ item, settle });
+      const next = results.shift();
+      if (next !== undefined) settle?.(next);
+    },
+  };
+  return { port, calls, sentImmediate };
+}
+
+const CLOSED_RESULT: AgentDeliveryResult = {
+  status: "not-delivered",
+  reason: "agent-closed",
+  detail: "agent is closed",
+};
+
+function drainedUserRow(shell: { streamLog: readonly unknown[] }): {
+  queueItemId?: string;
+  meta?: string;
+  deliveryStatus?: string;
+} {
+  // The enqueue-time tag row and the dispatched row share the queueItemId;
+  // the dispatched row is the one handed to the run.
+  const rows = shell.streamLog.filter(
+    (candidate): candidate is { queueItemId?: string } =>
+      typeof candidate === "object" &&
+      candidate !== null &&
+      "queueItemId" in candidate,
+  );
+  const row = rows.at(-1);
+  if (row === undefined) throw new Error("expected a drained queue row");
+  return row as {
+    queueItemId?: string;
+    meta?: string;
+    deliveryStatus?: string;
+  };
+}
+
+function recoveryNotices(shell: {
+  streamLog: readonly { role: string; text: string }[];
+}): string[] {
+  return shell.streamLog
+    .filter((row) => row.role === "system")
+    .map((row) => row.text)
+    .filter(
+      (text) => text.includes("not delivered") || text.includes("uncertain"),
+    );
+}
+
+describe("closed-target recovery", () => {
+  test("agent-closed restores the exact message to an empty prompt and corrects the row", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const { port, calls } = makeRecoveryPort([CLOSED_RESULT]);
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("steer the ship", "steer", [
+            {
+              id: "shot-1",
+              name: "shot.png",
+              contentType: "image/png",
+              data: new Uint8Array([1]),
+              contentHash: "hash-shot",
+            },
+          ]);
+          bridge.handle({ type: "tool.boundary" });
+          expect(calls).toHaveLength(1);
+
+          // Ownership returns to the composer with the exact payload intact.
+          expect(shell.prompt.value).toBe("steer the ship");
+          expect(
+            shell.pendingAttachments.map((attachment) => attachment.id),
+          ).toEqual(["shot-1"]);
+
+          // The row painted as delivered now reads as not delivered.
+          const row = drainedUserRow(shell);
+          expect(row.meta).toBe("not-delivered");
+          expect(row.deliveryStatus).toBe("not-delivered");
+
+          // Actionable copy states the delivery status and recovery location.
+          const notices = recoveryNotices(shell);
+          expect(notices).toHaveLength(1);
+          expect(notices[0]).toContain("not delivered");
+          expect(notices[0]).toContain("prompt");
+
+          // The popped item cannot redispatch at a later boundary.
+          bridge.handle({ type: "tool.boundary" });
+          expect(calls).toHaveLength(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("agent-closed with a draft in the composer defers recovery behind it", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const { port, calls, sentImmediate } = makeRecoveryPort([
+          CLOSED_RESULT,
+        ]);
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("steer the ship", "steer");
+          shell.prompt.value = "draft in progress";
+          bridge.handle({ type: "tool.boundary" });
+          expect(calls).toHaveLength(1);
+
+          // The operator's draft is untouched; the notice says where the
+          // failed message went.
+          expect(shell.prompt.value).toBe("draft in progress");
+          const notices = recoveryNotices(shell);
+          expect(notices).toHaveLength(1);
+          expect(notices[0]).toContain("draft is unchanged");
+
+          // Sending the draft returns the failed message to the prompt. The
+          // Enter handler clears the composer before submit; model that here.
+          shell.prompt.value = "";
+          bridge.submit("draft in progress", "immediate");
+          expect(sentImmediate).toEqual(["draft in progress"]);
+          expect(shell.prompt.value).toBe("steer the ship");
+          expect(calls).toHaveLength(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("uncertain delivery marks the row without claiming nondelivery", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const { port, calls } = makeRecoveryPort([
+          { status: "uncertain", detail: "connection reset" },
+        ]);
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("steer the ship", "steer");
+          bridge.handle({ type: "tool.boundary" });
+          expect(calls).toHaveLength(1);
+
+          const row = drainedUserRow(shell);
+          expect(row.meta).toBe("delivery-uncertain");
+          expect(row.deliveryStatus).toBe("uncertain");
+
+          // Content is still preserved even though delivery is unknown.
+          expect(shell.prompt.value).toBe("steer the ship");
+
+          const notices = recoveryNotices(shell);
+          expect(notices).toHaveLength(1);
+          expect(notices[0]).toContain("uncertain");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("accepted delivery leaves the prompt and transcript alone", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const { port, calls } = makeRecoveryPort([{ status: "accepted" }]);
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("steer the ship", "steer");
+          bridge.handle({ type: "tool.boundary" });
+          expect(calls).toHaveLength(1);
+
+          expect(shell.prompt.value).toBe("");
+          expect(drainedUserRow(shell).meta).toBe("steering");
+          expect(recoveryNotices(shell)).toEqual([]);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a second settle for the same item is dropped, never resent", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const { port, calls } = makeRecoveryPort([]);
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("steer the ship", "steer");
+          bridge.handle({ type: "tool.boundary" });
+          expect(calls).toHaveLength(1);
+
+          const settle = calls[0]?.settle;
+          if (settle === undefined)
+            throw new Error("expected a settle callback");
+          settle(CLOSED_RESULT);
+          settle(CLOSED_RESULT);
+
+          expect(calls).toHaveLength(1);
+          expect(shell.prompt.value).toBe("steer the ship");
+          expect(recoveryNotices(shell)).toHaveLength(1);
         } finally {
           bridge.dispose();
           shell.dispose();
