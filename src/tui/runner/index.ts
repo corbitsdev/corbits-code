@@ -199,6 +199,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         };
       },
       subAgentSessions: () => services.subAgentSessions.list(),
+      shellOutputFeed: (callId) => services.toolset.shellOutputFeed.get(callId),
       surfaces: {
         permissions: settings.surfaces.permissions,
         plugins: settings.surfaces.plugins,

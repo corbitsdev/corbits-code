@@ -59,6 +59,7 @@ import { toolResultRow } from "../mcp-view.js";
 import { pushToolCall, pushToolResult } from "../tool-rows.js";
 import type { StreamRow } from "../stream.js";
 import type { QueueKind } from "../session-queue.js";
+import type { ShellOutputFeed } from "../../session/shell-output-feed.js";
 
 export interface RunnerHostDeps {
   readonly title: string;
@@ -142,6 +143,8 @@ export interface RunnerHostDeps {
   readonly subscribeChrome: (notify: () => void) => () => void;
   /** Live subagent sessions for the palette observe action. */
   readonly subAgentSessions: () => readonly SubAgentSession[];
+  /** Per-call bounded live shell-output feeds for the transcript tail. */
+  readonly shellOutputFeed?: (callId: string) => ShellOutputFeed | undefined;
   /**
    * Live data behind the command surfaces (settings, permissions, plugins).
    * `notify` is supplied by the host itself.
@@ -332,6 +335,9 @@ export async function mountRunnerHost(
         lastActivityAt: s.lastActivityAt,
         ...(s.runInFlight !== undefined ? { runInFlight: s.runInFlight } : {}),
       })),
+    ...(deps.shellOutputFeed !== undefined
+      ? { shellOutputFeed: deps.shellOutputFeed }
+      : {}),
     ...(deps.createRenderer !== undefined
       ? { createRenderer: deps.createRenderer }
       : {}),

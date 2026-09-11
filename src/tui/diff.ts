@@ -535,6 +535,7 @@ export function toolCallRow(input: ToolCallRowInput): StreamRow {
     role: "tool",
     text,
     meta,
+    toolName: input.name,
     pending: true,
     callKey,
     ...(input.callId !== undefined ? { callId: input.callId } : {}),

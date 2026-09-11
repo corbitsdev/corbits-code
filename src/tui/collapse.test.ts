@@ -4,9 +4,11 @@
  * shared gutter on its way there.
  */
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { toolCallRow } from "./diff";
 import { resolveSideMargin } from "./geometry/margins";
 import { withTestRenderer } from "./harness";
+import { pushToolCall, pushToolResult } from "./tool-rows";
 import {
   appendStreamRow,
   toggleCollapsedRow,
@@ -18,6 +20,7 @@ import {
   EXPAND_HINT_LABEL,
   isCollapsibleRow,
   paintStreamRow,
+  toolRowLines,
   type RowLayout,
   type StreamRow,
 } from "./stream";
@@ -176,6 +179,39 @@ describe("tool arguments collapse to a human summary", () => {
         expect(shell.streamLog[0]?.expanded).toBe(true);
       },
     );
+  });
+
+  test("a settled shell preview row toggles: expanded hides the preview, collapsed restores it", async () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "run_shell",
+      arguments: JSON.stringify({ command: "make test" }),
+    });
+    pushToolResult(rows, {
+      name: "run_shell",
+      content: "ok\nline2\nline3\nline4\nline5",
+    });
+    const row = defined(rows[0]);
+    expect(row.previewLines?.length).toBe(4);
+    await paint([row], 80, (frame, shell) => {
+      // Collapsed: the preview tail and its elision marker paint.
+      expect(frame).toContain("line3");
+      expect(frame).toContain("⋯ +2 lines");
+      shellFocusTranscript(shell);
+      expect(toggleCollapsedRow(shell)).toBe(true);
+      expect(shell.streamLog[0]?.expanded).toBe(true);
+      // Expanded: the full output replaces the preview tail and marker.
+      const expandedLines = toolRowLines({ ...row, expanded: true })
+        .map((line) => line.map((segment) => segment.text).join(""))
+        .join("\n");
+      expect(expandedLines).toContain("ok");
+      expect(expandedLines).toContain("line5");
+    });
+    await paint([{ ...row, expanded: true }], 80, (_frame, shell) => {
+      shellFocusTranscript(shell);
+      expect(toggleCollapsedRow(shell)).toBe(true);
+      expect(shell.streamLog[0]?.expanded).not.toBe(true);
+    });
   });
 });
 

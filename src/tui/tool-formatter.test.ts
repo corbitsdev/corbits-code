@@ -6,6 +6,7 @@ import {
   isUserFacingJSON,
   describeToolCall,
   humanizeToolName,
+  pastTenseToolLabel,
 } from "./tool-formatter.js";
 
 describe("humanizeToolName", () => {
@@ -546,5 +547,24 @@ describe("spawn_agent activity transcript lines", () => {
     );
     expect(line).toContain("Found 3 call sites in app.tsx");
     expect(line).not.toContain("## Summary");
+  });
+});
+
+describe("pastTenseToolLabel", () => {
+  test("maps known raw tool names", () => {
+    expect(pastTenseToolLabel("grep")).toBe("Grepped");
+    expect(pastTenseToolLabel("read_file")).toBe("Read");
+    expect(pastTenseToolLabel("write_file")).toBe("Wrote");
+    expect(pastTenseToolLabel("edit_file")).toBe("Edited");
+    expect(pastTenseToolLabel("run_shell")).toBe("Ran");
+    expect(pastTenseToolLabel("list_dir")).toBe("Listed");
+    expect(pastTenseToolLabel("search_files")).toBe("Searched");
+    expect(pastTenseToolLabel("delete_file")).toBe("Deleted");
+  });
+
+  test("falls back to the display name for unknown tools", () => {
+    expect(pastTenseToolLabel("totally_unknown_tool")).toBe(
+      "Totally Unknown Tool",
+    );
   });
 });

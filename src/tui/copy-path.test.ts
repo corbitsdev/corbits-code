@@ -122,6 +122,22 @@ describe("formatCopyText / copyStreamRow", () => {
     expect(payload.kind).toBe("tool");
   });
 
+  test("a lane copies the most recent call's full output", () => {
+    const port = createRecordingClipboard();
+    const payload = defined(
+      copyStreamRow(
+        {
+          role: "tool",
+          text: '{"pattern":"a"}',
+          meta: "grep",
+          resultText: "newest output\nmore",
+        },
+        port,
+      ),
+    );
+    expect(payload.text).toBe("[grep] newest output\nmore");
+  });
+
   test("null when no row", () => {
     const port = createRecordingClipboard();
     expect(copyStreamRow(null, port)).toBeNull();

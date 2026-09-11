@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { realpathSync } from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 import type { ToolPlugin } from "@intx/tools-posix";
+import type { ShellOutputFeedMap } from "../session/shell-output-feed.js";
 import {
   killProcessTree,
   type BackgroundShellRegistry,
@@ -25,6 +27,10 @@ import {
 } from "../shell/persistent-shell-cwd.js";
 
 // Corbits Code-side replacement for stock `@intx/tools-posix` run_shell.
+
+/** Minimum interval between live shell-tail emits to the transcript feed. */
+export const SHELL_FEED_EMIT_MS = 100;
+
 // We do not patch interchange: this middleware short-circuits run_shell and
 // enforces an optional timeout (no built-in default — match Pi), an
 // output-byte cap, and process-group kill so open-ended walks cannot OOM the host.
@@ -277,6 +283,7 @@ export async function runGuardedShell(
   signal: AbortSignal,
   liveChildren?: Set<ChildProcess>,
   isDisposed?: () => boolean,
+  onOutput?: (text: string) => void,
 ): Promise<GuardedShellResult> {
   signal.throwIfAborted();
   if (isDisposed?.()) {
@@ -314,9 +321,43 @@ export async function runGuardedShell(
 
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let emitTimer: ReturnType<typeof setTimeout> | undefined;
 
+    // Live-output cadence for the transcript's shell tail (when wired).
+    const decoder = new StringDecoder("utf8");
+    let pendingOutput = "";
+    let lastEmitAt = 0;
+    const clearEmitTimer = (): void => {
+      if (emitTimer !== undefined) {
+        clearTimeout(emitTimer);
+        emitTimer = undefined;
+      }
+    };
+    const emitPendingOutput = (final: boolean): void => {
+      if (onOutput === undefined || pendingOutput.length === 0) {
+        if (final) clearEmitTimer();
+        return;
+      }
+      if (!final) {
+        const wait = SHELL_FEED_EMIT_MS - (Date.now() - lastEmitAt);
+        if (wait > 0) {
+          if (emitTimer === undefined) {
+            emitTimer = setTimeout(() => {
+              emitTimer = undefined;
+              emitPendingOutput(false);
+            }, wait);
+          }
+          return;
+        }
+      }
+      clearEmitTimer();
+      lastEmitAt = Date.now();
+      onOutput(pendingOutput);
+      pendingOutput = "";
+    };
     const clearTimer = () => {
       if (timer !== undefined) clearTimeout(timer);
+      clearEmitTimer();
     };
 
     const settle = (err?: Error) => {
@@ -334,6 +375,8 @@ export async function runGuardedShell(
       settled = true;
       clearTimer();
       abortCleanup();
+      pendingOutput += decoder.end();
+      emitPendingOutput(true);
       const { output, truncated } = collector.build();
       resolve({
         output,
@@ -348,6 +391,12 @@ export async function runGuardedShell(
       // Switch to head+tail collection when over cap; keep the process running so
       // the command can finish and its true exit code is preserved.
       collector.append(chunk);
+      // Live tail for the transcript: buffered between emits so the feed sees
+      // at most one update per SHELL_FEED_EMIT_MS (plus a final flush at
+      // settle). Lossless — dropped cadence windows accumulate, they do not
+      // skip text.
+      pendingOutput += decoder.write(chunk);
+      emitPendingOutput(false);
     };
 
     // Interleave stdout and stderr in arrival order into one collector.
@@ -410,6 +459,9 @@ export interface ShellGuardPluginOptions {
   // Live getter for the background-shell registry. Unwired (undefined result)
   // makes `background: true` fail closed: nothing spawns, no handle returns.
   getBackgroundShellRegistry?: () => BackgroundShellRegistry | undefined;
+  // Live getter for the per-call bounded shell-output feeds the transcript
+  // polls for a running command's live tail. Unwired, the tail is simply not painted.
+  getShellOutputFeeds?: () => ShellOutputFeedMap | undefined;
 }
 
 function resolveAllowOutsideCwd(
@@ -540,6 +592,8 @@ export function shellGuardPlugin(
             };
           }
           const wrappedCommand = wrapCommandWithPwdProbe(command);
+          const feeds = options.getShellOutputFeeds?.();
+          const feed = feeds?.forCall(call.id);
           try {
             const { output, exitCode, timedOut, outputTruncated } =
               await runGuardedShell(
@@ -555,6 +609,11 @@ export function shellGuardPlugin(
                 signal,
                 liveChildren,
                 () => disposed,
+                feed !== undefined
+                  ? (text) => {
+                      feed.append(text);
+                    }
+                  : undefined,
               );
             const parsed = parsePwdProbeOutput(output);
             if (perCallCwdRaw === undefined && parsed.finalCwd !== undefined) {
@@ -591,6 +650,8 @@ export function shellGuardPlugin(
               content: err instanceof Error ? err.message : String(err),
               isError: true,
             };
+          } finally {
+            feeds?.drop(call.id);
           }
         }).catch((err: unknown) => ({
           callId: call.id,

@@ -118,7 +118,9 @@ export function formatCopyText(row: StreamRow): CopyPayload {
   let text: string;
   switch (kind) {
     case "tool":
-      text = meta + row.text;
+      // A coalesced lane copies the most recent call's full output; single
+      // rows carry that in `text` already.
+      text = meta + (row.resultText ?? row.text);
       break;
     case "diff":
       // Rendered edit rows copy the diff itself, not the raw JSON arguments.

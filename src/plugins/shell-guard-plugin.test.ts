@@ -10,9 +10,12 @@ import { spawnSync, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import { createBackgroundShellRegistry } from "../shell/background-shell.js";
+import { createShellOutputFeed } from "../session/shell-output-feed.js";
+
 import {
   BoundedShellOutput,
   MAX_SHELL_OUTPUT_BYTES,
+  SHELL_FEED_EMIT_MS,
   advertiseShellGuardTimeout,
   resolveShellTimeoutMs,
   reapLiveChildren,
@@ -35,6 +38,35 @@ describe("runGuardedShell", () => {
     );
     expect(exitCode).toBe(0);
     expect(output).toContain("hello");
+  });
+
+  test("a rate-limited second write reaches the feed before the process exits", async () => {
+    const feed = createShellOutputFeed();
+    let finished = false;
+    const running = runGuardedShell(
+      { command: "echo first; sleep 0.02; echo second; sleep 0.4" },
+      neverAbort(),
+      undefined,
+      undefined,
+      (text) => {
+        feed.append(text);
+      },
+    ).then((result) => {
+      finished = true;
+      return result;
+    });
+    const deadline = Date.now() + SHELL_FEED_EMIT_MS + 80;
+    while (
+      !feed.snapshot().includes("second") &&
+      Date.now() < deadline &&
+      !finished
+    ) {
+      await Bun.sleep(10);
+    }
+    expect(finished).toBe(false);
+    expect(feed.snapshot()).toContain("second");
+    const result = await running;
+    expect(result.exitCode).toBe(0);
   });
 
   test("omitted timeout does not arm a timer", async () => {
@@ -308,6 +340,66 @@ describe("background run_shell (shellGuardPlugin)", () => {
     expect(String(result.content)).toContain("direct");
     expect(registry.runningCount()).toBe(0);
     registry.disposeAll("test done");
+  });
+
+  test("an unwired shell-output feed spawns fine and paints no tail", async () => {
+    const handler = defined(
+      shellGuardPlugin(process.cwd(), undefined, undefined, {}).middleware,
+    )(fallback);
+    const result = await handler(
+      { id: "fg2", name: "run_shell", arguments: { command: "echo hi" } },
+      neverAbort(),
+    );
+    expect(result.isError).toBeUndefined();
+    expect(String(result.content)).toContain("hi");
+  });
+
+  test("a wired feed receives the output tail at cadence with a final flush", async () => {
+    const feed = createShellOutputFeed();
+    let emits = 0;
+    const handler = defined(
+      shellGuardPlugin(process.cwd(), undefined, undefined, {
+        getShellOutputFeeds: () => {
+          const wrapped = {
+            append: (text: string) => {
+              emits += 1;
+              feed.append(text);
+            },
+            snapshot: () => feed.snapshot(),
+            clear: () => feed.clear(),
+          };
+          return {
+            forCall: () => wrapped,
+            get: () => wrapped,
+            drop: () => undefined,
+          };
+        },
+      }).middleware,
+    )(fallback);
+    const result = await handler(
+      {
+        id: "fg3",
+        name: "run_shell",
+        arguments: {
+          // Fifteen lines ~10 ms apart: far more chunk arrivals than one
+          // cadence window per 100 ms can allow. Without the Date.now() gate
+          // in emitPendingOutput every arrival emits (~16 emissions) and this
+          // ceiling fails — the assertion is what pins the cadence.
+          command:
+            "i=1; while [ $i -le 15 ]; do echo line$i; sleep 0.01; i=$((i+1)); done",
+        },
+      },
+      neverAbort(),
+    );
+    expect(result.isError).toBeUndefined();
+    // The final flush lands the tail (including the last line) in the feed.
+    expect(feed.snapshot()).toContain("line1");
+    expect(feed.snapshot()).toContain("line15");
+    // At most one emit per 100 ms of wall time (~300 ms with the pwd probe
+    // trailer), plus the final flush. Still far below the ~16 arrivals, so a
+    // broken cadence gate cannot pass.
+    const elapsedMs = 350;
+    expect(emits).toBeLessThanOrEqual(Math.ceil(elapsedMs / 100) + 1);
   });
 });
 

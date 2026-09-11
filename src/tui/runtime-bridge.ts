@@ -78,8 +78,10 @@ import {
   canCoalesceCall,
   coalesceCallRows,
   mergeToolRows,
+  shellPreviewLines,
 } from "./tool-rows.js";
 import * as rowUpdates from "./row-update-queue.js";
+import type { ShellOutputFeed } from "../session/shell-output-feed.js";
 import type { StreamRow } from "./stream.js";
 import {
   advanceRevealChars,
@@ -240,6 +242,14 @@ export interface SessionBridge {
    * or similar) on whatever cadence it already polls at.
    */
   syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void;
+  /**
+   * Paint the live output tail of each in-flight `run_shell` from that call's
+   * bounded feed, frame-coalesced. Undefined lookup (or no wired feed at the
+   * host) leaves pending rows untouched.
+   */
+  syncShellOutputs: (
+    feedFor: ((callId: string) => ShellOutputFeed | undefined) | undefined,
+  ) => void;
   /**
    * Stamp the live catalog provider id onto the stream map context so
    * `inference.error` transcript lines can identify known-xAI short 429s
@@ -507,6 +517,11 @@ export interface BridgeBag {
    * length of a slow call — the one case a healthy turn reads as dead.
    */
   toolCallStartedAt: Map<string, number>;
+  /**
+   * Last live shell tail painted per in-flight call, so an unchanged feed
+   * snapshot applies no row update.
+   */
+  shellSnapshots: Map<string, string>;
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number;
   /**
@@ -889,8 +904,8 @@ export function flushStreamRowUpdates(shell: AppShell): void {
 }
 
 /**
- * Paint a tool call. A repeat of the call the previous row already painted
- * collapses onto that row instead of opening a new one.
+ * Paint a tool call. A consecutive call to the same raw toolName collapses
+ * onto the previous row instead of opening a new one.
  */
 function applyToolCall(
   shell: AppShell,
@@ -907,6 +922,7 @@ function applyToolCall(
   const row = toolCallRow({
     name: event.name,
     ...(event.detail !== undefined ? { arguments: event.detail } : {}),
+    ...(event.callId !== undefined ? { callId: event.callId } : {}),
   });
   const count = streamRowCount(shell);
   const tail = streamRowAt(shell, count - 1);
@@ -962,6 +978,7 @@ function applyToolResult(
   if (event.callId !== undefined) {
     bag.toolRows.delete(event.callId);
     bag.toolCallStartedAt.delete(event.callId);
+    bag.shellSnapshots.delete(event.callId);
     // spawn_agent's immediate running JSON is not the end of the worker —
     // keep the row in taskCallIds / spawnProgressRows until the session
     // leaves the running set (see syncAgentProgress).
@@ -971,6 +988,14 @@ function applyToolResult(
     }
   }
   if (bag.toolRows.size === 0) shell.inFlightTool = null;
+  // An id that matches nothing on the log answers nothing: it is appended as
+  // its own row rather than folding onto whichever row happens to be last
+  // (the spec's never-misattribute rule). Only id-less results — saved
+  // history from before ids existed — keep the newest-row fallback.
+  if (tracked === undefined && event.callId !== undefined) {
+    appendStreamRow(shell, result);
+    return;
+  }
   const index = tracked ?? bag.lastToolRow;
   // A close seam: apply any coalesced update first so the merge reads it.
   const rawCall =
@@ -1038,6 +1063,41 @@ function omitStat(row: StreamRow): StreamRow {
 }
 
 /**
+ * Paint the live tail of each running `run_shell` onto the pending row that
+ * owns that call, frame-coalesced. `feedFor` looks up the call's bounded
+ * feed; when it is not wired the row renders exactly as before.
+ * `shellSnapshots` dedupes so an unchanged snapshot applies nothing.
+ */
+function syncShellOutputs(
+  shell: AppShell,
+  bag: BridgeBag,
+  feedFor: ((callId: string) => ShellOutputFeed | undefined) | undefined,
+): void {
+  if (bag.disposed || feedFor === undefined || bag.toolRows.size === 0) return;
+  for (const [callId, index] of bag.toolRows) {
+    const row = bag.pendingRowUpdates.get(index) ?? streamRowAt(shell, index);
+    if (row === undefined || row.pending !== true) continue;
+    if (row.toolName !== "run_shell") continue;
+    const feed = feedFor(callId);
+    if (feed === undefined) continue;
+    const preview = shellPreviewLines(feed.snapshot()) ?? [];
+    const key = preview.join("\n");
+    if (bag.shellSnapshots.get(callId) === key) continue;
+    bag.shellSnapshots.set(callId, key);
+    // Consecutive in-flight shells share a lane. An empty sibling snapshot
+    // must not clear a tail another member already painted.
+    if (
+      preview.length === 0 &&
+      row.previewLines !== undefined &&
+      row.previewLines.length > 0
+    ) {
+      continue;
+    }
+    rowUpdates.scheduleRowUpdate(bag, index, { ...row, previewLines: preview });
+  }
+}
+
+/**
  * Refresh every plain in-flight tool call's row with how long it has been
  * running, frame-coalesced. `spawn_agent` dispatches already get this (and
  * more) from `syncAgentProgress`, so they are skipped here.
@@ -1098,6 +1158,7 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
       bag.toolCallStartedAt.delete(callId);
       bag.taskCallIds.delete(callId);
       bag.spawnProgressRows.delete(callId);
+      bag.shellSnapshots.delete(callId);
     }
   }
   if (bag.lastToolRow >= boundary) bag.lastToolRow = -1;
@@ -1338,6 +1399,7 @@ export function attachSessionBridge(
     now,
     toolRows: new Map(),
     toolCallStartedAt: new Map(),
+    shellSnapshots: new Map(),
     lastToolRow: -1,
     taskCallIds: new Set(),
     spawnProgressRows: new Map(),
@@ -1868,6 +1930,9 @@ export function attachSessionBridge(
       if (bag.disposed) return;
       bag.agentSessions = sessions;
       syncAgentProgress(shell, bag, sessions, now());
+    },
+    syncShellOutputs: (feedFor) => {
+      syncShellOutputs(shell, bag, feedFor);
     },
     setInferenceProviderId: (id, displayLabel) => {
       if (bag.disposed) return;

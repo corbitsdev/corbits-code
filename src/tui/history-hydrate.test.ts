@@ -41,6 +41,7 @@ describe("rowFromHistoryBlock", () => {
       role: "tool",
       text: "pattern x",
       meta: "grep",
+      toolName: "grep",
       verb: "Grep",
       summary: "pattern x",
       pending: true,
@@ -62,6 +63,7 @@ describe("rowFromHistoryBlock", () => {
       role: "tool",
       text: "…",
       meta: "tool",
+      toolName: "tool",
       pending: true,
       callKey: "tool  ",
     });
@@ -75,14 +77,20 @@ describe("rowFromHistoryBlock", () => {
         content: "ok",
         isError: false,
       }),
-    ).toEqual({ role: "tool", text: "ok", meta: "bash" });
+    ).toEqual({ role: "tool", text: "ok", meta: "bash", toolName: "bash" });
     expect(
       rowFromHistoryBlock({
         type: "tool_result",
         name: "bash",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "error", meta: "bash", failed: true });
+    ).toEqual({
+      role: "tool",
+      text: "error",
+      meta: "bash",
+      toolName: "bash",
+      failed: true,
+    });
   });
 
   test("error and unknown", () => {
@@ -252,6 +260,38 @@ describe("hydrateHistoryRows", () => {
     expect(rows.length).toBe(3);
     expect(rows.every((r) => r.pending !== true)).toBe(true);
     expect(rows.map((r) => r.text)).toEqual(["done c1", "done c2", "done c3"]);
+  });
+
+  test("reconstructs a lane of consecutive greps with memberIds result pairing", () => {
+    const rows = hydrateHistoryRows([
+      {
+        type: "tool_call",
+        name: "grep",
+        arguments: '{"pattern":"a"}',
+        callId: "g1",
+      },
+      {
+        type: "tool_call",
+        name: "grep",
+        arguments: '{"pattern":"b"}',
+        callId: "g2",
+      },
+      {
+        type: "tool_call",
+        name: "grep",
+        arguments: '{"pattern":"c"}',
+        callId: "g3",
+      },
+      { type: "tool_result", name: "grep", content: "3 lines", callId: "g1" },
+      { type: "tool_result", name: "grep", content: "5 lines", callId: "g2" },
+      { type: "tool_result", name: "grep", content: "7 lines", callId: "g3" },
+    ]);
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.coalesced).toBe(true);
+    expect(rows[0]?.callCount).toBe(3);
+    expect(rows[0]?.memberIds).toEqual(["g1", "g2", "g3"]);
+    expect(rows[0]?.pending).toBeUndefined();
+    expect(rows[0]?.detail?.length).toBe(3);
   });
 
   test("non-array returns empty", () => {
