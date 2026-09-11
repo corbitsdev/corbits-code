@@ -186,10 +186,18 @@ export interface ChromeZoneContent {
 export function formatChromeZones(
   state: ChromeLiveState,
   nowMs: number = Date.now(),
+  lingerMs: number = AGENTS_PANEL_LINGER_MS,
 ): FormattedChromeZones {
   return {
     task: null,
-    agents: formatAgentsPanel(state.agents, state.observe, nowMs),
+    agents: formatAgentsPanel(
+      state.agents,
+      state.observe,
+      nowMs,
+      AGENTS_PANEL_MAX_VISIBLE,
+      DEFAULT_STALL_MS,
+      lingerMs,
+    ),
   };
 }
 

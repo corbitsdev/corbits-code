@@ -6,7 +6,6 @@ import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
 import type { PermissionRequest } from "../permission/types.js";
-import { AGENTS_PANEL_LINGER_MS } from "./chrome-state.js";
 import { createHarness } from "./harness.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import {
@@ -297,10 +296,16 @@ describe("mountProductHost", () => {
     }
   });
 
+  // Production holds finished rows for 4s; a short override keeps the
+  // assertion (sticky poll clears the zone once linger expires, no
+  // setChrome) identical without paying the full window in wall clock.
+  const TEST_AGENTS_PANEL_LINGER_MS = 300;
+
   test("sticky ticks clear the agents zone after linger without setChrome", async () => {
     const now = Date.now();
     const { host, renderOnce, captureCharFrame, destroyHarness } =
       await mountHeadless({
+        agentsPanelLingerMs: TEST_AGENTS_PANEL_LINGER_MS,
         chrome: {
           agents: [
             {
@@ -321,7 +326,9 @@ describe("mountProductHost", () => {
       expect(captureCharFrame()).toContain("map callers");
 
       // Only sticky poll may clear — no setChrome. Wait past linger + one tick.
-      await new Promise((r) => setTimeout(r, AGENTS_PANEL_LINGER_MS + 500));
+      await new Promise((r) =>
+        setTimeout(r, TEST_AGENTS_PANEL_LINGER_MS + 500),
+      );
       await renderOnce();
       expect(host.shell.layout.heights.agents).toBe(0);
       expect(captureCharFrame()).not.toContain("map callers");

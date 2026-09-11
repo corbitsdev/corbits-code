@@ -19,6 +19,7 @@ import { openAddProviderOverlay, openModelPickerOverlay } from "./overlays.js";
 import { wireGates } from "./gate-wire.js";
 import { createSystemClipboard } from "./system-clipboard.js";
 import {
+  AGENTS_PANEL_LINGER_MS,
   agentsChromeNeedsSticky,
   formatChromeZones,
   type ChromeLiveState,
@@ -165,6 +166,13 @@ export interface ProductHostConfig {
   readonly onCommand?: (name: string) => void;
   /** Optional initial chrome snapshot. */
   readonly chrome?: ChromeLiveState | null;
+  /**
+   * Override the agents-strip post-finish linger window. Production never sets
+   * it, keeping the 4s default; tests set it short so the sticky-poll linger
+   * test doesn't pay the full window in wall clock (same pattern as the tool
+   * watchdog's salvageGraceMs override).
+   */
+  readonly agentsPanelLingerMs?: number;
   /**
    * Resolves the live subagent session for the palette "observe" action.
    * Unset falls back to the shell's demo fixture — production must supply
@@ -339,13 +347,18 @@ export async function mountProductHost(
 
   // Live chrome is pushed by the caller; the subagent store owns per-agent
   // tool state (name + clock), so the host paints zones straight from it.
+  const agentsPanelLingerMs =
+    config.agentsPanelLingerMs ?? AGENTS_PANEL_LINGER_MS;
   let chromeState: ChromeLiveState | null = config.chrome ?? null;
   const paintChromeZones = (): void => {
     if (chromeState === null) {
       setChromeZones(shell, { task: null, agents: null });
       return;
     }
-    setChromeZones(shell, formatChromeZones(chromeState));
+    setChromeZones(
+      shell,
+      formatChromeZones(chromeState, Date.now(), agentsPanelLingerMs),
+    );
   };
   if (chromeState !== null) paintChromeZones();
 
@@ -362,7 +375,11 @@ export async function mountProductHost(
   // strip never clears when linger expires without a store notify.
   let stickyWasNeeded =
     chromeState !== null &&
-    agentsChromeNeedsSticky(chromeState.agents, Date.now());
+    agentsChromeNeedsSticky(
+      chromeState.agents,
+      Date.now(),
+      agentsPanelLingerMs,
+    );
   const stickyPoll = setInterval(() => {
     if (disposed) return;
     try {
@@ -372,7 +389,11 @@ export async function mountProductHost(
       // false→true edges both paint via the stickyWasNeeded latch below.
       const stickyNeeded =
         chromeState !== null &&
-        agentsChromeNeedsSticky(chromeState.agents, Date.now());
+        agentsChromeNeedsSticky(
+          chromeState.agents,
+          Date.now(),
+          agentsPanelLingerMs,
+        );
       if (stickyNeeded || stickyWasNeeded) {
         paintChrome(shell);
       }
