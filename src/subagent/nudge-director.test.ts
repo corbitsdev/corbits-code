@@ -270,6 +270,45 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(ephemeralTexts(later)).toBeUndefined();
   });
 
+  test("recovery nudge appends to ephemeral turns already on the infer", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+    // Seed an ephemeral turn only when the caller did not supply any, so the
+    // infer action applyPendingNudge rewrites already carries ephemeral turns.
+    const seeding: ReactorCapabilities = {
+      ...caps,
+      infer: (options) => {
+        const existing = (options as { ephemeralTurns?: unknown[] } | undefined)
+          ?.ephemeralTurns;
+        return caps.infer({
+          ...(options ?? {}),
+          ...(existing === undefined
+            ? {
+                ephemeralTurns: [
+                  {
+                    role: "user",
+                    content: [{ type: "text", text: "PRE-SEEDED-EPHEMERAL" }],
+                    timestamp: 0,
+                  },
+                ],
+              }
+            : {}),
+        });
+      },
+    };
+
+    await director.decide(inferenceDone(["seeded-fail"]), state, seeding);
+    const texts = ephemeralTexts(
+      inferAction(
+        await director.decide(toolDone("seeded-fail", true), state, seeding),
+      ),
+    );
+
+    expect(texts).toHaveLength(2);
+    expect(texts?.[0]).toBe("PRE-SEEDED-EPHEMERAL");
+    expect(texts?.[1]).toContain("A tool call failed");
+  });
+
   test("failed-tool recovery supersedes soft re-read guidance", async () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = capabilities();
