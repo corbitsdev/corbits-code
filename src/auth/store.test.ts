@@ -114,6 +114,102 @@ describe("createAuthStore", () => {
     }
   });
 
+  test("keeps a same-process burst of profile saves without shared-deadline loss", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-burst-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+
+      // Without the per-path queue, a large same-process burst shares one lock
+      // deadline from invoke time and some waiters time out. With the queue,
+      // each save gets its own window and all land.
+      const names = Array.from(
+        { length: 50 },
+        (_, index) => `profile-${String(index)}`,
+      );
+      const results = await Promise.allSettled(
+        names.map((name) =>
+          store.saveProfile(
+            {
+              name,
+              tokens: {
+                access: `access-${name}`,
+                refresh: `refresh-${name}`,
+                expiresAt: 1,
+              },
+              createdAt: 1,
+            },
+            home,
+          ),
+        ),
+      );
+
+      const failures = results.flatMap((result, index) =>
+        result.status === "rejected"
+          ? [`${names[index]}: ${String(result.reason)}`]
+          : [],
+      );
+      expect(failures).toEqual([]);
+      expect(
+        (await store.listProfiles(home)).map((profile) => profile.name),
+      ).toEqual([...names].sort());
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("gives queued same-process writes their own lock window", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-queue-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+      await store.saveProfile(
+        {
+          name: "work",
+          tokens: { access: "a", refresh: "r", expiresAt: 1 },
+          createdAt: 1,
+        },
+        home,
+      );
+
+      // Hold the lock until the head of the same-process queue times out; the
+      // queued write must still get its own lock window after we release.
+      // `second` may already be polling when `first` rejects — release must land
+      // inside LOCK_TIMEOUT_MS of that handoff.
+      const lockPath = `${store.authPath(home)}.lock`;
+      await writeFile(lockPath, "foreign", { mode: 0o600 });
+
+      const first = store.updateTokens(
+        "work",
+        { access: "first", refresh: "r1", expiresAt: 2 },
+        home,
+      );
+      const second = store.updateTokens(
+        "work",
+        { access: "second", refresh: "r2", expiresAt: 3 },
+        home,
+      );
+
+      await expect(first).rejects.toThrow(
+        "Timed out waiting for OAuth credential lock",
+      );
+      await rm(lockPath, { force: true });
+      await expect(second).resolves.toBeUndefined();
+
+      expect((await store.loadProfile("work", home))?.tokens.access).toBe(
+        "second",
+      );
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("round-trips profiles under an injected home and survives corrupt files", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-"));
     try {
