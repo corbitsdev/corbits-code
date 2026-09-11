@@ -311,24 +311,6 @@ export class SubAgentDirector extends DefaultDirector {
         this.thrashState = nextThrashState(this.thrashState, content);
       }
 
-      if (
-        !hasToolCalls &&
-        !this.verbatimToolCallNudgeFired &&
-        hasVerbatimToolCallMarkup(content)
-      ) {
-        this.verbatimToolCallNudgeFired = true;
-        this.interventions({
-          id: "verbatim-tool-call",
-          class: "nudge",
-          state: this.interventionState(),
-          detail: "assistant emitted explicit tool-call markup as text",
-        });
-        return [
-          capabilities.checkpoint("subagent-verbatim-tool-call-nudge"),
-          inferWithSubAgentNudge(capabilities, VERBATIM_TOOL_CALL_NUDGE),
-        ];
-      }
-
       const stop = evaluateSubAgentStop({
         hasToolCalls,
         thrashState: this.thrashState,
@@ -351,6 +333,27 @@ export class SubAgentDirector extends DefaultDirector {
         );
         if (compacted !== null) return compacted;
         return terminal;
+      }
+
+      // Below the stop policy so a finished report that merely quotes
+      // tool-call markup still completes; a markup turn with no envelope
+      // gets the corrective nudge instead of the generic wrap-up one.
+      if (
+        !hasToolCalls &&
+        !this.verbatimToolCallNudgeFired &&
+        hasVerbatimToolCallMarkup(content)
+      ) {
+        this.verbatimToolCallNudgeFired = true;
+        this.interventions({
+          id: "verbatim-tool-call",
+          class: "nudge",
+          state: this.interventionState(),
+          detail: "assistant emitted explicit tool-call markup as text",
+        });
+        return [
+          capabilities.checkpoint("subagent-verbatim-tool-call-nudge"),
+          inferWithSubAgentNudge(capabilities, VERBATIM_TOOL_CALL_NUDGE),
+        ];
       }
       if (stop === "incomplete-report") {
         // Tool-less turn after tools, no report envelope. Must not fall through
