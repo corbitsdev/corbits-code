@@ -179,6 +179,83 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(texts?.[0]).toContain("report the blocker");
   });
 
+  test("coalesces consecutive failed tool audits into one counted intervention", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+    const records: { id: string; count?: number }[] = [];
+    director.observeInterventions((event) => {
+      records.push(
+        event.count === undefined
+          ? { id: event.id }
+          : { id: event.id, count: event.count },
+      );
+    });
+
+    await director.decide(
+      inferenceDone(["fail-a", "fail-b", "ok-c"]),
+      state,
+      caps,
+    );
+    await director.decide(toolDone("fail-a", true), state, caps);
+    expect(records).toEqual([]);
+    await director.decide(toolDone("fail-b", true), state, caps);
+    expect(records).toEqual([]);
+
+    const texts = ephemeralTexts(
+      inferAction(await director.decide(toolDone("ok-c"), state, caps)),
+    );
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("A tool call failed");
+    expect(records).toEqual([{ id: "tool-failure-recovery", count: 2 }]);
+  });
+
+  test("a single failed tool audit omits the count field", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+    const records: { id: string; count: number | null }[] = [];
+    director.observeInterventions((event) => {
+      records.push({ id: event.id, count: event.count ?? null });
+    });
+
+    await director.decide(inferenceDone(["fail-a"]), state, caps);
+    await director.decide(toolDone("fail-a", true), state, caps);
+    await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
+
+    expect(records).toEqual([{ id: "tool-failure-recovery", count: null }]);
+  });
+
+  test("flushes an undelivered recovery burst when the run goes terminal", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+    const records: { id: string; count?: number }[] = [];
+    director.observeInterventions((event) => {
+      records.push(
+        event.count === undefined
+          ? { id: event.id }
+          : { id: event.id, count: event.count },
+      );
+    });
+
+    // ok-c stays pending so the armed recovery nudge never reaches an infer.
+    await director.decide(
+      inferenceDone(["fail-a", "fail-b", "ok-c"]),
+      state,
+      caps,
+    );
+    await director.decide(toolDone("fail-a", true), state, caps);
+    await director.decide(toolDone("fail-b", true), state, caps);
+    expect(records).toEqual([]);
+
+    const result = actions(
+      await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps),
+    );
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-complete",
+    });
+    expect(records).toEqual([{ id: "tool-failure-recovery", count: 2 }]);
+  });
+
   test("successful tool result has no ephemeral recovery turn", async () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = capabilities();

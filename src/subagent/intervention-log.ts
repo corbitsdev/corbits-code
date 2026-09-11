@@ -90,6 +90,12 @@ export interface InterventionRecord {
   };
   /** Free-form specifics, kept short (a looped window, a refused fingerprint). */
   detail?: string;
+  /**
+   * How many consecutive same-trigger audits this record represents. Present when
+   * the director coalesced a burst (e.g. several failed tool.done events before
+   * the pending recovery nudge was consumed) into one flush. Absent means one.
+   */
+  count?: number;
 }
 
 /** Fields every record from one run shares, supplied once at construction. */
