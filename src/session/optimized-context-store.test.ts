@@ -728,6 +728,68 @@ describe("createOptimizedContextStore checkpoint", () => {
     expect(tree).not.toContain("partial.jsonl");
     expect(tree).not.toContain("untracked-junk.txt");
   });
+
+  test("commits an on-disk extra turn segment that is not in HEAD without writeTurns", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("a")]);
+    await store.writePrompt([turn("p0")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "base" });
+
+    const extraTurns = segmentFileName(TURNS_FILE, 1);
+    const extraPrompt = segmentFileName("prompt.jsonl", 1);
+    fs.writeFileSync(path.join(dir, extraTurns), jsonl([turn("b")]));
+    fs.writeFileSync(path.join(dir, extraPrompt), jsonl([turn("p")]));
+
+    const crashed = await createOptimizedContextStore(dir);
+    const second = await crashed.commit({ message: "heal extra segments" });
+    expect(second.hash).not.toBe(first.hash);
+
+    const tree = await gitLsTree(dir);
+    expect(tree).toContain(extraTurns);
+    expect(tree).toContain(extraPrompt);
+  });
+
+  test("pending extra turn segment prevents empty-checkpoint skip", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const turns: ConversationTurn[] = [];
+    const big = "x".repeat(20_000);
+    for (let i = 0; i < 14; i++) {
+      turns.push(turn(`${i}-${big}`));
+      await store.writeTurns([...turns]);
+    }
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "base" });
+
+    for (let i = 14; i < 18; i++) {
+      turns.push(turn(`${i}-${big}`));
+      await store.writeTurns([...turns]);
+    }
+    const extraTurns = segmentFileName(TURNS_FILE, 1);
+    expect(fs.existsSync(path.join(dir, extraTurns))).toBe(true);
+
+    const second = await store.commit({ message: "pending extra" });
+    expect(second.hash).not.toBe(first.hash);
+    expect(await gitLsTree(dir)).toContain(extraTurns);
+  });
+
+  test("staged compact with unchanged disk still commits instead of returning HEAD", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("keep-a"), turn("keep-b"), turn("drop-me")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "published original" });
+
+    await store.writeTurns([turn("[Compacted prior context]"), turn("keep-b")]);
+    const second = await store.commit({ message: "publish compact" });
+    expect(second.hash).not.toBe(first.hash);
+    expect(turnTexts((await store.load()).turns)).toEqual([
+      "[Compacted prior context]",
+      "keep-b",
+    ]);
+  });
 });
 
 describe("createSessionStores", () => {

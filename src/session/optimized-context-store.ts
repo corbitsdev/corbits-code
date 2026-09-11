@@ -742,28 +742,6 @@ export async function createSessionStores(
         const headBefore = stagedRewrite === null ? null : await headOid(dir);
         let extraPaths: string[] = [];
 
-        // Empty managed checkpoints must not create a new commit or stage
-        // session junk such as partial.jsonl. A staged unpublished rewrite
-        // is still unpublished on disk — skip would swallow the compact
-        // without writing it, so that path always goes through commit.
-        if (stagedRewrite === null) {
-          const managedFilepaths = [
-            ...VENDOR_COMMIT_ROOT_FILES,
-            TOOL_OUTPUT_DIR,
-            EVIDENCE_ARCHIVE_DIR,
-            ...pendingSegmentPaths,
-            ...pendingBlobFilepaths,
-          ];
-          if (!(await managedPathsDiffer(dir, managedFilepaths))) {
-            const [head] = await base.log(1);
-            if (head !== undefined) {
-              pendingBlobFilepaths.clear();
-              pendingSegmentPaths.clear();
-              return head;
-            }
-          }
-        }
-
         try {
           if (stagedRewrite !== null) {
             await writeSegmented(writeTurnsSegmented, stagedRewrite);
@@ -787,6 +765,31 @@ export async function createSessionStores(
 
           if (await pathExists(path.join(dir, EVIDENCE_ARCHIVE_DIR))) {
             toAdd.push(EVIDENCE_ARCHIVE_DIR);
+          }
+
+          // Empty managed checkpoints must not create a new commit or stage
+          // session junk such as partial.jsonl. Discover extra turn/prompt
+          // segments first so a crash that left them untracked cannot skip.
+          // A staged unpublished rewrite is still unpublished on disk — skip
+          // would swallow the compact without writing it.
+          if (stagedRewrite === null) {
+            const managedFilepaths = [
+              ...VENDOR_COMMIT_ROOT_FILES,
+              TOOL_OUTPUT_DIR,
+              EVIDENCE_ARCHIVE_DIR,
+              ...pendingSegmentPaths,
+              ...pendingBlobFilepaths,
+              ...toAdd,
+              ...toRemove,
+            ];
+            if (!(await managedPathsDiffer(dir, managedFilepaths))) {
+              const [head] = await base.log(1);
+              if (head !== undefined) {
+                pendingBlobFilepaths.clear();
+                pendingSegmentPaths.clear();
+                return head;
+              }
+            }
           }
 
           const add = extraCommitPaths([...new Set(toAdd)]);
