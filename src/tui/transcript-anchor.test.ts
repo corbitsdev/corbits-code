@@ -6,9 +6,29 @@
  */
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness";
+import type { Harness } from "./harness";
 import { appendStreamRow } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
+
+/**
+ * Render until `needle` appears in the character frame, or the deadline
+ * elapses. Markdown bodies highlight asynchronously via the tree-sitter
+ * worker, whose startup/IPC can exceed a fixed sleep under --parallel load.
+ */
+async function frameWith(
+  h: Harness,
+  needle: string,
+  timeoutMs = 3_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    await h.renderOnce();
+    const frame = h.captureCharFrame();
+    if (frame.includes(needle) || Date.now() > deadline) return frame;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
 
 /** Index of the first line whose trimmed content starts with `needle`. */
 function lineIndex(frame: string, needle: string): number {
@@ -43,10 +63,10 @@ async function paint(
         for (let i = 0; i < rowCount; i++) {
           appendStreamRow(shell, { role: "assistant", text: `line ${i}` });
         }
-        // Markdown bodies highlight asynchronously.
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        await h.renderOnce();
-        inspect(h.captureCharFrame(), shell);
+        // Markdown bodies highlight asynchronously; wait for the newest row
+        // to actually paint instead of sleeping a fixed window.
+        const frame = await frameWith(h, `line ${rowCount - 1}`);
+        inspect(frame, shell);
       } finally {
         shell.dispose();
       }
@@ -98,16 +118,12 @@ describe("transcript bottom-anchoring", () => {
           for (let i = 0; i < 3; i++) {
             appendStreamRow(shell, { role: "assistant", text: `line ${i}` });
           }
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          await h.renderOnce();
-          const before = h.captureCharFrame();
+          const before = await frameWith(h, "line 2");
           const promptTopBefore = promptTopIndex(before);
           const rowTwoBefore = before.split("\n")[promptTopBefore - 1] ?? "";
 
           appendStreamRow(shell, { role: "assistant", text: "line 3" });
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          await h.renderOnce();
-          const after = h.captureCharFrame();
+          const after = await frameWith(h, "line 3");
           const promptTopAfter = promptTopIndex(after);
           const rowTwoAfter = after.split("\n")[promptTopAfter - 2] ?? "";
 
