@@ -1030,11 +1030,12 @@ export function createPruningCompactor(
       );
       const supersededReads = supersededReadCallIds(pathToReads);
 
+      const summaryCtx = cfg.summaryContext?.();
       let summary: string;
       try {
         summary =
           cfg.summarize !== undefined
-            ? await cfg.summarize(summarizedTurns, cfg.summaryContext?.())
+            ? await cfg.summarize(summarizedTurns, summaryCtx)
             : buildTurnSummary(
                 summarizedTurns,
                 cfg.summaryMaxChars,
@@ -1076,9 +1077,20 @@ export function createPruningCompactor(
       // whenever a system-prompt override is set, and the Grok builder emits
       // them as a stray mid-stream system message. Framing the summary as user
       // content keeps it in the conversation on every provider.
+      // The activated set outlives the fold (it rides the wire, not the
+      // dropped turns), so the handoff states it verbatim — the summary would
+      // otherwise leave the model guessing whether the names it saw activated
+      // earlier are still callable.
+      const activatedTools = summaryCtx?.activatedTools ?? [];
+      const toolsLine =
+        activatedTools.length > 0
+          ? `\n\nTools still activated and callable directly (no tool_search needed): ${activatedTools.join(", ")}`
+          : "";
       const summaryTurn: ConversationTurn = {
         role: "user",
-        content: [{ type: "text", text: `${COMPACTED_PREFIX}\n${summary}` }],
+        content: [
+          { type: "text", text: `${COMPACTED_PREFIX}\n${summary}${toolsLine}` },
+        ],
         timestamp: olderTurns[olderTurns.length - 1]?.timestamp ?? Date.now(),
       };
 

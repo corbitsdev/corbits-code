@@ -44,9 +44,16 @@ const sessionStartLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 export interface ResumeSeed {
   turnsUsed: number;
   mcpServers: ConnectedMcpServer[];
+  // tool_search-promoted tool names from the prior run, re-activated before
+  // the first post-resume inference so the wire matches the transcript.
+  activatedTools: string[];
 }
 
-const FRESH_RESUME_SEED: ResumeSeed = { turnsUsed: 0, mcpServers: [] };
+const FRESH_RESUME_SEED: ResumeSeed = {
+  turnsUsed: 0,
+  mcpServers: [],
+  activatedTools: [],
+};
 
 /**
  * Fold a resumed session's run.json into a concrete seed once, at the
@@ -61,6 +68,7 @@ export function resolveResumeSeed(pickedState: RunState | null): ResumeSeed {
   return {
     turnsUsed: pickedState.turnsUsed,
     mcpServers: pickedState.mcpServers ?? [],
+    activatedTools: pickedState.activatedTools ?? [],
   };
 }
 
@@ -113,6 +121,7 @@ export function createTUICrashGuard(
     // still reach that listener with the handle live, so it's cleared here
     // too to close that earlier window.
     const turnsUsed = getActiveRun()?.turnsUsed ?? 0;
+    const activatedTools = getActiveRun()?.activatedTools;
     clearActiveRun();
     clearActiveDisposeHost();
     await flushPartialOnCrash().catch((flushErr: unknown) => {
@@ -141,6 +150,7 @@ export function createTUICrashGuard(
       error: message,
       model: `${live.providerName}:${live.model}`,
       mcpServers: [],
+      ...(activatedTools !== undefined ? { activatedTools } : {}),
     }).catch((saveErr: unknown) => {
       const saveMessage =
         saveErr instanceof Error ? saveErr.message : String(saveErr);
@@ -254,6 +264,17 @@ export async function prepareTUISession(
       pickedState !== null
         ? { ...config, sessionId, task: pickedState.task }
         : { ...config, sessionId, task: runTaskTitle };
+  } else if (config.resumeMode === "id") {
+    // `resume <id>` resolved the session id in loadConfig but never read
+    // run.json — load it here so turnsUsed, mcpServers, and activatedTools
+    // carry forward. runTaskTitle stays config.task: the CLI already folded
+    // the prior task into it when no new task text was given.
+    const loaded = await loadState(config.cwd, sessionId);
+    const pickedState = loaded.kind === "ok" ? loaded.state : null;
+    resumeSeed = resolveResumeSeed(pickedState);
+    if (pickedState !== null) {
+      startedAt = pickedState.startedAt;
+    }
   }
 
   const workdir = sessionContextDir(config.cwd, sessionId);
@@ -272,6 +293,7 @@ export async function prepareTUISession(
     startedAt,
     model: `${config.providerName}:${config.model}`,
     mcpServers: resumeSeed.mcpServers,
+    activatedTools: resumeSeed.activatedTools,
   });
 
   // Registered the moment a run starts so the top-level uncaughtException /
@@ -288,6 +310,7 @@ export async function prepareTUISession(
     startedAt,
     turnsUsed: resumeSeed.turnsUsed,
     model: `${config.providerName}:${config.model}`,
+    activatedTools: resumeSeed.activatedTools,
   };
   setActiveRun(activeRunHandle);
 

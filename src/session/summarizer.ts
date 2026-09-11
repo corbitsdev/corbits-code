@@ -37,6 +37,10 @@ export interface SummaryContext {
     stepIndex?: number;
     total?: number;
   };
+  // Tool names activated via tool_search and still on the wire. Pinned names
+  // live in the advertised prefix, not this list — callers pass
+  // activatedToolNames.list() only.
+  activatedTools?: string[];
 }
 
 const SYSTEM_INSTRUCTION = [
@@ -129,7 +133,7 @@ export function condenseTurns(turns: ConversationTurn[]): string {
   return sections.filter((s): s is string => s !== null).join("\n\n");
 }
 
-function workflowPreamble(ctx: SummaryContext | undefined): string {
+function contextPreamble(ctx: SummaryContext | undefined): string {
   const parts: string[] = [];
   const wf = ctx?.workflow;
   if (wf !== undefined && wf.name !== undefined) {
@@ -141,6 +145,12 @@ function workflowPreamble(ctx: SummaryContext | undefined): string {
           : "";
     parts.push(
       `Active workflow: /${wf.name}${step}\nThis session is mid-workflow — preserve everything needed to resume it.`,
+    );
+  }
+  const tools = ctx?.activatedTools ?? [];
+  if (tools.length > 0) {
+    parts.push(
+      `Tools activated via tool_search and still callable directly: ${tools.join(", ")}`,
     );
   }
   if (parts.length === 0) return "";
@@ -157,7 +167,7 @@ export function buildSummaryPrompt(
     excerpt !== undefined && excerpt.length > 0
       ? excerpt
       : condenseTurns(turns);
-  return `${workflowPreamble(ctx)}Session excerpt:\n\n${body}`;
+  return `${contextPreamble(ctx)}Session excerpt:\n\n${body}`;
 }
 
 // Per-call wall-clock cap for the summary call. Compaction runs inline on the

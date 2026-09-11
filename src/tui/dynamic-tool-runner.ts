@@ -25,6 +25,13 @@ export type DynamicToolRunner = AgentToolRunner & {
   addTools(tools: AgentTool[]): void;
   removeTools(names: string[]): void;
   currentDefinitions(): ToolDefinition[];
+  /**
+   * When a gate is set, run() refuses a registered tool whose name is not on
+   * the current wire (built-in prefix + pinned + activated) with an error
+   * pointing at tool_search, instead of silently dispatching. Without a gate
+   * every registered tool stays dispatchable — sub-agent runners never set one.
+   */
+  setCallGate(isCallable: (name: string) => boolean): void;
 };
 
 export function createDynamicToolRunner(
@@ -32,6 +39,7 @@ export function createDynamicToolRunner(
   watchdogConfig?: ToolWatchdogConfig,
 ): DynamicToolRunner {
   const byName = new Map<string, AgentTool>();
+  let callGate: ((name: string) => boolean) | undefined;
 
   const addTools = (tools: AgentTool[]): void => {
     const incoming = new Set<string>();
@@ -60,12 +68,29 @@ export function createDynamicToolRunner(
     addTools,
     removeTools,
     currentDefinitions,
+    setCallGate(isCallable: (name: string) => boolean): void {
+      callGate = isCallable;
+    },
     async run(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
       const found = byName.get(call.name);
       if (found === undefined) {
         return {
           callId: call.id,
           content: `unknown tool: ${call.name}`,
+          isError: true,
+        };
+      }
+      // The model can only intend a name it saw on the wire. A registered tool
+      // the wire no longer advertises (activation state lost across a rebuild,
+      // or a name the model emitted unaided) must fail loudly with a route back
+      // to tool_search — silently dispatching it leaves the transcript claiming
+      // a call the next infer's wire does not declare.
+      if (callGate !== undefined && !callGate(call.name)) {
+        return {
+          callId: call.id,
+          content:
+            `Error: ${call.name} is not in the currently advertised tool list. ` +
+            `Call tool_search to activate it, then retry the call.`,
           isError: true,
         };
       }

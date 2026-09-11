@@ -217,6 +217,10 @@ export interface AgentToolsetArgs {
   // Real sessions always pass their detected values — see tool-search.ts for
   // why these must be fixed for the session's life.
   toolAvailability?: ToolAvailability;
+  // Per-project pinned tool names (local settings). They join the advertised
+  // prefix at the session layer; here they are excluded from tool_search so
+  // discovery only surfaces names not already on the wire.
+  pinnedTools?: readonly string[];
   // Records skill loads and sub-agent dispatch. Omitted (tests, ad-hoc
   // toolsets) means those events are never emitted.
   telemetry?: Telemetry;
@@ -361,10 +365,10 @@ export async function createAgentToolset(
       ? createLazyBlobReader(getBlobReader)
       : undefined;
   const subAgentsEnabled = sessionModeEnablesSubAgents(sessionMode);
-  const advertisedBuiltIns = advertisedToolNamesForSessionMode(
-    sessionMode,
-    toolAvailability,
-  );
+  const advertisedBuiltIns = [
+    ...advertisedToolNamesForSessionMode(sessionMode, toolAvailability),
+    ...(args.pinnedTools ?? []),
+  ];
   const skills =
     args.skills !== undefined
       ? [...args.skills]

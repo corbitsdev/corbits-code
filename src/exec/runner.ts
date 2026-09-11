@@ -17,9 +17,17 @@ import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type { DirectorId } from "../agent/directors/types.js";
+import { submitOutputDefinition } from "../agent/director.js";
+import {
+  shellDefinition,
+  updatePlanDefinition,
+} from "../agent/codex-tool-proxies.js";
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
-import { type ToolAvailability } from "../agent/tool-search.js";
+import {
+  type ActivatedToolTracker,
+  type ToolAvailability,
+} from "../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import {
   resolveSessionMode,
@@ -36,6 +44,7 @@ import type {
   ContextStore,
   InferenceSource,
   InboundMessage,
+  ToolDefinition,
 } from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
@@ -329,6 +338,33 @@ export interface ExecResult {
   model?: string;
 }
 
+export function createExecToolCallGate(
+  isAdvertised: (name: string) => boolean,
+  options: { isCodex: boolean },
+): (name: string) => boolean {
+  const unadvertisedCallable = new Set<string>([
+    submitOutputDefinition.name,
+    ...(options.isCodex
+      ? [shellDefinition.name, updatePlanDefinition.name]
+      : []),
+  ]);
+  return (name) => unadvertisedCallable.has(name) || isAdvertised(name);
+}
+
+export function createExecToolPromoter(args: {
+  activate: (names: readonly string[]) => boolean;
+  currentDefinitions: () => readonly ToolDefinition[];
+  computeAdvertised: (all: readonly ToolDefinition[]) => ToolDefinition[];
+  updateDirectorTools: (defs: ToolDefinition[]) => void;
+  persist?: () => void;
+}): (names: string[]) => void {
+  return (names) => {
+    if (!args.activate(names)) return;
+    args.updateDirectorTools(args.computeAdvertised(args.currentDefinitions()));
+    args.persist?.();
+  };
+}
+
 /**
  * Product non-TUI agent path (`corbits exec "prompt"`).
  *
@@ -383,6 +419,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
   let providerFailureObserved = false;
   let providerError: InferenceErrorLike | undefined;
   let result: ExecResult | undefined;
+  // Assigned once the advertised toolset exists (below); persist reads it live
+  // so a snapshot taken before that point still writes, just without the field.
+  const activatedToolsRef: { current?: ActivatedToolTracker } = {};
   const activeRunHandle: RunStateHandle = {
     sessionId,
     cwd: config.cwd,
@@ -405,11 +444,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     }
     const model = `${config.providerName}:${config.model}`;
     const nextTurnsUsed = runSink?.getTurnCount() ?? turnsUsed;
+    const activatedTools = activatedToolsRef.current?.list() ?? [];
     syncRunStateHandle(activeRunHandle, {
       turnsUsed: nextTurnsUsed,
       task,
       startedAt,
       model,
+      activatedTools,
     });
     const snapshot = {
       status,
@@ -418,6 +459,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       startedAt,
       model,
       mcpServers: connectedMcp,
+      ...(activatedTools.length > 0 ? { activatedTools } : {}),
       ...(status !== "running" ? { finishedAt: Date.now() } : {}),
       ...(extra?.error !== undefined ? { error: extra.error } : {}),
     };
@@ -567,6 +609,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(localSettingsForMode?.env !== undefined
         ? { shellEnv: localSettingsForMode.env }
         : {}),
+      ...(localSettingsForMode?.pinnedTools !== undefined
+        ? { pinnedTools: localSettingsForMode.pinnedTools }
+        : {}),
       getBlobWriter: () => currentStorage?.writeBlob,
       getEvidenceArchive: () => evidenceArchiveHolder.current,
       getContextDir: () => workdir,
@@ -695,13 +740,27 @@ export async function runExec(config: Config): Promise<ExecResult> {
       },
     });
 
-    const { activated: activatedToolNames, computeAdvertised } =
-      createAdvertisedToolset({
-        sessionMode,
-        toolAvailability,
-        getProvider: () => config,
-        builtInPrefix: overlay.advertisedAllow,
-      });
+    const {
+      activated: activatedToolNames,
+      computeAdvertised,
+      isAdvertised,
+    } = createAdvertisedToolset({
+      sessionMode,
+      toolAvailability,
+      getProvider: () => config,
+      builtInPrefix: overlay.advertisedAllow,
+      ...(localSettingsForMode?.pinnedTools !== undefined
+        ? { pinnedTools: localSettingsForMode.pinnedTools }
+        : {}),
+    });
+    activatedToolsRef.current = activatedToolNames;
+    // Same wire contract as the TUI: a registered tool the model was never
+    // shown errors toward tool_search instead of dispatching blind.
+    agentToolset.dynamicRunner.setCallGate(
+      createExecToolCallGate(isAdvertised, {
+        isCodex: isCodexProviderName(config.providerName),
+      }),
+    );
 
     const { directorHolder, buildAgent } = assembleChatAgent({
       toolsId: `${ID_PREFIX}/exec-tools`,
@@ -741,6 +800,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
       getCompactor: () =>
         createSessionPruningCompactor({
           summarize: summarizeForCompaction,
+          summaryContext: () => {
+            const tools = activatedToolNames.list();
+            return tools.length > 0 ? { activatedTools: tools } : undefined;
+          },
           telemetry: liveTelemetry,
         }),
       onBuilt: (agent, storage) => {
@@ -749,6 +812,23 @@ export async function runExec(config: Config): Promise<ExecResult> {
       },
       evidenceArchiveHolder,
     });
+
+    // tool_search starts as a no-op promoter; without this, the call gate
+    // refuses MCP/present/plugin names the result just told the model to
+    // invoke.
+    agentToolset.setToolPromoter(
+      createExecToolPromoter({
+        activate: (names) => activatedToolNames.activate(names),
+        currentDefinitions: () =>
+          agentToolset.dynamicRunner.currentDefinitions(),
+        computeAdvertised,
+        updateDirectorTools: (defs) =>
+          directorHolder.instance?.updateToolDefinitions(defs),
+        persist: () => {
+          void persist("running");
+        },
+      }),
+    );
 
     const workflowHost = new WorkflowHost({
       cwd: config.cwd,

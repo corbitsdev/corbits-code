@@ -192,11 +192,13 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
     // Kept in step with every persisted snapshot so the crash handler's copy
     // (activeRunHandle, read by index.ts) never lags what's actually on disk.
     const turnsUsed = services.runSink.getTurnCount();
+    const activatedTools = services.activatedToolNames.list();
     syncRunStateHandle(services.activeRunHandle, {
       turnsUsed,
       task,
       startedAt: state.startedAt,
       model,
+      activatedTools,
     });
     const persisted: RunState = {
       status,
@@ -205,6 +207,7 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
       startedAt: state.startedAt,
       model,
       mcpServers: state.connectedMcpServers,
+      ...(activatedTools.length > 0 ? { activatedTools } : {}),
       ...extra,
     };
     if (clearsActiveRun(kind)) {
@@ -364,6 +367,10 @@ export async function createRunLifecycle(
         services.toolset.dynamicRunner.currentDefinitions(),
       ),
     );
+    // Activation is model-visible contract — persist it now so a crash or
+    // restart before the next turn boundary does not strand the transcript's
+    // "these tools are available" record.
+    void persistRunSnapshot("running");
     state.pendingReload = true;
     reloadIfIdle();
   };
@@ -629,6 +636,7 @@ export async function createRunLifecycle(
               : "(conversation)",
           startedAt: state.startedAt,
           model: `${rotatedBundle.selected.id}:${rotatedBundle.selected.model}`,
+          activatedTools: [],
         });
         services.emitter.emit(
           "session.title",
@@ -644,6 +652,9 @@ export async function createRunLifecycle(
         services.permissionGate.reset();
         services.runSink.reset();
         services.sessionCost.reset();
+        // The rotated session's transcript never recorded the activations, so
+        // its wire starts at the prefix and its run.json does not inherit them.
+        services.activatedToolNames.clear();
         state.currentAgent = await services.buildAgent();
         services.cycleRecorder.reset();
         state.streamPromise = consumeStream(

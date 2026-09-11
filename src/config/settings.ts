@@ -401,6 +401,11 @@ export interface LocalSettings {
   // addition to the process's own inherited environment). Configuration
   // instead of a shell command that mutates the environment mid-session.
   env?: Record<string, string>;
+  // Tool names always advertised on the wire for this project — e.g. hot MCP
+  // integrations ("mcp__linear__save_issue") that should never need a
+  // tool_search activation round-trip. Names that resolve to no registered
+  // tool are inert.
+  pinnedTools?: string[];
 }
 
 // The provider fields the runtime consumes, identical to what the env vars used
@@ -603,6 +608,7 @@ const LocalSettingsSchema = type({
   "sessionMode?": "'single' | 'orchestrator'",
 
   "env?": "Record<string, string>",
+  "pinnedTools?": "string[]",
   // Reject any other key so local settings can never smuggle credentials.
   "+": "reject",
 });
@@ -793,6 +799,7 @@ export const LOCAL_SETTINGS_OPTIONAL_KEYS = [
   "mcpServers",
   "sessionMode",
   "env",
+  "pinnedTools",
 ] as const satisfies readonly (keyof OptionalLocalSettingsFields)[];
 
 /**
@@ -1045,6 +1052,7 @@ function pickLocalFields(
       sessionMode:
         s.sessionMode === "orchestrator" ? "orchestrator" : undefined,
       env: s.env as Record<string, string> | undefined,
+      pinnedTools: s.pinnedTools as string[] | undefined,
     };
   }
   return {
@@ -1069,6 +1077,9 @@ function pickLocalFields(
             ),
           )
         : undefined,
+    pinnedTools: Array.isArray(s.pinnedTools)
+      ? s.pinnedTools.filter((name): name is string => typeof name === "string")
+      : undefined,
   };
 }
 
@@ -1084,7 +1095,7 @@ function coerceLocalSettings(
         {
           path,
           message: `Local settings in ${path} is not a JSON object.`,
-          fix: `Edit ${path} to a JSON object with only: provider, model, reasoningEffort, mcpServers, sessionMode, env.`,
+          fix: `Edit ${path} to a JSON object with only: provider, model, reasoningEffort, mcpServers, sessionMode, env, pinnedTools.`,
         },
       ],
     };
@@ -1141,7 +1152,7 @@ function coerceLocalSettings(
     diagnostics.push({
       path,
       message: `Local settings in ${path} had invalid values and were partially ignored.`,
-      fix: `Edit ${path}: only "provider", "model", "reasoningEffort", "mcpServers", "sessionMode", and "env" are allowed (no credentials).`,
+      fix: `Edit ${path}: only "provider", "model", "reasoningEffort", "mcpServers", "sessionMode", "env", and "pinnedTools" are allowed (no credentials).`,
     });
   }
   const settings = pickDefined(optional);
@@ -1336,7 +1347,7 @@ export async function saveLocalSettings(
 ): Promise<void> {
   if (!isLocalSettings(local)) {
     throw new Error(
-      `Refusing to write invalid local settings: only "provider", "model", "reasoningEffort", "mcpServers", and "sessionMode" are allowed.`,
+      `Refusing to write invalid local settings: only "provider", "model", "reasoningEffort", "mcpServers", "sessionMode", "env", and "pinnedTools" are allowed.`,
     );
   }
   const payload = JSON.stringify(local, null, 2);

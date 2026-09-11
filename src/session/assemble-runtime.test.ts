@@ -73,6 +73,34 @@ describe("createAdvertisedToolset", () => {
     const { computeAdvertised } = createAdvertisedToolset(wiring());
     expect(computeAdvertised([])).toEqual([]);
   });
+
+  test("isAdvertised tracks prefix, pinned, and activated names", () => {
+    const { activated, isAdvertised } = createAdvertisedToolset(
+      wiring({ pinnedTools: ["mcp__linear__save_issue"] }),
+    );
+    expect(isAdvertised("read_file")).toBe(true);
+    expect(isAdvertised("mcp__linear__save_issue")).toBe(true);
+    expect(isAdvertised("mcp__acme__do")).toBe(false);
+    activated.activate(["mcp__acme__do"]);
+    expect(isAdvertised("mcp__acme__do")).toBe(true);
+  });
+
+  test("pinned tools are advertised before any activation and survive clear", () => {
+    const { activated, computeAdvertised } = createAdvertisedToolset(
+      wiring({ pinnedTools: ["mcp__linear__save_issue"] }),
+    );
+    const defs = [def("read_file"), def("mcp__linear__save_issue")];
+    expect(computeAdvertised(defs).map((d) => d.name)).toContain(
+      "mcp__linear__save_issue",
+    );
+    // A pinned name is part of the prefix, not the activation set — session
+    // rotation clearing activations does not drop it off the wire.
+    activated.activate(["mcp__acme__do"]);
+    activated.clear();
+    const names = computeAdvertised(defs).map((d) => d.name);
+    expect(names).toContain("mcp__linear__save_issue");
+    expect(names).not.toContain("mcp__acme__do");
+  });
 });
 
 describe("loadSessionLocalSettings", () => {

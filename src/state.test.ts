@@ -234,6 +234,16 @@ describe("state persistence", () => {
     expect(loaded).toEqual({ kind: "ok", state: baseRunState });
   });
 
+  test("saveState round-trips activatedTools", async () => {
+    const state: RunState = {
+      ...baseRunState,
+      activatedTools: ["mcp__linear__save_issue", "present"],
+    };
+    await saveState(cwd, SESSION_ID, state, home);
+    const loaded = await loadState(cwd, SESSION_ID, home);
+    expect(loaded).toEqual({ kind: "ok", state });
+  });
+
   test("loadState rejects a mcpServers entry missing toolCount", async () => {
     const stateDir = dir();
     const { mkdir } = await import("node:fs/promises");
