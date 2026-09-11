@@ -31,6 +31,8 @@ import type {
   RetryDecision,
   SafetyRatingBlock,
   TokenUsage,
+  ToolCall,
+  ToolResult,
   AssistantTurn,
   ContentBlock,
 } from "@intx/types/runtime";
@@ -75,6 +77,19 @@ export const DEFAULT_INACTIVITY_TIMEOUT_MS = 120_000;
 export const DEFAULT_TOTAL_TIMEOUT_MS = 600_000;
 
 export const HarnessId: unique symbol = Symbol("HarnessId");
+
+/**
+ * Liveness policy for the doom-loop guard's batch accounting. Receives the
+ * executed calls of one tool turn with their results aligned by index and
+ * returns true when the batch is legitimate liveness rather than a runaway
+ * loop. First-party runtimes recognize still-pending polls (`wait_agents`
+ * timeouts and live wait statuses, `running` shell collects); terminal polls,
+ * non-poll calls, and mixed batches return false so real loops still trip.
+ */
+export type PollBatchLivenessPredicate = (
+  calls: readonly ToolCall[],
+  results: readonly ToolResult[],
+) => boolean;
 
 /**
  * Runtime dependencies injected into `runInference`. Code-only — not part of
@@ -126,6 +141,16 @@ export type Dependencies = {
    * Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts-context-transforms
    */
   readonly contextTransforms?: ContextTransform[];
+  /**
+   * Liveness policy for the doom-loop guard's batch accounting. When the
+   * batch about to be counted is a legitimate liveness signal (first-party
+   * runtimes recognize still-pending polls), the stale streak resets instead
+   * of counting. Optional — a custom `Dependencies` object without this
+   * field counts every batch, same as before.
+   *
+   * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-poll-exemption
+   */
+  readonly isPollOnlyPendingBatch?: PollBatchLivenessPredicate;
   readonly [HarnessId]?: symbol;
 };
 

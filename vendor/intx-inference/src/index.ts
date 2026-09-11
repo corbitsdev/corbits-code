@@ -10,6 +10,7 @@ export {
 export type {
   Dependencies,
   InferenceHarnessOptions,
+  PollBatchLivenessPredicate,
   Scheduler,
 } from "./harness";
 export type {

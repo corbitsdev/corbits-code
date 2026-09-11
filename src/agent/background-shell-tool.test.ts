@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createPermissionGate } from "../permission/gate.js";
+import { shellCollectDefinition } from "./background-shell-tool.js";
 import { createAgentToolset } from "./tools.js";
 import type { BackgroundShellExit } from "../shell/background-shell.js";
 import { buildShellBackgroundMessage } from "../session/runtime-assembly.js";
@@ -149,5 +150,13 @@ describe("background shell through the agent toolset", () => {
     const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
     expect(probe.stdout?.trim() ?? "").toBe("");
     expect(probe.status).not.toBe(0);
+  });
+});
+
+describe("shell_collect tool copy", () => {
+  test("names the doom-loop exemption for still-running polls", () => {
+    expect(shellCollectDefinition.description).toContain("doom-loop guard");
+    expect(shellCollectDefinition.description).toContain("liveness");
+    expect(shellCollectDefinition.description).toContain("running");
   });
 });

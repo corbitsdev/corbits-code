@@ -8,6 +8,7 @@ import {
   createSpawnAgentTool,
   createWaitAgentsTool,
   createListAgentsTool,
+  waitAgentsToolDefinition,
   MAX_FLEET_RECORDS,
   type AgentFleetDeps,
 } from "./agent-fleet.js";
@@ -3427,5 +3428,13 @@ describe("wait_agents occupancy yield (CL-7518)", () => {
     expect(row.question_id).toBeUndefined();
     expect(deps.fleetRecords.peek(id)?.collected).not.toBe(true);
     gate.resolve({ report: "ok" });
+  });
+});
+
+describe("wait_agents tool copy", () => {
+  test("names the doom-loop exemption for still-pending polls", () => {
+    expect(waitAgentsToolDefinition.description).toContain("doom-loop guard");
+    expect(waitAgentsToolDefinition.description).toContain("liveness");
+    expect(waitAgentsToolDefinition.description).toContain("timeout");
   });
 });

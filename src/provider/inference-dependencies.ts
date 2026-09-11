@@ -17,6 +17,7 @@ import {
 } from "./codex-responses.js";
 import { GROK_RESPONSES_PROVIDER } from "./grok-responses.js";
 import { withReplaySanitizer } from "./replay-sanitizer.js";
+import { isPollOnlyPendingBatch } from "../subagent/poll-exempt.js";
 import { OPENCODE_GO_PROVIDER_ID } from "../../packages/opencode-go/src/index.js";
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
 import { OPENAI_RESPONSES_PROVIDER } from "./openai-responses.js";
@@ -89,6 +90,7 @@ export function createInferenceDependencies(): Promise<Dependencies> {
       .then((deps) => ({
         ...deps,
         fetch: withCodexContentTypeRepair(deps.fetch),
+        isPollOnlyPendingBatch,
       }));
   }
   return cached;

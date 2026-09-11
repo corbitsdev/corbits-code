@@ -560,7 +560,10 @@ export const waitAgentsToolDefinition: ToolDefinition = {
     `(interrupted, cancelled, incomplete-report, and similar). awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
     `Answer with send_input (soft). Do not call this in a tight zero-progress loop: a timeout means the targets are still ` +
     `queued, running, or awaiting a director answer, not "try again right away" — do other work, reply to the operator, or change the brief. Calling again with the ` +
-    `same targets is a real timed wait, not a spin, but wastes turns if nothing has changed.`,
+    `same targets is a real timed wait, not a spin, but wastes turns if nothing has changed. ` +
+    `Repeated identical waits that keep timing out are exempt from the run's doom-loop guard while ` +
+    `targets stay live — a timeout or still-running result is liveness, not a stall or a crash, so ` +
+    `keep waiting (or do other work) rather than treating it as a failure.`,
   inputSchema: {
     type: "object",
     properties: {

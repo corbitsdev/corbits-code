@@ -34,7 +34,11 @@ import type {
 } from "@intx/types/runtime";
 
 import type { ReactorConfig, Reactor, ReactorEmittedEvent } from "./reactor";
-import type { Dependencies, InferenceHarnessOptions } from "./harness";
+import type {
+  Dependencies,
+  InferenceHarnessOptions,
+  PollBatchLivenessPredicate,
+} from "./harness";
 import type { CorrelationValidator } from "./correlation";
 import type { AfterInferenceHook } from "./default-director";
 
@@ -1791,9 +1795,200 @@ describe("createReactor — doom-loop detection", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 8. Correlation matching
-// ---------------------------------------------------------------------------
+describe("createReactor — doom-loop poll exemption", () => {
+  // Production-faithful stand-in for the first-party liveness predicate (the
+  // predicate truth table itself is unit-tested beside the real
+  // implementation): exempt only when every call is a known poll and every
+  // result still shows pending. These tests lock the guard's reset-vs-count
+  // behavior around that verdict.
+  const pendingPollLiveness: PollBatchLivenessPredicate = (calls, results) =>
+    calls.length > 0 &&
+    calls.every((call, index) => {
+      const content = results[index]?.content;
+      if (typeof content !== "string") return false;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(content) as unknown;
+      } catch {
+        return false;
+      }
+      if (typeof payload !== "object" || payload === null) return false;
+      if (call.name === "wait_agents") {
+        const { timed_out: timedOut, results: entries } = payload as {
+          timed_out?: unknown;
+          results?: { status?: unknown }[];
+        };
+        if (timedOut === true) return true;
+        return (
+          Array.isArray(entries) &&
+          entries.some(
+            (entry) =>
+              entry.status === "running" ||
+              entry.status === "queued" ||
+              entry.status === "awaiting_director",
+          )
+        );
+      }
+      if (call.name === "shell_collect") {
+        return (payload as { status?: unknown }).status === "running";
+      }
+      return false;
+    });
+
+  function depsWithLiveness(): Dependencies {
+    return {
+      ...createDefaultDependencies(),
+      isPollOnlyPendingBatch: pendingPollLiveness,
+    };
+  }
+
+  function pendingWaitResult(callId: string): {
+    callId: string;
+    content: string;
+  } {
+    return {
+      callId,
+      content: JSON.stringify({
+        results: [{ agent_id: "w1", status: "running" }],
+        timed_out: true,
+      }),
+    };
+  }
+
+  function settledWaitResult(callId: string): {
+    callId: string;
+    content: string;
+  } {
+    return {
+      callId,
+      content: JSON.stringify({
+        results: [{ agent_id: "w1", status: "done" }],
+        timed_out: false,
+      }),
+    };
+  }
+
+  test("does not trip on repeated still-pending poll batches", async () => {
+    const { reactor, events, waitFor } = createTestReactor({
+      deps: depsWithLiveness(),
+      director: createBatchLoopDirector((turn) =>
+        turn < 8
+          ? [{ id: `c${turn}`, name: "wait_agents", arguments: { q: 1 } }]
+          : null,
+      ),
+      toolRunner: makeToolRunner(async (call) => pendingWaitResult(call.id)),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(events.some((e) => e.type === "reactor.error")).toBe(false);
+    expect(getEvent(events, "message.run.ended").data.status).toBe("completed");
+    expect(events.filter((e) => e.type === "tool.start").length).toBe(8);
+  });
+
+  test("still trips on repeated non-poll batches when a policy is set", async () => {
+    const { reactor, events, waitFor } = createTestReactor({
+      deps: depsWithLiveness(),
+      director: createBatchLoopDirector((turn) =>
+        turn < 8
+          ? [{ id: `c${turn}`, name: "spin", arguments: { q: 1 } }]
+          : null,
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(getEvent(events, "reactor.error").data.fatal).toBe(true);
+    expect(getEvent(events, "message.run.ended").data.error?.kind).toBe(
+      "doom_loop",
+    );
+  });
+
+  test("mixed poll and non-poll batches count normally", async () => {
+    const { reactor, events, waitFor } = createTestReactor({
+      deps: depsWithLiveness(),
+      director: createBatchLoopDirector((turn) =>
+        turn < 8
+          ? [
+              {
+                id: `c${turn}-wait`,
+                name: "wait_agents",
+                arguments: { q: 1 },
+              },
+              { id: `c${turn}-spin`, name: "spin", arguments: {} },
+            ]
+          : null,
+      ),
+      toolRunner: makeToolRunner(async (call) =>
+        call.name === "wait_agents"
+          ? pendingWaitResult(call.id)
+          : { callId: call.id, content: "spun" },
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(getEvent(events, "reactor.error").data.fatal).toBe(true);
+    expect(getEvent(events, "message.run.ended").data.error?.kind).toBe(
+      "doom_loop",
+    );
+  });
+
+  test("a settled poll batch counts normally", async () => {
+    const { reactor, events, waitFor } = createTestReactor({
+      deps: depsWithLiveness(),
+      director: createBatchLoopDirector((turn) =>
+        turn < 8
+          ? [{ id: `c${turn}`, name: "wait_agents", arguments: { q: 1 } }]
+          : null,
+      ),
+      toolRunner: makeToolRunner(async (call) => settledWaitResult(call.id)),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(getEvent(events, "reactor.error").data.fatal).toBe(true);
+    expect(getEvent(events, "message.run.ended").data.error?.kind).toBe(
+      "doom_loop",
+    );
+  });
+
+  test("a pending poll batch clears a stale non-poll streak", async () => {
+    // spin x2 leaves a count of 2; a skip-only exemption would preserve it
+    // and the final spin would trip at 3. The reset clears it, so the run
+    // completes.
+    const batches: ToolCall[][] = [
+      [{ id: "1", name: "spin", arguments: {} }],
+      [{ id: "2", name: "spin", arguments: {} }],
+      [{ id: "3", name: "wait_agents", arguments: { q: 1 } }],
+      [{ id: "4", name: "spin", arguments: {} }],
+    ];
+    const { reactor, events, waitFor } = createTestReactor({
+      deps: depsWithLiveness(),
+      director: createBatchLoopDirector((turn) => batches[turn] ?? null),
+      toolRunner: makeToolRunner(async (call) =>
+        call.name === "wait_agents"
+          ? pendingWaitResult(call.id)
+          : { callId: call.id, content: "spun" },
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(events.some((e) => e.type === "reactor.error")).toBe(false);
+    expect(getEvent(events, "message.run.ended").data.status).toBe("completed");
+  });
+});
 
 describe("createReactor — correlation", () => {
   test("message with matching correlationId triggers message.correlated", async () => {

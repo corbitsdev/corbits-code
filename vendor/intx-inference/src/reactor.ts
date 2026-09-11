@@ -45,7 +45,11 @@ import { ApprovalDecision, signalKindToGateType } from "@intx/types";
 import { canonicalJsonStringify } from "@intx/types/wire-definition-hash";
 import { type } from "arktype";
 import { runInference } from "./harness";
-import type { Dependencies, InferenceHarnessOptions } from "./harness";
+import type {
+  Dependencies,
+  InferenceHarnessOptions,
+  PollBatchLivenessPredicate,
+} from "./harness";
 import { createCapabilities } from "./director";
 import { createGateManager } from "./gates";
 import { createCorrelationRegistry } from "./correlation";
@@ -136,6 +140,14 @@ export type ReactorConfig = {
   beforeToolExtensions?: BeforeToolExtension[];
   toolResultTransforms?: ToolResultTransform[];
   contextTransforms?: ContextTransform[];
+  /**
+   * Liveness policy for the doom-loop guard's batch accounting. A direct
+   * value wins over the one riding `deps`; when neither is set every batch
+   * counts, same as before.
+   *
+   * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-poll-exemption
+   */
+  isPollOnlyPendingBatch?: PollBatchLivenessPredicate;
   compactors?: Record<string, Compactor>;
   afterCheckpoint?: () => Promise<void>;
   onShutdown?: () => Promise<void>;
@@ -241,6 +253,13 @@ export function createReactor(config: ReactorConfig): Reactor {
   // is active, or `null` when the caller disabled it with `false`. Every
   // downstream comparison reads this binding, never the raw config value.
   const doomLoopThreshold = resolveDoomLoopThreshold(config.doomLoopThreshold);
+
+  // Liveness policy for the doom-loop guard's batch accounting, resolved
+  // direct-wins-over-deps at the construction edge: a value composed straight
+  // into the reactor config wins over one riding a shared `deps` object, and
+  // an absent policy counts every batch, same as before.
+  const isPollOnlyPendingBatch =
+    config.isPollOnlyPendingBatch ?? deps.isPollOnlyPendingBatch;
 
   // Monotonic sequence counter, scoped to this session.
   let seq = 0;
@@ -958,7 +977,18 @@ export function createReactor(config: ReactorConfig): Reactor {
     // when it reaches the threshold. A `null` threshold means detection is
     // disabled, so the accounting is skipped entirely.
     const ranCalls = calls.filter((_call, i) => outcomes[i] !== SUSPENDED);
-    if (doomLoopThreshold !== null && ranCalls.length > 0) {
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-poll-exemption
+    // A still-pending poll batch is liveness, not a loop: reset the streak
+    // (a skip would preserve a stale count and false-positive later) while
+    // mixed and terminal batches count normally.
+    const isLivePollBatch =
+      doomLoopThreshold !== null &&
+      ranCalls.length > 0 &&
+      isPollOnlyPendingBatch?.(ranCalls, results) === true;
+    if (isLivePollBatch) {
+      lastToolBatchSignature = null;
+      toolBatchRepeatCount = 0;
+    } else if (doomLoopThreshold !== null && ranCalls.length > 0) {
       const signature = toolBatchSignature(ranCalls);
       if (signature === lastToolBatchSignature) {
         toolBatchRepeatCount += 1;
