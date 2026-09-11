@@ -48,6 +48,15 @@ interface AuthFile<TTokens extends BaseTokens> {
 const LOCK_RETRY_MS = 25;
 const LOCK_TIMEOUT_MS = 1_000;
 
+// pid alone is not unique per call — concurrent saves in one process must not
+// share a temp path or the second rename hits ENOENT after the first moves it.
+let tmpWriteCounter = 0;
+
+// Same-process ops on one auth file queue here so a caller's lock deadline
+// starts when it actually runs, not when it was invoked — otherwise one lock
+// held past LOCK_TIMEOUT_MS fails the whole burst, not just the first waiter.
+const updateChains = new Map<string, Promise<unknown>>();
+
 const AuthFileShape = type({
   profiles: "Record<string, unknown>",
 });
@@ -115,7 +124,7 @@ export function createAuthStore<TTokens extends BaseTokens>(
   ): Promise<void> {
     const path = authPath(home);
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    const tmp = `${path}.${String(process.pid)}.tmp`;
+    const tmp = `${path}.${process.pid}.${(tmpWriteCounter += 1)}.tmp`;
     await writeFile(tmp, JSON.stringify(file, null, 2), { mode: 0o600 });
     await rename(tmp, path);
   }
@@ -158,6 +167,26 @@ export function createAuthStore<TTokens extends BaseTokens>(
     }
   }
 
+  function enqueueAuthFileOp<TResult>(
+    home: string,
+    op: () => Promise<TResult>,
+  ): Promise<TResult> {
+    const path = authPath(home);
+    const previous = updateChains.get(path) ?? Promise.resolve();
+    const run = previous.then(
+      () => withAuthFileLock(home, op),
+      () => withAuthFileLock(home, op),
+    );
+    updateChains.set(
+      path,
+      run.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return run;
+  }
+
   return {
     authPath,
     async listProfiles(
@@ -179,7 +208,7 @@ export function createAuthStore<TTokens extends BaseTokens>(
       profile: AuthProfile<TTokens>,
       home: string = homedir(),
     ): Promise<void> {
-      await withAuthFileLock(home, async () => {
+      await enqueueAuthFileOp(home, async () => {
         const file = await readAuthFile(home);
         file.profiles[profile.name] = profile;
         await writeAuthFile(file, home);
@@ -192,7 +221,7 @@ export function createAuthStore<TTokens extends BaseTokens>(
       tokens: TTokens,
       home: string = homedir(),
     ): Promise<void> {
-      await withAuthFileLock(home, async () => {
+      await enqueueAuthFileOp(home, async () => {
         const file = await readAuthFile(home);
         const existing = file.profiles[name];
         if (existing === undefined) return;
@@ -204,7 +233,7 @@ export function createAuthStore<TTokens extends BaseTokens>(
       name: string | undefined,
       home: string = homedir(),
     ): Promise<string[]> {
-      return withAuthFileLock(home, async () => {
+      return enqueueAuthFileOp(home, async () => {
         const file = await readAuthFile(home);
         if (name === undefined) {
           const removed = Object.keys(file.profiles);

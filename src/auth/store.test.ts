@@ -114,6 +114,69 @@ describe("createAuthStore", () => {
     }
   });
 
+  test("gives queued same-process writes their own lock window", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-queue-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+      await store.saveProfile(
+        {
+          name: "work",
+          tokens: { access: "a", refresh: "r", expiresAt: 1 },
+          createdAt: 1,
+        },
+        home,
+      );
+
+      // A foreign process holds the credential lock past the first waiter's
+      // deadline, then releases; the write queued behind it must still land.
+      const lockPath = `${store.authPath(home)}.lock`;
+      await writeFile(lockPath, "foreign", { mode: 0o600 });
+
+      const first = store
+        .updateTokens(
+          "work",
+          { access: "first", refresh: "r1", expiresAt: 2 },
+          home,
+        )
+        .then(
+          () => "resolved" as const,
+          (error: unknown) => error,
+        );
+      const second = store
+        .updateTokens(
+          "work",
+          { access: "second", refresh: "r2", expiresAt: 3 },
+          home,
+        )
+        .then(
+          () => "resolved" as const,
+          (error: unknown) => error,
+        );
+
+      await Bun.sleep(1_400);
+      await rm(lockPath, { force: true });
+
+      const firstResult = await first;
+      expect(firstResult).toBeInstanceOf(Error);
+      if (firstResult instanceof Error) {
+        expect(firstResult.message).toContain(
+          "Timed out waiting for OAuth credential lock",
+        );
+      }
+      expect(await second).toBe("resolved");
+
+      expect((await store.loadProfile("work", home))?.tokens.access).toBe(
+        "second",
+      );
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("round-trips profiles under an injected home and survives corrupt files", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-"));
     try {
