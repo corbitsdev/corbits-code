@@ -135,6 +135,21 @@ let terminating = false;
 
 export const RUNTIME_TEARDOWN_DEADLINE_MS = 2_000;
 
+// Production keeps the default; install options let a test process shorten
+// the bound so a deliberately never-settling dispose host doesn't pay the
+// full 2s of wall clock per test (same pattern as the tool watchdog's
+// salvageGraceMs override).
+let teardownDeadlineMs = RUNTIME_TEARDOWN_DEADLINE_MS;
+
+export interface ProcessHandlerOptions {
+  /**
+   * Override the bounded-teardown deadline for this process. Production never
+   * sets it, keeping the 2s default; tests set it short so a never-settling
+   * dispose host doesn't pay the full deadline in wall clock.
+   */
+  teardownDeadlineMs?: number;
+}
+
 async function awaitActiveDisposeHost(context: string): Promise<void> {
   const dispose = getActiveDisposeHost();
   if (dispose === null) return;
@@ -145,11 +160,9 @@ async function awaitActiveDisposeHost(context: string): Promise<void> {
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
           reject(
-            new Error(
-              `runtime teardown exceeded ${RUNTIME_TEARDOWN_DEADLINE_MS}ms`,
-            ),
+            new Error(`runtime teardown exceeded ${teardownDeadlineMs}ms`),
           );
-        }, RUNTIME_TEARDOWN_DEADLINE_MS);
+        }, teardownDeadlineMs);
         if (typeof timer.unref === "function") timer.unref();
       }),
     ]);
@@ -247,7 +260,10 @@ async function finalizeActiveRunOnCrash(error: unknown): Promise<void> {
 // invokes every registered listener for the event regardless of order, so
 // these still run and terminate the process even though OpenTUI's own
 // listener never exits or rethrows.
-export function installCrashHandlers(): void {
+export function installCrashHandlers(options?: ProcessHandlerOptions): void {
+  if (options?.teardownDeadlineMs !== undefined) {
+    teardownDeadlineMs = options.teardownDeadlineMs;
+  }
   process.on("uncaughtException", (err) => {
     void handleFatal("uncaughtException", err);
   });
@@ -315,7 +331,10 @@ const SIGNAL_EXIT_NUMBER: Record<"SIGINT" | "SIGTERM" | "SIGHUP", number> = {
 // even when OpenTUI's own listener also runs is harmless.
 // Exported so an integration test can register these process-level handlers
 // and send a real signal without spawning the full TUI stack.
-export function installSignalHandlers(): void {
+export function installSignalHandlers(options?: ProcessHandlerOptions): void {
+  if (options?.teardownDeadlineMs !== undefined) {
+    teardownDeadlineMs = options.teardownDeadlineMs;
+  }
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.on(signal, () => {
       if (terminating) return;
