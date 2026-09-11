@@ -14,7 +14,6 @@ import type {
   ReactorAction,
   ToolDefinition,
   ConversationTurn,
-  InferenceOptions,
   RetryPolicy,
 } from "@intx/types/runtime";
 import {
@@ -97,10 +96,15 @@ function inferWithSubAgentNudge(
  * once the pending tool calls have actually executed.
  */
 function withEphemeralNudge(
-  options: InferenceOptions | undefined,
+  options: ExtendedInferenceOptions | undefined,
   text: string,
 ): ExtendedInferenceOptions {
-  return { ...(options ?? {}), ephemeralTurns: [ephemeralNudgeTurn(text)] };
+  const turn = ephemeralNudgeTurn(text);
+  const existing = options?.ephemeralTurns;
+  if (existing === undefined || existing.length === 0) {
+    return { ...(options ?? {}), ephemeralTurns: [turn] };
+  }
+  return { ...(options ?? {}), ephemeralTurns: [...existing, turn] };
 }
 
 function isEmptyContinuation(event: ReactorInboundEvent): boolean {
