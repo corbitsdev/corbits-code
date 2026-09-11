@@ -91,7 +91,14 @@ import type { ToolWatchdogConfig } from "../tool-execution-watchdog.js";
 import { deliverAgentMessage } from "../deliver-agent-message.js";
 import { createProviderFailureAttemptTracker } from "../provider/failure-attempt.js";
 import { getTelemetry, liveTelemetry } from "../../telemetry/singleton.js";
-import { createChatDirector } from "../../agent/director.js";
+import {
+  createChatDirector,
+  submitOutputDefinition,
+} from "../../agent/director.js";
+import {
+  shellDefinition,
+  updatePlanDefinition,
+} from "../../agent/codex-tool-proxies.js";
 import { attachApprovalBudget } from "../request-approval.js";
 import { createGateRequestApproval } from "../request-approval.js";
 import { getActivePricingCache } from "../../cost/cost-visibility.js";
@@ -322,6 +329,9 @@ export async function assembleTUISession(
     ...(localSettingsForEnv?.env !== undefined
       ? { shellEnv: localSettingsForEnv.env }
       : {}),
+    ...(localSettingsForEnv?.pinnedTools !== undefined
+      ? { pinnedTools: localSettingsForEnv.pinnedTools }
+      : {}),
     toolWatchdog: liveToolWatchdog,
     getBlobReader: () => liveAgent(state).blobReader,
     getBlobWriter: () => state.currentStorage?.writeBlob,
@@ -446,12 +456,35 @@ export async function assembleTUISession(
   // Dynamic tool discovery: only the fixed built-in prefix plus activated
   // tools reach the wire, so the provider cache prefix holds steady; MCP
   // tools must be promoted here before the model can invoke them.
-  const { activated: activatedToolNames, computeAdvertised } =
-    createAdvertisedToolset({
-      sessionMode: liveSessionMode,
-      toolAvailability,
-      getProvider: () => state.config,
-    });
+  const {
+    activated: activatedToolNames,
+    computeAdvertised,
+    isAdvertised,
+  } = createAdvertisedToolset({
+    sessionMode: liveSessionMode,
+    toolAvailability,
+    getProvider: () => state.config,
+    ...(localSettingsForEnv?.pinnedTools !== undefined
+      ? { pinnedTools: localSettingsForEnv.pinnedTools }
+      : {}),
+  });
+  // Re-activate the prior run's promoted tools before the first build so the
+  // post-resume wire matches the transcript the model still sees.
+  activatedToolNames.activate(start.resumeSeed.activatedTools);
+  // A registered tool the wire never advertised must error toward tool_search
+  // instead of dispatching blind — the transcript would otherwise claim a call
+  // the next infer does not declare. submit_output rides every infer via the
+  // director, and Codex's native proxies answer calls Codex models emit
+  // unaided; neither flows through the advertised set.
+  const unadvertisedCallable = new Set<string>([
+    submitOutputDefinition.name,
+    ...(isCodexProviderName(config.providerName)
+      ? [shellDefinition.name, updatePlanDefinition.name]
+      : []),
+  ]);
+  toolset.dynamicRunner.setCallGate(
+    (name) => unadvertisedCallable.has(name) || isAdvertised(name),
+  );
 
   // Reload, interrupt, compaction continuation, and proxy deliver share one queue
   // so a rebuild never races an in-flight deliver.
@@ -513,14 +546,20 @@ export async function assembleTUISession(
   });
   const summaryContext = (): SummaryContext | undefined => {
     const status = workflowHost.status();
-    if (!status.active) return undefined;
+    const activatedTools = activatedToolNames.list();
+    if (!status.active && activatedTools.length === 0) return undefined;
     return {
-      workflow: {
-        ...(status.name !== undefined ? { name: status.name } : {}),
-        stepLabel: status.label,
-        stepIndex: status.stepIndex,
-        total: status.total,
-      },
+      ...(status.active
+        ? {
+            workflow: {
+              ...(status.name !== undefined ? { name: status.name } : {}),
+              stepLabel: status.label,
+              stepIndex: status.stepIndex,
+              total: status.total,
+            },
+          }
+        : {}),
+      ...(activatedTools.length > 0 ? { activatedTools } : {}),
     };
   };
 

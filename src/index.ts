@@ -228,6 +228,9 @@ async function finalizeActiveRunOnCrash(error: unknown): Promise<void> {
       finishedAt: Date.now(),
       error: message,
       ...(run.model !== undefined ? { model: run.model } : {}),
+      ...(run.activatedTools !== undefined
+        ? { activatedTools: run.activatedTools }
+        : {}),
     });
   } catch (saveErr: unknown) {
     process.stderr.write(
@@ -273,6 +276,9 @@ async function finalizeActiveRunOnSignal(
       finishedAt: Date.now(),
       error: `terminated by ${signal}`,
       ...(run.model !== undefined ? { model: run.model } : {}),
+      ...(run.activatedTools !== undefined
+        ? { activatedTools: run.activatedTools }
+        : {}),
     });
   } catch (saveErr: unknown) {
     process.stderr.write(

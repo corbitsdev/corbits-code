@@ -14,7 +14,11 @@ function pickedState(overrides: Partial<RunState>): RunState {
 
 describe("resolveResumeSeed", () => {
   test("a fresh (non-resumed) run seeds zero turns and no servers", () => {
-    expect(resolveResumeSeed(null)).toEqual({ turnsUsed: 0, mcpServers: [] });
+    expect(resolveResumeSeed(null)).toEqual({
+      turnsUsed: 0,
+      mcpServers: [],
+      activatedTools: [],
+    });
   });
 
   test("carries forward a resumed session's non-zero turnsUsed and non-empty mcpServers", () => {
@@ -40,5 +44,24 @@ describe("resolveResumeSeed", () => {
 
     expect(seed.turnsUsed).toBe(3);
     expect(seed.mcpServers).toEqual([]);
+  });
+
+  test("carries forward the resumed session's activated tool names", () => {
+    const seed = resolveResumeSeed(
+      pickedState({
+        activatedTools: ["mcp__linear__save_issue", "mcp__linear__get_issue"],
+      }),
+    );
+
+    expect(seed.activatedTools).toEqual([
+      "mcp__linear__save_issue",
+      "mcp__linear__get_issue",
+    ]);
+  });
+
+  test("defaults activatedTools to empty when a resumed record predates that field", () => {
+    const seed = resolveResumeSeed(pickedState({ turnsUsed: 3 }));
+
+    expect(seed.activatedTools).toEqual([]);
   });
 });

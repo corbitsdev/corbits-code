@@ -22,6 +22,10 @@ export interface RunStateHandle {
   startedAt: number;
   turnsUsed: number;
   model?: string;
+  // Latest tool_search-activated tool names, synced on every snapshot so the
+  // crash/signal terminal write can carry them into run.json for the resume
+  // seed.
+  activatedTools?: string[];
 }
 
 // Keep the crash/signal handle in step with every persisted snapshot so a
@@ -34,6 +38,7 @@ export function syncRunStateHandle(
     task: string;
     startedAt: number;
     model?: string;
+    activatedTools?: string[];
   },
 ): void {
   handle.turnsUsed = snapshot.turnsUsed;
@@ -41,6 +46,9 @@ export function syncRunStateHandle(
   handle.startedAt = snapshot.startedAt;
   if (snapshot.model !== undefined) {
     handle.model = snapshot.model;
+  }
+  if (snapshot.activatedTools !== undefined) {
+    handle.activatedTools = snapshot.activatedTools;
   }
 }
 

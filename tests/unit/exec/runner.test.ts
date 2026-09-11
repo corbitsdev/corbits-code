@@ -269,7 +269,8 @@ describe("runExec", () => {
                   createAgentToolset: async (): Promise<AgentToolset> =>
                     ({
                       dispose: () => Promise.resolve(),
-                    }) as AgentToolset,
+                      dynamicRunner: { setCallGate: () => undefined },
+                    }) as unknown as AgentToolset,
                 }),
                 async () => {
                   await withMockedModuleDuring(

@@ -162,7 +162,11 @@ export function advertisedTools(
 export interface ActivatedToolTracker {
   // Adds any new names and returns whether the set actually changed.
   activate(names: readonly string[]): boolean;
+  has(name: string): boolean;
   list(): string[];
+  // Session rotation (/clear, /new) mints a new transcript whose model never
+  // saw the activations — the advertised set starts clean with it.
+  clear(): void;
 }
 
 export function createActivatedToolTracker(): ActivatedToolTracker {
@@ -178,8 +182,14 @@ export function createActivatedToolTracker(): ActivatedToolTracker {
       }
       return changed;
     },
+    has(name: string): boolean {
+      return activeNames.has(name);
+    },
     list(): string[] {
       return [...activeNames];
+    },
+    clear(): void {
+      activeNames.clear();
     },
   };
 }

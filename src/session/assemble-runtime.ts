@@ -325,22 +325,36 @@ export function resolveLiveSessionSources(
 export interface AdvertisedToolset {
   activated: ActivatedToolTracker;
   computeAdvertised: (all: readonly ToolDefinition[]) => ToolDefinition[];
+  // Whether a name is part of the advertised wire set: built-in prefix,
+  // project-pinned, or tool_search-activated. The dispatch gate keys off this
+  // so a registered-but-unadvertised call surfaces as a tool_search error
+  // instead of silently dispatching.
+  isAdvertised: (name: string) => boolean;
 }
 
 /**
  * Fixed built-in prefix plus session-activated tools, family-gated for the
  * wire. The provider identity is read per call so a live model switch
  * re-gates without rebuilding the agent.
+ *
+ * `pinnedTools` (local settings) merge into the prefix — advertised from the
+ * first turn and exempt from activation state, so a resume needs no
+ * tool_search round-trip for the project's hottest integrations.
  */
 export function createAdvertisedToolset(args: {
   sessionMode: SessionMode;
   toolAvailability: ToolAvailability;
   getProvider: () => { providerName: string; model: string };
   builtInPrefix?: readonly string[] | undefined;
+  pinnedTools?: readonly string[] | undefined;
 }): AdvertisedToolset {
-  const prefix =
+  const builtIn =
     args.builtInPrefix ??
     advertisedToolNamesForSessionMode(args.sessionMode, args.toolAvailability);
+  const prefix = [
+    ...builtIn,
+    ...(args.pinnedTools ?? []).filter((name) => !builtIn.includes(name)),
+  ];
   const activated = createActivatedToolTracker();
   // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
   const computeAdvertised = (
@@ -352,7 +366,9 @@ export function createAdvertisedToolset(args: {
         ...args.getProvider(),
       },
     );
-  return { activated, computeAdvertised };
+  const isAdvertised = (name: string): boolean =>
+    prefix.includes(name) || activated.has(name);
+  return { activated, computeAdvertised, isAdvertised };
 }
 
 // ---------------------------------------------------------------------------
