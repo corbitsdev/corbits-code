@@ -20,7 +20,10 @@ import {
   safeWorktreeCommand,
 } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
-import { looksLikePath, pathEscapeBlockReason } from "../plugins/path-escape-plugin.js";
+import {
+  looksLikePath,
+  pathEscapeBlockReason,
+} from "../plugins/path-escape-plugin.js";
 import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import {
