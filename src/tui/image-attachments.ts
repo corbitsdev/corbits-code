@@ -134,7 +134,7 @@ function scanImagePathLine(
     // `notes/plan.png` mints a root-level `/plan.png` mention.
     if (
       canStartUnquotedPath(text, i, end) &&
-      (!inQuotedProse || i === start || !isTokenContinuation(text[i - 1]))
+      (!inQuotedProse || i === start || !isPathTokenContinuation(text[i - 1]))
     ) {
       const match = UNQUOTED_AT.exec(text.slice(i, end));
       if (match?.[0] !== undefined) {
@@ -157,14 +157,26 @@ function isWordChar(ch: string | undefined): boolean {
   );
 }
 
-// Characters that can glue a `/` (or another path start) onto the token
-// before it: relative segments (`notes/plan.png`), URLs (`https://x.png`),
-// and shell-style quote concatenation (`'a'/b.png`).
-const TOKEN_CONTINUATION = "'\"`/\\:.~_-+@%";
-
-function isTokenContinuation(ch: string | undefined): boolean {
+// True when `ch` continues the current token (word, `/\:.~`, or quote-glue)
+// so a mid-token `/` inside prose must not open a root path.
+function isPathTokenContinuation(ch: string | undefined): boolean {
   if (ch === undefined) return false;
-  return isWordChar(ch) || TOKEN_CONTINUATION.includes(ch);
+  if (isWordChar(ch)) return true;
+  switch (ch) {
+    case "/":
+    case "\\":
+    case ".":
+    case "~":
+    case ":":
+    case "_":
+    case "-":
+    case "'":
+    case '"':
+    case "`":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function looksLikeQuotedImagePath(inner: string): boolean {
