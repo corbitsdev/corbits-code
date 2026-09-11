@@ -11,13 +11,23 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.3.21] - 2026-09-11
 
-### Fixed
+### Added
 
-- A stalled worker now gets a full `stallTimeoutMs` grace after the first
-  continuation nudge before salvage — stall pings queued inside that window
-  wait instead of counting toward escalation.
+- `tool_search`-activated tools persist in `run.json` and are re-advertised
+  after resume, rebuild, and compaction. Per-project `pinnedTools` in
+  `.corbits/settings.json` keeps chosen MCP tools on the wire without
+  activation. Registered-but-unadvertised calls error toward `tool_search`
+  instead of silent dispatch.
+- Repeated identical tool batches warn in the transcript before the doom-loop
+  guard kills the run.
+
+### Changed
+
+- A named profile file that is missing fails closed instead of falling
+  through. Resume-picker docs match the unfiltered recent-10 list. Grok
+  model-family policy docs match the runtime.
 
 ### Removed
 
@@ -26,11 +36,33 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
+- Stalled workers get a full `stallTimeoutMs` grace after the first
+  continuation nudge before salvage. Stall pings inside that window wait
+  instead of counting toward escalation. Mailbox mail re-flushes from the
+  fleet stall poll. Dry-fleet occupancy still delivers inbound mail.
 - Stale `running` sessions age to `interrupted` after two missed 5-minute
-  heartbeats, leftover newer parseable `run.json.*.tmp` files recover by mtime
-  over a stale `run.json`, and resume persists `interrupted` before reopening
-  as `running`. Signals stay `failed`; missing or unreadable state stays
-  `crashed`.
+  heartbeats. Leftover newer parseable `run.json.*.tmp` files recover by
+  mtime. Resume persists `interrupted` before reopening as `running`. Crash
+  and signal finalizers keep `turnsUsed`.
+- Subagent follow-up and interrupt are race-safe. Queued messages recover
+  when the target agent closes. Retryable worker failures retry once.
+  Pending sub-agent nudges append onto existing ephemeral turns. Pending
+  poll batches are exempt from the doom-loop guard. Non-fatal reactor
+  errors continue; empty extra session segments do not skip a real
+  checkpoint.
+- Auto mode treats bash combined file redirects as mutations. The agent
+  cannot persist its own shell grants into the standing approval store.
+  Operators are not asked to approve a path the sandbox will reject.
+  Same-process credential writes queue so each gets its own lock window.
+- Compaction summarizer is bounded and retried once per failure class.
+  Torn write tails heal; failed rewrite commits stay on HEAD. A prompt
+  submitted before `/clear` does not land in the new session. Quoted
+  image-path mentions keep whitespace and drop false-positive matches.
+  Relative filenames in prose quotes do not mint root-path mentions.
+- Assistants that print tool-call markup as text get one nudge. Consecutive
+  tool-failure recovery audits coalesce. Concurrent mutating lane-overlap
+  warnings rate-limit. OpenCode Go worker session IDs forward without a
+  catalog. Attributable xAI capacity protocol mismatches retry.
 
 
 ## [0.3.20] - 2026-09-10
