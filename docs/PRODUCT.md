@@ -77,15 +77,17 @@ $ corbits resume
 ```
 
 Opens a picker of the 10 most recently persisted conversations for this
-checkout, including completed ones. Type to filter by name. Plain
-`corbits` always starts a fresh conversation; `corbits resume <session-id>`
-is the direct, explicit resume path.
+checkout. There is no status filter: running, cancelled, failed, crashed,
+and done rows may appear. Each row shows the conversation name, relative
+last-updated age, and status. Typing filters by name within those ten.
+
+Plain `corbits` always starts a fresh conversation;
+`corbits resume <session-id>` is the direct, explicit resume path.
 
 A session that ended in `failed` (including one that recorded an `error`
-string in `run.json`) is a failed session, not a corrupt one. The default
-picker still shows only running and cancelled sessions; pass `--force` to
-include failed and done. Passing a corrupt session id prints one short
-recovery line instead of dumping the file path and parse details.
+string in `run.json`) is a failed session, not a corrupt one. Passing an
+unreadable session id prints one short recovery line instead of dumping
+the file path and parse details.
 
 ## Safety Model
 
