@@ -178,8 +178,8 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
       // The most recent answer is the lane's copy source (Alt+C) and, for a
       // shell lane, the settle preview's source.
       resultText: result.text,
-      ...(call.stat !== undefined ? { stat: call.stat } : {}),
       ...(isShell && shellStat !== undefined ? { stat: shellStat } : {}),
+      ...(!isShell && call.stat !== undefined ? { stat: call.stat } : {}),
       ...(isShell
         ? { previewLines: shellPreviewLines(previewSource) ?? [] }
         : {}),
@@ -187,7 +187,7 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
       ...(remaining > 0 ? { pending: true } : {}),
       detail: appendRunLine(
         call.detail ?? [],
-        failed ? "call failed" : (effAddendum ?? "answered"),
+        failed ? "call failed" : (addendum ?? "answered"),
       ),
     };
   }

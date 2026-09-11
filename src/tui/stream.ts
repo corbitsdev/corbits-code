@@ -158,7 +158,7 @@ export interface StreamRow {
    */
   readonly callCount?: number;
   /**
-   * Call ids a lane absorbed (newest appended, last 32 kept). Lets a result
+   * Call ids a lane absorbed (newest appended). Lets a result
    * resolve its lane by id even though the lane's own `callId` moved to the
    * newest call.
    */

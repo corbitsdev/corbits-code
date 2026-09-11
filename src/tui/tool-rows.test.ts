@@ -699,6 +699,55 @@ describe("a live turn", () => {
     );
   });
 
+  test("a silent sibling does not clear a coalesced pending shell tail", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          bridge.play([
+            {
+              type: "inference.tool_call.end",
+              data: {
+                name: "run_shell",
+                callId: "sh1",
+                arguments: { command: "echo alpha" },
+              },
+            },
+            {
+              type: "inference.tool_call.end",
+              data: {
+                name: "run_shell",
+                callId: "sh2",
+                arguments: { command: "sleep 5; echo done" },
+              },
+            },
+          ]);
+          await h.renderOnce();
+          expect(shell.streamLog.length).toBe(1);
+          expect(shell.streamLog[0]?.coalesced).toBe(true);
+          expect(shell.streamLog[0]?.pending).toBe(true);
+
+          bridge.syncShellOutputs((callId) => {
+            if (callId === "sh1") return liveFeed(() => "alpha-only\n");
+            if (callId === "sh2") return liveFeed(() => "");
+            return undefined;
+          });
+          await h.renderOnce();
+          expect(shell.streamLog[0]?.previewLines).toEqual(["alpha-only"]);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("rollbackAttempt drops shellSnapshots for truncated run_shell calls", async () => {
     await withTestRenderer(
       async (h) => {
@@ -901,5 +950,55 @@ describe("lane paint", () => {
     });
     pushToolResult(ok, { name: "run_shell", content: "all good" });
     expect(ok[0]?.stat).toBeUndefined();
+  });
+
+  test("a coalesced shell lane keeps each call's answer behind the arrow", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "run_shell",
+      arguments: JSON.stringify({ command: "echo a" }),
+      callId: "s1",
+    });
+    pushToolCall(rows, {
+      name: "run_shell",
+      arguments: JSON.stringify({ command: "echo b" }),
+      callId: "s2",
+    });
+    pushToolResult(rows, { name: "run_shell", content: "a", callId: "s1" });
+    pushToolResult(rows, { name: "run_shell", content: "b", callId: "s2" });
+    const answers = (rows[0]?.detail ?? []).map((line) =>
+      line.map((segment) => segment.text).join(""),
+    );
+    expect(answers).not.toEqual(["answered", "answered"]);
+    expect(answers).toContain("a");
+    expect(rows[0]?.resultText).toBe("b");
+    expect(rows[0]?.previewLines).toEqual(["b"]);
+  });
+
+  test("a later zero-exit coalesced shell does not keep a leftover exit stat", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "run_shell",
+      arguments: JSON.stringify({ command: "false" }),
+      callId: "s1",
+    });
+    pushToolCall(rows, {
+      name: "run_shell",
+      arguments: JSON.stringify({ command: "true" }),
+      callId: "s2",
+    });
+    pushToolResult(rows, {
+      name: "run_shell",
+      content: "exit code 1\nboom",
+      callId: "s1",
+    });
+    pushToolResult(rows, {
+      name: "run_shell",
+      content: "all good",
+      callId: "s2",
+    });
+    expect(rows[0]?.pending).toBeUndefined();
+    expect(collapsed(defined(rows[0]))).toContain("true");
+    expect(rows[0]?.stat).not.toBe("exit 1");
   });
 });

@@ -1084,6 +1084,15 @@ function syncShellOutputs(
     const key = preview.join("\n");
     if (bag.shellSnapshots.get(callId) === key) continue;
     bag.shellSnapshots.set(callId, key);
+    // Consecutive in-flight shells share a lane. An empty sibling snapshot
+    // must not clear a tail another member already painted.
+    if (
+      preview.length === 0 &&
+      row.previewLines !== undefined &&
+      row.previewLines.length > 0
+    ) {
+      continue;
+    }
     rowUpdates.scheduleRowUpdate(bag, index, { ...row, previewLines: preview });
   }
 }
