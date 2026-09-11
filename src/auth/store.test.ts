@@ -153,9 +153,9 @@ describe("createAuthStore", () => {
           : [],
       );
       expect(failures).toEqual([]);
-      expect((await store.listProfiles(home)).map((profile) => profile.name)).toEqual(
-        [...names].sort(),
-      );
+      expect(
+        (await store.listProfiles(home)).map((profile) => profile.name),
+      ).toEqual([...names].sort());
     } finally {
       await rm(home, { recursive: true, force: true });
     }
