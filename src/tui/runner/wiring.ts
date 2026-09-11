@@ -71,6 +71,27 @@ import { steerCount } from "../session-queue.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
+/**
+ * One tick of the periodic fleet stall poll.
+ *
+ * The store-subscribe edge drives mailbox mail the moment a lane terminalizes,
+ * but that edge is missable: the parent may be mid-turn (`isProcessing`, so
+ * `flushMailboxMail` no-ops) or the driver send may fail (swallowed as
+ * retryable with no later edge when the fleet is otherwise quiet). Re-flushing
+ * here bounds the stall to one poll interval. Both halves are no-ops when
+ * there is nothing to say: `reportFleet` diffs, `flushMailboxMail` no-ops
+ * while processing or when no uncollected terminal waits.
+ */
+export function createFleetStallPollTick(
+  reportFleet: () => void,
+  flushMailboxMail: () => void,
+): () => void {
+  return () => {
+    reportFleet();
+    flushMailboxMail();
+  };
+}
+
 export function createFleetWakePublisher(
   sessions: RunnerServices["subAgentSessions"],
   emitter: RunnerServices["emitter"],
@@ -265,7 +286,10 @@ export function wirePostStartup(
     }, FLEET_REPORT_SETTLE_MS);
     if (typeof fleetSettle.unref === "function") fleetSettle.unref();
   });
-  const fleetStallPoll = setInterval(reportFleet, FLEET_STALL_POLL_MS);
+  const fleetStallPollTick = createFleetStallPollTick(reportFleet, () =>
+    sessionBridge.flushMailboxMail(),
+  );
+  const fleetStallPoll = setInterval(fleetStallPollTick, FLEET_STALL_POLL_MS);
   if (typeof fleetStallPoll.unref === "function") fleetStallPoll.unref();
   state.stopFleetReporting = (): void => {
     clearInterval(fleetStallPoll);
