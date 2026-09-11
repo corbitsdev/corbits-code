@@ -1014,6 +1014,117 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
   });
 });
 
+describe("SubAgentDirector stall nudge grace", () => {
+  test("two queued empty pings in the same tick nudge then wait, not stop", async () => {
+    let now = 3_000_000;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      1_000,
+      () => now,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDoneText("working"), state, caps);
+
+    now += 1_000;
+    const first = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(first).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+    expect(first.some((action) => action.type === "reply")).toBe(false);
+
+    const second = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(second).toEqual([{ type: "wait" }]);
+  });
+
+  test("queued pings inside grace wait; stop only after grace with no activity", async () => {
+    let now = 1_000_000;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      1_000,
+      () => now,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDoneText("working"), state, caps);
+
+    now += 1_000;
+    const first = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(first).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+
+    now += 200;
+    const midGrace = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(midGrace).toEqual([{ type: "wait" }]);
+
+    now += 200;
+    const stillGrace = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(stillGrace).toEqual([{ type: "wait" }]);
+
+    now += 600;
+    const stopped = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(stopped).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stalled",
+    });
+    expect(stopped.some((action) => action.type === "reply")).toBe(true);
+  });
+
+  test("tool.done during grace clears stallNudgeAt so a later silence nudges again", async () => {
+    let now = 2_000_000;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      1_000,
+      () => now,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    now += 1_000;
+    const first = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(first).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+
+    now += 100;
+    await director.decide(toolDone("read-1"), state, caps);
+
+    now += 1_000;
+    const afterActivity = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(afterActivity).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+    expect(afterActivity.some((action) => action.type === "reply")).toBe(false);
+  });
+});
+
 function stubAdmission(
   notes: { provider: string; until: number }[],
 ): AdmissionQueue {

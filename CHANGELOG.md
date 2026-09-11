@@ -13,6 +13,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Fixed
+
+- A stalled worker now gets a full `stallTimeoutMs` grace after the first
+  continuation nudge before salvage — stall pings queued inside that window
+  wait instead of counting toward escalation.
+
 ### Removed
 
 - `--force` is no longer accepted. It had no runtime effect; resume and the
