@@ -34,6 +34,39 @@ describe("createCorbitsRetryPolicy", () => {
     expect(decision).toEqual({ kind: "retry", delayMs: 500 });
   });
 
+  test("bounds attributable xAI capacity retries to three attempts", async () => {
+    const decide = policy({ providerId: "xai/default" });
+    const situation = (attempt: number) => ({
+      attempt,
+      elapsedMs: 0,
+      error: {
+        category: "protocol_mismatch" as const,
+        message: "The model is currently at capacity",
+      },
+    });
+
+    expect(await decide(situation(1))).toEqual({ kind: "retry", delayMs: 500 });
+    expect(await decide(situation(2))).toEqual({
+      kind: "retry",
+      delayMs: 1000,
+    });
+    expect(await decide(situation(3))).toEqual({ kind: "abort" });
+  });
+
+  test("aborts attributable xAI quota exhaustion", async () => {
+    const decision = await policy({ providerId: "xai/default" })({
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted",
+        message: "Service temporarily unavailable: quota exhausted",
+        statusCode: 429,
+        retryAfterMs: 86_400_000,
+      },
+    });
+    expect(decision).toEqual({ kind: "abort" });
+  });
+
   test("aborts an OpenCode Go malformed streamed SSE schema response", async () => {
     const decision = await policy({ providerId: "opencode-go/corbits" })({
       attempt: 1,

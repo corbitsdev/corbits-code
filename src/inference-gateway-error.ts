@@ -239,6 +239,88 @@ function textHasXaiQuotaMarkers(...parts: string[]): boolean {
 }
 
 /**
+ * User-visible line for an attributable xAI / Grok capacity error. Worded
+ * without "retrying" for the same reason as RATE_LIMIT_USER_MESSAGE — it also
+ * surfaces terminally once retries are exhausted.
+ */
+export const XAI_CAPACITY_USER_MESSAGE = "xAI at capacity";
+
+/**
+ * xAI / Grok capacity and overload phrases that arrive as protocol_mismatch
+ * (message-only or JSON raw) when the stream is not valid SSE. Exact
+ * "Service temporarily unavailable" is intentional — do not widen to the
+ * gateway "service unavailable" substring, which would rematch quota copy.
+ */
+const XAI_CAPACITY_TEXT_MARKERS = [
+  "currently at capacity",
+  "overloaded",
+  "high demand",
+] as const;
+
+const XAI_CAPACITY_EXACT_MESSAGES = new Set([
+  "service temporarily unavailable",
+]);
+
+/**
+ * Exact-match only — never substring, so quota-suffixed copy stays out. Checks
+ * the part itself and common JSON message fields, since intx puts the server
+ * body on `raw` while `message` carries parser detail.
+ */
+function isXaiCapacityExactPhrase(part: string): boolean {
+  if (XAI_CAPACITY_EXACT_MESSAGES.has(part.trim().toLowerCase())) return true;
+  const parsed = tryParseJSON(part);
+  if (typeof parsed !== "object" || parsed === null) return false;
+  const record = parsed as Record<string, unknown>;
+  const nested = record.error;
+  const candidates = [
+    record.message,
+    typeof nested === "string" ? nested : undefined,
+    typeof nested === "object" && nested !== null
+      ? (nested as Record<string, unknown>).message
+      : undefined,
+  ];
+  return candidates.some(
+    (candidate) =>
+      typeof candidate === "string" &&
+      XAI_CAPACITY_EXACT_MESSAGES.has(candidate.trim().toLowerCase()),
+  );
+}
+
+function textSuggestsXaiCapacity(...parts: string[]): boolean {
+  const combined = parts.join("\n").toLowerCase();
+  if (XAI_CAPACITY_TEXT_MARKERS.some((marker) => combined.includes(marker))) {
+    return true;
+  }
+  return parts.some(isXaiCapacityExactPhrase);
+}
+
+/**
+ * Remap attributable xAI / Grok capacity protocol_mismatch errors to retryable.
+ * Unknown providers and OpenCode Go stay terminal. Quota markers anywhere in
+ * the copy veto the remap — mixed capacity+quota text stays a real quota error.
+ */
+export function normalizeXaiCapacityError(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
+  if (error.category !== "protocol_mismatch") return error;
+  if (!isKnownXaiProviderId(error.providerId)) return error;
+  const messageText = error.message ?? "";
+  const rawText = stringFromRaw(error.raw);
+  if (textHasXaiQuotaMarkers(messageText, rawText)) return error;
+  if (!textSuggestsXaiCapacity(messageText, rawText)) return error;
+
+  return {
+    category: "retryable",
+    message: XAI_CAPACITY_USER_MESSAGE,
+    statusCode: error.statusCode ?? 503,
+    ...(error.raw !== undefined ? { raw: error.raw } : {}),
+    ...(error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
+  };
+}
+
+/**
  * True when a known-xAI HTTP 429 looks like a short rate limit rather than a
  * usage/quota window. Used by both retry normalization and transcript copy —
  * FRIENDLY_BY_CATEGORY would otherwise paint every quota_exhausted 429 as
@@ -400,8 +482,9 @@ function normalizeCodexUsageLimitError(
  * Reclassify gateway overload errors so the default retry policy treats them as
  * transient instead of aborting on protocol_mismatch. Also normalizes OpenCode
  * Go quota/rate-limit shapes (including HTTP 400 mis-status), known-xAI short
- * 429s, Codex usage limits (nested detail.error with resets_in_seconds), and
- * known-Codex short 429s that are not usage_limit_reached.
+ * 429s, attributable xAI capacity protocol_mismatch, Codex usage limits
+ * (nested detail.error with resets_in_seconds), and known-Codex short 429s that
+ * are not usage_limit_reached.
  */
 export function normalizeInferenceErrorForRetry(
   error: InferenceErrorWithGoContext,
@@ -411,6 +494,9 @@ export function normalizeInferenceErrorForRetry(
 
   const xaiNormalized = normalizeXaiRateLimitError(error);
   if (xaiNormalized !== error) return xaiNormalized;
+
+  const xaiCapacity = normalizeXaiCapacityError(error);
+  if (xaiCapacity !== error) return xaiCapacity;
 
   const codexNormalized = normalizeCodexUsageLimitError(error);
   if (codexNormalized !== error) return codexNormalized;
