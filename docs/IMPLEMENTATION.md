@@ -278,7 +278,7 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   Optional `sessionMode` is **deprecated**. Legacy values (`single` | `orchestrator`) may still appear on disk and load without error; resolve always returns **orchestrator**. There is no first-run mode picker and no Settings row. Both the interactive TUI (`runTUI`) and the non-TUI product path (`runExec` / `corbits exec`) are orchestrator-only. Exec bootstrap consumes the same session assembly as the TUI (intentional deltas documented under Architecture → Exec Runner).
 
-- Per-repo: `.corbits/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval).
+- Per-repo: `.corbits/settings.json` — **selection only**, e.g. `{ "provider": "firepass", "model": "fp-small" }`. Any other key (notably `apiKey` or `baseURL`) is rejected by the loader, and the file is gitignored. It is also on the secret-guard denylist for path-keyed tools, as is the global file, so the agent cannot `read_file` its own credentials (shell references still require explicit operator approval). The project grant store (`.corbits/permissions.json`) is on the same denylist so the agent cannot write a standing auto-approval.
 
   `baseURL` is editable provider metadata, but it still belongs in the global provider definition rather than the per-repo selection file. `apiKey` is secret and must never be projected into TUI display-only provider lists.
 

@@ -1,10 +1,17 @@
 import { describe, test, expect } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createPosixTools } from "@intx/tools-posix";
+import type { ToolCall, ToolResult } from "@intx/types/runtime";
+import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import { createPermissionGate } from "../permission/gate.js";
+import { loadProjectApprovals } from "../permission/store.js";
 import {
   secretGuardPlugin,
   isSensitivePath,
   commandReferencesSensitivePath,
 } from "./secret-guard-plugin.js";
-import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 const next = async (call: ToolCall): Promise<ToolResult> => ({
   callId: call.id,
@@ -26,6 +33,16 @@ const shell = (command: unknown): ToolCall => ({
   name: "run_shell",
   arguments: { command },
 });
+
+const GRANT_STORE_PAYLOAD = JSON.stringify({
+  approvals: [{ tool: "run_shell", pattern: "bash -c *" }],
+});
+
+const APPLY_PATCH_GRANT_STORE = `*** Begin Patch
+*** Add File: .corbits/permissions.json
++${GRANT_STORE_PAYLOAD}
+*** End Patch
+`;
 
 describe("isSensitivePath", () => {
   const sensitive = [
@@ -56,6 +73,8 @@ describe("isSensitivePath", () => {
     "my-project_service_account-key.json",
     ".corbits/settings.json",
     "/Users/me/.corbits/settings.json",
+    ".corbits/permissions.json",
+    "/Users/me/.corbits/permissions.json",
     // Shell histories.
     "/home/me/.bash_history",
     ".zsh_history",
@@ -92,6 +111,7 @@ describe("isSensitivePath", () => {
     ".env.example.md",
     "docs/pem.md",
     ".corbits/hooks/post-turn.ts",
+    "permissions.json",
     "docker-compose.yml",
     "keystore.md",
     "account.json",
@@ -129,6 +149,46 @@ describe("secretGuardPlugin", () => {
     expect(result.isError).toBe(true);
   });
 
+  test("denies writing the project grant store", async () => {
+    const call: ToolCall = {
+      id: "c",
+      name: "write_file",
+      arguments: {
+        path: ".corbits/permissions.json",
+        content: GRANT_STORE_PAYLOAD,
+      },
+    };
+    const result = await handler()(call, new AbortController().signal);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/sensitive file blocked/);
+  });
+
+  test("denies editing the project grant store", async () => {
+    const call: ToolCall = {
+      id: "c",
+      name: "edit_file",
+      arguments: {
+        path: ".corbits/permissions.json",
+        old_string: "{}",
+        new_string: GRANT_STORE_PAYLOAD,
+      },
+    };
+    const result = await handler()(call, new AbortController().signal);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/sensitive file blocked/);
+  });
+
+  test("denies apply_patch of the project grant store", async () => {
+    const call: ToolCall = {
+      id: "c",
+      name: "apply_patch",
+      arguments: { input: APPLY_PATCH_GRANT_STORE },
+    };
+    const result = await handler()(call, new AbortController().signal);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/sensitive file blocked/);
+  });
+
   test("allows an ordinary source file", async () => {
     const result = await handler()(
       read("src/index.ts"),
@@ -143,6 +203,7 @@ describe("commandReferencesSensitivePath", () => {
     "cat .env",
     "cat ~/.corbits/settings.json",
     "less /Users/me/.corbits/settings.json",
+    "cat .corbits/permissions.json",
     "xxd .ssh/id_rsa",
     "base64 secrets/server.pem",
     "grep KEY .env.production",
@@ -239,5 +300,110 @@ describe("secretGuardPlugin run_shell", () => {
       new AbortController().signal,
     );
     expect(result.content).toBe("ok");
+  });
+});
+
+describe("auto-mode project grant store", () => {
+  async function withAutoTools<T>(
+    run: (args: {
+      cwd: string;
+      tools: ReturnType<typeof createPosixTools>;
+    }) => Promise<T>,
+  ): Promise<T> {
+    const cwd = await mkdtemp(join(tmpdir(), "cl7634-grant-store-"));
+    await mkdir(join(cwd, ".corbits"), { recursive: true });
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: false,
+      reactorGated: false,
+      auto: true,
+      cwd,
+    });
+    const tools = createPosixTools({
+      cwd,
+      plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
+    });
+    try {
+      return await run({ cwd, tools });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }
+
+  test("auto mode denies write_file of the project grant store", async () => {
+    await withAutoTools(async ({ cwd, tools }) => {
+      const result = await tools.run(
+        {
+          id: "1",
+          name: "write_file",
+          arguments: {
+            path: ".corbits/permissions.json",
+            content: GRANT_STORE_PAYLOAD,
+          },
+        },
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/sensitive file blocked/i);
+      expect(await loadProjectApprovals(cwd)).toEqual([]);
+    });
+  });
+
+  test("auto mode denies edit_file of the project grant store", async () => {
+    await withAutoTools(async ({ cwd, tools }) => {
+      const result = await tools.run(
+        {
+          id: "1",
+          name: "edit_file",
+          arguments: {
+            path: ".corbits/permissions.json",
+            old_string: "{}",
+            new_string: GRANT_STORE_PAYLOAD,
+          },
+        },
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/sensitive file blocked/i);
+      expect(await loadProjectApprovals(cwd)).toEqual([]);
+    });
+  });
+
+  test("a denied grant-store write cannot auto-allow bash -c npm install on a fresh gate", async () => {
+    await withAutoTools(async ({ cwd, tools }) => {
+      await tools.run(
+        {
+          id: "1",
+          name: "write_file",
+          arguments: {
+            path: ".corbits/permissions.json",
+            content: GRANT_STORE_PAYLOAD,
+          },
+        },
+        new AbortController().signal,
+      );
+      const seeded = await loadProjectApprovals(cwd);
+      let asked = 0;
+      const gate = createPermissionGate({
+        approvals: seeded,
+        requestApproval: async () => {
+          asked++;
+          return { allow: true };
+        },
+        interactive: true,
+        skipPermissions: false,
+        reactorGated: false,
+        auto: true,
+        cwd,
+      });
+      const verdict = await gate.evaluate({
+        id: "c",
+        name: "run_shell",
+        arguments: { command: "bash -c 'npm install lodash'" },
+      });
+      expect(asked).toBeGreaterThan(0);
+      expect(verdict.allowed).toBe(true);
+    });
   });
 });
