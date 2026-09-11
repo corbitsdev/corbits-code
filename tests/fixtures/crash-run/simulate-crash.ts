@@ -7,6 +7,7 @@ import { installCrashHandlers } from "../../../src/index.js";
 import {
   setActiveRun,
   setTestWriteGate,
+  syncRunStateHandle,
 } from "../../../src/session/active-run.js";
 import { sessionDir } from "../../../src/session/index.js";
 import { finalizeRunState, saveState } from "../../../src/session/state.js";
@@ -70,6 +71,15 @@ if (rotatedSessionId !== undefined) {
     await saveState(cwd, sessionId, rotationState);
   }
   activeRunHandle.sessionId = rotatedSessionId;
+  // Matches runner.ts reseeding the handle's snapshot fields at repoint: the
+  // new session has run zero turns, so a crash before its first persist must
+  // carry 0, not the outgoing session's count.
+  syncRunStateHandle(activeRunHandle, {
+    turnsUsed: 0,
+    task,
+    startedAt,
+    model,
+  });
   activeSessionId = rotatedSessionId;
 }
 

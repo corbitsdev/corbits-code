@@ -591,11 +591,25 @@ export async function createRunLifecycle(
           "session-rotation",
         );
         state.sessionId = generateSessionId();
-        // Repointed, not cleared: the process lives on, so the crash handler
-        // must keep finding this handle and close out the *new* session.
-        services.activeRunHandle.sessionId = state.sessionId;
         state.startedAt = Date.now();
         state.runTaskTitle = state.config.task;
+        const rotatedBundle = services.buildSessionSources();
+        // Repointed, not cleared: the process lives on, so the crash handler
+        // must keep finding this handle and close out the *new* session. The
+        // fields it copies reseed with the repoint — a crash inside
+        // initSessionDir/buildAgent below would otherwise stamp the outgoing
+        // session's turnsUsed (and task, startedAt, model) onto a session
+        // that has run zero turns.
+        services.activeRunHandle.sessionId = state.sessionId;
+        syncRunStateHandle(services.activeRunHandle, {
+          turnsUsed: 0,
+          task:
+            state.runTaskTitle.trim().length > 0
+              ? state.runTaskTitle.trim()
+              : "(conversation)",
+          startedAt: state.startedAt,
+          model: `${rotatedBundle.selected.id}:${rotatedBundle.selected.model}`,
+        });
         services.emitter.emit(
           "session.title",
           state.runTaskTitle.trim().length > 0
@@ -604,7 +618,6 @@ export async function createRunLifecycle(
         );
         state.workdir = sessionContextDir(state.config.cwd, state.sessionId);
         await initSessionDir(state.config.cwd, state.sessionId);
-        const rotatedBundle = services.buildSessionSources();
         state.liveSources = rotatedBundle.sources;
         state.liveDefaultSource = rotatedBundle.defaultSource;
         state.liveSource = rotatedBundle.selected;
