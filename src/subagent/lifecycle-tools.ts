@@ -470,7 +470,11 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
       // wait_agents unblocks as interrupted; a queued followup must instead
       // stay wait-live (running/queued) so the followup reply surfaces via
       // wait_agents instead of freezing as an already-collected interrupt.
-      if (interrupt && deps.fleetRecords !== undefined) {
+      if (
+        interrupt &&
+        outcome.status === "interrupted" &&
+        deps.fleetRecords !== undefined
+      ) {
         deps.fleetRecords.noteFollowup(target);
         const after = deps.sessions.get(target);
         if (after?.lifecycle.state === "pending_init")

@@ -1502,13 +1502,16 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
   test("close overlay without in-flight wait stays interrupted after followup complete", async () => {
     const gate = deferred<RunSubAgentResult>();
-    const followupGate = deferred<string>();
     const closeHold = deferred<undefined>();
+    const followupCalls: string[] = [];
     const deps = makeDeps(async (params) => {
       params.onAgentReady?.({
         close: async () => closeHold.promise,
         interrupt: () => undefined,
-        followup: async () => followupGate.promise,
+        followup: async (message: string) => {
+          followupCalls.push(message);
+          return "should never run";
+        },
         deliver: () => undefined,
       });
       return gate.promise;
@@ -1552,25 +1555,16 @@ describe("interrupt_agent unblocks wait_agents", () => {
       new AbortController().signal,
     );
 
-    followupGate.resolve("followup after close overlay");
-    await new Promise<void>((resolve) => {
-      const done = (): boolean =>
-        deps.sessions.get(id)?.lifecycle.state === "completed";
-      if (done()) {
-        resolve();
-        return;
-      }
-      const unsub = deps.sessions.subscribe(() => {
-        if (done()) {
-          unsub();
-          resolve();
-        }
-      });
-      if (done()) {
-        unsub();
-        resolve();
-      }
-    });
+    closeHold.resolve(undefined);
+    await closing;
+    // CL-7344: close drops the stashed follow-up — it never runs against
+    // the closed agent, and the close overlay survives the run settling.
+    expect(followupCalls).toEqual([]);
+    gate.resolve({
+      report: "original interrupted",
+      interrupted: true,
+    } as RunSubAgentResult);
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
     const listed = await callTool(list, {});
@@ -1583,13 +1577,6 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { status: string }[];
     expect(defined(results[0]).status).toBe("interrupted");
-
-    closeHold.resolve(undefined);
-    await closing;
-    gate.resolve({
-      report: "original interrupted",
-      interrupted: true,
-    } as RunSubAgentResult);
   });
 
   test("completeAfterInterrupt does not clear a close overlay", () => {
@@ -1642,13 +1629,16 @@ describe("interrupt_agent unblocks wait_agents", () => {
       message: "stop that",
       interrupt: true,
     });
-    followupGate.reject(new Error("followup failed"));
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // CL-7344: the follow-up is stashed until the original run settles; the
+    // salvage handoff launches it, and its rejection restores the
+    // interrupted lane so wait collects the salvage.
     gate.resolve({
       report:
         "## Summary\nStopped.\n## Findings\nsalvage\n## Blockers\ninterrupted\n## Paths\n",
       interrupted: true,
     } as RunSubAgentResult);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    followupGate.reject(new Error("followup failed"));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
@@ -1658,21 +1648,14 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(defined(results[0]).report).toContain("salvage");
   });
 
-  test("send_input interrupt queued overlay clears when the followup is admitted", async () => {
-    const admission = createAdmissionQueue({ capacity: 1 });
-    const sessions = createSubAgentSessionStore({ admission });
+  test("send_input interrupt on a live lane stashes the followup until the run settles", async () => {
+    const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    admission.enqueue({
-      id: "holder",
-      provider: "p",
-      start: () => undefined,
-    });
     const worker = sessions.start({
       description: "looping",
       agentId: "explorer",
       brief: "b",
       retained: true,
-      provider: "p",
     });
     sessions.markRunning(worker.id);
     fleetRecords.register(worker.id);
@@ -1690,51 +1673,44 @@ describe("interrupt_agent unblocks wait_agents", () => {
       interrupt: true,
     });
     expect(sent.status).toBe("interrupted");
-    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("pending_init");
-
-    const queuedWait = await callTool(wait, {
-      targets: [worker.id],
-      timeout_ms: 50,
-    });
-    expect(queuedWait.timed_out).toBe(true);
-    expect(
-      defined((queuedWait.results as { status: string }[])[0]).status,
-    ).toBe("queued");
-    const queuedList = await callTool(list, {});
-    const queuedEntry = (
-      queuedList.agents as {
-        agent_id: string;
-        status: string;
-        lifecycle: string;
-      }[]
-    ).find((a) => a.agent_id === worker.id);
-    expect(queuedEntry?.status).toBe("queued");
-    expect(queuedEntry?.lifecycle).toBe("pending_init");
-
-    admission.release("holder");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
+    // CL-7344: the interrupt stashes the follow-up instead of starting it;
+    // the lane is still the live run, so the session stays running while
+    // wait/list stay live until the run settles and hands off.
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
-    const runningWait = await callTool(wait, {
+
+    const liveWait = await callTool(wait, {
       targets: [worker.id],
       timeout_ms: 50,
     });
-    expect(runningWait.timed_out).toBe(true);
-    expect(
-      defined((runningWait.results as { status: string }[])[0]).status,
-    ).toBe("running");
-    const runningList = await callTool(list, {});
-    const runningEntry = (
-      runningList.agents as {
+    expect(liveWait.timed_out).toBe(true);
+    expect(defined((liveWait.results as { status: string }[])[0]).status).toBe(
+      "running",
+    );
+    const liveList = await callTool(list, {});
+    const liveEntry = (
+      liveList.agents as {
         agent_id: string;
         status: string;
         lifecycle: string;
       }[]
     ).find((a) => a.agent_id === worker.id);
-    expect(runningEntry?.status).toBe("running");
-    expect(runningEntry?.lifecycle).toBe("running");
+    expect(liveEntry?.status).toBe("running");
+    expect(liveEntry?.lifecycle).toBe("running");
 
+    // Settling the original run launches the stashed follow-up.
+    sessions.attachReport(worker.id, "interrupted salvage", {
+      stopReason: "interrupted",
+    });
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
     followupGate.resolve("later");
+    const done = await callTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 5000,
+    });
+    expect(done.timed_out).toBe(false);
+    const results = done.results as { status: string; report?: string }[];
+    expect(defined(results[0]).status).toBe("done");
+    expect(defined(results[0]).report).toBe("later");
   });
 
   test("soft-interrupt wait path collects so omitted re-wait does not re-deliver", async () => {
@@ -1910,8 +1886,13 @@ describe("interrupt_agent unblocks wait_agents", () => {
       message: "stop that",
       interrupt: true,
     });
+    // CL-7344: the follow-up is stashed until the original run settles; the
+    // salvage handoff launches it, so the run must settle first.
+    gate.resolve({
+      report: "original interrupted",
+      interrupted: true,
+    } as RunSubAgentResult);
     followupGate.resolve("followup report");
-    await new Promise((resolve) => setTimeout(resolve, 20));
     const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { status: string; report?: string }[];

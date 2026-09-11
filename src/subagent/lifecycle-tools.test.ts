@@ -7,7 +7,11 @@ import {
   createSendInputTool,
   resumeAgentToolDefinition,
 } from "./lifecycle-tools.js";
-import { createFleetMailbox, createWaitAgentsTool } from "./agent-fleet.js";
+import {
+  createFleetMailbox,
+  createListAgentsTool,
+  createWaitAgentsTool,
+} from "./agent-fleet.js";
 import {
   createSubAgentSessionStore,
   DEFAULT_MAX_ENTRY_CHARS,
@@ -28,6 +32,7 @@ async function callTool(
     | ReturnType<typeof createResumeAgentTool>
     | ReturnType<typeof createInterruptAgentTool>
     | ReturnType<typeof createSendInputTool>
+    | ReturnType<typeof createListAgentsTool>
     | ReturnType<typeof createWaitAgentsTool>,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -795,6 +800,9 @@ describe("send_input", () => {
     expect(sessions.get(worker.id)?.stopReason).toBe("interrupted");
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
 
+    // CL-7344: the interrupt stashes the follow-up until the original run
+    // settles; the salvage handoff launches it.
+    sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
     finish("followup report");
     await new Promise((resolve) => setTimeout(resolve, 0));
     const collected = await callTool(wait, {
@@ -836,6 +844,10 @@ describe("send_input", () => {
       message: "stop that",
       interrupt: true,
     });
+    // CL-7344: the interrupt stashes the follow-up until the original run
+    // settles; the salvage handoff launches it, it rejects, and the session
+    // restamps interrupted.
+    sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
     await new Promise((resolve) => setTimeout(resolve, 0));
     const collected = await callTool(wait, {
       targets: [worker.id],
@@ -907,6 +919,12 @@ describe("send_input", () => {
     });
     expect(result).toEqual({ agent_id: worker.id, status: "interrupted" });
     expect(interrupted).toBe(true);
+    // CL-7344: the interrupt stashes the follow-up until the original run
+    // settles; the salvage handoff launches it.
+    expect(followupStarted).toBe(false);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
+    sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(followupStarted).toBe(true);
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
     expect(sessions.get(worker.id)?.finishedAt).toBeUndefined();
@@ -930,6 +948,164 @@ describe("send_input", () => {
     );
     expect(denied.isError).toBe(true);
     expect(sessions.get(missing.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("completion during interrupt keeps the original terminal report", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    sessions.markRunInFlight(worker.id);
+    sessions.registerInterrupt(worker.id, () => {
+      sessions.complete(worker.id, "original report");
+    });
+    let followupStarted = false;
+    sessions.registerFollowup(worker.id, async () => {
+      followupStarted = true;
+      return "follow-up report";
+    });
+    fleetRecords.register(worker.id);
+
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    const result = await callTool(sendInput, {
+      target: worker.id,
+      message: "late interrupt",
+      interrupt: true,
+    });
+    expect(result).toEqual({ agent_id: worker.id, status: "completed" });
+
+    const collected = await callTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 1000,
+    });
+    expect(collected.timed_out).toBe(false);
+    expect(collected.results).toEqual([
+      expect.objectContaining({
+        agent_id: worker.id,
+        status: "done",
+        report: "original report",
+      }),
+    ]);
+    expect(followupStarted).toBe(false);
+  });
+
+  test("CL-7344: interrupt:true stashes until attachReport; resume stays fail-closed", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    sessions.markRunInFlight(worker.id);
+    sessions.registerInterrupt(worker.id, () => undefined);
+    let followupStarted = false;
+    sessions.registerFollowup(worker.id, async (message) => {
+      followupStarted = true;
+      expect(message).toBe("patch only the test");
+      return "queued turn finished";
+    });
+    fleetRecords.register(worker.id);
+
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const resume = createResumeAgentTool({ sessions, fleetRecords });
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    const result = await callTool(sendInput, {
+      target: worker.id,
+      message: "patch only the test",
+      interrupt: true,
+    });
+    expect(result).toEqual({ agent_id: worker.id, status: "interrupted" });
+    expect(followupStarted).toBe(false);
+    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
+    if (resume.kind !== "full") throw new Error("expected full tool");
+    const resumed = await resume.handler(
+      {
+        id: "resume-during-stash",
+        name: "resume_agent",
+        arguments: { target: worker.id, message: "x" },
+      },
+      new AbortController().signal,
+    );
+    expect(resumed.isError).toBe(true);
+    expect(String(resumed.content)).toContain("status: running");
+    const pending = await callTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 50,
+    });
+    expect(pending.timed_out).toBe(true);
+    expect(defined((pending.results as { status: string }[])[0]).status).toBe(
+      "running",
+    );
+
+    sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
+    await Promise.resolve();
+    expect(followupStarted).toBe(true);
+  });
+
+  test("CL-7344: AgentClosedError follow-up wait collects failed", async () => {
+    const { AgentClosedError } = await import("@intx/agent");
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const worker = sessions.start({
+      description: "worker",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    sessions.markRunInFlight(worker.id);
+    sessions.registerInterrupt(worker.id, () => undefined);
+    sessions.registerFollowup(worker.id, async () => {
+      throw new AgentClosedError();
+    });
+    fleetRecords.register(worker.id);
+    const sendInput = createSendInputTool({ sessions, fleetRecords });
+    const wait = createWaitAgentsTool({ sessions, fleetRecords });
+    const list = createListAgentsTool({ sessions, fleetRecords });
+    const resume = createResumeAgentTool({ sessions, fleetRecords });
+    await callTool(sendInput, {
+      target: worker.id,
+      message: "stop that",
+      interrupt: true,
+    });
+    sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const collected = await callTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 1000,
+    });
+    expect(collected.timed_out).toBe(false);
+    const results = collected.results as { status: string; error?: string }[];
+    expect(defined(results[0]).status).toBe("failed");
+    expect(defined(results[0]).error).toContain("closed");
+
+    const listed = await callTool(list, {});
+    const listedWorker = (
+      listed.agents as { agent_id: string; status: string; lifecycle: string }[]
+    ).find((agent) => agent.agent_id === worker.id);
+    expect(listedWorker?.status).toBe("failed");
+    expect(listedWorker?.lifecycle).toBe("shutdown");
+
+    if (resume.kind !== "full") throw new Error("expected full tool");
+    const resumed = await resume.handler(
+      {
+        id: "resume-closed-followup",
+        name: "resume_agent",
+        arguments: { target: worker.id, message: "retry" },
+      },
+      new AbortController().signal,
+    );
+    expect(resumed.isError).toBe(true);
+    expect(String(resumed.content)).toContain("status: shutdown");
   });
 
   test("rejects completed, interrupted, and closed sessions — steering is in-flight only", async () => {

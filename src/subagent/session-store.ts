@@ -5,6 +5,7 @@
 // this store is the dedicated child record the enter-session UI reads.
 
 import type { ReactorEmittedEvent } from "@intx/inference";
+import { AgentClosedError } from "@intx/agent";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { awaitBoundedTeardown, DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
@@ -510,6 +511,21 @@ export function createSubAgentSessionStore(
     (message: string) => Promise<string>
   >();
   const deliverHandles = new Map<string, (message: string) => void>();
+  // CL-7344: a send_input interrupt that lands while the original run is still
+  // in flight must not start its follow-up against a run that is about to
+  // settle. The message is stashed here and launched atomically from
+  // attachReport (same mutation/notify as the salvage handoff) when the run's
+  // report arrives; a completing run drops it. Any terminal transition —
+  // interrupt, close, cancel, fail, eviction — drops it too, so a queued
+  // follow-up can never run against a closed agent.
+  interface StashedFollowup {
+    message: string;
+    failLifecycle: "completed" | "interrupted";
+    onStart?: () => void;
+    onReply?: (reply: string) => void;
+    onFail?: (error: unknown) => void;
+  }
+  const stashedFollowups = new Map<string, StashedFollowup>();
   const pendingAsks = new Map<
     string,
     {
@@ -639,6 +655,7 @@ export function createSubAgentSessionStore(
 
   const cancelSession = (id: string, reason: string): boolean => {
     settleCancelsAsks(id, reason);
+    stashedFollowups.delete(id);
     const session = sessions.get(id);
     if (session === undefined || !isLiveStrip(session.lifecycle)) return false;
     const abort = cancelHandles.get(id);
@@ -686,6 +703,7 @@ export function createSubAgentSessionStore(
     interruptHandles.delete(id);
     followupHandles.delete(id);
     deliverHandles.delete(id);
+    stashedFollowups.delete(id);
   };
 
   // An open retained session (spawn_agent's reusable-session contract:
@@ -849,6 +867,97 @@ export function createSubAgentSessionStore(
       s.finishedAt = now();
     });
   };
+  // CL-7344: shared terminal transition used when a queued follow-up rejects
+  // because the agent closed mid-invocation. Session and fleet move together:
+  // endFollowupTurn restores the visible fleet state while fail records the
+  // actionable error, so wait_agents, list_agents, and resume_agent agree.
+  const failClosedSession = (id: string, error: string): void => {
+    endFollowupTurn(id, "interrupted");
+    settleCancelsAsks(id, "session failed");
+    mutate(id, (session) => {
+      if (
+        !isLiveStrip(session.lifecycle) ||
+        session.lifecycle.state === "cancelled"
+      ) {
+        return;
+      }
+      session.lifecycle = { state: "failed", error };
+      session.finishedAt = now();
+      session.lastActivityAt = now();
+      session.error = error;
+      session.stopReason = "error";
+      clearToolCalls(session);
+      pushEntry(session, {
+        kind: "report",
+        content: capText(`Error: ${error}`, maxEntryChars),
+      });
+    });
+    releaseHandles(id);
+    pruneCompleted();
+  };
+  // CL-7344: shared follow-up settlement, used both by queueFollowupTurn's
+  // immediate/queued start and by the stashed-interrupt launch in
+  // attachReport, so every follow-up completes, fails, and releases its
+  // admission slot the same way.
+  const settleFollowupReply = (
+    id: string,
+    reply: string,
+    onReply?: (reply: string) => void,
+  ): void => {
+    const still = sessions.get(id);
+    if (still === undefined) {
+      runInFlight.delete(id);
+      return;
+    }
+    if (
+      still.lifecycle.state === "shutdown" ||
+      still.lifecycle.state === "cancelled" ||
+      still.lifecycle.state === "failed" ||
+      still.lifecycle.state === "interrupted"
+    ) {
+      runInFlight.delete(id);
+      return;
+    }
+    mutate(id, (s) => {
+      s.lifecycle = { state: "completed", report: reply };
+      s.finishedAt = now();
+      s.report = reply;
+      delete s.stopReason;
+      pushEntry(s, {
+        kind: "report",
+        content: capText(reply, maxEntryChars),
+      });
+    });
+    runInFlight.delete(id);
+    onReply?.(reply);
+    pruneRetained();
+  };
+  const settleFollowupFailure = (
+    id: string,
+    err: unknown,
+    failLifecycle: "completed" | "interrupted",
+    onFail?: (error: unknown) => void,
+  ): void => {
+    runInFlight.delete(id);
+    onFail?.(err);
+    // CL-7344: the agent closed between queueing and invocation, so the
+    // follow-up can never run. Move session and fleet records to the
+    // same terminal state with an actionable error instead of silently
+    // restoring the stale interrupted snapshot.
+    if (err instanceof AgentClosedError) {
+      failClosedSession(
+        id,
+        `Follow-up rejected: agent ${id} closed before the message could be delivered.`,
+      );
+      log.error("followup rejected for closed agent {id}", { id });
+      return;
+    }
+    endFollowupTurn(id, failLifecycle);
+    log.error("followup turn failed for {id}: {error}", {
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  };
   const queueFollowupTurn = (
     id: string,
     message: string,
@@ -872,42 +981,10 @@ export function createSubAgentSessionStore(
       opts?.onStart?.();
       void followup(message)
         .then((reply) => {
-          const still = sessions.get(id);
-          if (still === undefined) {
-            runInFlight.delete(id);
-            return;
-          }
-          if (
-            still.lifecycle.state === "shutdown" ||
-            still.lifecycle.state === "cancelled" ||
-            still.lifecycle.state === "failed" ||
-            still.lifecycle.state === "interrupted"
-          ) {
-            runInFlight.delete(id);
-            return;
-          }
-          mutate(id, (s) => {
-            s.lifecycle = { state: "completed", report: reply };
-            s.finishedAt = now();
-            s.report = reply;
-            delete s.stopReason;
-            pushEntry(s, {
-              kind: "report",
-              content: capText(reply, maxEntryChars),
-            });
-          });
-          runInFlight.delete(id);
-          opts?.onReply?.(reply);
-          pruneRetained();
+          settleFollowupReply(id, reply, opts?.onReply);
         })
         .catch((err: unknown) => {
-          runInFlight.delete(id);
-          opts?.onFail?.(err);
-          endFollowupTurn(id, failLifecycle);
-          log.error("followup turn failed for {id}: {error}", {
-            id,
-            error: err instanceof Error ? err.message : String(err),
-          });
+          settleFollowupFailure(id, err, failLifecycle, opts?.onFail);
         })
         .finally(() => {
           if (takesSlot) queue?.release(id);
@@ -933,6 +1010,33 @@ export function createSubAgentSessionStore(
       });
     }
     return status;
+  };
+  // attachReport moves the lifecycle to running before calling this, keeping
+  // the interrupted run and follow-up handoff atomic to observers.
+  const launchStashedFollowup = (
+    id: string,
+    stashed: StashedFollowup,
+  ): void => {
+    const followup = followupHandles.get(id);
+    // The follow-up handle can only be gone if teardown raced the handoff;
+    // then there is no follow-up to inherit the run, so settle it instead of
+    // leaving wait_agents stuck on a phantom turn.
+    if (followup === undefined || sessions.get(id) === undefined) {
+      runInFlight.delete(id);
+      return;
+    }
+    stashed.onStart?.();
+    const pending = followup(stashed.message);
+    void Promise.resolve().then(() => {
+      void pending.then(
+        (reply) => {
+          settleFollowupReply(id, reply, stashed.onReply);
+        },
+        (err: unknown) => {
+          settleFollowupFailure(id, err, stashed.failLifecycle, stashed.onFail);
+        },
+      );
+    });
   };
 
   return {
@@ -969,6 +1073,7 @@ export function createSubAgentSessionStore(
       interruptHandles.delete(id);
       followupHandles.delete(id);
       deliverHandles.delete(id);
+      stashedFollowups.delete(id);
       pinCounts.delete(id);
       runInFlight.delete(id);
       forgetRevision(id);
@@ -1239,6 +1344,7 @@ export function createSubAgentSessionStore(
         cancelHandles.delete(id);
         if (!agentRetained) closeHandles.delete(id);
         runInFlight.delete(id);
+        stashedFollowups.delete(id);
         pruneCompleted();
         pruneRetained();
       });
@@ -1318,6 +1424,10 @@ export function createSubAgentSessionStore(
         return "not_found";
       }
       settleCancelsAsks(id, "session closed");
+      // CL-7344: a stashed send_input follow-up must never launch against a
+      // closing agent; dropped again in each terminal path below in case the
+      // stash lands during the setup-window wait.
+      stashedFollowups.delete(id);
       let close = closeHandles.get(id);
       const alreadyClosed = isAlreadyClosed(session.lifecycle);
       if (alreadyClosed && close === undefined) {
@@ -1345,6 +1455,7 @@ export function createSubAgentSessionStore(
           interruptHandles.delete(id);
           followupHandles.delete(id);
           deliverHandles.delete(id);
+          stashedFollowups.delete(id);
           runInFlight.delete(id);
           pruneCompleted();
           return "shutdown";
@@ -1386,6 +1497,7 @@ export function createSubAgentSessionStore(
         interruptHandles.delete(id);
         followupHandles.delete(id);
         deliverHandles.delete(id);
+        stashedFollowups.delete(id);
         runInFlight.delete(id);
         pruneCompleted();
         if (closeError !== undefined) throw closeError;
@@ -1413,6 +1525,7 @@ export function createSubAgentSessionStore(
       interruptHandles.delete(id);
       followupHandles.delete(id);
       deliverHandles.delete(id);
+      stashedFollowups.delete(id);
       runInFlight.delete(id);
       pruneCompleted();
       if (closeError !== undefined) throw closeError;
@@ -1465,17 +1578,31 @@ export function createSubAgentSessionStore(
           };
         }
         settleCancelsAsks(id, "cancelled by send_input interrupt");
-        interrupt();
-        queueFollowupTurn(id, message, "interrupted", {
+        const stashed: StashedFollowup = {
+          message,
+          failLifecycle: "interrupted",
           ...(opts.onStart !== undefined ? { onStart: opts.onStart } : {}),
           ...(opts.onFollowupReply !== undefined
             ? { onReply: opts.onFollowupReply }
             : {}),
           ...(opts.onFail !== undefined ? { onFail: opts.onFail } : {}),
-        });
-        // After beginFollowupTurn, which clears leftover stopReason. Stamp
-        // here so an in-flight wait_agents overlay can project interrupted
-        // without flipping lifecycle off the live follow-up.
+        };
+        // Stash before interrupting because interrupt callbacks may settle the
+        // original run synchronously. That terminal transition consumes the
+        // stash before control returns here, so it cannot be resurrected.
+        stashedFollowups.set(id, stashed);
+        interrupt();
+        if (stashedFollowups.get(id) !== stashed) {
+          const settled = sessions.get(id);
+          const status =
+            settled === undefined
+              ? "not_found"
+              : projectLifecycleStatus(settled.lifecycle);
+          return {
+            ok: true,
+            status: status === "running" ? "interrupted" : status,
+          };
+        }
         mutate(id, (s) => {
           s.stopReason = "interrupted";
         });
@@ -1550,6 +1677,9 @@ export function createSubAgentSessionStore(
       if (!isLiveStrip(session.lifecycle)) {
         return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
+      // CL-7344: interrupt_agent settles the run itself, so a stashed
+      // send_input follow-up must not launch from a later attachReport.
+      stashedFollowups.delete(id);
       const interrupt = interruptHandles.get(id);
       if (interrupt === undefined) {
         if (session.lifecycle.state === "pending_init") {
@@ -1673,6 +1803,7 @@ export function createSubAgentSessionStore(
         interruptHandles.delete(id);
         followupHandles.delete(id);
         deliverHandles.delete(id);
+        stashedFollowups.delete(id);
         mutate(id, (s) => {
           s.lifecycle = {
             state: "shutdown",
@@ -1716,6 +1847,12 @@ export function createSubAgentSessionStore(
       report: string,
       opts?: { stopReason?: ForcedStopReason },
     ): void {
+      // Consume the stashed interrupt follow-up before mutating. Interrupted
+      // salvage moves directly to the next running turn; any terminal outcome
+      // drops the stash so no follow-up runs against a closed agent.
+      const stashed = stashedFollowups.get(id);
+      stashedFollowups.delete(id);
+      let toLaunch: StashedFollowup | undefined;
       mutate(id, (session) => {
         const state = session.lifecycle.state;
         if (state === "completed" || state === "failed") {
@@ -1732,6 +1869,14 @@ export function createSubAgentSessionStore(
             kind: "report",
             content: capText(report, maxEntryChars),
           });
+          if (stashed !== undefined) {
+            // Move directly into the follow-up lifecycle before mutate notifies
+            // subscribers. No observer can resume the interrupted handoff.
+            toLaunch = stashed;
+            session.lifecycle = { state: "running" };
+            delete session.finishedAt;
+            delete session.stopReason;
+          }
         } else if (
           (state === "cancelled" ||
             state === "interrupted" ||
@@ -1747,10 +1892,14 @@ export function createSubAgentSessionStore(
             content: capText(report, maxEntryChars),
           });
         }
-        runInFlight.delete(id);
+        // A launched follow-up inherits the original run's in-flight marker.
+        if (toLaunch === undefined) runInFlight.delete(id);
         pruneCompleted();
         pruneRetained();
       });
+      if (toLaunch !== undefined && sessions.has(id)) {
+        launchStashedFollowup(id, toLaunch);
+      }
     },
 
     isRunInFlight(id: string): boolean {
@@ -1759,6 +1908,7 @@ export function createSubAgentSessionStore(
 
     settleRun(id: string): void {
       cancelAskInternal(id, "run settled");
+      stashedFollowups.delete(id);
       if (!runInFlight.delete(id)) return;
       notify();
     },
@@ -1786,6 +1936,7 @@ export function createSubAgentSessionStore(
       interruptHandles.clear();
       followupHandles.clear();
       deliverHandles.clear();
+      stashedFollowups.clear();
       sessions.clear();
       pinCounts.clear();
       runInFlight.clear();
