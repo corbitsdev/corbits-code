@@ -1,6 +1,8 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { mailboxMailWakeLine } from "../subagent/mailbox-mail-drive.js";
 import { defined } from "../../tests/helpers/defined.js";
+import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
+import { buildShellBackgroundMessage } from "../session/runtime-assembly.js";
 import {
   FIXTURE_BUSY_SESSION,
   attachSessionBridge,
@@ -18,13 +20,24 @@ import { badgeCount } from "./session-queue";
 import { LIVE_ACTIVITY_WORDS } from "./session-chrome";
 
 describe("mapReactorLike", () => {
-  test("message.received → user", () => {
+  test("operator-originated message.received → user", () => {
+    expect(
+      mapReactorLike({
+        type: "message.received",
+        data: {
+          message: { content: "hi", flags: [OPERATOR_ORIGINATED_FLAG] },
+        },
+      }),
+    ).toEqual([{ type: "user", text: "hi" }]);
+  });
+
+  test("system-originated message.received → system", () => {
     expect(
       mapReactorLike({
         type: "message.received",
         data: { message: { content: "hi" } },
       }),
-    ).toEqual([{ type: "user", text: "hi" }]);
+    ).toEqual([{ type: "system", text: "hi" }]);
   });
 
   test("mapReactorLike tool.done types", () => {
@@ -48,6 +61,44 @@ describe("mapReactorLike", () => {
 });
 
 describe("attachSessionBridge", () => {
+  test("background shell exit paints as a system row", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          const message = buildShellBackgroundMessage({
+            id: "sh_1",
+            command: "sleep 0.1",
+            exitCode: 0,
+            timedOut: false,
+            output: "done",
+          });
+          bridge.handle({
+            type: "message.received",
+            data: { message },
+          });
+          expect(shell.streamLog.filter((r) => r.role === "user")).toHaveLength(
+            0,
+          );
+          expect(
+            shell.streamLog.filter(
+              (r) => r.role === "system" && r.text === message.content,
+            ),
+          ).toHaveLength(1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("fixture paints user / assistant / tool through shell", async () => {
     await withTestRenderer(
       async (h) => {
@@ -1550,7 +1601,7 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
     bridge.handle({ type: "inference.done", data: {} });
   }
 
-  test("dry+open: fleet-0 settle drives once, keeps the run busy, and swallows the prompt", async () => {
+  test("dry+open: fleet-0 settle drives once, keeps the run busy, and paints the prompt as system", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -1588,6 +1639,11 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
           expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
             userRowsBefore,
           );
+          expect(
+            shell.streamLog.filter(
+              (r) => r.role === "system" && r.text === prompt,
+            ),
+          ).toHaveLength(1);
           settleToollessTurn(bridge);
           expect(drives).toBe(1);
         } finally {
@@ -1967,7 +2023,7 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
     );
   });
 
-  test("occupancy send abort drops the continuation echo so a later matching inbound paints", async () => {
+  test("occupancy send abort does not swallow a later matching inbound", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -2002,8 +2058,13 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
             data: { message: { content: occupancy } },
           });
           expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
-            userRowsAfterSubmit + 1,
+            userRowsAfterSubmit,
           );
+          expect(
+            shell.streamLog.filter(
+              (r) => r.role === "system" && r.text === occupancy,
+            ),
+          ).toHaveLength(1);
         } finally {
           bridge.dispose();
           shell.dispose();

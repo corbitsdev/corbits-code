@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
+import { buildShellBackgroundMessage } from "../session/runtime-assembly.js";
 import { suppressProviderFailurePresentation } from "./provider/failure-attempt.js";
 import {
   createStreamMapContext,
@@ -8,13 +10,43 @@ import {
 } from "./stream-event-map.js";
 
 describe("mapProductionEvent", () => {
-  test("message.received → user text", () => {
+  test("operator-originated message.received → user text", () => {
+    expect(
+      mapProductionEvent({
+        type: "message.received",
+        data: {
+          message: {
+            content: "hello",
+            flags: [OPERATOR_ORIGINATED_FLAG],
+          },
+        },
+      }),
+    ).toEqual([{ type: "user", text: "hello" }]);
+  });
+
+  test("message.received without operator flag → system text", () => {
     expect(
       mapProductionEvent({
         type: "message.received",
         data: { message: { content: "hello" } },
       }),
-    ).toEqual([{ type: "user", text: "hello" }]);
+    ).toEqual([{ type: "system", text: "hello" }]);
+  });
+
+  test("background shell exit message.received → system", () => {
+    const message = buildShellBackgroundMessage({
+      id: "sh_1",
+      command: "sleep 0.1",
+      exitCode: 0,
+      timedOut: false,
+      output: "done",
+    });
+    expect(
+      mapProductionEvent({
+        type: "message.received",
+        data: { message },
+      }),
+    ).toEqual([{ type: "system", text: message.content ?? "" }]);
   });
 
   test("inference.start → busy run", () => {

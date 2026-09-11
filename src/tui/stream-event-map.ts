@@ -9,6 +9,7 @@ import {
   splitPendingControlTail,
   stripTerminalControlSequences,
 } from "../util/control-char-strip.js";
+import { isOperatorOriginated } from "../agent/message-provenance.js";
 import { isReactorErrorFatal } from "../agent/reactor-events.js";
 import { terminalProviderFailureMessage } from "../inference-error-message.js";
 import {
@@ -248,6 +249,14 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return undefined;
 }
 
+function inboundMessageFlags(
+  message: Record<string, unknown> | undefined,
+): readonly string[] | undefined {
+  const flags = message?.flags;
+  if (!Array.isArray(flags)) return undefined;
+  return flags.filter((flag): flag is string => typeof flag === "string");
+}
+
 function dataOf(event: ReactorLikeEvent): Record<string, unknown> {
   return asRecord(event.data) ?? {};
 }
@@ -355,11 +364,19 @@ function mapEvent(
           ? `\n[Attached ${attachments.length} image${attachments.length === 1 ? "" : "s"}: ${attachments.map((a) => a.name ?? "image").join(", ")}]`
           : "";
       const full = `${content}${attachmentText}`;
-      // The boundary must never straddle a user row: a later retry retracting
-      // across it would erase the operator's own message.
+      // The boundary must never straddle an inbound transcript row: a later
+      // retry retracting across it would erase operator or system text.
       const disarmed = disarmAttempt(ctx);
       if (full.trim().length === 0) return disarmed;
-      return [...disarmed, { type: "user", text: full }];
+      return [
+        ...disarmed,
+        {
+          type: isOperatorOriginated(inboundMessageFlags(message))
+            ? "user"
+            : "system",
+          text: full,
+        },
+      ];
     }
 
     case "inference.start": {

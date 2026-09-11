@@ -9,6 +9,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
+import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge.js";
 import { createHarness, type Harness } from "./harness.js";
 import { toggleCollapsedRow } from "./shell/chrome.js";
@@ -47,7 +48,9 @@ function prompt(text: string): void {
   mark = shell.streamLog.length;
   bridge.handle({
     type: "message.received",
-    data: { message: { content: text } },
+    data: {
+      message: { content: text, flags: [OPERATOR_ORIGINATED_FLAG] },
+    },
   });
 }
 
@@ -126,7 +129,9 @@ describe("a turn's reasoning", () => {
     bridge.handle({ type: "inference.text.delta", data: { token: "a" } });
     bridge.handle({
       type: "message.received",
-      data: { message: { content: "two" } },
+      data: {
+        message: { content: "two", flags: [OPERATOR_ORIGINATED_FLAG] },
+      },
     });
     bridge.handle(think("thinking about two"));
 
