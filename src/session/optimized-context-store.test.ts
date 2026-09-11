@@ -710,6 +710,24 @@ describe("createOptimizedContextStore checkpoint", () => {
     }
     expect(gitSpawns).toEqual([]);
   });
+
+  test("skips commit when no managed path differs and never stages partial.jsonl", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "first managed checkpoint" });
+
+    fs.writeFileSync(path.join(dir, "partial.jsonl"), '{"reason":"abort"}\n');
+    fs.writeFileSync(path.join(dir, "untracked-junk.txt"), "session junk\n");
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+
+    const second = await store.commit({ message: "empty managed checkpoint" });
+    expect(second.hash).toBe(first.hash);
+
+    const tree = await gitLsTree(dir);
+    expect(tree).not.toContain("partial.jsonl");
+    expect(tree).not.toContain("untracked-junk.txt");
+  });
 });
 
 describe("createSessionStores", () => {

@@ -532,4 +532,47 @@ describe("createRunSink", () => {
       toolCallCount: 0,
     });
   });
+
+  test("non-fatal reactor.error does not sticky-fail the run", () => {
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+    });
+
+    runSink.sink(
+      event("reactor.error", {
+        error: "transient checkpoint write",
+        fatal: false,
+      }),
+    );
+
+    expect(runSink.getRunError()).toBeUndefined();
+    expect(runSink.getStatus()).not.toBe("failed");
+  });
+
+  test("fatal reactor.error sticky-fails the run", () => {
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+    });
+
+    runSink.sink(
+      event("reactor.error", { error: "reactor gave up", fatal: true }),
+    );
+
+    expect(runSink.getRunError()).toBe("reactor gave up");
+    expect(runSink.getStatus()).toBe("failed");
+  });
+
+  test("reactor.error without fatal sticky-fails the run", () => {
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([]),
+    });
+
+    runSink.sink(event("reactor.error", { error: "reactor gave up" }));
+
+    expect(runSink.getRunError()).toBe("reactor gave up");
+    expect(runSink.getStatus()).toBe("failed");
+  });
 });

@@ -97,12 +97,68 @@ describe("mapProductionEvent", () => {
     ]);
   });
 
+  test("non-fatal reactor.error paints the error without idling", () => {
+    expect(
+      mapProductionEvent({
+        type: "reactor.error",
+        data: { error: "transient checkpoint write", fatal: false },
+      }),
+    ).toEqual([{ type: "error", message: "transient checkpoint write" }]);
+  });
+
+  test("fatal reactor.error paints the error and idles", () => {
+    expect(
+      mapProductionEvent({
+        type: "reactor.error",
+        data: { error: "gave up", fatal: true },
+      }),
+    ).toEqual([
+      { type: "error", message: "gave up" },
+      { type: "run", state: "idle" },
+    ]);
+  });
+
+  test("reactor.error without fatal paints the error and idles", () => {
+    expect(
+      mapProductionEvent({
+        type: "reactor.error",
+        data: { error: "gave up" },
+      }),
+    ).toEqual([
+      { type: "error", message: "gave up" },
+      { type: "run", state: "idle" },
+    ]);
+  });
+
   test("connector.reply after deltas is skipped (already painted)", () => {
     const ctx = createStreamMapContext();
     mapProductionEvent(
       { type: "inference.text.delta", data: { token: "partial" } },
       ctx,
     );
+    expect(
+      mapProductionEvent(
+        { type: "connector.reply", data: { content: "final answer" } },
+        ctx,
+      ),
+    ).toEqual([]);
+  });
+
+  test("non-fatal reactor.error keeps connector.reply suppression after deltas", () => {
+    const ctx = createStreamMapContext();
+    mapProductionEvent(
+      { type: "inference.text.delta", data: { token: "partial" } },
+      ctx,
+    );
+    expect(
+      mapProductionEvent(
+        {
+          type: "reactor.error",
+          data: { error: "transient checkpoint write", fatal: false },
+        },
+        ctx,
+      ),
+    ).toEqual([{ type: "error", message: "transient checkpoint write" }]);
     expect(
       mapProductionEvent(
         { type: "connector.reply", data: { content: "final answer" } },

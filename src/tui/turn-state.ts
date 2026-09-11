@@ -11,6 +11,7 @@
 
 import { type } from "arktype";
 
+import { isReactorErrorFatal } from "../agent/reactor-events.js";
 import type { TurnStatus } from "./session-chrome.js";
 
 // Bound on the accumulated stream text kept for the current cycle. Comfortably
@@ -687,6 +688,7 @@ export function turnStateFromEvent(
       });
 
     case "reactor.error":
+      if (!isReactorErrorFatal(event.data)) return state;
       return carryBlockedGateCount(state, {
         ...initialTurnState(nowMs),
         status: "failed",

@@ -13,6 +13,8 @@
  * call sites without re-declaring the union here.
  */
 
+import { type } from "arktype";
+
 /** True when `event` is the turn boundary — fires once per turn, every turn. */
 export const onTurnBoundary = <E extends { type: string }>(
   event: E,
@@ -24,3 +26,19 @@ export const onReactorShutdown = <E extends { type: string }>(
   event: E,
 ): event is Extract<E, { type: "reactor.done" }> =>
   event.type === "reactor.done";
+
+/**
+ * Explicit non-fatal reactor.error payload. Only `fatal: false` continues;
+ * missing, malformed, or any other value stays terminal.
+ */
+const NonFatalReactorErrorData = type({
+  fatal: "false",
+});
+
+/**
+ * Whether a `reactor.error` payload should terminate the turn/shell.
+ * Returns false only when the payload explicitly carries `fatal: false`.
+ */
+export function isReactorErrorFatal(data: unknown): boolean {
+  return NonFatalReactorErrorData(data) instanceof type.errors;
+}

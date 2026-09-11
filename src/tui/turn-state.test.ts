@@ -508,4 +508,41 @@ describe("repetition tracking", () => {
     expect(restarted.repeatingSinceTokenCount).toBeNull();
     expect(restarted.streamText).toBe("");
   });
+
+  test("non-fatal reactor.error leaves the turn running", () => {
+    const running = fold([
+      { type: "inference.start" },
+      { type: "inference.text.delta", data: { token: "hi" } },
+    ]);
+    const continued = turnStateFromEvent(
+      running,
+      {
+        type: "reactor.error",
+        data: { error: "transient checkpoint write", fatal: false },
+      },
+      100,
+    );
+    expect(continued.status).toBe("running");
+    expect(continued.isProcessing).toBe(true);
+  });
+
+  test("fatal reactor.error fails the turn", () => {
+    const running = fold([{ type: "inference.start" }]);
+    const failed = turnStateFromEvent(
+      running,
+      { type: "reactor.error", data: { error: "gave up", fatal: true } },
+      100,
+    );
+    expect(failed.status).toBe("failed");
+  });
+
+  test("reactor.error without fatal fails the turn", () => {
+    const running = fold([{ type: "inference.start" }]);
+    const failed = turnStateFromEvent(
+      running,
+      { type: "reactor.error", data: { error: "gave up" } },
+      100,
+    );
+    expect(failed.status).toBe("failed");
+  });
 });

@@ -489,6 +489,24 @@ function extraCommitPaths(paths: readonly string[]): string[] {
   return paths.filter((filepath) => !VENDOR_COMMIT_ROOT_FILES.has(filepath));
 }
 
+/**
+ * True when any allowlisted managed path differs between HEAD and the
+ * worktree. Callers must pass only managed paths — never "." and never
+ * session junk such as partial.jsonl.
+ */
+async function managedPathsDiffer(
+  dir: string,
+  filepaths: readonly string[],
+): Promise<boolean> {
+  if (filepaths.length === 0) return false;
+  const matrix = await git.statusMatrix({
+    fs,
+    dir,
+    filepaths: [...filepaths],
+  });
+  return matrix.some(([, head, workdir]) => head !== workdir);
+}
+
 export interface SessionStores {
   storage: ContextStore;
   audit: AuditStore;
@@ -723,6 +741,28 @@ export async function createSessionStores(
           stagedRewrite === null ? null : await snapshotTurnSegments(dir);
         const headBefore = stagedRewrite === null ? null : await headOid(dir);
         let extraPaths: string[] = [];
+
+        // Empty managed checkpoints must not create a new commit or stage
+        // session junk such as partial.jsonl. A staged unpublished rewrite
+        // is still unpublished on disk — skip would swallow the compact
+        // without writing it, so that path always goes through commit.
+        if (stagedRewrite === null) {
+          const managedFilepaths = [
+            ...VENDOR_COMMIT_ROOT_FILES,
+            TOOL_OUTPUT_DIR,
+            EVIDENCE_ARCHIVE_DIR,
+            ...pendingSegmentPaths,
+            ...pendingBlobFilepaths,
+          ];
+          if (!(await managedPathsDiffer(dir, managedFilepaths))) {
+            const [head] = await base.log(1);
+            if (head !== undefined) {
+              pendingBlobFilepaths.clear();
+              pendingSegmentPaths.clear();
+              return head;
+            }
+          }
+        }
 
         try {
           if (stagedRewrite !== null) {
