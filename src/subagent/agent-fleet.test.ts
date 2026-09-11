@@ -664,6 +664,45 @@ describe("spawn_agent same-cwd concurrency", () => {
     defined(gates[1]).resolve({ report: "two done" });
   });
 
+  test("a terminal but unsettled shared-cwd lane does not conflict with a later spawn", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-terminal-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    const first = await callTool(spawn, {
+      description: "build one",
+      prompt: "implement thing one",
+      intent: "implement",
+      success_criteria: ["thing one ships"],
+    });
+    const firstId = first.agent_id as string;
+    expect(deps.sessions.cancel(firstId)).toBe(true);
+    expect(deps.sessions.get(firstId)?.finishedAt).toBeNumber();
+
+    await callTool(spawn, {
+      description: "build two",
+      prompt: "implement thing two",
+      intent: "implement",
+      success_criteria: ["thing two ships"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(
+      readFile(join(dir, INTERVENTION_FILE), "utf8"),
+    ).rejects.toThrow();
+
+    defined(gates[0]).resolve({ report: "one cancelled" });
+    defined(gates[1]).resolve({ report: "two done" });
+  });
+
   test("two concurrent shared-cwd spawn_agent lanes log concurrent-lane-overlap", async () => {
     const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-"));
     const gates = [
@@ -706,9 +745,223 @@ describe("spawn_agent same-cwd concurrency", () => {
     expect(log).toContain("/repo");
     expect(log).toContain("build one");
     expect(log).toContain("build two");
+    expect(
+      log
+        .trim()
+        .split("\n")
+        .filter((line) => line.includes("concurrent-lane-overlap")),
+    ).toHaveLength(1);
 
     defined(gates[0]).resolve({ report: "one done" });
     defined(gates[1]).resolve({ report: "two done" });
+  });
+
+  test("three concurrent mutating shared-cwd lanes log one concurrent-lane-overlap", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-wave-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    for (const label of ["one", "two", "three"] as const) {
+      await callTool(spawn, {
+        description: `build ${label}`,
+        prompt: `implement thing ${label}`,
+        intent: "implement",
+        success_criteria: [`thing ${label} ships`],
+      });
+    }
+
+    const path = join(dir, INTERVENTION_FILE);
+    let log = "";
+    for (let i = 0; i < 50; i++) {
+      try {
+        log = await readFile(path, "utf8");
+        if (log.includes("concurrent-lane-overlap")) break;
+      } catch {
+        // append is fire-and-forget
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(
+      log
+        .trim()
+        .split("\n")
+        .filter((line) => line.includes("concurrent-lane-overlap")),
+    ).toHaveLength(1);
+
+    for (const gate of gates) defined(gate).resolve({ report: "done" });
+  });
+
+  test("shared-cwd explore then implement does not log concurrent-lane-overlap", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-readonly-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    await callTool(spawn, {
+      description: "look around",
+      prompt: "map the tree",
+      intent: "explore",
+    });
+    await callTool(spawn, {
+      description: "build one",
+      prompt: "implement thing one",
+      intent: "implement",
+      success_criteria: ["thing one ships"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(
+      readFile(join(dir, INTERVENTION_FILE), "utf8"),
+    ).rejects.toThrow();
+
+    defined(gates[0]).resolve({ report: "mapped" });
+    defined(gates[1]).resolve({ report: "one done" });
+  });
+
+  test("a later mutating wave can warn again after the prior wave settles", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-reset-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    const spawn = createSpawnAgentTool(deps);
+
+    await callTool(spawn, {
+      description: "wave1 a",
+      prompt: "implement a",
+      intent: "implement",
+      success_criteria: ["a ships"],
+    });
+    await callTool(spawn, {
+      description: "wave1 b",
+      prompt: "implement b",
+      intent: "implement",
+      success_criteria: ["b ships"],
+    });
+
+    const path = join(dir, INTERVENTION_FILE);
+    let log = "";
+    for (let i = 0; i < 50; i++) {
+      try {
+        log = await readFile(path, "utf8");
+        if (log.includes("concurrent-lane-overlap")) break;
+      } catch {
+        // append is fire-and-forget
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(
+      log
+        .trim()
+        .split("\n")
+        .filter((line) => line.includes("concurrent-lane-overlap")),
+    ).toHaveLength(1);
+
+    defined(gates[0]).resolve({ report: "a done" });
+    defined(gates[1]).resolve({ report: "b done" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    await callTool(spawn, {
+      description: "wave2 a",
+      prompt: "implement c",
+      intent: "implement",
+      success_criteria: ["c ships"],
+    });
+    await callTool(spawn, {
+      description: "wave2 b",
+      prompt: "implement d",
+      intent: "implement",
+      success_criteria: ["d ships"],
+    });
+
+    for (let i = 0; i < 50; i++) {
+      try {
+        log = await readFile(path, "utf8");
+        if (
+          log
+            .trim()
+            .split("\n")
+            .filter((line) => line.includes("concurrent-lane-overlap"))
+            .length >= 2
+        ) {
+          break;
+        }
+      } catch {
+        // append is fire-and-forget
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(
+      log
+        .trim()
+        .split("\n")
+        .filter((line) => line.includes("concurrent-lane-overlap")),
+    ).toHaveLength(2);
+    expect(log).toContain("wave2");
+
+    defined(gates[2]).resolve({ report: "c done" });
+    defined(gates[3]).resolve({ report: "d done" });
+  });
+
+  test("a queued mutating peer does not log concurrent-lane-overlap", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-queued-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    deps.admission = createAdmissionQueue({ capacity: 1 });
+    const spawn = createSpawnAgentTool(deps);
+
+    const first = await callTool(spawn, {
+      description: "holder",
+      prompt: "implement holder",
+      intent: "implement",
+      success_criteria: ["holder ships"],
+    });
+    const queued = await callTool(spawn, {
+      description: "queued writer",
+      prompt: "implement queued",
+      intent: "implement",
+      success_criteria: ["queued ships"],
+    });
+    expect(first.status).toBe("running");
+    expect(queued.status).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(
+      readFile(join(dir, INTERVENTION_FILE), "utf8"),
+    ).rejects.toThrow();
+
+    defined(gates[0]).resolve({ report: "holder done" });
+    defined(gates[1]).resolve({ report: "queued done" });
   });
 });
 
