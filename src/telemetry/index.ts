@@ -60,6 +60,7 @@ export type TelemetryEvent =
   | "subagent_end"
   | "permission_prompt"
   | "compaction"
+  | "summarizer_failure"
   | "crash"
   | "auth_failure"
   // PostHog Surveys event name (space included). Intentional operator feedback
@@ -190,6 +191,10 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
 
   permission_prompt: ["decision", "permission_kind"],
   compaction: ["mode", "duration_ms", "turns_before", "turns_after"],
+  // provider/model are the canonical runtime ids (same trust class as
+  // $ai_provider/$ai_model); error_kind is the summarizer's first-party
+  // failure enum, never the provider's error text.
+  summarizer_failure: ["provider", "model", "error_kind", "duration_ms"],
   crash: ["kind", "error_class"],
   // Which provider rejected the credentials, not why — the rejection detail is
   // provider-authored text and error_class means a JS constructor name.

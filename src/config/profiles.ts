@@ -19,6 +19,10 @@ const ProfileSchema = type({
   // Default in the inference harness is 600_000 (10 min). Backstop for
   // streams that keep emitting forever without terminating.
   "totalTimeoutMs?": "number >= 1",
+  // Per-call cap for the compaction summary call in milliseconds. Default
+  // 90_000 — well under totalTimeoutMs because compaction runs inline on the
+  // reactor and a stuck summary call freezes the session.
+  "summarizerTimeoutMs?": "number >= 1",
   "+": "reject",
 });
 
@@ -100,6 +104,8 @@ export async function resolveProfile(
       merged.inactivityTimeoutMs = projectProfile.inactivityTimeoutMs;
     if (projectProfile.totalTimeoutMs !== undefined)
       merged.totalTimeoutMs = projectProfile.totalTimeoutMs;
+    if (projectProfile.summarizerTimeoutMs !== undefined)
+      merged.summarizerTimeoutMs = projectProfile.summarizerTimeoutMs;
   }
 
   const resolvedName = profileName ?? projectProfile?.profile;
