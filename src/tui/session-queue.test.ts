@@ -14,6 +14,7 @@ import {
   queueCount,
   setRunState,
   steerCount,
+  requeueUndelivered,
 } from "./session-queue";
 
 describe("session-queue", () => {
@@ -130,5 +131,55 @@ describe("session-queue", () => {
     expect(s.run).toBe("busy");
     s = setRunState(s, "busy");
     expect(s.run).toBe("busy");
+  });
+
+  test("requeueUndelivered keeps the same id at the front of its kind class", () => {
+    let s = createSessionQueue("busy");
+    s = enqueue(s, "q1");
+    s = enqueueSteer(s, "s1");
+    s = enqueue(s, "q2");
+    s = enqueueSteer(s, "s2");
+    const drained = drainOne(s, "steer");
+    const item = defined(drained.item, "drained steer");
+    expect(item.id).toBe("q2");
+    s = requeueUndelivered(drained.state, item);
+    expect(s.items.map((i) => i.id)).toEqual(["q2", "q4", "q1", "q3"]);
+    expect(defined(s.items[0]).text).toBe("s1");
+    expect(defined(s.items[0]).kind).toBe("steer");
+    expect(drainOrder(s).map((i) => i.text)).toEqual(["s1", "s2", "q1", "q2"]);
+  });
+
+  test("requeueUndelivered restores queue items ahead of later follow-ups", () => {
+    let s = createSessionQueue("busy");
+    s = enqueue(s, "first");
+    s = enqueueSteer(s, "asap");
+    s = enqueue(s, "second");
+    const drained = drainOne(s, "queue");
+    const item = defined(drained.item, "drained queue");
+    s = requeueUndelivered(drained.state, item);
+    expect(item.id).toBe("q1");
+    expect(s.items.filter((i) => i.kind === "queue").map((i) => i.id)).toEqual([
+      "q1",
+      "q3",
+    ]);
+    expect(defined(s.items.find((i) => i.id === "q1")).text).toBe("first");
+    expect(s.nextId).toBe(4);
+  });
+
+  test("requeueUndelivered keeps attachments on the original item", () => {
+    const image = {
+      id: "img-1",
+      name: "clip.png",
+      contentType: "image/png",
+      data: new Uint8Array([1]),
+      contentHash: "hash-1",
+    };
+    let s = createSessionQueue("busy");
+    s = enqueue(s, "with pic", "queue", Date.now(), [image]);
+    const drained = drainOne(s);
+    const item = defined(drained.item, "drained item");
+    s = requeueUndelivered(drained.state, item);
+    expect(defined(s.items[0]).attachments).toEqual([image]);
+    expect(defined(s.items[0]).id).toBe(item.id);
   });
 });

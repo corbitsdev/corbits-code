@@ -12,13 +12,18 @@ import type { PendingImageAttachment } from "./image-attachments.js";
 import type { ProductHostDeliver } from "./product-host.js";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../subagent/fleet-report.js";
 import { MAILBOX_MAIL_WAKE_PREFIX } from "../subagent/mailbox-mail-drive.js";
+import { deliverAgentMessage } from "./deliver-agent-message.js";
+import type { QueueItem } from "./session-queue.js";
+
+export type QueuedDeliveryHop = (
+  text: string,
+  attachments?: readonly PendingImageAttachment[],
+  original?: QueueItem,
+) => void;
 
 export interface RouteQueuedDeliveryArgs {
-  send: (text: string, attachments?: readonly PendingImageAttachment[]) => void;
-  deliverSteer: (
-    text: string,
-    attachments?: readonly PendingImageAttachment[],
-  ) => void;
+  send: QueuedDeliveryHop;
+  deliverSteer: QueuedDeliveryHop;
   /**
    * True only while the bridge is draining steers at a live parent
    * tool.boundary (or inference.done with tools still outstanding). Read
@@ -30,12 +35,12 @@ export interface RouteQueuedDeliveryArgs {
 export function routeQueuedDelivery(
   args: RouteQueuedDeliveryArgs,
 ): ProductHostDeliver {
-  return (text, kind, attachments) => {
+  return (text, kind, attachments, original) => {
     if (kind === "steer" && args.parentCycleLive()) {
-      args.deliverSteer(text, attachments);
+      args.deliverSteer(text, attachments, original);
       return;
     }
-    args.send(text, attachments);
+    args.send(text, attachments, original);
   };
 }
 
@@ -79,13 +84,15 @@ export interface CreateLiveSteerDeliverArgs {
     text: string,
     attachments: readonly PendingImageAttachment[],
   ) => Promise<IngestedSteer>;
-  /** Agent.deliver (or the sessionOps enqueue that wraps it). */
+  /** Agent.deliver on the live agent (sync throw). Not enqueueAgentDeliver. */
   deliver: (
     text: string,
     attachments: readonly PendingImageAttachment[],
-  ) => void;
+  ) => void | Promise<void>;
   captureGeneration: () => () => boolean;
   onFailure: (err: unknown) => void;
+  getFatalBuildError?: () => Error | null;
+  onUndelivered?: (item: QueueItem) => void;
 }
 
 export interface CreateLeftoverSendArgs {
@@ -95,10 +102,14 @@ export interface CreateLeftoverSendArgs {
     attachments: readonly PendingImageAttachment[],
   ) => Promise<IngestedSteer>;
   /**
-   * Post-ingest hop (agentProxy.send). Must not ingest again — leftover
-   * ingest already ran in this wrapper.
+   * Post-ingest hop (liveAgent.send, not agentProxy.send). Must not ingest
+   * again — leftover ingest already ran in this wrapper. Must not awaitTail
+   * the same sessionOps queue this hop is already running on.
    */
-  send: (text: string, attachments: readonly PendingImageAttachment[]) => void;
+  send: (
+    text: string,
+    attachments: readonly PendingImageAttachment[],
+  ) => void | Promise<void>;
   /**
    * Up/Down recall. Called with the original text only when the hop is
    * still current after ingest, so a /clear|/new drop is not recorded.
@@ -106,6 +117,8 @@ export interface CreateLeftoverSendArgs {
   recordSent?: (text: string) => void;
   captureGeneration: () => () => boolean;
   onFailure: (err: unknown) => void;
+  getFatalBuildError?: () => Error | null;
+  onUndelivered?: (item: QueueItem) => void;
 }
 
 interface GenerationGatedHopArgs {
@@ -114,25 +127,45 @@ interface GenerationGatedHopArgs {
     text: string,
     attachments: readonly PendingImageAttachment[],
   ) => Promise<IngestedSteer>;
-  hop: (text: string, attachments: readonly PendingImageAttachment[]) => void;
+  hop: (
+    text: string,
+    attachments: readonly PendingImageAttachment[],
+  ) => void | Promise<void>;
   recordSent?: (text: string) => void;
   captureGeneration: () => () => boolean;
   onFailure: (err: unknown) => void;
+  getFatalBuildError?: () => Error | null;
+  onUndelivered?: (item: QueueItem) => void;
 }
 
 function createGenerationGatedHop(
   args: GenerationGatedHopArgs,
-): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
-  return (text, attachments) => {
+): QueuedDeliveryHop {
+  return (text, attachments, original) => {
     const stillCurrent = args.captureGeneration();
     const pending = attachments ?? [];
+    const recovered = original;
     void args
       .enqueue(async () => {
         if (!stillCurrent()) return;
         const ingested = await args.ingest(text, pending);
         if (!stillCurrent()) return;
         args.recordSent?.(text);
-        args.hop(ingested.text, ingested.attachments);
+        const restore = args.onUndelivered;
+        await deliverAgentMessage({
+          getFatalBuildError: args.getFatalBuildError ?? (() => null),
+          deliverToLiveAgent: () =>
+            args.hop(ingested.text, ingested.attachments),
+          onDeliverFailure: (message) => args.onFailure(new Error(message)),
+          ...(recovered !== undefined && restore !== undefined
+            ? {
+                onClosedWithoutDelivery: () => {
+                  if (!stillCurrent()) return;
+                  restore(recovered);
+                },
+              }
+            : {}),
+        });
       })
       .catch(args.onFailure);
   };
@@ -144,7 +177,7 @@ function createGenerationGatedHop(
  */
 export function createLiveSteerDeliver(
   args: CreateLiveSteerDeliverArgs,
-): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
+): QueuedDeliveryHop {
   return createGenerationGatedHop({ ...args, hop: args.deliver });
 }
 
@@ -156,7 +189,7 @@ export function createLiveSteerDeliver(
  */
 export function createLeftoverSend(
   args: CreateLeftoverSendArgs,
-): (text: string, attachments?: readonly PendingImageAttachment[]) => void {
+): QueuedDeliveryHop {
   return createGenerationGatedHop({
     ...args,
     hop: args.send,

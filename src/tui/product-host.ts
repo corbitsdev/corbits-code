@@ -62,7 +62,7 @@ import {
   setPaletteCatalog,
 } from "./shell/palette.js";
 import { surfaceSystemNotice } from "./shell/prompt.js";
-import type { QueueKind } from "./session-queue.js";
+import type { QueueItem, QueueKind } from "./session-queue.js";
 import { hydrateHistoryRows } from "./history-hydrate.js";
 import type { StreamRow } from "./stream.js";
 
@@ -93,6 +93,7 @@ export type ProductHostDeliver = (
   text: string,
   kind: QueueKind,
   attachments?: readonly PendingImageAttachment[],
+  original?: QueueItem,
 ) => void;
 
 /**

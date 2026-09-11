@@ -47,6 +47,10 @@ export function badgeCount(state: SessionQueueState): number {
   return state.items.length;
 }
 
+export function isOperatorQueueItem(item: QueueItem): boolean {
+  return /^q\d+$/.test(item.id);
+}
+
 /** Soft-steer pending count (Enter mid-run). */
 export function steerCount(state: SessionQueueState): number {
   return state.items.filter((i) => i.kind === "steer").length;
@@ -194,4 +198,25 @@ export function drainSteersOnly(state: SessionQueueState): {
     current = next.state;
   }
   return { state: current, drained };
+}
+
+/**
+ * Put a drained item back at the front of its kind class, keeping the same
+ * id so transcript rows and cancel still point at it.
+ */
+export function requeueUndelivered(
+  state: SessionQueueState,
+  item: QueueItem,
+): SessionQueueState {
+  const others = state.items.filter((i) => i.id !== item.id);
+  const steers = others.filter((i) => i.kind === "steer");
+  const queues = others.filter((i) => i.kind === "queue");
+  return {
+    ...state,
+    items:
+      item.kind === "steer"
+        ? [item, ...steers, ...queues]
+        : [...steers, item, ...queues],
+    interruptFlash: false,
+  };
 }

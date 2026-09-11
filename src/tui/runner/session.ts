@@ -90,7 +90,7 @@ import { detectLanguageServerAvailable } from "../../agent/lsp-availability.js";
 import type { SessionMode } from "../../config/session-mode.js";
 import { WorkflowHost, type WorkflowHostState } from "../../workflows/host.js";
 import type { ToolWatchdogConfig } from "../tool-execution-watchdog.js";
-import { deliverAgentMessage } from "../deliver-agent-message.js";
+import { deliverIfCurrent } from "../deliver-agent-message.js";
 import { createProviderFailureAttemptTracker } from "../provider/failure-attempt.js";
 import { getTelemetry, liveTelemetry } from "../../telemetry/singleton.js";
 import { createChatDirector } from "../../agent/director.js";
@@ -486,17 +486,19 @@ export async function assembleTUISession(
     },
     gate: permissionGate,
   });
-  state.enqueueAgentDeliver = (deliverToLiveAgent: () => void): void => {
+  state.enqueueAgentDeliver = (
+    deliverToLiveAgent: () => void | Promise<void>,
+    onClosedWithoutDelivery?: () => void,
+  ): void => {
     const stillCurrent = deliveryGeneration.capture();
     void sessionOps.enqueue(async () => {
-      if (!stillCurrent()) return;
-      // The shell already popped the queue item and painted it as delivered
-      // by the time this runs, so a failed rebuild must be surfaced here —
-      // otherwise the message silently never reaches the agent.
-      await deliverAgentMessage({
+      await deliverIfCurrent(stillCurrent, {
         getFatalBuildError: () => state.fatalBuildError,
         deliverToLiveAgent,
         onDeliverFailure: (text) => state.systemNotice?.(text),
+        ...(onClosedWithoutDelivery !== undefined
+          ? { onClosedWithoutDelivery }
+          : {}),
       });
     });
   };

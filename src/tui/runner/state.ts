@@ -252,7 +252,10 @@ export interface RunnerState {
   approvalPersistNotice: { notify?: (text: string) => void };
 
   // Late-wired cross-module callbacks, in original wiring order.
-  enqueueAgentDeliver?: (deliverToLiveAgent: () => void) => void;
+  enqueueAgentDeliver?: (
+    deliverToLiveAgent: () => void | Promise<void>,
+    onClosedWithoutDelivery?: () => void,
+  ) => void;
   reloadIfIdle?: () => void;
   systemNotice?: (text: string) => void;
   currentAttemptIdentity?: () => InferenceAttemptIdentity;

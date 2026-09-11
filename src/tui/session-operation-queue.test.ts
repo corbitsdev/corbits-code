@@ -78,3 +78,40 @@ test("a failed delivery does not block a rotation queued behind it", async () =>
   await awaitTail();
   expect(log).toEqual(["deliver:start", "rotate"]);
 });
+
+test("awaitTail from inside the current op settles instead of deadlocking", async () => {
+  const log: string[] = [];
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+
+  enqueue(async () => {
+    log.push("start");
+    await awaitTail();
+    log.push("after-tail");
+  });
+  await awaitTail();
+  expect(log).toEqual(["start", "after-tail"]);
+});
+
+test("awaitTail from outside still waits for the current op", async () => {
+  const log: string[] = [];
+  const { enqueue, awaitTail } = createSessionOperationQueue();
+  let resolveSlow: () => void = () => undefined;
+  const slow = new Promise<void>((r) => {
+    resolveSlow = r;
+  });
+
+  enqueue(async () => {
+    log.push("start");
+    await slow;
+    log.push("end");
+  });
+  const outside = awaitTail().then(() => {
+    log.push("outside");
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(log).toEqual(["start"]);
+  resolveSlow();
+  await outside;
+  expect(log).toEqual(["start", "end", "outside"]);
+});

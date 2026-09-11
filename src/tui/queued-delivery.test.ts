@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { AgentClosedError } from "@intx/agent";
+import { CLOSED_AGENT_NOTICE } from "./deliver-agent-message.js";
 import type { PendingImageAttachment } from "./image-attachments.js";
 import {
   createDeliveryGeneration,
@@ -8,6 +10,7 @@ import {
   SESSION_IDENTITY_ABORT_REASON,
 } from "./queued-delivery.js";
 import { createSessionOperationQueue } from "./session-operation-queue.js";
+import type { QueueItem } from "./session-queue.js";
 
 const image: PendingImageAttachment = {
   id: "img-1",
@@ -319,4 +322,278 @@ describe("createLeftoverSend", () => {
     expect(leftoverSent).toEqual([]);
     expect(enterSent).toEqual(["hello"]);
   });
+});
+
+const original: QueueItem = {
+  id: "q7",
+  text: "please read @src/foo.ts",
+  kind: "queue",
+  enqueuedAt: 1,
+  attachments: [image],
+};
+
+describe("queued delivery closed-agent restore", () => {
+  test("leftover send restores the drained QueueItem, not the ingested rewrite", async () => {
+    const sent: string[] = [];
+    const recovered: QueueItem[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text, pending) => ({
+        text: `${text} ingested`,
+        attachments: pending,
+      }),
+      send: (text) => {
+        sent.push(text);
+        throw new AgentClosedError();
+      },
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        throw err;
+      },
+      onUndelivered: (item) => {
+        recovered.push(item);
+      },
+    });
+
+    leftoverSend(original.text, original.attachments, original);
+    await awaitTail();
+    expect(sent).toEqual(["please read @src/foo.ts ingested"]);
+    expect(recovered).toEqual([original]);
+  });
+
+  test("live steer closed restore does not hop a second time", async () => {
+    const delivered: string[] = [];
+    const recovered: QueueItem[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const steer: QueueItem = {
+      id: "q2",
+      text: "asap",
+      kind: "steer",
+      enqueuedAt: 1,
+    };
+    const deliverSteer = createLiveSteerDeliver({
+      enqueue,
+      ingest: async (text) => ({ text: `${text} ingested`, attachments: [] }),
+      deliver: (text) => {
+        delivered.push(text);
+        throw new AgentClosedError();
+      },
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        throw err;
+      },
+      onUndelivered: (item) => {
+        recovered.push(item);
+      },
+    });
+
+    deliverSteer(steer.text, undefined, steer);
+    await awaitTail();
+    expect(delivered).toEqual(["asap ingested"]);
+    expect(recovered).toEqual([steer]);
+  });
+
+  test("generation bump after ingest does not restore into the new session", async () => {
+    const recovered: QueueItem[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const generation = createDeliveryGeneration();
+    let resolveSlow: () => void = () => undefined;
+    const slow = new Promise<void>((resolve) => {
+      resolveSlow = resolve;
+    });
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => {
+        await slow;
+        return { text, attachments: [] };
+      },
+      send: () => {
+        throw new AgentClosedError();
+      },
+      captureGeneration: generation.capture,
+      onFailure: (err) => {
+        throw err;
+      },
+      onUndelivered: (item) => {
+        recovered.push(item);
+      },
+    });
+
+    leftoverSend(original.text, original.attachments, original);
+    generation.bump();
+    resolveSlow();
+    await awaitTail();
+    expect(recovered).toEqual([]);
+  });
+
+  test("unknown hop throws do not restore", async () => {
+    const recovered: QueueItem[] = [];
+    const failures: unknown[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => ({ text, attachments: [] }),
+      send: () => {
+        throw new Error("socket reset");
+      },
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        failures.push(err);
+      },
+      onUndelivered: (item) => {
+        recovered.push(item);
+      },
+    });
+
+    leftoverSend(original.text, original.attachments, original);
+    await awaitTail();
+    expect(recovered).toEqual([]);
+    expect(failures).toHaveLength(1);
+  });
+
+  test("fatal rebuild before hop restores the original payload", async () => {
+    const sent: string[] = [];
+    const recovered: QueueItem[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => ({ text: `${text} ingested`, attachments: [] }),
+      send: (text) => {
+        sent.push(text);
+      },
+      captureGeneration: () => () => true,
+      getFatalBuildError: () => new Error("agent rebuild failed"),
+      onFailure: (err) => {
+        throw err;
+      },
+      onUndelivered: (item) => {
+        recovered.push(item);
+      },
+    });
+
+    leftoverSend(original.text, original.attachments, original);
+    await awaitTail();
+    expect(sent).toEqual([]);
+    expect(recovered).toEqual([original]);
+  });
+
+  test("internal leftover without an original item does not restore", async () => {
+    const recovered: QueueItem[] = [];
+    const notices: unknown[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => ({ text, attachments: [] }),
+      send: () => {
+        throw new AgentClosedError();
+      },
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        notices.push(err);
+      },
+      onUndelivered: (item) => {
+        recovered.push(item);
+      },
+    });
+
+    leftoverSend("mailbox mail — worker reports");
+    await awaitTail();
+    expect(recovered).toEqual([]);
+    expect(notices).toHaveLength(1);
+  });
+
+  test("leftover Agent.send rejection restores the original QueueItem", async () => {
+    const recovered: QueueItem[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => ({ text: `${text} ingested`, attachments: [] }),
+      send: () => Promise.reject(new AgentClosedError()),
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        throw err;
+      },
+      onUndelivered: (item) => {
+        recovered.push(item);
+      },
+    });
+
+    leftoverSend(original.text, original.attachments, original);
+    await awaitTail();
+    expect(recovered).toEqual([original]);
+  });
+
+  test("original item without onUndelivered still notices and does not drop", async () => {
+    const notices: unknown[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => ({ text, attachments: [] }),
+      send: () => Promise.reject(new AgentClosedError()),
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        notices.push(err);
+      },
+    });
+
+    leftoverSend(original.text, original.attachments, original);
+    await awaitTail();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toBeInstanceOf(Error);
+    expect((notices[0] as Error).message).toBe(CLOSED_AGENT_NOTICE);
+    expect((notices[0] as Error).message.toLowerCase()).not.toContain(
+      "agent is closed",
+    );
+  });
+
+  test("leftover hop that awaitTails the same sessionOps then rejects restores", async () => {
+    const recovered: QueueItem[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => ({ text, attachments: [] }),
+      send: async () => {
+        await awaitTail();
+        throw new AgentClosedError();
+      },
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        throw err;
+      },
+      onUndelivered: (item) => {
+        recovered.push(item);
+      },
+    });
+
+    leftoverSend(original.text, original.attachments, original);
+    await awaitTail();
+    expect(recovered).toEqual([original]);
+  }, 2000);
+
+  test("leftover hop that awaitTails the same sessionOps then succeeds completes", async () => {
+    const sent: string[] = [];
+    const recovered: QueueItem[] = [];
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const leftoverSend = createLeftoverSend({
+      enqueue,
+      ingest: async (text) => ({ text, attachments: [] }),
+      send: async (text) => {
+        await awaitTail();
+        sent.push(text);
+      },
+      captureGeneration: () => () => true,
+      onFailure: (err) => {
+        throw err;
+      },
+      onUndelivered: (item) => {
+        recovered.push(item);
+      },
+    });
+
+    leftoverSend(original.text, original.attachments, original);
+    await awaitTail();
+    expect(sent).toEqual([original.text]);
+    expect(recovered).toEqual([]);
+  }, 2000);
 });

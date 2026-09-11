@@ -606,6 +606,19 @@ at the interrupt itself (`doInterrupt` drains after `port.interrupt()`), not
 left waiting on an idle event the stop may never produce (`interrupt` in
 `session-queue.ts` no longer clears `items`).
 
+**Closed agent before delivery.** Drain is optimistic: the queue item is popped
+and a `[steering]` / `[following-up]` row is painted before `Agent.deliver`.
+If that call throws `AgentClosedError` (or a fatal rebuild error means deliver
+never ran), the payload is restored and the optimistic row is retracted. Busy,
+or idle with a non-empty prompt, puts the original item back at the front of
+its kind class (`requeueUndelivered`). Idle with an empty prompt restores text
+and attachments into the composer. The notice says the session agent closed
+before the message arrived and where it went (queue or prompt) — never the
+vendor string `agent is closed`. The closed agent never accepted the message,
+so restore is safe; the TUI still does not auto-send to a successor. Internal
+delivers (compaction, mailbox, occupancy, background-shell) notice only.
+`/clear` / `/new` (generation bump) do not restore into the new session.
+
 **Fleet agent lanes on redirect.** Soft steer (Enter mid-run) and follow-up
 (queued drain) leave running workers alone — they never call
 `runner.ts`'s `interrupt()`, so the parent's operation signal stays live and

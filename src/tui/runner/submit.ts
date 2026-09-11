@@ -36,14 +36,20 @@ import {
   createLiveSteerDeliver,
   routeQueuedDelivery,
 } from "../queued-delivery.js";
+import {
+  CLOSED_AGENT_PROMPT_NOTICE,
+  CLOSED_AGENT_QUEUE_NOTICE,
+} from "../deliver-agent-message.js";
+import type { QueueItem } from "../session-queue.js";
 import type { InferenceAttemptIdentity } from "./state.js";
 import { tuiSendFailureMessage } from "./send-failure-message.js";
 import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
-import type { Agent } from "@intx/agent";
+import { AgentClosedError, type Agent } from "@intx/agent";
 import { ASK_DIRECTOR_WAKE_PREFIX } from "../../subagent/fleet-report.js";
 import { MAILBOX_MAIL_WAKE_PREFIX } from "../../subagent/mailbox-mail-drive.js";
 import {
   hostOf,
+  liveAgent,
   runWhileAgentBusy,
   type RunnerServices,
   type RunnerState,
@@ -297,6 +303,7 @@ export function createSubmitPath(
       });
       return true;
     } catch (error) {
+      if (error instanceof AgentClosedError) throw error;
       handleSendFailure(error, attempt, providerFailure);
       return false;
     } finally {
@@ -382,6 +389,15 @@ export function createDeliverRouting(
     presented: false,
     error: undefined,
   });
+  const getFatalBuildError = (): Error | null => state.fatalBuildError;
+  const onUndelivered = (item: QueueItem): void => {
+    const dest = hostOf(state).bridge.recoverUndelivered(item);
+    state.systemNotice?.(
+      dest === "prompt"
+        ? CLOSED_AGENT_PROMPT_NOTICE
+        : CLOSED_AGENT_QUEUE_NOTICE,
+    );
+  };
   return routeQueuedDelivery({
     send: createLeftoverSend({
       enqueue: services.sessionOps.enqueue,
@@ -392,9 +408,13 @@ export function createDeliverRouting(
           imageAttachmentFromPath,
           pending,
         ),
-      send: (text, pending) => {
+      send: async (text, pending) => {
         state.sendAborted = false;
-        void state.sendWithAttemptIdentity?.(userInboundMessage(text, pending));
+        const message = userInboundMessage(text, pending);
+        await runWhileAgentBusy(state, async () => {
+          const result = await liveAgent(state).send(message);
+          await services.approvalResume.handle(result);
+        });
       },
       recordSent: (text) => {
         if (text.trim().length === 0) return;
@@ -411,6 +431,8 @@ export function createDeliverRouting(
       captureGeneration: services.deliveryGeneration.capture,
       onFailure: (error) =>
         state.handleSendFailure?.(error, live.attemptIdentity(), failureStub()),
+      getFatalBuildError,
+      onUndelivered,
     }),
     parentCycleLive: () => hostOf(state).bridge.parentCycleLive,
     deliverSteer: createLiveSteerDeliver({
@@ -423,11 +445,13 @@ export function createDeliverRouting(
           pending,
         ),
       deliver: (text, pending) => {
-        live.agentProxy.deliver(userInboundMessage(text, pending));
+        liveAgent(state).deliver(userInboundMessage(text, pending));
       },
       captureGeneration: services.deliveryGeneration.capture,
       onFailure: (error) =>
         state.handleSendFailure?.(error, live.attemptIdentity(), failureStub()),
+      getFatalBuildError,
+      onUndelivered,
     }),
   });
 }

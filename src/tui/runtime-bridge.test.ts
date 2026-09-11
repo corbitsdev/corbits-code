@@ -412,6 +412,120 @@ describe("attachSessionBridge", () => {
     );
   });
 
+  test("closed-agent restore on a busy session requeues the drained item and retracts steering", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("asap", "steer");
+          const pendingId = defined(shell.session.items[0]).id;
+          bridge.handle({ type: "tool.boundary" });
+          const delivered = port.calls.find((c) => c.op === "deliver");
+          expect(delivered?.op).toBe("deliver");
+          if (delivered?.op !== "deliver") return;
+          expect(delivered.item.id).toBe(pendingId);
+          expect(shell.session.items).toHaveLength(0);
+          expect(shell.streamLog.some((row) => row.meta === "steering")).toBe(
+            true,
+          );
+
+          const destination = bridge.recoverUndelivered(delivered.item);
+          expect(destination).toBe("queue");
+          expect(shell.session.items.map((i) => i.id)).toEqual([pendingId]);
+          expect(defined(shell.session.items[0]).text).toBe("asap");
+          expect(shell.streamLog.some((row) => row.meta === "steering")).toBe(
+            false,
+          );
+          expect(shell.prompt.value).toBe("");
+
+          const before = shell.streamLog.length;
+          bridge.handle({
+            type: "message.received",
+            data: { message: { content: "asap" } },
+          });
+          expect(shell.streamLog.length).toBe(before + 1);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("closed-agent restore on idle empty prompt returns the payload to the composer", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("follow up", "queue");
+          bridge.handle({ type: "run", state: "idle" });
+          const delivered = port.calls.find((c) => c.op === "deliver");
+          expect(delivered?.op).toBe("deliver");
+          if (delivered?.op !== "deliver") return;
+          expect(shell.session.run).toBe("idle");
+          expect(shell.prompt.value).toBe("");
+
+          const destination = bridge.recoverUndelivered(delivered.item);
+          expect(destination).toBe("prompt");
+          expect(shell.prompt.value).toBe("follow up");
+          expect(shell.session.items).toHaveLength(0);
+          expect(
+            shell.streamLog.some((row) => row.meta === "following-up"),
+          ).toBe(false);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("closed-agent restore on idle typed prompt requeues and does not clobber", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("follow up", "queue");
+          bridge.handle({ type: "run", state: "idle" });
+          const delivered = port.calls.find((c) => c.op === "deliver");
+          expect(delivered?.op).toBe("deliver");
+          if (delivered?.op !== "deliver") return;
+          shell.prompt.value = "already typing";
+
+          const destination = bridge.recoverUndelivered(delivered.item);
+          expect(destination).toBe("queue");
+          expect(shell.prompt.value).toBe("already typing");
+          expect(defined(shell.session.items[0]).text).toBe("follow up");
+          expect(defined(shell.session.items[0]).id).toBe(delivered.item.id);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("queued item delivers on a tool-less turn (inference.done, no tool calls)", async () => {
     // Regression for CL-5563: reactor.done only fires once, at agent
     // shutdown, never between turns — a plain-text reply with no tool calls

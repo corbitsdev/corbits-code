@@ -12,6 +12,7 @@ import {
   enqueue,
   enqueueSteer,
   interrupt,
+  requeueUndelivered,
   setRunState,
   type QueueItem,
   type QueueKind,
@@ -21,6 +22,7 @@ import {
   paintChrome,
   paintLanding,
   replaceStreamRowAt,
+  repaintTranscriptWindow,
   setLockupFrame,
   setStatusFlash,
   truncateStreamRows,
@@ -207,6 +209,14 @@ export interface SessionBridge {
    * so the next Enter is a send, not a steer.
    */
   clearQueuedDelivery: () => void;
+  /**
+   * Restore a drained operator payload after the live agent closed (or a
+   * fatal rebuild) before it arrived. Busy → queue; idle empty composer →
+   * prompt; idle typed prompt → queue. Retracts the steering/following-up
+   * row and drops the pending echo so a later message.received is not
+   * swallowed. Never delivers or sends the payload to a successor agent.
+   */
+  recoverUndelivered: (item: QueueItem) => "queue" | "prompt";
   /**
    * True only while draining steers at a live parent tool.boundary (or
    * inference.done with tools still outstanding). Last-hop routing reads this
@@ -988,6 +998,30 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
   paintChrome(shell);
 }
 
+function dropPendingEchoForItem(bag: BridgeBag, text: string): void {
+  const content = promptContent(text);
+  const index = bag.pendingEchoes.indexOf(content);
+  if (index !== -1) bag.pendingEchoes.splice(index, 1);
+}
+
+function retractUndeliveredRows(
+  shell: AppShell,
+  item: QueueItem,
+  keepPending: boolean,
+): void {
+  for (let local = shell.streamLog.length - 1; local >= 0; local--) {
+    const row = shell.streamLog[local];
+    if (row?.queueItemId !== item.id) continue;
+    const drainMeta = row.meta === "steering" || row.meta === "following-up";
+    const pendingMeta = row.meta === "steer" || row.meta === "queue";
+    if (!drainMeta && (keepPending || !pendingMeta)) continue;
+    shell.streamLog.splice(local, 1);
+    shell.lineCount = shell.streamLog.length;
+  }
+  repaintTranscriptWindow(shell);
+  paintChrome(shell);
+}
+
 function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
   for (;;) {
     const { state, item } = drainOne(shell.session);
@@ -999,6 +1033,7 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
       // Distinct from the still-pending "steer"/"queue" tag — this row is
       // being handed to the run right now. Follow-ups must not say steering.
       meta: item.kind === "steer" ? "steering" : "following-up",
+      queueItemId: item.id,
     });
     bag.pendingEchoes.push(item.text.trim());
     bag.port.deliver(item);
@@ -1020,6 +1055,7 @@ function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
       role: "user",
       text: userRowText(item.text, item.attachments ?? []),
       meta: "steering",
+      queueItemId: item.id,
     });
     bag.pendingEchoes.push(item.text.trim());
     bag.port.deliver(item);
@@ -1540,10 +1576,12 @@ export function attachSessionBridge(
     // Show the message itself, not the internal transition ("queue +1 →
     // pending N") — the notice row already carries the depth once, in plain
     // language, so this row's job is making the pending item identifiable.
+    const queued = shell.session.items[shell.session.items.length - 1];
     appendStreamRow(shell, {
       role: "user",
       text: userRowText(t, attached),
       meta: kind === "steer" ? "steer" : "queue",
+      ...(queued !== undefined ? { queueItemId: queued.id } : {}),
     });
     paintChrome(shell);
   };
@@ -1625,6 +1663,26 @@ export function attachSessionBridge(
     bag.awaitingContinuationInference = false;
     bag.pendingRowUpdates.clear();
     paintChrome(shell);
+  };
+
+  const recoverUndelivered = (item: QueueItem): "queue" | "prompt" => {
+    dropPendingEchoForItem(bag, item.text);
+    const promptOccupied =
+      shell.prompt.value.trim().length > 0 ||
+      shell.pendingAttachments.length > 0;
+    const toPrompt = shell.session.run === "idle" && !promptOccupied;
+    retractUndeliveredRows(shell, item, !toPrompt);
+    if (toPrompt) {
+      shell.prompt.value = item.text;
+      if (item.attachments !== undefined && item.attachments.length > 0) {
+        shell.pendingAttachments = [...item.attachments];
+      }
+      paintChrome(shell);
+      return "prompt";
+    }
+    shell.session = requeueUndelivered(shell.session, item);
+    paintChrome(shell);
+    return "queue";
   };
 
   /**
@@ -1741,6 +1799,7 @@ export function attachSessionBridge(
     submit,
     interrupt: doInterrupt,
     clearQueuedDelivery,
+    recoverUndelivered,
     get parentCycleLive() {
       return bag.liveSteerInject;
     },
