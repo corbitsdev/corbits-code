@@ -311,24 +311,6 @@ export class SubAgentDirector extends DefaultDirector {
         this.thrashState = nextThrashState(this.thrashState, content);
       }
 
-      if (
-        !hasToolCalls &&
-        !this.verbatimToolCallNudgeFired &&
-        hasVerbatimToolCallMarkup(content)
-      ) {
-        this.verbatimToolCallNudgeFired = true;
-        this.interventions({
-          id: "verbatim-tool-call",
-          class: "nudge",
-          state: this.interventionState(),
-          detail: "assistant emitted explicit tool-call markup as text",
-        });
-        return [
-          capabilities.checkpoint("subagent-verbatim-tool-call-nudge"),
-          inferWithSubAgentNudge(capabilities, VERBATIM_TOOL_CALL_NUDGE),
-        ];
-      }
-
       const stop = evaluateSubAgentStop({
         hasToolCalls,
         thrashState: this.thrashState,
