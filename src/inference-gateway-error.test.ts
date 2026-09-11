@@ -4,6 +4,7 @@ import {
   isGatewayOverloadInferenceError,
   looksLikeHtmlGatewayBody,
   normalizeInferenceErrorForRetry,
+  XAI_CAPACITY_USER_MESSAGE,
 } from "./inference-gateway-error.js";
 
 const CLOUDFLARE_503_HTML = `<!DOCTYPE html>
@@ -313,6 +314,45 @@ describe("normalizeInferenceErrorForRetry", () => {
       providerId: "xai/default",
     });
     expect(normalized.category).toBe("retryable");
+  });
+
+  test("known-xAI exact phrase carried on raw becomes retryable", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "protocol_mismatch",
+      message: "malformed JSON in SSE data payload",
+      providerId: "xai/default",
+      raw: "Service temporarily unavailable",
+    });
+    expect(normalized.category).toBe("retryable");
+  });
+
+  test("known-xAI exact phrase nested in JSON raw becomes retryable", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "protocol_mismatch",
+      message: "malformed JSON in SSE data payload",
+      providerId: "xai/default",
+      raw: { error: { message: "Service temporarily unavailable" } },
+    });
+    expect(normalized.category).toBe("retryable");
+  });
+
+  test("remapped xAI capacity copy does not claim an ongoing retry", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "protocol_mismatch",
+      message: "The model is currently at capacity",
+      providerId: "xai/default",
+    });
+    expect(normalized.message).toBe(XAI_CAPACITY_USER_MESSAGE);
+    expect(normalized.message).not.toContain("retrying");
+  });
+
+  test("mixed xAI capacity and quota copy stays unchanged", () => {
+    const error = {
+      category: "protocol_mismatch" as const,
+      message: "The model is currently at capacity: quota exceeded",
+      providerId: "xai/default",
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
   });
 
   test("explicit Grok adapter overload protocol error becomes retryable", () => {
