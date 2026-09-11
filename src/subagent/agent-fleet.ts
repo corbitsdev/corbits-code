@@ -249,11 +249,8 @@ class FleetMailbox {
   /**
    * CL-7331: mark that a send_input interrupt:true followup owns this lane.
    * Suppresses any interrupt overlay so wait stays live (running/queued)
-   * until the followup settles, and tells the spawn settlement to swallow
-   * the original run's interrupted result instead of attaching salvage over
-   * the live followup. No-op on an unknown id; safe to call on a collected
-   * mailbox (frozen status still wins for projection, but the settlement
-   * swallow still applies).
+   * until the followup settles. No-op on an unknown id; safe to call on a
+   * collected mailbox (frozen status still wins for projection).
    */
   noteFollowup(id: string): void {
     const existing = this.records.get(id);
@@ -261,11 +258,6 @@ class FleetMailbox {
     existing.followupLive = true;
     delete existing.forceInterrupted;
     this.sessions?.wake();
-  }
-
-  /** True while a send_input interrupt:true followup owns this lane. */
-  hasLiveFollowup(id: string): boolean {
-    return this.records.get(id)?.followupLive === true;
   }
 
   /**
@@ -1452,19 +1444,17 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               if (result.interrupted === true) {
                 keepWorktreeAlive = true;
                 runInterrupted = true;
-                // CL-7331: a followup started via send_input interrupt owns
-                // this lane now — the settling original turn must not attach
-                // salvage over it. The mailbox flag (set by send_input, not
-                // by interrupt_agent or a bare settle) identifies that lane;
-                // lifecycle alone cannot, since a never-started run and a
-                // queued followup both read pending_init.
-                if (!deps.fleetRecords.hasLiveFollowup(session.id)) {
-                  deps.sessions.attachReport(session.id, result.report, {
-                    ...(result.stopReason !== undefined
-                      ? { stopReason: result.stopReason }
-                      : {}),
-                  });
-                }
+                // CL-7344: a followup stashed via send_input interrupt launches
+                // from attachReport, so the settling original turn must
+                // attach its salvage here — attachReport records the salvage
+                // and launches the stashed followup in one atomic step.
+                // Skipping the attach would strand the stash and hang
+                // wait_agents on a phantom turn.
+                deps.sessions.attachReport(session.id, result.report, {
+                  ...(result.stopReason !== undefined
+                    ? { stopReason: result.stopReason }
+                    : {}),
+                });
                 return;
               }
               const alreadyCancelled =

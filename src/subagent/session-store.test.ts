@@ -594,6 +594,12 @@ describe("CL-6943 reusable worker sessions", () => {
       ok: true,
       status: "interrupted",
     });
+    // CL-7344: the interrupt stashes the follow-up until the original run
+    // settles; the salvage handoff launches it, it rejects, and the session
+    // restamps interrupted.
+    store.attachReport(session.id, "interrupted salvage", {
+      stopReason: "interrupted",
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
     const after = store.get(session.id);
     expect(after?.lifecycle.state).toBe("interrupted");
@@ -1465,6 +1471,11 @@ describe("pending ask_director", () => {
     expect(rejected).toBeInstanceOf(Error);
     expect(String(rejected)).toContain("cancelled by send_input interrupt");
     expect(delivered).toEqual([]);
+    // CL-7344: the interrupt stashes the follow-up until the original run
+    // settles; the salvage handoff launches it.
+    store.attachReport(session.id, "interrupted salvage", {
+      stopReason: "interrupted",
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(followups).toEqual(["stop that"]);
   });
@@ -1769,5 +1780,217 @@ describe("pending ask_director", () => {
     store.complete(parent.id, "parent done");
     expect(store.hasPendingAsk(child.id)).toBe(false);
     expect(String(rejected)).toContain("session completed");
+  });
+});
+
+describe("CL-7344 follow-up stash", () => {
+  function runningRetained(
+    store: ReturnType<typeof createSubAgentSessionStore>,
+    followup: (message: string) => Promise<string>,
+  ) {
+    const session = store.start({
+      description: "d",
+      agentId: "a",
+      brief: "b",
+      retained: true,
+    });
+    store.markRunning(session.id);
+    store.markRunInFlight(session.id);
+    store.registerInterrupt(session.id, () => undefined);
+    store.registerFollowup(session.id, followup);
+    return session;
+  }
+
+  test("sendInputOne interrupt stashes and does not start follow-up until attachReport", async () => {
+    const store = createSubAgentSessionStore();
+    const started: string[] = [];
+    const session = runningRetained(store, async (message) => {
+      started.push(message);
+      return "followup";
+    });
+
+    expect(
+      store.sendInputOne(session.id, "steer now", { interrupt: true }),
+    ).toEqual({ ok: true, status: "interrupted" });
+    await Promise.resolve();
+    expect(started).toEqual([]);
+    expect(store.get(session.id)?.lifecycleStatus).toBe("running");
+    expect(store.resumeOne(session.id, "later").ok).toBe(false);
+
+    store.attachReport(session.id, "interrupted salvage", {
+      stopReason: "interrupted",
+    });
+    await Promise.resolve();
+    expect(started).toEqual(["steer now"]);
+    expect(store.get(session.id)?.lifecycleStatus).toBe("running");
+    expect(store.isRunInFlight(session.id)).toBe(true);
+  });
+
+  test("complete drops a stashed follow-up and keeps the original report", async () => {
+    const store = createSubAgentSessionStore();
+    const started: string[] = [];
+    const session = runningRetained(store, async (message) => {
+      started.push(message);
+      return "should not run";
+    });
+    store.sendInputOne(session.id, "steer now", { interrupt: true });
+    store.complete(session.id, "## Summary\nOriginal done.");
+    await Promise.resolve();
+    expect(started).toEqual([]);
+    expect(store.get(session.id)?.report).toBe("## Summary\nOriginal done.");
+    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
+    expect(store.isRunInFlight(session.id)).toBe(false);
+  });
+
+  test("attachReport interrupted starts follow-up in the same notify as clearing the original run", async () => {
+    const store = createSubAgentSessionStore();
+    let started = 0;
+    const session = runningRetained(store, async () => {
+      started += 1;
+      return "followup";
+    });
+    const gaps: string[] = [];
+    store.subscribe(() => {
+      const status = store.get(session.id)?.lifecycleStatus ?? "missing";
+      if (
+        (!store.isRunInFlight(session.id) || status !== "running") &&
+        started === 0
+      ) {
+        gaps.push(status);
+      }
+    });
+    store.sendInputOne(session.id, "steer now", { interrupt: true });
+    expect(started).toBe(0);
+    store.attachReport(session.id, "salvage", { stopReason: "interrupted" });
+    expect(started).toBe(1);
+    expect(gaps).toEqual([]);
+    expect(store.isRunInFlight(session.id)).toBe(true);
+    expect(store.get(session.id)?.lifecycleStatus).toBe("running");
+  });
+
+  test("last send_input interrupt overwrites the stash", async () => {
+    const store = createSubAgentSessionStore();
+    const started: string[] = [];
+    const session = runningRetained(store, async (message) => {
+      started.push(message);
+      return "followup";
+    });
+    store.sendInputOne(session.id, "first", { interrupt: true });
+    store.sendInputOne(session.id, "second", { interrupt: true });
+    store.attachReport(session.id, "salvage", { stopReason: "interrupted" });
+    await Promise.resolve();
+    expect(started).toEqual(["second"]);
+  });
+
+  test("fail, cancel, close, interrupt_agent, and settleRun drop the stash", async () => {
+    const make = (
+      followup: (message: string) => Promise<string>,
+    ): ReturnType<typeof createSubAgentSessionStore> => {
+      const store = createSubAgentSessionStore();
+      runningRetained(store, followup);
+      return store;
+    };
+
+    const failStarted: string[] = [];
+    const failStore = make(async (m) => {
+      failStarted.push(m);
+      return "x";
+    });
+    const failId = defined(failStore.list()[0]).id;
+    failStore.sendInputOne(failId, "steer", { interrupt: true });
+    failStore.fail(failId, "boom");
+    failStore.attachReport(failId, "salvage", { stopReason: "interrupted" });
+    await Promise.resolve();
+    expect(failStarted).toEqual([]);
+
+    const cancelStarted: string[] = [];
+    const cancelStore = make(async (m) => {
+      cancelStarted.push(m);
+      return "x";
+    });
+    const cancelId = defined(cancelStore.list()[0]).id;
+    cancelStore.sendInputOne(cancelId, "steer", { interrupt: true });
+    cancelStore.cancel(cancelId);
+    cancelStore.attachReport(cancelId, "salvage", {
+      stopReason: "interrupted",
+    });
+    await Promise.resolve();
+    expect(cancelStarted).toEqual([]);
+
+    const closeStarted: string[] = [];
+    const closeStore = make(async (m) => {
+      closeStarted.push(m);
+      return "x";
+    });
+    const closeId = defined(closeStore.list()[0]).id;
+    closeStore.registerClose(closeId, async () => undefined);
+    closeStore.sendInputOne(closeId, "steer", { interrupt: true });
+    await closeStore.closeOne(closeId, 1000);
+    closeStore.attachReport(closeId, "salvage", { stopReason: "interrupted" });
+    await Promise.resolve();
+    expect(closeStarted).toEqual([]);
+
+    const interruptStarted: string[] = [];
+    const interruptStore = make(async (m) => {
+      interruptStarted.push(m);
+      return "x";
+    });
+    const interruptId = defined(interruptStore.list()[0]).id;
+    interruptStore.sendInputOne(interruptId, "steer", { interrupt: true });
+    expect(interruptStore.interruptOne(interruptId).ok).toBe(true);
+    interruptStore.attachReport(interruptId, "salvage", {
+      stopReason: "interrupted",
+    });
+    await Promise.resolve();
+    expect(interruptStarted).toEqual([]);
+
+    const settleStarted: string[] = [];
+    const settleStore = make(async (m) => {
+      settleStarted.push(m);
+      return "x";
+    });
+    const settleId = defined(settleStore.list()[0]).id;
+    settleStore.sendInputOne(settleId, "steer", { interrupt: true });
+    settleStore.settleRun(settleId);
+    settleStore.attachReport(settleId, "salvage", {
+      stopReason: "interrupted",
+    });
+    await Promise.resolve();
+    expect(settleStarted).toEqual([]);
+  });
+
+  test("AgentClosedError on an interrupt-won follow-up fails terminal", async () => {
+    const { AgentClosedError } = await import("@intx/agent");
+    const store = createSubAgentSessionStore();
+    const session = runningRetained(store, async () => {
+      throw new AgentClosedError();
+    });
+    store.sendInputOne(session.id, "steer now", { interrupt: true });
+    store.attachReport(session.id, "salvage", { stopReason: "interrupted" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const after = store.get(session.id);
+    expect(after?.lifecycle.state).toBe("failed");
+    expect(after?.error).toContain("closed");
+    expect(store.isRunInFlight(session.id)).toBe(false);
+  });
+
+  test("AgentClosedError after close_agent shutdown does not rewrite close", async () => {
+    const { AgentClosedError } = await import("@intx/agent");
+    const store = createSubAgentSessionStore();
+    let followup: (message: string) => Promise<string> = async () => "x";
+    const session = runningRetained(store, (message) => followup(message));
+    store.registerClose(session.id, async () => undefined);
+    let rejectFollowup: (err: unknown) => void = () => undefined;
+    followup = () =>
+      new Promise((_, reject) => {
+        rejectFollowup = reject;
+      });
+    store.sendInputOne(session.id, "steer now", { interrupt: true });
+    store.attachReport(session.id, "salvage", { stopReason: "interrupted" });
+    await store.closeOne(session.id, 1000);
+    expect(store.get(session.id)?.lifecycle.state).toBe("shutdown");
+    rejectFollowup(new AgentClosedError());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.get(session.id)?.lifecycle.state).toBe("shutdown");
   });
 });
