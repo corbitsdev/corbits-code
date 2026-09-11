@@ -92,6 +92,7 @@ describe("rowFromTranscriptEntry", () => {
       role: "tool",
       text: "{}",
       meta: "grep",
+      toolName: "grep",
       verb: "Grep",
       // Empty summary is intentional: without it the paint layer falls through
       // to raw argument JSON (CL-5762). Verb alone names the call.
@@ -112,6 +113,7 @@ describe("rowFromTranscriptEntry", () => {
       role: "tool",
       text: "boom",
       meta: "grep",
+      toolName: "grep",
       failed: true,
       callId: "c",
     });

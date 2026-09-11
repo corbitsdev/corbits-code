@@ -517,6 +517,7 @@ export function toolResultRow(input: ToolResultRowInput): StreamRow {
     role: "tool" as const,
     text: input.content,
     meta: input.name,
+    toolName: input.name,
     ...(input.callId !== undefined ? { callId: input.callId } : {}),
   };
   if (failed) return { ...base, failed: true };

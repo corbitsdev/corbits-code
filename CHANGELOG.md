@@ -15,10 +15,18 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Added
 
+### Added
+
 - Plan and counsel workers require substance in Findings (files/paths,
   acceptance criteria, non-goals, risks, ordered steps). Four headings
   with stub Findings salvage as `incomplete-report`, not an attachable
   plan. Implement and review envelope completeness is unchanged.
+- Consecutive same-tool transcript calls collapse into one row with a count
+  chip (`· ×N`). Settled lanes use a past-tense head (`Grepped ×3 · "corbits"`).
+  `spawn_agent` stays one row per dispatch; `manage_tasks` paints no row.
+- Pending `run_shell` rows stream up to three live output lines from a
+  bounded 8 KiB feed, then a last-three preview and a non-zero `exit N` at
+  settle.
 
 ### Fixed
 
@@ -29,7 +37,6 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   `wait_agents` with a question payload, or a successful `list_agents`),
   further `list_agents` calls fail closed until `send_input` answers or the
   ask is dropped. Do not poll `list_agents`.
-
 
 
 ## [0.3.21] - 2026-09-11

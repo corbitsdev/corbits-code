@@ -419,6 +419,7 @@ describe("observe pure mappers", () => {
       role: "tool",
       text: "ls",
       meta: "bash",
+      toolName: "bash",
       verb: "Bash",
       summary: "ls",
       pending: true,
@@ -431,7 +432,13 @@ describe("observe pure mappers", () => {
         detail: "out",
         isError: true,
       }),
-    ).toEqual({ role: "tool", text: "out", meta: "bash", failed: true });
+    ).toEqual({
+      role: "tool",
+      text: "out",
+      meta: "bash",
+      toolName: "bash",
+      failed: true,
+    });
     expect(rowFromBridgeEvent({ type: "system", text: "s" })).toEqual({
       role: "system",
       text: "s",
@@ -478,6 +485,7 @@ describe("observe pure mappers", () => {
         role: "tool",
         text: "a.ts",
         meta: "read_file",
+        toolName: "read_file",
         verb: "Read",
         summary: "a.ts",
         pending: true,

@@ -22,6 +22,7 @@ import {
   workerPermissionGate,
 } from "../permission/reactor-authorize.js";
 import { createSessionStores } from "../session/optimized-context-store.js";
+import { createShellOutputFeed } from "../session/shell-output-feed.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
@@ -597,6 +598,9 @@ async function runSubAgentInner(
   let childBlobReader: BlobReader | undefined;
   let childBlobWriter: SpillBlobWriter | undefined;
   let childContextDir: string | undefined;
+  // Live shell tail for this worker's transcript; nothing polls it unless a
+  // transcript host does (silent degradation), but the run_shell path shares it.
+  const childShellOutputFeed = createShellOutputFeed();
   const sessionBlobReader = createCompositeBlobReader(
     () => childBlobReader,
     params.getBlobReader,
@@ -613,6 +617,7 @@ async function runSubAgentInner(
       ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
       readFileGuard: { blobReader: sessionBlobReader },
       getBackgroundShellRegistry: () => backgroundShells,
+      getShellOutputFeed: () => childShellOutputFeed,
       getBlobWriter: () => childBlobWriter,
       getContextDir: () => childContextDir,
       extraToolPlugins: [

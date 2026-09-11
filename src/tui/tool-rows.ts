@@ -90,7 +90,27 @@ function countNoun(count: number, noun: string): string {
 }
 
 /**
- * Fold a tool result into the call row it answers.
+ * Collapsed shell preview painted between the head and the expand hint: the
+ * output's last three lines plus a dim elision marker that carries the count.
+ * The full output stays behind the arrow.
+ */
+const SHELL_PREVIEW_LINES = 3;
+
+export function shellPreviewLines(content: string): string[] | undefined {
+  const lines = content.replace(/\n+$/, "").split("\n");
+  if (lines.length === 0 || (lines.length === 1 && lines[0] === ""))
+    return undefined;
+  if (lines.length <= SHELL_PREVIEW_LINES) return lines;
+  return [
+    ...lines.slice(-SHELL_PREVIEW_LINES),
+    `⋯ +${lines.length - SHELL_PREVIEW_LINES} lines`,
+  ];
+}
+
+const SHELL_EXIT_ENVELOPE = /^exit code (\d+)\n/;
+
+/**
+ * Fold a tool result into the lane/call row it answers.
  *
  * The row keeps saying what the call was — the URL fetched, the path read, the
  * query searched. That is the stable identifier, and it is the one thing the
@@ -100,13 +120,31 @@ function countNoun(count: number, noun: string): string {
  */
 export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const failed = result.failed === true;
+  const isShell = call.toolName === "run_shell";
+  // A shell answer carries its exit in the content envelope the guard wraps
+  // non-zero exits in. The envelope's code becomes the row's only stat —
+  // today's "N lines" stat is dropped for shell rows because the preview's
+  // elision marker already carries the count.
+  const exitMatch = isShell ? SHELL_EXIT_ENVELOPE.exec(result.text) : null;
+  const exitCode = exitMatch !== null ? Number(exitMatch[1]) : undefined;
+  const shellStat =
+    exitCode !== undefined && exitCode !== 0 ? `exit ${exitCode}` : undefined;
+  // The exit envelope line is already the row's stat; do not repeat it in the
+  // collapsed preview.
+  const previewSource =
+    shellStat !== undefined
+      ? result.text.replace(/^exit code \d+\n/, "")
+      : result.text;
   const {
     pending: _pending,
     agentWorking: _agentWorking,
     stat: _stat,
+    previewLines: _previewLines,
     ...answered
   } = call;
   const addendum = resultAddendum(result);
+  const effAddendum =
+    isShell && (shellStat !== undefined || !failed) ? undefined : addendum;
   // A live sub-agent's elapsed-time trailer is scaffolding for the wait, not a
   // fact about the call the way a diff's own +/- count is — the answer's stat
   // must win over it rather than being shadowed by whatever it last read.
@@ -114,16 +152,17 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   // the reason, not a diff that did not land.
   const callStat =
     failed || call.agentWorking !== undefined ? undefined : call.stat;
+  const settledStat = shellStat ?? callStat;
   const base: StreamRow = {
     ...answered,
     text: result.text,
     summary: call.summary ?? "",
     ...(failed || call.failed === true ? { failed: true } : {}),
     // A diff already states its own +/- counts; nothing the answer says beats it.
-    ...(callStat === undefined && addendum !== undefined
-      ? { stat: addendum }
+    ...(settledStat === undefined && effAddendum !== undefined
+      ? { stat: effAddendum }
       : {}),
-    ...(callStat !== undefined ? { stat: callStat } : {}),
+    ...(settledStat !== undefined ? { stat: settledStat } : {}),
   };
 
   if (call.coalesced === true) {
@@ -136,12 +175,19 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
       // The run's subject stays the call it repeats, so the row keeps the
       // call's own text rather than taking on this one answer's payload.
       text: call.text,
+      // The most recent answer is the lane's copy source (Alt+C) and, for a
+      // shell lane, the settle preview's source.
+      resultText: result.text,
       ...(call.stat !== undefined ? { stat: call.stat } : {}),
+      ...(isShell && shellStat !== undefined ? { stat: shellStat } : {}),
+      ...(isShell
+        ? { previewLines: shellPreviewLines(previewSource) ?? [] }
+        : {}),
       outstanding: remaining,
       ...(remaining > 0 ? { pending: true } : {}),
       detail: appendRunLine(
         call.detail ?? [],
-        failed ? "call failed" : (addendum ?? "answered"),
+        failed ? "call failed" : (effAddendum ?? "answered"),
       ),
     };
   }
@@ -153,6 +199,9 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
     ...(result.structured !== undefined
       ? { structured: result.structured }
       : {}),
+    ...(isShell
+      ? { previewLines: shellPreviewLines(previewSource) ?? [] }
+      : {}),
     ...(showsPayload
       ? { detail: result.detail ?? resultBodyLines(result.text) }
       : call.detail !== undefined
@@ -161,7 +210,14 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   };
 }
 
-/** Whether `next` is a repeat of the call the row before it already painted. */
+/** Whether `next` folds onto the lane the tail row already represents.
+ *
+ * The lane groups by raw tool identity, not by the sentence a call paints:
+ * two reads of different files are still two reads, and a lane of them is
+ * easier to read than a stack of near-identical rows. `spawn_agent` is
+ * excluded — each dispatch is its own live progress anchor for its whole
+ * lifetime, so it must never merge.
+ */
 export function canCoalesceCall(
   tail: StreamRow | undefined,
   next: StreamRow,
@@ -169,13 +225,27 @@ export function canCoalesceCall(
   if (tail === undefined || tail.role !== "tool" || next.role !== "tool") {
     return false;
   }
-  return tail.callKey !== undefined && tail.callKey === next.callKey;
+  const toolName = tail.toolName;
+  if (toolName === undefined || toolName !== next.toolName) return false;
+  return toolName !== "spawn_agent";
+}
+
+/** Calls a lane remembers before the oldest member's id is dropped. */
+const MAX_LANE_MEMBERS = 32;
+
+function laneMembers(tail: StreamRow, next: StreamRow): string[] | undefined {
+  const members = [
+    ...(tail.memberIds ?? (tail.callId !== undefined ? [tail.callId] : [])),
+    ...(next.callId !== undefined ? [next.callId] : []),
+  ].slice(-MAX_LANE_MEMBERS);
+  return members.length > 0 ? members : undefined;
 }
 
 /**
- * Collapse a repeated call onto the row its predecessor already occupies. The
- * predecessor's own answer becomes the first line of the run's body, so nothing
- * it had said is lost to the collapse.
+ * Fold a repeated call onto the lane its predecessor already occupies. The
+ * lane narrates the newest call; the predecessor's own answer (when the lane
+ * had already settled) becomes the first line of the body it keeps behind
+ * the arrow.
  */
 export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
   const answered =
@@ -193,8 +263,11 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
     ...call
   } = next;
   const inFlight = tail.outstanding ?? (tail.pending === true ? 1 : 0);
+  const memberIds = laneMembers(tail, next);
   return {
     ...call,
+    callCount: (tail.callCount ?? 1) + 1,
+    ...(memberIds !== undefined ? { memberIds } : {}),
     coalesced: true,
     outstanding: inFlight + 1,
     ...(tail.failed === true ? { failed: true } : {}),
@@ -228,6 +301,11 @@ export function pendingCallIndex(
   if (callId !== undefined) {
     for (let i = rows.length - 1; i >= 0; i--) {
       if (rows[i]?.callId === callId) return i;
+    }
+    // A lane's own callId has already moved to its newest member, so the id
+    // this result carries may be one the lane absorbed earlier.
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i]?.memberIds?.includes(callId)) return i;
     }
     return -1;
   }

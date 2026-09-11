@@ -63,7 +63,7 @@ down the left edge (`userBubbleLines` in `src/tui/stream.ts`). Each bubble
 keeps one empty bar row above and below its text so the operator's voice
 stays easy to find while scrolling through denser assistant and tool rows —
 the pad is part of the bubble itself, not an extra turn-boundary gap, and
-assistant/tool rows are unchanged.
+assistant rows are unchanged; tool rows are lanes (see Tool lanes below).
 
 Parent live reasoning paints through the existing thinking row — never a
 third mid-turn stream lane. While `inference.thinking.delta` arrives,
@@ -74,6 +74,63 @@ clause with the rest behind expand. Mid-turn thinking bursts fold onto that
 same one row per turn (`reasoning-fold`); `inference.text.delta` grows the
 open assistant streaming row in place. Worker spawn_agent-row thinking is a
 separate path and is unchanged by this preview.
+
+## Tool lanes
+
+Transcript tool rows group by tool, not by sentence. A call for a tool the
+previous row already represents folds onto that row instead of opening a new
+one (`src/tui/tool-rows.ts`); the row narrates the newest call's subject and,
+while calls are in flight, carries a dim count chip (`· ×N`) after the
+subject. `spawn_agent` never folds — each dispatch is its own live anchor —
+and `manage_tasks` paints no transcript row at all.
+
+When the lane settles (its last outstanding answer landed), the head rewrites
+to a past-tense count over the latest subject — `Grepped ×3 · "corbits"` —
+with the count taken over calls, never over payload items (a lane of three
+greps says `×3` even if the payloads returned forty matches in total; nothing
+here can substantiate a payload total). Each call's own answer stays behind
+the expand arrow. For an edit lane the per-call `+n/-n path` addenda remain
+in the expanded body, so folding never buries which file each call touched.
+Single-call rows (count <= 1) render exactly as they did before lanes.
+
+The past tense is a map keyed by raw tool name (`src/tui/tool-formatter.ts`:
+`grep` → `Grepped`, `read_file` → `Read`, `write_file` → `Wrote`,
+`edit_file` → `Edited`, `run_shell` → `Ran`, `list_dir` → `Listed`,
+`search_files` → `Searched`, …); an unknown tool falls back to its display
+name.
+
+Because a lane's row identity moves to the newest call, a lane also carries
+the call ids it absorbed (`memberIds`, newest appended, last 32 kept). A
+result resolves its lane when its call id is the row's own id **or** one of
+its members — this is what pairs a resumed transcript's parallel batch
+(call, call, result, result) correctly. An id matching nothing still answers
+nothing: it is appended as its own row, never folded onto the newest
+same-name lane.
+
+Alt+C on a lane copies the most recent call's full output (see the Alt+C
+bullet under Clipboard and mouse).
+
+### Shell output lanes
+
+A pending `run_shell` row shows the command head and elapsed clock as today,
+plus up to three dim tail lines of the command's live output and — when the
+feed window holds more than three lines — the same dim `⋯ +N lines` elision
+marker as the settle preview, `N` counting lines within the live window (the
+feed keeps only the most recent 8 KiB). The output
+travels through a polled bounded feed (`src/session/shell-output-feed.ts`),
+not a reactor event: the plugin appends chunks (capped at an 8 KiB tail per
+call, emitting at most once per 100 ms plus a final flush at settle), and
+the product host's sticky poll reads the feed snapshot every 200 ms and
+repaints the pending row frame-coalesced. Nothing from the feed is
+persisted. When the feed is not wired (tests, the demo shell), the row
+renders exactly as before — silent degradation.
+
+At settle the live tail is replaced by a preview of the full output: its
+last three lines plus a dim `⋯ +N lines` elision marker when more were
+produced (the marker carries the count; the "N lines" stat is not painted
+on shell rows). A non-zero exit adds an `exit N` stat; a zero exit adds
+none. The existing expand idiom (Alt+E / click / the row arrow) reveals the
+full output, hiding the preview; the idiom and the arrow are unchanged.
 
 The prompt box's border carries the metadata that would otherwise cost a
 titlebar row: the model label sits right-aligned in the top rule as
@@ -249,7 +306,10 @@ clocks.
 `runtime-bridge` paints each `spawn_agent` call as a transcript stream row for
 **spawn / final / fail anchors**. While the agents strip is sticky, sticky-poll
 `syncAgentProgress` rewrites are gated off so the transcript is not a dual live
-rail. Ordinary in-flight tool rows keep their own elapsed clock
+rail. A `spawn_agent` call never folds into a tool lane: each dispatch keeps
+its own transcript row for its whole lifetime, because the row is the live
+progress anchor, not just a call record. Ordinary in-flight tool rows keep
+their own elapsed clock
 (`syncToolElapsed`) without the current-tool suffix.
 
 ### Unprompted fleet reports
@@ -725,7 +785,9 @@ running its own selection. Two chords cover remaining copy needs:
   (`enterCopyMode`) that resolves through the system clipboard port
   (`src/tui/system-clipboard.ts` — a native helper binary per
   platform, `pbcopy`/`clip`/`wl-copy`/`xclip`/`xsel`, falling back to an OSC
-  52 escape sequence when no helper is available, e.g. over SSH).
+  52 escape sequence when no helper is available, e.g. over SSH). On a
+  coalesced tool lane the copy resolves to the most recent call's full
+  output; a single-call row copies its own output, exactly as before.
 
 Arrow keys never scroll anything — inside the prompt they are caret motion
 or, at the buffer's edges, prompt-history recall; inside an open overlay's
@@ -787,6 +849,10 @@ terminal. It cannot observe:
 
 - **Real paint.** Tests assert on the shell's in-memory row/rect state, not
   on what a terminal emulator actually draws to a screen buffer.
+- **The live shell tail's wall clock.** The feed itself is pure and the
+  cadence is injectable, so the live tail is headless-testable by driving a
+  fake feed and a fake clock through the same sync path the sticky poll
+  uses; what the harness cannot see is real-time emission timing.
 - **Modifier reporting.** Whether a real terminal can report Shift+Enter,
   Alt+letter, or similar modifier combinations depends on the terminal
   negotiating the kitty keyboard protocol (or an equivalent) with the actual

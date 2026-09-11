@@ -14,6 +14,7 @@ import {
   type Thought,
 } from "./thinking.js";
 import { UI } from "./theme.js";
+import { pastTenseToolLabel } from "./tool-formatter.js";
 
 /**
  * One line of a pre-coloured body (an expanded tool call's structured
@@ -146,6 +147,33 @@ export interface StreamRow {
   readonly verb?: string;
   /** Diff stat or line range painted dim after the subject, e.g. "+1/-0". */
   readonly stat?: string;
+  /**
+   * Raw tool identity of a tool row — the lane grouping key. Unlike `meta`
+   * (composed with path/stat on some rows), this is always the bare name.
+   */
+  readonly toolName?: string;
+  /**
+   * Calls folded into a tool lane. Absent or 1 paints the single-call row
+   * exactly as before lanes.
+   */
+  readonly callCount?: number;
+  /**
+   * Call ids a lane absorbed (newest appended, last 32 kept). Lets a result
+   * resolve its lane by id even though the lane's own `callId` moved to the
+   * newest call.
+   */
+  readonly memberIds?: readonly string[];
+  /**
+   * Most recent result's full text on a coalesced lane — the Alt+C copy
+   * source. Single rows copy `text` as before.
+   */
+  readonly resultText?: string;
+  /**
+   * Shell output preview painted collapsed between head and expand hint:
+   * up to three tail lines plus the elision marker. Hidden when expanded.
+   * Never persisted.
+   */
+  readonly previewLines?: readonly string[];
   /**
    * A dispatched sub-agent's row while its worker is still running: true
    * once it has reported activity within the stall window, false once the
@@ -618,15 +646,39 @@ export function toolSentenceLines(
   const subject = row.summary ?? row.text;
   // A verb that already names the whole call ("Linear: list issues") has no
   // subject to pair with, and a lone subject (a result sentence) has no verb.
+  const laneCount = row.callCount;
+  const laneSettled =
+    laneCount !== undefined && laneCount > 1 && row.pending !== true;
+  // A settled lane rewrites its head to past tense over the latest subject
+  // ("Grepped ×3 · pattern"); a pending lane keeps narrating the newest call.
   const head =
-    verb.length === 0 ? "" : subject.length === 0 ? verb : `${verb} `;
+    laneSettled && row.toolName !== undefined
+      ? `${pastTenseToolLabel(row.toolName)} ×${laneCount} · `
+      : verb.length === 0
+        ? ""
+        : subject.length === 0
+          ? verb
+          : `${verb} `;
+  const chip =
+    laneCount !== undefined && laneCount > 1 && row.pending === true
+      ? ` · ×${laneCount}`
+      : "";
   const stat =
     row.stat !== undefined && row.stat.length > 0 ? ` ${row.stat}` : "";
-  const arrow = toolArrow(row);
+  // A collapsed row with a shell preview paints the arrow after the preview
+  // lines (toolRowLines), not on the head.
+  const suppressArrow =
+    row.previewLines !== undefined &&
+    row.previewLines.length > 0 &&
+    row.expanded !== true;
+  const arrow = suppressArrow ? "" : toolArrow(row);
   // Columns, not code units: the arrow is itself an ambiguous-width glyph and
   // this number is subtracted from the same budget `stringWidth(head)` is.
   const arrowWidth = stringWidth(arrow);
-  const trailer = stringWidth(stat) + (arrowWidth > 0 ? arrowWidth + 1 : 0);
+  const trailer =
+    stringWidth(stat) +
+    stringWidth(chip) +
+    (arrowWidth > 0 ? arrowWidth + 1 : 0);
   const segments = shellChainSegments(
     columns === undefined || subject.includes(" && ")
       ? subject
@@ -640,7 +692,9 @@ export function toolSentenceLines(
     const chain: StyledBodyLine = isLast
       ? []
       : [{ text: " && \\", fg: UI.textDim }];
-    return [...lead, ...body, ...chain];
+    const chipSegment: StyledBodyLine =
+      isLast && chip.length > 0 ? [{ text: chip, fg: UI.textDim }] : [];
+    return [...lead, ...body, ...chipSegment, ...chain];
   });
   const last = lines[lines.length - 1] ?? [];
   const statSegment = stat.length > 0 ? [{ text: stat, fg: UI.textDim }] : [];
@@ -668,6 +722,29 @@ export function toolRowLines(
   columns?: number,
 ): StyledBodyLine[] {
   const head = toolSentenceLines(row, columns);
+  if (row.expanded !== true && row.previewLines !== undefined) {
+    // Shell settle preview: dim tail lines between the head and the expand
+    // arrow, width-truncated to the columns left beside the indent.
+    const preview = row.previewLines;
+    const arrow = toolArrow(row);
+    return [
+      ...head,
+      ...preview.map((line, i) => {
+        const text =
+          columns !== undefined
+            ? truncateLine(line, columns - TOOL_DETAIL_INDENT)
+            : line;
+        const segments: StyledBodyLine =
+          i === preview.length - 1 && arrow.length > 0
+            ? [
+                { text, fg: UI.textDim },
+                { text: ` ${arrow}`, fg: UI.textDim },
+              ]
+            : [{ text, fg: UI.textDim }];
+        return indentStyledLine(segments, TOOL_DETAIL_INDENT);
+      }),
+    ];
+  }
   if (row.expanded !== true) return head;
   const tail =
     row.diff !== undefined

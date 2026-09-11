@@ -59,6 +59,31 @@ export function setActiveWebProviderBrand(brand: string | undefined): void {
     brand !== undefined && brand.length > 0 ? brand : undefined;
 }
 
+/**
+ * Settled head of a tool lane: the raw tool name in past tense. Keyed by the
+ * raw identifier (the lane grouping key), falling back to the display name
+ * for anything unmapped.
+ */
+const TOOL_PAST_TENSE: Record<string, string> = {
+  grep: "Grepped",
+  read_file: "Read",
+  write_file: "Wrote",
+  edit_file: "Edited",
+  run_shell: "Ran",
+  list_dir: "Listed",
+  search_files: "Searched",
+  web_search: "Searched",
+  web_fetch: "Fetched",
+  manage_tasks: "Managed tasks",
+  submit_output: "Submitted",
+  ask_operator: "Asked operator",
+  use_skill: "Loaded skill",
+};
+
+export function pastTenseToolLabel(toolName: string): string {
+  return TOOL_PAST_TENSE[toolName] ?? humanizeToolName(toolName);
+}
+
 export function humanizeToolName(toolName: string): string {
   if (activeWebProviderBrand !== undefined) {
     if (toolName === "web_search") return `${activeWebProviderBrand} Search`;

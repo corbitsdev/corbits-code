@@ -30,6 +30,7 @@ import {
 import type { PermissionGate } from "../permission/gate.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import type { CompactionArchive } from "../session/compaction-archive.js";
+import type { ShellOutputFeed } from "../session/shell-output-feed.js";
 
 export interface CorePosixToolPluginsArgs {
   cwd: string;
@@ -47,6 +48,9 @@ export interface CorePosixToolPluginsArgs {
   // Live getter for the background-shell registry (run_shell background:true).
   // Omitted makes background runs fail closed in shell-guard.
   getBackgroundShellRegistry?: () => BackgroundShellRegistry | undefined;
+  // Live getter for the bounded shell-output feed the transcript polls for a
+  // running command's live tail. Omitted leaves the tail unwired.
+  getShellOutputFeed?: () => ShellOutputFeed | undefined;
   /** Primary-only evidence archive; workers omit this getter. */
   getEvidenceArchive?: () => CompactionArchive | undefined;
 }
@@ -86,6 +90,7 @@ export function buildCorePosixToolPlugins(
     getContextDir,
     shellEnv,
     getBackgroundShellRegistry,
+    getShellOutputFeed,
     getEvidenceArchive,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
@@ -119,6 +124,7 @@ export function buildCorePosixToolPlugins(
       ...(getBackgroundShellRegistry !== undefined
         ? { getBackgroundShellRegistry }
         : {}),
+      ...(getShellOutputFeed !== undefined ? { getShellOutputFeed } : {}),
     }),
     ...(getEvidenceArchive !== undefined
       ? [evidenceArchiveSearchPlugin(getEvidenceArchive)]

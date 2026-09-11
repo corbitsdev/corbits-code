@@ -78,8 +78,10 @@ import {
   canCoalesceCall,
   coalesceCallRows,
   mergeToolRows,
+  shellPreviewLines,
 } from "./tool-rows.js";
 import * as rowUpdates from "./row-update-queue.js";
+import type { ShellOutputFeed } from "../session/shell-output-feed.js";
 import type { StreamRow } from "./stream.js";
 import {
   advanceRevealChars,
@@ -240,6 +242,12 @@ export interface SessionBridge {
    * or similar) on whatever cadence it already polls at.
    */
   syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void;
+  /**
+   * Paint the live output tail of the in-flight `run_shell` call from the
+   * session's bounded feed, frame-coalesced. Undefined feed (or no wired
+   * feed at the host) leaves the pending row untouched.
+   */
+  syncShellOutputs: (feed: ShellOutputFeed | undefined) => void;
   /**
    * Stamp the live catalog provider id onto the stream map context so
    * `inference.error` transcript lines can identify known-xAI short 429s
@@ -507,6 +515,11 @@ export interface BridgeBag {
    * length of a slow call — the one case a healthy turn reads as dead.
    */
   toolCallStartedAt: Map<string, number>;
+  /**
+   * Last live shell tail painted per in-flight call, so an unchanged feed
+   * snapshot applies no row update.
+   */
+  shellSnapshots: Map<string, string>;
   /** Row of the newest in-flight call, for results that carry no call id. */
   lastToolRow: number;
   /**
@@ -907,6 +920,7 @@ function applyToolCall(
   const row = toolCallRow({
     name: event.name,
     ...(event.detail !== undefined ? { arguments: event.detail } : {}),
+    ...(event.callId !== undefined ? { callId: event.callId } : {}),
   });
   const count = streamRowCount(shell);
   const tail = streamRowAt(shell, count - 1);
@@ -962,6 +976,7 @@ function applyToolResult(
   if (event.callId !== undefined) {
     bag.toolRows.delete(event.callId);
     bag.toolCallStartedAt.delete(event.callId);
+    bag.shellSnapshots.delete(event.callId);
     // spawn_agent's immediate running JSON is not the end of the worker —
     // keep the row in taskCallIds / spawnProgressRows until the session
     // leaves the running set (see syncAgentProgress).
@@ -971,6 +986,14 @@ function applyToolResult(
     }
   }
   if (bag.toolRows.size === 0) shell.inFlightTool = null;
+  // An id that matches nothing on the log answers nothing: it is appended as
+  // its own row rather than folding onto whichever row happens to be last
+  // (the spec's never-misattribute rule). Only id-less results — saved
+  // history from before ids existed — keep the newest-row fallback.
+  if (tracked === undefined && event.callId !== undefined) {
+    appendStreamRow(shell, result);
+    return;
+  }
   const index = tracked ?? bag.lastToolRow;
   // A close seam: apply any coalesced update first so the merge reads it.
   const rawCall =
@@ -1035,6 +1058,30 @@ function syncAgentProgress(
 function omitStat(row: StreamRow): StreamRow {
   const { stat: _stat, ...rest } = row;
   return rest;
+}
+
+/**
+ * Paint the live tail of a running `run_shell` command onto its pending row,
+ * frame-coalesced. `feed` is the session's bounded shell-output feed; when it
+ * is not wired the row renders exactly as before. `shellSnapshots` dedupes so
+ * an unchanged snapshot applies nothing.
+ */
+function syncShellOutputs(
+  shell: AppShell,
+  bag: BridgeBag,
+  feed: ShellOutputFeed | undefined,
+): void {
+  if (bag.disposed || feed === undefined || bag.toolRows.size === 0) return;
+  const preview = shellPreviewLines(feed.snapshot()) ?? [];
+  const key = preview.join("\n");
+  for (const [callId, index] of bag.toolRows) {
+    if (bag.shellSnapshots.get(callId) === key) continue;
+    const row = bag.pendingRowUpdates.get(index) ?? streamRowAt(shell, index);
+    if (row === undefined || row.pending !== true) continue;
+    if (row.toolName !== "run_shell") continue;
+    bag.shellSnapshots.set(callId, key);
+    rowUpdates.scheduleRowUpdate(bag, index, { ...row, previewLines: preview });
+  }
 }
 
 /**
@@ -1338,6 +1385,7 @@ export function attachSessionBridge(
     now,
     toolRows: new Map(),
     toolCallStartedAt: new Map(),
+    shellSnapshots: new Map(),
     lastToolRow: -1,
     taskCallIds: new Set(),
     spawnProgressRows: new Map(),
@@ -1868,6 +1916,9 @@ export function attachSessionBridge(
       if (bag.disposed) return;
       bag.agentSessions = sessions;
       syncAgentProgress(shell, bag, sessions, now());
+    },
+    syncShellOutputs: (feed) => {
+      syncShellOutputs(shell, bag, feed);
     },
     setInferenceProviderId: (id, displayLabel) => {
       if (bag.disposed) return;

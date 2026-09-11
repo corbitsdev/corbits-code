@@ -130,6 +130,7 @@ describe("row update perf gates (J3)", () => {
             const row = streamRowAt(shell, 0);
             expect(row?.coalesced).toBe(true);
             expect(row?.outstanding).toBe(5);
+            expect(row?.callCount).toBe(5);
             // An idle frame applies nothing further.
             await h.renderOnce();
             expect(work.replaces).toBe(1);
