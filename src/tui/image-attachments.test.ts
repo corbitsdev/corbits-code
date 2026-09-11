@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { deflateSync } from "node:zlib";
 import { unlink } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { defined } from "../../tests/helpers/defined.js";
 import {
   findDuplicateAttachment,
@@ -72,18 +72,69 @@ function buildTestPng(width: number, height: number): Buffer {
   ]);
 }
 
-describe("image attachment helpers", () => {
-  test("detects supported image MIME types from paths", () => {
-    expect(imageMimeTypeForPath("shot.png")).toBe("image/png");
-    expect(imageMimeTypeForPath("photo.JPEG")).toBe("image/jpeg");
-    expect(imageMimeTypeForPath("animation.gif")).toBe("image/gif");
-    expect(imageMimeTypeForPath("notes.txt")).toBeUndefined();
-  });
+describe("findImagePathMentions", () => {
+  test("preserves balanced wrappers and exact inner whitespace", () => {
+    const observed =
+      "/Users/operator/Desktop/Screenshot 2026-09-10 at 11.42.07\u202fAM.png";
 
-  test("finds image paths embedded in instructions", () => {
+    expect(findImagePathMentions(`inspect '${observed}'`, "/repo")).toEqual([
+      { raw: `'${observed}'`, path: observed },
+    ]);
     expect(
       findImagePathMentions(
-        "what is in /tmp/Screenshot 2026-01-01.png please",
+        '"./screen (final), version; 2.png", `~/screen: final!.webp`!',
+        "/repo",
+      ),
+    ).toEqual([
+      {
+        raw: '"./screen (final), version; 2.png"',
+        path: "/repo/screen (final), version; 2.png",
+      },
+      {
+        raw: "`~/screen: final!.webp`",
+        path: join(homedir(), "screen: final!.webp"),
+      },
+    ]);
+  });
+
+  test("normalizes wrapped file URLs and keeps quoted backslashes literal", () => {
+    expect(
+      findImagePathMentions(
+        '`file:///tmp/my%20shot.jpeg` and "/tmp/my\\ shot.png"',
+        "/repo",
+      ),
+    ).toEqual([
+      { raw: "`file:///tmp/my%20shot.jpeg`", path: "/tmp/my shot.jpeg" },
+      { raw: '"/tmp/my\\ shot.png"', path: "/tmp/my\\ shot.png" },
+    ]);
+  });
+
+  test("preserves every unquoted terminator", () => {
+    expect(findImagePathMentions("/tmp/shot.png", "/repo")).toEqual([
+      { raw: "/tmp/shot.png", path: "/tmp/shot.png" },
+    ]);
+    for (const terminator of [
+      " ",
+      "\t",
+      "\n",
+      ")",
+      ",",
+      ".",
+      ";",
+      ":",
+      "!",
+      "?",
+    ]) {
+      expect(
+        findImagePathMentions(`/tmp/shot.png${terminator}after`, "/repo"),
+      ).toEqual([{ raw: "/tmp/shot.png", path: "/tmp/shot.png" }]);
+    }
+  });
+
+  test("preserves unquoted parsing and normalization", () => {
+    expect(
+      findImagePathMentions(
+        "what is in /tmp/Screenshot 2026-01-01.png please file:///tmp/my%20shot.jpg ./other.webp",
         "/repo",
       ),
     ).toEqual([
@@ -91,10 +142,63 @@ describe("image attachment helpers", () => {
         raw: "/tmp/Screenshot 2026-01-01.png",
         path: "/tmp/Screenshot 2026-01-01.png",
       },
+      { raw: "file:///tmp/my%20shot.jpg", path: "/tmp/my shot.jpg" },
+      { raw: "./other.webp", path: "/repo/other.webp" },
+    ]);
+    expect(findImagePathMentions("./relative path.png", "/repo")).toEqual([]);
+  });
+
+  test("bounds unmatched wrappers to their line and old unquoted boundaries", () => {
+    expect(
+      findImagePathMentions(
+        "look at '/tmp/first.png next\nthen' /tmp/second.jpg",
+        "/repo",
+      ),
+    ).toEqual([
+      { raw: "/tmp/first.png", path: "/tmp/first.png" },
+      { raw: "/tmp/second.jpg", path: "/tmp/second.jpg" },
+    ]);
+    expect(findImagePathMentions('/tmp/shot.png"', "/repo")).toEqual([]);
+    expect(findImagePathMentions('"./first.png\ncontinued"', "/repo")).toEqual([
+      { raw: "./first.png", path: resolve("/repo", "first.png") },
+    ]);
+  });
+
+  test("keeps source order, deduplicates normalized paths, and rejects unsupported candidates", () => {
+    expect(
+      findImagePathMentions(
+        "`./first.gif` /repo/second.JPG './first.gif' image.png './bad.bmp' \"./valid.png.txt\"",
+        "/repo",
+      ),
+    ).toEqual([
+      { raw: "`./first.gif`", path: "/repo/first.gif" },
+      { raw: "/repo/second.JPG", path: "/repo/second.JPG" },
+    ]);
+  });
+
+  test("does not let contractions steal single-quoted path wrappers", () => {
+    const observed = "/tmp/Screenshot 2026-09-10 at 11.42.07\u202fAM.png";
+    expect(findImagePathMentions(`what's in '${observed}'?`, "/repo")).toEqual([
+      { raw: `'${observed}'`, path: observed },
     ]);
     expect(
-      findImagePathMentions("look at file:///tmp/my%20shot.png", "/repo"),
-    ).toEqual([{ raw: "file:///tmp/my%20shot.png", path: "/tmp/my shot.png" }]);
+      findImagePathMentions(`don't use '/tmp/shot.png' please`, "/repo"),
+    ).toEqual([{ raw: "'/tmp/shot.png'", path: "/tmp/shot.png" }]);
+  });
+
+  test("does not let prose quotes invent a relative path over an absolute mention", () => {
+    expect(
+      findImagePathMentions(`He said "look at /tmp/shot.png" today`, "/repo"),
+    ).toEqual([{ raw: "/tmp/shot.png", path: "/tmp/shot.png" }]);
+  });
+});
+
+describe("image attachment helpers", () => {
+  test("detects supported image MIME types from paths", () => {
+    expect(imageMimeTypeForPath("shot.png")).toBe("image/png");
+    expect(imageMimeTypeForPath("photo.JPEG")).toBe("image/jpeg");
+    expect(imageMimeTypeForPath("animation.gif")).toBe("image/gif");
+    expect(imageMimeTypeForPath("notes.txt")).toBeUndefined();
   });
 
   test("leaves small images untouched", async () => {

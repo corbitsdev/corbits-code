@@ -67,17 +67,129 @@ export function findImagePathMentions(
 ): ImagePathMention[] {
   const mentions: ImagePathMention[] = [];
   const seen = new Set<string>();
-  const pattern =
-    /file:\/\/\S+|(?:[~./]|[A-Za-z]:)[^\n\r]*?\.(?:png|jpe?g|webp|gif)(?=$|\s|[),.;:!?])/gi;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    const raw = trimTrailingPunctuation(match[0] ?? "");
-    const path = normalizeImagePathCandidate(raw, cwd);
-    if (path === undefined || seen.has(path)) continue;
+
+  const push = (raw: string, path: string | undefined): void => {
+    if (path === undefined || seen.has(path)) return;
     seen.add(path);
     mentions.push({ raw, path });
+  };
+
+  let lineStart = 0;
+  while (lineStart <= text.length) {
+    let lineEnd = text.indexOf("\n", lineStart);
+    if (lineEnd === -1) lineEnd = text.length;
+    // Keep a lone trailing \r on CRLF out of the scan window.
+    const contentEnd =
+      lineEnd > lineStart && text[lineEnd - 1] === "\r" ? lineEnd - 1 : lineEnd;
+    scanImagePathLine(text, lineStart, contentEnd, cwd, push);
+    if (lineEnd === text.length) break;
+    lineStart = lineEnd + 1;
   }
   return mentions;
+}
+
+const WRAPPERS = new Set(["'", '"', "`"]);
+const UNQUOTED_AT =
+  /^(?:file:\/\/\S+|(?:[~./]|[A-Za-z]:)[^\n\r]*?\.(?:png|jpe?g|webp|gif)(?=$|\s|[),.;:!?]))/i;
+
+function scanImagePathLine(
+  text: string,
+  start: number,
+  end: number,
+  cwd: string,
+  push: (raw: string, path: string | undefined) => void,
+): void {
+  let i = start;
+  while (i < end) {
+    const ch = text[i];
+    if (ch === undefined) break;
+    if (WRAPPERS.has(ch)) {
+      // Contractions/possessives (`what's`, `don't`) are not quote openers.
+      if (ch === "'" && i > start && isWordChar(text[i - 1])) {
+        i += 1;
+        continue;
+      }
+      const close = text.indexOf(ch, i + 1);
+      if (close !== -1 && close < end) {
+        const inner = text.slice(i + 1, close);
+        if (looksLikeQuotedImagePath(inner)) {
+          const raw = text.slice(i, close + 1);
+          push(raw, normalizeImagePathCandidate(inner, cwd, true));
+          i = close + 1;
+          continue;
+        }
+        // Balanced quotes around prose are not path wrappers. Search inside
+        // so an absolute path can still be found, then resume after the closer.
+        scanImagePathLine(text, i + 1, close, cwd, push);
+        i = close + 1;
+        continue;
+      }
+      // Unmatched opener is not a wrapper; same-line unquoted fallback only.
+      i += 1;
+      continue;
+    }
+
+    if (canStartUnquotedPath(text, i, end)) {
+      const match = UNQUOTED_AT.exec(text.slice(i, end));
+      if (match?.[0] !== undefined) {
+        const raw = trimTrailingPunctuation(match[0]);
+        push(raw, normalizeImagePathCandidate(raw, cwd, false));
+        i += match[0].length;
+        continue;
+      }
+    }
+    i += 1;
+  }
+}
+
+function isWordChar(ch: string | undefined): boolean {
+  if (ch === undefined || ch.length !== 1) return false;
+  return (
+    (ch >= "0" && ch <= "9") ||
+    (ch >= "A" && ch <= "Z") ||
+    (ch >= "a" && ch <= "z")
+  );
+}
+
+function looksLikeQuotedImagePath(inner: string): boolean {
+  if (inner.startsWith("file://")) return true;
+  if (inner === "~" || inner.startsWith("~/") || inner.startsWith("~\\"))
+    return true;
+  if (inner.startsWith("/") || inner.startsWith("\\")) return true;
+  if (
+    inner.startsWith("./") ||
+    inner.startsWith("../") ||
+    inner.startsWith(".\\") ||
+    inner.startsWith("..\\")
+  ) {
+    return true;
+  }
+  const drive = inner[0];
+  const sep = inner[2];
+  return (
+    inner.length >= 3 &&
+    drive !== undefined &&
+    sep !== undefined &&
+    ((drive >= "A" && drive <= "Z") || (drive >= "a" && drive <= "z")) &&
+    inner[1] === ":" &&
+    (sep === "/" || sep === "\\")
+  );
+}
+
+function canStartUnquotedPath(text: string, i: number, end: number): boolean {
+  if (i >= end) return false;
+  if (text.startsWith("file://", i)) return true;
+  const ch = text[i];
+  if (ch === undefined) return false;
+  if (ch === "~" || ch === "." || ch === "/") return true;
+  if (
+    i + 1 < end &&
+    ((ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z")) &&
+    text[i + 1] === ":"
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export async function imageAttachmentFromPath(
@@ -263,40 +375,44 @@ export function userRowText(
 function normalizeImagePathCandidate(
   input: string,
   cwd: string,
+  quoted: boolean,
 ): string | undefined {
-  const unquoted = unquoteShellPath(trimTrailingPunctuation(input.trim()));
-  if (unquoted === undefined) return undefined;
+  const resolved = quoted
+    ? resolveQuotedImagePath(input)
+    : resolveUnquotedImagePath(input);
+  if (resolved === undefined) return undefined;
   const expanded =
-    unquoted === "~" || unquoted.startsWith("~/")
-      ? resolve(homedir(), unquoted.slice(2))
-      : unquoted;
-  if (
-    /\s/.test(expanded) &&
-    !isAbsolute(expanded) &&
-    input[0] !== "'" &&
-    input[0] !== '"'
-  ) {
+    resolved === "~" || resolved.startsWith("~/")
+      ? resolve(homedir(), resolved.slice(2))
+      : resolved;
+  if (/\s/.test(expanded) && !isAbsolute(expanded) && !quoted) {
     return undefined;
   }
   const abs = isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
   return imageMimeTypeForPath(abs) === undefined ? undefined : abs;
 }
 
-function unquoteShellPath(input: string): string | undefined {
-  if (input.startsWith("file://")) {
+function resolveQuotedImagePath(inner: string): string | undefined {
+  if (inner.startsWith("file://")) {
     try {
-      return decodeURIComponent(new URL(input).pathname);
+      return decodeURIComponent(new URL(inner).pathname);
     } catch {
       return undefined;
     }
   }
-  if (
-    (input.startsWith("'") && input.endsWith("'")) ||
-    (input.startsWith('"') && input.endsWith('"'))
-  ) {
-    return input.slice(1, -1);
+  return inner;
+}
+
+function resolveUnquotedImagePath(input: string): string | undefined {
+  const trimmed = trimTrailingPunctuation(input.trim());
+  if (trimmed.startsWith("file://")) {
+    try {
+      return decodeURIComponent(new URL(trimmed).pathname);
+    } catch {
+      return undefined;
+    }
   }
-  return input.replace(/\\([\\\s'"()])/g, "$1");
+  return trimmed.replace(/\\([\\\s'"()])/g, "$1");
 }
 
 function trimTrailingPunctuation(input: string): string {

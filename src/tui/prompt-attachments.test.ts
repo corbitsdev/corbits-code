@@ -43,6 +43,20 @@ describe("ingestPathMentions", () => {
     expect(result.attachments).toHaveLength(1);
   });
 
+  test("replaces the full wrapped token including quotes", async () => {
+    const load = async (path: string): Promise<AttachImageResult> => ({
+      ok: true,
+      attachment: { ...attachment("shot.png"), path },
+    });
+    const result = await ingestPathMentions(
+      "look at '/tmp/shot.png' please",
+      "/repo",
+      load,
+    );
+    expect(result.text).toBe("look at [Attached image: shot.png] please");
+    expect(result.attachments).toHaveLength(1);
+  });
+
   test("keeps the raw path when loading fails", async () => {
     const load = async (): Promise<AttachImageResult> => ({
       ok: false,
