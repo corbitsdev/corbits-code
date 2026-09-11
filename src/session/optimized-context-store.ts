@@ -336,6 +336,19 @@ export async function loadRecentTurns(
   return turns;
 }
 
+/**
+ * Resilient parse of the base turn segment alone (`turns.jsonl`); extra
+ * segments are merged by the caller. Mirrors the recovery `load()` applies
+ * when the isogit base store hard-fails, so a torn or poisoned base cannot
+ * block the write that heals it.
+ */
+async function readBaseTurnsFromDisk(dir: string): Promise<ConversationTurn[]> {
+  const basePath = path.join(dir, TURNS_FILE);
+  if (!(await pathExists(basePath))) return [];
+  const text = await fs.promises.readFile(basePath, "utf-8");
+  return parseSegmentTurns(text, true, TURNS_FILE, true);
+}
+
 async function listIndexPaths(dir: string): Promise<Set<string>> {
   return new Set(await git.listFiles({ fs, dir }));
 }
@@ -373,6 +386,63 @@ async function resetIndexPaths(
       await git.resetIndex({ fs, dir, filepath });
     } catch {
       // Not in the index; vendor restore already covers its own paths.
+    }
+  }
+}
+
+async function headOid(dir: string): Promise<string | null> {
+  try {
+    return await git.resolveRef({ fs, dir, ref: "HEAD" });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Contents of every turn segment on disk (`turns.jsonl` plus numbered tails,
+ * gapped strays included), keyed by relative name. Captured before a staged
+ * rewrite lands so a failed commit can put the working tree back on the
+ * published generation.
+ */
+async function snapshotTurnSegments(dir: string): Promise<Map<string, string>> {
+  const snapshot = new Map<string, string>();
+  const highest = await highestSegmentIndex(dir, TURNS_FILE);
+  for (let index = 0; index <= highest; index++) {
+    const name = segmentFileName(TURNS_FILE, index);
+    try {
+      snapshot.set(
+        name,
+        await fs.promises.readFile(path.join(dir, name), "utf-8"),
+      );
+    } catch (cause) {
+      if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+        continue;
+      throw cause;
+    }
+  }
+  return snapshot;
+}
+
+/**
+ * Inverse of snapshotTurnSegments: write every snapshotted segment back and
+ * unlink any segment the landed rewrite created.
+ */
+async function restoreTurnSegments(
+  dir: string,
+  snapshot: ReadonlyMap<string, string>,
+): Promise<void> {
+  const names = new Set<string>(snapshot.keys());
+  const highest = await highestSegmentIndex(dir, TURNS_FILE);
+  for (let index = 0; index <= highest; index++) {
+    names.add(segmentFileName(TURNS_FILE, index));
+  }
+  for (const name of names) {
+    const full = path.join(dir, name);
+    const text = snapshot.get(name);
+    if (text === undefined) {
+      if (await pathExists(full)) await fs.promises.unlink(full);
+    } else {
+      await fs.promises.writeFile(full, text);
     }
   }
 }
@@ -493,14 +563,23 @@ export async function createSessionStores(
       return;
     }
     const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
-    const baseResult = await base.load();
+    let baseTurns: ConversationTurn[];
+    try {
+      baseTurns = (await base.load()).turns;
+    } catch (cause) {
+      // A torn or poisoned base tail must not block the write that heals it;
+      // recover the usable base turns the same way load() does. This also lets
+      // a corrupt metadata.json slide — writeTurns only needs the turns.
+      log.warn(
+        "base context store load failed during writeTurns; recovering base segment from disk",
+        { cause: cause instanceof Error ? cause.message : String(cause) },
+      );
+      baseTurns = await readBaseTurnsFromDisk(dir);
+    }
     const live =
       extraTexts.length === 0
-        ? baseResult.turns
-        : await loadTurnsWithoutMalformedToolSequence(
-            baseResult.turns,
-            extraTexts,
-          );
+        ? baseTurns
+        : await loadTurnsWithoutMalformedToolSequence(baseTurns, extraTexts);
     if (live.length > 0 && contentPrefixLength(live, turns) < live.length) {
       unpublishedRewrite = [...turns];
       return;
@@ -577,13 +656,7 @@ export async function createSessionStores(
           // Prefer resilient parse of segment 0 alone so orphan-tail heal still runs.
           // skipMalformed: mid-file garbage/interleaved records must not kill resume
           // (CL-7052); null-pad stripping and torn-tail drop still apply.
-          const basePath = path.join(dir, TURNS_FILE);
-          if (await pathExists(basePath)) {
-            const text = await fs.promises.readFile(basePath, "utf-8");
-            baseTurns = parseSegmentTurns(text, true, TURNS_FILE, true);
-          } else {
-            baseTurns = [];
-          }
+          baseTurns = await readBaseTurnsFromDisk(dir);
         } catch (parseCause) {
           // Unrecoverable: rethrow with the file name in the message.
           throw new Error(
@@ -642,36 +715,46 @@ export async function createSessionStores(
     async commit(options, signal) {
       return withResolvedDirLock(dir, async () => {
         const stagedRewrite = unpublishedRewrite;
-        if (stagedRewrite !== null) {
-          await writeSegmented(writeTurnsSegmented, stagedRewrite);
-        }
-        const toAdd: string[] = [];
-        const toRemove: string[] = [];
-
-        for (const filepath of [
-          ...pendingSegmentPaths,
-          ...pendingBlobFilepaths,
-        ]) {
-          if (await pathExists(path.join(dir, filepath))) toAdd.push(filepath);
-          else toRemove.push(filepath);
-        }
-
-        // Disk is source of truth for which turn/prompt segments should remain
-        // tracked after a rewrite or heal, even if pendingSegmentPaths was lost.
-        await reconcileSegmentStaging(dir, TURNS_FILE, toAdd, toRemove);
-        await reconcileSegmentStaging(dir, PROMPT_FILE, toAdd, toRemove);
-
-        if (await pathExists(path.join(dir, EVIDENCE_ARCHIVE_DIR))) {
-          toAdd.push(EVIDENCE_ARCHIVE_DIR);
-        }
-
-        const add = extraCommitPaths([...new Set(toAdd)]);
-        const remove = extraCommitPaths([...new Set(toRemove)]).filter(
-          (p) => !add.includes(p),
-        );
-        const extraPaths = [...new Set([...add, ...remove])];
+        // The staged rewrite lands on the working-tree segments before the git
+        // operations below; snapshot them so a failed commit can put the files
+        // back on the published generation. `unpublishedRewrite` stays staged
+        // so a retried commit can still publish it.
+        const segmentSnapshot =
+          stagedRewrite === null ? null : await snapshotTurnSegments(dir);
+        const headBefore = stagedRewrite === null ? null : await headOid(dir);
+        let extraPaths: string[] = [];
 
         try {
+          if (stagedRewrite !== null) {
+            await writeSegmented(writeTurnsSegmented, stagedRewrite);
+          }
+          const toAdd: string[] = [];
+          const toRemove: string[] = [];
+
+          for (const filepath of [
+            ...pendingSegmentPaths,
+            ...pendingBlobFilepaths,
+          ]) {
+            if (await pathExists(path.join(dir, filepath)))
+              toAdd.push(filepath);
+            else toRemove.push(filepath);
+          }
+
+          // Disk is source of truth for which turn/prompt segments should remain
+          // tracked after a rewrite or heal, even if pendingSegmentPaths was lost.
+          await reconcileSegmentStaging(dir, TURNS_FILE, toAdd, toRemove);
+          await reconcileSegmentStaging(dir, PROMPT_FILE, toAdd, toRemove);
+
+          if (await pathExists(path.join(dir, EVIDENCE_ARCHIVE_DIR))) {
+            toAdd.push(EVIDENCE_ARCHIVE_DIR);
+          }
+
+          const add = extraCommitPaths([...new Set(toAdd)]);
+          const remove = extraCommitPaths([...new Set(toRemove)]).filter(
+            (p) => !add.includes(p),
+          );
+          extraPaths = [...new Set([...add, ...remove])];
+
           for (const filepath of add) {
             await git.add({ fs, dir, filepath });
           }
@@ -692,7 +775,25 @@ export async function createSessionStores(
           return committed;
         } catch (cause) {
           await resetIndexPaths(dir, extraPaths);
-          if (stagedRewrite !== null) {
+          if (segmentSnapshot !== null) {
+            // The rewrite already landed on the working-tree segments; restore
+            // them so load() keeps serving the published generation — unless
+            // the commit actually landed despite throwing (a ref write or
+            // post-commit check can fail after HEAD moved), in which case the
+            // on-disk rewrite already matches the new HEAD.
+            const headNow = await headOid(dir);
+            const landed =
+              headBefore !== null && headNow !== null && headNow !== headBefore;
+            if (!landed) {
+              try {
+                await restoreTurnSegments(dir, segmentSnapshot);
+              } catch {
+                // A partial restore must not mask the real commit error.
+              }
+            }
+            // Drop the writer's stale in-memory state so a retry rewrites the
+            // staged segments from scratch.
+            writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
             liveTurnRefs = null;
           }
           throw cause;

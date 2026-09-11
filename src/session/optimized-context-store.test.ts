@@ -798,15 +798,22 @@ describe("createOptimizedContextStore unpublished rewrite", () => {
 
     await store.writeTurns([turn("[Compacted prior context]"), turn("keep-b")]);
 
-    const hookDir = path.join(dir, ".git", "hooks");
-    fs.mkdirSync(hookDir, { recursive: true });
-    const hook = path.join(hookDir, "commit-msg");
-    fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n");
-    fs.chmodSync(hook, 0o755);
-
-    await expect(
-      store.commit({ message: "publish compact" }),
-    ).rejects.toThrow();
+    // The store commits through isomorphic-git, which never runs hooks. Force
+    // a deterministic commit failure instead: replace .git/objects with a
+    // regular file so every object write fails with ENOTDIR, then restore it
+    // so the readAt assertion below can read the published commit.
+    const objectsDir = path.join(dir, ".git", "objects");
+    const objectsHeld = `${objectsDir}.held`;
+    fs.renameSync(objectsDir, objectsHeld);
+    fs.writeFileSync(objectsDir, "held");
+    try {
+      await expect(
+        store.commit({ message: "publish compact" }),
+      ).rejects.toThrow();
+    } finally {
+      fs.unlinkSync(objectsDir);
+      fs.renameSync(objectsHeld, objectsDir);
+    }
 
     const loaded = await store.load();
     expect(turnTexts(loaded.turns)).toEqual(["keep-a", "keep-b", "drop-me"]);
@@ -814,6 +821,14 @@ describe("createOptimizedContextStore unpublished rewrite", () => {
       "keep-a",
       "keep-b",
       "drop-me",
+    ]);
+
+    // The failed commit keeps the rewrite staged: retrying publishes it.
+    await store.commit({ message: "retry publish compact" });
+    const retried = await store.load();
+    expect(turnTexts(retried.turns)).toEqual([
+      "[Compacted prior context]",
+      "keep-b",
     ]);
   });
 
