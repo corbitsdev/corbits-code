@@ -179,11 +179,12 @@ export interface ProductHostConfig {
    */
   readonly subAgentSessions?: () => readonly TaskProgressSession[];
   /**
-   * The session's bounded shell-output feed, polled on the same sticky tick to
-   * paint a running command's live output tail onto its pending row. Omitted
-   * hosts (tests, the demo shell) paint pending shell rows without a tail.
+   * Per-call bounded shell-output feeds, polled on the same sticky tick to
+   * paint a running command's live output tail onto the pending row that owns
+   * that call. Omitted hosts (tests, the demo shell) paint pending shell rows
+   * without a tail.
    */
-  readonly shellOutputFeed?: () => ShellOutputFeed | undefined;
+  readonly shellOutputFeed?: (callId: string) => ShellOutputFeed | undefined;
   /**
    * Renderer factory override for headless mounting in tests.
    * Defaults to the real `createCliRenderer`; tests inject a
@@ -391,7 +392,7 @@ export async function mountProductHost(
       }
       // Live shell tail: deduped in the bridge, so an unchanged snapshot is a
       // no-op and this poll cadence (200 ms) is the paint cadence.
-      bridge.syncShellOutputs(config.shellOutputFeed?.());
+      bridge.syncShellOutputs(config.shellOutputFeed);
       // Elapsed clock, stall flip, and post-finish linger are wall-time — repaint
       // the strip on this tick while sticky is needed. paintChromeZones re-enters
       // setChromeZones (which may paintChrome again on an unchanged-zone path),

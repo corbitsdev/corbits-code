@@ -143,8 +143,8 @@ export interface RunnerHostDeps {
   readonly subscribeChrome: (notify: () => void) => () => void;
   /** Live subagent sessions for the palette observe action. */
   readonly subAgentSessions: () => readonly SubAgentSession[];
-  /** The session's bounded live shell-output feed for the transcript tail. */
-  readonly shellOutputFeed?: () => ShellOutputFeed | undefined;
+  /** Per-call bounded live shell-output feeds for the transcript tail. */
+  readonly shellOutputFeed?: (callId: string) => ShellOutputFeed | undefined;
   /**
    * Live data behind the command surfaces (settings, permissions, plugins).
    * `notify` is supplied by the host itself.

@@ -90,7 +90,7 @@ import {
   createBackgroundShellRegistry,
   type BackgroundShellExit,
 } from "../shell/background-shell.js";
-import { createShellOutputFeed } from "../session/shell-output-feed.js";
+import { createShellOutputFeedMap } from "../session/shell-output-feed.js";
 import { createListDirTool } from "../util/list-dir.js";
 import {
   createExaMCPWebFetchTool,
@@ -290,9 +290,9 @@ export interface AgentToolset {
     callbacks: MCPConnectCallbacks,
     signal?: AbortSignal,
   ) => Promise<void>;
-  // Bounded live-output tail of the session's foreground shell, polled by the
-  // transcript for the pending run_shell row's live lines.
-  shellOutputFeed: ReturnType<typeof createShellOutputFeed>;
+  // Per-call bounded live-output tails of foreground shells, polled by the
+  // transcript for each pending run_shell row's live lines.
+  shellOutputFeed: ReturnType<typeof createShellOutputFeedMap>;
   // Connect one newly persisted server through the same lifecycle as startup MCP.
   connectMCPServer: (
     config: MCPServerConfig,
@@ -364,10 +364,10 @@ export async function createAgentToolset(
       : {}),
   });
   const shellCollect = createShellCollectTool(backgroundShells);
-  // Bounded live-output tail of the foreground shell, polled by the TUI for
-  // the pending run_shell row's live lines. Workers get one too; nothing
+  // Per-call bounded live-output tails of foreground shells, polled by the TUI
+  // for each pending run_shell row's live lines. Workers get a map too; nothing
   // reads it unless a transcript polls it (silent degradation).
-  const shellOutputFeed = createShellOutputFeed();
+  const shellOutputFeed = createShellOutputFeedMap();
   const sessionBlobReader =
     getBlobReader !== undefined
       ? createLazyBlobReader(getBlobReader)
@@ -455,7 +455,7 @@ export async function createAgentToolset(
       ...(getEvidenceArchive !== undefined ? { getEvidenceArchive } : {}),
       ...(shellEnv !== undefined ? { shellEnv } : {}),
       getBackgroundShellRegistry: () => backgroundShells,
-      getShellOutputFeed: () => shellOutputFeed,
+      getShellOutputFeeds: () => shellOutputFeed,
     }),
   });
 

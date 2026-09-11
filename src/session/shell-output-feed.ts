@@ -3,8 +3,8 @@
  *
  * Pure and synchronous: the shell-guard plugin appends output chunks, the TUI
  * polls `snapshot()` on its sticky tick and paints the tail onto the pending
- * `run_shell` row. Nothing here is persisted; the whole feed is a display
- * affordance for the wait.
+ * `run_shell` row that owns that call. Nothing here is persisted; the whole
+ * feed is a display affordance for the wait.
  */
 
 /** Tail of output a feed keeps before the oldest chunk is dropped. */
@@ -14,8 +14,15 @@ export interface ShellOutputFeed {
   append(chunk: string): void;
   /** The retained tail, oldest first. Empty string when nothing has landed. */
   snapshot(): string;
-  /** Drop everything (a new foreground shell is about to run). */
+  /** Drop everything retained in this feed. */
   clear(): void;
+}
+
+/** Per-call live tails so parallel run_shells cannot share or wipe a sibling. */
+export interface ShellOutputFeedMap {
+  forCall(callId: string): ShellOutputFeed;
+  get(callId: string): ShellOutputFeed | undefined;
+  drop(callId: string): void;
 }
 
 function byteLength(text: string): number {
@@ -57,6 +64,26 @@ export function createShellOutputFeed(
     clear(): void {
       chunks = [];
       totalBytes = 0;
+    },
+  };
+}
+
+export function createShellOutputFeedMap(): ShellOutputFeedMap {
+  const feeds = new Map<string, ShellOutputFeed>();
+  return {
+    forCall(callId: string): ShellOutputFeed {
+      let feed = feeds.get(callId);
+      if (feed === undefined) {
+        feed = createShellOutputFeed();
+        feeds.set(callId, feed);
+      }
+      return feed;
+    },
+    get(callId: string): ShellOutputFeed | undefined {
+      return feeds.get(callId);
+    },
+    drop(callId: string): void {
+      feeds.delete(callId);
     },
   };
 }

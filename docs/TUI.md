@@ -100,7 +100,7 @@ The past tense is a map keyed by raw tool name (`src/tui/tool-formatter.ts`:
 name.
 
 Because a lane's row identity moves to the newest call, a lane also carries
-the call ids it absorbed (`memberIds`, newest appended, last 32 kept). A
+the call ids it absorbed (`memberIds`, newest appended). A
 result resolves its lane when its call id is the row's own id **or** one of
 its members — this is what pairs a resumed transcript's parallel batch
 (call, call, result, result) correctly. An id matching nothing still answers

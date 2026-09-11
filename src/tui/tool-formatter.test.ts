@@ -559,6 +559,7 @@ describe("pastTenseToolLabel", () => {
     expect(pastTenseToolLabel("run_shell")).toBe("Ran");
     expect(pastTenseToolLabel("list_dir")).toBe("Listed");
     expect(pastTenseToolLabel("search_files")).toBe("Searched");
+    expect(pastTenseToolLabel("delete_file")).toBe("Deleted");
   });
 
   test("falls back to the display name for unknown tools", () => {

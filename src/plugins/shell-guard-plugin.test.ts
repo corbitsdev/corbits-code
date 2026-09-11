@@ -15,6 +15,7 @@ import { createShellOutputFeed } from "../session/shell-output-feed.js";
 import {
   BoundedShellOutput,
   MAX_SHELL_OUTPUT_BYTES,
+  SHELL_FEED_EMIT_MS,
   advertiseShellGuardTimeout,
   resolveShellTimeoutMs,
   reapLiveChildren,
@@ -37,6 +38,35 @@ describe("runGuardedShell", () => {
     );
     expect(exitCode).toBe(0);
     expect(output).toContain("hello");
+  });
+
+  test("a rate-limited second write reaches the feed before the process exits", async () => {
+    const feed = createShellOutputFeed();
+    let finished = false;
+    const running = runGuardedShell(
+      { command: "echo first; sleep 0.02; echo second; sleep 0.4" },
+      neverAbort(),
+      undefined,
+      undefined,
+      (text) => {
+        feed.append(text);
+      },
+    ).then((result) => {
+      finished = true;
+      return result;
+    });
+    const deadline = Date.now() + SHELL_FEED_EMIT_MS + 80;
+    while (
+      !feed.snapshot().includes("second") &&
+      Date.now() < deadline &&
+      !finished
+    ) {
+      await Bun.sleep(10);
+    }
+    expect(finished).toBe(false);
+    expect(feed.snapshot()).toContain("second");
+    const result = await running;
+    expect(result.exitCode).toBe(0);
   });
 
   test("omitted timeout does not arm a timer", async () => {
@@ -329,14 +359,19 @@ describe("background run_shell (shellGuardPlugin)", () => {
     let emits = 0;
     const handler = defined(
       shellGuardPlugin(process.cwd(), undefined, undefined, {
-        getShellOutputFeed: () => {
-          return {
-            append: (text) => {
+        getShellOutputFeeds: () => {
+          const wrapped = {
+            append: (text: string) => {
               emits += 1;
               feed.append(text);
             },
             snapshot: () => feed.snapshot(),
             clear: () => feed.clear(),
+          };
+          return {
+            forCall: () => wrapped,
+            get: () => wrapped,
+            drop: () => undefined,
           };
         },
       }).middleware,

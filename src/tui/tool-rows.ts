@@ -6,8 +6,8 @@
  * marker, subject and expandable body — instead of appending a second, visually
  * orphaned line beneath it.
  *
- * A run of consecutive calls that paint the same sentence collapses onto one
- * row too. The row keeps saying what the call was rather than totalling the
+ * A run of consecutive calls to the same raw tool collapses onto one row
+ * too. The row keeps saying what the call was rather than totalling the
  * answers: totals across separate calls (overlapping queries, partial failures)
  * are claims the payloads do not support, and a summary nobody can trust is
  * worse than a plainer one. The answers themselves sit behind the arrow.
@@ -230,14 +230,13 @@ export function canCoalesceCall(
   return toolName !== "spawn_agent";
 }
 
-/** Calls a lane remembers before the oldest member's id is dropped. */
-const MAX_LANE_MEMBERS = 32;
+/** Calls a lane remembers so a later result can still find this row. */
 
 function laneMembers(tail: StreamRow, next: StreamRow): string[] | undefined {
   const members = [
     ...(tail.memberIds ?? (tail.callId !== undefined ? [tail.callId] : [])),
     ...(next.callId !== undefined ? [next.callId] : []),
-  ].slice(-MAX_LANE_MEMBERS);
+  ];
   return members.length > 0 ? members : undefined;
 }
 

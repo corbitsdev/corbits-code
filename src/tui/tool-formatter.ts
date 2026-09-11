@@ -74,7 +74,7 @@ const TOOL_PAST_TENSE: Record<string, string> = {
   search_files: "Searched",
   web_search: "Searched",
   web_fetch: "Fetched",
-  manage_tasks: "Managed tasks",
+  delete_file: "Deleted",
   submit_output: "Submitted",
   ask_operator: "Asked operator",
   use_skill: "Loaded skill",

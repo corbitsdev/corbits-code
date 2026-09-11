@@ -18,8 +18,17 @@ import {
   type StreamRow,
 } from "./stream";
 import { pendingCallIndex, pushToolCall, pushToolResult } from "./tool-rows";
+import type { ShellOutputFeed } from "../session/shell-output-feed.js";
 
 const LAYOUT: RowLayout = { width: 72, multiAgent: false };
+
+function liveFeed(snapshot: () => string): ShellOutputFeed {
+  return {
+    append: () => undefined,
+    clear: () => undefined,
+    snapshot,
+  };
+}
 
 const painted = (row: StreamRow): string => paintStreamRow(row, LAYOUT).content;
 
@@ -233,7 +242,7 @@ describe("a run of identical calls", () => {
     expect(rows[0]?.outstanding).toBe(0);
   });
 
-  test("a lane's memberIds cap at 32 while the count keeps climbing", () => {
+  test("a lane keeps every member id while the count climbs", () => {
     const rows: StreamRow[] = [];
     for (let i = 1; i <= 33; i++) {
       pushToolCall(rows, {
@@ -244,10 +253,37 @@ describe("a run of identical calls", () => {
     }
     expect(rows.length).toBe(1);
     expect(rows[0]?.callCount).toBe(33);
-    expect(rows[0]?.memberIds?.length).toBe(32);
-    // Oldest ids drop first; the newest member is still resolvable.
-    expect(rows[0]?.memberIds?.[0]).toBe("c2");
+    expect(rows[0]?.memberIds?.length).toBe(33);
+    expect(rows[0]?.memberIds?.[0]).toBe("c1");
     expect(pendingCallIndex(rows, "grep", "c33")).toBe(0);
+    expect(pendingCallIndex(rows, "grep", "c1")).toBe(0);
+  });
+
+  test("hydrate of 33 consecutive same-tool calls still settles the oldest result", () => {
+    const rows: StreamRow[] = [];
+    for (let i = 1; i <= 33; i++) {
+      pushToolCall(rows, {
+        name: "grep",
+        arguments: JSON.stringify({ pattern: `p${i}` }),
+        callId: `c${i}`,
+      });
+    }
+    expect(rows.length).toBe(1);
+    expect(pendingCallIndex(rows, "grep", "c1")).toBe(0);
+    pushToolResult(rows, { name: "grep", content: "oldest", callId: "c1" });
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.pending).toBe(true);
+    expect(rows[0]?.outstanding).toBe(32);
+    for (let i = 2; i <= 33; i++) {
+      pushToolResult(rows, {
+        name: "grep",
+        content: `r${i}`,
+        callId: `c${i}`,
+      });
+    }
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.pending).toBeUndefined();
+    expect(rows[0]?.outstanding).toBe(0);
   });
 
   test("a different tool breaks the lane", () => {
@@ -559,19 +595,11 @@ describe("a live turn", () => {
           expect(shell.streamLog[0]?.previewLines).toBeUndefined();
 
           let text = "";
-          bridge.syncShellOutputs({
-            append: () => undefined,
-            clear: () => undefined,
-            snapshot: () => text,
-          });
+          bridge.syncShellOutputs(() => liveFeed(() => text));
           expect(shell.streamLog[0]?.previewLines).toBeUndefined();
 
           text = "compiling src/a.ts\ncompiling src/b.ts\ndone\n";
-          bridge.syncShellOutputs({
-            append: () => undefined,
-            clear: () => undefined,
-            snapshot: () => text,
-          });
+          bridge.syncShellOutputs(() => liveFeed(() => text));
           // Tail repaints are frame-coalesced: the update lands on flush.
           await h.renderOnce();
           const row = shell.streamLog[0];
@@ -604,6 +632,123 @@ describe("a live turn", () => {
             "line5",
             "⋯ +2 lines",
           ]);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("parallel run_shell live tails do not cross-attribute", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          bridge.play([
+            {
+              type: "inference.tool_call.end",
+              data: {
+                name: "run_shell",
+                callId: "sh1",
+                arguments: { command: "echo alpha" },
+              },
+            },
+            {
+              type: "inference.tool_call.end",
+              data: {
+                name: "grep",
+                callId: "g1",
+                arguments: { pattern: "x" },
+              },
+            },
+            {
+              type: "inference.tool_call.end",
+              data: {
+                name: "run_shell",
+                callId: "sh2",
+                arguments: { command: "echo beta" },
+              },
+            },
+          ]);
+          expect(shell.streamLog.length).toBe(3);
+          bridge.syncShellOutputs((callId) => {
+            if (callId === "sh1") return liveFeed(() => "alpha-only\n");
+            if (callId === "sh2") return liveFeed(() => "beta-only\n");
+            return undefined;
+          });
+          await h.renderOnce();
+          const first = shell.streamLog[0];
+          const second = shell.streamLog[2];
+          expect(first?.toolName).toBe("run_shell");
+          expect(second?.toolName).toBe("run_shell");
+          expect(first?.previewLines).toEqual(["alpha-only"]);
+          expect(second?.previewLines).toEqual(["beta-only"]);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("rollbackAttempt drops shellSnapshots for truncated run_shell calls", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort());
+        try {
+          bridge.play([
+            { type: "inference.start", data: {} },
+            {
+              type: "inference.tool_call.end",
+              data: {
+                name: "run_shell",
+                callId: "sh1",
+                arguments: { command: "sleep 5" },
+              },
+            },
+          ]);
+          bridge.syncShellOutputs((callId) =>
+            callId === "sh1" ? liveFeed(() => "live-tail\n") : undefined,
+          );
+          await h.renderOnce();
+          expect(shell.streamLog[0]?.previewLines).toEqual(["live-tail"]);
+
+          bridge.play([{ type: "inference.retry", data: { attempt: 1 } }]);
+          expect(
+            shell.streamLog.some(
+              (row) => row.toolName === "run_shell" && row.callId === "sh1",
+            ),
+          ).toBe(false);
+
+          bridge.play([
+            { type: "inference.start", data: {} },
+            {
+              type: "inference.tool_call.end",
+              data: {
+                name: "run_shell",
+                callId: "sh1",
+                arguments: { command: "sleep 5" },
+              },
+            },
+          ]);
+          bridge.syncShellOutputs((callId) =>
+            callId === "sh1" ? liveFeed(() => "live-tail\n") : undefined,
+          );
+          await h.renderOnce();
+          expect(shell.streamLog[0]?.previewLines).toEqual(["live-tail"]);
         } finally {
           bridge.dispose();
           shell.dispose();

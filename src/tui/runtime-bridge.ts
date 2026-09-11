@@ -243,11 +243,13 @@ export interface SessionBridge {
    */
   syncAgentProgress: (sessions: readonly TaskProgressSession[]) => void;
   /**
-   * Paint the live output tail of the in-flight `run_shell` call from the
-   * session's bounded feed, frame-coalesced. Undefined feed (or no wired
-   * feed at the host) leaves the pending row untouched.
+   * Paint the live output tail of each in-flight `run_shell` from that call's
+   * bounded feed, frame-coalesced. Undefined lookup (or no wired feed at the
+   * host) leaves pending rows untouched.
    */
-  syncShellOutputs: (feed: ShellOutputFeed | undefined) => void;
+  syncShellOutputs: (
+    feedFor: ((callId: string) => ShellOutputFeed | undefined) | undefined,
+  ) => void;
   /**
    * Stamp the live catalog provider id onto the stream map context so
    * `inference.error` transcript lines can identify known-xAI short 429s
@@ -902,8 +904,8 @@ export function flushStreamRowUpdates(shell: AppShell): void {
 }
 
 /**
- * Paint a tool call. A repeat of the call the previous row already painted
- * collapses onto that row instead of opening a new one.
+ * Paint a tool call. A consecutive call to the same raw toolName collapses
+ * onto the previous row instead of opening a new one.
  */
 function applyToolCall(
   shell: AppShell,
@@ -1061,24 +1063,26 @@ function omitStat(row: StreamRow): StreamRow {
 }
 
 /**
- * Paint the live tail of a running `run_shell` command onto its pending row,
- * frame-coalesced. `feed` is the session's bounded shell-output feed; when it
- * is not wired the row renders exactly as before. `shellSnapshots` dedupes so
- * an unchanged snapshot applies nothing.
+ * Paint the live tail of each running `run_shell` onto the pending row that
+ * owns that call, frame-coalesced. `feedFor` looks up the call's bounded
+ * feed; when it is not wired the row renders exactly as before.
+ * `shellSnapshots` dedupes so an unchanged snapshot applies nothing.
  */
 function syncShellOutputs(
   shell: AppShell,
   bag: BridgeBag,
-  feed: ShellOutputFeed | undefined,
+  feedFor: ((callId: string) => ShellOutputFeed | undefined) | undefined,
 ): void {
-  if (bag.disposed || feed === undefined || bag.toolRows.size === 0) return;
-  const preview = shellPreviewLines(feed.snapshot()) ?? [];
-  const key = preview.join("\n");
+  if (bag.disposed || feedFor === undefined || bag.toolRows.size === 0) return;
   for (const [callId, index] of bag.toolRows) {
-    if (bag.shellSnapshots.get(callId) === key) continue;
     const row = bag.pendingRowUpdates.get(index) ?? streamRowAt(shell, index);
     if (row === undefined || row.pending !== true) continue;
     if (row.toolName !== "run_shell") continue;
+    const feed = feedFor(callId);
+    if (feed === undefined) continue;
+    const preview = shellPreviewLines(feed.snapshot()) ?? [];
+    const key = preview.join("\n");
+    if (bag.shellSnapshots.get(callId) === key) continue;
     bag.shellSnapshots.set(callId, key);
     rowUpdates.scheduleRowUpdate(bag, index, { ...row, previewLines: preview });
   }
@@ -1145,6 +1149,7 @@ function rollbackAttempt(shell: AppShell, bag: BridgeBag): void {
       bag.toolCallStartedAt.delete(callId);
       bag.taskCallIds.delete(callId);
       bag.spawnProgressRows.delete(callId);
+      bag.shellSnapshots.delete(callId);
     }
   }
   if (bag.lastToolRow >= boundary) bag.lastToolRow = -1;
@@ -1917,8 +1922,8 @@ export function attachSessionBridge(
       bag.agentSessions = sessions;
       syncAgentProgress(shell, bag, sessions, now());
     },
-    syncShellOutputs: (feed) => {
-      syncShellOutputs(shell, bag, feed);
+    syncShellOutputs: (feedFor) => {
+      syncShellOutputs(shell, bag, feedFor);
     },
     setInferenceProviderId: (id, displayLabel) => {
       if (bag.disposed) return;

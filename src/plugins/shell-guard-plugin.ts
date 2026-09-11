@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import type { ToolPlugin } from "@intx/tools-posix";
-import type { ShellOutputFeed } from "../session/shell-output-feed.js";
+import type { ShellOutputFeedMap } from "../session/shell-output-feed.js";
 import {
   killProcessTree,
   type BackgroundShellRegistry,
@@ -321,20 +321,43 @@ export async function runGuardedShell(
 
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let emitTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Live-output cadence for the transcript's shell tail (when wired).
     const decoder = new StringDecoder("utf8");
     let pendingOutput = "";
     let lastEmitAt = 0;
+    const clearEmitTimer = (): void => {
+      if (emitTimer !== undefined) {
+        clearTimeout(emitTimer);
+        emitTimer = undefined;
+      }
+    };
     const emitPendingOutput = (final: boolean): void => {
-      if (onOutput === undefined || pendingOutput.length === 0) return;
-      if (!final && Date.now() - lastEmitAt < SHELL_FEED_EMIT_MS) return;
+      if (onOutput === undefined || pendingOutput.length === 0) {
+        if (final) clearEmitTimer();
+        return;
+      }
+      if (!final) {
+        const wait = SHELL_FEED_EMIT_MS - (Date.now() - lastEmitAt);
+        if (wait > 0) {
+          if (emitTimer === undefined) {
+            emitTimer = setTimeout(() => {
+              emitTimer = undefined;
+              emitPendingOutput(false);
+            }, wait);
+          }
+          return;
+        }
+      }
+      clearEmitTimer();
       lastEmitAt = Date.now();
       onOutput(pendingOutput);
       pendingOutput = "";
     };
     const clearTimer = () => {
       if (timer !== undefined) clearTimeout(timer);
+      clearEmitTimer();
     };
 
     const settle = (err?: Error) => {
@@ -436,9 +459,9 @@ export interface ShellGuardPluginOptions {
   // Live getter for the background-shell registry. Unwired (undefined result)
   // makes `background: true` fail closed: nothing spawns, no handle returns.
   getBackgroundShellRegistry?: () => BackgroundShellRegistry | undefined;
-  // Live getter for the bounded shell-output feed the transcript polls for a
-  // running command's live tail. Unwired, the tail is simply not painted.
-  getShellOutputFeed?: () => ShellOutputFeed | undefined;
+  // Live getter for the per-call bounded shell-output feeds the transcript
+  // polls for a running command's live tail. Unwired, the tail is simply not painted.
+  getShellOutputFeeds?: () => ShellOutputFeedMap | undefined;
 }
 
 function resolveAllowOutsideCwd(
@@ -569,8 +592,8 @@ export function shellGuardPlugin(
             };
           }
           const wrappedCommand = wrapCommandWithPwdProbe(command);
-          const feed = options.getShellOutputFeed?.();
-          if (feed !== undefined) feed.clear();
+          const feeds = options.getShellOutputFeeds?.();
+          const feed = feeds?.forCall(call.id);
           try {
             const { output, exitCode, timedOut, outputTruncated } =
               await runGuardedShell(
@@ -627,6 +650,8 @@ export function shellGuardPlugin(
               content: err instanceof Error ? err.message : String(err),
               isError: true,
             };
+          } finally {
+            feeds?.drop(call.id);
           }
         }).catch((err: unknown) => ({
           callId: call.id,

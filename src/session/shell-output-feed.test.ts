@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createShellOutputFeed,
+  createShellOutputFeedMap,
   SHELL_FEED_LIMIT_BYTES,
 } from "./shell-output-feed.js";
 
@@ -41,5 +42,25 @@ describe("shell output feed", () => {
     const feed = createShellOutputFeed();
     feed.append("");
     expect(feed.snapshot()).toBe("");
+  });
+});
+
+describe("shell output feed map", () => {
+  test("isolates tails per call and keeps the 8 KiB bound on each", () => {
+    const feeds = createShellOutputFeedMap();
+    const a = feeds.forCall("a");
+    const b = feeds.forCall("b");
+    a.append("alpha\n");
+    b.append("beta\n");
+    expect(feeds.get("a")?.snapshot()).toBe("alpha\n");
+    expect(feeds.get("b")?.snapshot()).toBe("beta\n");
+    a.append("x".repeat(SHELL_FEED_LIMIT_BYTES + 1));
+    expect(new TextEncoder().encode(a.snapshot()).length).toBeLessThanOrEqual(
+      SHELL_FEED_LIMIT_BYTES,
+    );
+    expect(feeds.get("b")?.snapshot()).toBe("beta\n");
+    feeds.drop("a");
+    expect(feeds.get("a")).toBeUndefined();
+    expect(feeds.get("b")?.snapshot()).toBe("beta\n");
   });
 });
