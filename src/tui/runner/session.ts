@@ -74,6 +74,8 @@ import {
   createModelSummarizer,
   type SummaryContext,
 } from "../../session/summarizer.js";
+import { ensureFreshInferenceSource } from "../../subagent/refresh-inference-source.js";
+import { setAgentSourceUnlessClosed } from "../agent-source-sync.js";
 import { createSessionCostAccumulator } from "../../cost/session-cost.js";
 import { createSessionOperationQueue } from "../session-operation-queue.js";
 import { createDeliveryGeneration } from "../queued-delivery.js";
@@ -510,6 +512,22 @@ export async function assembleTUISession(
     getSource: () => state.liveSource,
     deps: start.inferenceDeps,
     getArchive: () => evidenceArchiveHolder.current,
+    timeoutMs: config.summarizerTimeoutMs,
+    telemetry: liveTelemetry,
+    // A 401 here usually means the shared OAuth file rotated under another
+    // process; re-read it so the retry runs on the fresh token, and keep the
+    // live source in step so the summarizer picks it up.
+    refreshAuth: async () => {
+      const fresh = await ensureFreshInferenceSource(
+        state.liveSource,
+        state.config.providers,
+      );
+      if (fresh.apiKey === state.liveSource.apiKey) return;
+      state.liveSource = fresh;
+      if (state.currentAgent !== undefined)
+        setAgentSourceUnlessClosed(state.currentAgent, fresh);
+    },
+    onFailure: (text) => state.systemNotice?.(text),
   });
   const summaryContext = (): SummaryContext | undefined => {
     const status = workflowHost.status();

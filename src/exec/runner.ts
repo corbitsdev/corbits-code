@@ -113,6 +113,7 @@ import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { setAgentSourceUnlessClosed } from "../tui/agent-source-sync.js";
+import { ensureFreshInferenceSource } from "../subagent/refresh-inference-source.js";
 import { getToolApprovalBudget } from "../tui/tool-execution-watchdog.js";
 import { WorkflowHost } from "../workflows/host.js";
 
@@ -678,6 +679,20 @@ export async function runExec(config: Config): Promise<ExecResult> {
       getSource: () => liveSource,
       deps: inferenceDeps,
       getArchive: () => evidenceArchiveHolder.current,
+      timeoutMs: config.summarizerTimeoutMs,
+      telemetry: liveTelemetry,
+      // A 401 here usually means the shared OAuth file rotated under another
+      // process; re-read it so the retry runs on the fresh token.
+      refreshAuth: async () => {
+        const fresh = await ensureFreshInferenceSource(
+          liveSource,
+          config.providers,
+        );
+        if (fresh.apiKey === liveSource.apiKey) return;
+        liveSource = fresh;
+        if (currentAgent !== null)
+          setAgentSourceUnlessClosed(currentAgent, fresh);
+      },
     });
 
     const { activated: activatedToolNames, computeAdvertised } =

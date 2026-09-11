@@ -486,6 +486,9 @@ export interface Config {
   inactivityTimeoutMs?: number;
   // Per-call total wall-clock cap in ms (default 600_000 in the harness).
   totalTimeoutMs?: number;
+  // Per-call wall-clock cap for the compaction summary call in ms
+  // (default 90_000 in the summarizer).
+  summarizerTimeoutMs?: number;
   reasoningEffort?: ReasoningEffort;
   mcpServers?: ResolvedMCPServerConfig[];
   /** Local project MCP lists replace global lists and require project trust. */
@@ -1004,6 +1007,9 @@ export async function loadConfig(
       : {}),
     ...(profile.totalTimeoutMs !== undefined
       ? { totalTimeoutMs: profile.totalTimeoutMs }
+      : {}),
+    ...(profile.summarizerTimeoutMs !== undefined
+      ? { summarizerTimeoutMs: profile.summarizerTimeoutMs }
       : {}),
     ...(local?.reasoningEffort !== undefined
       ? { reasoningEffort: local.reasoningEffort }

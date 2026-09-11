@@ -334,7 +334,7 @@ prerequisites; Ollama installation remains outside this flow.
 
 ### Profiles (`src/config/profiles.ts`)
 
-Profiles supply per-project or named-profile overrides for `model` and `systemPromptExtensions` (the only allowed keys; any other key is rejected on load).
+Profiles supply per-project or named-profile overrides for `model`, `systemPromptExtensions`, `inactivityTimeoutMs`, `totalTimeoutMs`, and `summarizerTimeoutMs` (any other key is rejected on load). `summarizerTimeoutMs` caps the compaction summary call per inference round-trip and defaults to 90 s — well under the director's `totalTimeoutMs`, because compaction runs inline on the reactor and a stalled summary call freezes the session.
 
 - Project profile: `.corbits/profile.json` in the repo root — committed, credential-free.
 - Named profiles: `~/.corbits/profiles/<name>.json` — user-level overrides, inherited via the `profile` key or the `--profile` flag. A missing named file fails closed. A missing project `profile.json` overlay is optional.
