@@ -47,6 +47,20 @@ const TOOL_FAILURE_RECOVERY_NUDGE =
 const INCOMPLETE_REPORT_NUDGE =
   "Write your final report now using ## Summary, ## Findings, ## Blockers, and ## Paths. Do not narrate status. No more tools unless one lookup is required to cite a line.";
 
+const VERBATIM_TOOL_CALL_NUDGE =
+  "You wrote tool-call markup as assistant text. Invoke the real tool call instead of printing its markup, or write your final report if no tool is needed.";
+
+function hasVerbatimToolCallMarkup(
+  content: readonly { type: string; text?: string }[],
+): boolean {
+  return content.some(
+    (block) =>
+      block.type === "text" &&
+      typeof block.text === "string" &&
+      /<tool_call>\s*<(?:function|tool)=[A-Za-z_][\w.-]*>/.test(block.text),
+  );
+}
+
 function ephemeralNudgeTurn(text: string): ConversationTurn {
   return {
     role: "user",
@@ -128,6 +142,10 @@ export class SubAgentDirector extends DefaultDirector {
   // narration without the envelope salvages as incomplete-report
   // (MAX_TOOLLESS_NARRATION_CYCLES = 2).
   private toolLessNarrationCycles = 0;
+  // One corrective nudge per no-real-tool epoch when the assistant prints
+  // explicit tool-call markup as text instead of issuing a real tool_call.
+  // Cleared only by genuine tool activity or a non-empty parent follow-up.
+  private verbatimToolCallNudgeFired = false;
 
   // Once this leaf has replied with a terminal report (complete envelope or
   // salvage), empty continuations from idle-compact / stall must not fall
@@ -227,6 +245,7 @@ export class SubAgentDirector extends DefaultDirector {
     // A real parent follow-up re-opens the brief; empty continuations do not.
     if (isNonEmptyParentMessage(event)) {
       this.reportReplied = false;
+      this.verbatimToolCallNudgeFired = false;
     }
 
     const afterCompact = this.compaction.resumeAfterCompact(event);
@@ -288,6 +307,7 @@ export class SubAgentDirector extends DefaultDirector {
       this.lastAssistantText = lastText(content);
       const hasToolCalls = content.some((block) => block.type === "tool_call");
       if (hasToolCalls) {
+        this.verbatimToolCallNudgeFired = false;
         this.thrashState = nextThrashState(this.thrashState, content);
       }
 
@@ -313,6 +333,27 @@ export class SubAgentDirector extends DefaultDirector {
         );
         if (compacted !== null) return compacted;
         return terminal;
+      }
+
+      // Below the stop policy so a finished report that merely quotes
+      // tool-call markup still completes; a markup turn with no envelope
+      // gets the corrective nudge instead of the generic wrap-up one.
+      if (
+        !hasToolCalls &&
+        !this.verbatimToolCallNudgeFired &&
+        hasVerbatimToolCallMarkup(content)
+      ) {
+        this.verbatimToolCallNudgeFired = true;
+        this.interventions({
+          id: "verbatim-tool-call",
+          class: "nudge",
+          state: this.interventionState(),
+          detail: "assistant emitted explicit tool-call markup as text",
+        });
+        return [
+          capabilities.checkpoint("subagent-verbatim-tool-call-nudge"),
+          inferWithSubAgentNudge(capabilities, VERBATIM_TOOL_CALL_NUDGE),
+        ];
       }
       if (stop === "incomplete-report") {
         // Tool-less turn after tools, no report envelope. Must not fall through
