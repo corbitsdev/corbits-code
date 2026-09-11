@@ -191,6 +191,18 @@ describe("findImagePathMentions", () => {
       findImagePathMentions(`He said "look at /tmp/shot.png" today`, "/repo"),
     ).toEqual([{ raw: "/tmp/shot.png", path: "/tmp/shot.png" }]);
   });
+
+  test("does not mint a root path from a relative filename inside prose quotes", () => {
+    expect(
+      findImagePathMentions('She wrote "notes/plan.png" in the doc', "/repo"),
+    ).toEqual([]);
+    expect(
+      findImagePathMentions('"see https://example.com/x.png"', "/repo"),
+    ).toEqual([]);
+    expect(findImagePathMentions(`'a'/b.png`, "/repo")).toEqual([
+      { raw: "/b.png", path: "/b.png" },
+    ]);
+  });
 });
 
 describe("image attachment helpers", () => {
