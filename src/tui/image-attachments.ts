@@ -81,7 +81,7 @@ export function findImagePathMentions(
     // Keep a lone trailing \r on CRLF out of the scan window.
     const contentEnd =
       lineEnd > lineStart && text[lineEnd - 1] === "\r" ? lineEnd - 1 : lineEnd;
-    scanImagePathLine(text, lineStart, contentEnd, cwd, push);
+    scanImagePathLine(text, lineStart, contentEnd, cwd, push, false);
     if (lineEnd === text.length) break;
     lineStart = lineEnd + 1;
   }
@@ -98,6 +98,7 @@ function scanImagePathLine(
   end: number,
   cwd: string,
   push: (raw: string, path: string | undefined) => void,
+  inQuotedProse: boolean,
 ): void {
   let i = start;
   while (i < end) {
@@ -120,7 +121,7 @@ function scanImagePathLine(
         }
         // Balanced quotes around prose are not path wrappers. Search inside
         // so an absolute path can still be found, then resume after the closer.
-        scanImagePathLine(text, i + 1, close, cwd, push);
+        scanImagePathLine(text, i + 1, close, cwd, push, true);
         i = close + 1;
         continue;
       }
@@ -129,7 +130,12 @@ function scanImagePathLine(
       continue;
     }
 
-    if (canStartUnquotedPath(text, i, end)) {
+    // Inside prose a candidate must open a new token, or the separator in
+    // `notes/plan.png` mints a root-level `/plan.png` mention.
+    if (
+      canStartUnquotedPath(text, i, end) &&
+      (!inQuotedProse || i === start || !isPathTokenContinuation(text[i - 1]))
+    ) {
       const match = UNQUOTED_AT.exec(text.slice(i, end));
       if (match?.[0] !== undefined) {
         const raw = trimTrailingPunctuation(match[0]);
@@ -149,6 +155,28 @@ function isWordChar(ch: string | undefined): boolean {
     (ch >= "A" && ch <= "Z") ||
     (ch >= "a" && ch <= "z")
   );
+}
+
+// True when `ch` continues the current token (word, `/\:.~`, or quote-glue)
+// so a mid-token `/` inside prose must not open a root path.
+function isPathTokenContinuation(ch: string | undefined): boolean {
+  if (ch === undefined) return false;
+  if (isWordChar(ch)) return true;
+  switch (ch) {
+    case "/":
+    case "\\":
+    case ".":
+    case "~":
+    case ":":
+    case "_":
+    case "-":
+    case "'":
+    case '"':
+    case "`":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function looksLikeQuotedImagePath(inner: string): boolean {
