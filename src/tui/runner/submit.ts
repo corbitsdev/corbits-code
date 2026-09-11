@@ -313,6 +313,7 @@ export function createSubmitPath(
     text: string,
     pending: readonly PendingImageAttachment[],
   ): Promise<void> => {
+    const stillCurrent = services.deliveryGeneration.capture();
     state.sendAborted = false;
     if (text.trim().length > 0) {
       void appendSentMessage(state.config.cwd, state.sessionId, text).catch(
@@ -329,6 +330,7 @@ export function createSubmitPath(
       imageAttachmentFromPath,
       pending,
     );
+    if (!stillCurrent()) return;
     await sendWithAttemptIdentity(
       userInboundMessage(ingested.text, ingested.attachments),
     );
