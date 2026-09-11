@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent } from "@intx/agent";
 import type {
+  AuditStore,
   Compactor,
   ContextStore,
   ToolDefinition,
@@ -109,6 +110,14 @@ function stubCompactor(name: string): Compactor {
   };
 }
 
+function stubAuditStore(): AuditStore {
+  return {
+    commitAudit: async () => undefined,
+    commitErrors: async () => undefined,
+    loadAudit: async () => [],
+  };
+}
+
 function stubInferenceDeps(): ChatAgentWiring["inferenceDeps"] {
   return {
     fetch: globalThis.fetch.bind(globalThis),
@@ -188,9 +197,9 @@ describe("assembleChatAgent", () => {
       import.meta.resolve("./optimized-context-store.js"),
       (real: typeof import("./optimized-context-store.js")) => ({
         ...real,
-        createOptimizedContextStore: async (dir: string) => {
+        createSessionStores: async (dir: string) => {
           storeDirs.push(dir);
-          return fakeStorage;
+          return { storage: fakeStorage, audit: stubAuditStore() };
         },
       }),
       async () => {
@@ -267,7 +276,10 @@ describe("assembleChatAgent", () => {
       import.meta.resolve("./optimized-context-store.js"),
       (real: typeof import("./optimized-context-store.js")) => ({
         ...real,
-        createOptimizedContextStore: async () => fakeStorage,
+        createSessionStores: async () => ({
+          storage: fakeStorage,
+          audit: stubAuditStore(),
+        }),
       }),
       async () => {
         await withMockedModuleDuring(
