@@ -7,14 +7,14 @@ import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 
 // Tools whose full schema is always advertised to the model. Everything else is
-// registered and dispatchable but discovered on demand via tool_search, keeping
-// the per-turn context small. Shared by the system prompt and the advertised-set
-// gate so the two never drift.
+// registered but discovered on demand via tool_search, which promotes matches
+// onto the advertised set and the call gate. Shared by the system prompt and
+// the advertised-set gate so the two never drift.
 //
 // `present` is deliberately absent: most sessions never render a view, and at
-// 2,793 chars it is the second-largest schema on the wire. It stays fully
-// dispatchable — the model finds it via tool_search when a session actually
-// needs it.
+// 2,793 chars it is the second-largest schema on the wire. It stays off the
+// advertised prefix — the model finds it via tool_search when a session
+// actually needs it.
 //
 // Product mutation tools (write_file / edit_file / delete_file) sit in CORE so
 // the primary Skywalker session can DIY tiny/bounded edits without a
@@ -197,7 +197,7 @@ export function createActivatedToolTracker(): ActivatedToolTracker {
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are dispatchable but not advertised in the tools list. Core tools (read_file, run_shell, web_fetch, web_search, spawn_agent, wait_agents, …) are already on the wire — do not tool_search for them. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get matching tools' names, descriptions, and input schemas. The returned tools are already callable — invoke them directly, no separate load step.",
+    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are not advertised until this search promotes them onto the wire. Core tools (read_file, run_shell, web_fetch, web_search, spawn_agent, wait_agents, …) are already on the wire — do not tool_search for them. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get matching tools' names, descriptions, and input schemas. Matched tools are promoted and callable on return — invoke them directly, no separate load step.",
   inputSchema: {
     type: "object",
     properties: {
@@ -267,9 +267,9 @@ export function createToolIndex(
 export interface ToolSearchDeps {
   search: (query: string) => string[];
   lookup: (name: string) => ToolDefinition | undefined;
-  // Make the matched tools' names part of the advertised wire set on the next
-  // inference. Every registered tool is already dispatchable via `run`, so this
-  // only affects what the model can see without an intervening tool_search.
+  // Promote matches onto the advertised set and the call gate so the model can
+  // invoke them this turn. The next inference also declares them on the wire
+  // for strict providers.
   promote: (names: string[]) => void;
 }
 

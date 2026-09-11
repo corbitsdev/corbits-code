@@ -44,6 +44,7 @@ import type {
   ContextStore,
   InferenceSource,
   InboundMessage,
+  ToolDefinition,
 } from "@intx/types/runtime";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { loadAgentProfiles } from "../agent/profiles.js";
@@ -334,6 +335,33 @@ export interface ExecResult {
   /** Provider/model the config resolved for this run. */
   provider?: string;
   model?: string;
+}
+
+export function createExecToolCallGate(
+  isAdvertised: (name: string) => boolean,
+  options: { isCodex: boolean },
+): (name: string) => boolean {
+  const unadvertisedCallable = new Set<string>([
+    submitOutputDefinition.name,
+    ...(options.isCodex
+      ? [shellDefinition.name, updatePlanDefinition.name]
+      : []),
+  ]);
+  return (name) => unadvertisedCallable.has(name) || isAdvertised(name);
+}
+
+export function createExecToolPromoter(args: {
+  activate: (names: readonly string[]) => boolean;
+  currentDefinitions: () => readonly ToolDefinition[];
+  computeAdvertised: (all: readonly ToolDefinition[]) => ToolDefinition[];
+  updateDirectorTools: (defs: ToolDefinition[]) => void;
+  persist?: () => void;
+}): (names: string[]) => void {
+  return (names) => {
+    if (!args.activate(names)) return;
+    args.updateDirectorTools(args.computeAdvertised(args.currentDefinitions()));
+    args.persist?.();
+  };
 }
 
 /**
@@ -713,14 +741,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
     activatedToolsRef.current = activatedToolNames;
     // Same wire contract as the TUI: a registered tool the model was never
     // shown errors toward tool_search instead of dispatching blind.
-    const unadvertisedCallable = new Set<string>([
-      submitOutputDefinition.name,
-      ...(isCodexProviderName(config.providerName)
-        ? [shellDefinition.name, updatePlanDefinition.name]
-        : []),
-    ]);
     agentToolset.dynamicRunner.setCallGate(
-      (name) => unadvertisedCallable.has(name) || isAdvertised(name),
+      createExecToolCallGate(isAdvertised, {
+        isCodex: isCodexProviderName(config.providerName),
+      }),
     );
 
     const { directorHolder, buildAgent } = assembleChatAgent({
@@ -773,6 +797,23 @@ export async function runExec(config: Config): Promise<ExecResult> {
       },
       evidenceArchiveHolder,
     });
+
+    // tool_search starts as a no-op promoter; without this, the call gate
+    // refuses MCP/present/plugin names the result just told the model to
+    // invoke.
+    agentToolset.setToolPromoter(
+      createExecToolPromoter({
+        activate: (names) => activatedToolNames.activate(names),
+        currentDefinitions: () =>
+          agentToolset.dynamicRunner.currentDefinitions(),
+        computeAdvertised,
+        updateDirectorTools: (defs) =>
+          directorHolder.instance?.updateToolDefinitions(defs),
+        persist: () => {
+          void persist("running");
+        },
+      }),
+    );
 
     const workflowHost = new WorkflowHost({
       cwd: config.cwd,

@@ -3,9 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
+import type { AgentTool } from "@intx/agent";
 import type { InferenceSource } from "@intx/types/runtime";
 import type { Config } from "../../../src/config/index.js";
 import {
+  createExecToolCallGate,
+  createExecToolPromoter,
   disposeExecRuntime,
   execUserFailureMessage,
   formatCaughtError,
@@ -13,6 +16,17 @@ import {
   resolveExecDirectorOverlay,
   runExec,
 } from "../../../src/exec/runner.js";
+import { submitOutputDefinition } from "../../../src/agent/director.js";
+import {
+  shellDefinition,
+  updatePlanDefinition,
+} from "../../../src/agent/codex-tool-proxies.js";
+import {
+  createToolIndex,
+  createToolSearchTool,
+} from "../../../src/agent/tool-search.js";
+import { createAdvertisedToolset } from "../../../src/session/assemble-runtime.js";
+import { createDynamicToolRunner } from "../../../src/tui/dynamic-tool-runner.js";
 import {
   BUILD_TOOLS,
   SKYWALKER_TOOLS,
@@ -270,6 +284,7 @@ describe("runExec", () => {
                     ({
                       dispose: () => Promise.resolve(),
                       dynamicRunner: { setCallGate: () => undefined },
+                      setToolPromoter: () => undefined,
                     }) as unknown as AgentToolset,
                 }),
                 async () => {
@@ -654,5 +669,140 @@ describe("resolveExecDirectorOverlay", () => {
     expect(
       resolveExecDirectorOverlay("skywalker").systemPrompt,
     ).toBeUndefined();
+  });
+});
+
+describe("exec tool call gate and promoter", () => {
+  const stringTool = (
+    name: string,
+    reply: string,
+    description: string,
+  ): AgentTool => ({
+    kind: "string",
+    definition: {
+      name,
+      description,
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    handler: async () => reply,
+  });
+
+  function wireExecDiscovery(isCodex: boolean) {
+    const runner = createDynamicToolRunner([
+      stringTool("read_file", "core", "read a file"),
+      stringTool(
+        "mcp__linear__save_issue",
+        "saved",
+        "Save an issue in the Linear tracker",
+      ),
+      stringTool(
+        "present",
+        "view",
+        "search and render layout primitives for pages",
+      ),
+      stringTool("plugin__notes__save", "noted", "Save granola notes"),
+      stringTool(submitOutputDefinition.name, "submitted", "submit output"),
+      stringTool(shellDefinition.name, "sh", "run a shell command"),
+      stringTool(updatePlanDefinition.name, "planned", "update the plan"),
+    ]);
+    const { activated, isAdvertised, computeAdvertised } =
+      createAdvertisedToolset({
+        sessionMode: "orchestrator",
+        toolAvailability: { languageServerAvailable: false },
+        getProvider: () => ({ providerName: "test", model: "test" }),
+      });
+    runner.setCallGate(createExecToolCallGate(isAdvertised, { isCodex }));
+    let persistCount = 0;
+    const directorNames: string[][] = [];
+    const promote = createExecToolPromoter({
+      activate: (names) => activated.activate(names),
+      currentDefinitions: () => runner.currentDefinitions(),
+      computeAdvertised,
+      updateDirectorTools: (defs) => {
+        directorNames.push(defs.map((d) => d.name));
+      },
+      persist: () => {
+        persistCount += 1;
+      },
+    });
+    const search = createToolSearchTool({
+      search: (query) =>
+        createToolIndex(() => runner.currentDefinitions()).search(query),
+      lookup: (name) =>
+        runner.currentDefinitions().find((d) => d.name === name),
+      promote,
+    });
+    return { runner, persistCount: () => persistCount, directorNames, search };
+  }
+
+  async function dispatch(
+    runner: ReturnType<typeof createDynamicToolRunner>,
+    name: string,
+  ) {
+    return runner.run(
+      { id: name, name, arguments: {} },
+      new AbortController().signal,
+    );
+  }
+
+  test("tool_search then MCP dispatch with the gate on", async () => {
+    const { runner, search, persistCount, directorNames } =
+      wireExecDiscovery(false);
+    const blocked = await dispatch(runner, "mcp__linear__save_issue");
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content).toContain("tool_search");
+
+    if (search.kind !== "string") throw new Error("expected string tool");
+    await search.handler({ query: "linear" }, new AbortController().signal);
+    expect(persistCount()).toBe(1);
+    expect(directorNames.at(-1)).toContain("mcp__linear__save_issue");
+
+    const allowed = await dispatch(runner, "mcp__linear__save_issue");
+    expect(allowed.content).toBe("saved");
+    expect(allowed.isError).toBeUndefined();
+  });
+
+  test("present and plugin names pass the gate after tool_search promote", async () => {
+    const { runner, search } = wireExecDiscovery(false);
+    expect((await dispatch(runner, "present")).isError).toBe(true);
+    expect((await dispatch(runner, "plugin__notes__save")).isError).toBe(true);
+
+    if (search.kind !== "string") throw new Error("expected string tool");
+    await search.handler(
+      { query: "render layout" },
+      new AbortController().signal,
+    );
+    await search.handler(
+      { query: "granola notes" },
+      new AbortController().signal,
+    );
+
+    expect((await dispatch(runner, "present")).content).toBe("view");
+    expect((await dispatch(runner, "plugin__notes__save")).content).toBe(
+      "noted",
+    );
+  });
+
+  test("gate admits submit_output without activation", async () => {
+    const { runner } = wireExecDiscovery(false);
+    const result = await dispatch(runner, submitOutputDefinition.name);
+    expect(result.content).toBe("submitted");
+    expect(result.isError).toBeUndefined();
+  });
+
+  test("Codex gate admits shell and update_plan without activation", async () => {
+    const { runner } = wireExecDiscovery(true);
+    const shell = await dispatch(runner, shellDefinition.name);
+    expect(shell.content).toBe("sh");
+    expect(shell.isError).toBeUndefined();
+    const plan = await dispatch(runner, updatePlanDefinition.name);
+    expect(plan.content).toBe("planned");
+    expect(plan.isError).toBeUndefined();
+  });
+
+  test("non-Codex gate refuses shell until it is advertised", async () => {
+    const { runner } = wireExecDiscovery(false);
+    const blocked = await dispatch(runner, shellDefinition.name);
+    expect(blocked.isError).toBe(true);
   });
 });

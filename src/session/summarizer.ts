@@ -30,10 +30,9 @@ export interface SummaryContext {
     stepIndex?: number;
     total?: number;
   };
-  // Tool names activated via tool_search (or pinned) and still on the wire.
-  // Carried into the folded handoff so the summary and the post-compact
-  // advertised set agree — the transcript's "these tools are available"
-  // record survives the fold.
+  // Tool names activated via tool_search and still on the wire. Pinned names
+  // live in the advertised prefix, not this list — callers pass
+  // activatedToolNames.list() only.
   activatedTools?: string[];
 }
 
