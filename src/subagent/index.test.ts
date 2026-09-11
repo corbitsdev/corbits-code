@@ -311,6 +311,83 @@ describe("sub-agent stop helpers", () => {
     "src/subagent/report.ts",
   ].join("\n");
 
+  const STEPS_IN_AC_BODY_PLAN_ENVELOPE = [
+    "## Summary",
+    "Plan for the salvage gate.",
+    "",
+    "## Findings",
+    "### Files / paths",
+    "src/subagent/report.ts",
+    "",
+    "### Acceptance criteria",
+    "The worker completes the salvage steps.",
+    "",
+    "### Non-goals",
+    "Do not finish CL-6946.",
+    "",
+    "### Risks",
+    "A headings-only complete would auto-dispatch builder on a stub.",
+    "",
+    "### Ordered steps",
+    "Add hasPlanFindings, then wire evaluateSubAgentStop.",
+    "",
+    "## Blockers",
+    "None.",
+    "",
+    "## Paths",
+    "src/subagent/report.ts",
+  ].join("\n");
+
+  const RISKS_IN_AC_BODY_PLAN_ENVELOPE = [
+    "## Summary",
+    "Plan for the salvage gate.",
+    "",
+    "## Findings",
+    "### Files / paths",
+    "src/subagent/report.ts",
+    "",
+    "### Acceptance criteria",
+    "The worker mitigates residual risks.",
+    "",
+    "### Non-goals",
+    "Do not finish CL-6946.",
+    "",
+    "### Risks",
+    "A headings-only complete would auto-dispatch builder on a stub.",
+    "",
+    "### Ordered steps",
+    "Add hasPlanFindings, then wire evaluateSubAgentStop.",
+    "",
+    "## Blockers",
+    "None.",
+    "",
+    "## Paths",
+    "src/subagent/report.ts",
+  ].join("\n");
+
+  const NUMBERED_COUNSEL_PLAN_ENVELOPE = [
+    "## Summary",
+    "Plan for the salvage gate.",
+    "",
+    "## Findings",
+    "1. Files / paths to touch",
+    "   src/subagent/report.ts",
+    "2. Acceptance criteria",
+    "   The worker completes the salvage steps.",
+    "3. Non-goals",
+    "   Do not finish CL-6946.",
+    "4. Risks and open questions",
+    "   A headings-only complete would auto-dispatch builder on a stub.",
+    "5. Ordered steps",
+    "   Add hasPlanFindings, then wire evaluateSubAgentStop.",
+    "",
+    "## Blockers",
+    "None.",
+    "",
+    "## Paths",
+    "src/subagent/report.ts",
+  ].join("\n");
+
   test("evaluateSubAgentStop returns incomplete-report for Summary-only tool-less narration after tools", () => {
     expect(
       evaluateSubAgentStop({
@@ -443,6 +520,18 @@ describe("sub-agent stop helpers", () => {
     expect(hasPlanFindings(PASS_PLAN_ENVELOPE)).toBe(true);
   });
 
+  test("hasPlanFindings stays true when an earlier section body uses the word steps", () => {
+    expect(hasPlanFindings(STEPS_IN_AC_BODY_PLAN_ENVELOPE)).toBe(true);
+  });
+
+  test("hasPlanFindings stays true when an earlier section body uses the word risks", () => {
+    expect(hasPlanFindings(RISKS_IN_AC_BODY_PLAN_ENVELOPE)).toBe(true);
+  });
+
+  test("hasPlanFindings is true for counsel numbered labels with following-line substance", () => {
+    expect(hasPlanFindings(NUMBERED_COUNSEL_PLAN_ENVELOPE)).toBe(true);
+  });
+
   test("hasReportEnvelope stays heading-presence only on headings-only text", () => {
     expect(hasReportEnvelope(HEADINGS_ONLY_ENVELOPE)).toBe(true);
     expect(hasPlanFindings(HEADINGS_ONLY_ENVELOPE)).toBe(false);
@@ -496,6 +585,36 @@ describe("sub-agent stop helpers", () => {
         hasToolCalls: false,
         requirePlanSubstance: true,
         lastAssistantText: PASS_PLAN_ENVELOPE,
+      }),
+    ).toBe("complete");
+  });
+
+  test("evaluateSubAgentStop completes a five-section plan with steps in an earlier body", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        requirePlanSubstance: true,
+        lastAssistantText: STEPS_IN_AC_BODY_PLAN_ENVELOPE,
+      }),
+    ).toBe("complete");
+  });
+
+  test("evaluateSubAgentStop completes a five-section plan with risks in an earlier body", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        requirePlanSubstance: true,
+        lastAssistantText: RISKS_IN_AC_BODY_PLAN_ENVELOPE,
+      }),
+    ).toBe("complete");
+  });
+
+  test("evaluateSubAgentStop completes counsel numbered labels with following-line substance", () => {
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        requirePlanSubstance: true,
+        lastAssistantText: NUMBERED_COUNSEL_PLAN_ENVELOPE,
       }),
     ).toBe("complete");
   });

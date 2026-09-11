@@ -155,13 +155,9 @@ function classifyPlanSectionLine(
   if (stripped.length === 0) return null;
   for (const section of PLAN_FINDING_SECTIONS) {
     const match = section.match.exec(stripped);
-    if (match === null || match.index === undefined) continue;
-    // Only treat a line as a section start when the label is the line's heading,
-    // not a later mention in an outline sentence.
-    if (match.index > 0 && /[,;]/.test(stripped.slice(0, match.index))) {
-      continue;
-    }
-    const after = stripped.slice(match.index + match[0].length);
+    // Labels start the heading or numbered item, not a later word in body prose.
+    if (match === null || match.index !== 0) continue;
+    const after = stripped.slice(match[0].length);
     const separated = after.match(/^\s*[:.\-–—]\s+(\S.*)$/);
     return { id: section.id, rest: separated?.[1] ?? "" };
   }
