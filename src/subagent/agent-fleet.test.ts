@@ -925,6 +925,44 @@ describe("spawn_agent same-cwd concurrency", () => {
     defined(gates[2]).resolve({ report: "c done" });
     defined(gates[3]).resolve({ report: "d done" });
   });
+
+  test("a queued mutating peer does not log concurrent-lane-overlap", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-queued-"));
+    const gates = [
+      deferred<RunSubAgentResult>(),
+      deferred<RunSubAgentResult>(),
+    ];
+    let callIndex = 0;
+    const deps = makeDeps(async () => defined(gates[callIndex++]).promise, {
+      cwd: "/repo",
+    });
+    deps.getWorkdirBase = () => dir;
+    deps.admission = createAdmissionQueue({ capacity: 1 });
+    const spawn = createSpawnAgentTool(deps);
+
+    const first = await callTool(spawn, {
+      description: "holder",
+      prompt: "implement holder",
+      intent: "implement",
+      success_criteria: ["holder ships"],
+    });
+    const queued = await callTool(spawn, {
+      description: "queued writer",
+      prompt: "implement queued",
+      intent: "implement",
+      success_criteria: ["queued ships"],
+    });
+    expect(first.status).toBe("running");
+    expect(queued.status).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect(
+      readFile(join(dir, INTERVENTION_FILE), "utf8"),
+    ).rejects.toThrow();
+
+    defined(gates[0]).resolve({ report: "holder done" });
+    defined(gates[1]).resolve({ report: "queued done" });
+  });
 });
 
 describe("wait mailbox session tombstone and pin", () => {
