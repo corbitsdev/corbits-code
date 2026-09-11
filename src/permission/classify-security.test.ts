@@ -962,6 +962,32 @@ describe("CL-6702 — bash clobber redirects match file-mutation", () => {
   });
 });
 
+describe("bash >& file redirects match file-mutation", () => {
+  test("echo hi >& out.txt denies", () => {
+    expect(autoShellRuleForCall(shellCall("echo hi >& out.txt"))?.name).toBe(
+      "file-mutation",
+    );
+  });
+
+  test("echo hi >&file denies", () => {
+    expect(autoShellRuleForCall(shellCall("echo hi >&file"))?.name).toBe(
+      "file-mutation",
+    );
+  });
+
+  test("echo hi > out.txt still denies", () => {
+    expect(autoShellRuleForCall(shellCall("echo hi > out.txt"))?.name).toBe(
+      "file-mutation",
+    );
+  });
+
+  test("echo hi 2>&1 is not a file-mutation deny", () => {
+    expect(autoShellRuleForCall(shellCall("echo hi 2>&1"))?.name).not.toBe(
+      "file-mutation",
+    );
+  });
+});
+
 describe("CL-6697 — quoted dangerous flags and program names still deny/ask", () => {
   test("a quoted -c interpreter one-liner denies", () => {
     expect(
