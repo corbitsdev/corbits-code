@@ -114,6 +114,54 @@ describe("createAuthStore", () => {
     }
   });
 
+  test("queues same-process profile writes so neither save is lost", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-same-process-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+
+      await Promise.all([
+        store.saveProfile(
+          {
+            name: "personal",
+            tokens: { access: "p", refresh: "pr", expiresAt: 1 },
+            createdAt: 1,
+          },
+          home,
+        ),
+        store.saveProfile(
+          {
+            name: "work",
+            tokens: { access: "w", refresh: "wr", expiresAt: 2 },
+            createdAt: 2,
+          },
+          home,
+        ),
+      ]);
+
+      const profiles = await store.listProfiles(home);
+      expect(profiles.map((profile) => profile.name)).toEqual([
+        "personal",
+        "work",
+      ]);
+      expect(profiles.find((profile) => profile.name === "personal")).toEqual({
+        name: "personal",
+        tokens: { access: "p", refresh: "pr", expiresAt: 1 },
+        createdAt: 1,
+      });
+      expect(profiles.find((profile) => profile.name === "work")).toEqual({
+        name: "work",
+        tokens: { access: "w", refresh: "wr", expiresAt: 2 },
+        createdAt: 2,
+      });
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("gives queued same-process writes their own lock window", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-queue-"));
     try {
@@ -131,43 +179,27 @@ describe("createAuthStore", () => {
         home,
       );
 
-      // A foreign process holds the credential lock past the first waiter's
-      // deadline, then releases; the write queued behind it must still land.
+      // Hold the lock until the head of the same-process queue times out; the
+      // queued write must still get its own lock window after we release.
       const lockPath = `${store.authPath(home)}.lock`;
       await writeFile(lockPath, "foreign", { mode: 0o600 });
 
-      const first = store
-        .updateTokens(
-          "work",
-          { access: "first", refresh: "r1", expiresAt: 2 },
-          home,
-        )
-        .then(
-          () => "resolved" as const,
-          (error: unknown) => error,
-        );
-      const second = store
-        .updateTokens(
-          "work",
-          { access: "second", refresh: "r2", expiresAt: 3 },
-          home,
-        )
-        .then(
-          () => "resolved" as const,
-          (error: unknown) => error,
-        );
+      const first = store.updateTokens(
+        "work",
+        { access: "first", refresh: "r1", expiresAt: 2 },
+        home,
+      );
+      const second = store.updateTokens(
+        "work",
+        { access: "second", refresh: "r2", expiresAt: 3 },
+        home,
+      );
 
-      await Bun.sleep(1_400);
+      await expect(first).rejects.toThrow(
+        "Timed out waiting for OAuth credential lock",
+      );
       await rm(lockPath, { force: true });
-
-      const firstResult = await first;
-      expect(firstResult).toBeInstanceOf(Error);
-      if (firstResult instanceof Error) {
-        expect(firstResult.message).toContain(
-          "Timed out waiting for OAuth credential lock",
-        );
-      }
-      expect(await second).toBe("resolved");
+      await expect(second).resolves.toBeUndefined();
 
       expect((await store.loadProfile("work", home))?.tokens.access).toBe(
         "second",
