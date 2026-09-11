@@ -984,6 +984,74 @@ describe("gate denies compound commands with an authz-hard-blocked segment", () 
   });
 });
 
+describe("gate denies path tools path-escape will reject", () => {
+  // Same shape as authz-hard-blocked shell: a call the sandbox will fail at
+  // execution must deny at authorize time, not show an Accept overlay whose
+  // approval cannot succeed. skipPermissions (yolo) remains the live escape.
+  test("reactor-gated interactive write_file of an escaped path does not ask", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-escape-ask-in-"));
+    const outside = mkdtempSync(join(tmpdir(), "corbits-escape-ask-out-"));
+    const target = join(outside, "escape.ts");
+    writeFileSync(target, "");
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+    });
+    const call: ToolCall = {
+      id: "c",
+      name: "write_file",
+      arguments: { path: target, content: "x" },
+    };
+    const authorized = await gate.authorizeCall(call);
+    expect(authorized.effect).toBe("deny");
+    if (authorized.effect === "deny") {
+      expect(authorized.reason).toMatch(/escapes working directory/);
+    }
+    expect(asked).toBe(0);
+    const evaluated = await gate.evaluate(call);
+    expect(evaluated.allowed).toBe(false);
+    if (!evaluated.allowed) {
+      expect(evaluated.reason).toMatch(/escapes working directory/);
+    }
+    expect(asked).toBe(0);
+  });
+
+  test("skipPermissions still allows write_file of an escaped path", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-escape-yolo-in-"));
+    const outside = mkdtempSync(join(tmpdir(), "corbits-escape-yolo-out-"));
+    const target = join(outside, "escape.ts");
+    writeFileSync(target, "");
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: true,
+      reactorGated: true,
+    });
+    const call: ToolCall = {
+      id: "c",
+      name: "write_file",
+      arguments: { path: target, content: "from-yolo" },
+    };
+    expect((await gate.authorizeCall(call)).effect).toBe("allow");
+    expect((await gate.evaluate(call)).allowed).toBe(true);
+    expect(asked).toBe(0);
+  });
+});
+
 describe("createPermissionGate", () => {
   test("allow-tier tools pass without asking", async () => {
     let asked = 0;
@@ -3138,7 +3206,7 @@ describe("read-only tools in auto mode", () => {
     expect(asked).toBe(0);
   });
 
-  test("a read-only tool on a path outside the workspace still asks", async () => {
+  test("a read-only tool on a path outside the workspace is denied without asking", async () => {
     const outside = mkdtempSync(join(tmpdir(), "corbits-lsp-outside-"));
     const target = join(outside, "escape.ts");
     writeFileSync(target, "");
@@ -3165,8 +3233,11 @@ describe("read-only tools in auto mode", () => {
         character: 1,
       },
     });
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(verdict.allowed).toBe(false);
+    if (!verdict.allowed) {
+      expect(verdict.reason).toMatch(/escapes working directory/);
+    }
+    expect(asked).toBe(0);
   });
 
   test("a read-only tool on a gitignored path is auto-allowed", async () => {
@@ -3320,7 +3391,7 @@ describe("workspace-scoped autonomy in auto mode", () => {
     expect(asked).toBe(1);
   });
 
-  test("a write outside the workspace and any registered worktree still asks", async () => {
+  test("a write outside the workspace and any registered worktree is denied without asking", async () => {
     const outside = mkdtempSync(join(tmpdir(), "corbits-outside-"));
     const target = join(outside, "escape.ts");
     writeFileSync(target, "");
@@ -3342,11 +3413,14 @@ describe("workspace-scoped autonomy in auto mode", () => {
       name: "write_file",
       arguments: { path: target },
     });
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(verdict.allowed).toBe(false);
+    if (!verdict.allowed) {
+      expect(verdict.reason).toMatch(/escapes working directory/);
+    }
+    expect(asked).toBe(0);
   });
 
-  test("a symlink inside the workspace that points outside still asks", async () => {
+  test("a symlink inside the workspace that points outside is denied without asking", async () => {
     const base = mkdtempSync(join(tmpdir(), "corbits-symlink-"));
     const workspace = join(base, "ws");
     const outside = join(base, "outside");
@@ -3372,11 +3446,14 @@ describe("workspace-scoped autonomy in auto mode", () => {
       name: "read_file",
       arguments: { path: join(workspace, "link", "secret.txt") },
     });
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(verdict.allowed).toBe(false);
+    if (!verdict.allowed) {
+      expect(verdict.reason).toMatch(/escapes working directory/);
+    }
+    expect(asked).toBe(0);
   });
 
-  test("a sibling directory sharing the workspace path as a prefix still asks", async () => {
+  test("a sibling directory sharing the workspace path as a prefix is denied without asking", async () => {
     const base = mkdtempSync(join(tmpdir(), "corbits-prefix-"));
     const workspace = join(base, "repo");
     const evil = join(base, "repo-evil");
@@ -3400,8 +3477,11 @@ describe("workspace-scoped autonomy in auto mode", () => {
       name: "write_file",
       arguments: { path: join(evil, "payload.ts") },
     });
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(verdict.allowed).toBe(false);
+    if (!verdict.allowed) {
+      expect(verdict.reason).toMatch(/escapes working directory/);
+    }
+    expect(asked).toBe(0);
   });
 
   test("an unmatched shell command reading a path outside the workspace asks", async () => {
@@ -3680,7 +3760,7 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
     expect(asked).toBe(0);
   });
 
-  test("a genuinely foreign path still asks for permission even after a refresh is triggered", async () => {
+  test("a genuinely foreign path is denied without asking even after a refresh is triggered", async () => {
     const repo = createRepo();
     const outside = mkdtempSync(join(tmpdir(), "corbits-foreign-"));
     let asked = 0;
@@ -3702,8 +3782,11 @@ describe("createWorktreeRootsProvider lazy re-discovery", () => {
       name: "write_file",
       arguments: { path: join(outside, "payload.ts") },
     });
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(verdict.allowed).toBe(false);
+    if (!verdict.allowed) {
+      expect(verdict.reason).toMatch(/escapes working directory/);
+    }
+    expect(asked).toBe(0);
   });
 
   test("a burst of foreign-path checks triggers at most one re-list", () => {
@@ -4110,12 +4193,12 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
   // foreign cwd always asks regardless of any grant. write_file's subject is
   // the target path, not the agent's cwd, so it isolates the thing this test
   // actually checks: that an unscoped (no-cwd) grant matches irrespective of
-  // where the request originated.
+  // where the request originated. The second call uses a sibling worktree cwd
+  // so path-escape still treats the session-root target as in-bounds.
   test("session and provider-model grants still match a sub-agent request regardless of cwd", async () => {
     const { runWithSubAgentIdentity } =
       await import("../subagent/identity-context.js");
-    const { repo } = createRepoWithSiblingWorktree();
-    const unrelated = mkdtempSync(join(tmpdir(), "corbits-unrelated-project-"));
+    const { repo, worktree } = createRepoWithSiblingWorktree();
     const target = join(repo, "notes.md");
     let asked = 0;
     const gate = createPermissionGate({
@@ -4147,7 +4230,7 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
     expect(asked).toBe(1);
 
     const second = await runWithSubAgentIdentity(
-      { description: "Worker", cwd: unrelated },
+      { description: "Worker", cwd: worktree },
       () =>
         gate.evaluate({
           id: "b",

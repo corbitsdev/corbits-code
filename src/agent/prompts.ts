@@ -87,7 +87,7 @@ export function buildHarnessFacts(
           "- There is no turn budget. A tool-less reply without the structured report gets one incomplete-report nudge; if the next tool-less reply still omits the envelope, the harness salvages it. Otherwise, the run continues until completion, cancellation, an opt-in deadline, or a stall.",
         ]
       : [
-          "- Dependency installs, paths outside the workspace, and session-state writes need operator approval.",
+          "- Dependency installs, shell that targets a path outside the workspace, and in-workspace session-state writes need operator approval. Path-arg tools that escape the workspace are denied.",
         ]),
     "- Attached images are native multimodal input; inspect them directly unless file-level forensics are requested.",
     ...(dynamicTools

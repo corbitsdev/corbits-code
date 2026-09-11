@@ -82,6 +82,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   ellipsis. `read_file` of a tool-output URI is prompted only when truncation
   named one. A failed `read_file` shows the error on the collapsed transcript
   line.
+- Interactive path-arg tools that escape the workspace deny at authorize
+  time instead of showing an Accept overlay that path-escape then rejects.
+  Yolo / skip-permissions still allows those calls.
 
 ## [0.3.19] - 2026-09-10
 
