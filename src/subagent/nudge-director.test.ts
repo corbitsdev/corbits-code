@@ -1015,6 +1015,35 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
 });
 
 describe("SubAgentDirector stall nudge grace", () => {
+  test("two queued empty pings in the same tick nudge then wait, not stop", async () => {
+    let now = 3_000_000;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      1_000,
+      () => now,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDoneText("working"), state, caps);
+
+    now += 1_000;
+    const first = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(first).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+    expect(first.some((action) => action.type === "reply")).toBe(false);
+
+    const second = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(second).toEqual([{ type: "wait" }]);
+  });
+
   test("queued pings inside grace wait; stop only after grace with no activity", async () => {
     let now = 1_000_000;
     const director = new SubAgentDirector(
