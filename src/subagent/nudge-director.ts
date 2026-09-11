@@ -38,6 +38,7 @@ import {
   lastText,
   type ForcedStopReason,
 } from "./stop-policy.js";
+import { hasPlanFindings, hasReportEnvelope } from "./report.js";
 
 const TOOL_FAILURE_RECOVERY_NUDGE =
   "A tool call failed. Do not repeat the same failed call unchanged. Inspect the error and current state, then change the arguments or approach. If you cannot recover, report the blocker.";
@@ -45,6 +46,12 @@ const TOOL_FAILURE_RECOVERY_NUDGE =
 /** Tool-less mid-run narration after tools, without a report envelope. One-shot. */
 const INCOMPLETE_REPORT_NUDGE =
   "Write your final report now using ## Summary, ## Findings, ## Blockers, and ## Paths. Do not narrate status. No more tools unless one lookup is required to cite a line.";
+
+const PLAN_SUBSTANCE_NUDGE =
+  "Findings is not an attachable plan. Fill files/paths, acceptance criteria, non-goals, risks, and ordered steps — each with a concrete non-placeholder line. Do not rewrite the four report headings.";
+
+const STUB_PLAN_SALVAGE_PREFIX =
+  "Stub plan Findings (missing files/paths, acceptance criteria, non-goals, risks, or ordered steps). This is not an attachable plan.\n\n";
 
 const VERBATIM_TOOL_CALL_NUDGE =
   "You wrote tool-call markup as assistant text. Invoke the real tool call instead of printing its markup, or write your final report if no tool is needed.";
@@ -125,6 +132,8 @@ export class SubAgentDirector extends DefaultDirector {
   private readonly _systemPrompt: string;
   /** When true (CritiqueDirector), empty readCounts is not a successful complete. */
   private readonly requireEvidence: boolean;
+  /** When true (counsel / intent=plan), stub plan Findings is not a complete. */
+  private readonly requirePlanSubstance: boolean;
   private turnsCompleted = 0;
   private thrashState: ThrashState = EMPTY_THRASH_STATE;
   // Armed for failed-tool recovery so the
@@ -223,6 +232,7 @@ export class SubAgentDirector extends DefaultDirector {
     stallTimeoutMs?: number,
     now: () => number = Date.now,
     requireEvidence = false,
+    requirePlanSubstance = false,
     retryPolicy: RetryPolicy = createCorbitsRetryPolicy(),
   ) {
     super(systemPrompt, toolDefinitions, {});
@@ -236,6 +246,7 @@ export class SubAgentDirector extends DefaultDirector {
     this.now = now;
     this.lastActivityAt = now();
     this.requireEvidence = requireEvidence;
+    this.requirePlanSubstance = requirePlanSubstance;
     this.retryPolicy = retryPolicy;
   }
 
@@ -327,6 +338,7 @@ export class SubAgentDirector extends DefaultDirector {
         hasToolCalls,
         thrashState: this.thrashState,
         requireEvidence: this.requireEvidence,
+        requirePlanSubstance: this.requirePlanSubstance,
         lastAssistantText: this.lastAssistantText,
         toolLessNarrationCycles: this.toolLessNarrationCycles + 1,
       });
@@ -372,32 +384,50 @@ export class SubAgentDirector extends DefaultDirector {
         // Tool-less turn after tools, no report envelope. Must not fall through
         // to super.decide — DefaultDirector completes any tool-less turn.
         this.toolLessNarrationCycles += 1;
+        const stubPlan =
+          this.requirePlanSubstance &&
+          hasReportEnvelope(this.lastAssistantText) &&
+          !hasPlanFindings(this.lastAssistantText);
         this.interventions({
           id: "incomplete-report",
           class: "nudge",
           state: this.interventionState(),
-          detail: "tool-less turn after tools with no report envelope",
+          detail: stubPlan
+            ? "tool-less turn with stub plan Findings"
+            : "tool-less turn after tools with no report envelope",
         });
         return [
           capabilities.checkpoint("subagent-incomplete-report-nudge"),
-          inferWithSubAgentNudge(capabilities, INCOMPLETE_REPORT_NUDGE),
+          inferWithSubAgentNudge(
+            capabilities,
+            stubPlan ? PLAN_SUBSTANCE_NUDGE : INCOMPLETE_REPORT_NUDGE,
+          ),
         ];
       }
       if (stop === "incomplete-report-stop") {
         this.toolLessNarrationCycles += 1;
+        const stubPlan =
+          this.requirePlanSubstance &&
+          hasReportEnvelope(this.lastAssistantText) &&
+          !hasPlanFindings(this.lastAssistantText);
         this.interventions({
           id: "incomplete-report-stop",
           class: "stop",
           state: this.interventionState(),
-          detail: "no report envelope after the wrap-up nudge",
+          detail: stubPlan
+            ? "stub plan Findings after the wrap-up nudge"
+            : "no report envelope after the wrap-up nudge",
         });
         this.onForcedStop("incomplete-report");
         this.reportReplied = true;
         this.flushToolFailureRecoveryAudit();
+        const salvageText = stubPlan
+          ? `${STUB_PLAN_SALVAGE_PREFIX}${this.lastAssistantText}`
+          : this.lastAssistantText;
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-incomplete-report"),
           capabilities.reply(
-            forcedStopReport("incomplete-report", this.lastAssistantText, {
+            forcedStopReport("incomplete-report", salvageText, {
               paths: salvagePathsFromThrash(this.thrashState),
             }),
           ),

@@ -6,7 +6,7 @@ import {
 } from "./agent/director.js";
 import { manageTasksDefinition } from "./agent/tasks.js";
 import { CHAT_PROMPT_QUALITY_MARKERS } from "./agent/prompt-contract.js";
-import { hasReportEnvelope } from "./subagent/report.js";
+import { hasPlanFindings, hasReportEnvelope } from "./subagent/report.js";
 import {
   buildActiveContext,
   buildAvailableTools,
@@ -424,6 +424,7 @@ test("sub-agent report contract's headings satisfy hasReportEnvelope", () => {
     .filter((line) => line.startsWith("## "))
     .join("\n");
   expect(hasReportEnvelope(headingsOnly)).toBe(true);
+  expect(hasPlanFindings(headingsOnly)).toBe(false);
 });
 
 test("sub-agent prompt does not advertise tool_search (it gets the full toolset)", () => {

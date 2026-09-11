@@ -617,6 +617,39 @@ describe("spawn_agent + wait_agents", () => {
     expect(defined(results[0]).error).toBeUndefined();
   });
 
+  test("plan-lane incomplete-report salvage is wait done with stop_reason, not a clean complete", async () => {
+    const deps = makeDeps(async () => ({
+      report: forcedStopReport(
+        "incomplete-report",
+        "Stub plan Findings (missing files/paths, acceptance criteria, non-goals, risks, or ordered steps). This is not an attachable plan.\n\nPlan ready.",
+      ),
+      stopReason: "incomplete-report",
+    }));
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+
+    const spawned = await callTool(spawn, {
+      description: "stub plan",
+      prompt: "outline it",
+      intent: "plan",
+    });
+    const id = spawned.agent_id as string;
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const results = waited.results as {
+      status: string;
+      report?: string;
+      error?: string;
+      stop_reason?: string;
+    }[];
+    expect(defined(results[0]).status).toBe("done");
+    expect(defined(results[0]).stop_reason).toBe("incomplete-report");
+    expect(defined(results[0]).report).toContain("not an attachable plan");
+    expect(defined(results[0]).error).toBeUndefined();
+  });
+
   test("failed spawn_agent wait_agents returns error not report", async () => {
     const deps = makeDeps(async () => {
       throw new Error("provider blew up");

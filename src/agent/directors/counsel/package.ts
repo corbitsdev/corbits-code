@@ -36,7 +36,7 @@ Author an agent-proof plan:
 
 When requirements are fuzzy, ask_director instead of guessing — after the cap, note remaining questions under Blockers. Do not invent scope.
 
-DONE GATE: Stop when the plan covers every success_criteria item from the brief OR blockers are explicit. Do not expand into implementation, architecture essays, or review theater after the plan is complete.
+DONE GATE: Stop when the plan covers every success_criteria item from the brief OR blockers are explicit. Headings-only Findings is not done. Do not expand into implementation, architecture essays, or review theater after the plan is complete.
 
 OUT OF LANE: shipping code, architecture gate sign-off, fleet orchestration, pure code review, becoming Builder/Critic/Greybeard/Explorer as primary.
 

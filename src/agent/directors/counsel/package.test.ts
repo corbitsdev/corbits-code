@@ -60,6 +60,7 @@ describe("counselPackage", () => {
     expect(p).toContain("success_criteria");
     expect(p).toMatch(/[Ss]top when/);
     expect(p).toContain("Blockers");
+    expect(p).toContain("Headings-only Findings is not done");
   });
 
   test("spawn.maySpawn is false", () => {
