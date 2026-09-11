@@ -18,6 +18,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - System-originated inbound (`message.received` without the operator flag —
   background shell exits, mailbox mail, fleet-dry and compact continuations)
   paints as a visible system row instead of a user prompt.
+- After a parked `ask_director` is surfaced (TUI idle-send wake, nested
+  `wait_agents` with a question payload, or a successful `list_agents`),
+  further `list_agents` calls fail closed until `send_input` answers or the
+  ask is dropped. Do not poll `list_agents`.
+
 
 ## [0.3.21] - 2026-09-11
 

@@ -275,6 +275,13 @@ export interface SessionBridge {
    */
   setMailboxMailDriver: (driver: (() => boolean) | undefined) => void;
   /**
+   * Called after flushPendingAskWake actually sendInternalText. Wiring stamps
+   * the fleet mailbox so list_agents fails closed until send_input.
+   */
+  setOnAskWakeSent: (
+    handler: ((asks: readonly PendingAskWake[]) => void) | undefined,
+  ) => void;
+  /**
    * Wake in-flight wait_agents when the operator queues a steer. Timeout-shaped
    * yield — workers are not interrupted.
    */
@@ -482,6 +489,8 @@ export interface BridgeBag {
    * edge — that stays on dryOpenTaskDriver.
    */
   mailboxMailDriver: (() => boolean) | undefined;
+  /** After a pending ask wake is actually sent. Independent of deliveredAskWake. */
+  onAskWakeSent: ((asks: readonly PendingAskWake[]) => void) | undefined;
   /** Wake in-flight wait_agents when a steer is queued (timeout-shaped yield). */
   waitYieldWake: (() => void) | undefined;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
@@ -1321,6 +1330,7 @@ export function attachSessionBridge(
     awaitingContinuationInference: false,
     dryOpenTaskDriver: undefined,
     mailboxMailDriver: undefined,
+    onAskWakeSent: undefined,
     waitYieldWake: undefined,
     lastSentMessage: "",
     lastSentOrigin: null,
@@ -1677,6 +1687,7 @@ export function attachSessionBridge(
     for (const ask of asks)
       bag.deliveredAskWake.set(ask.sessionId, ask.questionId);
     sendInternalText(asks.map((ask) => pendingAskWakeText(ask)).join("\n\n"));
+    bag.onAskWakeSent?.(asks);
   };
   bag.flushPendingAskWake = flushPendingAskWake;
 
@@ -1903,6 +1914,9 @@ export function attachSessionBridge(
     },
     setMailboxMailDriver: (driver) => {
       bag.mailboxMailDriver = driver;
+    },
+    setOnAskWakeSent: (handler) => {
+      bag.onAskWakeSent = handler;
     },
     setWaitYieldWake: (wake) => {
       bag.waitYieldWake = wake;
