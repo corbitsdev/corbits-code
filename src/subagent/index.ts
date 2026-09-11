@@ -29,7 +29,9 @@ export {
 export { driveOpenTasksAfterFleetDry } from "./fleet-dry-drive.js";
 export {
   driveMailboxMail,
+  latchMailboxMailDrive,
   MAILBOX_MAIL_WAKE_PREFIX,
+  mailboxMailWakeLine,
   occupancyShouldYieldWait,
 } from "./mailbox-mail-drive.js";
 export {

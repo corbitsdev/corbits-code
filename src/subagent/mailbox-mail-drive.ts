@@ -16,8 +16,44 @@ import {
 
 export const MAILBOX_MAIL_WAKE_PREFIX = "mailbox mail";
 
+/**
+ * First-delivery instruction. Occupancy handed these reports to the parent;
+ * do not call wait_agents. Must not say "already collected" — that makes the
+ * first wake look like a replay.
+ */
+export function mailboxMailWakeLine(): string {
+  return `${MAILBOX_MAIL_WAKE_PREFIX} — occupancy delivered these worker reports (do not call wait_agents for these agent_ids):`;
+}
+
 function isPromiseLike(value: unknown): value is Promise<unknown> {
   return typeof value === "object" && value !== null && "then" in value;
+}
+
+/**
+ * Ids occupancy has snapshotted and handed to send, but not yet taken.
+ * A second flush must not start another parent turn for the same reports.
+ * Failed send clears the set so a later flush can retry. Weak-keyed so a
+ * mailbox object can go away without a leak.
+ */
+const deliveringByMailbox = new WeakMap<FleetDryMailbox, Set<string>>();
+
+function deliveringSet(mailbox: FleetDryMailbox): Set<string> {
+  let ids = deliveringByMailbox.get(mailbox);
+  if (ids === undefined) {
+    ids = new Set();
+    deliveringByMailbox.set(mailbox, ids);
+  }
+  return ids;
+}
+
+function releaseDelivering(
+  mailbox: FleetDryMailbox | undefined,
+  ids: readonly string[],
+): void {
+  if (mailbox === undefined) return;
+  const delivering = deliveringByMailbox.get(mailbox);
+  if (delivering === undefined) return;
+  for (const id of ids) delivering.delete(id);
 }
 
 export function occupancyShouldYieldWait(
@@ -37,10 +73,7 @@ export function occupancyShouldYieldWait(
 export function buildMailboxMailPrompt(
   reports: readonly CollectedWorkerReport[],
 ): string {
-  return [
-    `${MAILBOX_MAIL_WAKE_PREFIX} — worker reports (already collected — do not call wait_agents for these agent_ids):`,
-    JSON.stringify(reports),
-  ].join("\n");
+  return [mailboxMailWakeLine(), JSON.stringify(reports)].join("\n");
 }
 
 export function driveMailboxMail(args: {
@@ -59,20 +92,30 @@ export function driveMailboxMail(args: {
 async function driveMailboxMailAfterCollect(
   args: Parameters<typeof driveMailboxMail>[0],
 ): Promise<boolean> {
-  const reports = await collectUncollectedTerminals(
-    args.mailbox,
-    args.lanes,
-    false,
-    args.writeBlob,
-  );
+  const delivering =
+    args.mailbox !== undefined
+      ? deliveringSet(args.mailbox)
+      : new Set<string>();
+  const reports = (
+    await collectUncollectedTerminals(
+      args.mailbox,
+      args.lanes,
+      false,
+      args.writeBlob,
+    )
+  ).filter((report) => !delivering.has(report.agent_id));
   if (reports.length === 0) return false;
+  const ids = reports.map((report) => report.agent_id);
+  for (const id of ids) delivering.add(id);
   const prompt = buildMailboxMailPrompt(reports);
   const takeReports = (): void => {
-    for (const report of reports) {
-      args.mailbox?.take(report.agent_id);
+    for (const id of ids) {
+      args.mailbox?.take(id);
     }
+    releaseDelivering(args.mailbox, ids);
   };
   const fail = (): boolean => {
+    releaseDelivering(args.mailbox, ids);
     args.onSendFailure?.();
     return false;
   };
@@ -83,10 +126,10 @@ async function driveMailboxMailAfterCollect(
       void sent.then(
         (result) => {
           if (result !== false) takeReports();
-          else args.onSendFailure?.();
+          else fail();
         },
         () => {
-          args.onSendFailure?.();
+          fail();
         },
       );
       return true;
@@ -97,4 +140,26 @@ async function driveMailboxMailAfterCollect(
     return fail();
   }
   return true;
+}
+
+/**
+ * Store-subscribe, stall-poll, and idle-with-fleet settle all flush mailbox
+ * mail. `driveMailboxMail` does not mark the parent busy until after an
+ * awaited collect, so overlapping flushes would each call `send()` and fill
+ * the agent's depth-16 queue. Hold one drive until that promise settles.
+ */
+export function latchMailboxMailDrive(
+  drive: () => boolean | Promise<boolean>,
+): () => boolean {
+  let inFlight = false;
+  return () => {
+    if (inFlight) return false;
+    const driven = drive();
+    if (driven === false) return false;
+    inFlight = true;
+    void Promise.resolve(driven).finally(() => {
+      inFlight = false;
+    });
+    return true;
+  };
 }

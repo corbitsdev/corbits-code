@@ -36,6 +36,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Fixed
 
+- Occupancy injects mailbox mail once when a worker burst finishes: one
+  in-flight drive, in-flight ids until send succeeds, and wake copy that
+  does not say the reports were already collected. Overlapping flushes
+  no longer fill the send queue or replay the same reports as new turns.
 - Stalled workers get a full `stallTimeoutMs` grace after the first
   continuation nudge before salvage. Stall pings inside that window wait
   instead of counting toward escalation. Mailbox mail re-flushes from the

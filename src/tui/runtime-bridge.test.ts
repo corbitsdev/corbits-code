@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { mailboxMailWakeLine } from "../subagent/mailbox-mail-drive.js";
 import { defined } from "../../tests/helpers/defined.js";
 import {
   FIXTURE_BUSY_SESSION,
@@ -2137,8 +2138,7 @@ describe("mailbox mail occupancy (CL-7518)", () => {
         const port = createRecordingPort();
         const bridge = attachSessionBridge(shell, port);
         try {
-          const prompt =
-            "mailbox mail — worker reports (already collected — do not call wait_agents for these agent_ids):\n[]";
+          const prompt = `${mailboxMailWakeLine()}\n[]`;
           let terminals = 0;
           let drives = 0;
           bridge.setMailboxMailDriver(() => {
@@ -2366,9 +2366,7 @@ describe("mailbox mail occupancy (CL-7518)", () => {
           let drives = 0;
           bridge.handle({ type: "fleet", running: 1 });
           settleToollessTurn(bridge);
-          bridge.beginSystemContinuation(
-            "mailbox mail — worker reports (already collected — do not call wait_agents for these agent_ids):\n[]",
-          );
+          bridge.beginSystemContinuation(`${mailboxMailWakeLine()}\n[]`);
           bridge.abortSystemContinuation({ rearmDry: false });
           bridge.setMailboxMailDriver(() => {
             drives += 1;

@@ -23,6 +23,7 @@ import {
   createFleetWatch,
   driveOpenTasksAfterFleetDry,
   driveMailboxMail,
+  latchMailboxMailDrive,
   FLEET_REPORT_SETTLE_MS,
   FLEET_STALL_POLL_MS,
   liveFleetCount,
@@ -246,32 +247,31 @@ export function wirePostStartup(
     void driven;
     return true;
   });
-  sessionBridge.setMailboxMailDriver(() => {
-    const send = state.sendWithAttemptIdentity;
-    if (send === undefined) return false;
-    const storage = state.currentStorage;
-    const driven = driveMailboxMail({
-      parentProcessing: sessionBridge.turn.isProcessing,
-      mailbox: services.toolset.fleetRecords,
-      lanes: services.subAgentSessions.list(),
-      ...(storage !== null
-        ? {
-            writeBlob: (key, bytes, contentType) =>
-              storage.writeBlob(key, bytes, contentType),
-          }
-        : {}),
-      beginSystemContinuation: (prompt) => {
-        sessionBridge.beginSystemContinuation(prompt);
-      },
-      send: (prompt) => send(buildMailboxMailMessage(prompt)),
-      onSendFailure: () => {
-        sessionBridge.abortSystemContinuation({ rearmDry: false });
-      },
-    });
-    if (driven === false) return false;
-    void driven;
-    return true;
-  });
+  sessionBridge.setMailboxMailDriver(
+    latchMailboxMailDrive(() => {
+      const send = state.sendWithAttemptIdentity;
+      if (send === undefined) return false;
+      const storage = state.currentStorage;
+      return driveMailboxMail({
+        parentProcessing: sessionBridge.turn.isProcessing,
+        mailbox: services.toolset.fleetRecords,
+        lanes: services.subAgentSessions.list(),
+        ...(storage !== null
+          ? {
+              writeBlob: (key, bytes, contentType) =>
+                storage.writeBlob(key, bytes, contentType),
+            }
+          : {}),
+        beginSystemContinuation: (prompt) => {
+          sessionBridge.beginSystemContinuation(prompt);
+        },
+        send: (prompt) => send(buildMailboxMailMessage(prompt)),
+        onSendFailure: () => {
+          sessionBridge.abortSystemContinuation({ rearmDry: false });
+        },
+      });
+    }),
+  );
   sessionBridge.setWaitYieldWake(() => {
     services.subAgentSessions.wake();
   });
