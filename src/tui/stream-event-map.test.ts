@@ -144,6 +144,29 @@ describe("mapProductionEvent", () => {
     ).toEqual([]);
   });
 
+  test("non-fatal reactor.error keeps connector.reply suppression after deltas", () => {
+    const ctx = createStreamMapContext();
+    mapProductionEvent(
+      { type: "inference.text.delta", data: { token: "partial" } },
+      ctx,
+    );
+    expect(
+      mapProductionEvent(
+        {
+          type: "reactor.error",
+          data: { error: "transient checkpoint write", fatal: false },
+        },
+        ctx,
+      ),
+    ).toEqual([{ type: "error", message: "transient checkpoint write" }]);
+    expect(
+      mapProductionEvent(
+        { type: "connector.reply", data: { content: "final answer" } },
+        ctx,
+      ),
+    ).toEqual([]);
+  });
+
   test("connector.reply without prior deltas becomes assistant", () => {
     expect(
       mapProductionEvent({
