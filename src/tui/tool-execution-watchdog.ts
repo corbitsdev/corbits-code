@@ -31,6 +31,13 @@ export interface ToolWatchdogConfig {
    * changes the bound, it never leaves it unarmed.
    */
   mcpTimeoutMs?: number;
+  /**
+   * Override the post-abort salvage grace for runs dispatched through a
+   * runner built from this config. Production never sets it, keeping the
+   * 5s default; tests set it short so never-settling tool cases don't pay
+   * the full grace in wall clock.
+   */
+  salvageGraceMs?: number;
 }
 
 // Default wall-clock budget for a single MCP tool call when settings.mcp.timeoutMs
