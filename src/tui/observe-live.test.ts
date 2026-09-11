@@ -454,7 +454,7 @@ describe("observe pure mappers", () => {
         type: "message.received",
         data: { message: { content: "go" } },
       }),
-    ).toEqual([{ role: "user", text: "go" }]);
+    ).toEqual([{ role: "system", text: "go" }]);
     expect(mapChildStreamEvent({ type: "inference.start" })).toEqual([]);
     expect(
       mapChildStreamEvent({

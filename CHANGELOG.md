@@ -11,6 +11,14 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [Unreleased]
+
+### Fixed
+
+- System-originated inbound (`message.received` without the operator flag —
+  background shell exits, mailbox mail, fleet-dry and compact continuations)
+  paints as a visible system row instead of a user prompt.
+
 ## [0.3.21] - 2026-09-11
 
 ### Added

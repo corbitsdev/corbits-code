@@ -33,6 +33,7 @@ import {
 import { applyShellInterrupt, surfaceSystemNotice } from "./shell/prompt.js";
 import { streamRowAt, streamRowCount } from "./shell/transcript.js";
 import { rampAnimating } from "./ramp.js";
+import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import {
   resolveRampPhase,
@@ -250,15 +251,14 @@ export interface SessionBridge {
   ) => void;
   /**
    * Mark the run busy for a system-originated continuation (fleet-dry open-task
-   * drive). Pushes `text` onto pendingEchoes so the inbound `message.received`
-   * is not painted as a user row. Does not send — the caller uses
+   * drive). Does not echo locally — inbound `message.received` without the
+   * operator flag paints as a system row. Does not send — the caller uses
    * sendWithAttemptIdentity with a system mailbox message.
    */
   beginSystemContinuation: (text: string) => void;
   /**
-   * Occupancy send failed after beginSystemContinuation. Drop the occupancy
-   * echo so a later matching inbound is not swallowed, drop the continuation
-   * hold, and idle so follow-ups can drain. Pass rearmDry:false for mailbox
+   * Occupancy send failed after beginSystemContinuation. Drop the continuation
+   * hold and idle so follow-ups can drain. Pass rearmDry:false for mailbox
    * mail so a later subscribe can retry; fleet-dry defaults to re-arming the
    * latch for the next settle shot.
    */
@@ -1247,7 +1247,7 @@ function applyInbound(
 
   // A new turn gets a new reasoning row; only within one turn does thinking
   // fold back into the row it already owns.
-  if (event.type === "user") bag.turnThinking = null;
+  if (event.type === "user" || event.type === "system") bag.turnThinking = null;
 
   if (event.type === "user" && consumeEcho(bag, event.text)) return;
 
@@ -1876,7 +1876,6 @@ export function attachSessionBridge(
       if (bag.disposed) return;
       const t = text.trim();
       if (t.length === 0) return;
-      bag.pendingEchoes.push(t);
       bag.lastSentMessage = t;
       bag.awaitingContinuationInference = true;
       shell.session = setRunState(shell.session, "busy");
@@ -1886,18 +1885,6 @@ export function attachSessionBridge(
     },
     abortSystemContinuation: (opts) => {
       if (bag.disposed) return;
-      if (bag.awaitingContinuationInference) {
-        const occupancy = bag.lastSentMessage;
-        if (occupancy.length > 0) {
-          const last = bag.pendingEchoes.length - 1;
-          if (last >= 0 && bag.pendingEchoes[last] === occupancy) {
-            bag.pendingEchoes.pop();
-          } else {
-            const index = bag.pendingEchoes.lastIndexOf(occupancy);
-            if (index !== -1) bag.pendingEchoes.splice(index, 1);
-          }
-        }
-      }
       bag.awaitingContinuationInference = false;
       if (opts?.rearmDry !== false) {
         bag.droveOpenTasksThisDry = false;
@@ -1945,7 +1932,12 @@ export const FIXTURE_BUSY_SESSION: readonly ReactorLikeEvent[] = [
   { type: "inference.start", data: {} },
   {
     type: "message.received",
-    data: { message: { content: "list project root" } },
+    data: {
+      message: {
+        content: "list project root",
+        flags: [OPERATOR_ORIGINATED_FLAG],
+      },
+    },
   },
   { type: "inference.text.delta", data: { token: "I'll " } },
   { type: "inference.text.delta", data: { token: "list the directory." } },
