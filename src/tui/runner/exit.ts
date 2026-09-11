@@ -30,6 +30,7 @@ import {
 } from "../../session/session-label.js";
 import { clearActiveDisposeHost } from "../../session/active-host.js";
 import { syncRunStateHandle } from "../../session/active-run.js";
+import { startRunHeartbeat } from "../../session/run-liveness.js";
 import { getValidCodexToken } from "../../auth/codex/session.js";
 import { getValidXaiToken } from "../../auth/xai/session.js";
 import { suppressProviderFailurePresentation } from "../provider/failure-attempt.js";
@@ -246,6 +247,11 @@ export async function createRunLifecycle(
 }> {
   const { persistRunSnapshot } = createRunPersistence(state, services);
   state.persistRunSnapshot = persistRunSnapshot;
+  const stopHeartbeat = startRunHeartbeat({
+    shouldTick: () => !services.crashGuard.isFinalized(),
+    tick: () => persistRunSnapshot("running"),
+  });
+  state.stopRunHeartbeat = stopHeartbeat;
 
   // Cycles persist to the context store only on inference.done; the assembled
   // recorder keeps the in-flight cycle's text so an errored or interrupted
@@ -658,6 +664,8 @@ export async function finalizeTUIRun(
   services: RunnerServices,
 ): Promise<number> {
   await hostOf(state).waitUntilExit();
+  state.stopRunHeartbeat?.();
+  delete state.stopRunHeartbeat;
   // Stop workers before awaiting the session-op tail so a hung enqueue cannot
   // delay abort/reap. Persistence, hooks, and telemetry stay after stop.
   // Toolset dispose lives inside shutdownRuntime so quit, crash, and signals
