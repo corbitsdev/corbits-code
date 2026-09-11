@@ -95,8 +95,12 @@ import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
-import { createResolvedProviderFailureError } from "../inference-error-message.js";
+import {
+  createResolvedProviderFailureError,
+  isResolvedProviderFailureError,
+} from "../inference-error-message.js";
 import type { InferenceErrorLike } from "../inference-gateway-error.js";
+import { MAX_BLIND_WAIT_MS } from "../agent/retry-policy.js";
 import { createRunEventSettlement } from "./run-event-settlement.js";
 
 import type { CapabilityFilter } from "../agent/profiles.js";
@@ -199,6 +203,41 @@ export function assertReplySend(
       : {}),
   });
   throw error;
+}
+
+// Bounded outer retry for the main send (CL-7677). The harness policy in
+// vendor/intx-inference/src/retry-policy.ts already retries retryable faults
+// up to 3 times per send; this loop covers the case where the harness gives
+// up and the failure terminalizes the worker anyway. A terminal worker death
+// is not a non-terminal director turn (CL-6910), so the outer budget is one
+// retry, not a second full schedule — harness-weighted worst case is 2 outer
+// x 3 inner sends. The single delay matches the first step of the harness
+// backoff (500ms before attempt 2 in vendor/intx-inference/src/retry-policy.ts)
+// with the same jitter applied below: the outer budget is one retry, so only
+// the first backoff step is ever reached — a table would be dead weight.
+// createCorbitsRetryPolicy decides per-attempt retry inside a live send and
+// must not drive this loop.
+// Retrying after a tool already executed is unsafe — the second send would
+// replay side effects — so any recorded tool start vetoes the retry.
+const MAX_OUTER_ATTEMPTS = 2;
+const OUTER_RETRY_DELAY_MS = 500;
+
+function sleepUnlessAborted(
+  ms: number,
+  signals: readonly AbortSignal[],
+): Promise<void> {
+  if (ms <= 0 || signals.some((signal) => signal.aborted))
+    return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      for (const signal of signals) signal.removeEventListener("abort", done);
+      resolve();
+    }
+    for (const signal of signals)
+      signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 export type {
@@ -1156,6 +1195,9 @@ async function runSubAgentInner(
           ...(error.statusCode !== undefined
             ? { statusCode: error.statusCode }
             : {}),
+          ...(error.retryAfterMs !== undefined
+            ? { retryAfterMs: error.retryAfterMs }
+            : {}),
         };
       }
       if (onTurnBoundary(event)) {
@@ -1385,18 +1427,72 @@ async function runSubAgentInner(
       // signal so either one stops this send() call, while only
       // runController's abort is wired to closeOnAbort/teardown.
       const sendOpts = { signal: sendAbortSignal() };
-      const fresh = await refreshInferenceSourceBundle(
-        bundle.sources,
-        bundle.defaultSource,
-        params.catalog,
-      );
-      agent.setSources(fresh.sources, fresh.defaultSource);
-      const result = await sendWithProviderFailure(fullPrompt, sendOpts);
-      if (terminalProviderError !== undefined) {
-        throw createResolvedProviderFailureError(
-          params.provider.providerName,
-          terminalProviderError,
+      const outerStartedAt = Date.now();
+      let attempt = 0;
+      let result: Awaited<ReturnType<typeof sendWithProviderFailure>>;
+      for (;;) {
+        attempt += 1;
+        const fresh = await refreshInferenceSourceBundle(
+          bundle.sources,
+          bundle.defaultSource,
+          params.catalog,
         );
+        agent.setSources(fresh.sources, fresh.defaultSource);
+        try {
+          result = await sendWithProviderFailure(fullPrompt, sendOpts);
+          if (terminalProviderError !== undefined) {
+            throw createResolvedProviderFailureError(
+              params.provider.providerName,
+              terminalProviderError,
+            );
+          }
+        } catch (sendError) {
+          const resolved = isResolvedProviderFailureError(sendError)
+            ? sendError
+            : undefined;
+          const toolsUsed =
+            toolNamesUsed.length > 0 || telemetryRollup.tool_call_count > 0;
+          if (
+            resolved === undefined ||
+            resolved.category !== "retryable" ||
+            toolsUsed ||
+            attempt >= MAX_OUTER_ATTEMPTS
+          ) {
+            throw sendError;
+          }
+          const elapsedMs = Date.now() - outerStartedAt;
+          const outerRemainingMs = MAX_BLIND_WAIT_MS - elapsedMs;
+          if (outerRemainingMs <= 0) throw sendError;
+          if (runController.signal.aborted || runController.deadlineHit())
+            ensureNotAborted();
+          if (thisTurnInterrupt.signal.aborted)
+            throw abortError(thisTurnInterrupt.signal);
+          const retryAfterMs =
+            terminalProviderError?.statusCode === 429
+              ? terminalProviderError.retryAfterMs
+              : undefined;
+          const backoffMs =
+            retryAfterMs !== undefined
+              ? Math.min(retryAfterMs, MAX_BLIND_WAIT_MS)
+              : Math.round(OUTER_RETRY_DELAY_MS * (0.8 + Math.random() * 0.4));
+          const delayMs = Math.min(backoffMs, outerRemainingMs);
+          params.onProgress?.({
+            description:
+              `${params.description} (provider retry ` +
+              `${attempt + 1}/${MAX_OUTER_ATTEMPTS} in ${delayMs}ms)`,
+            toolName: "retry",
+          });
+          await sleepUnlessAborted(delayMs, [
+            runController.signal,
+            thisTurnInterrupt.signal,
+          ]);
+          if (runController.signal.aborted || runController.deadlineHit())
+            ensureNotAborted();
+          if (thisTurnInterrupt.signal.aborted)
+            throw abortError(thisTurnInterrupt.signal);
+          continue;
+        }
+        break;
       }
       if (result.type !== "reply") assertReplySend(result);
       // A successful non-empty reply must not be clobbered by a late cancel that
