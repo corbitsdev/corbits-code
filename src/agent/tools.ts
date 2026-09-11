@@ -81,7 +81,7 @@ import {
   createInterruptAgentTool,
   createSendInputTool,
 } from "../subagent/lifecycle-tools.js";
-import { parseManageTasksArgs } from "./tasks.js";
+import { createManageTasksRunner } from "./tasks.js";
 import {
   createShellCollectTool,
   createSpillingBackgroundShellExitNotifier,
@@ -106,7 +106,6 @@ import { createSearchAgentsTool } from "./agent-search.js";
 import { createReadAgentTraceTool } from "../subagent/trace-tool.js";
 import {
   createCodexToolProxies,
-  type CodexRunManageTasks,
   type CodexRunTool,
 } from "./codex-tool-proxies.js";
 import { createCodexReadRawFile } from "./codex-read-raw-file.js";
@@ -470,16 +469,7 @@ export async function createAgentToolset(
   // from this handler's return value. This handler only validates, so
   // update_plan's proxy shares it rather than forwarding through posixTools
   // (which has no manage_tasks handler to forward to).
-  const runManageTasks: CodexRunManageTasks = async (rawArgs) => {
-    const parsed = parseManageTasksArgs(rawArgs);
-    if (parsed === null) {
-      return {
-        content: "Error: manage_tasks requires action ('create' or 'update').",
-        isError: true,
-      };
-    }
-    return { content: "Tasks updated." };
-  };
+  const runManageTasks = createManageTasksRunner();
 
   // Align the advertised run_shell timeout with shell-guard (no built-in default;
   // advertise settings.shell.timeoutMs when set).

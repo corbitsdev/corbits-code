@@ -261,6 +261,11 @@ export function createReactor(config: ReactorConfig): Reactor {
   const isPollOnlyPendingBatch =
     config.isPollOnlyPendingBatch ?? deps.isPollOnlyPendingBatch;
 
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-warning-turn
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-fail-run
+  const doomLoopCorrectiveNote = deps.doomLoopCorrectiveNote;
+  const doomLoopPolicy = deps.doomLoopPolicy ?? "shutdown";
+
   // Monotonic sequence counter, scoped to this session.
   let seq = 0;
   function nextSeq(): number {
@@ -999,13 +1004,40 @@ export function createReactor(config: ReactorConfig): Reactor {
       lastToolBatchNames = ranCalls.map((call) => call.name);
     }
 
-    cycleToolCallsExecuted += results.length;
-
-    if (addToHistory && stateManager !== null && results.length > 0) {
-      stateManager.appendTurn(createToolResultTurn(results));
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-warning-turn
+    // One warning turn before the fatal trip: a repeat at count threshold-1
+    // gets a corrective note appended so the model can see it is looping.
+    // `>= 2` keeps threshold 2 from annotating a batch's first execution.
+    let annotatedResults = results;
+    if (
+      doomLoopThreshold !== null &&
+      toolBatchRepeatCount >= 2 &&
+      toolBatchRepeatCount === doomLoopThreshold - 1 &&
+      doomLoopCorrectiveNote !== undefined
+    ) {
+      const note = doomLoopCorrectiveNote({
+        calls: ranCalls,
+        repeatCount: toolBatchRepeatCount,
+        threshold: doomLoopThreshold,
+      });
+      if (note !== undefined && note.length > 0) {
+        annotatedResults = results.map((result) => ({
+          ...result,
+          content:
+            typeof result.content === "string"
+              ? `${result.content}\n\n${note}`
+              : { ...result.content, doom_loop_warning: note },
+        }));
+      }
     }
 
-    for (const result of results) {
+    cycleToolCallsExecuted += annotatedResults.length;
+
+    if (addToHistory && stateManager !== null && annotatedResults.length > 0) {
+      stateManager.appendTurn(createToolResultTurn(annotatedResults));
+    }
+
+    for (const result of annotatedResults) {
       enqueue({ type: "tool.done", result });
     }
 
@@ -1595,6 +1627,22 @@ export function createReactor(config: ReactorConfig): Reactor {
             `${String(doomLoopThreshold)} times consecutively`;
           emitError(message, true);
           closeMessageRun("failed", { message, kind: "doom_loop" });
+          // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-fail-run
+          if (doomLoopPolicy === "fail-run") {
+            // The run is dead but the reactor is not: drop the doomed batch's
+            // queued cycle events so the director never sees a tool.done that
+            // would re-infer, then return to idle. Non-cycle events already
+            // queued (inbound mail, gate clears) still process normally, and
+            // the next message.received opens a fresh run bracket.
+            for (let i = queue.length - 1; i >= 0; i--) {
+              const queued = queue[i];
+              if (queued !== undefined && CYCLE_EVENT_TYPES.has(queued.type)) {
+                queue.splice(i, 1);
+              }
+            }
+            pendingContinuations = 0;
+            continue;
+          }
           done = true;
           await initiateShutdown();
           break;

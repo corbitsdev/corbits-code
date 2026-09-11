@@ -49,6 +49,7 @@ import {
 } from "../agent/tool-search.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { createChatDirector, type ChatDirector } from "../agent/director.js";
+import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
 import type { Task } from "../agent/tasks.js";
 import type { AgentToolset } from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
@@ -531,6 +532,12 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
       // transforms up from there.
       deps: {
         ...wiring.inferenceDeps,
+        doomLoopPolicy: "fail-run",
+        doomLoopCorrectiveNote: createDoomLoopCorrectiveNote(() =>
+          wiring
+            .computeAdvertised(wiring.getDynamicRunner().currentDefinitions())
+            .map((def) => def.name),
+        ),
         contextTransforms: [
           createAttachmentRehydrateTransform((key) =>
             storageForAgent.readBlob(key),

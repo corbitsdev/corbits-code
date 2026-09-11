@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   applyManageTasks,
+  createManageTasksRunner,
   hasActiveTasks,
   type Task,
 } from "../../../src/agent/tasks.js";
@@ -106,4 +107,54 @@ test("hasActiveTasks is false for an empty or all-terminal list", () => {
       { id: "t2", title: "Two", status: "cancelled" },
     ]),
   ).toBe(false);
+});
+
+test("manage_tasks runner reports a repeat update that changes nothing", async () => {
+  const run = createManageTasksRunner();
+  await run({
+    action: "create",
+    tasks: [{ id: "t8", title: "Ship it", status: "doing" }],
+  });
+  const again = await run({
+    action: "update",
+    updates: [{ id: "t8", status: "doing" }],
+  });
+  expect(again.content).toBe("No change: t8 already doing.");
+});
+
+test("manage_tasks runner reports a repeat create that changes nothing", async () => {
+  const run = createManageTasksRunner();
+  const args = { action: "create", tasks: [{ id: "t1", title: "One" }] };
+  expect((await run(args)).content).toBe("Tasks updated.");
+  expect((await run(args)).content).toBe(
+    "No change: task list already matches.",
+  );
+});
+
+test("manage_tasks runner still reports real updates as updated", async () => {
+  const run = createManageTasksRunner();
+  await run({
+    action: "create",
+    tasks: [{ id: "t1", title: "One", status: "doing" }],
+  });
+  expect(
+    (await run({ action: "update", updates: [{ id: "t1", status: "done" }] }))
+      .content,
+  ).toBe("Tasks updated.");
+});
+
+test("manage_tasks runner reports updates against unknown or empty input", async () => {
+  const run = createManageTasksRunner();
+  expect((await run({ action: "update" })).content).toBe(
+    "No change: no updates supplied.",
+  );
+  expect(
+    (await run({ action: "update", updates: [{ id: "t9" }] })).content,
+  ).toBe("No change: t9 not found.");
+});
+
+test("manage_tasks runner rejects invalid args", async () => {
+  const run = createManageTasksRunner();
+  const result = await run({});
+  expect(result.isError).toBe(true);
 });

@@ -116,6 +116,78 @@ export function parseManageTasksArgs(rawArgs: unknown): ManageTasksArgs | null {
   return result instanceof type.errors ? null : result;
 }
 
+function tasksEqual(a: Task[], b: Task[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((t, i) => {
+      const o = b[i];
+      return (
+        o !== undefined &&
+        t.id === o.id &&
+        t.title === o.title &&
+        t.status === o.status
+      );
+    })
+  );
+}
+
+// Returns the model-facing note when a call changes nothing, else null.
+function describeManageTasksNoOp(
+  current: Task[],
+  args: ManageTasksArgs,
+): string | null {
+  if (args.action === "create") {
+    return tasksEqual(current, applyManageTasks(current, args))
+      ? "No change: task list already matches."
+      : null;
+  }
+  const updates = args.updates ?? [];
+  if (updates.length === 0) return "No change: no updates supplied.";
+  const noOps: string[] = [];
+  let changed = false;
+  for (const patch of updates) {
+    const existing = current.find((t) => t.id === patch.id);
+    if (existing === undefined) {
+      if (patch.title !== undefined && patch.title.length > 0) changed = true;
+      else noOps.push(`${patch.id} not found`);
+    } else if (
+      (patch.title ?? existing.title) === existing.title &&
+      (patch.status ?? existing.status) === existing.status
+    ) {
+      noOps.push(`${patch.id} already ${existing.status}`);
+    } else {
+      changed = true;
+    }
+  }
+  return changed ? null : `No change: ${noOps.join("; ")}.`;
+}
+
+export type ManageTasksRunner = (rawArgs: Record<string, unknown>) => Promise<{
+  content: string;
+  isError?: boolean;
+}>;
+
+// Task state is owned by the director, which applies each manage_tasks call
+// when it observes the tool_call — so by the time this handler runs, the
+// authoritative list already includes the update and a diff against it would
+// always read as a no-op. The runner keeps its own copy so a repeat call that
+// changes nothing gets a distinct result instead of "Tasks updated."
+export function createManageTasksRunner(): ManageTasksRunner {
+  let tasks: Task[] = [];
+  return async (rawArgs) => {
+    const parsed = parseManageTasksArgs(rawArgs);
+    if (parsed === null) {
+      return {
+        content: "Error: manage_tasks requires action ('create' or 'update').",
+        isError: true,
+      };
+    }
+    const noOp = describeManageTasksNoOp(tasks, parsed);
+    tasks = applyManageTasks(tasks, parsed);
+    return { content: noOp ?? "Tasks updated." };
+  };
+}
+
 // Apply a parsed call to a task list, returning the full list. Completed tasks
 // are retained so the task view can show them checked off as work progresses.
 export function applyManageTasks(
