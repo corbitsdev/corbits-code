@@ -551,6 +551,28 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
       message: "subagent-complete",
     });
   });
+
+  test("a complete envelope that quotes tool-call markup still completes", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    const reportQuotingMarkup = `${REPORT_ENVELOPE}\n\nThe model emitted ${verbatimToolCall} as text.`;
+    const result = actions(
+      await director.decide(
+        inferenceDoneText(reportQuotingMarkup),
+        state,
+        caps,
+      ),
+    );
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-complete",
+    });
+    expect(result).not.toContainEqual({
+      type: "checkpoint",
+      message: "subagent-verbatim-tool-call-nudge",
+    });
+  });
 });
 
 describe("SubAgentDirector incomplete-report wiring", () => {
