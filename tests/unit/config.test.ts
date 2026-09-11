@@ -347,6 +347,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       mcpServers: [{ name: "s", command: "echo" }],
       sessionMode: "orchestrator" as const,
       env: { FOO: "bar" },
+      pinnedTools: ["mcp__linear__save_issue"],
     };
     await writeFile(localPath, JSON.stringify(localFixture));
     const local = await loadLocalSettings(localPath);
