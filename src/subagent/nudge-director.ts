@@ -152,6 +152,12 @@ export class SubAgentDirector extends DefaultDirector {
   private lastActivityAt: number;
   private consecutiveStalls = 0;
   private lastAssistantText = "";
+  // Consecutive failed tool.done events that armed the single pending
+  // recovery nudge. The jsonl sink is append-only, so the director holds
+  // the count until applyPendingNudge actually attaches the nudge, then
+  // writes one tool-failure-recovery row. Same (id + state) burst → one
+  // record; a missing count still means 1.
+  private pendingToolFailureRecoveries = 0;
   // Every stop and nudge is recorded with its measured value beside its
   // threshold, so a later threshold change can cite data instead of judgment
   //. Defaults to a no-op: logging is diagnostic, never required.
@@ -361,13 +367,10 @@ export class SubAgentDirector extends DefaultDirector {
       this.lastActivityAt = this.now();
       this.consecutiveStalls = 0;
       if (event.result.isError === true) {
-        // Failed-tool recovery guidance.
+        // Failed-tool recovery guidance. Text stays a single pending slot;
+        // the audit count is the only thing that accumulates.
         this.pendingNudgeText = TOOL_FAILURE_RECOVERY_NUDGE;
-        this.interventions({
-          id: "tool-failure-recovery",
-          class: "nudge",
-          state: this.interventionState(),
-        });
+        this.pendingToolFailureRecoveries += 1;
       }
     }
     const base = await super.decide(event, state, capabilities);
@@ -465,6 +468,19 @@ export class SubAgentDirector extends DefaultDirector {
     const text = this.pendingNudgeText;
     this.pendingNudgeText = null;
     this.lastConsumedNudgeText = text;
+    if (
+      text === TOOL_FAILURE_RECOVERY_NUDGE &&
+      this.pendingToolFailureRecoveries > 0
+    ) {
+      const count = this.pendingToolFailureRecoveries;
+      this.pendingToolFailureRecoveries = 0;
+      this.interventions({
+        id: "tool-failure-recovery",
+        class: "nudge",
+        state: this.interventionState(),
+        ...(count > 1 ? { count } : {}),
+      });
+    }
     const existing = actions[inferIndex] as Extract<
       ReactorAction,
       { type: "infer" }

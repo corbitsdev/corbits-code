@@ -172,6 +172,77 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(texts?.[0]).toContain("report the blocker");
   });
 
+  test("N consecutive failed tools in one burst produce one coalesced intervention record", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+    const records: { id: string; count?: number }[] = [];
+    director.observeInterventions((event) => {
+      records.push(
+        event.count === undefined
+          ? { id: event.id }
+          : { id: event.id, count: event.count },
+      );
+    });
+
+    await director.decide(
+      inferenceDone(["fail-a", "fail-b", "fail-c"]),
+      state,
+      caps,
+    );
+    await director.decide(toolDone("fail-a", true), state, caps);
+    await director.decide(toolDone("fail-b", true), state, caps);
+    expect(records).toEqual([]);
+
+    const texts = ephemeralTexts(
+      inferAction(await director.decide(toolDone("fail-c", true), state, caps)),
+    );
+    expect(texts).toHaveLength(1);
+    expect(texts?.[0]).toContain("A tool call failed");
+    expect(records).toEqual([{ id: "tool-failure-recovery", count: 3 }]);
+  });
+
+  test("a single failed tool writes one recovery record with count omitted", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+    const records: { id: string; class?: string; count?: number }[] = [];
+    director.observeInterventions((event) => {
+      records.push(
+        event.count === undefined
+          ? { id: event.id, class: event.class }
+          : { id: event.id, class: event.class, count: event.count },
+      );
+    });
+
+    await director.decide(inferenceDone(["failed-call"]), state, caps);
+    await director.decide(toolDone("failed-call", true), state, caps);
+    expect(records).toEqual([{ id: "tool-failure-recovery", class: "nudge" }]);
+  });
+
+  test("a later failure burst writes a new coalesced record instead of stacking", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+    const records: { id: string; count?: number }[] = [];
+    director.observeInterventions((event) => {
+      records.push(
+        event.count === undefined
+          ? { id: event.id }
+          : { id: event.id, count: event.count },
+      );
+    });
+
+    await director.decide(inferenceDone(["fail-a", "fail-b"]), state, caps);
+    await director.decide(toolDone("fail-a", true), state, caps);
+    await director.decide(toolDone("fail-b", true), state, caps);
+    expect(records).toEqual([{ id: "tool-failure-recovery", count: 2 }]);
+
+    await director.decide(inferenceDone(["fail-c"]), state, caps);
+    await director.decide(toolDone("fail-c", true), state, caps);
+    expect(records).toEqual([
+      { id: "tool-failure-recovery", count: 2 },
+      { id: "tool-failure-recovery" },
+    ]);
+  });
+
   test("successful tool result has no ephemeral recovery turn", async () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = capabilities();
@@ -219,6 +290,42 @@ describe("SubAgentDirector tool failure recovery", () => {
       await director.decide(toolDone("later-success"), state, caps),
     );
     expect(ephemeralTexts(infer)).toBeUndefined();
+  });
+
+  test("compaction defers the coalesced recovery record until continuation infer", async () => {
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => undefined,
+      30,
+    );
+    const caps = capabilities();
+    const records: { id: string; count?: number }[] = [];
+    director.observeInterventions((event) => {
+      records.push(
+        event.count === undefined
+          ? { id: event.id }
+          : { id: event.id, count: event.count },
+      );
+    });
+
+    await director.decide(
+      inferenceDone(["fail-a", "fail-b"], 999_999),
+      longState,
+      caps,
+    );
+    await director.decide(toolDone("fail-a", true), longState, caps);
+    const compact = actions(
+      await director.decide(toolDone("fail-b", true), longState, caps),
+    );
+    expect(compact.some((action) => action.type === "infer")).toBe(false);
+    expect(records).toEqual([]);
+
+    const resumed = inferAction(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    expect(ephemeralTexts(resumed)?.[0]).toContain("A tool call failed");
+    expect(records).toEqual([{ id: "tool-failure-recovery", count: 2 }]);
   });
 
   test("retains recovery through compaction and consumes it once on continuation infer", async () => {

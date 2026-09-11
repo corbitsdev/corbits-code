@@ -90,6 +90,11 @@ export interface InterventionRecord {
   };
   /** Free-form specifics, kept short (a looped window, a refused fingerprint). */
   detail?: string;
+  /**
+   * How many consecutive same-(id, state) firings this row stands for.
+   * Absent means 1 — older records and one-shot interventions omit it.
+   */
+  count?: number;
 }
 
 /** Fields every record from one run shares, supplied once at construction. */

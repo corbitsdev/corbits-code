@@ -151,15 +151,19 @@ for (const file of files) {
       bucket = emptyBucket();
       buckets.set(key, bucket);
     }
-    bucket.count++;
+    const occurrences = record.count ?? 1;
+    bucket.count += occurrences;
     const family = record.family ?? record.model ?? "unknown";
-    bucket.byFamily.set(family, (bucket.byFamily.get(family) ?? 0) + 1);
+    bucket.byFamily.set(
+      family,
+      (bucket.byFamily.get(family) ?? 0) + occurrences,
+    );
     const model = record.model ?? "unknown";
-    bucket.byModel.set(model, (bucket.byModel.get(model) ?? 0) + 1);
+    bucket.byModel.set(model, (bucket.byModel.get(model) ?? 0) + occurrences);
     if (record.class === "stop" || record.class === "nudge") {
       interventionsByModel.set(
         model,
-        (interventionsByModel.get(model) ?? 0) + 1,
+        (interventionsByModel.get(model) ?? 0) + occurrences,
       );
     }
     if (record.measurement !== undefined) {
