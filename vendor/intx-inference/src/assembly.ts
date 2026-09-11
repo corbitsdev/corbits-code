@@ -30,7 +30,7 @@ import {
   type AuthzExtensionOptions,
 } from "./authz-extension";
 import type { CorrelationValidator } from "./correlation";
-import type { Dependencies } from "./harness";
+import type { Dependencies, PollBatchLivenessPredicate } from "./harness";
 import {
   createReactor,
   type Reactor,
@@ -82,6 +82,13 @@ export type ReactorAssemblyConfig = {
   beforeToolExtensions?: BeforeToolExtension[];
   toolResultTransforms?: ToolResultTransform[];
   contextTransforms?: ContextTransform[];
+  /**
+   * Liveness policy for the doom-loop guard's batch accounting. A direct
+   * value wins over the one riding `deps`.
+   *
+   * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-poll-exemption
+   */
+  isPollOnlyPendingBatch?: PollBatchLivenessPredicate;
   compactors?: Record<string, Compactor>;
   sizeCapMaxChars?: number;
 
@@ -135,6 +142,7 @@ export function createReactorAssembly(
     beforeToolExtensions: callerBeforeToolExtensions,
     toolResultTransforms: callerToolResultTransforms,
     contextTransforms,
+    isPollOnlyPendingBatch,
     compactors,
     sizeCapMaxChars,
     afterCheckpoint: callerAfterCheckpoint,
@@ -242,6 +250,15 @@ export function createReactorAssembly(
   // Locally patched — see vendor/intx-inference/PATCHES.md#assembly-ts-deps-context-transforms
   const resolvedContextTransforms = contextTransforms ?? deps.contextTransforms;
 
+  // The liveness policy resolves the same way: directly on the assembly
+  // config, or riding `deps` (the only channel the published `@intx/agent`
+  // forwards verbatim). A direct value wins so callers composing their own
+  // assembly are unaffected by whatever a shared deps object carries.
+  //
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-poll-exemption
+  const resolvedIsPollOnlyPendingBatch =
+    isPollOnlyPendingBatch ?? deps.isPollOnlyPendingBatch;
+
   // exactOptionalPropertyTypes is on: only set optional keys when defined.
   const reactorConfig: ReactorConfig = {
     sessionId,
@@ -259,6 +276,9 @@ export function createReactorAssembly(
       : {}),
     ...(resolvedContextTransforms !== undefined
       ? { contextTransforms: resolvedContextTransforms }
+      : {}),
+    ...(resolvedIsPollOnlyPendingBatch !== undefined
+      ? { isPollOnlyPendingBatch: resolvedIsPollOnlyPendingBatch }
       : {}),
     ...(compactors !== undefined ? { compactors } : {}),
     ...(composedAfterCheckpoint !== undefined

@@ -21,7 +21,10 @@ export const shellCollectDefinition: ToolDefinition = {
     'action="collect" returns the result once finished (or status running); ' +
     'action="cancel" kills the process group. Completion also arrives as a ' +
     "system message on a later turn — collect is for polling or retrieving " +
-    "output again after eviction risk.",
+    'output again after eviction risk. A "running" result is liveness, not a ' +
+    "stall or a crash: repeated identical collects of a still-running shell " +
+    "are exempt from the run's doom-loop guard, so keep polling rather than " +
+    "treating it as a failure.",
   inputSchema: {
     type: "object",
     properties: {

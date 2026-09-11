@@ -249,6 +249,28 @@ path:** Upstream PR wrapping `tryCorrelate` in try/finally to clear
 in `reactor.ts`; re-verify exit paths after upstream changes to gate
 clearing.
 
+## reactor-ts-doom-loop-poll-exemption
+
+`reactor.ts` — Doom-loop guard exempts still-pending poll batches. The batch
+accounting asks an optional first-party liveness predicate
+(`PollBatchLivenessPredicate`, typed in `harness.ts` on `Dependencies` and
+resolved direct-wins-over-deps through `assembly.ts` into `ReactorConfig`,
+mirroring `assembly-ts-deps-context-transforms`): when the batch is
+poll-only and every result still shows pending, the stale signature and
+repeat count reset instead of counting. Reset — not skip — so an earlier
+streak cannot false-positive later; mixed batches and poll-only-terminal
+batches count normally. Without the predicate every batch counts, same as
+upstream.
+
+**Disposition:** Promotion candidate. Legitimate `wait_agents` /
+`shell_collect` polling repeats the identical batch once per model turn and
+trips the upstream guard at the default threshold while targets are still
+running. **Removal path:** Upstream PR adding a liveness exemption to the
+doom-loop accounting.
+**Re-carry:** new at this patch; sits inside the upstream doom-loop
+accounting block, re-verify the reset branch after upstream changes to batch
+signatures or repeat counting.
+
 ## reactor-ts-checkpoint-after-tool-cycle
 
 `reactor.ts` — Checkpoint after a tool cycle that appends to history.
