@@ -325,6 +325,7 @@ export class SubAgentDirector extends DefaultDirector {
 
       if (stop === "complete") {
         this.reportReplied = true;
+        this.flushToolFailureRecoveryAudit();
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-complete"),
           capabilities.reply(lastText(content)),
@@ -384,6 +385,7 @@ export class SubAgentDirector extends DefaultDirector {
         });
         this.onForcedStop("incomplete-report");
         this.reportReplied = true;
+        this.flushToolFailureRecoveryAudit();
         const terminal: ReactorAction[] = [
           capabilities.checkpoint("subagent-incomplete-report"),
           capabilities.reply(
@@ -480,6 +482,7 @@ export class SubAgentDirector extends DefaultDirector {
     });
     this.onForcedStop("stalled");
     this.reportReplied = true;
+    this.flushToolFailureRecoveryAudit();
     const terminal: ReactorAction[] = [
       capabilities.checkpoint("subagent-stalled"),
       capabilities.reply(
@@ -490,6 +493,25 @@ export class SubAgentDirector extends DefaultDirector {
       ),
     ];
     return terminal;
+  }
+
+  /**
+   * Write the coalesced tool-failure-recovery audit once the burst ends —
+   * when the armed nudge lands on an infer, or when the run goes terminal
+   * (complete / forced stop / stalled) with the nudge still undelivered.
+   * Without the terminal-path flush a burst that is never followed by an
+   * infer would vanish from the audit trail entirely.
+   */
+  private flushToolFailureRecoveryAudit(): void {
+    if (this.pendingToolFailureRecoveryCount === 0) return;
+    const count = this.pendingToolFailureRecoveryCount;
+    this.pendingToolFailureRecoveryCount = 0;
+    this.interventions({
+      id: "tool-failure-recovery",
+      class: "nudge",
+      ...(count > 1 ? { count } : {}),
+      state: this.interventionState(),
+    });
   }
 
   /**
@@ -507,15 +529,7 @@ export class SubAgentDirector extends DefaultDirector {
     const text = this.pendingNudgeText;
     this.pendingNudgeText = null;
     this.lastConsumedNudgeText = text;
-    if (this.pendingToolFailureRecoveryCount > 0) {
-      this.interventions({
-        id: "tool-failure-recovery",
-        class: "nudge",
-        count: this.pendingToolFailureRecoveryCount,
-        state: this.interventionState(),
-      });
-      this.pendingToolFailureRecoveryCount = 0;
-    }
+    this.flushToolFailureRecoveryAudit();
     const existing = actions[inferIndex] as Extract<
       ReactorAction,
       { type: "infer" }
