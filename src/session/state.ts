@@ -1,11 +1,25 @@
-import { mkdir, writeFile, readFile, rename } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import {
+  mkdir,
+  writeFile,
+  readFile,
+  rename,
+  readdir,
+  stat,
+  unlink,
+} from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 
 import { type } from "arktype";
 import { getLogger } from "@intx/log";
 
 import { sessionDir } from "./index.js";
 import { clearActiveRun, getTestWriteGate, isCrashed } from "./active-run.js";
+import {
+  ageStaleRunningState,
+  isStaleRunningMtime,
+  RUN_STALE_THRESHOLD_MS,
+  RUN_TMP_SWEEP_AGE_MS,
+} from "./run-liveness.js";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session", "state"]);
@@ -18,7 +32,8 @@ const ConnectedMcpServerSchema = type({
 export type ConnectedMcpServer = typeof ConnectedMcpServerSchema.infer;
 
 const RunStateSchema = type({
-  status: "'running' | 'done' | 'failed' | 'cancelled' | 'crashed'",
+  status:
+    "'running' | 'done' | 'failed' | 'cancelled' | 'crashed' | 'interrupted'",
   turnsUsed: "number",
   task: "string",
   startedAt: "number",
@@ -37,6 +52,15 @@ export type RunState = typeof RunStateSchema.infer;
 
 function statePath(cwd: string, sessionId: string, home?: string): string {
   return join(sessionDir(cwd, sessionId, home), "run.json");
+}
+
+function isENOENT(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "ENOENT"
+  );
 }
 
 let tmpWriteCounter = 0;
@@ -177,40 +201,195 @@ export type LoadStateResult =
   | { kind: "missing" }
   | { kind: "unreadable" };
 
+export type LoadStateOptions = {
+  nowMs?: number;
+  staleThresholdMs?: number;
+  tmpSweepAgeMs?: number;
+  /** Persist an aged-out interrupted record. Default true. */
+  persistAgeOut?: boolean;
+};
+
+type CandidateFile = {
+  path: string;
+  mtimeMs: number;
+  state: RunState;
+};
+
+type InspectedRunFile =
+  | { kind: "ok"; state: RunState; mtimeMs: number }
+  | { kind: "unreadable"; reason: string; mtimeMs: number }
+  | { kind: "missing" };
+
+async function inspectRunStateFile(path: string): Promise<InspectedRunFile> {
+  let raw: string;
+  let fileStat: { mtimeMs: number };
+  try {
+    [raw, fileStat] = await Promise.all([readFile(path, "utf8"), stat(path)]);
+  } catch (err) {
+    if (isENOENT(err)) return { kind: "missing" };
+    throw err;
+  }
+  try {
+    const parsed = parseRunState(JSON.parse(raw));
+    if (!parsed.ok) {
+      return {
+        kind: "unreadable",
+        reason: `invalid shape: ${parsed.reason}`,
+        mtimeMs: fileStat.mtimeMs,
+      };
+    }
+    return { kind: "ok", state: parsed.state, mtimeMs: fileStat.mtimeMs };
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      return {
+        kind: "unreadable",
+        reason: "corrupt JSON",
+        mtimeMs: fileStat.mtimeMs,
+      };
+    }
+    throw err;
+  }
+}
+
+function isRunJsonTmpName(name: string, runBase: string): boolean {
+  return name.startsWith(`${runBase}.`) && name.endsWith(".tmp");
+}
+
+async function recoverPreferredRunState(
+  path: string,
+  sessionId: string,
+  opts: {
+    nowMs: number;
+    tmpSweepAgeMs: number;
+    staleThresholdMs: number;
+  },
+): Promise<
+  | { kind: "ok"; state: RunState; mtimeMs: number }
+  | { kind: "missing" }
+  | { kind: "unreadable"; reason: string }
+> {
+  const dir = dirname(path);
+  const runBase = basename(path);
+  let entries: string[] = [];
+  try {
+    entries = await readdir(dir);
+  } catch (err) {
+    if (isENOENT(err)) return { kind: "missing" };
+    throw err;
+  }
+
+  const primary = await inspectRunStateFile(path);
+
+  const tmpCandidates: CandidateFile[] = [];
+  for (const name of entries) {
+    if (!isRunJsonTmpName(name, runBase)) continue;
+    const tmpPath = join(dir, name);
+    const parsed = await inspectRunStateFile(tmpPath);
+    if (parsed.kind !== "ok") continue;
+    tmpCandidates.push({
+      path: tmpPath,
+      mtimeMs: parsed.mtimeMs,
+      state: parsed.state,
+    });
+  }
+
+  // Prefer a newer parseable tmp only over missing, unreadable, or stale
+  // run.json. A fresh canonical file is the in-flight save's destination;
+  // tmp is the normal artifact of every atomicWrite and must not win.
+  const primaryMtime =
+    primary.kind === "missing" ? Number.NEGATIVE_INFINITY : primary.mtimeMs;
+  const primaryAllowsTmp =
+    !writeChains.has(sessionId) &&
+    (primary.kind !== "ok" ||
+      isStaleRunningMtime(primaryMtime, opts.nowMs, opts.staleThresholdMs));
+  let bestTmp: CandidateFile | null = null;
+  if (primaryAllowsTmp) {
+    for (const candidate of tmpCandidates) {
+      if (candidate.mtimeMs <= primaryMtime) continue;
+      if (bestTmp === null || candidate.mtimeMs > bestTmp.mtimeMs) {
+        bestTmp = candidate;
+      }
+    }
+  }
+
+  if (bestTmp !== null) {
+    try {
+      await rename(bestTmp.path, path);
+    } catch {
+      // Another reader may have won the rename; fall through to re-read.
+    }
+  }
+
+  // Sweep aged temps so in-flight atomicWrite files under the age gate survive.
+  for (const name of entries) {
+    if (!isRunJsonTmpName(name, runBase)) continue;
+    const tmpPath = join(dir, name);
+    if (bestTmp !== null && tmpPath === bestTmp.path) continue;
+    try {
+      const tmpStat = await stat(tmpPath);
+      if (opts.nowMs - tmpStat.mtimeMs > opts.tmpSweepAgeMs) {
+        await unlink(tmpPath).catch(() => undefined);
+      }
+    } catch {
+      // Gone already.
+    }
+  }
+
+  const recovered = await inspectRunStateFile(path);
+  if (recovered.kind === "ok") {
+    return recovered;
+  }
+  if (recovered.kind === "unreadable") {
+    return { kind: "unreadable", reason: recovered.reason };
+  }
+  if (primary.kind === "unreadable") {
+    return { kind: "unreadable", reason: primary.reason };
+  }
+  return { kind: "missing" };
+}
+
 export async function loadState(
   cwd: string,
   sessionId: string,
   home?: string,
+  options: LoadStateOptions = {},
 ): Promise<LoadStateResult> {
   const path = statePath(cwd, sessionId, home);
+  const nowMs = options.nowMs ?? Date.now();
+  const tmpSweepAgeMs = options.tmpSweepAgeMs ?? RUN_TMP_SWEEP_AGE_MS;
+  const staleThresholdMs = options.staleThresholdMs ?? RUN_STALE_THRESHOLD_MS;
+  const persistAgeOut = options.persistAgeOut !== false;
 
-  try {
-    const raw = await readFile(path, "utf8");
-    const parsed = parseRunState(JSON.parse(raw));
-    if (!parsed.ok) {
+  const recovered = await recoverPreferredRunState(path, sessionId, {
+    nowMs,
+    tmpSweepAgeMs,
+    staleThresholdMs,
+  });
+  if (recovered.kind !== "ok") {
+    if (recovered.kind === "unreadable") {
       log.warn("unreadable session state at {path}: {reason}", {
         path,
-        reason: `invalid shape: ${parsed.reason}`,
+        reason: recovered.reason,
       });
       return { kind: "unreadable" };
     }
-    return { kind: "ok", state: parsed.state };
-  } catch (err) {
-    if (err instanceof SyntaxError) {
-      log.warn("unreadable session state at {path}: {reason}", {
-        path,
-        reason: "corrupt JSON",
-      });
-      return { kind: "unreadable" };
-    }
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code?: unknown }).code === "ENOENT"
-    ) {
-      return { kind: "missing" };
-    }
-    throw err;
+    return recovered;
   }
+
+  const aged = ageStaleRunningState(recovered.state, recovered.mtimeMs, {
+    nowMs,
+    staleThresholdMs,
+    sessionId,
+  });
+  if (aged.status !== recovered.state.status && persistAgeOut) {
+    try {
+      await saveState(cwd, sessionId, aged, home);
+    } catch (err: unknown) {
+      log.warn("failed to persist aged-out run state at {path}: {error}", {
+        path,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return { kind: "ok", state: aged };
 }

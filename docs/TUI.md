@@ -540,7 +540,7 @@ in `mouse-reporting-disabled.test.ts` for both `runListModal` and
 click-to-expand or drag-to-scroll, so leaving mouse reporting off lets the
 terminal's own text selection and copy work by default, with no Alt+M dance
 required. The resume picker lists the 10 most recently persisted sessions
-for this checkout — completed, failed, and crashed included. Recency is
+for this checkout — completed, failed, crashed, and interrupted included. Recency is
 the last write to `run.json`, not start time. Type to filter by name
 (printable keys claim the `>` row, same as the model picker).
 

@@ -75,6 +75,7 @@ import {
   syncRunStateHandle,
   type RunStateHandle,
 } from "../session/active-run.js";
+import { startRunHeartbeat } from "../session/run-liveness.js";
 import {
   setActiveDisposeHost,
   clearActiveDisposeHost,
@@ -389,13 +390,18 @@ export async function runExec(config: Config): Promise<ExecResult> {
     turnsUsed: 0,
     model: `${config.providerName}:${config.model}`,
   };
+  let stopHeartbeat: (() => void) | undefined;
 
   const persist = async (
     status: "running" | "done" | "failed" | "cancelled",
     extra?: { error?: string },
   ): Promise<void> => {
     if (finalized && status === "running") return;
-    if (status !== "running") finalized = true;
+    if (status !== "running") {
+      finalized = true;
+      stopHeartbeat?.();
+      stopHeartbeat = undefined;
+    }
     const model = `${config.providerName}:${config.model}`;
     const nextTurnsUsed = runSink?.getTurnCount() ?? turnsUsed;
     syncRunStateHandle(activeRunHandle, {
@@ -437,6 +443,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
   };
 
   await persist("running");
+  stopHeartbeat = startRunHeartbeat({
+    shouldTick: () => !finalized,
+    tick: () => persist("running"),
+  });
 
   try {
     // Pricing seed is optional for exec; continue without rates rather than fail the run.

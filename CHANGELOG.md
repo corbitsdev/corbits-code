@@ -18,6 +18,15 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - `--force` is no longer accepted. It had no runtime effect; resume and the
   session picker already include failed and done sessions without it.
 
+### Fixed
+
+- Stale `running` sessions age to `interrupted` after two missed 5-minute
+  heartbeats, leftover newer parseable `run.json.*.tmp` files recover by mtime
+  over a stale `run.json`, and resume persists `interrupted` before reopening
+  as `running`. Signals stay `failed`; missing or unreadable state stays
+  `crashed`.
+
+
 ## [0.3.20] - 2026-09-10
 
 ### Added

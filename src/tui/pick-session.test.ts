@@ -38,6 +38,9 @@ describe("sessionResumeLabel", () => {
     expect(sessionResumeLabel(summary({ status: "crashed" }))).toContain(
       "crashed",
     );
+    expect(sessionResumeLabel(summary({ status: "interrupted" }))).toContain(
+      "interrupted",
+    );
   });
 
   test("falls back to Untitled session when the task is blank", () => {

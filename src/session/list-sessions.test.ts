@@ -275,3 +275,19 @@ test("listSessions reports updatedAt from run.json mtime", async () => {
   expect(row?.updatedAt).toBeGreaterThanOrEqual(stamp - 2000);
   expect(row?.updatedAt).toBeLessThanOrEqual(stamp + 2000);
 });
+
+test("listSessions ages a stale running session to interrupted", async () => {
+  const sessionId = generateSessionId();
+  const runPath = await writeRun(sessionId, {
+    status: "running",
+    task: "stale live",
+    startedAt: 1,
+  });
+  const oldSec = Math.floor(Date.now() / 1000) - 20 * 60;
+  await utimes(runPath, oldSec, oldSec);
+
+  const listed = await listSessions(cwd, home);
+  const row = listed.find((s) => s.sessionId === sessionId);
+  expect(row?.status).toBe("interrupted");
+  expect(row?.status).not.toBe("running");
+});

@@ -285,6 +285,7 @@ export interface RunnerState {
   ) => Promise<void>;
   shutdownRuntime?: () => Promise<void>;
   stopFleetReporting?: () => void;
+  stopRunHeartbeat?: () => void;
   withFleetPublicationSuspended?: (reset: () => void) => void;
   /** TUI primary: true when a queued Enter steer should yield in-flight wait_agents. */
   hasQueuedSteer?: () => boolean;
