@@ -3,7 +3,9 @@ import { createFleetMailbox } from "./agent-fleet.js";
 import {
   buildMailboxMailPrompt,
   driveMailboxMail,
+  latchMailboxMailDrive,
   MAILBOX_MAIL_WAKE_PREFIX,
+  mailboxMailWakeLine,
   occupancyShouldYieldWait,
 } from "./mailbox-mail-drive.js";
 import { createSubAgentSessionStore } from "./session-store.js";
@@ -41,9 +43,8 @@ describe("buildMailboxMailPrompt", () => {
     expect(prompt.startsWith(MAILBOX_MAIL_WAKE_PREFIX)).toBe(true);
     expect(prompt).toContain("worker-1");
     expect(prompt).toContain("shipped");
-    expect(prompt).toContain(
-      "already collected — do not call wait_agents for these agent_ids",
-    );
+    expect(prompt).toContain(mailboxMailWakeLine());
+    expect(prompt).not.toContain("already collected");
   });
 });
 
@@ -211,6 +212,80 @@ describe("driveMailboxMail", () => {
     expect(records.get("w1")?.collected).toBe(true);
   });
 
+  test("two flushes while send is pending deliver once", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const mailbox = mapMailbox(records);
+    const sends: string[] = [];
+    let resolveSend: ((ok: boolean) => void) | undefined;
+    const driven = await driveMailboxMail({
+      parentProcessing: false,
+      mailbox,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: (prompt) => {
+        sends.push(prompt);
+        return new Promise<boolean>((resolve) => {
+          resolveSend = resolve;
+        });
+      },
+    });
+    expect(driven).toBe(true);
+    expect(sends).toHaveLength(1);
+    expect(records.get("w1")?.collected).not.toBe(true);
+    expect(
+      await driveMailboxMail({
+        parentProcessing: false,
+        mailbox,
+        lanes: [],
+        beginSystemContinuation: () => {
+          throw new Error("must not begin");
+        },
+        send: () => {
+          throw new Error("must not send");
+        },
+      }),
+    ).toBe(false);
+    expect(sends).toHaveLength(1);
+    resolveSend?.(true);
+    await Promise.resolve();
+    expect(records.get("w1")?.collected).toBe(true);
+  });
+
+  test("failed send can retry once", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const mailbox = mapMailbox(records);
+    const sends: string[] = [];
+    expect(
+      await driveMailboxMail({
+        parentProcessing: false,
+        mailbox,
+        lanes: [],
+        beginSystemContinuation: () => undefined,
+        send: () => {
+          throw new Error("send failed");
+        },
+      }),
+    ).toBe(false);
+    expect(records.get("w1")?.collected).not.toBe(true);
+    expect(
+      await driveMailboxMail({
+        parentProcessing: false,
+        mailbox,
+        lanes: [],
+        beginSystemContinuation: () => undefined,
+        send: (prompt) => {
+          sends.push(prompt);
+        },
+      }),
+    ).toBe(true);
+    expect(sends).toHaveLength(1);
+    expect(records.get("w1")?.collected).toBe(true);
+  });
+
   test("awaiting_director is not mailbox mail", async () => {
     const records = new Map<string, FleetDryMailboxRecord>([
       ["ask", { status: "awaiting_director" }],
@@ -229,6 +304,91 @@ describe("driveMailboxMail", () => {
         },
       }),
     ).toBe(false);
+  });
+});
+
+describe("latchMailboxMailDrive", () => {
+  test("overlapping flushes send once until the in-flight collect settles", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["done", { status: "done", report: "ok", description: "lane" }],
+    ]);
+    const sends: string[] = [];
+    let resolveSend: (() => void) | undefined;
+    const sent = new Promise<void>((resolve) => {
+      resolveSend = resolve;
+    });
+    const driver = latchMailboxMailDrive(() =>
+      driveMailboxMail({
+        parentProcessing: false,
+        mailbox: mapMailbox(records),
+        lanes: [],
+        beginSystemContinuation: () => undefined,
+        send: (prompt) => {
+          sends.push(prompt);
+          resolveSend?.();
+        },
+      }),
+    );
+    expect(driver()).toBe(true);
+    expect(driver()).toBe(false);
+    expect(driver()).toBe(false);
+    await sent;
+    expect(sends).toHaveLength(1);
+    expect(sends[0]).toContain(MAILBOX_MAIL_WAKE_PREFIX);
+  });
+
+  test("a false drive does not latch the next flush", () => {
+    let calls = 0;
+    const driver = latchMailboxMailDrive(() => {
+      calls += 1;
+      return false;
+    });
+    expect(driver()).toBe(false);
+    expect(driver()).toBe(false);
+    expect(calls).toBe(2);
+  });
+
+  test("after the in-flight drive settles, a new terminal can send", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["first", { status: "done", report: "one" }],
+    ]);
+    const mailbox = mapMailbox(records);
+    const sends: string[] = [];
+    let sawSend: (() => void) | undefined;
+    const waitForSend = (): Promise<void> =>
+      new Promise<void>((resolve) => {
+        sawSend = resolve;
+      });
+    const driver = latchMailboxMailDrive(() =>
+      driveMailboxMail({
+        parentProcessing: false,
+        mailbox,
+        lanes: [],
+        beginSystemContinuation: () => undefined,
+        send: (prompt) => {
+          sends.push(prompt);
+          sawSend?.();
+        },
+      }),
+    );
+    const first = waitForSend();
+    expect(driver()).toBe(true);
+    await first;
+    expect(sends).toHaveLength(1);
+    records.set("second", { status: "done", report: "two" });
+    const second = waitForSend();
+    let retried = false;
+    for (let i = 0; i < 10; i++) {
+      await Promise.resolve();
+      if (driver()) {
+        retried = true;
+        break;
+      }
+    }
+    expect(retried).toBe(true);
+    await second;
+    expect(sends).toHaveLength(2);
+    expect(sends[1]).toContain("second");
   });
 });
 
