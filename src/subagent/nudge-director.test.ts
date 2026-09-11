@@ -525,6 +525,32 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
       message: "subagent-verbatim-tool-call-nudge",
     });
   });
+
+  test("after the verbatim nudge a real tool call executes", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDoneText(verbatimToolCall), state, caps);
+    const result = actions(
+      await director.decide(inferenceDone(["read-1"]), state, caps),
+    );
+    expect(result.some((action) => action.type === "execute_tools")).toBe(true);
+    expect(result.some((action) => action.type === "reply")).toBe(false);
+  });
+
+  test("after the verbatim nudge a four-heading envelope completes", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(inferenceDoneText(verbatimToolCall), state, caps);
+    const result = actions(
+      await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps),
+    );
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-complete",
+    });
+  });
 });
 
 describe("SubAgentDirector incomplete-report wiring", () => {
