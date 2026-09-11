@@ -16,6 +16,10 @@ function makeTmp(): string {
   );
 }
 
+async function writeJson(path: string, value: unknown): Promise<void> {
+  await writeFile(path, JSON.stringify(value));
+}
+
 test("profilesDir returns ~/.corbits/profiles", () => {
   const result = profilesDir("/home/user");
   expect(result).toBe("/home/user/.corbits/profiles");
@@ -35,7 +39,7 @@ test("loadProfile parses valid profile", async () => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });
   const path = join(dir, "profile.json");
-  await writeFile(path, JSON.stringify({ model: "claude-opus-4-8" }));
+  await writeJson(path, { model: "claude-opus-4-8" });
   const result = await loadProfile(path);
   expect(result).toEqual({ model: "claude-opus-4-8" });
 });
@@ -44,10 +48,9 @@ test("loadProfile parses systemPromptExtensions", async () => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });
   const path = join(dir, "profile.json");
-  await writeFile(
-    path,
-    JSON.stringify({ systemPromptExtensions: ["no-destructive-migrations"] }),
-  );
+  await writeJson(path, {
+    systemPromptExtensions: ["no-destructive-migrations"],
+  });
   const result = await loadProfile(path);
   expect(result).toEqual({
     systemPromptExtensions: ["no-destructive-migrations"],
@@ -58,7 +61,7 @@ test("loadProfile rejects unknown keys", async () => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });
   const path = join(dir, "profile.json");
-  await writeFile(path, JSON.stringify({ model: "x", unknownKey: true }));
+  await writeJson(path, { model: "x", unknownKey: true });
   await expect(loadProfile(path)).rejects.toThrow(/unknownKey must be removed/);
 });
 
@@ -66,7 +69,7 @@ test("loadProfile rejects non-array systemPromptExtensions", async () => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });
   const path = join(dir, "profile.json");
-  await writeFile(path, JSON.stringify({ systemPromptExtensions: "bad" }));
+  await writeJson(path, { systemPromptExtensions: "bad" });
   await expect(loadProfile(path)).rejects.toThrow(/systemPromptExtensions/);
 });
 
@@ -85,32 +88,52 @@ test("resolveProfile returns empty object when no profile files exist", async ()
   expect(result).toEqual({});
 });
 
+test("resolveProfile throws when --profile names a missing file", async () => {
+  const home = makeTmp();
+  const cwd = makeTmp();
+  await mkdir(cwd, { recursive: true });
+  const name = "does-not-exist";
+  const missingPath = join(profilesDir(home), `${name}.json`);
+  expect(await loadProfile(missingPath)).toBeNull();
+  await expect(resolveProfile(cwd, name, home)).rejects.toThrow(missingPath);
+});
+
+test("resolveProfile loads a valid named profile", async () => {
+  const home = makeTmp();
+  const cwd = makeTmp();
+  await mkdir(cwd, { recursive: true });
+  const namedDir = join(home, ".corbits", "profiles");
+  await mkdir(namedDir, { recursive: true });
+  await writeJson(join(namedDir, "work.json"), { model: "named-model" });
+  const result = await resolveProfile(cwd, "work", home);
+  expect(result.model).toBe("named-model");
+  expect(result.profile).toBe("work");
+});
+
 test("resolveProfile applies project profile fields", async () => {
   const cwd = makeTmp();
   const dir = join(cwd, ".corbits");
   await mkdir(dir, { recursive: true });
-  await writeFile(
-    join(dir, "profile.json"),
-    JSON.stringify({
-      model: "claude-sonnet",
-      systemPromptExtensions: ["ext1"],
-    }),
-  );
+  await writeJson(join(dir, "profile.json"), {
+    model: "claude-sonnet",
+    systemPromptExtensions: ["ext1"],
+  });
   const result = await resolveProfile(cwd);
   expect(result.model).toBe("claude-sonnet");
   expect(result.systemPromptExtensions).toEqual(["ext1"]);
 });
 
-test("resolveProfile surfaces profile name when set", async () => {
+test("resolveProfile throws when a named profile key points at a missing file", async () => {
+  const home = makeTmp();
   const cwd = makeTmp();
   const dir = join(cwd, ".corbits");
   await mkdir(dir, { recursive: true });
-  await writeFile(
-    join(dir, "profile.json"),
-    JSON.stringify({ profile: "work" }),
+  const name = "no-such-named-profile";
+  await writeJson(join(dir, "profile.json"), { profile: name });
+  const missingPath = join(profilesDir(home), `${name}.json`);
+  await expect(resolveProfile(cwd, undefined, home)).rejects.toThrow(
+    missingPath,
   );
-  const result = await resolveProfile(cwd);
-  expect(result.profile).toBe("work");
 });
 
 test("resolveProfile: project profile fields override named profile fields", async () => {
@@ -118,25 +141,19 @@ test("resolveProfile: project profile fields override named profile fields", asy
   const cwd = makeTmp();
   const namedDir = join(home, ".corbits", "profiles");
   await mkdir(namedDir, { recursive: true });
-  await writeFile(
-    join(namedDir, "work.json"),
-    JSON.stringify({ model: "base-model", systemPromptExtensions: ["ext1"] }),
-  );
+  await writeJson(join(namedDir, "work.json"), {
+    model: "base-model",
+    systemPromptExtensions: ["ext1"],
+  });
   const localDir = join(cwd, ".corbits");
   await mkdir(localDir, { recursive: true });
-  await writeFile(
-    join(localDir, "profile.json"),
-    JSON.stringify({ profile: "work", model: "override-model" }),
-  );
+  await writeJson(join(localDir, "profile.json"), {
+    profile: "work",
+    model: "override-model",
+  });
 
-  // We can't easily inject profilesDir home in resolveProfile without additional plumbing,
-  // so test the merge logic directly via the exported functions.
-  // Project profile model should win over named profile model.
-  const projectProfile = await loadProfile(join(localDir, "profile.json"));
-  const namedProfile = await loadProfile(join(namedDir, "work.json"));
-  const merged = { ...namedProfile };
-  if (projectProfile?.model !== undefined) merged.model = projectProfile.model;
-  expect(merged.model).toBe("override-model");
-  // systemPromptExtensions not in project profile so named profile value survives
-  expect(merged.systemPromptExtensions).toEqual(["ext1"]);
+  const result = await resolveProfile(cwd, undefined, home);
+  expect(result.model).toBe("override-model");
+  expect(result.systemPromptExtensions).toEqual(["ext1"]);
+  expect(result.profile).toBe("work");
 });
