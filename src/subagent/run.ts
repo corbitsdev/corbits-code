@@ -36,6 +36,7 @@ import type {
 
 import {
   buildBifrostSource,
+  buildGoSource,
   buildOpenAISource,
   type ProviderCatalogEntry,
 } from "../config/index.js";
@@ -63,6 +64,7 @@ import {
 import { createCodexReadRawFile } from "../agent/codex-read-raw-file.js";
 
 import { isCodexProviderName } from "../config/codex-providers.js";
+import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
@@ -216,11 +218,12 @@ export function buildSubAgentPrimarySource(
   catalog?: readonly ProviderCatalogEntry[],
   settings?: Settings,
 ) {
+  const sessionId = generateSessionId();
   if (catalog !== undefined) {
     const source = buildInferenceSourceForRef(
       { provider: provider.providerName, model: provider.model },
       {
-        sessionId: generateSessionId(),
+        sessionId,
         catalog,
         ...(provider.reasoningEffort !== undefined
           ? { reasoningEffort: provider.reasoningEffort }
@@ -229,6 +232,23 @@ export function buildSubAgentPrimarySource(
       settings,
     );
     if (source !== null) return { sources: [source], defaultSource: source.id };
+  }
+  if (
+    isOpenCodeGoProvider({
+      name: provider.providerName,
+      baseURL: provider.baseURL,
+    })
+  ) {
+    const source = buildGoSource({
+      id: provider.providerName,
+      ...(provider.apiKey !== undefined ? { apiKey: provider.apiKey } : {}),
+      model: provider.model,
+      sessionId,
+      ...(provider.reasoningEffort !== undefined
+        ? { reasoningEffort: provider.reasoningEffort }
+        : {}),
+    });
+    return { sources: [source], defaultSource: source.id };
   }
   const build =
     provider.bifrostVirtualKey === true
