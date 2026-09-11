@@ -346,6 +346,24 @@ persist/stage/commit/replaceTurns.
 **Re-carry:** new patch on this pin; expect a three-way against
 `executeCompact` and `commitCycle` on the next sync.
 
+## reactor-ts-doom-loop-warning-turn
+
+`harness.ts`, `reactor.ts` — `deps.doomLoopCorrectiveNote` builds a note
+appended to each tool result when a repeated batch reaches
+`doomLoopThreshold - 1`, so the model sees the exact call already ran before
+the fatal trip. Unset appends nothing, same as upstream. **Disposition:**
+Re-carryable — sits inside the doom-loop accounting block in `executeTools`.
+
+## reactor-ts-doom-loop-fail-run
+
+`harness.ts`, `reactor.ts` — `deps.doomLoopPolicy: "fail-run"` makes a
+tripped guard close the message run and purge the doomed batch's queued
+continuations instead of shutting the reactor down; the next inbound message
+opens a fresh run. Upstream's fatal exit wedges a long-lived session —
+`deliver` drops every later message. Unset is `"shutdown"`, same as
+upstream; workers keep it. **Disposition:** Re-carryable — sits at the
+doom-loop fatal break in the main loop.
+
 ## sse-ts-max-line-length
 
 `sse.ts` — `MAX_LINE_LENGTH` (16 MiB) caps the unterminated SSE line buffer

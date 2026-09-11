@@ -1793,6 +1793,140 @@ describe("createReactor — doom-loop detection", () => {
       "doom_loop",
     );
   });
+
+  test("appends the corrective note once, on the batch before the trip", async () => {
+    const contents: string[] = [];
+    const noteCalls: number[] = [];
+    const { reactor, events, waitFor } = createTestReactor({
+      deps: {
+        ...createDefaultDependencies(),
+        doomLoopCorrectiveNote: ({ calls, repeatCount }) => {
+          noteCalls.push(repeatCount);
+          return `loop note: ${calls.map((c) => c.name).join(",")}`;
+        },
+      },
+      toolRunner: makeToolRunner(async (call) => ({
+        callId: call.id,
+        content: "spun",
+      })),
+      director: (() => {
+        let turn = 0;
+        const batch = () => [
+          { id: `c${turn}`, name: "spin", arguments: { q: 1 } },
+        ];
+        return directorFromTable(
+          {
+            "message.received": (_e, _s, caps) => caps.executeTools(batch()),
+            "tool.done": (e, _s, caps) => {
+              contents.push(
+                typeof e.result.content === "string"
+                  ? e.result.content
+                  : JSON.stringify(e.result.content),
+              );
+              turn += 1;
+              return turn < 8 ? caps.executeTools(batch()) : caps.done();
+            },
+          },
+          "wait",
+        );
+      })(),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    // One warning turn at repeat count 2 (threshold 3 − 1): only that
+    // batch's result carried the note; the first ran clean and the third
+    // tripped the guard before its result could be consumed.
+    expect(noteCalls).toEqual([2]);
+    expect(contents).toEqual(["spun", "spun\n\nloop note: spin"]);
+    expect(getEvent(events, "message.run.ended").data.error?.kind).toBe(
+      "doom_loop",
+    );
+  });
+
+  test("a threshold of 2 leaves no room for a warning turn", async () => {
+    let noteCalls = 0;
+    const { reactor, events, waitFor } = createTestReactor({
+      doomLoopThreshold: 2,
+      deps: {
+        ...createDefaultDependencies(),
+        doomLoopCorrectiveNote: () => {
+          noteCalls += 1;
+          return "note";
+        },
+      },
+      director: createBatchLoopDirector((turn) =>
+        turn < 8
+          ? [{ id: `c${turn}`, name: "spin", arguments: { q: 1 } }]
+          : null,
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(noteCalls).toBe(0);
+    expect(getEvent(events, "message.run.ended").data.error?.kind).toBe(
+      "doom_loop",
+    );
+  });
+
+  test("fail-run policy ends the run but keeps the reactor for the next message", async () => {
+    const seen: string[] = [];
+    const { reactor, events, waitFor } = createTestReactor({
+      deps: {
+        ...createDefaultDependencies(),
+        doomLoopPolicy: "fail-run",
+      },
+      director: (() => {
+        let turn = 0;
+        const batch = () => [
+          { id: `c${turn}`, name: "spin", arguments: { q: 1 } },
+        ];
+        return directorFromTable(
+          {
+            "message.received": (_e, _s, caps) => caps.executeTools(batch()),
+            "tool.done": (e, _s, caps) => {
+              seen.push(String(e.result.content));
+              turn += 1;
+              return caps.executeTools(batch());
+            },
+          },
+          "wait",
+        );
+      })(),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("message.run.ended");
+
+    const ended = getEvent(events, "message.run.ended");
+    expect(ended.data.status).toBe("failed");
+    expect(ended.data.error?.kind).toBe("doom_loop");
+    expect(getEvent(events, "reactor.error").data.fatal).toBe(true);
+    // The doomed batch's queued tool.done events were purged, not consumed:
+    // the director saw only the two repeats that ran before the trip.
+    expect(seen.length).toBe(2);
+    expect(events.some((e) => e.type === "reactor.done")).toBe(false);
+
+    // The next inbound message opens a fresh run — which doom-loops again
+    // and fails the same way, proving the reactor kept working.
+    reactor.deliver(makeInboundMessage());
+    await waitForEvent(
+      events,
+      (e) =>
+        e.type === "message.run.ended" &&
+        events.filter((x) => x.type === "message.run.ended").length >= 2,
+    );
+    expect(events.filter((e) => e.type === "message.run.started").length).toBe(
+      2,
+    );
+    expect(events.some((e) => e.type === "reactor.done")).toBe(false);
+  });
 });
 
 describe("createReactor — doom-loop poll exemption", () => {

@@ -8,11 +8,15 @@ import {
   allowShellFromCapabilities,
   createCodexToolProxies,
   type CodexReadRawFile,
-  type CodexRunManageTasks,
   type CodexRunTool,
 } from "./codex-tool-proxies.js";
 import { DOCS_TOOLS, BUILD_TOOLS } from "./directors/tool-sets.js";
-import { applyManageTasks, parseManageTasksArgs, type Task } from "./tasks.js";
+import {
+  applyManageTasks,
+  parseManageTasksArgs,
+  type ManageTasksRunner,
+  type Task,
+} from "./tasks.js";
 
 interface Call {
   name: string;
@@ -67,7 +71,7 @@ function makeRecorder(initial: Record<string, string> = {}): {
   return { calls, files, runTool, readRawFile };
 }
 
-const unusedManageTasks: CodexRunManageTasks = async () => ({
+const unusedManageTasks: ManageTasksRunner = async () => ({
   content: "unused",
 });
 const unusedReadRawFile: CodexReadRawFile = async () => ({ content: "unused" });
@@ -79,11 +83,11 @@ const unusedReadRawFile: CodexReadRawFile = async () => ({ content: "unused" });
 function makeRealManageTasks(): {
   calls: Record<string, unknown>[];
   getTasks: () => Task[];
-  runManageTasks: CodexRunManageTasks;
+  runManageTasks: ManageTasksRunner;
 } {
   let tasks: Task[] = [];
   const calls: Record<string, unknown>[] = [];
-  const runManageTasks: CodexRunManageTasks = async (rawArgs) => {
+  const runManageTasks: ManageTasksRunner = async (rawArgs) => {
     calls.push(rawArgs);
     const parsed = parseManageTasksArgs(rawArgs);
     if (parsed === null) {

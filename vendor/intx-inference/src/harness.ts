@@ -151,6 +151,19 @@ export type Dependencies = {
    * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-poll-exemption
    */
   readonly isPollOnlyPendingBatch?: PollBatchLivenessPredicate;
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-warning-turn
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-fail-run
+  /** Note appended to each tool result when a batch repeat hits threshold−1. */
+  readonly doomLoopCorrectiveNote?: (repeat: {
+    calls: readonly ToolCall[];
+    repeatCount: number;
+    threshold: number;
+  }) => string | undefined;
+  /**
+   * `"fail-run"` closes the tripped message run and returns the reactor to
+   * idle instead of shutting down. Unset is `"shutdown"`, same as upstream.
+   */
+  readonly doomLoopPolicy?: "shutdown" | "fail-run";
   readonly [HarnessId]?: symbol;
 };
 

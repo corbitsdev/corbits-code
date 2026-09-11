@@ -6,10 +6,8 @@ import {
   type ToolResult,
 } from "@intx/types/runtime";
 
-import {
-  createCodexToolProxies,
-  type CodexRunManageTasks,
-} from "../agent/codex-tool-proxies.js";
+import { createCodexToolProxies } from "../agent/codex-tool-proxies.js";
+import type { ManageTasksRunner } from "../agent/tasks.js";
 import {
   MAX_RESULT_CHARS,
   truncateToolResultContent,
@@ -31,7 +29,7 @@ function fakeBlobStore() {
   };
 }
 
-const unusedManageTasks: CodexRunManageTasks = async () => ({
+const unusedManageTasks: ManageTasksRunner = async () => ({
   content: "unused",
 });
 

@@ -58,7 +58,6 @@ import {
   allowDeleteFromCapabilities,
   allowShellFromCapabilities,
   createCodexToolProxies,
-  type CodexRunManageTasks,
   type CodexRunTool,
 } from "../agent/codex-tool-proxies.js";
 import { createCodexReadRawFile } from "../agent/codex-read-raw-file.js";
@@ -107,7 +106,10 @@ import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
 import { toolWatchdogFromSettings } from "../config/settings.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
-import { manageTasksDefinition, parseManageTasksArgs } from "../agent/tasks.js";
+import {
+  createManageTasksRunner,
+  manageTasksDefinition,
+} from "../agent/tasks.js";
 import { ID_PREFIX } from "../branding.js";
 import {
   appendActivitySummary,
@@ -686,17 +688,7 @@ async function runSubAgentInner(
     // director.ts). This handler only validates, so update_plan's proxy shares
     // it rather than forwarding through posixTools (which has no manage_tasks
     // handler to forward to).
-    const runManageTasks: CodexRunManageTasks = async (rawArgs) => {
-      const parsed = parseManageTasksArgs(rawArgs);
-      if (parsed === null) {
-        return {
-          content:
-            "Error: manage_tasks requires action ('create' or 'update').",
-          isError: true,
-        };
-      }
-      return { content: "Tasks updated." };
-    };
+    const runManageTasks = createManageTasksRunner();
     tools = [
       ...tools,
       ...createCodexToolProxies({

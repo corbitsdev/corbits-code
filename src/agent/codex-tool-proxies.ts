@@ -15,7 +15,7 @@ import {
   parseCodexApplyPatch,
   type PatchOp,
 } from "./codex-apply-patch.js";
-import type { TaskStatus } from "./tasks.js";
+import type { ManageTasksRunner, TaskStatus } from "./tasks.js";
 
 export type CodexRunTool = (
   name: string,
@@ -40,10 +40,6 @@ export type CodexReadRawFile = (
  * wired at each mount site (src/agent/tools.ts, src/subagent/run.ts) to the
  * exact same manage_tasks stringTool handler that site installs.
  */
-export type CodexRunManageTasks = (
-  args: Record<string, unknown>,
-) => Promise<{ content: string; isError?: boolean }>;
-
 export interface CreateCodexToolProxiesOpts {
   isCodex: boolean;
   runTool: CodexRunTool;
@@ -54,7 +50,7 @@ export interface CreateCodexToolProxiesOpts {
    */
   readRawFile: CodexReadRawFile;
   /** Dispatches update_plan's translated manage_tasks(action="create") call. */
-  runManageTasks: CodexRunManageTasks;
+  runManageTasks: ManageTasksRunner;
   /**
    * When false, Delete File and Update+Move refuse without calling `delete_file`.
    * Defaults to true (implement / unconstrained). Pass false when the
@@ -459,7 +455,7 @@ function codexPlanStatusToTaskStatus(
   return "done";
 }
 
-function createUpdatePlanProxy(runManageTasks: CodexRunManageTasks): AgentTool {
+function createUpdatePlanProxy(runManageTasks: ManageTasksRunner): AgentTool {
   return stringTool({
     definition: updatePlanDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
