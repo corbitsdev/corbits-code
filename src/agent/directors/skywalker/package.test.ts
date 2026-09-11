@@ -227,7 +227,8 @@ describe("skywalkerPackage", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("ask_director");
     expect(p).toContain("send_input");
-    expect(p).toContain("awaiting_director");
+    expect(p).toContain("Do not poll list_agents");
+    expect(p).not.toContain("list_agents shows awaiting_director");
     expect(p).toContain("idle-send");
     expect(p).toMatch(/target = (that worker's |worker )session id/);
     expect(p).not.toMatch(

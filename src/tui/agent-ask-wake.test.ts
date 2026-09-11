@@ -206,6 +206,25 @@ for (const action of [
 }
 
 describe("agent ask wake delivery", () => {
+  test("onAskWakeSent fires only after a wake is actually sent", async () => {
+    await withWakeBridge((bridge, sends) => {
+      const sent: string[] = [];
+      bridge.setOnAskWakeSent((asks) => {
+        sent.push(...asks.map((ask) => `${ask.sessionId}:${ask.questionId}`));
+      });
+      bridge.handle({ type: "inference.start", data: {} });
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(sends).toEqual([]);
+      expect(sent).toEqual([]);
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(sends).toHaveLength(1);
+      expect(sent).toEqual(["a1:q1"]);
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(sends).toHaveLength(1);
+      expect(sent).toEqual(["a1:q1"]);
+    });
+  });
+
   test("synthetic wake bypasses armed feedback and leaves user followups held", async () => {
     await withTestRenderer(
       async (h) => {

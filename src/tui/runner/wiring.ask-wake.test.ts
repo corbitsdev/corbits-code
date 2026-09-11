@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { createSubAgentSessionStore } from "../../subagent/session-store.js";
 import {
   createFleetMailbox,
+  createListAgentsTool,
   createWaitAgentsTool,
 } from "../../subagent/agent-fleet.js";
 import { createFleetWakePublisher } from "./wiring.js";
@@ -354,6 +355,109 @@ test("same catalog workers answer by session, reconcile one resolution and repla
         expect(sends).toHaveLength(1);
         expect(store.sendInputOne("session-two", "9090").ok).toBe(true);
         expect(answers).toEqual(["session-one:8080", "session-two:9090"]);
+      } finally {
+        unsubscribe();
+        bridge.dispose();
+        shell.dispose();
+      }
+    },
+    { width: 80, height: 24 },
+  );
+});
+
+test("yield wait does not stamp; sending pendingAskWakeText gates list_agents", async () => {
+  await withTestRenderer(
+    async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+      });
+      const sends: string[] = [];
+      const send = (text: string) => {
+        sends.push(text);
+      };
+      const store = createSubAgentSessionStore();
+      const mailbox = createFleetMailbox(store);
+      const bridge = attachSessionBridge(
+        shell,
+        createLiveSessionPort({
+          send,
+          deliver: send,
+          interrupt: () => undefined,
+        }),
+      );
+      bridge.setOnAskWakeSent((asks) => {
+        mailbox.noteParkedAsksSurfaced(
+          asks.map((ask) => ({
+            id: ask.sessionId,
+            questionId: ask.questionId,
+          })),
+        );
+      });
+      const emitter = new EventEmitter();
+      emitter.on("event", (event: BridgeInboundEvent) => bridge.handle(event));
+      const publisher = createFleetWakePublisher(store, emitter);
+      const unsubscribe = store.subscribe(publisher.publish);
+      try {
+        bridge.handle({ type: "inference.start", data: {} });
+        const worker = store.start({
+          id: "worker-session",
+          agentId: "builder",
+          description: "work",
+          brief: "build",
+        });
+        mailbox.register(worker.id);
+        store.markRunning(worker.id);
+        store.registerAsk(worker.id, {
+          question: "Which port?",
+          questionId: "q1",
+          resolve: () => undefined,
+          reject: () => undefined,
+        });
+        const wait = createWaitAgentsTool({
+          sessions: store,
+          fleetRecords: mailbox,
+          shouldYieldWait: () =>
+            mailbox.peek(worker.id)?.status === "awaiting_director",
+        });
+        if (wait.kind !== "full") throw new Error("expected full wait tool");
+        const waited = await wait.handler(
+          {
+            id: "wait-call",
+            name: "wait_agents",
+            arguments: { targets: [worker.id], timeout_ms: 1000 },
+          },
+          new AbortController().signal,
+        );
+        const waitContent =
+          typeof waited.content === "string"
+            ? waited.content
+            : JSON.stringify(waited.content);
+        expect(waitContent).toContain("awaiting_director");
+        expect(waitContent).not.toContain("Which port?");
+        expect(sends).toEqual([]);
+        const list = createListAgentsTool({
+          sessions: store,
+          fleetRecords: mailbox,
+        });
+        if (list.kind !== "full") throw new Error("expected full list tool");
+        bridge.handle({ type: "inference.done", data: {} });
+        expect(sends).toHaveLength(1);
+        expect(sends[0]).toContain("Which port?");
+        const afterWake = await list.handler(
+          { id: "list-after", name: "list_agents", arguments: {} },
+          new AbortController().signal,
+        );
+        const afterContent =
+          typeof afterWake.content === "string"
+            ? afterWake.content
+            : JSON.stringify(afterWake.content);
+        expect(afterWake.isError).toBe(true);
+        expect(afterContent.startsWith("Error:")).toBe(true);
+        expect(afterContent).toContain("send_input");
+        expect(afterContent).toContain(worker.id);
+        expect(afterContent).toContain("q1");
+        expect(afterContent).toContain("Which port?");
       } finally {
         unsubscribe();
         bridge.dispose();

@@ -140,6 +140,19 @@ describe("isPollOnlyPendingBatch", () => {
     ).toBe(false);
   });
 
+  test("list_agents is never poll-exempt", () => {
+    expect(
+      isPollOnlyPendingBatch(
+        [call("list_agents")],
+        [
+          result({
+            agents: [{ agent_id: "w0", status: "awaiting_director" }],
+          }),
+        ],
+      ),
+    ).toBe(false);
+  });
+
   test("empty batches and misaligned results are never exempt", () => {
     expect(isPollOnlyPendingBatch([], [])).toBe(false);
     expect(

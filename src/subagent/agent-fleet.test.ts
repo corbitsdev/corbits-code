@@ -110,6 +110,53 @@ function waitUntilMailboxTerminal(
   });
 }
 
+function waitUntilAwaitingDirector(
+  mailbox: ReturnType<typeof createFleetMailbox>,
+  sessions: ReturnType<typeof createSubAgentSessionStore>,
+  id: string,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): boolean =>
+      mailbox.peek(id)?.status === "awaiting_director";
+    if (done()) {
+      resolve();
+      return;
+    }
+    const unsub = sessions.subscribe(() => {
+      if (done()) {
+        unsub();
+        resolve();
+      }
+    });
+    if (done()) {
+      unsub();
+      resolve();
+    }
+  });
+}
+
+async function callListAgents(
+  list: ReturnType<typeof createListAgentsTool>,
+): Promise<{ content: string; isError?: boolean }> {
+  if (list.kind !== "full") throw new Error("expected full tool");
+  const result = await list.handler(
+    {
+      id: `list-${Math.random()}`,
+      name: "list_agents",
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  const content =
+    typeof result.content === "string"
+      ? result.content
+      : JSON.stringify(result.content);
+  return {
+    content,
+    ...(result.isError !== undefined ? { isError: result.isError } : {}),
+  };
+}
+
 async function callToolRaw(
   tool:
     | ReturnType<typeof createSpawnAgentTool>
@@ -2318,6 +2365,61 @@ describe("list_agents", () => {
       return gate.promise;
     });
     const spawn = createSpawnAgentTool(deps);
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await waitUntilAwaitingDirector(deps.fleetRecords, deps.sessions, id);
+    const listed = await callListAgents(list);
+    expect(listed.isError).not.toBe(true);
+    const parsed = parseFleetJson(listed.content) as {
+      agents: {
+        agent_id: string;
+        status: string;
+        collected: boolean;
+        description?: string;
+        question?: string;
+        question_id?: string;
+      }[];
+    };
+    expect(parsed.agents).toHaveLength(1);
+    expect(defined(parsed.agents[0]).agent_id).toBe(id);
+    expect(defined(parsed.agents[0]).status).toBe("awaiting_director");
+    expect(defined(parsed.agents[0]).collected).toBe(false);
+    expect(defined(parsed.agents[0]).description).toBe("need a path");
+    expect(defined(parsed.agents[0]).question).toBe(
+      "which file should I edit?",
+    );
+    expect(defined(parsed.agents[0]).question_id).toBe("ask-1");
+    expect(list.definition.description).toContain("question_id");
+    expect(list.definition.description).toContain("send_input");
+    gate.resolve({ report: "done" });
+  });
+
+  test("errors after wait_agents surfaces awaiting_director with a question", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => undefined,
+        interrupt: () => undefined,
+        followup: async () => "",
+        deliver: () => undefined,
+      });
+      void params.askDirectorPort
+        ?.register({
+          question: "which file should I edit?",
+          questionId: "ask-1",
+        })
+        .catch(() => undefined);
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
     const wait = createWaitAgentsTool({
       sessions: deps.sessions,
       fleetRecords: deps.fleetRecords,
@@ -2331,37 +2433,287 @@ describe("list_agents", () => {
       prompt: "do it",
       intent: "explore",
     });
-    await callTool(wait, { targets: [spawned.agent_id], timeout_ms: 5000 });
-    if (list.kind !== "full") throw new Error("expected full tool");
-    const raw = await list.handler(
-      { id: "list-ask-1", name: "list_agents", arguments: {} },
+    const id = spawned.agent_id as string;
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    expect(waited.timed_out).toBe(false);
+    const first = defined((waited.results as Record<string, unknown>[])[0]);
+    expect(first.status).toBe("awaiting_director");
+    expect(first.question).toBe("which file should I edit?");
+    expect(first.question_id).toBe("ask-1");
+    const listed = await callListAgents(list);
+    expect(listed.isError).toBe(true);
+    expect(listed.content.startsWith("Error:")).toBe(true);
+    expect(listed.content).toContain("send_input");
+    expect(listed.content).toContain(id);
+    expect(listed.content).toContain("ask-1");
+    expect(listed.content).toContain("which file should I edit?");
+    expect(listed.content).not.toContain('"agents"');
+    gate.resolve({ report: "done" });
+  });
+
+  test("second list with the same parked snapshot errors", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => undefined,
+        interrupt: () => undefined,
+        followup: async () => "",
+        deliver: () => undefined,
+      });
+      void params.askDirectorPort
+        ?.register({
+          question: "which file should I edit?",
+          questionId: "ask-1",
+        })
+        .catch(() => undefined);
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await waitUntilAwaitingDirector(deps.fleetRecords, deps.sessions, id);
+    const first = await callListAgents(list);
+    expect(first.isError).not.toBe(true);
+    const parsed = parseFleetJson(first.content) as {
+      agents: { status: string; question_id?: string }[];
+    };
+    expect(defined(parsed.agents[0]).status).toBe("awaiting_director");
+    const second = await callListAgents(list);
+    expect(second.isError).toBe(true);
+    expect(second.content.startsWith("Error:")).toBe(true);
+    expect(second.content).toContain("send_input");
+    expect(second.content).toContain(id);
+    expect(second.content).toContain("ask-1");
+    expect(second.content).toContain("which file should I edit?");
+    expect(second.content).not.toContain('"agents"');
+    gate.resolve({ report: "done" });
+  });
+
+  test("send_input clears the gate so list_agents works again", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    let answerP: Promise<string> | undefined;
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => undefined,
+        interrupt: () => undefined,
+        followup: async () => "",
+        deliver: () => {
+          throw new Error(
+            "soft send_input must not deliver while an ask is pending",
+          );
+        },
+      });
+      answerP = params.askDirectorPort?.register({
+        question: "which file should I edit?",
+        questionId: "ask-1",
+      });
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const sendInput = createSendInputTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await waitUntilAwaitingDirector(deps.fleetRecords, deps.sessions, id);
+    expect((await callListAgents(list)).isError).not.toBe(true);
+    expect((await callListAgents(list)).isError).toBe(true);
+    await callTool(sendInput, { target: id, message: "edit src/foo.ts" });
+    expect(await answerP).toBe("edit src/foo.ts");
+    const after = await callListAgents(list);
+    expect(after.isError).not.toBe(true);
+    const parsed = parseFleetJson(after.content) as {
+      agents: { agent_id: string; status: string }[];
+    };
+    expect(defined(parsed.agents[0]).agent_id).toBe(id);
+    expect(defined(parsed.agents[0]).status).not.toBe("awaiting_director");
+    gate.resolve({ report: "done" });
+  });
+
+  test("interrupt_agent drops the ask so list_agents works again", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => undefined,
+        interrupt: () => undefined,
+        followup: async () => "",
+        deliver: () => undefined,
+      });
+      void params.askDirectorPort
+        ?.register({
+          question: "which file should I edit?",
+          questionId: "ask-1",
+        })
+        .catch(() => undefined);
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const interrupt = createInterruptAgentTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await waitUntilAwaitingDirector(deps.fleetRecords, deps.sessions, id);
+    expect((await callListAgents(list)).isError).not.toBe(true);
+    expect((await callListAgents(list)).isError).toBe(true);
+    if (interrupt.kind !== "full") throw new Error("expected full tool");
+    await interrupt.handler(
+      { id: "int-ask", name: "interrupt_agent", arguments: { target: id } },
       new AbortController().signal,
     );
-    const content =
-      typeof raw.content === "string"
-        ? raw.content
-        : JSON.stringify(raw.content);
-    const parsed = JSON.parse(content) as {
-      agents: {
-        agent_id: string;
-        status: string;
-        collected: boolean;
-        description?: string;
-        question?: string;
-        question_id?: string;
-      }[];
+    const after = await callListAgents(list);
+    expect(after.isError).not.toBe(true);
+    const parsed = parseFleetJson(after.content) as {
+      agents: { agent_id: string; status: string }[];
     };
-    expect(parsed.agents).toHaveLength(1);
-    expect(defined(parsed.agents[0]).agent_id).toBe(spawned.agent_id as string);
-    expect(defined(parsed.agents[0]).status).toBe("awaiting_director");
-    expect(defined(parsed.agents[0]).collected).toBe(false);
-    expect(defined(parsed.agents[0]).description).toBe("need a path");
-    expect(defined(parsed.agents[0]).question).toBe(
-      "which file should I edit?",
-    );
-    expect(defined(parsed.agents[0]).question_id).toBe("ask-1");
-    expect(list.definition.description).toContain("question_id");
+    expect(defined(parsed.agents[0]).agent_id).toBe(id);
+    expect(defined(parsed.agents[0]).status).not.toBe("awaiting_director");
     gate.resolve({ report: "done" });
+  });
+
+  test("a new question_id is listable once", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    let port: RunSubAgentParams["askDirectorPort"];
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => undefined,
+        interrupt: () => undefined,
+        followup: async () => "",
+        deliver: () => {
+          throw new Error(
+            "soft send_input must not deliver while an ask is pending",
+          );
+        },
+      });
+      port = params.askDirectorPort;
+      void params.askDirectorPort
+        ?.register({
+          question: "which file should I edit?",
+          questionId: "ask-1",
+        })
+        .catch(() => undefined);
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const sendInput = createSendInputTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await waitUntilAwaitingDirector(deps.fleetRecords, deps.sessions, id);
+    expect((await callListAgents(list)).isError).not.toBe(true);
+    expect((await callListAgents(list)).isError).toBe(true);
+    await callTool(sendInput, { target: id, message: "edit src/foo.ts" });
+    expect(port).toBeDefined();
+    void defined(port)
+      .register({
+        question: "which test should I add?",
+        questionId: "ask-2",
+      })
+      .catch(() => undefined);
+    await waitUntilAwaitingDirector(deps.fleetRecords, deps.sessions, id);
+    const next = await callListAgents(list);
+    expect(next.isError).not.toBe(true);
+    const parsed = parseFleetJson(next.content) as {
+      agents: { question_id?: string; question?: string }[];
+    };
+    expect(defined(parsed.agents[0]).question_id).toBe("ask-2");
+    expect(defined(parsed.agents[0]).question).toBe("which test should I add?");
+    const blocked = await callListAgents(list);
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content).toContain("ask-2");
+    expect(blocked.content).not.toContain("ask-1");
+    gate.resolve({ report: "done" });
+  });
+
+  test("yield wait does not stamp; first list still surfaces once", async () => {
+    const gate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      params.onAgentReady?.({
+        close: async () => undefined,
+        interrupt: () => undefined,
+        followup: async () => "",
+        deliver: () => undefined,
+      });
+      void params.askDirectorPort
+        ?.register({
+          question: "which file should I edit?",
+          questionId: "ask-1",
+        })
+        .then(
+          () => undefined,
+          () => undefined,
+        );
+      return gate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    let id = "";
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+      shouldYieldWait: () =>
+        deps.fleetRecords.peek(id)?.status === "awaiting_director",
+    });
+    const list = createListAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+    const spawned = await callTool(spawn, {
+      description: "need a path",
+      prompt: "do it",
+      intent: "explore",
+    });
+    id = spawned.agent_id as string;
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5_000 });
+    expect(waited.timed_out).toBe(true);
+    const row = defined((waited.results as Record<string, unknown>[])[0]);
+    expect(row.status).toBe("awaiting_director");
+    expect(row.question).toBeUndefined();
+    expect(row.question_id).toBeUndefined();
+    const first = await callListAgents(list);
+    expect(first.isError).not.toBe(true);
+    const parsed = parseFleetJson(first.content) as {
+      agents: { question_id?: string }[];
+    };
+    expect(defined(parsed.agents[0]).question_id).toBe("ask-1");
+    const second = await callListAgents(list);
+    expect(second.isError).toBe(true);
+    gate.resolve({ report: "ok" });
   });
 
   test("interrupt_agent leaves the strip after the linger window", async () => {

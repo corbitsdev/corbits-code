@@ -168,6 +168,18 @@ function waitStatusFromVerbLifecycle(
 /** Payload cap: uncollected pinned terminal records still holding a report. */
 export const MAX_FLEET_RECORDS = 200;
 
+export interface ParkedAskSurface {
+  readonly id: string;
+  readonly questionId: string;
+}
+
+function parkedAskFingerprint(rows: readonly ParkedAskSurface[]): string {
+  return [...rows]
+    .map((row) => `${row.id}\0${row.questionId}`)
+    .sort()
+    .join("\n");
+}
+
 /**
  * Per-install wait mailbox over the session store. Session lifecycle is the
  * source of wait status unless this overlay forces interrupted or has frozen
@@ -176,6 +188,7 @@ export const MAX_FLEET_RECORDS = 200;
 class FleetMailbox {
   private readonly records = new Map<string, FleetOverlay>();
   private readonly sessions: SubAgentSessionStore;
+  private lastSurfacedParkedAsks: string | undefined;
 
   constructor(sessions: SubAgentSessionStore) {
     this.sessions = sessions;
@@ -183,6 +196,24 @@ class FleetMailbox {
       this.rememberLiveWaitStatuses();
       this.enforceCap();
     });
+  }
+
+  /**
+   * Snapshot the parked ask set the parent already saw (TUI wake, wait_agents
+   * question payload, or a successful list_agents). Empty clears the stamp.
+   * Independent of TUI deliveredAskWake.
+   */
+  noteParkedAsksSurfaced(rows: readonly ParkedAskSurface[]): void {
+    this.lastSurfacedParkedAsks =
+      rows.length === 0 ? undefined : parkedAskFingerprint(rows);
+  }
+
+  parkedAsksAlreadySurfaced(rows: readonly ParkedAskSurface[]): boolean {
+    return (
+      rows.length > 0 &&
+      this.lastSurfacedParkedAsks !== undefined &&
+      this.lastSurfacedParkedAsks === parkedAskFingerprint(rows)
+    );
   }
 
   register(id: string): void {
@@ -1730,6 +1761,24 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         };
       });
 
+      if (!yielded) {
+        const surfaced: ParkedAskSurface[] = [];
+        for (const row of results) {
+          if (
+            row.status === "awaiting_director" &&
+            "question" in row &&
+            typeof row.question === "string" &&
+            "question_id" in row &&
+            typeof row.question_id === "string"
+          ) {
+            surfaced.push({ id: row.agent_id, questionId: row.question_id });
+          }
+        }
+        if (surfaced.length > 0) {
+          deps.fleetRecords.noteParkedAsksSurfaced(surfaced);
+        }
+      }
+
       return fleetResult(call.id, fleetJson({ results, timed_out: timedOut }));
     },
   });
@@ -1741,17 +1790,64 @@ export const listAgentsToolDefinition: ToolDefinition = {
     "List the workers this session started with spawn_agent — the same fleet wait_agents " +
     "collects. Does not list siblings or another orchestrator's workers. Each entry is id, " +
     "director, description, wait status, lifecycle, stop_reason when recorded, and whether wait_agents already collected it. " +
-    "When status is awaiting_director, the entry also includes question and question_id.",
+    "When status is awaiting_director, the entry also includes question and question_id. " +
+    "After parked ask_director questions are already surfaced (idle-send wake, wait_agents with a question payload, or a prior list), " +
+    "list_agents returns an error until you answer with send_input (soft) or the ask is dropped. Do not poll list_agents.",
   inputSchema: {
     type: "object",
     properties: {},
   },
 };
 
+function collectParkedAsks(
+  fleetRecords: FleetMailboxHandle,
+): { id: string; questionId: string; question: string }[] {
+  const parked: { id: string; questionId: string; question: string }[] = [];
+  for (const id of fleetRecords.ids()) {
+    const record = fleetRecords.peek(id);
+    if (
+      record?.status !== "awaiting_director" ||
+      record.questionId === undefined ||
+      record.question === undefined
+    ) {
+      continue;
+    }
+    parked.push({
+      id,
+      questionId: record.questionId,
+      question: record.question,
+    });
+  }
+  return parked;
+}
+
+function refuseSurfacedParkedAsks(
+  callId: string,
+  parked: readonly { id: string; questionId: string; question: string }[],
+): ToolResult {
+  const targets = parked.map((row) => row.id).join(", ");
+  const lines = parked.map(
+    (row) => `target ${row.id} question_id ${row.questionId}: ${row.question}`,
+  );
+  return fleetResult(
+    callId,
+    [
+      `Error: list_agents is not progress while parked ask_director questions are already surfaced. Answer with send_input (soft) using target ${targets}, or escalate with ask_operator.`,
+      ...lines,
+    ].join("\n"),
+  );
+}
+
 export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
   return tool({
     definition: listAgentsToolDefinition,
     handler: async (call, _signal): Promise<ToolResult> => {
+      const parked = collectParkedAsks(deps.fleetRecords);
+      if (parked.length === 0) {
+        deps.fleetRecords.noteParkedAsksSurfaced([]);
+      } else if (deps.fleetRecords.parkedAsksAlreadySurfaced(parked)) {
+        return refuseSurfacedParkedAsks(call.id, parked);
+      }
       const agents = deps.fleetRecords.ids().map((id) => {
         const record = deps.fleetRecords.peek(id);
         const session = deps.sessions.get(id);
@@ -1778,6 +1874,9 @@ export function createListAgentsTool(deps: WaitAgentsDeps): AgentTool {
             : {}),
         };
       });
+      if (parked.length > 0) {
+        deps.fleetRecords.noteParkedAsksSurfaced(parked);
+      }
       return fleetResult(call.id, fleetJson({ agents }));
     },
   });

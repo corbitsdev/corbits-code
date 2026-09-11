@@ -272,6 +272,14 @@ export function wirePostStartup(
       });
     }),
   );
+  sessionBridge.setOnAskWakeSent((asks) => {
+    services.toolset.fleetRecords?.noteParkedAsksSurfaced(
+      asks.map((ask) => ({
+        id: ask.sessionId,
+        questionId: ask.questionId,
+      })),
+    );
+  });
   sessionBridge.setWaitYieldWake(() => {
     services.subAgentSessions.wake();
   });
@@ -297,6 +305,7 @@ export function wirePostStartup(
     unsubscribeFleetReport();
     sessionBridge.setDryOpenTaskDriver(undefined);
     sessionBridge.setMailboxMailDriver(undefined);
+    sessionBridge.setOnAskWakeSent(undefined);
     sessionBridge.setWaitYieldWake(undefined);
   };
 
