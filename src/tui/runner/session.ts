@@ -88,7 +88,11 @@ import { detectLanguageServerAvailable } from "../../agent/lsp-availability.js";
 import type { SessionMode } from "../../config/session-mode.js";
 import { WorkflowHost, type WorkflowHostState } from "../../workflows/host.js";
 import type { ToolWatchdogConfig } from "../tool-execution-watchdog.js";
-import { deliverAgentMessage } from "../deliver-agent-message.js";
+import {
+  deliverAgentMessage,
+  deliveryResultNotice,
+  type AgentDeliveryResult,
+} from "../deliver-agent-message.js";
 import { createProviderFailureAttemptTracker } from "../provider/failure-attempt.js";
 import { getTelemetry, liveTelemetry } from "../../telemetry/singleton.js";
 import { createChatDirector } from "../../agent/director.js";
@@ -329,8 +333,9 @@ export async function assembleTUISession(
     // A background run_shell completion re-enters the reactor on a later turn,
     // so queued steers are not blocked by a long foreground run.
     onBackgroundShellExit: (exit) => {
+      const targetAgent = liveAgent(state);
       state.enqueueAgentDeliver?.(() =>
-        liveAgent(state).deliver(buildShellBackgroundMessage(exit)),
+        targetAgent.deliver(buildShellBackgroundMessage(exit)),
       );
     },
     getEvidenceArchive: () => evidenceArchiveHolder.current,
@@ -484,18 +489,33 @@ export async function assembleTUISession(
     },
     gate: permissionGate,
   });
-  state.enqueueAgentDeliver = (deliverToLiveAgent: () => void): void => {
+  state.enqueueAgentDeliver = (
+    deliverToLiveAgent: () => void,
+    onSettle?: (result: AgentDeliveryResult) => void,
+  ): void => {
     const stillCurrent = deliveryGeneration.capture();
     void sessionOps.enqueue(async () => {
-      if (!stillCurrent()) return;
+      if (!stillCurrent()) {
+        onSettle?.({
+          status: "not-delivered",
+          reason: "superseded",
+          detail: "session identity changed before delivery",
+        });
+        return;
+      }
       // The shell already popped the queue item and painted it as delivered
-      // by the time this runs, so a failed rebuild must be surfaced here —
-      // otherwise the message silently never reaches the agent.
-      await deliverAgentMessage({
+      // by the time this runs, so a failed rebuild or closed agent must settle
+      // here — otherwise the message silently never reaches the agent.
+      const result = await deliverAgentMessage({
         getFatalBuildError: () => state.fatalBuildError,
         deliverToLiveAgent,
-        onDeliverFailure: (text) => state.systemNotice?.(text),
       });
+      if (onSettle !== undefined) {
+        onSettle(result);
+        return;
+      }
+      if (result.status === "accepted") return;
+      state.systemNotice?.(deliveryResultNotice(result));
     });
   };
 
@@ -536,8 +556,9 @@ export async function assembleTUISession(
     onTasksChange: (tasks) => emitter.emit("tasks", tasks),
     getLiveFleetCount: () => liveFleetCount(subAgentSessions.list()),
     requestContinuation: () => {
+      const targetAgent = liveAgent(state);
       state.enqueueAgentDeliver?.(() =>
-        liveAgent(state).deliver(buildCompactionContinuationMessage()),
+        targetAgent.deliver(buildCompactionContinuationMessage()),
       );
     },
     getProvider: () => state.config,

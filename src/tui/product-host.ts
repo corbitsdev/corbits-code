@@ -67,6 +67,7 @@ import { hydrateHistoryRows } from "./history-hydrate.js";
 import type { StreamRow } from "./stream.js";
 
 import type { PendingImageAttachment } from "./image-attachments.js";
+import type { DeliverySettle } from "./queued-delivery.js";
 
 /** Suffix the row matching `activeId` (if any) so it reads as the current pick. */
 function annotateCurrent(
@@ -93,6 +94,7 @@ export type ProductHostDeliver = (
   text: string,
   kind: QueueKind,
   attachments?: readonly PendingImageAttachment[],
+  settle?: DeliverySettle,
 ) => void;
 
 /**

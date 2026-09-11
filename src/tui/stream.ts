@@ -94,6 +94,11 @@ export interface StreamRow {
    */
   readonly cancelled?: boolean;
   /**
+   * Delivery settlement for a drained queue/steer row. Kept as typed state
+   * rather than baked into `text` so copy/resume still sees the original body.
+   */
+  readonly deliveryStatus?: "not-delivered" | "uncertain";
+  /**
    * Row standing for a run of repeated calls. Its subject stays the call the
    * run repeats (never a total across them, which would be a claim the
    * payloads do not support); each answer lands in the expanded body.
@@ -693,17 +698,21 @@ export function paintStreamRow(
     const prefix =
       row.cancelled === true
         ? "[cancelled] "
-        : row.meta === "steer"
-          ? "[will steer next] "
-          : row.meta === "queue"
-            ? "[will follow up] "
-            : row.meta === "steering"
-              ? "[steering] "
-              : row.meta === "following-up"
-                ? "[following up] "
-                : row.meta === "reinject"
-                  ? "[restarted here] "
-                  : "";
+        : row.deliveryStatus === "not-delivered"
+          ? "[not delivered] "
+          : row.deliveryStatus === "uncertain"
+            ? "[delivery uncertain] "
+            : row.meta === "steer"
+              ? "[will steer next] "
+              : row.meta === "queue"
+                ? "[will follow up] "
+                : row.meta === "steering"
+                  ? "[steering] "
+                  : row.meta === "following-up"
+                    ? "[following up] "
+                    : row.meta === "reinject"
+                      ? "[restarted here] "
+                      : "";
     return {
       content: userBubbleLines(`${prefix}${row.text}`, layout.width).join("\n"),
       fg,

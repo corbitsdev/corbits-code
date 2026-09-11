@@ -8,7 +8,7 @@
  * need the same contracts.
  */
 
-import type { Agent } from "@intx/agent";
+import type { Agent, SendResult } from "@intx/agent";
 import type {
   ContextStore,
   InboundMessage,
@@ -32,6 +32,7 @@ import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
 import type { ScopedApproval } from "../../permission/admin.js";
 import type { ConnectedMcpServer, RunState } from "../../session/state.js";
 import type { PendingImageAttachment } from "../image-attachments.js";
+import type { AgentDeliveryResult } from "../deliver-agent-message.js";
 import type { SubmitOutcome } from "./submit.js";
 import type { mountRunnerHost } from "./host.js";
 import { EventEmitter } from "node:events";
@@ -252,7 +253,10 @@ export interface RunnerState {
   approvalPersistNotice: { notify?: (text: string) => void };
 
   // Late-wired cross-module callbacks, in original wiring order.
-  enqueueAgentDeliver?: (deliverToLiveAgent: () => void) => void;
+  enqueueAgentDeliver?: (
+    deliverToLiveAgent: () => void,
+    onSettle?: (result: AgentDeliveryResult) => void,
+  ) => void;
   reloadIfIdle?: () => void;
   systemNotice?: (text: string) => void;
   currentAttemptIdentity?: () => InferenceAttemptIdentity;
@@ -261,7 +265,11 @@ export interface RunnerState {
     attempt: InferenceAttemptIdentity,
     providerFailure: ProviderFailureAttempt,
   ) => void;
-  sendWithAttemptIdentity?: (message: InboundMessage) => Promise<boolean>;
+  sendWithAttemptIdentity?: (
+    message: InboundMessage,
+    send?: (message: InboundMessage) => Promise<SendResult>,
+    presentFailureNotice?: boolean,
+  ) => Promise<AgentDeliveryResult>;
   sendUserPrompt?: (
     text: string,
     pending: readonly PendingImageAttachment[],

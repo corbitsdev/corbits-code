@@ -43,6 +43,8 @@ const STORED_META_LITERALS = [
   "following-up",
   "reinject",
   "cancelled",
+  "not-delivered",
+  "delivery-uncertain",
 ];
 
 const FORBIDDEN = ["permission", "command", "overlay"];
