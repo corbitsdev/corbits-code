@@ -135,7 +135,6 @@ describe("loadConfig", () => {
       expect(config.providerName).toBe("fireworks");
       expect(config.globalSettingsPath).toBe(globalPath);
       expect(config.globalDefaultProvider).toBe("fireworks");
-      expect(config.force).toBe(false);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -450,16 +449,26 @@ describe("loadConfig", () => {
     }
   });
 
-  test("parses --force", async () => {
+  test("rejects --force as unrecognized for tui, exec, and resume", async () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["--cwd", cwd, "--force", "run task"], {
-        globalSettingsPath: globalPath,
-      });
-      expect(config.force).toBe(true);
-      expect(config.task).toBe("run task");
-      expect(config.command).toBe("tui");
+      await expect(
+        loadConfig(["--cwd", cwd, "--force", "run task"], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow("unrecognized flag: --force");
+      await expect(
+        loadConfig(["exec", "--cwd", cwd, "--force", "ship it"], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow("unrecognized flag: --force");
+      const sessionId = generateSessionId();
+      await expect(
+        loadConfig(["resume", sessionId, "--force", "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow("unrecognized flag: --force");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -470,7 +479,7 @@ describe("loadConfig", () => {
     try {
       const globalPath = await writeGlobalSettings(cwd);
       const config = await loadConfig(
-        ["exec", "--cwd", cwd, "--force", "ship it"],
+        ["exec", "--cwd", cwd, "--auto", "ship it"],
         {
           globalSettingsPath: globalPath,
         },
@@ -478,7 +487,7 @@ describe("loadConfig", () => {
       assertConfigured(config);
       expect(config.command).toBe("exec");
       expect(config.task).toBe("ship it");
-      expect(config.force).toBe(true);
+      expect(config.auto).toBe(true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -654,7 +663,7 @@ describe("loadConfig", () => {
     }
   });
 
-  test("resume <id> --force reopens a failed session that recorded an error", async () => {
+  test("resume <id> reopens a failed session that recorded an error", async () => {
     const cwd = await emptyCwd();
     const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
     try {
@@ -674,26 +683,22 @@ describe("loadConfig", () => {
         },
         home,
       );
-      const config = await loadConfig(
-        ["resume", sessionId, "--force", "--cwd", cwd],
-        {
-          globalSettingsPath: globalPath,
-          home,
-        },
-      );
+      const config = await loadConfig(["resume", sessionId, "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      });
       assertConfigured(config);
       expect(config.resumeMode).toBe("id");
       expect(config.sessionId).toBe(sessionId);
       expect(config.skipInitialTask).toBe(true);
       expect(config.task).toBe("ship resume after failure");
-      expect(config.force).toBe(true);
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });
     }
   });
 
-  test("resume <id> --force among failed siblings stays silent and reopens the target", async () => {
+  test("resume <id> among failed siblings stays silent and reopens the target", async () => {
     const cwd = await emptyCwd();
     const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
     try {
@@ -719,13 +724,10 @@ describe("loadConfig", () => {
 
       let config: Awaited<ReturnType<typeof loadConfig>> | undefined;
       const logged = await withFileLogSink(async () => {
-        config = await loadConfig(
-          ["resume", targetId, "--force", "--cwd", cwd],
-          {
-            globalSettingsPath: globalPath,
-            home,
-          },
-        );
+        config = await loadConfig(["resume", targetId, "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+          home,
+        });
       });
       const loaded = defined(config, "config");
       assertConfigured(loaded);
@@ -843,7 +845,7 @@ describe("loadConfig", () => {
       let thrown: unknown;
       const logged = await withFileLogSink(async () => {
         try {
-          await loadConfig(["resume", sessionId, "--force", "--cwd", cwd], {
+          await loadConfig(["resume", sessionId, "--cwd", cwd], {
             globalSettingsPath: globalPath,
             home,
           });
@@ -923,8 +925,8 @@ describe("loadConfig", () => {
   });
 
   test("--help after flags throws CliHelpError", async () => {
-    await expectCliHelp(["--force", "--help"]);
-    await expectCliHelp(["--force", "-h"]);
+    await expectCliHelp(["--auto", "--help"]);
+    await expectCliHelp(["--auto", "-h"]);
   });
 
   test("--help after a positional throws CliHelpError", async () => {
@@ -967,7 +969,7 @@ describe("loadConfig", () => {
 
   test("value flags reject other flag-shaped tokens as values", async () => {
     await expect(
-      loadConfig(["--provider", "--force"], {
+      loadConfig(["--provider", "--auto"], {
         globalSettingsPath: NO_SETTINGS,
       }),
     ).rejects.toThrow("--provider requires a value");
@@ -978,7 +980,7 @@ describe("loadConfig", () => {
       loadConfig(["--cwd", "--tmp"], { globalSettingsPath: NO_SETTINGS }),
     ).rejects.toThrow("--cwd requires a value");
     await expect(
-      loadConfig(["exec", "--director", "--force", "ship it"], {
+      loadConfig(["exec", "--director", "--auto", "ship it"], {
         globalSettingsPath: NO_SETTINGS,
       }),
     ).rejects.toThrow("--director requires a value");

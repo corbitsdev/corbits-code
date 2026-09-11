@@ -26,7 +26,6 @@ function sampleConfig(over: Partial<Config> = {}): Config {
     providerName: "openai",
     cwd: process.cwd(),
     task: "do it",
-    force: true,
     dangerouslySkipPermissions: true,
     skipPermissionsFromSettings: false,
     auto: false,

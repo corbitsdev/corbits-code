@@ -40,7 +40,6 @@ function bareConfig(task: string): Config {
     providerName: "test",
     model: "test",
     providers: {},
-    force: false,
     dangerouslySkipPermissions: true,
     autoMode: false,
     sessionId: "test-session",

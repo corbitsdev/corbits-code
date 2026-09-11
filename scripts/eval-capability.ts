@@ -601,7 +601,7 @@ async function resolveVariantLabels(
       probe.push("--provider", variant.provider);
     if (variant.model !== undefined) probe.push("--model", variant.model);
     if (opts.configPath !== undefined) probe.push("--config", opts.configPath);
-    probe.push("--force", "probe");
+    probe.push("probe");
     const cfg = await loadConfig(probe, { allowUnconfigured: true });
     if (cfg.configured) {
       return { provider: cfg.providerName, model: cfg.model };
@@ -777,7 +777,6 @@ async function runCase(
     if (requested.model !== undefined) argv.push("--model", requested.model);
     if (opts.configPath !== undefined) argv.push("--config", opts.configPath);
     if (opts.skipPermissions) argv.push("--dangerously-skip-permissions");
-    argv.push("--force");
     if (opts.director !== undefined) argv.push("--director", opts.director);
 
     argv.push(prompt);

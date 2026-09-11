@@ -73,7 +73,6 @@ export async function runOnboarding(
     argv.push("--config", config.cliConfigPath);
   if (config.dangerouslySkipPermissions)
     argv.push("--dangerously-skip-permissions");
-  if (config.force) argv.push("--force");
   if (config.task.length > 0) argv.push(config.task);
 
   // Preserve programmatic isolation independently of the path that won settings
