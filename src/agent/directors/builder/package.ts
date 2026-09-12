@@ -60,6 +60,8 @@ The order of operations depends on whether you're fixing a bug or building a fea
 
 Keep the test focused on the behavior introduced by this unit of work. Don't test unrelated functionality. The test is part of the deliverable, not an afterthought.
 
+Land the test in the same commit as the implementation — one logical unit. When the change alters documented behavior, update the docs that describe it in the same commit (source of truth: style skill, AGENTS.md).
+
 Keep the scope tight to the brief. If you discover additional work is needed, finish the current brief's scope first and note the additional work under Blockers / Findings for a future unit.
 
 ## Build Gate

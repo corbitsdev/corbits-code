@@ -92,6 +92,8 @@ The order of operations depends on whether you're fixing a bug or building a fea
 
 Keep the test focused on the behavior introduced by this commit. Don't test unrelated functionality. The test is part of the deliverable, not an afterthought.
 
+The test lands in the same commit as the implementation (Step 4) — one logical unit (source of truth: style skill, AGENTS.md).
+
 Keep the scope tight to what was discussed. If you discover additional work is needed, finish the current commit's scope first and note the additional work for a future commit.
 
 ### Step 3: Build Gate
@@ -105,12 +107,13 @@ Run `make` (or the project's equivalent full pipeline: format, lint, build, test
 - If the build fails due to pre-existing issues unrelated to your changes, report the failure to the caller and let them decide how to proceed
 - Do not move forward with a broken build
 - Do not substitute partial builds (e.g., running only the compiler) for the full pipeline
+- Record the exact verification commands and their exit statuses: the report maps each success criterion to pass, fail, or blocked with command evidence
 
 ### Step 4: Commit
 
 Update `activeForm` to "Committing: {subject}".
 
-Create the commit. Follow the commit message conventions from the `style` skill. Include the test in the same commit as the implementation — they are one logical unit of work.
+Create the commit. Follow the commit message conventions from the `style` skill. Include the test in the same commit as the implementation — they are one logical unit of work — and the docs updates when the commit changes documented behavior.
 
 ### Step 5: Critique Loop
 

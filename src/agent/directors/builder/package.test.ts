@@ -167,6 +167,14 @@ describe("builderPackage", () => {
     expect(prompt).toMatch(/Summary \/ Findings \/ Blockers \/ Paths/);
   });
 
+  test("systemPrompt wires same-commit tests, docs upkeep, and report mapping", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p).toMatch(/same commit/);
+    expect(p).toMatch(/docs that describe it/i);
+    expect(p).toContain("success_criteria");
+    expect(p).toMatch(/exit status/);
+  });
+
   test("systemPrompt preserves public API sync/async under Guidelines", () => {
     const prompt = builderPackage.systemPrompt;
     expect(prompt).toMatch(/Public API shapes/i);
