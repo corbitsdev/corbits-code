@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateSessionId } from "../session/index.js";
 import { loadSeededApprovals } from "../session/runtime-assembly.js";
+import { runWithSubAgentIdentity } from "../subagent/identity-context.js";
 import { trustProjectGrants } from "../trust/project-trust.js";
 import { createPermissionGate } from "./gate.js";
 import type { Approval, PermissionRequest } from "./types.js";
@@ -205,5 +206,103 @@ describe("CL-7782: project approvals require grant trust", () => {
     const { gate, asked } = await driveGate(cwd, generateSessionId(), home);
     expect((await gate.evaluate({ ...NPM_TEST })).allowed).toBe(true);
     expect(asked).toEqual([]);
+  });
+
+  test("confirming a planted entry through the pending flow converges the file to the minted shape", async () => {
+    const base = await mkdtemp(join(tmpdir(), "cl-7782-converge-"));
+    const home = join(base, "home");
+    const cwd = join(base, "repo");
+    await plantProjectApprovals(cwd, [
+      { tool: "run_shell", pattern: "npm test" },
+    ]);
+    expect(await loadPendingProjectApprovals(cwd, home)).toEqual([
+      { tool: "run_shell", pattern: "npm test" },
+    ]);
+
+    // What the gate persist does when the operator confirms the pending entry
+    // with a project-scope persist: mint {tool, pattern, cwd} and write it.
+    await saveProjectApproval(
+      cwd,
+      { tool: "run_shell", pattern: "npm test", cwd },
+      home,
+    );
+
+    // The planted twin is displaced by the minted shape — nothing lingers as
+    // pending, and the grant applies without asking.
+    expect(await loadProjectApprovals(cwd, home)).toEqual([
+      { tool: "run_shell", pattern: "npm test", cwd },
+    ]);
+    expect(await loadPendingProjectApprovals(cwd, home)).toEqual([]);
+
+    const { gate, asked } = await driveGate(cwd, generateSessionId(), home);
+    expect(
+      (
+        await gate.evaluate({
+          id: "npm-test",
+          name: "run_shell",
+          arguments: { command: "npm test" },
+        })
+      ).allowed,
+    ).toBe(true);
+    expect(asked).toEqual([]);
+  });
+
+  test("stripping cwd from a confirmed entry re-surfaces as pending and never cross-repo auto-allows", async () => {
+    const base = await mkdtemp(join(tmpdir(), "cl-7782-cwd-strip-"));
+    const home = join(base, "home");
+    const cwd = join(base, "repo");
+    const other = join(base, "other");
+    await mkdir(other, { recursive: true });
+
+    // Operator confirms {tool, pattern, cwd} through the production path.
+    await saveProjectApproval(
+      cwd,
+      { tool: "run_shell", pattern: "npm test", cwd },
+      home,
+    );
+    expect(await loadProjectApprovals(cwd, home)).toEqual([
+      { tool: "run_shell", pattern: "npm test", cwd },
+    ]);
+
+    // Hand-edit drops the cwd key: byte-identical to a planted entry, but the
+    // confirmation was bound to the cwd-bearing shape, so trust must not
+    // follow the stripped bytes.
+    await plantProjectApprovals(cwd, [
+      { tool: "run_shell", pattern: "npm test" },
+    ]);
+    expect(await loadProjectApprovals(cwd, home)).toEqual([]);
+    expect(await loadPendingProjectApprovals(cwd, home)).toEqual([
+      { tool: "run_shell", pattern: "npm test" },
+    ]);
+
+    // The real gate, seeded after the strip: neither the same-repo request
+    // nor a cross-repo request (different request cwd) auto-allows.
+    const asked: string[] = [];
+    const gate = createPermissionGate({
+      cwd,
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async (request: PermissionRequest) => {
+        asked.push(`${request.tool}:${request.subject}`);
+        return { allow: false };
+      },
+      approvals: await loadSeededApprovals(cwd, generateSessionId(), home),
+    });
+    const NPM_TEST = {
+      id: "npm-test",
+      name: "run_shell",
+      arguments: { command: "npm test" },
+    } as const;
+    expect((await gate.evaluate({ ...NPM_TEST })).allowed).toBe(false);
+    expect(
+      (
+        await runWithSubAgentIdentity(
+          { description: "other", cwd: other },
+          () => gate.evaluate({ ...NPM_TEST }),
+        )
+      ).allowed,
+    ).toBe(false);
+    expect(asked).toEqual(["run_shell:npm test", "run_shell:npm test"]);
   });
 });

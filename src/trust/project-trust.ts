@@ -325,25 +325,38 @@ export async function trustMcpServer(
  * Stable fingerprint for one project-approval entry: tool + pattern, with the
  * provider-model binding folded in when set, so switching models invalidates a
  * prior confirmation exactly the way the gate's providerModel check does.
- * The fingerprint deliberately excludes the file's cwd — the trust record is
- * already keyed per project (realpath-keyed filename plus the repo guard).
+ * The entry's cwd is folded in too (absent → ""): Approval has four enforced
+ * dimensions and a cwd-less grant matches any request cwd (see
+ * cwdMatchesGrant), so a fingerprint that ignored cwd would let a hand-edit
+ * dropping `cwd` from a confirmed entry keep its confirmation and silently
+ * widen a repo-confined grant to cross-repo. A cwd-less planted entry still
+ * fingerprints the same way at trust and load time, so confirming it through
+ * the pending flow matches the minted shape (saveProjectApproval converges
+ * the file to that shape on write).
  */
 export function projectGrantFingerprint(approval: {
   tool: string;
   pattern: string;
   providerModel?: string;
+  cwd?: string;
 }): string {
   const payload = JSON.stringify({
     tool: approval.tool,
     pattern: approval.pattern,
     providerModel: approval.providerModel ?? "",
+    cwd: approval.cwd ?? "",
   });
   return createHash("sha256").update(payload).digest("hex");
 }
 
 export function isProjectGrantTrusted(
   store: ProjectTrustStore,
-  approval: { tool: string; pattern: string; providerModel?: string },
+  approval: {
+    tool: string;
+    pattern: string;
+    providerModel?: string;
+    cwd?: string;
+  },
 ): boolean {
   return store.trustedGrantFingerprints.includes(
     projectGrantFingerprint(approval),
@@ -362,7 +375,12 @@ export function isProjectGrantTrusted(
  */
 export async function trustProjectGrants(
   cwd: string,
-  approvals: { tool: string; pattern: string; providerModel?: string }[],
+  approvals: {
+    tool: string;
+    pattern: string;
+    providerModel?: string;
+    cwd?: string;
+  }[],
   home: string = homedir(),
 ): Promise<ProjectTrustStore> {
   const fps = approvals.map(projectGrantFingerprint);
@@ -385,7 +403,12 @@ export async function trustProjectGrants(
 /** Drop confirmations for removed entries so a replanted file re-surfaces. */
 export async function untrustProjectGrants(
   cwd: string,
-  approvals: { tool: string; pattern: string; providerModel?: string }[],
+  approvals: {
+    tool: string;
+    pattern: string;
+    providerModel?: string;
+    cwd?: string;
+  }[],
   home: string = homedir(),
 ): Promise<ProjectTrustStore> {
   const fps = new Set(approvals.map(projectGrantFingerprint));
@@ -411,7 +434,12 @@ export async function untrustProjectGrants(
  */
 export async function reconcileProjectGrants(
   cwd: string,
-  onDisk: { tool: string; pattern: string; providerModel?: string }[],
+  onDisk: {
+    tool: string;
+    pattern: string;
+    providerModel?: string;
+    cwd?: string;
+  }[],
   home: string = homedir(),
 ): Promise<ProjectTrustStore> {
   const live = new Set(onDisk.map(projectGrantFingerprint));

@@ -68,6 +68,20 @@ function parseApprovalList(raw: unknown): Approval[] {
 }
 
 function sameApproval(a: Approval, b: Approval): boolean {
+  // Removal equality deliberately ignores cwd: revocation targets arrive
+  // cwd-less (see admin.ts toApproval), so a strict comparison would silently
+  // keep a confined twin live. Removing the file entry is the revocation;
+  // the next load's reconcile prunes the cwd-bound fingerprint with it.
+  return (
+    a.tool === b.tool &&
+    a.pattern === b.pattern &&
+    a.providerModel === b.providerModel
+  );
+}
+
+// Equality on every confirmed dimension except cwd: a planted file entry and
+// the gate's minted confirmation of it differ only in cwd.
+function sameGrantModuloCwd(a: Approval, b: Approval): boolean {
   return (
     a.tool === b.tool &&
     a.pattern === b.pattern &&
@@ -192,7 +206,19 @@ export async function saveProjectApproval(
 ): Promise<void> {
   await chainObjectWrite(projectStorePath(cwd), (current) => ({
     ...current,
-    approvals: [...parseApprovalList(current.approvals), approval],
+    approvals: [
+      // A planted entry carries no cwd; confirming it through the pending flow
+      // mints {tool, pattern, cwd} and writes that shape back here. Displace
+      // its twin instead of stacking a duplicate that would linger as pending
+      // forever — the dropped twin never applied, so nothing confirmed is
+      // lost. A save without cwd keeps the plain append path and never
+      // displaces a confined entry.
+      ...parseApprovalList(current.approvals).filter(
+        (entry) =>
+          approval.cwd === undefined || !sameGrantModuloCwd(entry, approval),
+      ),
+      approval,
+    ],
   }));
   // The only production writer is the interactive grant path (an operator
   // answering a prompt with a project-scope persist), so writing an entry is
