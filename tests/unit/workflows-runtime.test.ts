@@ -61,14 +61,42 @@ const parent: Workflow = {
   ],
 };
 
+const withAgentStep: Workflow = {
+  name: "agented",
+  description: "delegates a step",
+  steps: [{ id: "a", label: "A", prompt: "do a", agent: "builder" }],
+};
+
+const withParallelAgents: Workflow = {
+  name: "parallel-agents",
+  description: "delegates a step in parallel",
+  steps: [
+    {
+      id: "a",
+      label: "A",
+      prompt: "do a",
+      agent: ["builder", "critic"],
+      parallel: true,
+    },
+  ],
+};
+
 function resolver(name: string): Workflow | undefined {
-  return [simple, withGatedStep, child, parent].find((w) => w.name === name);
+  return [simple, withGatedStep, child, parent, withAgentStep].find(
+    (w) => w.name === name,
+  );
 }
 
 function collect(runtime: WorkflowRuntime): WorkflowEvent[] {
   const events: WorkflowEvent[] = [];
   runtime.on((e) => events.push(e));
   return events;
+}
+
+function coordDirective(rt: WorkflowRuntime): string {
+  const directive = new WorkflowCoordinator(rt).directive();
+  if (directive === null) throw new Error("expected an active directive");
+  return directive;
 }
 
 test("start lands on the first executable step", () => {
@@ -163,6 +191,34 @@ test("coordinator directive includes the ordinal, label, prompt, and completion 
   expect(directive).toContain("submit_output");
   expect(directive).toContain('"step": "a"');
   expect(directive).not.toContain("advance_workflow");
+});
+
+test("coordinator directive defaults to mailbox collect when wait_agents is unmounted", () => {
+  const rt = new WorkflowRuntime(empty, resolver);
+  rt.start(withAgentStep);
+  const directive = coordDirective(rt);
+  expect(directive).toContain("mailbox mail");
+  expect(directive).not.toContain("wait_agents");
+});
+
+test("coordinator directive keeps the wait_agents collect path when mounted", () => {
+  const rt = new WorkflowRuntime(empty, resolver);
+  rt.start(withAgentStep);
+  const coord = new WorkflowCoordinator(rt, () => undefined, false, true);
+  const directive = coord.directive();
+  expect(directive).toContain("collect it with wait_agents");
+});
+
+test("coordinator parallel-agent guidance is mount-gated", () => {
+  const parallelResolver = (n: string): Workflow | undefined =>
+    n === "parallel-agents" ? withParallelAgents : undefined;
+  const unmounted = new WorkflowRuntime(empty, parallelResolver);
+  unmounted.start(withParallelAgents);
+  expect(coordDirective(unmounted)).not.toContain("wait_agents");
+  const mounted = new WorkflowRuntime(empty, parallelResolver);
+  mounted.start(withParallelAgents);
+  const coord = new WorkflowCoordinator(mounted, () => undefined, false, true);
+  expect(coord.directive()).toContain("wait_agents");
 });
 
 test("runtime complete is a compare-and-advance against the current step", () => {

@@ -295,8 +295,6 @@ export interface RunnerState {
   stopFleetReporting?: () => void;
   stopRunHeartbeat?: () => void;
   withFleetPublicationSuspended?: (reset: () => void) => void;
-  /** TUI primary: true when a queued Enter steer should yield in-flight wait_agents. */
-  hasQueuedSteer?: () => boolean;
 }
 
 export function recordRunError(state: RunnerState, err: unknown): void {

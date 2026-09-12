@@ -292,8 +292,8 @@ export interface SessionBridge {
     handler: ((asks: readonly PendingAskWake[]) => void) | undefined,
   ) => void;
   /**
-   * Wake in-flight wait_agents when the operator queues a steer. Timeout-shaped
-   * yield — workers are not interrupted.
+   * Wake the session/mailbox when the operator queues a steer, so occupancy
+   * can deliver it at the next parent tool.boundary. Workers are not interrupted.
    */
   setWaitYieldWake: (wake: (() => void) | undefined) => void;
   /**
@@ -501,7 +501,7 @@ export interface BridgeBag {
   mailboxMailDriver: (() => boolean) | undefined;
   /** After a pending ask wake is actually sent. Independent of deliveredAskWake. */
   onAskWakeSent: ((asks: readonly PendingAskWake[]) => void) | undefined;
-  /** Wake in-flight wait_agents when a steer is queued (timeout-shaped yield). */
+  /** Wake the session/mailbox when a steer is queued, so occupancy can deliver it. */
   waitYieldWake: (() => void) | undefined;
   /** Last prompt actually sent — replay source for the quota auto-retry. */
   lastSentMessage: string;

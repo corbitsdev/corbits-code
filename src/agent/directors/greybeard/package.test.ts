@@ -104,7 +104,9 @@ describe("greybeardPackage", () => {
     const allow = greybeardPackage.tools?.allow ?? [];
     expect(allow).not.toContain("task");
     expect(allow).toContain("spawn_agent");
-    expect(allow).toContain("wait_agents");
+    // CL-7678: nested orchestrators collect through mailbox mail; wait_agents
+    // is exec-primary opt-in, so it stays off the Greybeard allow.
+    expect(allow).not.toContain("wait_agents");
     // CL-7051: search_agents is Skywalker-only — nested directors spawn from allowlist.
     expect(allow).not.toContain("search_agents");
     expect(allow).toContain("write_file");

@@ -71,9 +71,14 @@ describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
       expect(SKYWALKER_TOOLS as readonly string[]).toContain(name);
       expect(ORCHESTRATOR_TOOLS as readonly string[]).toContain(name);
     }
-    for (const name of ["spawn_agent", "wait_agents"] as const) {
+    for (const name of ["spawn_agent"] as const) {
       expect(SKYWALKER_TOOLS as readonly string[]).toContain(name);
       expect(ORCHESTRATOR_TOOLS as readonly string[]).toContain(name);
+    }
+    // CL-7678: wait_agents is exec-primary opt-in (mountWaitAgents), not on the
+    // TUI/nested allowlists — those runs collect through mailbox mail.
+    for (const surface of [SKYWALKER_TOOLS, ORCHESTRATOR_TOOLS] as const) {
+      expect(surface as readonly string[]).not.toContain("wait_agents");
     }
     expect(SKYWALKER_TOOLS as readonly string[]).not.toContain("task");
     expect(ORCHESTRATOR_TOOLS as readonly string[]).not.toContain("task");

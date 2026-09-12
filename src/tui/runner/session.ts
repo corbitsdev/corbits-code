@@ -25,7 +25,6 @@ import { getProcessAdmissionQueue } from "../../subagent/admission.js";
 import {
   createSubAgentSessionStore,
   liveFleetCount,
-  occupancyShouldYieldWait,
 } from "../../subagent/index.js";
 import {
   buildPluginDescriptor,
@@ -314,6 +313,8 @@ export async function assembleTUISession(
   const toolAvailability: ToolAvailability = {
     languageServerAvailable: detectLanguageServerAvailable(config.cwd),
     operatorAvailable: true,
+    // TUI primary does not mount wait_agents — mailbox mail is the collect path.
+    waitAgentsMounted: false,
   };
   // The workflow host is built below, after the toolset; the holder lets
   // submit_output's handler complete the live workflow without a
@@ -321,19 +322,12 @@ export async function assembleTUISession(
   const workflowHostHolder: { instance?: WorkflowHost } = {};
   const evidenceArchiveHolder: { current?: CompactionArchive } = {};
 
-  const toolsetHolder: {
-    current?: Awaited<ReturnType<typeof createAgentToolset>>;
-  } = {};
   const toolset = await createAgentToolset({
     cwd: config.cwd,
     permissionGate,
     skillDirs,
     telemetry: liveTelemetry,
     isCodex: isCodexProviderName(config.providerName),
-    shouldYieldWait: () => {
-      if (state.hasQueuedSteer?.() === true) return true;
-      return occupancyShouldYieldWait(toolsetHolder.current?.fleetRecords);
-    },
     ...(shellTimeout !== undefined ? { shellTimeout } : {}),
     ...(localSettingsForEnv?.env !== undefined
       ? { shellEnv: localSettingsForEnv.env }
@@ -430,7 +424,6 @@ export async function assembleTUISession(
       profiles: () => liveAgentProfiles,
     },
   });
-  toolsetHolder.current = toolset;
 
   const { systemPrompt } = await loadSessionChatPrompt({
     cwd: config.cwd,

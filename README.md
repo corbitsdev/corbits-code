@@ -154,8 +154,8 @@ Details live in `docs/PRODUCT.md` (safety model) and `docs/ARCHITECTURE.md`
 Corbits Code is a single-process CLI built on Interchange primitives. The primary
 session is always the **orchestrator** (Skywalker): it can act directly and
 delegates substantial work through a closed director fleet via `spawn_agent`
-then idle (mailbox mail inbound), `search_agents`, and optional `wait_agents`
-for nested orchestrators.
+then idle (mailbox mail inbound) and `search_agents`. `wait_agents` stays
+mounted only on headless `corbits exec` primary runs.
 
 ```
 CLI (src/index.ts)

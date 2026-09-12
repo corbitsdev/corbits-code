@@ -75,6 +75,11 @@ export interface ToolAvailability {
   // default (mounted). False drops ask_operator from the advertised prefix
   // instead of leaving a cancel stub on the wire.
   operatorAvailable?: boolean;
+  // Whether createAgentToolset mounted the wait_agents collection verb. True
+  // only on exec primary; TUI primary and nested orchestrators omit it and
+  // collect via mailbox mail instead. Omit to keep the unmounted default —
+  // false/omitted filters wait_agents out of the core/advertised name sets.
+  waitAgentsMounted?: boolean;
 }
 
 export function coreToolNamesForSessionMode(
@@ -88,6 +93,7 @@ export function coreToolNamesForSessionMode(
     if (name === "lsp") return availability.languageServerAvailable;
     if (name === "ask_operator")
       return availability.operatorAvailable !== false;
+    if (name === "wait_agents") return availability.waitAgentsMounted === true;
     return true;
   });
 }
@@ -203,7 +209,7 @@ export function createActivatedToolTracker(): ActivatedToolTracker {
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are not advertised until this search promotes them onto the wire. Core tools (read_file, run_shell, web_fetch, web_search, spawn_agent, wait_agents, …) are already on the wire — do not tool_search for them. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get matching tools' names, descriptions, and input schemas. Matched tools are promoted and callable on return — invoke them directly, no separate load step.",
+    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are not advertised until this search promotes them onto the wire. Core tools (read_file, run_shell, web_fetch, web_search, spawn_agent, …) are already on the wire — do not tool_search for them. wait_agents is mounted on exec-primary runs only, so it is not on the wire elsewhere and this search cannot promote it there. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get matching tools' names, descriptions, and input schemas. Matched tools are promoted and callable on return — invoke them directly, no separate load step.",
   inputSchema: {
     type: "object",
     properties: {

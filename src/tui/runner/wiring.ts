@@ -68,7 +68,6 @@ import {
   buildFleetDryContinuationMessage,
   buildMailboxMailMessage,
 } from "../../session/runtime-assembly.js";
-import { steerCount } from "../session-queue.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -283,7 +282,6 @@ export function wirePostStartup(
   sessionBridge.setWaitYieldWake(() => {
     services.subAgentSessions.wake();
   });
-  state.hasQueuedSteer = () => steerCount(hostOf(state).shell.session) > 0;
   const unsubscribeFleetReport = services.subAgentSessions.subscribe(() => {
     fleetWakePublisher.publish();
     sessionBridge.flushMailboxMail();

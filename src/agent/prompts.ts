@@ -9,8 +9,9 @@ import {
 import { createSkywalkerSystemPrompt } from "./directors/skywalker/package.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
-// (tests, ad-hoc prompt previews). Real sessions always pass their detected
-// availability — see tui/runner.ts and exec/runner.ts.
+// (tests, ad-hoc prompt previews) — except wait_agents, which is mount-gated:
+// the default preview shows the unmounted (TUI/nested) surface. Real sessions
+// always pass their detected availability — see tui/runner.ts and exec/runner.ts.
 const DEFAULT_TOOL_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: true,
 };
@@ -112,10 +113,14 @@ export function buildGuidelines(
     subAgent?: boolean;
     sessionMode?: SessionMode;
     askDirector?: boolean;
+    // True where createAgentToolset mounted wait_agents (exec primary).
+    // Picks the collection-path copy: wait_agents vs mailbox mail.
+    waitAgentsMounted?: boolean;
   } = {},
 ): string {
   const subAgent = opts.subAgent ?? false;
   const askDirector = opts.askDirector === true;
+  const waitAgentsMounted = opts.waitAgentsMounted === true;
   return [
     "Guidelines:",
     "",
@@ -129,7 +134,11 @@ export function buildGuidelines(
     ...(subAgent
       ? []
       : [
-          "- Prefer spawn_agent(agent=…) then idle for substantial product implementation, exploration, review, and docs — mailbox mail arrives as inbound; do not poll wait_agents. Spawn remains default for substantial work, not a tool ban.",
+          "- Prefer spawn_agent(agent=…) then idle for substantial product implementation, exploration, review, and docs — " +
+            (waitAgentsMounted
+              ? "collect with wait_agents; do not poll list_agents."
+              : "mailbox mail arrives as inbound; do not poll.") +
+            " Spawn remains default for substantial work, not a tool ban.",
         ]),
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
     subAgent
@@ -174,9 +183,17 @@ export function buildGuidelines(
       : [
           "",
           "Orchestration:",
-          "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle. Mailbox mail arrives as inbound when a worker finishes; read it and do not poll `wait_agents`. Nested orchestrators still collect with `wait_agents`. `list_agents` shows the fleet without blocking; after a parked ask is surfaced, answer with `send_input` and do not poll `list_agents`.",
+          "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle. " +
+            (waitAgentsMounted
+              ? "This surface has no mailbox delivery: collect with `wait_agents`; do not poll `list_agents`."
+              : "Mailbox mail arrives as inbound when a worker finishes; read it and do not poll.") +
+            " `list_agents` shows the fleet without blocking; after a parked ask is surfaced, answer with `send_input` and do not poll `list_agents`.",
           "- Pass the typed spawn contract: `intent`, `success_criteria` (done-when; required for implement/review and their default directors), `do_not` (scope fence), and `report_focus`. Free-form `prompt` without `success_criteria` fail-closes for implement/review and their default directors.",
-          "- After workers return, classify fail / incomplete-report vs parent-initiated interrupt vs operator-cancel vs clean complete. Fail-path (`status: failed` or salvage `incomplete-report`): diagnose from the report or error and MAY spawn one successor with a changed brief. Parent-initiated interrupt (`interrupt_agent` / `send_input` with `interrupt:true` unblocks wait with `stop_reason: interrupted`): the worker is often still running and often has no report — `resume_agent` or re-wait; do not `spawn_agent` a successor against a still-live worker. Successor only if that session is no longer resumable. Operator-cancel (`stop_reason` cancelled): wait for the operator; do not auto-retry. Identical brief: refuse. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
+          "- After workers return, classify fail / incomplete-report vs parent-initiated interrupt vs operator-cancel vs clean complete. Fail-path (`status: failed` or salvage `incomplete-report`): diagnose from the report or error and MAY spawn one successor with a changed brief. Parent-initiated interrupt (`interrupt_agent` / `send_input` with `interrupt:true` unblocks wait with `stop_reason: interrupted`): the worker is often still running and often has no report — `resume_agent`" +
+            (waitAgentsMounted
+              ? " or re-wait"
+              : ", or idle for its mailbox mail") +
+            "; do not `spawn_agent` a successor against a still-live worker. Successor only if that session is no longer resumable. Operator-cancel (`stop_reason` cancelled): wait for the operator; do not auto-retry. Identical brief: refuse. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
           "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent`, not manage_tasks.",
           "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
         ]),
@@ -243,7 +260,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   spawn_agent:
     "start a worker agent and return immediately with agent_id; pass returned ids from search_agents as agent=...",
   wait_agents:
-    "optional/deprecated on the primary parent — mailbox mail arrives as inbound; nested orchestrators still wait for spawned workers by agent_id; returns awaiting_director when a worker asks, without collecting that session",
+    "collect spawned workers by agent_id; mounted on exec-primary runs only — elsewhere mailbox mail arrives as inbound, so do not poll; returns awaiting_director when a worker asks, without collecting that session",
   list_agents:
     "list this session's spawn_agent workers without blocking; after a parked ask_director is surfaced, returns an error until send_input answers or the ask is dropped — do not poll",
   search_agents:
@@ -339,6 +356,7 @@ function contextSection(env?: EnvironmentInfo): string {
 function baseSection(
   baseOverride: string | undefined,
   sessionMode: SessionMode,
+  waitAgentsMounted?: boolean,
 ): string {
   if (baseOverride !== undefined && baseOverride.trim().length > 0) {
     const custom = baseOverride.trim();
@@ -347,14 +365,20 @@ function baseSection(
       custom,
       "## Session mode",
       buildHarnessFacts({ sessionMode: "orchestrator" }),
-      buildGuidelines({ sessionMode: "orchestrator" }),
+      buildGuidelines({
+        sessionMode: "orchestrator",
+        ...(waitAgentsMounted !== undefined ? { waitAgentsMounted } : {}),
+      }),
       buildPromptDisciplineBlock(),
     ]);
   }
   return joinSections([
     buildChatRole(sessionMode),
     buildHarnessFacts({ sessionMode }),
-    buildGuidelines({ sessionMode }),
+    buildGuidelines({
+      sessionMode,
+      ...(waitAgentsMounted !== undefined ? { waitAgentsMounted } : {}),
+    }),
     buildPromptDisciplineBlock(),
   ]);
 }
@@ -377,7 +401,7 @@ export function buildChatSystemPrompt(
   toolAvailability: ToolAvailability = DEFAULT_TOOL_AVAILABILITY,
 ): string {
   const sections = [
-    baseSection(baseOverride, sessionMode),
+    baseSection(baseOverride, sessionMode, toolAvailability.waitAgentsMounted),
     buildAvailableTools(
       coreToolNamesForSessionMode(sessionMode, toolAvailability),
       { advertiseArchive: true },
@@ -411,9 +435,17 @@ export function buildSubAgentAppendix(
   // Orchestrators get the spawn instruction; everyone else gets the no-recursion
   // rule only.
   const askDirector = opts.toolNames?.includes("ask_director") === true;
+  // wait_agents is mounted on exec-primary runs only; nested orchestrators
+  // get the live toolNames from runSubAgent, so the mount flag doubles as
+  // the collection-path copy switch with no call-site changes.
+  const waitAgentsMounted = opts.toolNames?.includes("wait_agents") === true;
   const recursionRule =
     opts.orchestrator === true
-      ? '- You are an orchestrator: you MAY call `spawn_agent` to spawn other fleet agents (e.g. spawn_agent(agent="greybeard", description="Review approach", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then synthesize their reports into your own after `wait_agents`. `spawn_agent` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist).'
+      ? '- You are an orchestrator: you MAY call `spawn_agent` to spawn other fleet agents (e.g. spawn_agent(agent="greybeard", description="Review approach", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then ' +
+        (waitAgentsMounted
+          ? "synthesize their reports into your own after `wait_agents`."
+          : "reply and idle — their reports arrive as mailbox mail; do not poll.") +
+        " `spawn_agent` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
       : `- Only the primary ${PRODUCT_NAME} session (or a built-in orchestrator director) may call \`spawn_agent\` to spawn fleet agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
   return [
     `## ${PRODUCT_NAME} notes`,

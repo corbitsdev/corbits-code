@@ -52,7 +52,9 @@ describe("skywalkerPackage", () => {
     const allow = skywalkerPackage.tools?.allow ?? [];
     expect(allow).not.toContain("task");
     expect(allow).toContain("spawn_agent");
-    expect(allow).toContain("wait_agents");
+    // CL-7678: TUI primary collects through mailbox mail; wait_agents is
+    // exec-primary opt-in, so it stays off the Skywalker allow.
+    expect(allow).not.toContain("wait_agents");
     expect(allow).toContain("search_agents");
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
@@ -123,7 +125,9 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("wait_agents");
     expect(p).toContain("Idle-orchestrator");
     expect(p).not.toContain("task()");
-    expect(p).toContain("do not poll wait_agents");
+    expect(p).toContain("Spawn then idle; do not poll");
+    expect(p).not.toContain("do not poll wait_agents");
+    expect(p).toContain("wait_agents is mounted on exec-primary runs only");
     expect(p).toContain("mailbox mail arrives as inbound");
     expect(p).toContain(
       "When the fleet goes dry the runtime re-enters with collected reports",

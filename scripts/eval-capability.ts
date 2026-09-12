@@ -686,6 +686,8 @@ export async function buildEvalDiagnostics(
       // Capability evals run through exec; they are non-TTY, so ask_operator
       // is unmounted the same way the runner does when interactive is false.
       operatorAvailable: false,
+      // ...and wait_agents stays mounted the way the exec runner mounts it.
+      waitAgentsMounted: true,
     });
   return {
     advertisedTools,

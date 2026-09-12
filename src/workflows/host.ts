@@ -157,6 +157,11 @@ export class WorkflowHost {
         this.notify();
       },
       workflow.stepThrough === true,
+      // The directive's collect copy follows the live surface: wait_agents on
+      // exec primary, mailbox mail where it is unmounted (TUI, nested).
+      this.args
+        .getToolDefinitions()
+        .some((definition) => definition.name === "wait_agents"),
     );
     this.listen(runtime);
     this.runtime = runtime;

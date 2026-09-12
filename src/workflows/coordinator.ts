@@ -16,6 +16,10 @@ export class WorkflowCoordinator {
     // When true the workflow pauses after each step for user confirmation; the
     // directive tells the agent to gate via ask_operator before advancing.
     private readonly stepThrough = false,
+    // True where the live tool surface mounted wait_agents (exec primary).
+    // Picks the collection-path copy: wait_agents vs mailbox mail. Defaults
+    // to the unmounted surface so the directive never advertises a missing tool.
+    private readonly waitAgentsMounted = false,
   ) {}
 
   isActive(): boolean {
@@ -61,7 +65,8 @@ export class WorkflowCoordinator {
       "",
     ];
     if (step.prompt !== undefined) lines.push(step.prompt, "");
-    for (const guidance of guidanceFor(step)) lines.push(guidance);
+    for (const guidance of guidanceFor(step, this.waitAgentsMounted))
+      lines.push(guidance);
     if (this.stepThrough && step.type !== "gate") {
       lines.push(
         `Step-through mode is on: when this step is done, summarize it and call` +
@@ -108,7 +113,7 @@ function stepIdOf(args: unknown): string | null {
   return typeof step === "string" && step.length > 0 ? step : null;
 }
 
-function guidanceFor(step: WorkflowStep): string[] {
+function guidanceFor(step: WorkflowStep, waitAgentsMounted: boolean): string[] {
   const out: string[] = [];
   if (step.skill !== undefined) {
     out.push(`First load the ${step.skill} skill, then follow this step.`);
@@ -118,11 +123,16 @@ function guidanceFor(step: WorkflowStep): string[] {
     if (step.parallel === true && agents.length > 1) {
       out.push(
         `Delegate this step to these sub-agents in parallel via spawn_agent: ${agents.join(", ")}.` +
-          ` Use wait_agents to collect all of them before advancing.`,
+          (waitAgentsMounted
+            ? ` Use wait_agents to collect all of them before advancing.`
+            : ` Then idle: mailbox mail arrives as inbound as each worker finishes — read it before advancing.`),
       );
     } else {
       out.push(
-        `Delegate this step to the ${agents.join(", ")} sub-agent via spawn_agent, then collect it with wait_agents.`,
+        `Delegate this step to the ${agents.join(", ")} sub-agent via spawn_agent, ` +
+          (waitAgentsMounted
+            ? `then collect it with wait_agents.`
+            : `then idle: mailbox mail arrives as inbound when it finishes — read it before advancing.`),
       );
     }
   }

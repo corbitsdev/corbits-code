@@ -256,11 +256,11 @@ export interface AgentToolsetArgs {
    */
   isCodex?: boolean;
   /**
-   * TUI primary only. When true, wait_agents finishes as a timeout (workers
-   * untouched, no take) so occupancy can deliver mailbox mail or a queued
-   * operator steer. Nested mounts omit this.
+   * Opt-in: mount wait_agents beside the other fleet verbs. Exec-primary only
+   * (with an advertised allow) — TUI primary and nested orchestrators omit it
+   * and collect worker reports from mailbox mail instead.
    */
-  shouldYieldWait?: () => boolean;
+  mountWaitAgents?: boolean;
 }
 
 // Per-server connection state surfaced to the TUI.
@@ -552,19 +552,23 @@ export async function createAgentToolset(
       };
       orchestratorTools.push(
         createSpawnAgentTool(fleetDeps),
-        createWaitAgentsTool({
-          sessions: fleetSessions,
-          fleetRecords,
-          ...(args.shouldYieldWait !== undefined
-            ? { shouldYieldWait: args.shouldYieldWait }
-            : {}),
-        }),
         createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({ sessions: fleetSessions, fleetRecords }),
         createResumeAgentTool({ sessions: fleetSessions, fleetRecords }),
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
         createSendInputTool({ sessions: fleetSessions, fleetRecords }),
       );
+      // Exec-primary opt-in only: TUI primary and nested orchestrators collect
+      // via mailbox mail, so wait_agents stays unmounted (and unadvertised)
+      // there. See mountWaitAgents.
+      if (args.mountWaitAgents === true) {
+        orchestratorTools.push(
+          createWaitAgentsTool({
+            sessions: fleetSessions,
+            fleetRecords,
+          }),
+        );
+      }
     }
   }
 

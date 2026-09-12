@@ -507,7 +507,7 @@ const SpawnAgentArgs = type({
 export const spawnAgentToolDefinition: ToolDefinition = {
   name: SPAWN_AGENT_TOOL_NAME,
   description:
-    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). The child starts blank. success_criteria is required for implement/review (and their default directors). Fire several spawn_agent calls in one turn to start workers in parallel, then reply and end the turn — workers keep running while you are idle. wait_agents is optional/deprecated on the primary parent (mailbox mail arrives as inbound). Nested orchestrators still collect with wait_agents. Excess fan-out is queued rather than refused.",
+    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). The child starts blank. success_criteria is required for implement/review (and their default directors). Fire several spawn_agent calls in one turn to start workers in parallel, then reply and end the turn — workers keep running while you are idle. Reports arrive as mailbox mail where mailbox delivery is mounted; where wait_agents is mounted (exec primary), collect with it instead. Do not poll. Excess fan-out is queued rather than refused.",
   inputSchema: {
     type: "object",
     properties: {
@@ -569,7 +569,7 @@ export const MAX_WAIT_TIMEOUT_MS = 300_000;
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
   description:
-    `Optional/deprecated on the primary parent: mailbox mail arrives as inbound when workers finish, so spawn then idle instead of polling. Nested orchestrators still collect with this tool. ` +
+    `Mounted on exec-primary runs only: elsewhere mailbox mail arrives as inbound when workers finish, so spawn then idle instead of polling. ` +
     `Block until the given agents reach a terminal state (done, failed, or interrupted), or a worker asks its director (awaiting_director), or timeout_ms elapses. ` +
     `Default mode is "any" (return when the first target finishes or asks). Pass mode="all" to wait until every target is ` +
     `terminal — except a pending ask_director unblocks immediately regardless of mode so the director can send_input. ` +
@@ -1578,9 +1578,10 @@ interface WaitAgentsDeps {
   fleetRecords: FleetMailboxHandle;
   authority?: WaitAgentsAuthority;
   /**
-   * TUI primary only. When true, finish the wait as a timeout (workers
-   * untouched, no take) so occupancy can deliver mailbox mail or a queued
-   * operator steer. Nested mounts omit this.
+   * Supported but unwired in production: no current mount passes this
+   * (TUI does not mount wait_agents; exec mounts without the predicate).
+   * When true, finish the wait as a timeout (workers untouched, no take)
+   * so occupancy can deliver mailbox mail or a queued operator steer.
    */
   shouldYieldWait?: () => boolean;
 }
@@ -1592,7 +1593,8 @@ function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
 
 /**
  * Blocks until `mode` is satisfied for `targets`, or `timeoutMs` / abort
- * elapses, or TUI-primary `shouldYieldWait` is true. Driven by the session
+ * elapses, or the optional (currently unwired in production)
+ * `shouldYieldWait` predicate is true. Driven by the session
  * store's mailbox (`subscribe`) raced against a timer and the parent tool
  * signal; never polls. Timeout, abort, and yield have no side effects:
  * workers keep running and remain waitable. Overlay writers wake this wait
@@ -1797,11 +1799,10 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
 export const listAgentsToolDefinition: ToolDefinition = {
   name: "list_agents",
   description:
-    "List the workers this session started with spawn_agent — the same fleet wait_agents " +
-    "collects. Does not list siblings or another orchestrator's workers. Each entry is id, " +
-    "director, description, wait status, lifecycle, stop_reason when recorded, and whether wait_agents already collected it. " +
+    "List the workers this session started with spawn_agent. Does not list siblings or another orchestrator's workers. Each entry is id, " +
+    "director, description, wait status, lifecycle, stop_reason when recorded, and whether the fleet already collected it. " +
     "When status is awaiting_director, the entry also includes question and question_id. " +
-    "After parked ask_director questions are already surfaced (idle-send wake, wait_agents with a question payload, or a prior list), " +
+    "After parked ask_director questions are already surfaced (idle-send wake or a prior list), " +
     "list_agents returns an error until you answer with send_input (soft) or the ask is dropped. Do not poll list_agents.",
   inputSchema: {
     type: "object",
