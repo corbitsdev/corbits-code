@@ -28,6 +28,15 @@ export interface FirstClassProviderPath {
    * e.g. "codex" for ChatGPT OAuth, "openai" for API key.
    */
   providerId?: string;
+  /**
+   * Models on this path whose endpoint rejects `max_tokens` and requires
+   * `max_completion_tokens` instead (first-party OpenAI reasoning models).
+   * An explicit per-model list: adding a model here declares its own
+   * requirement, never inferred from name prefixes. Relays serving the same
+   * model names through other endpoints are unaffected — the quirk follows
+   * this endpoint, not the bare model name.
+   */
+  maxCompletionTokensModels?: readonly string[];
 }
 
 export interface FirstClassProviderDef {
@@ -57,4 +66,9 @@ export interface FirstClassProviderDef {
    * api-key flow runs against that path's fields / providerId.
    */
   paths?: readonly FirstClassProviderPath[];
+  /**
+   * Carried from a chooser path by firstClassPathAsProvider when the seeded
+   * def originates from a path (see FirstClassProviderPath for semantics).
+   */
+  maxCompletionTokensModels?: readonly string[];
 }

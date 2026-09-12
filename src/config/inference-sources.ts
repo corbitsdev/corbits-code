@@ -9,7 +9,11 @@ import {
   buildXaiSource,
   type ProviderCatalogEntry,
 } from "./index.js";
-import type { Settings } from "./settings.js";
+import {
+  OPENAI_API_BASE_URL,
+  firstClassProviderById,
+} from "../../packages/first-class-providers/src/index.js";
+import { normalizeOpenAICompatibleBaseURL, type Settings } from "./settings.js";
 import {
   resolveSessionEffort,
   type ReasoningEffort,
@@ -34,6 +38,34 @@ function catalogEntry(
   provider: string,
 ): ProviderCatalogEntry | undefined {
   return catalog.find((e) => e.name === provider);
+}
+
+// First-party OpenAI reasoning models reject `max_tokens` and require
+// `max_completion_tokens`. The requirement is declared per model on the
+// first-class OpenAI API-key path's `maxCompletionTokensModels` field — never
+// inferred from name prefixes — and read here through that entry, so the
+// entry stays the single source of truth. The quirk attaches to the source
+// actually in use: it follows the first-party endpoint, so relays serving
+// the same model names through the same adapter keep `max_tokens`.
+function openAIAPIPathMaxCompletionTokensModels(): readonly string[] {
+  return (
+    firstClassProviderById("openai")?.paths?.find((p) => p.id === "api")
+      ?.maxCompletionTokensModels ?? []
+  );
+}
+
+function openAISourceQuirks(
+  baseURL: string,
+  model: string,
+): Record<string, unknown> | undefined {
+  const normalized = normalizeOpenAICompatibleBaseURL(baseURL);
+  if (normalized !== normalizeOpenAICompatibleBaseURL(OPENAI_API_BASE_URL)) {
+    return undefined;
+  }
+  if (!openAIAPIPathMaxCompletionTokensModels().includes(model)) {
+    return undefined;
+  }
+  return { maxTokensField: "max_completion_tokens" };
 }
 
 export function buildInferenceSourceForRef(
@@ -124,6 +156,7 @@ export function buildInferenceSourceForRef(
     });
   }
 
+  const quirks = openAISourceQuirks(baseURL, ref.model);
   return buildOpenAISource({
     id: ref.provider,
     baseURL,
@@ -134,6 +167,7 @@ export function buildInferenceSourceForRef(
         : {}),
     model: ref.model,
     ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    ...(quirks !== undefined ? { quirks } : {}),
   });
 }
 

@@ -17,6 +17,25 @@ const OPENAI_API_MODELS = [
 ] as const;
 const OPENAI_API_DEFAULT = "gpt-5.4";
 
+/** First-party OpenAI chat-completions endpoint for the API-key path below. */
+export const OPENAI_API_BASE_URL = "https://api.openai.com/v1";
+
+/**
+ * Preset models whose first-party endpoint rejects `max_tokens` and requires
+ * `max_completion_tokens`. Explicit per-model list: adding a model here
+ * declares its own requirement, never inferred from name prefixes. gpt-4.1
+ * is non-reasoning and stays on `max_tokens`. This const is only the api
+ * path entry's initial value — runtime reads the entry's
+ * `maxCompletionTokensModels` field, so that field is the source of truth.
+ */
+export const OPENAI_API_MAX_COMPLETION_TOKENS_MODELS: readonly string[] = [
+  "gpt-6-astra",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "o3",
+  "o4-mini",
+];
+
 /**
  * First-class providers shown in the models-surface Connect list.
  * Tier A order: dual-path OpenAI, OAuth xAI, Go/Zen, Z.AI, big three, Custom.
@@ -38,11 +57,12 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
         id: "api",
         label: "OpenAI API — API key",
         auth: "api-key",
-        baseURL: "https://api.openai.com/v1",
+        baseURL: OPENAI_API_BASE_URL,
         models: OPENAI_API_MODELS,
         defaultModel: OPENAI_API_DEFAULT,
         authHint: "Paste your OpenAI API key (sk-...)",
         providerId: "openai",
+        maxCompletionTokensModels: OPENAI_API_MAX_COMPLETION_TOKENS_MODELS,
       },
     ],
   },
@@ -167,6 +187,9 @@ export function firstClassPathAsProvider(
       ? { defaultModel: path.defaultModel }
       : {}),
     ...(path.authHint !== undefined ? { authHint: path.authHint } : {}),
+    ...(path.maxCompletionTokensModels !== undefined
+      ? { maxCompletionTokensModels: path.maxCompletionTokensModels }
+      : {}),
     ...(def.anthropic === true ? { anthropic: true } : {}),
     ...(def.opencodeGo === true ? { opencodeGo: true } : {}),
     ...(def.billingProduct !== undefined

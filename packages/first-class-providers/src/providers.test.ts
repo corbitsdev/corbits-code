@@ -56,6 +56,22 @@ describe("FIRST_CLASS_PROVIDERS", () => {
     expect(api?.models).toContain(api?.defaultModel);
   });
 
+  test("OpenAI API path declares max_completion_tokens models explicitly", () => {
+    const openai = firstClassProviderById("openai");
+    const api = openai?.paths?.find((p) => p.id === "api");
+    expect(api?.maxCompletionTokensModels).toEqual([
+      "gpt-6-astra",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "o3",
+      "o4-mini",
+    ]);
+    for (const model of api?.maxCompletionTokensModels ?? []) {
+      expect(api?.models).toContain(model);
+    }
+    expect(api?.maxCompletionTokensModels).not.toContain("gpt-4.1");
+  });
+
   test("OpenAI API and Zen catalogs include gpt-6-astra without changing defaults", () => {
     const openai = firstClassProviderById("openai");
     const api = openai?.paths?.find((p) => p.id === "api");
