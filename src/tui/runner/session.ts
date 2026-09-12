@@ -311,6 +311,7 @@ export async function assembleTUISession(
   });
   const toolAvailability: ToolAvailability = {
     languageServerAvailable: detectLanguageServerAvailable(config.cwd),
+    operatorAvailable: true,
   };
   // The workflow host is built below, after the toolset; the holder lets
   // submit_output's handler complete the live workflow without a

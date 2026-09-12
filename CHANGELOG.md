@@ -13,6 +13,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Changed
+
+- Headless `corbits exec` unmounts `ask_operator` when stdin/stdout are not
+  TTYs instead of advertising a cancel stub. TUI Skywalker still mounts it;
+  TTY exec still prompts on stdin.
+
 ### Removed
 
 - Profile files no longer accept a `workflow` field. Workflows start only from

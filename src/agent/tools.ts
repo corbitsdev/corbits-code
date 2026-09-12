@@ -146,7 +146,8 @@ export type OperatorResult =
 export interface AgentToolsetArgs {
   cwd: string;
   permissionGate: PermissionGate;
-  onOperatorGate: (
+  // Interactive operator ask; omit on headless/non-TTY so the tool is unmounted.
+  onOperatorGate?: (
     question: string,
     options: string[],
   ) => Promise<OperatorResult>;
@@ -590,55 +591,59 @@ export async function createAgentToolset(
         return result.content;
       },
     }),
-    stringTool({
-      definition: askOperatorDefinition,
-      handler: async (
-        rawArgs: Record<string, unknown>,
-        _signal: AbortSignal,
-      ): Promise<string> => {
-        const parsed = AskOperatorArgs(rawArgs);
-        if (parsed instanceof type.errors) {
-          return "Error: ask_operator requires question (string) and options (array of strings).";
-        }
-        const { question, options } = parsed;
-        if (options.length === 0) {
-          return "Error: ask_operator requires at least one option.";
-        }
-        if (question.length > ASK_OPERATOR_QUESTION_MAX_CHARS) {
-          return (
-            `Error: ask_operator question is ${question.length} characters; ` +
-            `keep it to ${ASK_OPERATOR_QUESTION_MAX_CHARS} or fewer. ` +
-            "Put the essay in a transcript reply first, then retry with a brief question."
-          );
-        }
-        for (let i = 0; i < options.length; i++) {
-          const option = options[i] ?? "";
-          if (option.length > ASK_OPERATOR_OPTION_MAX_CHARS) {
-            return (
-              `Error: ask_operator option ${i + 1} is ${option.length} characters; ` +
-              `keep each label to ${ASK_OPERATOR_OPTION_MAX_CHARS} or fewer. ` +
-              "Put the essay in a transcript reply first, then retry with short option labels."
-            );
-          }
-        }
-        const result = await onOperatorGate(question, options);
-        if (result.kind === "cancel") {
-          return "The operator dismissed the question without answering. Do not ask it again; proceed with your best judgment or continue with other work.";
-        }
-        if (result.kind === "custom") {
-          return result.text;
-        }
-        const { index } = result;
-        if (index < 0 || index >= options.length) {
-          return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
-        }
-        const selected = options[index];
-        if (selected === undefined) {
-          return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
-        }
-        return selected;
-      },
-    }),
+    ...(onOperatorGate !== undefined
+      ? [
+          stringTool({
+            definition: askOperatorDefinition,
+            handler: async (
+              rawArgs: Record<string, unknown>,
+              _signal: AbortSignal,
+            ): Promise<string> => {
+              const parsed = AskOperatorArgs(rawArgs);
+              if (parsed instanceof type.errors) {
+                return "Error: ask_operator requires question (string) and options (array of strings).";
+              }
+              const { question, options } = parsed;
+              if (options.length === 0) {
+                return "Error: ask_operator requires at least one option.";
+              }
+              if (question.length > ASK_OPERATOR_QUESTION_MAX_CHARS) {
+                return (
+                  `Error: ask_operator question is ${question.length} characters; ` +
+                  `keep it to ${ASK_OPERATOR_QUESTION_MAX_CHARS} or fewer. ` +
+                  "Put the essay in a transcript reply first, then retry with a brief question."
+                );
+              }
+              for (let i = 0; i < options.length; i++) {
+                const option = options[i] ?? "";
+                if (option.length > ASK_OPERATOR_OPTION_MAX_CHARS) {
+                  return (
+                    `Error: ask_operator option ${i + 1} is ${option.length} characters; ` +
+                    `keep each label to ${ASK_OPERATOR_OPTION_MAX_CHARS} or fewer. ` +
+                    "Put the essay in a transcript reply first, then retry with short option labels."
+                  );
+                }
+              }
+              const result = await onOperatorGate(question, options);
+              if (result.kind === "cancel") {
+                return "The operator dismissed the question without answering. Do not ask it again; proceed with your best judgment or continue with other work.";
+              }
+              if (result.kind === "custom") {
+                return result.text;
+              }
+              const { index } = result;
+              if (index < 0 || index >= options.length) {
+                return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
+              }
+              const selected = options[index];
+              if (selected === undefined) {
+                return `Error: invalid selection ${index}. Valid range: 0-${options.length - 1}.`;
+              }
+              return selected;
+            },
+          }),
+        ]
+      : []),
     stringTool({
       definition: presentDefinition,
       handler: async (rawArgs: Record<string, unknown>): Promise<string> => {

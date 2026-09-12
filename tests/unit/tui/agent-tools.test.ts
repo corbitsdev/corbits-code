@@ -252,6 +252,17 @@ test("dynamicRunner contains posix tool names plus ask_operator", async () => {
   expect(names).not.toContain("apply_patch");
 });
 
+test("dynamicRunner omits ask_operator when onOperatorGate is not provided", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+  });
+
+  const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+  expect(names).not.toContain("ask_operator");
+  expect(names).toContain("read_file");
+});
+
 test("onOperatorGate callback is invoked when the operator tool handler is called", async () => {
   let capturedQuestion = "";
   let capturedOptions: string[] = [];

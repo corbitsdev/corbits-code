@@ -683,6 +683,9 @@ export async function buildEvalDiagnostics(
     overlay.advertisedAllow ??
     advertisedToolNamesForSessionMode(sessionMode, {
       languageServerAvailable: detectLanguageServerAvailable(config.cwd),
+      // Capability evals run through exec; they are non-TTY, so ask_operator
+      // is unmounted the same way the runner does when interactive is false.
+      operatorAvailable: false,
     });
   return {
     advertisedTools,
