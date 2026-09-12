@@ -628,9 +628,9 @@ Two mid-run gestures, two delivery times (CL-6290):
 - **Enter, mid-run** — soft steer: enqueues kind `"steer"` and delivers at the
   next **parent** `tool.boundary` (the parent tool finishing, not a child) via
   `Agent.deliver` into the live reactor, not a new `send`. A
-  long parent `run_shell` or an awaiting `wait_agents` is parent-busy and holds
-  steers. An in-flight TUI-primary `wait_agents` yields as a timeout when a
-  steer is queued so occupancy can deliver it. The transcript row says
+  long parent `run_shell` is parent-busy and holds steers. A queued steer
+  delivers at the next parent `tool.boundary` so occupancy can pick it up.
+  The transcript row says
   `[will steer next]` while pending and
   `[steering]` once delivered (`submitPrompt`, `drainSteersAtBoundary` in
   `runtime-bridge.ts`). If the captured target agent is already closed when
