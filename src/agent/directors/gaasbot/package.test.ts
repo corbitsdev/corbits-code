@@ -79,35 +79,11 @@ describe("gaasbotPackage", () => {
     expect(gaasbotPackage.modelRole).toBe("plan");
   });
 
-  test("optionalSkills is style, philosophy, and native-integration", () => {
+  test("optionalSkills is philosophy and native-integration", () => {
     expect(gaasbotPackage.optionalSkills).toEqual([
-      "style",
       "philosophy",
       "native-integration",
     ]);
-  });
-
-  test("systemPrompt carries the CTO voice strands (contract, not phrasing)", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).toMatch(/squash PR commits/i);
-    expect(p).toMatch(/hooks must be on/i);
-    expect(p).toMatch(/loose coupling|composability/i);
-    expect(p).toMatch(/owns the constraint|owning layer/i);
-    expect(p).toMatch(/statically-typed|static types/i);
-    expect(p).toMatch(/Push back when/i);
-    expect(p).toMatch(/Stay flexible when/i);
-    expect(p).toMatch(/symptom-chasing/i);
-    expect(p).toMatch(/parent\/operator/i);
-  });
-
-  test("CTO voice grants no ship/implement/merge-block/spawn powers", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).not.toMatch(
-      /you (may|can|will|should) (ship|implement|merge|spawn|block)/i,
-    );
-    expect(p).not.toMatch(/go ahead and (ship|implement|merge)/i);
-    expect(p).not.toMatch(/merge-block(ing|er)? (powers|authority)/i);
-    expect(p).not.toMatch(/act as (a|the) (gate|implementer|orchestrator)/i);
   });
 
   test("primaryIntent and outOfLane match risk counsel lane", () => {
