@@ -441,7 +441,7 @@ export function buildSubAgentReportContract(
     "- Stick to the dispatch brief. Do not invent scope or wander into unrelated work.",
     "- If the brief lists Success criteria, treat them as the done-definition: when all are met (or you are blocked), stop calling tools and emit the report envelope. Do not keep tooling past done.",
     "- If the brief lists Do not, respect those constraints; do not invent scope outside Intent / Do not.",
-    "- When done, stop calling tools and reply with ONLY this markdown envelope (prose inside each section is fine; omit empty sections rather than inventing content):",
+    '- When done, stop calling tools and reply with ONLY this markdown envelope (prose inside each section is fine; emit all four headings every time in this order, writing "None." under a heading with nothing to report rather than dropping it):',
     "",
     "## Summary",
     "One or two sentences: what you accomplished or concluded.",
