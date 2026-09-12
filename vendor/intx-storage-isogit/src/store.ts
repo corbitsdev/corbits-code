@@ -864,6 +864,7 @@ export class IsogitStore
     return records;
   }
 
+  // Locally patched — see vendor/intx-storage-isogit/PATCHES.md#store-ts-load-errors
   async loadErrors(
     sessionId: string,
     _signal?: AbortSignal,

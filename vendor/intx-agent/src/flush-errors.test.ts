@@ -676,4 +676,29 @@ describe("agent error flushing", () => {
     expect(duplicateFlushFailures(events)).toEqual([]);
     expect(events.some((event) => event.type === "reactor.done")).toBe(true);
   });
+
+  test("createAgent still assembles when loadErrors throws", async () => {
+    const audit = makeRecordingAuditStore();
+    audit.loadErrors = async () => {
+      throw new Error("simulated loadErrors failure");
+    };
+    const directors = credentialFailureDirectors();
+    const def = forbiddenAgentDef("cred-flush-load-errors");
+    const env = await buildAgentEnv({ workdir: workDir, audit, directors });
+    const agent = await createAgent(def, { ...env, deps: FORBIDDEN_DEPS });
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const stream = agent.stream();
+    try {
+      agent.deliver(inboundConversation());
+      for await (const event of stream) {
+        events.push(event);
+        if (event.type === "reactor.done") break;
+      }
+    } finally {
+      await agent.close();
+    }
+
+    expect(events.some((event) => event.type === "reactor.done")).toBe(true);
+    expect(audit.getCommittedErrors().flat().length).toBeGreaterThan(0);
+  });
 });

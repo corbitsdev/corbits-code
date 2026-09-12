@@ -514,9 +514,14 @@ export async function createAgent<EnvReq extends BaseEnv>(
     const accumulatedErrors: ErrorRecord[] = [];
     // Resume from durable records so a rebuilt agent does not reuse seq 0
     // and collide with files the previous assembly already committed.
+    // Locally patched — see vendor/intx-agent/PATCHES.md#agent-ts-resume-error-seq
     let errorSeq = 0;
-    for (const record of await auditStore.loadErrors(sessionId)) {
-      if (record.seq >= errorSeq) errorSeq = record.seq + 1;
+    try {
+      for (const record of await auditStore.loadErrors(sessionId)) {
+        if (record.seq >= errorSeq) errorSeq = record.seq + 1;
+      }
+    } catch {
+      logger.warn`loadErrors failed during assembly; starting error seq at 0`;
     }
     let flushInProgress: Promise<void> | undefined;
     let pendingFollowUp: Promise<void> | undefined;
@@ -557,6 +562,7 @@ export async function createAgent<EnvReq extends BaseEnv>(
           await auditStore.commitErrors(batch);
           accumulatedErrors.splice(0, count);
         } catch (cause) {
+          // Locally patched — see vendor/intx-agent/PATCHES.md#agent-ts-duplicate-error-flush
           if (
             cause instanceof Error &&
             cause.message.startsWith("Duplicate error record:")
