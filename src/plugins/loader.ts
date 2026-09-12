@@ -3,12 +3,17 @@ import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, parse, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type } from "arktype";
 
 import type { WorkflowPlugin } from "../workflows/types.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
-import { parsePluginManifest, type PluginManifest } from "./manifest.js";
+import {
+  parsePluginManifest,
+  PluginManifestSchema,
+  type PluginManifest,
+} from "./manifest.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import type { PluginLoadReporter } from "../telemetry/product-events.js";
 import { runtimePluginLoadReporter } from "../telemetry/singleton.js";
@@ -71,34 +76,112 @@ export interface PluginModule {
   shadowedRepoDefaultEnabled?: boolean;
 }
 
+function isENOENT(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "ENOENT"
+  );
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 // Read and validate a manifest.json beside the module. Plugins may declare
 // their manifest as a JS export (mod.manifest) or a sibling manifest.json file;
 // this covers the JSON path so plugins that are pure data + commands work too.
-async function readManifestJson(dir: string): Promise<PluginManifest | null> {
+// Missing file stays silent; parse or schema failure warns and still skips.
+async function readJsonFile(
+  path: string,
+  onWarning: (msg: string) => void,
+): Promise<unknown | undefined> {
+  let raw: string;
   try {
-    const raw = await readFile(join(dir, "manifest.json"), "utf8");
-    return parsePluginManifest(JSON.parse(raw));
-  } catch {
+    raw = await readFile(path, "utf8");
+  } catch (err) {
+    if (isENOENT(err)) return undefined;
+    onWarning(`failed to read ${path}: ${errorText(err)}`);
+    return undefined;
+  }
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (err) {
+    onWarning(`failed to parse ${path}: ${errorText(err)}`);
+    return undefined;
+  }
+}
+
+async function readManifestJson(
+  dir: string,
+  onWarning: (msg: string) => void,
+): Promise<PluginManifest | null> {
+  const manifestPath = join(dir, "manifest.json");
+  const parsed = await readJsonFile(manifestPath, onWarning);
+  if (parsed === undefined) return null;
+  const result = PluginManifestSchema(parsed);
+  if (result instanceof type.errors) {
+    onWarning(`invalid plugin manifest at ${manifestPath}: ${result.summary}`);
     return null;
   }
+  return result as PluginManifest;
+}
+
+// Claude marketplace `.claude-plugin/manifest.json` is `{name, description?}`,
+// not a corbits PluginManifest. Parse it without PluginManifestSchema so a
+// valid Claude layout does not warn about missing id/kind. Malformed JSON
+// still warns. Kind is filled in so the metadata-only module can list.
+async function readClaudeFormatManifestJson(
+  dir: string,
+  onWarning: (msg: string) => void,
+): Promise<PluginManifest | null> {
+  const manifestPath = join(dir, "manifest.json");
+  const parsed = await readJsonFile(manifestPath, onWarning);
+  if (parsed === undefined) return null;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  const obj = parsed as Record<string, unknown>;
+  const nameRaw =
+    typeof obj.name === "string" && obj.name.trim().length > 0
+      ? obj.name.trim()
+      : typeof obj.id === "string" && obj.id.trim().length > 0
+        ? obj.id.trim()
+        : null;
+  if (nameRaw === null) return null;
+  const manifest: PluginManifest = {
+    id: nameRaw,
+    name: nameRaw,
+    kind: "command",
+  };
+  if (typeof obj.description === "string") {
+    manifest.description = obj.description;
+  }
+  return manifest;
 }
 
 // Safe metadata-only view: never import()s and never loads markdown agents/commands.
 async function readPluginMetadataOnly(
   entryPath: string,
   origin: PluginOrigin,
+  onWarning: (msg: string) => void,
 ): Promise<PluginModule | null> {
   let dir = entryPath;
   try {
     const info = await stat(entryPath);
     if (!info.isDirectory()) dir = dirname(entryPath);
   } catch {
+    // Path missing or unreadable — treat as not a plugin.
     return null;
   }
   const abs = resolve(dir);
   const manifest =
-    (await readManifestJson(abs)) ??
-    (await readManifestJson(join(abs, ".claude-plugin")));
+    (await readManifestJson(abs, onWarning)) ??
+    (await readClaudeFormatManifestJson(
+      join(abs, ".claude-plugin"),
+      onWarning,
+    ));
   if (manifest === null) {
     return null;
   }
@@ -160,7 +243,7 @@ export async function loadPluginEntry(
           target = candidatePath;
           break;
         } catch {
-          // not found, try next
+          // Candidate missing; try the next index filename.
         }
       }
       // No JS entry — fall back to a data-only plugin (agents/*.md and/or
@@ -198,6 +281,7 @@ export async function loadPluginEntry(
       pluginDir = dirname(entryPath);
     }
   } catch {
+    // Entry path missing or unreadable — not a loadable plugin.
     return null;
   }
 
@@ -209,8 +293,8 @@ export async function loadPluginEntry(
     const result: PluginModule = { dir: dirname(importTarget) };
     const manifest =
       parsePluginManifest(mod.manifest) ??
-      (await readManifestJson(dirname(importTarget))) ??
-      (await readManifestJson(dirname(dirname(importTarget))));
+      (await readManifestJson(dirname(importTarget), onWarning)) ??
+      (await readManifestJson(dirname(dirname(importTarget)), onWarning));
     if (manifest !== null) result.manifest = manifest;
     if (
       mod.workflowPlugin != null &&
@@ -284,6 +368,7 @@ async function pathExists(p: string): Promise<boolean> {
     await stat(p);
     return true;
   } catch {
+    // Existence probe: missing or unreadable counts as absent.
     return false;
   }
 }
@@ -475,7 +560,7 @@ export async function expandPluginPath(
       return surviving;
     }
   } catch {
-    // not a declared marketplace — fall through to the layout heuristic
+    // No marketplace.json (or unreadable) — fall through to the layout heuristic.
   }
 
   // 2. Layout heuristic: a `plugins/` subdir whose root is not itself a plugin.
@@ -504,6 +589,7 @@ export async function expandPluginPath(
         withFileTypes: true,
       });
     } catch {
+      // plugins/ vanished between the existence probe and readdir.
       return [marketplaceRoot];
     }
     const dirs: string[] = [];
@@ -560,10 +646,16 @@ async function scanPluginsDir(
   diagnostics?: PluginLoadDiagnostics,
   telemetry?: Telemetry,
 ): Promise<PluginModule[]> {
+  const onWarning = resolvePluginWarningHandler(
+    diagnostics !== undefined
+      ? { diagnostics }
+      : { onWarning: stderrPluginWarning },
+  );
   let entries: string[];
   try {
     entries = await readdir(dir);
   } catch {
+    // Plugins root missing — discovery is empty, not an error.
     return [];
   }
 
@@ -582,7 +674,7 @@ async function scanPluginsDir(
         isTrusted !== undefined &&
         !isTrusted(abs)
       ) {
-        const meta = await readPluginMetadataOnly(abs, origin);
+        const meta = await readPluginMetadataOnly(abs, origin, onWarning);
         if (meta !== null) results.push(meta);
         continue;
       }
@@ -691,6 +783,11 @@ export async function loadPluginsFromPaths(
   // A skipped member routes into `diagnostics` when the caller has one, same
   // reasoning as scanPluginsDir — otherwise it bypasses the collector.
   const onSkip = resolveExpandSkip(opts.diagnostics);
+  const onWarning = resolvePluginWarningHandler(
+    opts.diagnostics !== undefined
+      ? { diagnostics: opts.diagnostics }
+      : { onWarning: stderrPluginWarning },
+  );
   const resolved = await Promise.all(
     paths.map(async (p) => {
       const abs = isAbsolute(p) ? p : join(cwd, p);
@@ -709,7 +806,7 @@ export async function loadPluginsFromPaths(
       .map(async (p) => {
         const abs = resolve(p);
         if (opts.isPluginTrusted !== undefined && !opts.isPluginTrusted(abs)) {
-          return readPluginMetadataOnly(abs, "path");
+          return readPluginMetadataOnly(abs, "path", onWarning);
         }
         return loadPluginEntry(p, {
           cwd,
@@ -734,6 +831,7 @@ function isExistingDirectory(path: string): boolean {
   try {
     return existsSync(path) && statSync(path).isDirectory();
   } catch {
+    // Race or permission: treat as missing so discovery skips this locator.
     return false;
   }
 }
@@ -822,6 +920,7 @@ export async function discoverClaudeInstalledPlugins(
   try {
     raw = await readFile(registryPath, "utf8");
   } catch {
+    // No Claude installed_plugins.json — nothing to import.
     return [];
   }
   let parsed: unknown;

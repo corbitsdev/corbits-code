@@ -14,9 +14,23 @@ import { existsSync, realpathSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 
+import { getLogger } from "@intx/log";
+
 import { loadState, saveState, type RunState } from "./state.js";
 import { resolveSessionLabel } from "./session-label.js";
 import { projectRootFor, projectSessionsRoot } from "./project-key.js";
+import { LOG_NAMESPACE_ROOT } from "../branding.js";
+
+const log = getLogger([LOG_NAMESPACE_ROOT, "session"]);
+
+function isENOENT(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "ENOENT"
+  );
+}
 
 // ---------------------------------------------------------------------------
 // UUIDv7 generator (no external dependencies)
@@ -110,6 +124,7 @@ function realpathSafe(path: string): string {
   try {
     return realpathSync(path);
   } catch {
+    // Path does not exist yet; compare lexically.
     return path;
   }
 }
@@ -174,7 +189,13 @@ export async function initSessionDir(
   await mkdir(dirname(linkPath), { recursive: true });
 
   // Remove existing symlink first, then create new one.
-  await unlink(linkPath).catch(() => undefined);
+  await unlink(linkPath).catch((err: unknown) => {
+    if (isENOENT(err)) return;
+    log.debug("failed to replace latest symlink at {path}: {error}", {
+      path: linkPath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
   await symlink(sessionId, linkPath);
 
   return dir;
@@ -198,8 +219,7 @@ export async function resolveLatestSession(
       contextDir: sessionContextDir(cwd, sessionId, home),
     };
   } catch {
-    // Fall back: legacy latest under cwd, then under the git project root
-    // (nested cwd may not have its own .agent-state/latest).
+    // No canonical latest symlink; try legacy in-repo links.
     for (const legacyLink of legacyLatestCandidates(cwd)) {
       try {
         const sessionId = await readlink(legacyLink);
@@ -210,7 +230,7 @@ export async function resolveLatestSession(
           contextDir: sessionContextDir(cwd, sessionId, home),
         };
       } catch {
-        // try next candidate
+        // This legacy latest link is missing; try the next candidate.
       }
     }
     return null;
@@ -242,6 +262,7 @@ async function collectSessionIds(cwd: string, home: string): Promise<string[]> {
     try {
       entries = await readdir(base);
     } catch {
+      // Session root not created yet for this project.
       continue;
     }
     for (const entry of entries) {
@@ -259,9 +280,11 @@ async function sessionUpdatedAt(
   try {
     return (await stat(join(dir, "run.json"))).mtimeMs;
   } catch {
+    // No run.json yet; use the session directory mtime.
     try {
       return (await stat(dir)).mtimeMs;
     } catch {
+      // Session dir gone between list and stat; keep the in-memory fallback.
       return fallbackMs;
     }
   }

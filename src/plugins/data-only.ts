@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { parsePluginManifest, type PluginManifest } from "./manifest.js";
+import { type } from "arktype";
+import { PluginManifestSchema, type PluginManifest } from "./manifest.js";
 import type {
   CommandDefinition,
   CommandPlugin,
@@ -25,13 +26,45 @@ export interface DataOnlyPlugin {
   commandPlugin?: CommandPlugin;
 }
 
-async function readManifestJson(dir: string): Promise<PluginManifest | null> {
+function isENOENT(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: unknown }).code === "ENOENT"
+  );
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function readManifestJson(
+  dir: string,
+  onWarning: (msg: string) => void,
+): Promise<PluginManifest | null> {
+  const manifestPath = join(dir, "manifest.json");
+  let raw: string;
   try {
-    const raw = await readFile(join(dir, "manifest.json"), "utf8");
-    return parsePluginManifest(JSON.parse(raw));
-  } catch {
+    raw = await readFile(manifestPath, "utf8");
+  } catch (err) {
+    if (isENOENT(err)) return null;
+    onWarning(`failed to read ${manifestPath}: ${errorText(err)}`);
     return null;
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    onWarning(`failed to parse ${manifestPath}: ${errorText(err)}`);
+    return null;
+  }
+  const result = PluginManifestSchema(parsed);
+  if (result instanceof type.errors) {
+    onWarning(`invalid plugin manifest at ${manifestPath}: ${result.summary}`);
+    return null;
+  }
+  return result as PluginManifest;
 }
 
 // Claude Code marketplace plugins self-describe via `.claude-plugin/plugin.json`
@@ -106,7 +139,7 @@ export async function loadDataOnlyPlugin(
 
   const [nativeManifest, claudeManifest, agents, commands, skillCmds] =
     await Promise.all([
-      readManifestJson(pluginDir),
+      readManifestJson(pluginDir, onWarning),
       readClaudePluginManifest(pluginDir),
       loadDataOnlyAgentPlugin(pluginDir, { cwd, onWarning }),
       loadDataOnlyCommands(pluginDir, { onWarning }),

@@ -120,7 +120,10 @@ export function createCommandLayer(
               "Yolo flipped for this session, but the default did not stick.",
             );
           }
-        } catch {
+        } catch (err: unknown) {
+          tuiLogger.debug("skip-permissions persist failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
           state.systemNotice?.(
             "Yolo flipped for this session, but the default did not stick.",
           );
