@@ -13,6 +13,14 @@ TEST_SHA="a7ce0705273ad6b874b737d389db038745e5baec825fd757f42448cd1addb687"
 
 actual_sha=$(shasum -a 256 tests/report.test.ts | cut -d' ' -f1)
 if [[ "$actual_sha" != "$TEST_SHA" ]]; then
+  # A stale TEST_SHA is indistinguishable from an agent edit above, so check
+  # the fixture's own hash at setup before blaming the agent: the workdir is
+  # a git repo committed before the run, so HEAD holds the pristine file.
+  setup_sha=$(git show "HEAD:tests/report.test.ts" 2>/dev/null | shasum -a 256 | cut -d' ' -f1 || true)
+  if [[ -n "$setup_sha" && "$actual_sha" == "$setup_sha" ]]; then
+    echo "FAIL: tests/report.test.ts is unchanged from the fixture at setup ($setup_sha) but does not match TEST_SHA ($TEST_SHA): the case's locked hash is stale (broken case), not an agent edit"
+    exit 1
+  fi
   echo "FAIL: tests/report.test.ts was modified (contract file must be byte-unchanged)"
   exit 1
 fi

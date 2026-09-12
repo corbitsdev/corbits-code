@@ -5,13 +5,21 @@
 # at green fails every check below.
 set -euo pipefail
 
-TEST_SHA="e125ecc69453b923bb69b46e8411ca5b580e0afb81868a8e24f45a10d93e1d2a"
+TEST_SHA="bd97182202b283a721f2972f1fba79e2b552a95a64f1639d077022aa95a157d5"
 
 [[ -f package.json ]] || { echo "FAIL: package.json missing in workdir"; exit 1; }
 [[ -f tests/notify.test.ts ]] || { echo "FAIL: tests/notify.test.ts is gone"; exit 1; }
 
 actual_sha=$(shasum -a 256 tests/notify.test.ts | cut -d' ' -f1)
 if [[ "$actual_sha" != "$TEST_SHA" ]]; then
+  # A stale TEST_SHA is indistinguishable from an agent edit above, so check
+  # the fixture's own hash at setup before blaming the agent: the workdir is
+  # a git repo committed before the run, so HEAD holds the pristine file.
+  setup_sha=$(git show "HEAD:tests/notify.test.ts" 2>/dev/null | shasum -a 256 | cut -d' ' -f1 || true)
+  if [[ -n "$setup_sha" && "$actual_sha" == "$setup_sha" ]]; then
+    echo "FAIL: tests/notify.test.ts is unchanged from the fixture at setup ($setup_sha) but does not match TEST_SHA ($TEST_SHA): the case's locked hash is stale (broken case), not an agent edit"
+    exit 1
+  fi
   echo "FAIL: tests/notify.test.ts was modified (contract file must be byte-unchanged)"
   exit 1
 fi
