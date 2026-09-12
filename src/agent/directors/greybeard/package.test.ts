@@ -37,12 +37,29 @@ describe("greybeardPackage", () => {
     expect(p).toMatch(/constraint ownership|owns constraints/i);
     expect(p).toMatch(/anti-patterns/);
     expect(p).toMatch(/Rank risks/);
+    const checklistIdx = p.search(/Review checklist/);
+    expect(checklistIdx).toBeGreaterThan(-1);
+    const checklist = p.slice(checklistIdx);
+    const claimIdx = checklist.search(/architectural claim/);
+    const ownershipIdx = checklist.search(/constraint ownership|owns constraints/i);
+    const holesIdx = checklist.search(/anti-patterns/);
+    const risksIdx = checklist.search(/Rank risks/);
+    const verdictIdx = checklist.search(/hold \/ revise \/ block/);
+    expect(claimIdx).toBeGreaterThan(-1);
+    expect(ownershipIdx).toBeGreaterThan(claimIdx);
+    expect(holesIdx).toBeGreaterThan(ownershipIdx);
+    expect(risksIdx).toBeGreaterThan(holesIdx);
+    expect(verdictIdx).toBeGreaterThan(risksIdx);
   });
 
   test("systemPrompt ends the checklist with the hold/revise/block verdict triad", () => {
     const p = greybeardPackage.systemPrompt;
     expect(p).toMatch(/hold \/ revise \/ block/);
     expect(p).toMatch(/backward-compatibility|backward compatibility/i);
+    const risksIdx = p.search(/Rank risks/);
+    const triadIdx = p.search(/hold \/ revise \/ block/);
+    expect(risksIdx).toBeGreaterThan(-1);
+    expect(triadIdx).toBeGreaterThan(risksIdx);
   });
 
   test("systemPrompt has no self-spawn language", () => {
