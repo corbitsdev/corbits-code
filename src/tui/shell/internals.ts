@@ -602,6 +602,7 @@ export interface OverlayList {
   readonly activeIndex: number;
   /** Item-row capacity reserved by layout (not the renderable's row height). */
   readonly height: number;
+  readonly rowsPerItem: number;
   readonly offset: number;
   readonly count: number;
   move(delta: number): void;

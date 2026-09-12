@@ -424,10 +424,12 @@ describe("command list height cap", () => {
   );
 
   // Every plugin-inflated catalog and every terminal size gets a bounded
-  // frame: the border-to-border row count above the prompt box never grows
-  // past the terminal, and the box below stays intact and readable.
+  // frame: the border-to-border row count never grows past the terminal.
+  // Below the 10-row comfort line the overlay may take rows from the prompt
+  // floor so the list stays painted; a cramped prompt is preferred to an
+  // overflowed host.
   for (const height of [24, 16, 12, 8, 6]) {
-    test(`stays within a ${height}-row terminal and keeps the prompt box intact`, async () => {
+    test(`stays within a ${height}-row terminal`, async () => {
       await withTestRenderer(
         async (h) => {
           const shell = createAppShell(h.renderer, {
@@ -441,7 +443,10 @@ describe("command list height cap", () => {
           // captureCharFrame's trailing newline yields one extra split
           // element — the frame itself must not exceed the terminal rows.
           expect(lines.length).toBeLessThanOrEqual(height + 1);
-          expect(lines.some((l) => l.includes("message…"))).toBe(true);
+          expect(lines.some((l) => l.includes("Fake command"))).toBe(true);
+          if (height >= 12) {
+            expect(lines.some((l) => l.includes("message…"))).toBe(true);
+          }
         },
         { width: 80, height },
       );

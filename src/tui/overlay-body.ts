@@ -307,11 +307,10 @@ const DECISION_CONTEXT_BLANK_ROWS = 1;
  * which question) and the choices are the two things an approval cannot
  * render without; the surrounding detail can give way first.
  *
- * Below 10 rows this budget alone cannot save the frame: the resolver's own
- * collapse fallback (`resolveGeometry` in geometry/resolve.ts) can still hand
- * the overlay host fewer rows than its render minimum once every other zone
- * is already at floor, which is a pre-existing gap in the resolver, not
- * something this budget controls.
+ * Below 10 rows this budget alone cannot save the frame: the resolver then
+ * falls back to best effort (`resolveGeometry` in geometry/resolve.ts) and
+ * may take rows from below the prompt floor so the overlay still meets its
+ * render minimum. This budget does not control that fallback.
  */
 export function decisionContextBudget(input: {
   readonly terminalHeight: number;

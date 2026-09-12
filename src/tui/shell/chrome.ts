@@ -472,6 +472,20 @@ export function activeOverlayItemId(
 export function paintOverlayList(shell: AppShell): void {
   const list = shell.overlayList;
   if (!list) return;
+  // Geometry's assigned host rows, not overlayHost.height: OpenTUI still
+  // reports the dummy height 1 until the next layout pass, and fitting to
+  // that dummy drops the decision header on a host that is actually tall.
+  const hostH = Math.max(0, shell.layout.overlayHeight);
+  if (hostH > 0) {
+    fitOverlayListToHost(shell, hostH);
+    return;
+  }
+  paintOverlayListContents(shell);
+}
+
+function paintOverlayListContents(shell: AppShell): void {
+  const list = shell.overlayList;
+  if (!list) return;
   const bag = shellInternals(shell);
   shell.overlayView.paintList(
     {
@@ -624,6 +638,57 @@ export function paintPromptBorder(shell: AppShell): void {
   shell.promptBottomRule.content = new StyledText(ruleChunks(shell, bottom));
 }
 
+/**
+ * Shrink overlay body and list so they fit the assigned host. A short
+ * terminal can leave fewer rows than chrome plus a full-height choice;
+ * dropping context first keeps one choice row inside the box so the
+ * operator can still answer.
+ */
+function fitOverlayListToHost(shell: AppShell, hostH: number): void {
+  const list = shell.overlayList;
+  if (!list || hostH <= 0) return;
+  const bag = shellInternals(shell);
+  const hasDesc = !!bag?.primaryBindings.describe;
+  const hasAnswer = overlayAnswerState(shell) !== null;
+  const perItem = overlayRowsPerItem(shell.overlayKind);
+  const hasItems = shell.overlayItems.length > 0;
+  const choiceWant = hasItems ? perItem : 0;
+  const choiceMin = hasItems ? 1 : 0;
+  let bodyCount = shell.overlayBodyLines.length;
+  const chromeOf = (n: number): number =>
+    overlayChromeRows(shell.overlayKind, n, hasDesc, hasAnswer);
+  let chrome = chromeOf(bodyCount);
+  while (bodyCount > 0 && hostH - chrome < choiceMin) {
+    bodyCount -= 1;
+    chrome = chromeOf(bodyCount);
+  }
+  while (bodyCount > 0 && hostH - chrome < choiceWant) {
+    bodyCount -= 1;
+    chrome = chromeOf(bodyCount);
+  }
+  const bodyH = Math.max(0, hostH - chrome);
+  if (bodyH >= perItem) {
+    list.setHeight(
+      Math.max(1, Math.floor(bodyH / perItem)),
+      isDecisionOverlay(shell.overlayKind) ? DECISION_CHOICE_ROWS : 1,
+    );
+  } else if (bodyH >= 1 && hasItems) {
+    list.setHeight(1, 1);
+  }
+  const savedLines = shell.overlayBodyLines;
+  const savedFgs = shell.overlayBodyFgs;
+  if (bodyCount < savedLines.length) {
+    shell.overlayBodyLines = savedLines.slice(0, bodyCount);
+    shell.overlayBodyFgs = savedFgs.slice(0, bodyCount);
+  }
+  try {
+    paintOverlayListContents(shell);
+  } finally {
+    shell.overlayBodyLines = savedLines;
+    shell.overlayBodyFgs = savedFgs;
+  }
+}
+
 export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // Rows lay themselves out against the column budget (right-aligned bubbles,
   // pre-wrapped reasoning blocks), so a width change invalidates every painted
@@ -718,11 +783,16 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.notice.height = noticeH > 0 ? noticeH : 1;
   shell.notice.visible = noticeH > 0;
 
-  const promptH = Math.max(1, h.prompt);
-  shell.promptBox.height = promptH;
+  const promptH = Math.max(0, h.prompt);
+  shell.promptBox.height = promptH > 0 ? promptH : 1;
   shell.promptBox.visible = promptH > 0;
+  const showPromptRules = promptH >= 2;
+  const showPromptField = promptH >= 3;
+  shell.promptTopRule.visible = showPromptRules || promptH === 1;
+  shell.promptBottomRule.visible = showPromptRules;
+  shell.promptField.visible = showPromptField;
   // The field takes whatever the box has left once both labelled rules are paid.
-  const promptInnerH = Math.max(1, promptH - 2);
+  const promptInnerH = showPromptField ? Math.max(1, promptH - 2) : 1;
   shell.promptField.height = promptInnerH;
   // Sized explicitly rather than left to grow with its content: past the cap the
   // input has to scroll inside a fixed window instead of pushing the frame open.
@@ -745,21 +815,7 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.overlayHost.height = hostH > 0 ? hostH : 1;
   shell.overlayHost.visible = hostH > 0;
   if (hostH > 0 && shell.overlayList) {
-    const chrome = overlayChromeRows(
-      shell.overlayKind,
-      shell.overlayBodyLines.length,
-      !!bag?.primaryBindings.describe,
-      overlayAnswerState(shell) !== null,
-    );
-    const bodyH = Math.max(1, hostH - chrome);
-    // The viewport counts items, not rows; a decision overlay spends several
-    // rows per item, so the row budget has to be divided back down.
-    const perItem = overlayRowsPerItem(shell.overlayKind);
-    shell.overlayList.setHeight(
-      Math.max(1, Math.floor(bodyH / perItem)),
-      isDecisionOverlay(shell.overlayKind) ? DECISION_CHOICE_ROWS : 1,
-    );
-    paintOverlayList(shell);
+    fitOverlayListToHost(shell, hostH);
   }
 
   paintPromptBorder(shell);

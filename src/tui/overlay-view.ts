@@ -108,7 +108,8 @@ export function overlayChromeRows(
  * Smallest host rows the open overlay can render into without spilling past
  * its own box: fixed chrome (border, title, body lines) plus one row of the
  * list when it has anything to show. Below this the resolver must give ground
- * elsewhere (transcript floor) rather than starve the overlay itself.
+ * elsewhere (transcript floor, then the prompt floor) rather than starve the
+ * overlay itself.
  */
 export function overlayMinHostRows(
   chromeRows: number,
@@ -383,11 +384,11 @@ export function createOverlayView(ctx: RenderContext) {
       paintDescriptionZone(presentation.describe, contentWidth);
       return;
     }
-    const decision = isDecisionOverlay(presentation.kind);
     // Choice labels are bare action names (scope hints paint in the body
     // above), so each one paints SelectRenderable's name row plus its reserved
-    // second row of air — nothing wraps, nothing clips.
-    list.setHeight(list.height, decision ? DECISION_CHOICE_ROWS : 1);
+    // second row of air — nothing wraps, nothing clips. A cramped host may
+    // have already dropped that air to keep one choice inside the box.
+    list.setHeight(list.height, list.rowsPerItem);
     list.select.showSelectionIndicator = true;
     list.select.options = presentation.items.map((label, i) => {
       const id = presentation.itemIds?.[i];
