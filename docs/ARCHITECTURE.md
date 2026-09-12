@@ -190,7 +190,7 @@ Compaction replaces older turns with a structured, workflow-aware summary rather
 - `present` — Renders structured UI from a JSON view spec instead of pasting tables into chat.
 - `submit_output` — Completes a workflow step when `step` is set. The step id is compared atomically against the current step (`complete()`); already-complete ids (behind the cursor) and not-current ids (future or unknown) are acknowledged without advancing. Always advertised so activating a workflow does not grow the tools array.
 
-Core agent tools (advertised in every chat turn) include `manage_tasks`, `tool_search`, `use_skill`, `skill_search` (catalog; callable without `tool_search`), **`spawn_agent`** (spawn fleet agents; collect through mailbox mail) and **`wait_agents`** (exec-primary collection verb; not mounted on TUI or nested runs), and **`search_agents`** when fleet-agent profiles are available — see Fleet agents below.
+Core agent tools (advertised per surface; exec-only verbs noted) include `manage_tasks`, `tool_search`, `use_skill`, `skill_search` (catalog; callable without `tool_search`), **`spawn_agent`** (spawn fleet agents; collect through mailbox mail) and **`wait_agents`** (exec-primary collection verb; not mounted on TUI or nested runs), and **`search_agents`** when fleet-agent profiles are available — see Fleet agents below.
 
 ### Workflows (`src/workflows/`)
 
