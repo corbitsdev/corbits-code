@@ -633,6 +633,31 @@ export function createSubAgentSessionStore(
     cancelDescendantAsks(id, reason);
   };
 
+  // CL-7787: store-level invariant — a non-live lifecycle must never coexist
+  // with a run-in-flight marker once no settle-capable handle remains. A
+  // soft-interrupted run still holds its interrupt/close/followup/deliver
+  // handle and settles through it; anything else reaching a terminal state
+  // through mutate has nothing left to settle it, so the store drops the
+  // marker itself instead of trusting every call site to remember.
+  // (Cancel-abort hooks don't settle runs, so cancelHandles is deliberately
+  // not in the set below. And cancel itself is excluded entirely — see
+  // markCancelled: after cancel the marker is the live run's outstanding
+  // settlement promise, even when no handle was ever registered.)
+  const enforceSettledRunInvariant = (id: string): void => {
+    const session = sessions.get(id);
+    if (session === undefined || !runInFlight.has(id)) return;
+    const state = session.lifecycle.state;
+    if (state === "pending_init" || state === "running") return;
+    if (
+      interruptHandles.has(id) ||
+      closeHandles.has(id) ||
+      followupHandles.has(id) ||
+      deliverHandles.has(id)
+    )
+      return;
+    runInFlight.delete(id);
+  };
+
   const markCancelled = (session: StoredSession, reason: string): void => {
     session.lifecycle = { state: "cancelled", error: reason };
     session.retained = false;
@@ -649,6 +674,12 @@ export function createSubAgentSessionStore(
     cancelHandles.delete(session.id);
     // closeHandles are owned by releaseHandles / closeOne — dropping them
     // here would skip teardown for a retained session that is mid-turn.
+    // NOTE: no enforceSettledRunInvariant here — after cancel the in-flight
+    // marker is the live run's outstanding settlement promise (its salvage
+    // still lands via attachReport); clearing it would resolve wait_agents
+    // before the salvage arrives (CL-6915). The stranded shape this guards
+    // (no run will ever settle) is closed at the pending_init interrupt
+    // branch and the fleet's not-admissible early return instead.
     bumpRevision(session.id);
     pruneCompleted();
   };
@@ -821,6 +852,7 @@ export function createSubAgentSessionStore(
     const session = sessions.get(id);
     if (session === undefined) return;
     fn(session);
+    enforceSettledRunInvariant(id);
     session.lastActivityAt = now();
     bumpRevision(id);
     notify();
@@ -1689,6 +1721,11 @@ export function createSubAgentSessionStore(
           } catch {
             // Abort hooks must not throw into the interrupt path.
           }
+          // CL-7787: this is a terminal transition — drop the run-in-flight
+          // marker alongside the lifecycle flip like every other terminal
+          // transition, otherwise the wait projection reports "running"
+          // forever with no run left to settle it.
+          runInFlight.delete(id);
           mutate(id, (s) => {
             s.lifecycle = {
               state: "interrupted",
