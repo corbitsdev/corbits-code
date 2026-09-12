@@ -90,14 +90,18 @@ export async function resolveAgentPluginProfiles(
         profile.systemPromptRole === undefined &&
         mod.dir !== undefined
       ) {
+        const promptPath = join(mod.dir, profile.systemPromptPath);
         try {
-          const promptRaw = await readFile(
-            join(mod.dir, profile.systemPromptPath),
-            "utf8",
-          );
+          const promptRaw = await readFile(promptPath, "utf8");
           profile.systemPromptRole = promptRaw.trim();
-        } catch {
-          // Missing prompt file is non-fatal — the profile loads without a role.
+        } catch (err) {
+          const reason =
+            (err instanceof Error ? err.message : String(err))
+              .split("\n")[0]
+              ?.trim() || "unknown error";
+          onWarning(
+            `plugin "${mod.manifest.id}" agent "${profile.id}" systemPromptPath "${profile.systemPromptPath}" unreadable (${promptPath}): ${reason}`,
+          );
         }
       }
       // Provenance for search_agents: Claude marketplace installs stamp
