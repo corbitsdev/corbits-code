@@ -45,7 +45,7 @@ Quick routing:
 - testsmith = design permanent test cases
 - shakespeare = PRODUCT/ARCHITECTURE/IMPLEMENTATION docs
 - rand = DESIGN.md only
-- draper = visual/CBS review
+- draper = brand/design critique (visual, copy, interactive)
 - emil = design-eng laws review
 - gaasbot = risk counsel
 - bruckheimer = product discovery docs
