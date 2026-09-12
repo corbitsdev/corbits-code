@@ -666,9 +666,12 @@ key back to the prompt. On a selected row, **Enter** kills the item out of the
 queue and force-pushes it — `onForceDeliver` drops it on the same
 `port.deliver` hop a drain uses, so a steer still injects when the parent
 cycle is live and otherwise sends immediately. **Ctrl+X** drops the selected
-item outright. Esc or any other key ends the selection and falls through to
-normal handling. `Ctrl+G` stays the pop-to-edit chord: it returns the newest
-held item to an empty prompt for editing (dropping it mid-compose).
+item outright. **Ctrl+G** pops the selected item back into an empty prompt
+for editing (dropping it mid-compose); with no selection it pops the newest
+held item instead. **Esc** ends the selection; any other composer key ends it
+and falls through to normal handling, except `↑`/`↓`, which stay with the
+column. While an overlay is open, keys go to the overlay and leave the
+selection alone.
 
 When `steer > 0` and a parent tool has been in flight ≥ `STEER_WAIT_NOTICE_MS`
 (3s), the notice row adds `waiting on <tool>` (e.g. `waiting on run_shell`).

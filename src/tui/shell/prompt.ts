@@ -442,10 +442,38 @@ export function applyPendingNav(shell: AppShell, delta: -1 | 1): boolean {
 }
 
 /**
+ * No-runtime path for leaving the queue through the selected row: kill the
+ * selected item out of the queue. Same contract as applyShellCancelLast —
+ * an empty prompt gets the item back for editing; mid-draft it's dropped
+ * rather than merged, since merging would send two messages as one.
+ */
+function popSelectedToPrompt(shell: AppShell): void {
+  const bag = shellInternals(shell);
+  const sel = pendingSelIndex(shell);
+  if (bag === undefined || sel < 0) return;
+  const id = shell.session.items[sel]?.id;
+  if (id === undefined) return;
+  const { state, item: popped } = cancelItem(shell.session, id);
+  if (popped === null) return;
+  shell.session = state;
+  bag.pendingSelId = null;
+  if (shell.prompt.value.length === 0) {
+    shell.prompt.value = popped.text;
+    shell.prompt.cursorOffset = popped.text.length;
+    shell.pendingAttachments = [
+      ...shell.pendingAttachments,
+      ...(popped.attachments ?? []),
+    ];
+  }
+  paintChrome(shell);
+}
+
+/**
  * Enter on a selected pending item: kill it out of the queue and force-push —
  * deliver it now through the runtime, skipping its boundary/idle wait. With
- * no runtime attached there is nothing to deliver to, so it pops back into
- * the prompt for editing instead.
+ * no runtime attached there is nothing to deliver to, so it falls back to
+ * the cancel contract: back into an empty prompt for editing, dropped
+ * mid-draft rather than merged.
  */
 export function applyPendingForcePush(shell: AppShell): void {
   const bag = shellInternals(shell);
@@ -461,21 +489,17 @@ export function applyPendingForcePush(shell: AppShell): void {
     paintChrome(shell);
     return;
   }
-  const { state, item: popped } = cancelItem(shell.session, item.id);
-  if (popped === null) return;
-  shell.session = state;
-  bag.pendingSelId = null;
-  // Same contract as applyShellCancelLast: an empty prompt gets the item
-  // back for editing; mid-draft it's dropped rather than merged.
-  if (shell.prompt.value.length === 0) {
-    shell.prompt.value = popped.text;
-    shell.prompt.cursorOffset = popped.text.length;
-    shell.pendingAttachments = [
-      ...shell.pendingAttachments,
-      ...(popped.attachments ?? []),
-    ];
-  }
-  paintChrome(shell);
+  popSelectedToPrompt(shell);
+}
+
+/**
+ * Ctrl+G on a selected pending item: cancel that row, not the newest — the
+ * operator pointed at it. Without hooks this is the same pop-to-prompt as
+ * the force-push fallback; with a runtime attached it still only cancels,
+ * never delivers.
+ */
+export function applyPendingCancelSelected(shell: AppShell): void {
+  popSelectedToPrompt(shell);
 }
 
 /**

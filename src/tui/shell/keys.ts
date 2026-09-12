@@ -36,6 +36,7 @@ import {
   toggleTasksPanel,
 } from "./chrome.js";
 import {
+  applyPendingCancelSelected,
   applyPendingDrop,
   applyPendingForcePush,
   applyPendingNav,
@@ -261,10 +262,18 @@ export function createShellKeyHandlers(
     const bag = shellInternals(shell);
     if (bag?.inputSuspended === true) return;
     sawBracketedPaste = true;
-    if (shell.overlayList !== null && bag?.primaryBindings.onPaste) {
-      event.preventDefault();
-      bag.primaryBindings.onPaste(new TextDecoder().decode(event.bytes));
+    if (shell.overlayList !== null) {
+      if (bag?.primaryBindings.onPaste) {
+        event.preventDefault();
+        bag.primaryBindings.onPaste(new TextDecoder().decode(event.bytes));
+      }
+      return;
     }
+    // A paste into the prompt is composer input like any other key: it ends
+    // a pending-column selection instead of editing under it. The prompt
+    // textarea still consumes the event itself, so this only drops the
+    // selection and falls through.
+    clearPendingSelection(shell);
   };
 
   const onKey = (key: KeyEvent): void => {
@@ -493,9 +502,10 @@ export function createShellKeyHandlers(
     }
 
     // A pending-column selection owns Enter (kill the held item and send it
-    // now) and ^X (drop it) outright; every other key just ends the selection
-    // and falls through to its normal handling. ↑/↓ are exempt — they stay
-    // with the column and are claimed by the nav block below.
+    // now), ^X (drop it) and ^G (pop it back for editing) outright; every
+    // other key just ends the selection and falls through to its normal
+    // handling. ↑/↓ are exempt — they stay with the column and are claimed
+    // by the nav block below.
     if (pendingSelectionActive(shell)) {
       if (
         (keyName === "return" || keyName === "kpenter") &&
@@ -510,6 +520,11 @@ export function createShellKeyHandlers(
       if (key.ctrl && !key.meta && !key.option && keyName === "x") {
         key.preventDefault();
         applyPendingDrop(shell);
+        return;
+      }
+      if (key.ctrl && !key.meta && !key.option && keyName === "g") {
+        key.preventDefault();
+        applyPendingCancelSelected(shell);
         return;
       }
       if (keyName !== "up" && keyName !== "down") {

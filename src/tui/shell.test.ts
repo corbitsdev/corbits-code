@@ -458,6 +458,62 @@ describe("createAppShell", () => {
       { width: 80, height: 24 },
     );
   });
+
+  test("Ctrl+G pops the selected row, not the newest", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        });
+        try {
+          setPendingQueue(shell, 2);
+          await h.renderOnce();
+          // ↑ selects the newest; ↑ again walks up to the older row.
+          h.mockInput.pressKey("\x1b[A");
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          expect(shellInternals(shell)?.pendingSelId).toBe(
+            shell.session.items[0]?.id,
+          );
+          h.pressKey("g", { ctrl: true });
+          await h.renderOnce();
+          expect(shell.session.items.map((i) => i.text)).toEqual(["pad-2"]);
+          expect(shell.prompt.value).toBe("pad-1");
+          expect(shellInternals(shell)?.pendingSelId).toBeNull();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a prompt paste ends the selection instead of editing under it", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        });
+        try {
+          setPendingQueue(shell, 1);
+          await h.renderOnce();
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          expect(shellInternals(shell)?.pendingSelId).not.toBeNull();
+          await h.mockInput.pasteBracketedText("pasted");
+          await h.renderOnce();
+          expect(shellInternals(shell)?.pendingSelId).toBeNull();
+          expect(shell.prompt.value).toBe("pasted");
+          expect(shell.session.items).toHaveLength(1);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
 });
 
 describe("product skin: stream + queue + overlay", () => {

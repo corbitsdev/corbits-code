@@ -1717,7 +1717,6 @@ export function attachSessionBridge(
       kind === "steer"
         ? enqueueSteer(shell.session, t, undefined, attachments)
         : enqueue(shell.session, t, "queue", undefined, attachments);
-    const queued = shell.session.items[shell.session.items.length - 1];
     bag.port.enqueue(t, kind);
     if (kind === "steer") bag.waitYieldWake?.();
     // No transcript echo while pending: the item lists in the column stacked
