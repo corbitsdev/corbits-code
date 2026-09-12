@@ -72,7 +72,6 @@ import {
 } from "../../packages/opencode-go/src/index.js";
 import {
   ZEN_DEFAULT_BASE_URL,
-  ZEN_PROVIDER_ID,
   isZenProvider,
   resolveZenEndpoint,
 } from "../../packages/zen/src/index.js";
@@ -518,7 +517,6 @@ export function buildZenSource(fields: {
   });
   return {
     ...source,
-    provider: ZEN_PROVIDER_ID,
     defaults: {
       ...source.defaults,
       providerOptions: {

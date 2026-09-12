@@ -12,6 +12,7 @@ import {
   setProviderContextWindowOverrides,
 } from "../provider/context-window.js";
 import { createOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
+import { createInferenceDependencies } from "../provider/inference-dependencies.js";
 import { OPENAI_RESPONSES_PROVIDER } from "../provider/openai-responses.js";
 import { ZEN_MESSAGES_PROVIDER } from "../provider/zen-anthropic-adapter.js";
 import { firstClassProviderById } from "../../packages/first-class-providers/src/index.js";
@@ -230,13 +231,33 @@ describe("Zen protocol routing (CL-7811)", () => {
 
   test("Gemini models stay on chat completions", () => {
     const source = zenSource("gemini-3-flash");
-    expect(source?.provider).toBe(ZEN_PROVIDER_ID);
+    expect(source?.provider).toBe("openai-compatible");
     expect(source?.baseURL).toBe(ZEN_DEFAULT_BASE_URL);
   });
 
   test("unknown ids default to chat completions, never name-prefix inference", () => {
     const source = zenSource("some-future-model");
-    expect(source?.provider).toBe(ZEN_PROVIDER_ID);
+    expect(source?.provider).toBe("openai-compatible");
     expect(source?.baseURL).toBe(ZEN_DEFAULT_BASE_URL);
+  });
+
+  test("chat-completions Zen sources resolve to a registered adapter", async () => {
+    const deps = await createInferenceDependencies();
+    for (const model of ["gemini-3-flash", "some-future-model"]) {
+      const source = zenSource(model);
+      expect(source?.provider).toBe("openai-compatible");
+      expect(source).toBeDefined();
+      if (source === undefined || source === null) continue;
+      expect(() =>
+        deps.adapters.resolve(
+          {
+            sourceId: source.id,
+            provider: source.provider,
+            model: source.model,
+          },
+          source.quirks,
+        ),
+      ).not.toThrow();
+    }
   });
 });
