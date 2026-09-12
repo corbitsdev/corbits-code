@@ -17,6 +17,9 @@ test("display segments exactly match authorization segments", () => {
     `echo "a && b" | cat`,
     "cat > /tmp/out.md << 'EOF'\nline one; still body && more\nEOF",
     "cat << 'EOF'\nline one; still body && more\nEOF\necho after",
+    "cat <<-EOF\nbody\n\tEOF\n&& echo evil",
+    "cat <<EOF\nbody\n  EOF\n&& echo evil",
+    "cat <<EOF\r\nbody\r\nEOF\r\n&& echo done",
     "cmd1 && \\\ncmd2",
     "(cd packages/shared && bunx tsc --noEmit 2>&1 | tail -3)",
     "echo start && (cd apps/web && bun test) && echo done",
@@ -102,6 +105,32 @@ test("heredoc body lines are never flagged as comments", () => {
   ]);
 });
 
+test("a tab-indented line closes a <<- heredoc; spaces never close <<", () => {
+  expect(verbatimCommandLines("cat <<-EOF\n\tbody\n\tEOF")).toEqual([
+    { text: "cat <<-EOF", isComment: false },
+    { text: "\tbody", isComment: false },
+    { text: "\tEOF", isComment: false },
+  ]);
+  // The space-indented marker stays body, so a later # line is still payload.
+  expect(verbatimCommandLines("cat <<EOF\n  EOF\n# payload\nEOF")).toEqual([
+    { text: "cat <<EOF", isComment: false },
+    { text: "  EOF", isComment: false },
+    { text: "# payload", isComment: false },
+    { text: "EOF", isComment: false },
+  ]);
+});
+
+test("a CRLF heredoc closes and frees the following chain", () => {
+  expect(
+    verbatimCommandLines("cat <<EOF\r\nbody\r\nEOF\r\n&& echo done"),
+  ).toEqual([
+    { text: "cat <<EOF", isComment: false },
+    { text: "body", isComment: false },
+    { text: "EOF", isComment: false },
+    { text: "&& echo done", isComment: false },
+  ]);
+});
+
 test("bare carriage returns render as a visible marker", () => {
   expect(verbatimCommandLines("echo safe\rrm -rf /")).toEqual([
     { text: "echo safe↵rm -rf /", isComment: false },
@@ -125,6 +154,15 @@ test("collapseSegmentPayloads collapses a heredoc body to a placeholder with a l
       placeholder: "<heredoc, 3 lines>",
       lines: ["fix: something", "", "longer body line"],
     },
+  ]);
+});
+
+test("collapseSegmentPayloads closes a <<- body on its tab-indented marker", () => {
+  const segment = "cat <<-EOF\n\tbody\n\tEOF\n&& echo done";
+  const { display, payloads } = collapseSegmentPayloads(segment);
+  expect(display).toBe("cat <<-EOF <heredoc, 1 line>&& echo done");
+  expect(payloads).toEqual([
+    { placeholder: "<heredoc, 1 line>", lines: ["\tbody"] },
   ]);
 });
 

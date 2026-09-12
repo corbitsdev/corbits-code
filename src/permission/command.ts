@@ -1,6 +1,9 @@
 import type { ApprovalScope } from "./types.js";
 import { escapeGlobLiteral } from "./matcher.js";
-import { parseHeredocOpener } from "../shell/command-segments.js";
+import {
+  isHeredocTerminator,
+  parseHeredocOpener,
+} from "../shell/command-segments.js";
 
 export { splitChainedCommand } from "../shell/command-segments.js";
 
@@ -29,6 +32,7 @@ export function stripCommentLines(command: string): string {
   let commentState: "unknown" | "yes" | "no" = "unknown";
   let quote: '"' | "'" | "`" | null = null;
   let heredocMarker: string | null = null;
+  let heredocStripTabs = false;
 
   const flushLine = (): void => {
     if (commentState !== "yes") out += line;
@@ -44,7 +48,10 @@ export function stripCommentLines(command: string): string {
       if (ch === "\n") {
         const lines = line.split("\n");
         const lastLine = lines[lines.length - 2] ?? "";
-        if (lastLine.trim() === heredocMarker) heredocMarker = null;
+        if (isHeredocTerminator(lastLine, heredocMarker, heredocStripTabs)) {
+          heredocMarker = null;
+          heredocStripTabs = false;
+        }
         out += line;
         line = "";
       }
@@ -91,6 +98,7 @@ export function stripCommentLines(command: string): string {
         line += command.slice(i, opener.lineEnd);
         i = opener.lineEnd - 1;
         heredocMarker = opener.marker;
+        heredocStripTabs = opener.stripTabs;
         continue;
       }
     }

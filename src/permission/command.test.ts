@@ -151,3 +151,45 @@ describe("splitChainedCommand redirect and background fragments", () => {
     expect(splitChainedCommand(prose)).toEqual([prose]);
   });
 });
+
+describe("splitChainedCommand heredoc boundaries", () => {
+  // A marker glued to `<<` is still an opener, and separators trailing the
+  // opener line do not split while the heredoc body is pending.
+  test("keeps separators on the opener line inside a glued-marker heredoc", () => {
+    const command = "cat <<B && echo done\nbody\nB";
+    expect(splitChainedCommand(command)).toEqual([command]);
+    const semicolon = "cat <<EOF; echo done\nbody\nEOF";
+    expect(splitChainedCommand(semicolon)).toEqual([semicolon]);
+  });
+
+  test("opens and closes a heredoc across CRLF line endings", () => {
+    const command = "cat <<EOF\r\nbody\r\nEOF";
+    expect(splitChainedCommand(command)).toEqual([command]);
+    expect(
+      splitChainedCommand("cat <<EOF\r\nbody\r\nEOF\r\n&& echo done"),
+    ).toEqual(["cat <<EOF\r\nbody\r\nEOF", "echo done"]);
+  });
+
+  // Only `<<-` strips leading tabs from the closing line; a space-indented
+  // close never terminates a plain `<<` heredoc.
+  test("closes <<- on a tab-indented marker but not << on spaces", () => {
+    expect(
+      splitChainedCommand("cat <<-EOF\nbody\n\tEOF\n&& echo evil"),
+    ).toEqual(["cat <<-EOF\nbody\n\tEOF", "echo evil"]);
+    const spaces = "cat <<EOF\nbody\n  EOF\n&& echo evil";
+    expect(splitChainedCommand(spaces)).toEqual([spaces]);
+  });
+
+  test("an unterminated heredoc swallows a later chain separator", () => {
+    const command = "cat <<EOF\nbody\n&& echo evil";
+    expect(splitChainedCommand(command)).toEqual([command]);
+  });
+
+  // Single-slot heredoc state: a second `<<` inside the body is payload, so
+  // the outer marker still closes and the following chain still splits.
+  test("treats a second << inside the body as payload, not a nested opener", () => {
+    expect(
+      splitChainedCommand("cat <<OUTER\nfoo <<INNER\nOUTER\n&& echo done"),
+    ).toEqual(["cat <<OUTER\nfoo <<INNER\nOUTER", "echo done"]);
+  });
+});

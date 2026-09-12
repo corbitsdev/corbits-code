@@ -1,15 +1,24 @@
-import { splitChainedCommand } from "../shell/command-segments.js";
+import {
+  isHeredocTerminator,
+  splitChainedCommand,
+} from "../shell/command-segments.js";
 import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
 // The marker word of a heredoc redirect starting at `i` (pointing at `<<`),
 // or null when `<<` is not a heredoc opener (e.g. `<<<` here-string).
-function parseHeredocMarker(command: string, i: number): string | null {
+// stripTabs is true only for `<<-`, which strips leading tabs from the
+// closing line.
+function parseHeredocMarker(
+  command: string,
+  i: number,
+): { marker: string; stripTabs: boolean } | null {
   if (command[i] !== "<" || command[i + 1] !== "<" || command[i + 2] === "<")
     return null;
   // Same `<`-run rule as parseHeredocOpener: the second `<` of a `<<<`
   // here-string must not parse the here-string word as a heredoc marker.
   if (command[i - 1] === "<") return null;
   let j = i + 2;
-  if (command[j] === "-") j++;
+  const stripTabs = command[j] === "-";
+  if (stripTabs) j++;
   while (command[j] === " " || command[j] === "\t") j++;
   let markerQuote: string | null = null;
   if (command[j] === "'" || command[j] === '"') {
@@ -25,7 +34,8 @@ function parseHeredocMarker(command: string, i: number): string | null {
   ) {
     marker += command[j++];
   }
-  return marker.length > 0 ? marker : null;
+  if (marker.endsWith("\r")) marker = marker.slice(0, -1);
+  return marker.length > 0 ? { marker, stripTabs } : null;
 }
 
 export function groupChainSegmentsForDisplay(command: string): string[] {
@@ -53,7 +63,8 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
   let current = "";
   let quote: '"' | "'" | "`" | null = null;
   let heredocMarker: string | null = null;
-  let heredocPending: string | null = null;
+  let heredocStripTabs = false;
+  let heredocPending: { marker: string; stripTabs: boolean } | null = null;
   let continued = false;
 
   const push = (): void => {
@@ -76,9 +87,16 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
 
     if (heredocMarker !== null) {
       if (ch === "\n") {
-        const done = current.trim() === heredocMarker;
+        const done = isHeredocTerminator(
+          current,
+          heredocMarker,
+          heredocStripTabs,
+        );
         push();
-        if (done) heredocMarker = null;
+        if (done) {
+          heredocMarker = null;
+          heredocStripTabs = false;
+        }
         continue;
       }
       current += ch;
@@ -105,7 +123,8 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
 
     if (ch === "\n") {
       push();
-      heredocMarker = heredocPending;
+      heredocMarker = heredocPending?.marker ?? null;
+      heredocStripTabs = heredocPending?.stripTabs ?? false;
       heredocPending = null;
       continue;
     }
@@ -117,8 +136,8 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
     }
 
     if (ch === "<" && normalized[i + 1] === "<" && heredocPending === null) {
-      const marker = parseHeredocMarker(normalized, i);
-      if (marker !== null) heredocPending = marker;
+      const opener = parseHeredocMarker(normalized, i);
+      if (opener !== null) heredocPending = opener;
     }
     current += ch;
   }
@@ -211,7 +230,8 @@ function segmentWords(segment: string): string[] {
   let current = "";
   let quote: '"' | "'" | "`" | null = null;
   let heredocMarker: string | null = null;
-  let heredocPending: string | null = null;
+  let heredocStripTabs = false;
+  let heredocPending: { marker: string; stripTabs: boolean } | null = null;
 
   const push = (): void => {
     if (current.length > 0) words.push(current);
@@ -226,8 +246,15 @@ function segmentWords(segment: string): string[] {
       if (ch === "\n") {
         let lineEnd = segment.indexOf("\n", i + 1);
         if (lineEnd === -1) lineEnd = segment.length;
-        if (segment.slice(i + 1, lineEnd).trim() === heredocMarker) {
+        if (
+          isHeredocTerminator(
+            segment.slice(i + 1, lineEnd),
+            heredocMarker,
+            heredocStripTabs,
+          )
+        ) {
           heredocMarker = null;
+          heredocStripTabs = false;
           i = lineEnd;
         }
       }
@@ -249,10 +276,11 @@ function segmentWords(segment: string): string[] {
     }
 
     if (ch === "<" && segment[i + 1] === "<") {
-      const marker = parseHeredocMarker(segment, i);
-      if (marker !== null) {
+      const opener = parseHeredocMarker(segment, i);
+      if (opener !== null) {
         push();
-        heredocPending = marker;
+        heredocPending = opener;
+        const marker = opener.marker;
         i += 2;
         if (segment[i] === "-") i++;
         while (segment[i] === " " || segment[i] === "\t") i++;
@@ -260,6 +288,9 @@ function segmentWords(segment: string): string[] {
           segment[i] === "'" || segment[i] === '"' ? segment[i++] : null;
         i += marker.length;
         if (markerQuote !== null && segment[i] === markerQuote) i++;
+        // The parser strips a CRLF trailing \r from the marker, so skip it
+        // here too instead of leaking it into the word stream.
+        if (segment[i] === "\r") i++;
         continue;
       }
     }
@@ -267,7 +298,8 @@ function segmentWords(segment: string): string[] {
     if (ch === " " || ch === "\t" || ch === "\n") {
       push();
       if (ch === "\n" && heredocPending !== null) {
-        heredocMarker = heredocPending;
+        heredocMarker = heredocPending.marker;
+        heredocStripTabs = heredocPending.stripTabs;
         heredocPending = null;
       }
       i++;
@@ -325,8 +357,8 @@ export function collapseSegmentPayloads(segment: string): CollapsedSegment {
     const ch = segment[i] as string;
 
     if (ch === "<" && segment[i + 1] === "<") {
-      const marker = parseHeredocMarker(segment, i);
-      if (marker !== null) {
+      const opener = parseHeredocMarker(segment, i);
+      if (opener !== null) {
         let j = i;
         while (j < segment.length && segment[j] !== "\n") j++;
         display += segment.slice(i, j);
@@ -336,7 +368,7 @@ export function collapseSegmentPayloads(segment: string): CollapsedSegment {
           let lineEnd = segment.indexOf("\n", i);
           if (lineEnd === -1) lineEnd = segment.length;
           const line = segment.slice(i, lineEnd);
-          if (line.trim() === marker) {
+          if (isHeredocTerminator(line, opener.marker, opener.stripTabs)) {
             i = lineEnd + 1;
             break;
           }
