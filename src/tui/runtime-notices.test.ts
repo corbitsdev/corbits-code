@@ -111,6 +111,17 @@ describe("mcpNotice", () => {
     expect(notice?.text).toContain("its tools are unavailable");
   });
 
+  test("an unfinished browser authorization stays on the marker, not a row", () => {
+    expect(
+      mcpNotice({
+        name: "linear",
+        state: "failed",
+        error: "timed out waiting for the browser",
+        authPending: true,
+      }),
+    ).toBeNull();
+  });
+
   test("disconnected is not news — the operator chose it", () => {
     expect(mcpNotice({ name: "linear", state: "disconnected" })).toBeNull();
   });
@@ -163,6 +174,14 @@ describe("payload validation", () => {
       "disconnected",
     );
     expect(mcpServerState({ name: "a", state: "needs-auth" })).toBeNull();
+    expect(
+      mcpServerState({
+        name: "a",
+        state: "failed",
+        error: "x",
+        authPending: true,
+      }),
+    ).toMatchObject({ state: "failed", authPending: true });
     expect(mcpServerState("nope")).toBeNull();
   });
 

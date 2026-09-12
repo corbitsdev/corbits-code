@@ -121,6 +121,32 @@ describe("mcp.status channel", () => {
     }
   });
 
+  test("an auth wait that timed out keeps the prompt-box mark and paints no row", async () => {
+    const { host, emitter, frame, cleanup } = await mountHeadless();
+    try {
+      emitter.emit("mcp.status", {
+        name: "granola",
+        state: "needs-auth",
+        url: "https://mcp.test/auth",
+      });
+      expect(await frame()).toContain("mcp !");
+
+      emitter.emit("mcp.status", {
+        name: "granola",
+        state: "failed",
+        error: "timed out waiting for the browser",
+        authPending: true,
+      });
+      const painted = await frame();
+      expect(painted).toContain("mcp !");
+      expect(host.shell.mcpNeedsAuth).toEqual(["granola"]);
+      expect(host.shell.streamLog).toEqual([]);
+      expect(host.shell.statusFlash ?? "").not.toContain("did not connect");
+    } finally {
+      cleanup();
+    }
+  });
+
   test("connected clears the standing auth mark from state and the painted frame", async () => {
     const { host, emitter, frame, cleanup } = await mountHeadless();
     try {
@@ -138,6 +164,30 @@ describe("mcp.status channel", () => {
       const painted = await frame();
       expect(host.shell.mcpNeedsAuth).toEqual([]);
       expect(painted).not.toContain("mcp !");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("an ordinary failure after needs-auth clears the standing auth mark", async () => {
+    const { host, emitter, frame, cleanup } = await mountHeadless();
+    try {
+      emitter.emit("mcp.status", {
+        name: "granola",
+        state: "needs-auth",
+        url: "https://mcp.test/auth",
+      });
+      expect(await frame()).toContain("mcp !");
+
+      emitter.emit("mcp.status", {
+        name: "granola",
+        state: "failed",
+        error: "ECONNREFUSED",
+      });
+      const painted = await frame();
+      expect(host.shell.mcpNeedsAuth).toEqual([]);
+      expect(painted).not.toContain("mcp !");
+      expect(host.shell.statusFlash).toContain("mcp granola did not connect");
     } finally {
       cleanup();
     }

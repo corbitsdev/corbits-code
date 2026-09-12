@@ -29,6 +29,7 @@ import {
 } from "../plugins/result-truncation-plugin.js";
 import type { CompactionArchive } from "../session/compaction-archive.js";
 import {
+  BrowserAuthPendingError,
   connectMCPServer as connectMCPClient,
   type MCPClient,
   type MCPConnectResult,
@@ -267,7 +268,13 @@ export type MCPServerState =
   | { name: string; state: "connecting" }
   | { name: string; state: "needs-auth"; url: string }
   | { name: string; state: "connected"; tools: string[] }
-  | { name: string; state: "failed"; error: string }
+  | {
+      name: string;
+      state: "failed";
+      error: string;
+      /** Browser auth was offered but never finished — the auth marker owns it. */
+      authPending?: boolean;
+    }
   | { name: string; state: "disconnected" };
 
 export interface MCPConnectCallbacks {
@@ -957,7 +964,14 @@ export async function createAgentToolset(
           });
         }
         if (!disposed)
-          callbacks.onStatus({ name: config.name, state: "failed", error });
+          callbacks.onStatus({
+            name: config.name,
+            state: "failed",
+            error,
+            ...(err instanceof BrowserAuthPendingError
+              ? { authPending: true }
+              : {}),
+          });
         return;
       }
       if (disposed) {
@@ -982,6 +996,7 @@ export async function createAgentToolset(
           name: config.name,
           state: "failed",
           error: result.error,
+          ...(result.authPending === true ? { authPending: true } : {}),
         });
         return;
       }

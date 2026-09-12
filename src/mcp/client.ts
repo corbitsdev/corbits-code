@@ -46,7 +46,16 @@ export interface MCPClient {
 
 export type MCPConnectResult =
   | { ok: true; client: MCPClient }
-  | { ok: false; serverName: string; error: string };
+  | {
+      ok: false;
+      serverName: string;
+      error: string;
+      /**
+       * The failure is a browser authorization that was offered but never
+       * finished — a standing operator action, not a dead server.
+       */
+      authPending?: boolean;
+    };
 export interface MCPConnectOptions {
   stderr?: "inherit" | "ignore" | "pipe";
   onAuthURL?: (serverName: string, authorizationUrl: string) => void;
@@ -165,20 +174,27 @@ export function setBrowserAuthWaitMs(ms: number): void {
   browserAuthWaitMs = ms;
 }
 
+/**
+ * Browser authorization was offered but never finished — the wait timed out
+ * or hit the attempt cap. The TUI keeps the prompt-box auth marker for these
+ * instead of painting a generic connect-failure row.
+ */
+export class BrowserAuthPendingError extends Error {}
+
 function browserAuthCapError(serverName: string): Error {
   const minutes = Math.round(BROWSER_AUTH_COOLDOWN_MS / 60_000);
   const attempts =
     MAX_BROWSER_AUTH_ATTEMPTS === 1
       ? "1 attempt"
       : `${String(MAX_BROWSER_AUTH_ATTEMPTS)} attempts`;
-  return new Error(
+  return new BrowserAuthPendingError(
     `MCP authorization for ${serverName} failed after ${attempts}; ` +
       `retrying paused for ${minutes} minutes. Retry later after the cooldown.`,
   );
 }
 
 function browserAuthWaitError(serverName: string): Error {
-  return new Error(
+  return new BrowserAuthPendingError(
     `MCP authorization for ${serverName} timed out waiting for the browser; ` +
       `the server is disconnected. Retry later after the cooldown.`,
   );
@@ -735,6 +751,7 @@ async function connectHttp(
       ok: false,
       serverName: config.name,
       error: err instanceof Error ? err.message : String(err),
+      ...(err instanceof BrowserAuthPendingError ? { authPending: true } : {}),
     };
   }
 }

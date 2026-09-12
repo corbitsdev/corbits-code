@@ -99,6 +99,9 @@ export function mcpNotice(state: MCPServerState): RuntimeNotice | null {
     case "disconnected":
       return null;
     case "failed":
+      // An unfinished browser authorization is the same standing condition
+      // as needs-auth — the prompt-box marker and /mcp own it, not a row.
+      if (state.authPending === true) return null;
       return {
         kind: "row",
         text: `mcp ${state.name} did not connect (${state.error}) — its tools are unavailable; /mcp for detail`,
@@ -164,7 +167,12 @@ export function lifecycleHookEvent(raw: unknown): LifecycleHookEvent | null {
 const mcpState = type({ name: "string", state: "'connecting'" })
   .or({ name: "string", state: "'needs-auth'", url: "string" })
   .or({ name: "string", state: "'connected'", tools: "string[]" })
-  .or({ name: "string", state: "'failed'", error: "string" })
+  .or({
+    name: "string",
+    state: "'failed'",
+    error: "string",
+    "authPending?": "boolean",
+  })
   .or({ name: "string", state: "'disconnected'" });
 
 export function mcpServerState(raw: unknown): MCPServerState | null {

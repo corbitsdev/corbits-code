@@ -266,6 +266,7 @@ const config = {
 async function connectWithAuthPrompt(): Promise<{
   ok: boolean;
   error?: string;
+  authPending?: boolean;
 }> {
   const result = await connectMCPServer(config, {
     onAuthURL: () => {
@@ -273,7 +274,13 @@ async function connectWithAuthPrompt(): Promise<{
       authEvents.push("authURL");
     },
   });
-  return result.ok ? { ok: true } : { ok: false, error: result.error };
+  return result.ok
+    ? { ok: true }
+    : {
+        ok: false,
+        error: result.error,
+        ...(result.authPending === true ? { authPending: true } : {}),
+      };
 }
 
 describe("HTTP MCP re-auth loop prevention", () => {
@@ -755,6 +762,9 @@ describe("HTTP MCP re-auth loop prevention", () => {
     for (let episode = 0; episode < 2; episode += 1) {
       const result = await connectWithAuthPrompt();
       expect(result.ok).toBe(false);
+      // The cap is an unfinished authorization, not a dead server: the TUI
+      // keeps the prompt-box auth marker rather than painting a failure row.
+      expect(result.authPending).toBe(true);
       expect(result.error).toContain(
         `MCP authorization for linear failed after ${MAX_BROWSER_AUTH_ATTEMPTS} ${MAX_BROWSER_AUTH_ATTEMPTS === 1 ? "attempt" : "attempts"}`,
       );
@@ -817,6 +827,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(await connectWithAuthPrompt()).toEqual({
       ok: false,
       error: expect.stringContaining("retrying paused"),
+      authPending: true,
     });
     expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
 
@@ -1008,6 +1019,7 @@ describe("HTTP MCP re-auth loop prevention", () => {
     const result = await connectWithAuthPrompt();
 
     expect(result.ok).toBe(false);
+    expect(result.authPending).toBe(true);
     expect(result.error).toContain("timed out waiting for the browser");
     expect(result.error).toContain("disconnected");
     expect(authURLCount).toBe(1);
@@ -1015,7 +1027,18 @@ describe("HTTP MCP re-auth loop prevention", () => {
 
     const capped = await connectWithAuthPrompt();
     expect(capped.ok).toBe(false);
+    expect(capped.authPending).toBe(true);
     expect(capped.error).toContain("retrying paused");
     expect(authURLCount).toBe(1);
+  });
+
+  test("a failure that is not the authorization itself is not auth-pending", async () => {
+    connectFailuresLeft = Number.POSITIVE_INFINITY;
+
+    const result = await connectWithAuthPrompt();
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("finishAuth exploded");
+    expect(result.authPending).toBeUndefined();
   });
 });
