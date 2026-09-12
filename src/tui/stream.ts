@@ -164,6 +164,12 @@ export interface StreamRow {
    */
   readonly memberIds?: readonly string[];
   /**
+   * What each absorbed call was about, aligned with `memberIds` — a lane's
+   * expanded body lines are "member — outcome" pairs, not bare "answered",
+   * because four identical answers to four different calls say nothing.
+   */
+  readonly memberLabels?: readonly string[];
+  /**
    * Most recent result's full text on a coalesced lane — the Alt+C copy
    * source. Single rows copy `text` as before.
    */
