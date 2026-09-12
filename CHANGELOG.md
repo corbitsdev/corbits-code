@@ -11,7 +11,19 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
-## [Unreleased]
+## [0.3.23] - 2026-09-12
+
+### Added
+
+- Malformed plugin manifests now surface a warning instead of loading
+  silently; a missing manifest stays silent. Swallowed plugin-load errors are
+  logged for diagnosis.
+- Expanded coalesced transcript lanes show a per-call subject, so grouped tool
+  rows stay attributable to the file or pattern each call touched.
+- Greybeard review checklist restored in Corbits idiom: verdict-scoped checks
+  in checklist order.
+- Gaasbot CTO voice restored from the GaaS original; still advisory-only, not
+  a gate.
 
 ### Changed
 
@@ -23,12 +35,41 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 - Headless `corbits exec` unmounts `ask_operator` when stdin/stdout are not
   TTYs instead of advertising a cancel stub. TUI Skywalker still mounts it;
   TTY exec still prompts on stdin.
+- Provider `contextWindow` settings now drive occupancy, compaction, and the
+  status-bar meter. The same setting no longer changes the per-request output
+  budget, which keeps the shared default.
+- Sub-agent leaf reports always render all four headings (Summary, Findings,
+  Blockers, Paths), with `None.` under headings that have nothing to report.
+- A repo-committed `.corbits/permissions.json` no longer auto-allows tool
+  calls. Each grant needs a one-time operator confirmation per project, and
+  the first encounter surfaces what the file would grant.
 
 ### Removed
 
 - Profile files no longer accept a `workflow` field. Workflows start only from
   slash commands; a leftover key is rejected on load rather than ignored. The
   `--no-workflow` CLI flag is unchanged.
+
+### Fixed
+
+- A second same-category credential error in one session no longer fails the
+  session on a duplicate error record.
+- A model tool call truncated mid-JSON now fails the turn with an actionable,
+  retryable error instead of dispatching garbled arguments.
+- An unspaced `&` (`a &b`) now splits into two approval segments, so a
+  standing grant for the head command no longer covers a hidden payload.
+  Redirects (`2>&1`, `&>`, `<&-`) are unaffected.
+- Runs interrupted while waiting for admission settle through the normal
+  terminal path instead of stranding.
+- Internal agent traffic (occupancy wakes and similar system messages) no
+  longer paints as operator rows in the transcript.
+- Approval overlays on short terminals keep a closed border and at least one
+  visible choice instead of collapsing below their minimum size.
+- The MCP authorization marker survives a browser-timeout re-auth cycle
+  instead of being dropped.
+- A missing or unreadable agent-plugin prompt file now surfaces a warning
+  naming the plugin, agent, and path instead of silently loading the profile
+  without its system prompt.
 
 ## [0.3.22] - 2026-09-11
 

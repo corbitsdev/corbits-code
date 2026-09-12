@@ -41,7 +41,9 @@ describe("greybeardPackage", () => {
     expect(checklistIdx).toBeGreaterThan(-1);
     const checklist = p.slice(checklistIdx);
     const claimIdx = checklist.search(/architectural claim/);
-    const ownershipIdx = checklist.search(/constraint ownership|owns constraints/i);
+    const ownershipIdx = checklist.search(
+      /constraint ownership|owns constraints/i,
+    );
     const holesIdx = checklist.search(/anti-patterns/);
     const risksIdx = checklist.search(/Rank risks/);
     const verdictIdx = checklist.search(/hold \/ revise \/ block/);
