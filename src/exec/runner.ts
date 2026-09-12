@@ -588,6 +588,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const toolWatchdog = toolWatchdogFromSettings(config.settings);
     const toolAvailability: ToolAvailability = {
       languageServerAvailable: detectLanguageServerAvailable(config.cwd),
+      operatorAvailable: interactive,
     };
 
     let currentAgent: Agent | null = null;
@@ -628,8 +629,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
       isWorkflowActive: () => workflowHostHolder.instance?.isActive() === true,
       completeWorkflowStep: (stepId) =>
         workflowHostHolder.instance?.complete(stepId) ?? "not-current",
-      onOperatorGate: (question, options) =>
-        promptOperator(question, options, interactive),
+      ...(interactive
+        ? {
+            onOperatorGate: (question: string, options: string[]) =>
+              promptOperator(question, options, true),
+          }
+        : {}),
       sessionMode,
       toolAvailability,
       ...(config.mcpServers !== undefined

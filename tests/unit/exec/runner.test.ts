@@ -22,6 +22,7 @@ import {
   updatePlanDefinition,
 } from "../../../src/agent/codex-tool-proxies.js";
 import {
+  advertisedToolNamesForSessionMode,
   createToolIndex,
   createToolSearchTool,
 } from "../../../src/agent/tool-search.js";
@@ -669,6 +670,60 @@ describe("resolveExecDirectorOverlay", () => {
     expect(
       resolveExecDirectorOverlay("skywalker").systemPrompt,
     ).toBeUndefined();
+  });
+});
+
+describe("exec advertised tools vs TUI", () => {
+  const sessionMode = "orchestrator" as const;
+
+  test("non-TTY exec advertised tools exclude ask_operator", () => {
+    const overlay = resolveExecDirectorOverlay("skywalker");
+    const names =
+      overlay.advertisedAllow ??
+      advertisedToolNamesForSessionMode(sessionMode, {
+        languageServerAvailable: false,
+        operatorAvailable: false,
+      });
+    expect(names).not.toContain("ask_operator");
+    const { computeAdvertised } = createAdvertisedToolset({
+      sessionMode,
+      toolAvailability: {
+        languageServerAvailable: false,
+        operatorAvailable: false,
+      },
+      getProvider: () => ({ providerName: "test", model: "test" }),
+    });
+    expect(
+      computeAdvertised([
+        {
+          name: "ask_operator",
+          description: "ask",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "read_file",
+          description: "read",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ]).map((d) => d.name),
+    ).not.toContain("ask_operator");
+  });
+
+  test("TUI advertised tools still include ask_operator", () => {
+    const names = advertisedToolNamesForSessionMode(sessionMode, {
+      languageServerAvailable: false,
+      operatorAvailable: true,
+    });
+    expect(names).toContain("ask_operator");
+    const { isAdvertised } = createAdvertisedToolset({
+      sessionMode,
+      toolAvailability: {
+        languageServerAvailable: false,
+        operatorAvailable: true,
+      },
+      getProvider: () => ({ providerName: "test", model: "test" }),
+    });
+    expect(isAdvertised("ask_operator")).toBe(true);
   });
 });
 

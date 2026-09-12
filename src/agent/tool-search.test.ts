@@ -165,10 +165,31 @@ describe("createToolIndex", () => {
     ).not.toContain("lsp");
   });
 
-  test("ask_operator is advertised regardless of availability", () => {
+  test("ask_operator is advertised when the operator is available", () => {
     expect(
       coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY),
     ).toContain("ask_operator");
+    expect(
+      advertisedToolNamesForSessionMode("orchestrator", {
+        languageServerAvailable: true,
+        operatorAvailable: true,
+      }),
+    ).toContain("ask_operator");
+  });
+
+  test("ask_operator is omitted from the advertised prefix when the operator is unavailable", () => {
+    expect(
+      coreToolNamesForSessionMode("orchestrator", {
+        languageServerAvailable: false,
+        operatorAvailable: false,
+      }),
+    ).not.toContain("ask_operator");
+    expect(
+      advertisedToolNamesForSessionMode("orchestrator", {
+        languageServerAvailable: true,
+        operatorAvailable: false,
+      }),
+    ).not.toContain("ask_operator");
   });
 
   test("the advertised set is deterministic — repeat calls with the same inputs are identical", () => {

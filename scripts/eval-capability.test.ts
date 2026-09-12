@@ -383,6 +383,7 @@ describe("buildEvalDiagnostics", () => {
     );
     expect(diagnostics.advertisedTools).toContain("read_file");
     expect(diagnostics.advertisedTools).toContain("run_shell");
+    expect(diagnostics.advertisedTools).not.toContain("ask_operator");
     expect(diagnostics.reasoningEffort).toBeNull();
   });
 

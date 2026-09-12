@@ -396,9 +396,21 @@ test("sub-agent prompt carries the report-back contract and harness facts", () =
 });
 
 test("when ask_director is in toolNames, the worker prompt mentions ask_director", () => {
-  const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
-    toolNames: ["read_file", "ask_director"],
-  });
+  const prompt = buildSubAgentSystemPrompt(
+    undefined,
+    {
+      cwd: "/repo/root",
+      platform: "Darwin 25.4.0",
+      arch: "arm64",
+      runtime: "Bun 1.2.0",
+      date: new Date(2026, 5, 5),
+      isGitRepo: false,
+    },
+    undefined,
+    {
+      toolNames: ["read_file", "ask_director"],
+    },
+  );
   expect(prompt).toContain("ask_director");
   expect(prompt).toContain("cannot reach the operator");
   expect(prompt).not.toContain("ask_operator");

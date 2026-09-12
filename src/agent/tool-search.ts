@@ -71,6 +71,10 @@ export interface ToolAvailability {
   // Whether a language server was resolvable for this project at startup —
   // not whether one currently responds.
   languageServerAvailable: boolean;
+  // Headless/non-TTY exec has no operator to answer. Omit to keep the TUI
+  // default (mounted). False drops ask_operator from the advertised prefix
+  // instead of leaving a cancel stub on the wire.
+  operatorAvailable?: boolean;
 }
 
 export function coreToolNamesForSessionMode(
@@ -82,6 +86,8 @@ export function coreToolNamesForSessionMode(
     if (!orchestratorEnabled && ORCHESTRATOR_ONLY_TOOL_NAMES.includes(name))
       return false;
     if (name === "lsp") return availability.languageServerAvailable;
+    if (name === "ask_operator")
+      return availability.operatorAvailable !== false;
     return true;
   });
 }
