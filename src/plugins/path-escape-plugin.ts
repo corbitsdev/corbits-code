@@ -28,14 +28,6 @@ export function pathEscapePlugin(
 ): ToolPlugin {
   return {
     middleware: (next) => async (call, signal) => {
-      if ("_raw" in call.arguments) {
-        return {
-          callId: call.id,
-          content:
-            "Tool call arguments were malformed JSON (likely truncated). Retry with a smaller payload.",
-          isError: true,
-        };
-      }
       let escaped: Record<string, unknown>;
       try {
         escaped = escapeArgs(

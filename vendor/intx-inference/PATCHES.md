@@ -406,6 +406,47 @@ gap rather than carrying indefinitely.
 the cast can be deleted from the vendored file.
 **Re-carry:** clean three-way at `0205b07b`, zero conflicts. Low risk.
 
+## inference-ts-cl-7783-truncated-tool-call
+
+End-of-stream finalization in `harness.ts` (`finalizeStreamTurn`) never
+dispatches a tool call whose arguments do not parse as a normal call. The
+prior code fell back to a `{ _raw: <partial JSON> }` tool_call block, which
+the reactor dispatched — executing a tool with truncated arguments when the
+model was cut off by `max_tokens` (CL-7783: a truncated `Bash`
+`rm -rf /tm…` fragment reached the executor). Now: when `stopReason` is
+`max_tokens` and a tool call is still open, the turn fails with an
+`inference.error` naming the tool and the truncated prefix, advising a
+larger budget or a narrower scope for the model's next attempt; any other
+unparseable-args case fails the same way as invalid JSON. Both errors carry
+category `retryable`, but end-of-stream finalization always runs after the
+attempt has committed visible output, so the harness commitment boundary
+suppresses the mechanical retry — the failure is terminal for the turn, and
+the message is guidance for the next attempt rather than a re-issued retry.
+Two supporting changes: `providers/anthropic.ts` parses
+`stop_reason` out of `MessageDelta` (previously stripped by the schema) and
+surfaces it on `inference.usage`, and `vendor/intx-types`' `InferenceUsageEvent`
+gains the optional `stopReason` field both halves flow through. Guarded by the
+CL-7783 regression suite in `providers/anthropic.test.ts`, which drives the
+exact incident wire sequence and asserts no `tool_call` block reaches the
+reactor. The OpenAI-compatible adapter was audited for the same path: it has
+no adapter-local args fallback (the harness was the only dispatch site) but
+still drops `finish_reason` on both paths, so OpenAI streams get the generic
+invalid-JSON failure rather than the truncation-specific message. The Gemini
+adapter forwards its terminal `finishReason` onto `inference.usage` (same
+spread idiom as Anthropic), but forwards the provider's raw spelling
+(`MAX_TOKENS`), which the harness `max_tokens` comparison does not match —
+so Gemini truncation still lands on the generic invalid-JSON failure until
+the harness normalizes provider spellings.
+
+**Disposition:** Promotion candidate. Safety/correctness fix — prevents
+executing tools with truncated arguments after a `max_tokens` cutoff.
+**Removal path:** Upstream PR (a) surfacing `stop_reason`/`finish_reason` on
+usage events and (b) failing the turn instead of dispatching unparseable tool
+calls at end-of-stream finalization. **Re-carry:** localized to
+`finalizeStreamTurn`, the `MessageDelta` schema, and one optional event
+field; re-applies against upstream `harness.ts`/`anthropic.ts` unless the
+finalization path is reworked.
+
 ---
 
 ## Upstream promotion ledger
@@ -428,6 +469,7 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | reactor-ts-after-checkpoint-director-only | Gate `afterCheckpoint` on `hasOverride` so auto-commits do not emit it | Alexander Guy <alexander.guy@pm.me> | This ledger (#reactor-ts-after-checkpoint-director-only) | Next vendored sync |
 | sse-ts-max-line-length | Cap the unterminated SSE line buffer (`MAX_LINE_LENGTH`, 16 MiB) | Alexander Guy <alexander.guy@pm.me> | This ledger (#sse-ts-max-line-length) | Next vendored sync |
 | state-ts-deep-freeze-turns-revision | Make `ReactorState.snapshot().turns` a lazy, revision-tracked getter | Alexander Guy <alexander.guy@pm.me> | This ledger (#state-ts-deep-freeze-turns-revision) | Next vendored sync |
+| inference-ts-cl-7783-truncated-tool-call | Surface `stop_reason`/`finish_reason` on usage events; fail the turn instead of dispatching unparseable tool calls at end-of-stream finalization | Alexander Guy <alexander.guy@pm.me> | This ledger (#inference-ts-cl-7783-truncated-tool-call) | Next vendored sync |
 | google-genai-files-ts-body-init-cast | Widen `BodyInit` to accept Node's `Uint8Array` typing so the cast can be removed | Alexander Guy <alexander.guy@pm.me> | This ledger (#google-genai-files-ts-body-init-cast) | Next vendored sync |
 
 Contact basis: identified from the read-only upstream clone

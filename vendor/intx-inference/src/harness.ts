@@ -316,6 +316,8 @@ async function* runSingleAttempt(
   // capture). Appended to the finalized turn after indexed blocks.
   const unindexedSafetyRatings: SafetyRatingBlock[] = [];
   let usageSeen: TokenUsage | null = null;
+  // Locally patched — see vendor/intx-inference/PATCHES.md#inference-ts-cl-7783-truncated-tool-call
+  let stopReason: string | undefined;
 
   // Tool call state: keyed by callId (or index for OpenAI).
   type ToolCallState = {
@@ -1058,10 +1060,18 @@ async function* runSingleAttempt(
               // synthesizes its own descriptor cannot drift from the
               // call-start identity the rest of the harness commits to.
               usageSeen = mergeUsage(usageSeen, raw.data.usage);
+              // Locally patched — see vendor/intx-inference/PATCHES.md#inference-ts-cl-7783-truncated-tool-call
+              if (raw.data.stopReason !== undefined) {
+                stopReason = raw.data.stopReason;
+              }
               yield {
                 type: "inference.usage",
                 seq: nextSeq(),
-                data: { usage: usageSeen, source: lastCycleSource },
+                data: {
+                  usage: usageSeen,
+                  ...(stopReason === undefined ? {} : { stopReason }),
+                  source: lastCycleSource,
+                },
               };
               break;
             }
@@ -1110,18 +1120,70 @@ async function* runSingleAttempt(
     }
 
     // Finalize any open tool calls that never received an explicit end event.
-    const completedToolCalls: ContentBlock[] = [];
+    // Locally patched — see vendor/intx-inference/PATCHES.md#inference-ts-cl-7783-truncated-tool-call:
+    // validate every open call before emitting any of them, and never
+    // dispatch a call whose arguments are incomplete or unparseable. A turn
+    // cut at max_tokens with calls still open is unambiguous truncation;
+    // anything else unparseable is still not a normal call. Both yield an
+    // inference.error (category retryable) naming the call; post-commit the
+    // harness surfaces it terminally rather than mechanically retrying, so
+    // the message guides the model's next attempt.
+    const finalizedToolCalls: {
+      tc: ToolCallState;
+      parsedArgs: Record<string, unknown>;
+    }[] = [];
     for (const tc of openToolCalls.values()) {
-      let parsedArgs: Record<string, unknown>;
+      if (stopReason === "max_tokens") {
+        yield {
+          type: "inference.error",
+          seq: nextSeq(),
+          data: {
+            error: {
+              category: "retryable",
+              message:
+                `Tool call '${tc.name}' (${tc.callId}) was not executed: the provider ended the turn ` +
+                `at max_tokens while its arguments were still streaming (truncated input). ` +
+                `Retry the turn with a larger max_tokens budget or a smaller request so the full tool call fits.`,
+            },
+            partial: snapshotPartial(partial),
+          },
+        };
+        return;
+      }
+      let parsed: unknown;
       try {
         const raw = tc.argsBuffer.trim() === "" ? "{}" : tc.argsBuffer;
-        const parsed = JSON.parse(raw);
-        const validated = ParsedToolArgs(parsed);
-        parsedArgs = validated instanceof type.errors ? {} : validated;
+        parsed = JSON.parse(raw);
       } catch {
-        parsedArgs = { _raw: tc.argsBuffer };
+        const tail =
+          tc.argsBuffer.length > 200
+            ? `…${tc.argsBuffer.slice(-200)}`
+            : tc.argsBuffer;
+        yield {
+          type: "inference.error",
+          seq: nextSeq(),
+          data: {
+            error: {
+              category: "retryable",
+              message:
+                `Tool call '${tc.name}' (${tc.callId}) was not executed: its streamed arguments are not ` +
+                `valid JSON and cannot be dispatched as a normal call. Re-issue the turn; ` +
+                `partial argument text ends with: ${JSON.stringify(tail)}.`,
+            },
+            partial: snapshotPartial(partial),
+          },
+        };
+        return;
       }
+      const validated = ParsedToolArgs(parsed);
+      finalizedToolCalls.push({
+        tc,
+        parsedArgs: validated instanceof type.errors ? {} : validated,
+      });
+    }
 
+    const completedToolCalls: ContentBlock[] = [];
+    for (const { tc, parsedArgs } of finalizedToolCalls) {
       completedToolCalls.push({
         type: "tool_call",
         id: tc.callId,
