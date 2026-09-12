@@ -5,6 +5,9 @@ import { sliceTailToWidth, sliceToWidth, stringWidth } from "./view/height.js";
 function parseHeredocMarker(command: string, i: number): string | null {
   if (command[i] !== "<" || command[i + 1] !== "<" || command[i + 2] === "<")
     return null;
+  // Same `<`-run rule as parseHeredocOpener: the second `<` of a `<<<`
+  // here-string must not parse the here-string word as a heredoc marker.
+  if (command[i - 1] === "<") return null;
   let j = i + 2;
   if (command[j] === "-") j++;
   while (command[j] === " " || command[j] === "\t") j++;

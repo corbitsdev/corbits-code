@@ -152,6 +152,15 @@ export function parseHeredocOpener(
   i: number,
 ): { marker: string; lineEnd: number } | null {
   if (command[i] !== "<" || command[i + 1] !== "<") return null;
+  // `<<<` is a here-string, not a heredoc: its word is an inline argument,
+  // so there is no marker line to wait for.
+  if (command[i + 2] === "<") return null;
+  // A `<<` opener cannot start in the middle of a `<` run: when the scan
+  // reaches the second `<` of a `<<<` here-string, the character ahead is no
+  // longer `<`, so only this backward guard stops it from parsing the
+  // here-string word as a heredoc marker and swallowing the rest of the
+  // command as body.
+  if (command[i - 1] === "<") return null;
   let j = i + 2;
   if (command[j] === "-") j++; // <<- strips leading tabs
   // Skip whitespace between << and the marker word.

@@ -61,6 +61,18 @@ test("heredoc bodies are not enumerated as segments", () => {
   ]);
 });
 
+test("a here-string never opens a pending heredoc", () => {
+  expect(groupChainSegmentsForDisplay('cat <<< "word" && echo hi')).toEqual([
+    'cat <<< "word"',
+    "echo hi",
+  ]);
+  expect(groupChainSegmentsForDisplay("cmd <<<EOF")).toEqual(["cmd <<<EOF"]);
+  expect(verbatimCommandLines('cat <<< "word"\n# a real comment')).toEqual([
+    { text: 'cat <<< "word"', isComment: false },
+    { text: "# a real comment", isComment: true },
+  ]);
+});
+
 test("top-level newlines become verbatim lines; quoted newlines stay marked inline", () => {
   expect(verbatimCommandLines('echo "a\nb"\necho two')).toEqual([
     { text: 'echo "a↵b"', isComment: false },
