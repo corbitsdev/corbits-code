@@ -11,7 +11,7 @@ import {
 } from "./index.js";
 import {
   OPENAI_API_BASE_URL,
-  OPENAI_API_MAX_COMPLETION_TOKENS_MODELS,
+  firstClassProviderById,
 } from "../../packages/first-class-providers/src/index.js";
 import { normalizeOpenAICompatibleBaseURL, type Settings } from "./settings.js";
 import {
@@ -42,10 +42,18 @@ function catalogEntry(
 
 // First-party OpenAI reasoning models reject `max_tokens` and require
 // `max_completion_tokens`. The requirement is declared per model on the
-// first-class OpenAI API-key preset — never inferred from name prefixes —
-// and the quirk attaches to the source actually in use: it follows the
-// first-party endpoint, so relays serving the same model names through the
-// same adapter keep `max_tokens`.
+// first-class OpenAI API-key path's `maxCompletionTokensModels` field — never
+// inferred from name prefixes — and read here through that entry, so the
+// entry stays the single source of truth. The quirk attaches to the source
+// actually in use: it follows the first-party endpoint, so relays serving
+// the same model names through the same adapter keep `max_tokens`.
+function openAIAPIPathMaxCompletionTokensModels(): readonly string[] {
+  return (
+    firstClassProviderById("openai")?.paths?.find((p) => p.id === "api")
+      ?.maxCompletionTokensModels ?? []
+  );
+}
+
 function openAISourceQuirks(
   baseURL: string,
   model: string,
@@ -54,7 +62,7 @@ function openAISourceQuirks(
   if (normalized !== normalizeOpenAICompatibleBaseURL(OPENAI_API_BASE_URL)) {
     return undefined;
   }
-  if (!OPENAI_API_MAX_COMPLETION_TOKENS_MODELS.includes(model)) {
+  if (!openAIAPIPathMaxCompletionTokensModels().includes(model)) {
     return undefined;
   }
   return { maxTokensField: "max_completion_tokens" };

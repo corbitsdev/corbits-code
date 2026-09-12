@@ -24,7 +24,9 @@ export const OPENAI_API_BASE_URL = "https://api.openai.com/v1";
  * Preset models whose first-party endpoint rejects `max_tokens` and requires
  * `max_completion_tokens`. Explicit per-model list: adding a model here
  * declares its own requirement, never inferred from name prefixes. gpt-4.1
- * is non-reasoning and stays on `max_tokens`.
+ * is non-reasoning and stays on `max_tokens`. This const is only the api
+ * path entry's initial value — runtime reads the entry's
+ * `maxCompletionTokensModels` field, so that field is the source of truth.
  */
 export const OPENAI_API_MAX_COMPLETION_TOKENS_MODELS: readonly string[] = [
   "gpt-6-astra",

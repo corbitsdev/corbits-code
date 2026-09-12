@@ -129,6 +129,21 @@ describe("OpenAI reasoning max_completion_tokens quirk (CL-7785)", () => {
     }
   });
 
+  test("every preset model has an explicit quirk decision", () => {
+    const flagged = new Set(openaiApi?.maxCompletionTokensModels ?? []);
+    // Explicit max_tokens decision: non-reasoning preset models stay on
+    // max_tokens. Adding a preset model requires a decision here AND in the
+    // preset's maxCompletionTokensModels — the union below fails loudly
+    // otherwise instead of silently sending max_tokens.
+    const explicitMaxTokensModels = new Set(["gpt-4.1"]);
+    expect([...flagged, ...explicitMaxTokensModels].sort()).toEqual(
+      [...new Set(presetModels)].sort(),
+    );
+    expect([...flagged].filter((m) => explicitMaxTokensModels.has(m))).toEqual(
+      [],
+    );
+  });
+
   test("reasoning preset models emit max_completion_tokens, never max_tokens", () => {
     for (const model of openaiApi?.maxCompletionTokensModels ?? []) {
       const body = wireBody(model, presetBaseURL);
