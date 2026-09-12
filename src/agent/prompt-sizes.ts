@@ -1,5 +1,10 @@
+import { TOOL_NAMES } from "@intx/tools-posix";
+import { LSP_TOOL_DEFINITION } from "@intx/tools-lsp";
 import type { EnvironmentInfo } from "./environment.js";
-import { DIRECTOR_REGISTRY } from "./directors/registry.js";
+import {
+  DIRECTOR_REGISTRY,
+  packageToCapabilities,
+} from "./directors/registry.js";
 import { formatDirectorSystemPrompt } from "./directors/identity.js";
 import {
   DIRECTOR_IDS,
@@ -8,6 +13,17 @@ import {
 } from "./directors/types.js";
 import { buildSubAgentSystemPrompt } from "./prompts.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
+import { isCodexProviderName } from "../config/codex-providers.js";
+import { shellCollectDefinition } from "./background-shell-tool.js";
+import {
+  applyPatchDefinition,
+  shellDefinition,
+  updatePlanDefinition,
+} from "./codex-tool-proxies.js";
+import { manageTasksDefinition } from "./tasks.js";
+import { DELETE_FILE_DEFINITION } from "../plugins/delete-file-plugin.js";
+import { webFetchDefinition } from "../tools/web-fetch.js";
+import { webSearchDefinition } from "../tools/web-search.js";
 
 /**
  * Canonical prompt-size fixture (CL-7664).
@@ -42,16 +58,59 @@ const DEFAULT_PROVIDER = {
 export type PromptSizeFamily = "default" | "grok";
 
 /**
- * Canonical tool names per director, mirroring the run.ts mount order:
- * package allowlist, then always-mounted manage_tasks, then leaf-only
- * submit_result + ask_director, then orchestrator fleet tools
- * (search_agents is Tier-1 skywalker only).
+ * Pre-filter mount names in run.ts install order: posix base (TOOL_NAMES,
+ * shared with createPosixTools) + delete_file / lsp plugin tools
+ * (buildCorePosixToolPlugins) + core web tools (coreSubAgentWebTools) +
+ * shell_collect (run.ts:678-694). Codex proxies (apply_patch, shell,
+ * update_plan) join only when isCodex — createCodexToolProxies returns []
+ * otherwise (run.ts:708-718, codex-tool-proxies.ts:163-166).
+ */
+function preFilterMountNames(isCodex: boolean): readonly string[] {
+  return [
+    ...Object.values(TOOL_NAMES),
+    DELETE_FILE_DEFINITION.name,
+    LSP_TOOL_DEFINITION.name,
+    webFetchDefinition.name,
+    webSearchDefinition.name,
+    shellCollectDefinition.name,
+    ...(isCodex
+      ? [
+          applyPatchDefinition.name,
+          shellDefinition.name,
+          updatePlanDefinition.name,
+        ]
+      : []),
+  ];
+}
+
+/**
+ * Canonical tool names per director, assembled exactly as run.ts mounts them:
+ * the pre-filter set above narrowed by the package capability filter (the
+ * same packageToCapabilities agent-fleet dispatches with; allow keeps only
+ * mounted names, exclude drops denials — run.ts:720-722), then manage_tasks
+ * (run.ts:727-736), leaf-only submit_result + ask_director (run.ts:740-785),
+ * then orchestrator fleet tools with Tier-1-only search_agents
+ * (run.ts:791-918, tier gate at 796-797). Allowlist entries that name no
+ * mounted tool (list_dir, fleet verbs, off-family Codex proxies) fall out at
+ * the filter instead of inflating the prompt.
  */
 export function canonicalToolNamesForDirector(
   pkg: DirectorPackage,
+  family: PromptSizeFamily,
 ): readonly string[] {
-  const names = [...(pkg.tools?.allow ?? [])];
-  names.push("manage_tasks");
+  const providerName =
+    family === "grok"
+      ? GROK_PROVIDER.providerName
+      : DEFAULT_PROVIDER.providerName;
+  const filtered = [...preFilterMountNames(isCodexProviderName(providerName))];
+  const capabilities = packageToCapabilities(pkg);
+  const names =
+    capabilities === undefined
+      ? filtered
+      : capabilities.mode === "allow"
+        ? filtered.filter((name) => capabilities.tools.includes(name))
+        : filtered.filter((name) => !capabilities.tools.includes(name));
+  names.push(manageTasksDefinition.name);
   if (pkg.tier === "leaf") {
     names.push("submit_result", "ask_director");
   }
@@ -66,6 +125,12 @@ export function canonicalToolNamesForDirector(
       "resume_agent",
       "interrupt_agent",
       "send_input",
+    );
+  }
+  const dupe = names.find((name, index) => names.indexOf(name) !== index);
+  if (dupe !== undefined) {
+    throw new Error(
+      `canonicalToolNamesForDirector(${pkg.id}): "${dupe}" mounted twice — the assembly drifted from src/subagent/run.ts`,
     );
   }
   return names;
@@ -85,7 +150,7 @@ export function assembleDirectorPrompt(
     undefined,
     {
       orchestrator,
-      toolNames: canonicalToolNamesForDirector(pkg),
+      toolNames: canonicalToolNamesForDirector(pkg, family),
       grokAntiThrash: shouldApplyGrokAntiThrash({ ...provider, orchestrator }),
     },
   );

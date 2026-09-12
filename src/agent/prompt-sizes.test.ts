@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { DIRECTOR_REGISTRY } from "./directors/registry.js";
 import { DIRECTOR_IDS, type DirectorId } from "./directors/types.js";
 import {
+  canonicalToolNamesForDirector,
   directorPromptSizeTable,
+  formatPromptSizeTable,
   type PromptSizeFamily,
 } from "./prompt-sizes.js";
 
@@ -13,41 +15,41 @@ import {
  * get the larger headroom because multibyte copy can shift them faster.
  */
 const CHAR_BUDGET: Record<DirectorId, number> = {
-  skywalker: 28000,
-  builder: 49000,
+  skywalker: 27000,
+  builder: 48800,
   explorer: 14200,
-  counsel: 52800,
+  counsel: 52700,
   intern: 16800,
   critic: 54400,
-  greybeard: 54300,
+  greybeard: 53600,
   neckbeard: 72300,
-  bruckheimer: 23400,
-  gaasbot: 31800,
-  draper: 15200,
-  emil: 16700,
-  rand: 15100,
-  shakespeare: 54900,
+  bruckheimer: 23200,
+  gaasbot: 31700,
+  draper: 15100,
+  emil: 16600,
+  rand: 15000,
+  shakespeare: 54700,
   testsmith: 16200,
-  tester: 14000,
+  tester: 13900,
 };
 
 const BYTE_BUDGET: Record<DirectorId, number> = {
-  skywalker: 29100,
-  builder: 50100,
-  explorer: 15300,
+  skywalker: 28100,
+  builder: 50000,
+  explorer: 15200,
   counsel: 53900,
-  intern: 17900,
-  critic: 55600,
-  greybeard: 55500,
-  neckbeard: 73500,
-  bruckheimer: 24400,
-  gaasbot: 32900,
-  draper: 16300,
-  emil: 17800,
-  rand: 16200,
-  shakespeare: 56000,
-  testsmith: 17300,
-  tester: 15100,
+  intern: 17800,
+  critic: 55500,
+  greybeard: 54800,
+  neckbeard: 73400,
+  bruckheimer: 24300,
+  gaasbot: 32800,
+  draper: 16200,
+  emil: 17700,
+  rand: 16100,
+  shakespeare: 55900,
+  testsmith: 17200,
+  tester: 15000,
 };
 
 function budgetMessage(
@@ -120,5 +122,56 @@ describe("director prompt size budget", () => {
     const again = directorPromptSizeTable();
     expect(again.map((r) => r.chars)).toEqual(rows.map((r) => r.chars));
     expect(again.map((r) => r.bytes)).toEqual(rows.map((r) => r.bytes));
+  });
+
+  test("tool names match the production mount: no dupes, no phantoms", () => {
+    for (const directorId of DIRECTOR_IDS) {
+      for (const family of ["default", "grok"] as const) {
+        const names = canonicalToolNamesForDirector(
+          DIRECTOR_REGISTRY[directorId],
+          family,
+        );
+        expect(new Set(names).size, `${directorId} [${family}]`).toBe(
+          names.length,
+        );
+        // Neither fixture family is Codex, so the Codex proxies
+        // (createCodexToolProxies returns [] when !isCodex) must be absent,
+        // as must list_dir, which no subagent mount installs.
+        for (const phantom of [
+          "list_dir",
+          "apply_patch",
+          "shell",
+          "update_plan",
+        ]) {
+          expect(names, `${directorId} [${family}]`).not.toContain(phantom);
+        }
+        if (DIRECTOR_REGISTRY[directorId].spawn.maySpawn) {
+          for (const verb of ["spawn_agent", "send_input"]) {
+            expect(
+              names.filter((n) => n === verb).length,
+              `${directorId} [${family}] mounts ${verb} once`,
+            ).toBe(1);
+          }
+        }
+      }
+    }
+  });
+
+  test("formatPromptSizeTable renders one row per director", () => {
+    const table = formatPromptSizeTable(rows);
+    expect(table).toContain(
+      "| director | default chars (bytes) | grok chars (bytes) |",
+    );
+    for (const directorId of DIRECTOR_IDS) {
+      const base = rows.find(
+        (r) => r.directorId === directorId && r.family === "default",
+      );
+      const grok = rows.find(
+        (r) => r.directorId === directorId && r.family === "grok",
+      );
+      expect(table).toContain(
+        `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${grok?.chars} (${grok?.bytes}) |`,
+      );
+    }
   });
 });
