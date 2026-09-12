@@ -23,8 +23,12 @@ entry and its marker.
 ## agent-ts-duplicate-error-flush
 
 `agent.ts` — `flushErrors` treats `Duplicate error record:` from
-`commitErrors` as already-durable and drops the colliding batch instead
-of failing `afterCheckpoint`.
+`commitErrors` as already-durable instead of failing `afterCheckpoint`.
+Only the record named by the colliding `<sessionId>/<seq>-<category>`
+key is dropped; the rest of the batch is retried in the same flush, so
+a stale-seq assembly flushing `[seq0/dup, seq1/fresh]` still persists
+the fresh record. An unparseable key falls back to dropping the batch.
+Identical-bytes exact retries still commit normally upstream.
 
 **Disposition:** Promotion candidate. **Removal path:** Upstream PR with
 the same duplicate-flush handling; then drop this entry and its marker.

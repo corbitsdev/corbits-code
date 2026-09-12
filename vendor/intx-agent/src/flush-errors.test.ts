@@ -126,6 +126,44 @@ function makeDuplicateErrorAuditStore(): FailingAuditStore {
   };
 }
 
+// Audit store that collides on the first batch's leading record only,
+// simulating a stale-seq assembly flushing [seq0/dup, seq1/fresh]: the
+// first `commitErrors` throws `Duplicate error record` naming the
+// colliding record's file key, and the retry succeeds.
+function makePartialDuplicateAuditStore(): FailingAuditStore {
+  const committedErrors: ErrorRecord[][] = [];
+  let firstAttempt = true;
+  return {
+    async commitAudit(_records: AuditRecord[]): Promise<void> {
+      // No-op.
+    },
+    async commitErrors(records: ErrorRecord[]): Promise<void> {
+      if (firstAttempt) {
+        firstAttempt = false;
+        const colliding = records[0];
+        const seq = String(colliding?.seq ?? 0).padStart(8, "0");
+        const category = (colliding?.category ?? "").replace(
+          /[^a-zA-Z0-9_-]/g,
+          "_",
+        );
+        throw new Error(
+          `Duplicate error record: ${colliding?.sessionId ?? "session"}/${seq}-${category}`,
+        );
+      }
+      committedErrors.push([...records]);
+    },
+    async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
+      return [];
+    },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return [];
+    },
+    getCommittedErrors() {
+      return committedErrors;
+    },
+  };
+}
+
 // Director factory that closes over a caller-supplied `decide` to drive
 // the reactor through targeted event shapes. The factory shape requires
 // a configSchema (arktype) and returns a ReactorDirector; this helper
@@ -675,6 +713,49 @@ describe("agent error flushing", () => {
 
     expect(duplicateFlushFailures(events)).toEqual([]);
     expect(events.some((event) => event.type === "reactor.done")).toBe(true);
+  });
+
+  test("a partial duplicate collision drops only the colliding record", async () => {
+    // A stale-seq assembly flushing [seq0/dup, seq1/fresh] must persist
+    // the fresh record: the first commit names only the colliding key,
+    // so the flush drops that record and retries the rest.
+    const audit = makePartialDuplicateAuditStore();
+    let inferenceErrors = 0;
+    const directors = makeDirectorRegistry(
+      async (
+        event: ReactorInboundEvent,
+        _state: ReactorState,
+        caps: ReactorCapabilities,
+      ) => {
+        if (event.type === "message.received") return caps.infer();
+        if (event.type === "inference.error") {
+          inferenceErrors += 1;
+          if (inferenceErrors === 1) return caps.infer();
+          return [caps.checkpoint("after-second"), caps.done()];
+        }
+        return caps.done();
+      },
+    );
+    const def = forbiddenAgentDef("cred-flush-partial-duplicate");
+    const env = await buildAgentEnv({ workdir: workDir, audit, directors });
+    const agent = await createAgent(def, { ...env, deps: FORBIDDEN_DEPS });
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const stream = agent.stream();
+    try {
+      agent.deliver(inboundConversation());
+      for await (const event of stream) {
+        events.push(event);
+        if (event.type === "reactor.done") break;
+      }
+    } finally {
+      await agent.close();
+    }
+
+    expect(duplicateFlushFailures(events)).toEqual([]);
+    expect(events.some((event) => event.type === "reactor.done")).toBe(true);
+    const persisted = audit.getCommittedErrors().flat();
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.seq).toBe(1);
   });
 
   test("createAgent still assembles when loadErrors throws", async () => {
