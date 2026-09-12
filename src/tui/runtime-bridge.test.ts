@@ -1601,7 +1601,7 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
     bridge.handle({ type: "inference.done", data: {} });
   }
 
-  test("dry+open: fleet-0 settle drives once, keeps the run busy, and paints the prompt as system", async () => {
+  test("dry+open: fleet-0 settle drives once and keeps the run busy without painting the prompt", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -1639,11 +1639,13 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
           expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
             userRowsBefore,
           );
+          // The continuation is runtime→agent traffic — the fleet board owns
+          // worker status, so its prompt paints no transcript row.
           expect(
             shell.streamLog.filter(
               (r) => r.role === "system" && r.text === prompt,
             ),
-          ).toHaveLength(1);
+          ).toHaveLength(0);
           settleToollessTurn(bridge);
           expect(drives).toBe(1);
         } finally {
@@ -2060,11 +2062,13 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
           expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
             userRowsAfterSubmit,
           );
+          // Fleet-dry continuations are internal runtime→agent traffic and
+          // paint no row; the abort must not have swallowed the inbound.
           expect(
             shell.streamLog.filter(
               (r) => r.role === "system" && r.text === occupancy,
             ),
-          ).toHaveLength(1);
+          ).toHaveLength(0);
         } finally {
           bridge.dispose();
           shell.dispose();

@@ -25,6 +25,17 @@ export function mailboxMailWakeLine(): string {
   return `${MAILBOX_MAIL_WAKE_PREFIX} — occupancy delivered these worker reports (do not call wait_agents for these agent_ids):`;
 }
 
+/**
+ * Whether inbound text is occupancy's mailbox mail. Internal runtime→agent
+ * traffic — the fleet board already owns worker status and the payload is
+ * model-facing report JSON, so the transcript never paints it. Persisted
+ * turns carry no message flags, so both the live event map and history
+ * hydration must recognise it by content.
+ */
+export function isMailboxMailText(text: string): boolean {
+  return text.startsWith(mailboxMailWakeLine());
+}
+
 function isPromiseLike(value: unknown): value is Promise<unknown> {
   return typeof value === "object" && value !== null && "then" in value;
 }

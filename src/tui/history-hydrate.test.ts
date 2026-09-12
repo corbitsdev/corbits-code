@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { buildFleetDryContinuationPrompt } from "../subagent/fleet-dry-drive.js";
+import { buildMailboxMailPrompt } from "../subagent/mailbox-mail-drive.js";
 import {
   EMPTY_PLAN_DETAIL,
   EMPTY_VIEW_DETAIL,
@@ -162,6 +164,27 @@ describe("rowFromHistoryBlock", () => {
       role: "system",
       text: EMPTY_PLAN_DETAIL,
       meta: "plan",
+    });
+  });
+
+  test("persisted occupancy wakes do not rehydrate as user rows", () => {
+    // Both were system-originated inbounds; persisted turns carry no flags, so
+    // the content prefix is the only thing that keeps them out of a resumed
+    // transcript.
+    const mail = buildMailboxMailPrompt([
+      { agent_id: "w1", status: "done", report: "audit clean" },
+    ]);
+    expect(rowFromHistoryBlock({ type: "user", content: mail })).toBeNull();
+
+    const dry = buildFleetDryContinuationPrompt(
+      [{ id: "t1", title: "ship it", status: "todo" }],
+      [],
+    );
+    expect(rowFromHistoryBlock({ type: "user", content: dry })).toBeNull();
+    // Ordinary operator text is untouched.
+    expect(rowFromHistoryBlock({ type: "user", content: "hi" })).toEqual({
+      role: "user",
+      text: "hi",
     });
   });
 

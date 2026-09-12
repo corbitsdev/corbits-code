@@ -11,6 +11,8 @@ import { toolResultRow } from "./mcp-view.js";
 import type { StreamRow } from "./stream.js";
 import { TOOL_DETAIL_WIDTH } from "./tool-args.js";
 import { pushToolCall, pushToolResult } from "./tool-rows.js";
+import { isFleetDryContinuationText } from "../subagent/fleet-dry-drive.js";
+import { isMailboxMailText } from "../subagent/mailbox-mail-drive.js";
 
 /**
  * Loose content-block shape from `history.hydrate` / turns-to-blocks.
@@ -119,8 +121,15 @@ function planText(steps: unknown): string {
  */
 export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
   switch (block.type) {
-    case "user":
-      return { role: "user", text: block.content ?? "" };
+    case "user": {
+      const content = block.content ?? "";
+      // Occupancy wakes persist as user-role turns; they were never operator
+      // text, so a resumed transcript must not repaint them as such.
+      if (isMailboxMailText(content) || isFleetDryContinuationText(content)) {
+        return null;
+      }
+      return { role: "user", text: content };
+    }
     case "text":
     case "reply":
       return { role: "assistant", text: block.content ?? "" };
