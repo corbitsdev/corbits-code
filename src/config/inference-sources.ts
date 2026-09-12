@@ -14,7 +14,6 @@ import {
   resolveSessionEffort,
   type ReasoningEffort,
 } from "../provider/reasoning-effort.js";
-import { SOURCE_MAX_TOKENS } from "./index.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 
 export interface BuildSourceContext {
@@ -37,16 +36,6 @@ function catalogEntry(
   return catalog.find((e) => e.name === provider);
 }
 
-function maxTokensFor(
-  settings: Settings | undefined,
-  provider: string,
-  _model: string,
-): number {
-  const cw = settings?.providers[provider]?.contextWindow;
-  if (typeof cw === "number" && cw > 0) return cw;
-  return SOURCE_MAX_TOKENS;
-}
-
 export function buildInferenceSourceForRef(
   ref: ProviderRef,
   ctx: BuildSourceContext,
@@ -57,7 +46,6 @@ export function buildInferenceSourceForRef(
   const baseURL = entry?.baseURL ?? providerSettings?.baseURL;
   if (baseURL === undefined) return null;
 
-  const maxTokens = maxTokensFor(settings, ref.provider, ref.model);
   const configured = ref.reasoningEffort ?? ctx.reasoningEffort;
   const effort =
     configured !== undefined
@@ -123,7 +111,7 @@ export function buildInferenceSourceForRef(
     });
   }
   if (entry?.bifrostVirtualKey === true) {
-    const src = buildBifrostSource({
+    return buildBifrostSource({
       id: ref.provider,
       baseURL,
       ...(entry?.apiKey !== undefined
@@ -134,13 +122,9 @@ export function buildInferenceSourceForRef(
       model: ref.model,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     });
-    return {
-      ...src,
-      defaults: { ...src.defaults, maxTokens },
-    };
   }
 
-  const src = buildOpenAISource({
+  return buildOpenAISource({
     id: ref.provider,
     baseURL,
     ...(entry?.apiKey !== undefined
@@ -151,10 +135,6 @@ export function buildInferenceSourceForRef(
     model: ref.model,
     ...(effort !== undefined ? { reasoningEffort: effort } : {}),
   });
-  return {
-    ...src,
-    defaults: { ...src.defaults, maxTokens },
-  };
 }
 
 function buildSourceBundle(args: {
