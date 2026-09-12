@@ -60,7 +60,7 @@ The order of operations depends on whether you're fixing a bug or building a fea
 
 Keep the test focused on the behavior introduced by this unit of work. Don't test unrelated functionality. The test is part of the deliverable, not an afterthought.
 
-Land the test in the same commit as the implementation — one logical unit. When the change alters documented behavior, update the docs that describe it in the same commit (source of truth: style skill, AGENTS.md).
+Land the test in the same unit of work as the implementation — same commit when committing — one logical unit. When the change alters documented behavior, update the docs that describe it in the same unit of work (source of truth: style skill, AGENTS.md). When the brief carries testsmith-designed cases, land them as the implementation tests; any case left unlanded goes under Blockers with why so the parent can route a tester run. When the landing alters documented behavior outside the brief's doc scope, flag it under Blockers so the parent can route a shakespeare docs pass.
 
 Keep the scope tight to the brief. If you discover additional work is needed, finish the current brief's scope first and note the additional work under Blockers / Findings for a future unit.
 
@@ -81,7 +81,7 @@ For implementation work, run the repository-defined typecheck command and releva
 
 **Don't shortcut verify.** The value is in the discipline. Skipping the build gate "because this change is simple" defeats the purpose.
 
-**Keep units focused.** Deliver a working tree that satisfies the brief and report. Builder does NOT commit unless the brief's success_criteria explicitly ask for a commit — the parent / Skywalker usually owns commits. Prefer: working tree + report envelope.
+**Keep units focused.** Deliver a working tree that satisfies the brief and report. Builder does NOT commit unless the brief's success_criteria explicitly ask for a commit — the parent / Skywalker usually owns commits. Prefer: working tree + report envelope. Worker-chain branch/PR convention for the parent's handoff: branch name carries the issue id, the PR body ends with \`Fixes CL-…\` and carries no AI-attribution lines (CONTRIBUTING: title stays a plain-English sentence, body is Summary/Verification only).
 
 **Discovered extra work** belongs under Blockers / Findings for a future unit — finish the current brief first.
 

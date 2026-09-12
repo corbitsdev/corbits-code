@@ -167,12 +167,28 @@ describe("builderPackage", () => {
     expect(prompt).toMatch(/Summary \/ Findings \/ Blockers \/ Paths/);
   });
 
-  test("systemPrompt wires same-commit tests, docs upkeep, and report mapping", () => {
+  test("systemPrompt wires same-unit tests, docs upkeep, and report mapping", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toMatch(/same commit/);
-    expect(p).toMatch(/docs that describe it/i);
-    expect(p).toContain("success_criteria");
-    expect(p).toMatch(/exit status/);
+    expect(p).toMatch(/same commit when committing/);
+    expect(p).toMatch(/alters documented behavior/i);
+    expect(p).toMatch(/update the docs/i);
+    expect(p).toMatch(
+      /map each success_criteria item to pass, fail, or blocked/,
+    );
+    expect(p).toMatch(
+      /bare .*pass.*without command evidence.*incomplete report/is,
+    );
+  });
+
+  test("systemPrompt wires docs routing, testsmith consumer, and branch/PR shape", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p).toMatch(/testsmith-designed cases/);
+    expect(p).toMatch(/route a tester run/);
+    expect(p).toMatch(/shakespeare docs pass/);
+    expect(p).toMatch(/branch name carries the issue id/i);
+    expect(p).toMatch(/Fixes CL-/);
+    expect(p).toMatch(/no AI-attribution lines/);
   });
 
   test("systemPrompt preserves public API sync/async under Guidelines", () => {
