@@ -10,6 +10,7 @@ import {
   COMPACTION_RESUME_FRACTION,
   CONTEXT_METER_DANGER_FRACTION,
   setModelContextWindows,
+  setProviderContextWindowOverrides,
 } from "../../src/provider/context-window.js";
 
 function usage(overrides: Partial<TokenUsage>): TokenUsage {
@@ -23,7 +24,10 @@ function usage(overrides: Partial<TokenUsage>): TokenUsage {
   };
 }
 
-afterEach(() => setModelContextWindows(undefined));
+afterEach(() => {
+  setModelContextWindows(undefined);
+  setProviderContextWindowOverrides(undefined);
+});
 
 describe("contextWindowFor", () => {
   test("returns the gpt-5 family window for codex models", () => {

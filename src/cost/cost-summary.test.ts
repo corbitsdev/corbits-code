@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
 
-import { setModelContextWindows } from "../provider/context-window.js";
+import {
+  setModelContextWindows,
+  setProviderContextWindowOverrides,
+} from "../provider/context-window.js";
 import {
   buildCostSummary,
   formatCostCommandOutput,
@@ -9,7 +12,10 @@ import {
 } from "./cost-summary.js";
 import type { CostSummaryInput } from "./cost-summary.js";
 
-afterEach(() => setModelContextWindows(undefined));
+afterEach(() => {
+  setModelContextWindows(undefined);
+  setProviderContextWindowOverrides(undefined);
+});
 
 const baseInput: CostSummaryInput = {
   modelId: "test-model",

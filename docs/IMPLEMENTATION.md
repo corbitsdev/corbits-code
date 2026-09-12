@@ -253,6 +253,8 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   `models` is always an array (single- and multi-model providers are uniform). `defaultModel` (or the first entry) is used when no model is selected. With exactly one provider configured, `defaultProvider` may be omitted.
 
+  Optional `contextWindow` (positive number, tokens) overrides the models.dev / heuristic window for that provider. `loadConfig` applies it after `resolveProvider` via `setProviderContextWindowOverrides`, keyed as `<provider>:<model>` for every model on a provider that sets the field, plus the bare model id for the resolved provider so occupancy lookups that only have `source.model` still hit. It takes precedence over models.dev metadata and family heuristics. OAuth-projected Codex/xAI providers still drop the field: the synthetic `ProviderSettings` written by the projection overwrites the settings entry and does not copy `contextWindow`, so a hand-edited value on `codex/...` or `xai/...` is ignored. API-key providers are unaffected.
+
   Optional `tools` block to arm the outer per-tool wall-clock budget (unset leaves the watchdog unarmed):
 
   ```json
@@ -463,7 +465,7 @@ Mid-run queue/steer/interrupt state is a pure state machine in `src/tui/session-
 
 - Pricing fetched from models.dev, cached, refreshed on a background interval
 - `faremeter` converts `inference.usage` counts into a formatted `$X.XXXX` cost
-- The same models.dev payload also yields per-model context windows (`limit.context`), captured into the pricing cache (`contextWindows`) and loaded into `src/provider/context-window.ts`. `compactionThresholdFor(model)` returns ~60% of that window (falling back to per-family heuristics, then 128k) to size proactive compaction. Unknown/family-only models still get a sane default.
+- The same models.dev payload also yields per-model context windows (`limit.context`), captured into the pricing cache (`contextWindows`) and loaded into `src/provider/context-window.ts`. A provider-level `contextWindow` settings override, when present, beats that metadata. `compactionThresholdFor(model)` returns ~60% of that window (falling back to per-family heuristics, then 128k) to size proactive compaction. Unknown/family-only models still get a sane default.
 
 ### Plugin system
 

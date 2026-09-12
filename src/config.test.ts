@@ -46,6 +46,7 @@ import { saveState } from "./session/state.js";
 import { filterMcpServersForConnect } from "./trust/project-trust.js";
 import { createExaMCPServerConfig } from "./mcp/exa.js";
 import { withFileLogSink } from "../tests/helpers/file-log-sink.js";
+import { setProviderContextWindowOverrides } from "./provider/context-window.js";
 
 const BUILTIN_EXA_MCP = createExaMCPServerConfig();
 const originalFetch = globalThis.fetch;
@@ -57,6 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   resetGoModelDiscoveryForTests();
+  setProviderContextWindowOverrides(undefined);
 });
 
 function assertConfigured(

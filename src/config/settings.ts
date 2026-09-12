@@ -39,6 +39,9 @@ export interface ProviderSettings {
   // provider regardless of model pricing — e.g. a prepaid coding plan or a
   // gateway whose models.dev prices do not apply.
   free?: boolean;
+  // Token-window override for compaction and the status-bar meter. Applied at
+  // config load into contextWindowFor. OAuth-projected Codex/xAI entries drop
+  // this field, so a hand-edited value on those providers is ignored.
   contextWindow?: number;
   // When true, this provider uses a Bifrost virtual key (sk-bf-...).
   // The marker causes the inference source to route through the Bifrost

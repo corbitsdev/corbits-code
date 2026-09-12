@@ -16,6 +16,10 @@ import {
   validateEffort,
   type ReasoningEffort,
 } from "../provider/reasoning-effort.js";
+import {
+  buildProviderContextWindowOverrides,
+  setProviderContextWindowOverrides,
+} from "../provider/context-window.js";
 import { bootstrapPricingMetadata } from "../cost/pricing-metadata.js";
 import {
   defaultPricingCachePath,
@@ -923,6 +927,14 @@ export async function loadConfig(
       ...(settingsDiagnostics.length > 0 ? { settingsDiagnostics } : {}),
     };
   }
+
+  setProviderContextWindowOverrides(
+    buildProviderContextWindowOverrides(
+      settingsForResolution?.providers ?? {},
+      resolved.providerName,
+      resolved.model,
+    ),
+  );
 
   // Enforce model/effort compatibility at the boundary. The modal only offers
   // supported levels, but a hand-edited local settings file can pair an effort

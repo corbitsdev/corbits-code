@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { afterEach, test, expect } from "bun:test";
 import {
   mkdtemp,
   mkdir,
@@ -11,7 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
 import { resetPricingMetadataRefreshForTests } from "../../src/cost/pricing-metadata.js";
+import { setProviderContextWindowOverrides } from "../../src/provider/context-window.js";
 import { withMockedModuleDuring } from "../helpers/mock-module.js";
+
+afterEach(() => {
+  setProviderContextWindowOverrides(undefined);
+});
 
 // Rejects immediately instead of touching the network. loadConfig's pricing
 // refresh is fire-and-forget, so a resolved run proves only that the injected
