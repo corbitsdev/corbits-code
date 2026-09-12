@@ -71,6 +71,9 @@ function makeRecordingAuditStore(): RecordingAuditStore {
     async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
       return committedAudit.flat();
     },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return committedErrors.flat();
+    },
     getCommittedAudit() {
       return committedAudit;
     },

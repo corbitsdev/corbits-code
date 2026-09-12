@@ -512,7 +512,12 @@ export async function createAgent<EnvReq extends BaseEnv>(
     // the next flush, so a fourth caller arriving after the follow-up
     // begins still observes a clean state and starts its own flush.
     const accumulatedErrors: ErrorRecord[] = [];
+    // Resume from durable records so a rebuilt agent does not reuse seq 0
+    // and collide with files the previous assembly already committed.
     let errorSeq = 0;
+    for (const record of await auditStore.loadErrors(sessionId)) {
+      if (record.seq >= errorSeq) errorSeq = record.seq + 1;
+    }
     let flushInProgress: Promise<void> | undefined;
     let pendingFollowUp: Promise<void> | undefined;
 
@@ -551,6 +556,16 @@ export async function createAgent<EnvReq extends BaseEnv>(
         try {
           await auditStore.commitErrors(batch);
           accumulatedErrors.splice(0, count);
+        } catch (cause) {
+          if (
+            cause instanceof Error &&
+            cause.message.startsWith("Duplicate error record:")
+          ) {
+            logger.warn`duplicate error record already stored; dropping the colliding batch`;
+            accumulatedErrors.splice(0, count);
+            return;
+          }
+          throw cause;
         } finally {
           flushInProgress = undefined;
         }

@@ -25,5 +25,8 @@ export function noopAuditStore(): AuditStore {
     async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
       return [];
     },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return [];
+    },
   };
 }

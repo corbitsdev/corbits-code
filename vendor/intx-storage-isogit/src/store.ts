@@ -17,8 +17,9 @@ import {
 import { type } from "arktype";
 import {
   AuditRecord,
+  ErrorRecord,
   type AuditRecord as AuditRecordType,
-  type ErrorRecord,
+  type ErrorRecord as ErrorRecordType,
 } from "@intx/types/audit";
 import { AUTHOR } from "./init";
 import type { CommitSigner } from "./signer";
@@ -788,7 +789,7 @@ export class IsogitStore
   }
 
   async commitErrors(
-    records: ErrorRecord[],
+    records: ErrorRecordType[],
     _signal?: AbortSignal,
   ): Promise<void> {
     if (records.length === 0) return;
@@ -855,6 +856,44 @@ export class IsogitStore
       const result = AuditRecord(parsed);
       if (result instanceof type.errors) {
         throw new Error(`Invalid audit record in ${entry}: ${result.summary}`);
+      }
+      records.push(result);
+    }
+
+    records.sort((a, b) => a.seq - b.seq);
+    return records;
+  }
+
+  async loadErrors(
+    sessionId: string,
+    _signal?: AbortSignal,
+  ): Promise<ErrorRecordType[]> {
+    assertSafeSegment(sessionId, "sessionId");
+    const sessionDir = this.runtime.path.join(this.dir, ERRORS_DIR, sessionId);
+
+    let entries: string[];
+    try {
+      entries = await this.runtime.fs.readdir(sessionDir);
+    } catch (cause) {
+      if (
+        cause instanceof Error &&
+        "code" in cause &&
+        cause.code === "ENOENT"
+      ) {
+        return [];
+      }
+      throw cause;
+    }
+
+    const records: ErrorRecordType[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith(".json")) continue;
+      const fullPath = this.runtime.path.join(sessionDir, entry);
+      const raw = await this.runtime.fs.readTextFile(fullPath);
+      const parsed = JSON.parse(raw) as unknown;
+      const result = ErrorRecord(parsed);
+      if (result instanceof type.errors) {
+        throw new Error(`Invalid error record in ${entry}: ${result.summary}`);
       }
       records.push(result);
     }

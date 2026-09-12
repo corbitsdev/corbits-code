@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type } from "arktype";
 
+import { createDefaultDependencies } from "@intx/inference/providers";
 import { createInboundMessage } from "@intx/mime";
 import { createIsogitStore } from "@intx/storage-isogit/node";
 import type { AuditRecord, ErrorRecord } from "@intx/types/audit";
@@ -59,6 +60,9 @@ function makeRecordingAuditStore(): RecordingAuditStore {
     async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
       return [];
     },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return committedErrors.flat();
+    },
     getCommittedErrors() {
       return committedErrors;
     },
@@ -91,8 +95,33 @@ function makeFailFirstAuditStore(): FailingAuditStore {
     async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
       return [];
     },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return committedErrors.flat();
+    },
     getCommittedErrors() {
       return committedErrors;
+    },
+  };
+}
+
+function makeDuplicateErrorAuditStore(): FailingAuditStore {
+  return {
+    async commitAudit(_records: AuditRecord[]): Promise<void> {
+      // No-op.
+    },
+    async commitErrors(records: ErrorRecord[]): Promise<void> {
+      throw new Error(
+        `Duplicate error record: ${records[0]?.sessionId ?? "session"}/00000000-credential_failure`,
+      );
+    },
+    async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
+      return [];
+    },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return [];
+    },
+    getCommittedErrors() {
+      return [];
     },
   };
 }
@@ -151,6 +180,86 @@ async function waitForReactorDone(
   for await (const event of stream) {
     if (event.type === "reactor.done") return;
   }
+}
+
+const FORBIDDEN_DEPS = {
+  ...createDefaultDependencies(),
+  fetch: async () =>
+    new Response("Unauthorized", { status: 401, statusText: "Unauthorized" }),
+};
+
+function credentialFailureDirectors(): BaseEnv["directors"] {
+  return makeDirectorRegistry(
+    async (
+      event: ReactorInboundEvent,
+      _state: ReactorState,
+      caps: ReactorCapabilities,
+    ) => {
+      if (event.type === "message.received") return caps.infer();
+      if (event.type === "inference.error") {
+        return [caps.checkpoint("after-error"), caps.done()];
+      }
+      return caps.done();
+    },
+  );
+}
+
+function forbiddenAgentDef(id: string) {
+  return defineAgent({
+    id,
+    systemPrompt: "test",
+    tools: [],
+    capabilities: [],
+    inference: {
+      sources: [
+        {
+          provider: UNREACHABLE_SOURCE.provider,
+          model: UNREACHABLE_SOURCE.model,
+        },
+      ],
+    },
+  });
+}
+
+function duplicateFlushFailures(
+  events: ReadonlyArray<{ type: string; data?: unknown }>,
+): ReadonlyArray<{ type: string; data?: unknown }> {
+  return events.filter((event) => {
+    if (event.type !== "reactor.error") return false;
+    return JSON.stringify(event.data ?? {}).includes("Duplicate error record");
+  });
+}
+
+async function runForbiddenCycle(opts: {
+  workdir: string;
+  sessionId: string;
+  agentId: string;
+}): Promise<{ events: Array<{ type: string; data?: unknown }> }> {
+  const store = await createIsogitStore(opts.workdir);
+  const env: BaseEnv = {
+    sources: [UNREACHABLE_SOURCE],
+    defaultSource: UNREACHABLE_SOURCE.id,
+    storage: store,
+    workdir: opts.workdir,
+    audit: store,
+    authorize: permissiveAuthorize(),
+    directors: credentialFailureDirectors(),
+    sessionId: opts.sessionId,
+    deps: FORBIDDEN_DEPS,
+  };
+  const agent = await createAgent(forbiddenAgentDef(opts.agentId), env);
+  const events: Array<{ type: string; data?: unknown }> = [];
+  const stream = agent.stream();
+  try {
+    agent.deliver(inboundConversation());
+    for await (const event of stream) {
+      events.push(event);
+      if (event.type === "reactor.done") break;
+    }
+  } finally {
+    await agent.close();
+  }
+  return { events };
 }
 
 describe("agent error flushing", () => {
@@ -469,5 +578,102 @@ describe("agent error flushing", () => {
     const batches = audit.getCommittedErrors();
     expect(batches.length).toBe(1);
     expect(batches[0]?.[0]?.source).toBe("reactor");
+  });
+
+  test("two credential_failure errors in one session persist without failing the run", async () => {
+    const sessionId = "session-credential-once";
+    let inferenceErrors = 0;
+    const store = await createIsogitStore(workDir);
+    const env: BaseEnv = {
+      sources: [UNREACHABLE_SOURCE],
+      defaultSource: UNREACHABLE_SOURCE.id,
+      storage: store,
+      workdir: workDir,
+      audit: store,
+      authorize: permissiveAuthorize(),
+      directors: makeDirectorRegistry(
+        async (
+          event: ReactorInboundEvent,
+          _state: ReactorState,
+          caps: ReactorCapabilities,
+        ) => {
+          if (event.type === "message.received") return caps.infer();
+          if (event.type === "inference.error") {
+            inferenceErrors += 1;
+            if (inferenceErrors === 1) {
+              return [caps.checkpoint("after-first"), caps.infer()];
+            }
+            return [caps.checkpoint("after-second"), caps.done()];
+          }
+          return caps.done();
+        },
+      ),
+      sessionId,
+      deps: FORBIDDEN_DEPS,
+    };
+    const agent = await createAgent(forbiddenAgentDef("cred-flush-once"), env);
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const stream = agent.stream();
+    try {
+      agent.deliver(inboundConversation());
+      for await (const event of stream) {
+        events.push(event);
+        if (event.type === "reactor.done") break;
+      }
+    } finally {
+      await agent.close();
+    }
+
+    expect(duplicateFlushFailures(events)).toEqual([]);
+    const records = (await store.loadErrors(sessionId)).filter(
+      (record) => record.category === "credential_failure",
+    );
+    expect(records).toHaveLength(2);
+    expect(new Set(records.map((record) => record.seq)).size).toBe(2);
+  });
+
+  test("two credential_failure errors persist across re-assembly without failing the session", async () => {
+    const sessionId = "session-credential";
+    const first = await runForbiddenCycle({
+      workdir: workDir,
+      sessionId,
+      agentId: "cred-flush-1",
+    });
+    const second = await runForbiddenCycle({
+      workdir: workDir,
+      sessionId,
+      agentId: "cred-flush-2",
+    });
+
+    expect(duplicateFlushFailures(first.events)).toEqual([]);
+    expect(duplicateFlushFailures(second.events)).toEqual([]);
+    const store = await createIsogitStore(workDir);
+    const records = (await store.loadErrors(sessionId)).filter(
+      (record) => record.category === "credential_failure",
+    );
+    expect(records).toHaveLength(2);
+    expect(new Set(records.map((record) => record.seq)).size).toBe(2);
+  });
+
+  test("a duplicate error record from commitErrors does not fail the session", async () => {
+    const audit = makeDuplicateErrorAuditStore();
+    const directors = credentialFailureDirectors();
+    const def = forbiddenAgentDef("cred-flush-duplicate");
+    const env = await buildAgentEnv({ workdir: workDir, audit, directors });
+    const agent = await createAgent(def, { ...env, deps: FORBIDDEN_DEPS });
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const stream = agent.stream();
+    try {
+      agent.deliver(inboundConversation());
+      for await (const event of stream) {
+        events.push(event);
+        if (event.type === "reactor.done") break;
+      }
+    } finally {
+      await agent.close();
+    }
+
+    expect(duplicateFlushFailures(events)).toEqual([]);
+    expect(events.some((event) => event.type === "reactor.done")).toBe(true);
   });
 });

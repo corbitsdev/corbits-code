@@ -198,6 +198,9 @@ function makeRecordingAuditStore(): AuditStore & {
     async commitErrors() {
       /* noop */
     },
+    async loadErrors() {
+      return [];
+    },
     getCommitted() {
       return committed;
     },

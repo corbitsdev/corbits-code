@@ -692,6 +692,38 @@ describe("error store", () => {
       ),
     ).toHaveLength(1);
   });
+
+  test("loadErrors round-trips records ordered by seq", async () => {
+    const dir = await tempDir();
+    const store = await createAuditStore(dir);
+    const later = makeErrorRecord({ seq: 2, category: "retryable" });
+    const earlier = makeErrorRecord({ seq: 1, category: "credential_failure" });
+
+    await store.commitErrors([later]);
+    await store.commitErrors([earlier]);
+
+    expect(await store.loadErrors("session-1")).toEqual([earlier, later]);
+  });
+
+  test("loadErrors returns empty array for nonexistent session", async () => {
+    const dir = await tempDir();
+    const store = await createAuditStore(dir);
+
+    expect(await store.loadErrors("no-such-session")).toEqual([]);
+  });
+
+  test("rejects sessionId with path traversal on loadErrors", async () => {
+    const dir = await tempDir();
+    const store = await createAuditStore(dir);
+
+    let thrown: Error | undefined;
+    try {
+      await store.loadErrors("../escape");
+    } catch (cause) {
+      thrown = cause instanceof Error ? cause : new Error(String(cause));
+    }
+    expect(thrown?.message).toContain("unsafe characters");
+  });
 });
 
 describe("audit and error durability retries", () => {
