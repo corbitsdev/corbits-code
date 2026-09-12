@@ -1124,8 +1124,10 @@ async function* runSingleAttempt(
     // validate every open call before emitting any of them, and never
     // dispatch a call whose arguments are incomplete or unparseable. A turn
     // cut at max_tokens with calls still open is unambiguous truncation;
-    // anything else unparseable is still not a normal call. Both fail the
-    // turn retryably so the model can re-issue it with room to finish.
+    // anything else unparseable is still not a normal call. Both yield an
+    // inference.error (category retryable) naming the call; post-commit the
+    // harness surfaces it terminally rather than mechanically retrying, so
+    // the message guides the model's next attempt.
     const finalizedToolCalls: {
       tc: ToolCallState;
       parsedArgs: Record<string, unknown>;

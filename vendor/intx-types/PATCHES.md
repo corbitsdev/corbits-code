@@ -22,7 +22,8 @@ seq 0. Companion to `store-ts-load-errors` in `@intx/storage-isogit` and
 
 `src/runtime.ts` — The `inference.usage` variant of `InferenceEvent`
 gains optional `data.stopReason: string`, populated by adapters that
-observe a wire-level stop/finish reason (Anthropic `stop_reason`).
+observe a wire-level stop/finish reason (Anthropic `stop_reason`, Gemini
+`finishReason`).
 `inference.usage` is the only harness-level signal that records how a
 turn ended; without the provider's stop reason the harness cannot
 distinguish a complete turn from a truncation (`max_tokens` with a tool

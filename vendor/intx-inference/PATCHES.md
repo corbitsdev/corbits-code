@@ -414,10 +414,15 @@ prior code fell back to a `{ _raw: <partial JSON> }` tool_call block, which
 the reactor dispatched — executing a tool with truncated arguments when the
 model was cut off by `max_tokens` (CL-7783: a truncated `Bash`
 `rm -rf /tm…` fragment reached the executor). Now: when `stopReason` is
-`max_tokens` and a tool call is still open, the turn fails retryably with a
-message naming the tool and the truncated prefix, telling the model to retry
-with a narrower scope; any other unparseable-args case fails retryably as
-invalid JSON. Two supporting changes: `providers/anthropic.ts` parses
+`max_tokens` and a tool call is still open, the turn fails with an
+`inference.error` naming the tool and the truncated prefix, advising a
+larger budget or a narrower scope for the model's next attempt; any other
+unparseable-args case fails the same way as invalid JSON. Both errors carry
+category `retryable`, but end-of-stream finalization always runs after the
+attempt has committed visible output, so the harness commitment boundary
+suppresses the mechanical retry — the failure is terminal for the turn, and
+the message is guidance for the next attempt rather than a re-issued retry.
+Two supporting changes: `providers/anthropic.ts` parses
 `stop_reason` out of `MessageDelta` (previously stripped by the schema) and
 surfaces it on `inference.usage`, and `vendor/intx-types`' `InferenceUsageEvent`
 gains the optional `stopReason` field both halves flow through. Guarded by the
@@ -426,7 +431,12 @@ exact incident wire sequence and asserts no `tool_call` block reaches the
 reactor. The OpenAI-compatible adapter was audited for the same path: it has
 no adapter-local args fallback (the harness was the only dispatch site) but
 still drops `finish_reason` on both paths, so OpenAI streams get the generic
-invalid-JSON failure rather than the truncation-specific message.
+invalid-JSON failure rather than the truncation-specific message. The Gemini
+adapter forwards its terminal `finishReason` onto `inference.usage` (same
+spread idiom as Anthropic), but forwards the provider's raw spelling
+(`MAX_TOKENS`), which the harness `max_tokens` comparison does not match —
+so Gemini truncation still lands on the generic invalid-JSON failure until
+the harness normalizes provider spellings.
 
 **Disposition:** Promotion candidate. Safety/correctness fix — prevents
 executing tools with truncated arguments after a `max_tokens` cutoff.
