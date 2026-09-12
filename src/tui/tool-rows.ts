@@ -32,13 +32,109 @@ function runLine(text: string, fg: string = UI.text): StyledBodyLine {
 
 function appendRunLine(
   lines: readonly StyledBodyLine[],
-  text: string,
+  line: StyledBodyLine,
 ): readonly StyledBodyLine[] {
   if (lines.length > MAX_RUN_LINES) return lines;
   if (lines.length === MAX_RUN_LINES) {
     return [...lines, runLine("… more answers", UI.textDim)];
   }
-  return [...lines, runLine(text)];
+  return [...lines, line];
+}
+
+/**
+ * One member's line in a lane's expanded body: which call, then what it got.
+ * The label is dim so the outcome — the part that changes per member — reads
+ * first.
+ */
+function memberRunLine(label: string, outcome: string): StyledBodyLine {
+  if (label.length === 0) return runLine(outcome);
+  return [
+    { text: label, fg: UI.textDim },
+    { text: ` — ${outcome}`, fg: UI.text },
+  ];
+}
+
+/**
+ * Argument keys that name which object a call acted on, most-identifying
+ * first. Only consulted when the call's painted summary is empty — an MCP
+ * call's verb is already the whole sentence, so its subject lives in the
+ * arguments (the issue id on a save_comment, not the comment body).
+ */
+const LANE_MEMBER_KEYS = [
+  "issueId",
+  "issue",
+  "commentId",
+  "id",
+  "key",
+  "command",
+  "query",
+  "url",
+  "pattern",
+  "path",
+  "file_path",
+  "name",
+  "description",
+  "prompt",
+] as const;
+
+const LANE_MEMBER_SUBJECT_MAX = 48;
+
+function clipMemberSubject(value: string): string {
+  const oneLine = value.replace(/\s+/g, " ").trim();
+  return oneLine.length <= LANE_MEMBER_SUBJECT_MAX
+    ? oneLine
+    : `${oneLine.slice(0, LANE_MEMBER_SUBJECT_MAX - 1)}…`;
+}
+
+function memberArgs(raw: string): Record<string, unknown> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** Which object a lane member acted on, read off its painted summary or args. */
+function laneMemberLabel(row: StreamRow): string {
+  // A settled row's label was recorded at merge time, while its arguments
+  // were still on the row — re-deriving now would read keys off the answer
+  // payload that replaced them.
+  if (row.callId !== undefined) {
+    const index = (row.memberIds ?? []).indexOf(row.callId);
+    const recorded = index >= 0 ? (row.memberLabels?.[index] ?? "") : "";
+    if (recorded.length > 0) return recorded;
+  }
+  const summary = row.summary?.trim() ?? "";
+  if (summary.length > 0) return clipMemberSubject(summary);
+  const args = memberArgs(row.text);
+  if (args !== null) {
+    for (const key of LANE_MEMBER_KEYS) {
+      const value = args[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return clipMemberSubject(value);
+      }
+      if (typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+      }
+    }
+    const first = Object.values(args).find(
+      (value) => typeof value === "string" && value.trim().length > 0,
+    );
+    if (typeof first === "string") return clipMemberSubject(first);
+  }
+  return row.verb ?? row.meta ?? row.toolName ?? "";
+}
+
+/** The label the result's call carried when the lane absorbed it, if known. */
+function memberLabelFor(call: StreamRow, result: StreamRow): string {
+  if (result.callId === undefined) return "";
+  const index = (call.memberIds ?? []).indexOf(result.callId);
+  return index >= 0 ? (call.memberLabels?.[index] ?? "") : "";
 }
 
 /** Longest an answer's own words may run before they belong behind the arrow. */
@@ -187,7 +283,10 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
       ...(remaining > 0 ? { pending: true } : {}),
       detail: appendRunLine(
         call.detail ?? [],
-        failed ? "call failed" : (addendum ?? "answered"),
+        memberRunLine(
+          memberLabelFor(call, result),
+          failed ? (addendum ?? "call failed") : (addendum ?? "answered"),
+        ),
       ),
     };
   }
@@ -196,6 +295,14 @@ export function mergeToolRows(call: StreamRow, result: StreamRow): StreamRow {
   const showsPayload = payload.length > 0 && payload !== base.stat;
   return {
     ...base,
+    // The merge is the last moment this call's own arguments are on the
+    // row — record who it was so a later repeat can name it in the lane.
+    ...(call.callId !== undefined
+      ? {
+          memberIds: [call.callId],
+          memberLabels: [laneMemberLabel(call)],
+        }
+      : {}),
     ...(result.structured !== undefined
       ? { structured: result.structured }
       : {}),
@@ -232,12 +339,20 @@ export function canCoalesceCall(
 
 /** Calls a lane remembers so a later result can still find this row. */
 
-function laneMembers(tail: StreamRow, next: StreamRow): string[] | undefined {
-  const members = [
+function laneMembers(
+  tail: StreamRow,
+  next: StreamRow,
+): { ids: string[]; labels: string[] } {
+  const ids = [
     ...(tail.memberIds ?? (tail.callId !== undefined ? [tail.callId] : [])),
     ...(next.callId !== undefined ? [next.callId] : []),
   ];
-  return members.length > 0 ? members : undefined;
+  const labels = [
+    ...(tail.memberLabels ??
+      (tail.callId !== undefined ? [laneMemberLabel(tail)] : [])),
+    ...(next.callId !== undefined ? [laneMemberLabel(next)] : []),
+  ];
+  return { ids, labels };
 }
 
 /**
@@ -252,7 +367,15 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
       ? (tail.detail ?? [])
       : tail.pending === true
         ? []
-        : appendRunLine([], tail.stat ?? "answered");
+        : appendRunLine(
+            [],
+            memberRunLine(
+              laneMemberLabel(tail),
+              tail.failed === true
+                ? (tail.stat ?? "call failed")
+                : (tail.stat ?? "answered"),
+            ),
+          );
   // A run's body is the answers it collected; the argument view, table and diff
   // belong to a single call, which this row no longer stands alone for.
   const {
@@ -262,11 +385,12 @@ export function coalesceCallRows(tail: StreamRow, next: StreamRow): StreamRow {
     ...call
   } = next;
   const inFlight = tail.outstanding ?? (tail.pending === true ? 1 : 0);
-  const memberIds = laneMembers(tail, next);
+  const members = laneMembers(tail, next);
   return {
     ...call,
     callCount: (tail.callCount ?? 1) + 1,
-    ...(memberIds !== undefined ? { memberIds } : {}),
+    ...(members.ids.length > 0 ? { memberIds: members.ids } : {}),
+    ...(members.labels.length > 0 ? { memberLabels: members.labels } : {}),
     coalesced: true,
     outstanding: inFlight + 1,
     ...(tail.failed === true ? { failed: true } : {}),

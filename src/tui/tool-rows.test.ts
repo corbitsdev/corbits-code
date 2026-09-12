@@ -333,6 +333,116 @@ describe("a run of identical calls", () => {
     expect(rows[0]?.outstanding).toBe(1);
     expect(rows[0]?.pending).toBe(true);
   });
+
+  const runLines = (row: StreamRow | undefined): string[] =>
+    (row?.detail ?? []).map((line) =>
+      line.map((segment) => segment.text).join(""),
+    );
+
+  test("each member line names the call's own target, not a bare answer", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "mcp__linear__save_comment",
+      arguments: JSON.stringify({ issueId: "CL-7386", body: "looks good" }),
+      callId: "m1",
+    });
+    pushToolCall(rows, {
+      name: "mcp__linear__save_comment",
+      arguments: JSON.stringify({ issueId: "CL-7390", body: "done" }),
+      callId: "m2",
+    });
+    pushToolResult(rows, {
+      name: "mcp__linear__save_comment",
+      content: "",
+      callId: "m1",
+    });
+    pushToolResult(rows, {
+      name: "mcp__linear__save_comment",
+      content: "",
+      callId: "m2",
+    });
+    // An MCP call's painted summary is empty — the verb is the sentence — so
+    // the lane reads the identifying argument (the issue, not the body).
+    expect(rows[0]?.memberLabels).toEqual(["CL-7386", "CL-7390"]);
+    expect(runLines(rows[0])).toEqual([
+      "CL-7386 — answered",
+      "CL-7390 — answered",
+    ]);
+  });
+
+  test("a member settled before the lane keeps the call's label, not the payload's", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "mcp__linear__save_comment",
+      arguments: JSON.stringify({ issueId: "CL-7386", body: "first" }),
+      callId: "m1",
+    });
+    pushToolResult(rows, {
+      name: "mcp__linear__save_comment",
+      content: '{"id":"comment-9"}',
+      callId: "m1",
+    });
+    // The merge replaced the row's args with the answer payload; the label
+    // must still name what the call acted on.
+    pushToolCall(rows, {
+      name: "mcp__linear__save_comment",
+      arguments: JSON.stringify({ issueId: "CL-7390", body: "second" }),
+      callId: "m2",
+    });
+    expect(rows[0]?.memberLabels).toEqual(["CL-7386", "CL-7390"]);
+    expect(runLines(rows[0])).toEqual(['CL-7386 — {"id":"comment-9"}']);
+  });
+
+  test("a failed member's line carries its target and the error", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "mcp__linear__save_comment",
+      arguments: JSON.stringify({ issueId: "CL-1", body: "x" }),
+      callId: "m1",
+    });
+    pushToolCall(rows, {
+      name: "mcp__linear__save_comment",
+      arguments: JSON.stringify({ issueId: "CL-2", body: "y" }),
+      callId: "m2",
+    });
+    pushToolResult(rows, {
+      name: "mcp__linear__save_comment",
+      content: "HTTP 401 unauthorized",
+      isError: true,
+      callId: "m1",
+    });
+    pushToolResult(rows, {
+      name: "mcp__linear__save_comment",
+      content: "",
+      callId: "m2",
+    });
+    expect(runLines(rows[0])).toEqual([
+      "CL-1 — HTTP 401 unauthorized",
+      "CL-2 — answered",
+    ]);
+  });
+
+  test("member labels are one-line and bounded", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "mcp__granola__search",
+      arguments: JSON.stringify({
+        query: `  multi\n  line ${"q".repeat(100)}`,
+      }),
+      callId: "m1",
+    });
+    pushToolCall(rows, {
+      name: "mcp__granola__search",
+      arguments: JSON.stringify({ query: "b" }),
+      callId: "m2",
+    });
+    const labels = rows[0]?.memberLabels ?? [];
+    expect(labels.length).toBe(2);
+    expect(labels[0]?.length).toBeLessThanOrEqual(48);
+    expect(labels[0]).not.toContain("\n");
+    expect(labels[0]?.endsWith("…")).toBe(true);
+    expect(labels[1]).toBe("b");
+  });
 });
 
 describe("parallel calls to the same tool", () => {
@@ -969,8 +1079,7 @@ describe("lane paint", () => {
     const answers = (rows[0]?.detail ?? []).map((line) =>
       line.map((segment) => segment.text).join(""),
     );
-    expect(answers).not.toEqual(["answered", "answered"]);
-    expect(answers).toContain("a");
+    expect(answers).toEqual(["echo a — a", "echo b — b"]);
     expect(rows[0]?.resultText).toBe("b");
     expect(rows[0]?.previewLines).toEqual(["b"]);
   });
