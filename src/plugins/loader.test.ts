@@ -134,10 +134,7 @@ describe("readManifestJson malformed vs missing", () => {
     expect(warnings.some((w) => w.includes(manifestPath))).toBe(true);
     expect(
       warnings.some(
-        (w) =>
-          w.includes(manifestPath) &&
-          (w.toLowerCase().includes("parse") ||
-            w.toLowerCase().includes("json")),
+        (w) => w.includes(manifestPath) && w.includes("failed to parse"),
       ),
     ).toBe(true);
   });
@@ -180,10 +177,7 @@ describe("readManifestJson malformed vs missing", () => {
     expect(diag.warnings.some((w) => w.includes(manifestPath))).toBe(true);
     expect(
       diag.warnings.some(
-        (w) =>
-          w.includes(manifestPath) &&
-          (w.toLowerCase().includes("parse") ||
-            w.toLowerCase().includes("json")),
+        (w) => w.includes(manifestPath) && w.includes("failed to parse"),
       ),
     ).toBe(true);
   });
@@ -198,5 +192,53 @@ describe("readManifestJson malformed vs missing", () => {
     });
     expect(mods).toEqual([]);
     expect(diag.warnings).toEqual([]);
+  });
+
+  test("malformed native manifest.json on data-only plugin warns and does not silently infer kind", async () => {
+    const dir = await makeJsPlugin({
+      "agents/a.md": "---\nname: a\n---\nbody\n",
+      "manifest.json": "{not-json",
+    });
+    const warnings: string[] = [];
+    const mod = await loadPluginEntry(dir, {
+      onWarning: (msg) => warnings.push(msg),
+    });
+    const manifestPath = join(dir, "manifest.json");
+    expect(
+      warnings.some(
+        (w) => w.includes(manifestPath) && w.includes("failed to parse"),
+      ),
+    ).toBe(true);
+    expect(mod).not.toBeNull();
+    expect(mod?.agentPlugin).toBeDefined();
+  });
+
+  test("Claude-format .claude-plugin/manifest.json does not warn missing id/kind on metadata-only load", async () => {
+    const dir = await makeJsPlugin({
+      ".claude-plugin/manifest.json": JSON.stringify({
+        name: "cmo",
+        description: "Marketing ops",
+      }),
+    });
+    const diag = createPluginLoadDiagnostics();
+    const cwd = await mkdtemp(join(tmpdir(), "manifest-cwd-"));
+    const mods = await loadPluginsFromPaths([dir], cwd, {
+      isPluginTrusted: () => false,
+      diagnostics: diag,
+    });
+    expect(
+      diag.warnings.some((w) => w.includes("invalid plugin manifest")),
+    ).toBe(false);
+    expect(
+      diag.warnings.some(
+        (w) =>
+          w.includes(join(dir, ".claude-plugin", "manifest.json")) &&
+          (w.includes("id") || w.includes("kind")),
+      ),
+    ).toBe(false);
+    const mod = mods.find((m) => m.manifest?.id === "cmo");
+    expect(mod?.metadataOnly).toBe(true);
+    expect(mod?.manifest?.name).toBe("cmo");
+    expect(mod?.manifest?.description).toBe("Marketing ops");
   });
 });

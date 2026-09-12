@@ -93,32 +93,72 @@ function errorText(err: unknown): string {
 // their manifest as a JS export (mod.manifest) or a sibling manifest.json file;
 // this covers the JSON path so plugins that are pure data + commands work too.
 // Missing file stays silent; parse or schema failure warns and still skips.
+async function readJsonFile(
+  path: string,
+  onWarning: (msg: string) => void,
+): Promise<unknown | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (err) {
+    if (isENOENT(err)) return undefined;
+    onWarning(`failed to read ${path}: ${errorText(err)}`);
+    return undefined;
+  }
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (err) {
+    onWarning(`failed to parse ${path}: ${errorText(err)}`);
+    return undefined;
+  }
+}
+
 async function readManifestJson(
   dir: string,
   onWarning: (msg: string) => void,
 ): Promise<PluginManifest | null> {
   const manifestPath = join(dir, "manifest.json");
-  let raw: string;
-  try {
-    raw = await readFile(manifestPath, "utf8");
-  } catch (err) {
-    if (isENOENT(err)) return null;
-    onWarning(`failed to read ${manifestPath}: ${errorText(err)}`);
-    return null;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    onWarning(`failed to parse ${manifestPath}: ${errorText(err)}`);
-    return null;
-  }
+  const parsed = await readJsonFile(manifestPath, onWarning);
+  if (parsed === undefined) return null;
   const result = PluginManifestSchema(parsed);
   if (result instanceof type.errors) {
     onWarning(`invalid plugin manifest at ${manifestPath}: ${result.summary}`);
     return null;
   }
   return result as PluginManifest;
+}
+
+// Claude marketplace `.claude-plugin/manifest.json` is `{name, description?}`,
+// not a corbits PluginManifest. Parse it without PluginManifestSchema so a
+// valid Claude layout does not warn about missing id/kind. Malformed JSON
+// still warns. Kind is filled in so the metadata-only module can list.
+async function readClaudeFormatManifestJson(
+  dir: string,
+  onWarning: (msg: string) => void,
+): Promise<PluginManifest | null> {
+  const manifestPath = join(dir, "manifest.json");
+  const parsed = await readJsonFile(manifestPath, onWarning);
+  if (parsed === undefined) return null;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  const obj = parsed as Record<string, unknown>;
+  const nameRaw =
+    typeof obj.name === "string" && obj.name.trim().length > 0
+      ? obj.name.trim()
+      : typeof obj.id === "string" && obj.id.trim().length > 0
+        ? obj.id.trim()
+        : null;
+  if (nameRaw === null) return null;
+  const manifest: PluginManifest = {
+    id: nameRaw,
+    name: nameRaw,
+    kind: "command",
+  };
+  if (typeof obj.description === "string") {
+    manifest.description = obj.description;
+  }
+  return manifest;
 }
 
 // Safe metadata-only view: never import()s and never loads markdown agents/commands.
@@ -138,7 +178,10 @@ async function readPluginMetadataOnly(
   const abs = resolve(dir);
   const manifest =
     (await readManifestJson(abs, onWarning)) ??
-    (await readManifestJson(join(abs, ".claude-plugin"), onWarning));
+    (await readClaudeFormatManifestJson(
+      join(abs, ".claude-plugin"),
+      onWarning,
+    ));
   if (manifest === null) {
     return null;
   }
