@@ -215,6 +215,9 @@ export function createOverlayList(
     get height() {
       return shape.items;
     },
+    get rowsPerItem() {
+      return shape.rowsPerItem;
+    },
     get offset() {
       return selectScrollState(select).offset;
     },

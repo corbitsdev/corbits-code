@@ -169,6 +169,8 @@ export const OVERLAY_MAX_FRACTION = 0.7;
  * one content row. The transcript floor exists to keep conversation visible,
  * but it must not starve an overlay the operator just opened below the rows
  * its own border costs — that renders past its box instead of shrinking.
+ * When even this minimum cannot be granted beside the prompt floor, the
+ * overlay may take rows from below PROMPT_BASE_ROWS.
  */
 export const OVERLAY_MIN_ROWS = 3;
 

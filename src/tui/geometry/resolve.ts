@@ -389,17 +389,33 @@ export function resolveGeometry(input: GeometryInput): GeometryLayout {
     // Need more space: collapse one zone, then retry.
     const cut = collapseOnce(heights, collapsed);
     if (cut === null) {
-      // Nothing left — relax the transcript floor rather than leave the
-      // overlay under its own render minimum; accept best effort past that.
-      heights.overlay_host = desiredOverlayHeight(
+      // Nothing left to collapse. Relax the transcript floor, then re-check
+      // against the overlay's own render minimum. An unanswerable approval
+      // deadlocks the session; a cramped prompt does not — so the overlay
+      // may take rows from below PROMPT_BASE_ROWS when even that still
+      // cannot seat minOverlay.
+      let overlay = desiredOverlayHeight(
         { ...input, terminal },
         mode,
         chrome,
         0,
       );
+      if (overlay < minOverlay) {
+        const grant = Math.min(minOverlay, terminal.rows);
+        const available = Math.max(0, terminal.rows - chrome);
+        const deficit = grant - Math.min(overlay, available);
+        if (deficit > 0 && heights.prompt > 0) {
+          heights.prompt -= Math.min(deficit, heights.prompt);
+        }
+        overlay = Math.min(
+          grant,
+          Math.max(0, terminal.rows - sumChrome(heights)),
+        );
+      }
+      heights.overlay_host = overlay;
       heights.transcript = Math.max(
         0,
-        terminal.rows - sumChrome(heights) - heights.overlay_host,
+        terminal.rows - sumChrome(heights) - overlay,
       );
       break;
     }

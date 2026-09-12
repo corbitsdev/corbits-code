@@ -54,6 +54,7 @@ describe("decision choice rendering", () => {
     await withTestRenderer(async (h) => {
       const contentWidth = 60;
       const list = createOverlayList(h.renderer, { count: 1, items: 4 });
+      list.setHeight(list.height, DECISION_CHOICE_ROWS);
       const view = createOverlayView(h.renderer);
       h.renderer.root.add(view.host);
       view.host.visible = true;

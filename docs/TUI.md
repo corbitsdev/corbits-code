@@ -364,8 +364,11 @@ The geometry resolver iteratively collapses optional chrome to make room for
 both the transcript floor and this overlay minimum before it ever accepts a
 transcript-below-floor outcome; only when nothing is left to collapse does it
 fall back to best effort (`resolveGeometry`'s collapse loop in
-`geometry/resolve.ts`). An overlay must never paint past the box it was
-actually assigned.
+`geometry/resolve.ts`). Best effort re-checks the assigned overlay height
+against that minimum: if the overlay is still short, it may take rows from
+below the prompt floor (`PROMPT_BASE_ROWS`). An unanswerable approval
+deadlocks the session; a cramped prompt does not. An overlay must never paint
+past the box it was actually assigned, and its border must always close.
 
 Escape dismisses the open overlay and, for a permission or operator prompt,
 that dismissal **denies** the request rather than leaving it unresolved
