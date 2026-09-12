@@ -1,8 +1,8 @@
 /**
  * Background model discovery for the setup surface: Ollama's installed-model
  * list (which replaces the seeded pick-list once it resolves) and the OpenCode
- * Go catalog prefetch. Both mutate the shared state and repaint; both ignore
- * resolutions from superseded attempts.
+ * Go and Zen catalog prefetches. All mutate the shared state and repaint; all
+ * ignore resolutions from superseded attempts.
  */
 
 import { createOverlayList } from "../shell/overlay-list.js";
@@ -33,6 +33,10 @@ export function createDiscoveryFlows(
 
   const abandonGoPrefetch = (): void => {
     state.goPrefetchAttempt += 1;
+  };
+
+  const abandonZenPrefetch = (): void => {
+    state.zenPrefetchAttempt += 1;
   };
 
   const beginOllamaDiscovery = (): void => {
@@ -137,10 +141,51 @@ export function createDiscoveryFlows(
       });
   };
 
+  const beginZenPrefetch = (): void => {
+    if (!selectors.isZenModelListStep()) return;
+    abandonZenPrefetch();
+    const attempt = state.zenPrefetchAttempt;
+    void state
+      .prefetchZenModels()
+      .then((ids) => {
+        if (
+          state.settled ||
+          attempt !== state.zenPrefetchAttempt ||
+          !selectors.isZenModelListStep() ||
+          state.choice === null
+        ) {
+          return;
+        }
+        const listed = state.choice.models;
+        const same =
+          ids.length === listed.length &&
+          ids.every((id, i) => id === listed[i]);
+        if (same) return;
+        const focusedId = state.listRows[state.list.activeIndex]?.id;
+        state.choice = { ...state.choice, models: [...ids] };
+        state.listRows = modelChoiceRows(state.choice);
+        const found =
+          focusedId === undefined
+            ? -1
+            : state.listRows.findIndex((row) => row.id === focusedId);
+        state.list = createOverlayList(state.renderer as CliRenderer, {
+          count: state.listRows.length,
+          items: providerListHeight(state.renderer),
+          activeIndex: found >= 0 ? found : 0,
+        });
+        surface.paint();
+      })
+      .catch(() => {
+        // Seed list is already on screen; a failed prefetch must not surface.
+      });
+  };
+
   return {
     beginOllamaDiscovery,
     abandonOllamaDiscovery,
     beginGoPrefetch,
     abandonGoPrefetch,
+    beginZenPrefetch,
+    abandonZenPrefetch,
   };
 }

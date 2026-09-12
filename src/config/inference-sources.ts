@@ -4,6 +4,7 @@ import {
   buildBifrostSource,
   buildCodexSource,
   buildGoSource,
+  buildZenSource,
   buildAnthropicSource,
   buildOpenAISource,
   buildXaiSource,
@@ -19,6 +20,7 @@ import {
   type ReasoningEffort,
 } from "../provider/reasoning-effort.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
+import { isZenProvider } from "../../packages/zen/src/index.js";
 
 export interface BuildSourceContext {
   sessionId: string;
@@ -119,6 +121,24 @@ export function buildInferenceSourceForRef(
     })
   ) {
     return buildGoSource({
+      id: ref.provider,
+      ...(entry?.apiKey !== undefined
+        ? { apiKey: entry.apiKey }
+        : providerSettings?.apiKey !== undefined
+          ? { apiKey: providerSettings.apiKey }
+          : {}),
+      model: ref.model,
+      sessionId: ctx.sessionId,
+      ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    });
+  }
+  if (
+    isZenProvider({
+      name: ref.provider,
+      ...(baseURL !== undefined ? { baseURL } : {}),
+    })
+  ) {
+    return buildZenSource({
       id: ref.provider,
       ...(entry?.apiKey !== undefined
         ? { apiKey: entry.apiKey }

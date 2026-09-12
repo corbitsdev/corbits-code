@@ -39,7 +39,9 @@ import { connectProviderInline } from "../provider/connect.js";
 import { persistConnectedSelection } from "../provider/submit.js";
 import { modelOptionId } from "../model-catalog.js";
 import { prefetchGoModels } from "../../provider/opencode-go-models.js";
+import { prefetchZenModels } from "../../provider/zen-models.js";
 import { isOpenCodeGoProvider } from "../../../packages/opencode-go/src/index.js";
+import { isZenProvider } from "../../../packages/zen/src/index.js";
 import { applyLiveModelSwitch } from "../../session/live-model-switch.js";
 import { applyFocus } from "../shell/chrome.js";
 import { setShellInputSuspended } from "../shell/prompt.js";
@@ -343,6 +345,32 @@ export async function wireSettings(
           })
           .catch((err: unknown) => {
             tuiLogger.debug("go model prefetch failed: {error}", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+      }
+      if (isZenProvider({ name: providerName })) {
+        void prefetchZenModels()
+          .then(async () => {
+            if (services.hostHolder.instance === undefined) return;
+            const nextDisk = await loadSettings(trueGlobalSettingsPath);
+            const nextProviders = await refreshLiveProviderCatalog(
+              nextDisk,
+              resolvedForCatalog,
+            );
+            state.config = {
+              ...state.config,
+              providers: nextProviders,
+              ...(nextDisk !== null ? { settings: nextDisk } : {}),
+            };
+            services.hostHolder.instance.refreshModels(
+              listRecentModels(state.config.settings ?? { providers: {} }),
+              listFavoriteModels(state.config.settings ?? { providers: {} }),
+              nextProviders,
+            );
+          })
+          .catch((err: unknown) => {
+            tuiLogger.debug("zen model prefetch failed: {error}", {
               error: err instanceof Error ? err.message : String(err),
             });
           });

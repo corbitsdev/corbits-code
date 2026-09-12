@@ -21,6 +21,7 @@ import type {
   OllamaDiscoveryState,
 } from "../../provider/ollama.js";
 import type { prefetchGoModels as prefetchGoModelsRequest } from "../../provider/opencode-go-models.js";
+import type { prefetchZenModels as prefetchZenModelsRequest } from "../../provider/zen-models.js";
 import type { ResidualCatalogEntry } from "../residuals.js";
 import type { OverlayList } from "../shell/internals.js";
 import type { SetupStep } from "./steps.js";
@@ -144,6 +145,8 @@ export interface ProviderSetupConfig {
   readonly discoverOllamaModels?: typeof discoverOllamaModelsRequest;
   /** Go catalog prefetch override so setup tests stay off the network. */
   readonly prefetchGoModels?: typeof prefetchGoModelsRequest;
+  /** Zen catalog prefetch override so setup tests stay off the network. */
+  readonly prefetchZenModels?: typeof prefetchZenModelsRequest;
   /**
    * Skip the provider pick-list and start directly on that provider's first
    * form step (account name for multi-instance kinds, or the custom name
@@ -217,6 +220,8 @@ export interface SetupState {
   ollamaDiscoveryAbort: AbortController | null;
   readonly prefetchGoModels: typeof prefetchGoModelsRequest;
   goPrefetchAttempt: number;
+  readonly prefetchZenModels: typeof prefetchZenModelsRequest;
+  zenPrefetchAttempt: number;
   listRows: readonly ResidualCatalogEntry[];
   list: OverlayList;
   settled: boolean;
@@ -245,6 +250,8 @@ export interface DiscoveryFlows {
   abandonOllamaDiscovery(): void;
   beginGoPrefetch(): void;
   abandonGoPrefetch(): void;
+  beginZenPrefetch(): void;
+  abandonZenPrefetch(): void;
 }
 
 /** Multi-instance "name" step (OAuth accounts and API-key instances). */
@@ -270,4 +277,5 @@ export interface SetupSelectors {
   isListStep(): boolean;
   isAccountNameStep(): boolean;
   isGoModelListStep(): boolean;
+  isZenModelListStep(): boolean;
 }

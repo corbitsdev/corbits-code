@@ -89,6 +89,7 @@ export function teardownSurface(
   login.abandonLogin();
   discovery.abandonOllamaDiscovery();
   discovery.abandonGoPrefetch();
+  discovery.abandonZenPrefetch();
   state.renderer.keyInput.off("keypress", onKey);
   surface.input.off(InputRenderableEvents.ENTER, onEnter);
   surface.input.off(InputRenderableEvents.INPUT, onInput);

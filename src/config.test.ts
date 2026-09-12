@@ -34,9 +34,17 @@ import {
   OPENCODE_GO_MODEL_IDS,
 } from "../packages/opencode-go/src/index.js";
 import {
+  ZEN_DEFAULT_BASE_URL,
+  ZEN_MODEL_IDS,
+} from "../packages/zen/src/index.js";
+import {
   prefetchGoModels,
   resetGoModelDiscoveryForTests,
 } from "./provider/opencode-go-models.js";
+import {
+  prefetchZenModels,
+  resetZenModelDiscoveryForTests,
+} from "./provider/zen-models.js";
 import {
   generateSessionId,
   initSessionDir,
@@ -53,11 +61,13 @@ const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   resetGoModelDiscoveryForTests();
+  resetZenModelDiscoveryForTests();
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
   resetGoModelDiscoveryForTests();
+  resetZenModelDiscoveryForTests();
   setProviderContextWindowOverrides(undefined);
 });
 
@@ -2007,6 +2017,47 @@ describe("refreshLiveProviderCatalog", () => {
       buildProviderCatalog(settings, resolved).find((c) => c.name === "go")
         ?.models,
     ).toEqual(["go-model"]);
+  });
+
+  test("overlays Zen row models with selectableZenModelIds without changing non-Zen rows", async () => {
+    const zenSettings: Settings = {
+      providers: {
+        fp: {
+          baseURL: "https://fp/v1",
+          apiKey: "fp-key",
+          models: ["fp-large"],
+        },
+        zen: {
+          baseURL: ZEN_DEFAULT_BASE_URL,
+          apiKey: "zen-key",
+          models: ["zen-model"],
+        },
+      },
+    };
+    const cold = await refreshLiveProviderCatalog(zenSettings, resolved);
+    const coldZen = cold.find((c) => c.name === "zen");
+    expect(coldZen?.models).toEqual([...ZEN_MODEL_IDS]);
+    expect(coldZen?.models).not.toContain("zen-model");
+    expect(cold.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
+    expect(
+      buildProviderCatalog(zenSettings, resolved).find((c) => c.name === "zen")
+        ?.models,
+    ).toEqual(["zen-model"]);
+
+    globalThis.fetch = (async () =>
+      Response.json({
+        data: [{ id: "gpt-6-astra" }, { id: "live-only-fixture-model" }],
+      })) as unknown as typeof fetch;
+    await prefetchZenModels();
+
+    const warm = await refreshLiveProviderCatalog(zenSettings, resolved);
+    const warmZen = warm.find((c) => c.name === "zen");
+    expect(warmZen?.models).toContain("live-only-fixture-model");
+    expect(warm.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
+    expect(
+      buildProviderCatalog(zenSettings, resolved).find((c) => c.name === "zen")
+        ?.models,
+    ).toEqual(["zen-model"]);
   });
 });
 
