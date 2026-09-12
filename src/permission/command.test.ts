@@ -56,6 +56,28 @@ describe("splitChainedCommand heredocs", () => {
   });
 });
 
+describe("splitChainedCommand lone-& bypass (CL-7781)", () => {
+  // A `&` with no trailing space still backgrounds the preceding command —
+  // treating it as a redirect token lets a second command hide behind a
+  // standing grant for the benign head. Only a redirect-bound `&` (after
+  // `>`/`<`, or opening `&>`/`&>>`) stays attached to its command.
+  const cases: { command: string; segments: string[] }[] = [
+    { command: "a &b", segments: ["a", "b"] },
+    { command: "a & b", segments: ["a", "b"] },
+    { command: "a &>f", segments: ["a &>f"] },
+    { command: "a 2>&1", segments: ["a 2>&1"] },
+    { command: "a >&2", segments: ["a >&2"] },
+    { command: "a <&-", segments: ["a <&-"] },
+    { command: "a&&b", segments: ["a", "b"] },
+    { command: "a &&b", segments: ["a", "b"] },
+  ];
+  for (const { command, segments } of cases) {
+    test(`splits ${JSON.stringify(command)} into ${segments.length} segment(s)`, () => {
+      expect(splitChainedCommand(command)).toEqual(segments);
+    });
+  }
+});
+
 describe("splitChainedCommand redirect and background fragments", () => {
   // A bare digit (or "-") after a chain separator is not, by itself, evidence
   // of a stray redirect remnant — it may be a genuine, distinct command. Only
