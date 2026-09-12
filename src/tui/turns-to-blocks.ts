@@ -3,6 +3,7 @@ import type {
   ConversationTurn,
 } from "@intx/types/runtime";
 
+import { isPersistedOccupancyWakeText } from "../subagent/mailbox-mail-drive.js";
 import { validateView, type ViewNode } from "./view/index.js";
 
 interface PlanBlockStep {
@@ -12,7 +13,19 @@ interface PlanBlockStep {
 }
 
 export type ContentBlockData =
-  | { type: "user"; content: string }
+  | {
+      type: "user";
+      content: string;
+      /**
+       * Persisted origin for resume suppression: turns carry no message
+       * flags, so wake-shaped user turns are marked "system" here and
+       * history-hydrate drops only marked blocks. The mark derives from
+       * content, not provenance — a verbatim wake-shaped operator turn is
+       * marked (and dropped) exactly like a real wake. Only a bare wake
+       * prefix, or non-wake text, stays unmarked and paints.
+       */
+      origin?: "operator" | "system";
+    }
   | { type: "thinking"; content: string }
   | { type: "text"; content: string }
   | {
@@ -205,7 +218,18 @@ function turnToContentBlocks(turn: ConversationTurn): ContentBlockData[] {
   const out: ContentBlockData[] = [];
   if (turn.role === "user") {
     const text = textFromBlocks(turn.content);
-    if (text.length > 0) out.push({ type: "user", content: text });
+    if (text.length > 0) {
+      // Occupancy wakes persist as user-role turns with no flags. Mark the
+      // wake shape here so history-hydrate can drop it by origin. The match
+      // is content, not provenance: an operator turn carrying a byte-verbatim
+      // wake (deliberate paste of the full wake line plus report JSON) is
+      // marked — and dropped — too. A bare wake prefix stays unmarked.
+      if (isPersistedOccupancyWakeText(text)) {
+        out.push({ type: "user", content: text, origin: "system" });
+      } else {
+        out.push({ type: "user", content: text });
+      }
+    }
     return out;
   }
   if (turn.role !== "assistant") return out;

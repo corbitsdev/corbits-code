@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import type { ConversationTurn } from "@intx/types/runtime";
+import { buildMailboxMailPrompt } from "../subagent/mailbox-mail-drive.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
 import { hydrateTasksFromTurns } from "../agent/director.js";
 
@@ -75,6 +76,42 @@ describe("turnsToContentBlocks no longer derives tasks", () => {
     expect(
       blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks"),
     ).toBe(false);
+  });
+});
+
+describe("turnsToContentBlocks marks occupancy wakes with system origin", () => {
+  function userTurn(text: string): ConversationTurn {
+    return {
+      role: "user",
+      content: [{ type: "text", text }],
+      timestamp: 0,
+    } as unknown as ConversationTurn;
+  }
+
+  test("enveloped wake turn is marked; operator text stays unmarked", () => {
+    // Persisted turns carry the reactor envelope (createInboundTurn), so the
+    // wake match must see through "[From: ...]\n\n" to the prompt beneath.
+    const wake = buildMailboxMailPrompt([
+      { agent_id: "w1", status: "done", report: "audit clean" },
+    ]);
+    const blocks = turnsToContentBlocks([
+      userTurn(`[From: user@local]\n\n${wake}`),
+      userTurn("[From: user@local]\n\nship it"),
+    ]);
+    expect(blocks).toMatchObject([
+      { type: "user", origin: "system" },
+      { type: "user" },
+    ]);
+    expect("origin" in (blocks[1] as object)).toBe(false);
+  });
+
+  test("operator text starting with a wake line is not marked", () => {
+    // Only the full wake shape earns the system marker — a bare prefix
+    // typed by the operator stays unmarked, and unmarked blocks always
+    // paint on resume (see history-hydrate).
+    const blocks = turnsToContentBlocks([userTurn("mailbox mail")]);
+    expect(blocks).toMatchObject([{ type: "user" }]);
+    expect("origin" in (blocks[0] as object)).toBe(false);
   });
 });
 

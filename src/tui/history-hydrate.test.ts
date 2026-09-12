@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import type { ConversationTurn } from "@intx/types/runtime";
+import { buildFleetDryContinuationPrompt } from "../subagent/fleet-dry-drive.js";
+import { buildMailboxMailPrompt } from "../subagent/mailbox-mail-drive.js";
 import {
   EMPTY_PLAN_DETAIL,
   EMPTY_VIEW_DETAIL,
@@ -8,6 +11,16 @@ import {
   rowsFromHistoryBlocks,
   type HistoryBlock,
 } from "./history-hydrate.js";
+import { turnsToContentBlocks } from "./turns-to-blocks.js";
+
+/** A persisted user turn: the reactor envelopes inbound text (createInboundTurn). */
+function envelopedUserTurn(text: string): ConversationTurn {
+  return {
+    role: "user",
+    content: [{ type: "text", text: `[From: user@local]\n\n${text}` }],
+    timestamp: 0,
+  } as unknown as ConversationTurn;
+}
 
 describe("rowFromHistoryBlock", () => {
   test("user / text / reply / thinking", () => {
@@ -165,6 +178,68 @@ describe("rowFromHistoryBlock", () => {
     });
   });
 
+  test("persisted occupancy wakes drop only with their origin marker", () => {
+    // turns-to-blocks marks wake-matching user turns origin:"system" at
+    // persist time; the drop below is keyed on that marker, never the prefix
+    // alone. Persisted turns carry the reactor envelope, so the fixtures use
+    // the enveloped shape real sessions carry.
+    const mail = `[From: user@local]\n\n${buildMailboxMailPrompt([
+      { agent_id: "w1", status: "done", report: "audit clean" },
+    ])}`;
+    expect(
+      rowFromHistoryBlock({ type: "user", content: mail, origin: "system" }),
+    ).toBeNull();
+
+    const dry = `[From: user@local]\n\n${buildFleetDryContinuationPrompt(
+      [{ id: "t1", title: "ship it", status: "todo" }],
+      [],
+    )}`;
+    expect(
+      rowFromHistoryBlock({ type: "user", content: dry, origin: "system" }),
+    ).toBeNull();
+
+    // At this layer alone, the same bytes without the system marker paint:
+    // the drop is keyed on the marker, never the prefix. That is a
+    // layer-local guarantee, not the pipeline outcome — turns-to-blocks
+    // marks any verbatim wake shape (operator-typed or not) before it
+    // reaches here, so an enveloped verbatim-wake operator turn drops end
+    // to end (locked by the pipeline test below). Only a bare prefix, which
+    // the marker never matches, is guaranteed to paint on resume.
+    expect(rowFromHistoryBlock({ type: "user", content: mail })).toEqual({
+      role: "user",
+      text: mail,
+    });
+
+    // Explicitly operator-flagged text paints at this layer, even verbatim
+    // wake text — again layer-local, not the pipeline outcome (see above).
+    expect(
+      rowFromHistoryBlock({
+        type: "user",
+        content: mail,
+        origin: "operator",
+      }),
+    ).toEqual({ role: "user", text: mail });
+
+    // Ordinary operator text is untouched.
+    expect(rowFromHistoryBlock({ type: "user", content: "hi" })).toEqual({
+      role: "user",
+      text: "hi",
+    });
+  });
+
+  test("non-wake system inbound still paints on resume", () => {
+    // A system-originated inbound that is not an occupancy wake — shaped like
+    // a background-shell completion notice (mailbox "system", no operator
+    // flag) — paints live and must survive resume too. Only wakes carry the
+    // origin marker, so this arrives unmarked and must paint.
+    const notice =
+      "[From: user@local]\n\nBackground shell abc123 finished: exit code 0.\ncommand: bun test\noutput:\n3 pass";
+    expect(rowFromHistoryBlock({ type: "user", content: notice })).toEqual({
+      role: "user",
+      text: notice,
+    });
+  });
+
   test("a tasks block no longer hydrates a row at all", () => {
     // Task state is live panel state, not conversation history. Nothing writes
     // this block any more, and an old session carrying one must not paint a
@@ -310,5 +385,45 @@ describe("hydrateHistoryRows", () => {
       { role: "user", text: "a" },
       { role: "assistant", text: "b" },
     ]);
+  });
+});
+
+describe("resume pipeline end to end (turns-to-blocks into hydrate)", () => {
+  test("a marked wake drops while operator text paints", () => {
+    // Mirrors runner wiring: persisted turns become content blocks, which
+    // cross history.hydrate as untyped JSON — so the origin marker must
+    // survive asHistoryBlock for the drop to fire, and unmarked text must
+    // paint even though the wake prefix is in the same payload.
+    const wake = buildMailboxMailPrompt([
+      { agent_id: "w1", status: "done", report: "audit clean" },
+    ]);
+    const operatorText = "[From: user@local]\n\nship it";
+    const blocks = turnsToContentBlocks([
+      envelopedUserTurn(wake),
+      envelopedUserTurn("ship it"),
+    ]);
+    expect(blocks).toMatchObject([
+      { type: "user", origin: "system" },
+      { type: "user" },
+    ]);
+    const rows = hydrateHistoryRows(JSON.parse(JSON.stringify(blocks)));
+    expect(rows).toEqual([{ role: "user", text: operatorText }]);
+  });
+
+  test("an enveloped verbatim-wake operator turn drops end to end", () => {
+    // Residual provenance gap: persisted turns carry no message flags, so
+    // turns-to-blocks marks wakes by content and an operator turn carrying
+    // a byte-verbatim wake (full wake line plus report JSON — a deliberate
+    // paste) is marked origin:"system" and dropped here. Trigger is narrow
+    // and the consequence cosmetic (one scrollback row; model history
+    // intact), but the drop is real: this test fails if anyone claims
+    // verbatim operator text always paints.
+    const wake = buildMailboxMailPrompt([
+      { agent_id: "w1", status: "done", report: "audit clean" },
+    ]);
+    const blocks = turnsToContentBlocks([envelopedUserTurn(wake)]);
+    expect(blocks).toMatchObject([{ type: "user", origin: "system" }]);
+    const rows = hydrateHistoryRows(JSON.parse(JSON.stringify(blocks)));
+    expect(rows).toEqual([]);
   });
 });

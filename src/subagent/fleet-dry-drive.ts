@@ -17,6 +17,15 @@ export const FLEET_DRY_REPORT_CHARS = 8_192;
 export const FLEET_DRY_CONTINUATION_PREFIX =
   "The fleet has gone dry. Remaining open tasks:";
 
+/**
+ * Whether inbound text is the fleet-dry open-task continuation. Same class
+ * as mailbox mail: internal runtime→agent traffic whose report-JSON payload
+ * is model-facing, so the transcript never paints it.
+ */
+export function isFleetDryContinuationText(text: string): boolean {
+  return text.startsWith(FLEET_DRY_CONTINUATION_PREFIX);
+}
+
 export interface FleetDryMailboxRecord {
   readonly status: WaitJSONStatus;
   readonly collected?: boolean;

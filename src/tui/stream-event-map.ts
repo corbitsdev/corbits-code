@@ -10,6 +10,8 @@ import {
   stripTerminalControlSequences,
 } from "../util/control-char-strip.js";
 import { isOperatorOriginated } from "../agent/message-provenance.js";
+import { isFleetDryContinuationText } from "../subagent/fleet-dry-drive.js";
+import { isMailboxMailText } from "../subagent/mailbox-mail-drive.js";
 import { isReactorErrorFatal } from "../agent/reactor-events.js";
 import { terminalProviderFailureMessage } from "../inference-error-message.js";
 import {
@@ -368,15 +370,17 @@ function mapEvent(
       // retry retracting across it would erase operator or system text.
       const disarmed = disarmAttempt(ctx);
       if (full.trim().length === 0) return disarmed;
-      return [
-        ...disarmed,
-        {
-          type: isOperatorOriginated(inboundMessageFlags(message))
-            ? "user"
-            : "system",
-          text: full,
-        },
-      ];
+      const operator = isOperatorOriginated(inboundMessageFlags(message));
+      // Occupancy wakes (mailbox mail, fleet-dry continuation) are
+      // runtime→agent traffic: the fleet board already owns worker status,
+      // and the payload is model-facing report JSON — no transcript row.
+      if (
+        !operator &&
+        (isMailboxMailText(content) || isFleetDryContinuationText(content))
+      ) {
+        return disarmed;
+      }
+      return [...disarmed, { type: operator ? "user" : "system", text: full }];
     }
 
     case "inference.start": {

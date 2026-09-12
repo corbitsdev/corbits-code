@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
-import { buildShellBackgroundMessage } from "../session/runtime-assembly.js";
+import {
+  buildFleetDryContinuationMessage,
+  buildMailboxMailMessage,
+  buildShellBackgroundMessage,
+} from "../session/runtime-assembly.js";
+import { buildFleetDryContinuationPrompt } from "../subagent/fleet-dry-drive.js";
+import { buildMailboxMailPrompt } from "../subagent/mailbox-mail-drive.js";
 import { suppressProviderFailurePresentation } from "./provider/failure-attempt.js";
 import {
   createStreamMapContext,
@@ -47,6 +53,45 @@ describe("mapProductionEvent", () => {
         data: { message },
       }),
     ).toEqual([{ type: "system", text: message.content ?? "" }]);
+  });
+
+  test("mailbox mail wake paints no transcript row", () => {
+    const prompt = buildMailboxMailPrompt([
+      { agent_id: "w1", status: "done", report: "audit clean" },
+    ]);
+    expect(
+      mapProductionEvent({
+        type: "message.received",
+        data: { message: buildMailboxMailMessage(prompt) },
+      }),
+    ).toEqual([]);
+  });
+
+  test("fleet-dry continuation paints no transcript row", () => {
+    const prompt = buildFleetDryContinuationPrompt(
+      [{ id: "t1", title: "ship it", status: "todo" }],
+      [{ agent_id: "w1", status: "done" }],
+    );
+    expect(
+      mapProductionEvent({
+        type: "message.received",
+        data: { message: buildFleetDryContinuationMessage(prompt) },
+      }),
+    ).toEqual([]);
+  });
+
+  test("operator-originated text matching a wake prefix still paints", () => {
+    const content = buildMailboxMailPrompt([
+      { agent_id: "w1", status: "done" },
+    ]);
+    expect(
+      mapProductionEvent({
+        type: "message.received",
+        data: {
+          message: { content, flags: [OPERATOR_ORIGINATED_FLAG] },
+        },
+      }),
+    ).toEqual([{ type: "user", text: content }]);
   });
 
   test("inference.start → busy run", () => {
