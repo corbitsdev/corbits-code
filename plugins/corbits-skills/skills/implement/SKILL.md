@@ -113,7 +113,7 @@ Run `make` (or the project's equivalent full pipeline: format, lint, build, test
 
 Update `activeForm` to "Committing: {subject}".
 
-Create the commit. Follow the commit message conventions from the `style` skill. Include the test in the same commit as the implementation — they are one logical unit of work — and the docs updates when the commit changes documented behavior.
+Create the commit. Follow the commit message conventions from the `style` skill. Include the test in the same commit as the implementation — they are one logical unit of work — and update the docs when the commit changes documented behavior.
 
 ### Step 5: Critique Loop
 
