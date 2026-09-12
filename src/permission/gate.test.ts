@@ -115,6 +115,40 @@ describe("preGrantGuardReason / isRequestCoveredByGrant guard parity", () => {
   });
 });
 
+describe("lone-& bypass at the gate (CL-7781)", () => {
+  // A standing grant for a benign head must not auto-allow a payload hidden
+  // behind a `&` with no trailing space. Per-segment coverage means the
+  // hidden second segment has no matching grant and the request stays
+  // uncovered (the gate prompts) — same as the spaced form.
+  const cwd = mkdtempSync(join(tmpdir(), "gate-lone-amp-"));
+  const isRestricted = createPathRestriction(
+    cwd,
+    createWorktreeRootsProvider(cwd),
+  ).isRestricted;
+  const workspace = { resolvedCwd: cwd, roots: [] as string[] };
+  const grant: Approval = { tool: "run_shell", pattern: "bun test *" };
+  const covered = (subject: string): boolean =>
+    isRequestCoveredByGrant(
+      { tool: "run_shell", action: "Run", subject, scopes: [], cwd },
+      grant,
+      undefined,
+      isRestricted,
+      workspace,
+    );
+
+  test("unspaced &payload is not covered by a grant for the head", () => {
+    expect(covered("bun test x &touch pwn")).toBe(false);
+  });
+
+  test("spaced & payload is not covered by a grant for the head", () => {
+    expect(covered("bun test x & touch pwn")).toBe(false);
+  });
+
+  test("the benign head alone stays covered", () => {
+    expect(covered("bun test x")).toBe(true);
+  });
+});
+
 // Relative path tokens rebind to the request's process cwd before the gate's
 // restriction closure judges them, so a sub-agent worktree's relative targets
 // match what the shell will open. Absolute paths still pass through the
