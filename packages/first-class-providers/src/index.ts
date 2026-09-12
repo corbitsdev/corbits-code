@@ -1,5 +1,7 @@
 export {
   FIRST_CLASS_PROVIDERS,
+  OPENAI_API_BASE_URL,
+  OPENAI_API_MAX_COMPLETION_TOKENS_MODELS,
   connectListProviders,
   firstClassPathAsProvider,
   firstClassProviderById,

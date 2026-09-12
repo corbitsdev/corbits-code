@@ -9,7 +9,11 @@ import {
   buildXaiSource,
   type ProviderCatalogEntry,
 } from "./index.js";
-import type { Settings } from "./settings.js";
+import {
+  OPENAI_API_BASE_URL,
+  OPENAI_API_MAX_COMPLETION_TOKENS_MODELS,
+} from "../../packages/first-class-providers/src/index.js";
+import { normalizeOpenAICompatibleBaseURL, type Settings } from "./settings.js";
 import {
   resolveSessionEffort,
   type ReasoningEffort,
@@ -34,6 +38,26 @@ function catalogEntry(
   provider: string,
 ): ProviderCatalogEntry | undefined {
   return catalog.find((e) => e.name === provider);
+}
+
+// First-party OpenAI reasoning models reject `max_tokens` and require
+// `max_completion_tokens`. The requirement is declared per model on the
+// first-class OpenAI API-key preset — never inferred from name prefixes —
+// and the quirk attaches to the source actually in use: it follows the
+// first-party endpoint, so relays serving the same model names through the
+// same adapter keep `max_tokens`.
+function openAISourceQuirks(
+  baseURL: string,
+  model: string,
+): Record<string, unknown> | undefined {
+  const normalized = normalizeOpenAICompatibleBaseURL(baseURL);
+  if (normalized !== normalizeOpenAICompatibleBaseURL(OPENAI_API_BASE_URL)) {
+    return undefined;
+  }
+  if (!OPENAI_API_MAX_COMPLETION_TOKENS_MODELS.includes(model)) {
+    return undefined;
+  }
+  return { maxTokensField: "max_completion_tokens" };
 }
 
 export function buildInferenceSourceForRef(
@@ -124,6 +148,7 @@ export function buildInferenceSourceForRef(
     });
   }
 
+  const quirks = openAISourceQuirks(baseURL, ref.model);
   return buildOpenAISource({
     id: ref.provider,
     baseURL,
@@ -134,6 +159,7 @@ export function buildInferenceSourceForRef(
         : {}),
     model: ref.model,
     ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    ...(quirks !== undefined ? { quirks } : {}),
   });
 }
 

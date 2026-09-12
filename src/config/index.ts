@@ -209,6 +209,7 @@ export function buildOpenAISource(fields: {
   apiKey?: string;
   model: string;
   reasoningEffort?: ReasoningEffort;
+  quirks?: Record<string, unknown>;
 }): InferenceSource {
   const overrides =
     fields.reasoningEffort !== undefined
@@ -226,6 +227,7 @@ export function buildOpenAISource(fields: {
         : KEYLESS_API_KEY,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, ...overrides },
+    ...(fields.quirks !== undefined ? { quirks: fields.quirks } : {}),
   };
 }
 
