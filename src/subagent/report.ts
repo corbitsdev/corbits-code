@@ -264,15 +264,15 @@ export function formatSubAgentReport(report: SubAgentReport): string {
   lines.push(
     "## Summary",
     report.summary.length > 0 ? report.summary : "(no summary)",
+    "",
+    "## Findings",
+    report.findings.length > 0 ? report.findings : "None.",
+    "",
+    "## Blockers",
+    report.blockers.length > 0 ? report.blockers : "None.",
+    "",
+    "## Paths",
+    report.paths.length > 0 ? report.paths : "None.",
   );
-  if (report.findings.length > 0) {
-    lines.push("", "## Findings", report.findings);
-  }
-  if (report.blockers.length > 0) {
-    lines.push("", "## Blockers", report.blockers);
-  }
-  if (report.paths.length > 0) {
-    lines.push("", "## Paths", report.paths);
-  }
   return lines.join("\n");
 }

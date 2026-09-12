@@ -128,6 +128,18 @@ describe("shared discipline block appears exactly once per built prompt", () => 
   });
 });
 
+describe("sub-agent report contract", () => {
+  it("requires all four headings with None. instead of omitting empty sections", () => {
+    const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      grokAntiThrash: false,
+    });
+    expect(prompt).not.toContain("omit empty sections");
+    expect(prompt).toMatch(/emit all four headings/);
+    expect(prompt).toContain('"None."');
+  });
+});
+
 describe("shared verification guidance", () => {
   it("requires evidence-carrying verification in worker prompts", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {

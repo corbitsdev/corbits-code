@@ -692,6 +692,9 @@ describe("sub-agent stop helpers", () => {
     const cancelledParsedEmpty = parseSubAgentReport(emptyCancelled);
     expect(cancelledParsedEmpty.findings).toContain("no partial findings");
     expect(emptyCancelled.toLowerCase()).not.toContain("summarize progress");
+    // Empty Paths still renders its heading so the envelope stays complete.
+    expect(hasReportEnvelope(emptyCancelled)).toBe(true);
+    expect(emptyCancelled).toContain("## Paths\nNone.");
 
     // Nested agent envelope must not clobber the outer cancelled Summary when
     // runSubAgent re-parses the forced stop.
@@ -826,6 +829,25 @@ describe("sub-agent stop helpers", () => {
     expect(withPathsParsed.paths).toContain("src/b.ts");
     expect(withPathsParsed.findings).toContain("Files touched before stop");
     expect(withPathsParsed.findings).toContain("src/a.ts");
+  });
+
+  test("round-trip preserves the envelope when a section body is empty", () => {
+    const reply = [
+      "## Summary",
+      "Did the work.",
+      "",
+      "## Findings",
+      "Touched the gate.",
+      "",
+      "## Blockers",
+      "",
+      "## Paths",
+      "src/gate.ts",
+    ].join("\n");
+    expect(hasReportEnvelope(reply)).toBe(true);
+    const roundTripped = formatSubAgentReport(parseSubAgentReport(reply));
+    expect(hasReportEnvelope(roundTripped)).toBe(true);
+    expect(parseSubAgentReport(roundTripped).blockers).toBe("None.");
   });
 
   test("forcedStopReport renders a Stopped line for display; classification uses the typed reason", () => {
