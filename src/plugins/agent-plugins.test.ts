@@ -192,5 +192,6 @@ describe("resolveAgentPluginProfiles", () => {
     expect(warnings[0]).toContain('"p1"');
     expect(warnings[0]).toContain('"scout"');
     expect(warnings[0]).toContain("prompts/does-not-exist.md");
+    expect(defined(warnings[0])).toMatch(/unreadable|missing/i);
   });
 });
