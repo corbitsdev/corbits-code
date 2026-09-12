@@ -343,16 +343,26 @@ function laneMembers(
   tail: StreamRow,
   next: StreamRow,
 ): { ids: string[]; labels: string[] } {
-  const ids = [
-    ...(tail.memberIds ?? (tail.callId !== undefined ? [tail.callId] : [])),
-    ...(next.callId !== undefined ? [next.callId] : []),
-  ];
+  const tailIds =
+    tail.memberIds ?? (tail.callId !== undefined ? [tail.callId] : []);
+  // A lane hydrated from pre-PR history carries memberIds without
+  // memberLabels. Backfill placeholders so the two arrays stay aligned —
+  // only the tail's own label is still recoverable; earlier members read as
+  // bare outcomes until their answers arrive.
+  const tailLabels =
+    tail.memberLabels ??
+    tailIds.map((id) => (id === tail.callId ? laneMemberLabel(tail) : ""));
+  const ids = [...tailIds, ...(next.callId !== undefined ? [next.callId] : [])];
   const labels = [
-    ...(tail.memberLabels ??
-      (tail.callId !== undefined ? [laneMemberLabel(tail)] : [])),
+    ...tailLabels,
     ...(next.callId !== undefined ? [laneMemberLabel(next)] : []),
   ];
-  return { ids, labels };
+  // Bound the lane's memory alongside the detail cap, oldest-first like the
+  // answers. Both arrays are sliced together so they never come unaligned.
+  return {
+    ids: ids.slice(0, MAX_RUN_LINES),
+    labels: labels.slice(0, MAX_RUN_LINES),
+  };
 }
 
 /**

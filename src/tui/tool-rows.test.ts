@@ -242,7 +242,7 @@ describe("a run of identical calls", () => {
     expect(rows[0]?.outstanding).toBe(0);
   });
 
-  test("a lane keeps every member id while the count climbs", () => {
+  test("a lane caps member ids and labels together at the run cap", () => {
     const rows: StreamRow[] = [];
     for (let i = 1; i <= 33; i++) {
       pushToolCall(rows, {
@@ -253,7 +253,10 @@ describe("a run of identical calls", () => {
     }
     expect(rows.length).toBe(1);
     expect(rows[0]?.callCount).toBe(33);
-    expect(rows[0]?.memberIds?.length).toBe(33);
+    // The lane's memory is bounded alongside the detail cap, oldest-first
+    // like the answers — and both arrays together, never one alone.
+    expect(rows[0]?.memberIds?.length).toBe(30);
+    expect(rows[0]?.memberLabels?.length).toBe(30);
     expect(rows[0]?.memberIds?.[0]).toBe("c1");
     expect(pendingCallIndex(rows, "grep", "c33")).toBe(0);
     expect(pendingCallIndex(rows, "grep", "c1")).toBe(0);
@@ -274,16 +277,24 @@ describe("a run of identical calls", () => {
     expect(rows.length).toBe(1);
     expect(rows[0]?.pending).toBe(true);
     expect(rows[0]?.outstanding).toBe(32);
-    for (let i = 2; i <= 33; i++) {
+    // Members past the run cap kept no id on the lane, so their answers
+    // cannot pair back to it — except the newest, found by the lane's own id.
+    for (let i = 2; i <= 30; i++) {
       pushToolResult(rows, {
         name: "grep",
         content: `r${i}`,
         callId: `c${i}`,
       });
     }
+    pushToolResult(rows, { name: "grep", content: "r33", callId: "c33" });
     expect(rows.length).toBe(1);
-    expect(rows[0]?.pending).toBeUndefined();
-    expect(rows[0]?.outstanding).toBe(0);
+    expect(rows[0]?.pending).toBe(true);
+    expect(rows[0]?.outstanding).toBe(2);
+    pushToolResult(rows, { name: "grep", content: "r31", callId: "c31" });
+    pushToolResult(rows, { name: "grep", content: "r32", callId: "c32" });
+    expect(rows.length).toBe(3);
+    expect(rows[0]?.pending).toBe(true);
+    expect(rows[0]?.outstanding).toBe(2);
   });
 
   test("a different tool breaks the lane", () => {
@@ -367,6 +378,70 @@ describe("a run of identical calls", () => {
     expect(runLines(rows[0])).toEqual([
       "CL-7386 — answered",
       "CL-7390 — answered",
+    ]);
+  });
+
+  test("four members each name their own target", () => {
+    const rows: StreamRow[] = [];
+    const issues = ["CL-7386", "CL-7390", "CL-7399", "CL-7401"];
+    issues.forEach((issueId, i) => {
+      pushToolCall(rows, {
+        name: "mcp__linear__save_comment",
+        arguments: JSON.stringify({ issueId, body: `note ${i}` }),
+        callId: `m${i}`,
+      });
+    });
+    issues.forEach((_, i) => {
+      pushToolResult(rows, {
+        name: "mcp__linear__save_comment",
+        content: "",
+        callId: `m${i}`,
+      });
+    });
+    expect(rows.length).toBe(1);
+    expect(rows[0]?.memberLabels).toEqual(issues);
+    expect(runLines(rows[0])).toEqual(issues.map((id) => `${id} — answered`));
+  });
+
+  test("a pre-PR lane with ids but no labels coalesces with aligned placeholders", () => {
+    const rows: StreamRow[] = [];
+    pushToolCall(rows, {
+      name: "mcp__linear__save_comment",
+      arguments: JSON.stringify({ issueId: "CL-7386", body: "first" }),
+      callId: "m1",
+    });
+    pushToolCall(rows, {
+      name: "mcp__linear__save_comment",
+      arguments: JSON.stringify({ issueId: "CL-7390", body: "second" }),
+      callId: "m2",
+    });
+    // Lanes persisted before per-call labels carry memberIds without
+    // memberLabels; only the tail's own label is still recoverable.
+    const { memberLabels: _dropped, ...legacy } = defined(rows[0]);
+    rows[0] = legacy;
+    pushToolCall(rows, {
+      name: "mcp__linear__save_comment",
+      arguments: JSON.stringify({ issueId: "CL-7399", body: "third" }),
+      callId: "m3",
+    });
+    expect(rows[0]?.memberIds).toEqual(["m1", "m2", "m3"]);
+    expect(rows[0]?.memberLabels).toEqual(["", "CL-7390", "CL-7399"]);
+    pushToolResult(rows, {
+      name: "mcp__linear__save_comment",
+      content: "",
+      callId: "m2",
+    });
+    // Without the placeholder backfill the second result would read the
+    // third member's label.
+    expect(runLines(rows[0])).toEqual(["CL-7390 — answered"]);
+    pushToolResult(rows, {
+      name: "mcp__linear__save_comment",
+      content: "",
+      callId: "m3",
+    });
+    expect(runLines(rows[0])).toEqual([
+      "CL-7390 — answered",
+      "CL-7399 — answered",
     ]);
   });
 
