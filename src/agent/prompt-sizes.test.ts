@@ -24,7 +24,9 @@ const CHAR_BUDGET: Record<DirectorId, number> = {
   greybeard: 53600,
   neckbeard: 72300,
   bruckheimer: 23200,
-  gaasbot: 31700,
+  // CL-7809: deliberate CL-7663 voice restore (PR #932) grew gaasbot to
+  // 52782 chars; budget = measured + 2000 allowance, ceiling to 100.
+  gaasbot: 54800,
   draper: 15100,
   emil: 16600,
   rand: 15000,
@@ -43,7 +45,9 @@ const BYTE_BUDGET: Record<DirectorId, number> = {
   greybeard: 54800,
   neckbeard: 73400,
   bruckheimer: 24300,
-  gaasbot: 32800,
+  // CL-7809: deliberate CL-7663 voice restore (PR #932) grew gaasbot to
+  // 52970 bytes; budget = measured + 3000 allowance, ceiling to 100.
+  gaasbot: 56000,
   draper: 16200,
   emil: 17700,
   rand: 16100,
