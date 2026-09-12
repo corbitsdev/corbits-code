@@ -506,8 +506,6 @@ export interface Config {
    */
   resumeMode?: "id" | "pick";
 
-  // Deprecated workflow profile metadata; workflows are manual-only slash commands.
-  workflow?: string;
   // Deprecated no-op retained for CLI compatibility.
   noWorkflow: boolean;
   /**
@@ -988,7 +986,6 @@ export async function loadConfig(
     noWorkflow,
     ...(resumeMode !== undefined ? { resumeMode, skipInitialTask } : {}),
     ...(resumePicker ? { resumePicker: true } : {}),
-    ...(profile.workflow !== undefined ? { workflow: profile.workflow } : {}),
     ...(settings?.defaultProvider !== undefined
       ? { globalDefaultProvider: settings.defaultProvider }
       : {}),

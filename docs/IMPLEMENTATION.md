@@ -347,7 +347,7 @@ Profiles supply per-project or named-profile overrides for `model`, `systemPromp
 }
 ```
 
-`resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` feeds into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt. Workflow profile metadata is deprecated because workflows are started only by explicit slash commands. CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
+`resolveProfile` merges a named profile with the project profile, with **project profile field values overriding the named profile's**. The resolved `model` feeds into provider resolution and the director; `systemPromptExtensions` are appended to the system prompt. CLI flags (`--model`, `--profile`) still win over profile values during config resolution.
 
 ### Provider Configuration
 
