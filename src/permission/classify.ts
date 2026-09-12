@@ -15,7 +15,8 @@ import {
 import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
 import {
   commandReferencesSensitivePath,
-  isSensitivePath,
+  isSensitiveShellToken,
+  PURE_DIRECTORY_LISTING_PROGRAMS,
 } from "../plugins/secret-guard-plugin.js";
 import {
   runShellAuthzBlockReason,
@@ -113,10 +114,10 @@ export function restrictedPathArg(
   return isRestricted(path, isWriteTool(call.name)) ? path : undefined;
 }
 
-// Programs that only print directory names / metadata. Outside-workspace path
-// arguments are fine for these — listing is not a content read. Content readers
-// (cat, head, xxd, …) still fail the restricted-path check below.
-const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
+// Outside-workspace path arguments are fine for pure-listing programs — listing
+// is not a content read. Content readers (cat, head, xxd, …) still fail the
+// restricted-path check below. The program set itself is owned by
+// secret-guard-plugin.ts (shared with the CL-7790 resolve-leg skip).
 
 // Cap accepted tree depth so `tree -L 999999 /` cannot auto-allow an OOM walk.
 const MAX_PURE_TREE_DEPTH = 10;
@@ -405,7 +406,7 @@ function isAutoAllowedSegment(
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
-  if (commandReferencesSensitivePath(trimmed)) return false;
+  if (commandReferencesSensitivePath(trimmed, cwd)) return false;
   // Same metacharacter gate as isAutoAllowedShellCommand: this classifier also
   // runs standalone per pipeline/chain segment (see isAutoAllowedShellSegment),
   // so a segment carrying its own command substitution or redirect must not
@@ -429,7 +430,12 @@ function isAutoAllowedSegment(
     if (args.some((token) => WRITE_FLAG.test(token))) return false;
     if (args.some((token) => EXEC_FLAG.test(token))) return false;
   }
-  if (args.some((token) => isSensitivePath(token))) return false;
+  // CL-7790: resolve symlinks before the secret denylist — a benign-named
+  // symlink into a secret file (notes.txt -> .env) asks exactly like the
+  // secret name itself. Pure name-listings skip the resolve leg: `ls
+  // notes.txt` lists freely (CL-5420), and an impure listing fails above.
+  if (args.some((token) => isSensitiveShellToken(token, cwd, !pureListing)))
+    return false;
   // Pure directory listing may target outside-workspace paths (names only).
   // Content readers must stay inside the workspace.
   if (
@@ -457,7 +463,7 @@ export function isAutoAllowedShellCommand(
     (isShellCommentOnly(trimmed) || isShellNoOp(trimmed))
   )
     return true;
-  if (commandReferencesSensitivePath(trimmed)) return false;
+  if (commandReferencesSensitivePath(trimmed, cwd)) return false;
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).

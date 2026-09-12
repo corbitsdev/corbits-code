@@ -131,7 +131,7 @@ function segmentGuard(
   cwd?: string,
   rootsProvider?: RootsProvider,
 ): SegmentGuard | undefined {
-  if (commandReferencesSensitivePath(segment) !== undefined)
+  if (commandReferencesSensitivePath(segment, cwd) !== undefined)
     return { kind: "secret" };
   if (
     cwd !== undefined &&
@@ -654,7 +654,7 @@ export function createPermissionGate(
     // segment mentions a secret path.
     const shellReferencesSecret =
       shellCmd !== undefined &&
-      commandReferencesSensitivePath(shellCmd) !== undefined;
+      commandReferencesSensitivePath(shellCmd, effectiveCwd) !== undefined;
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { kind: "allow" };
     }
@@ -949,7 +949,8 @@ export function createPermissionGate(
   ) => {
     const anySecret =
       request.tool === "run_shell" &&
-      commandReferencesSensitivePath(request.subject) !== undefined;
+      commandReferencesSensitivePath(request.subject, request.cwd) !==
+        undefined;
     return resolveInteractiveAsk(
       {
         kind: "ask",

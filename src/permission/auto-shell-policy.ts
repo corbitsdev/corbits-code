@@ -523,7 +523,7 @@ export function autoShellRuleForCall(
   }
 
   for (const subject of subjects) {
-    if (commandReferencesSensitivePath(subject) !== undefined)
+    if (commandReferencesSensitivePath(subject, cwd) !== undefined)
       return SENSITIVE_PATH_ASK_RULE;
   }
 
