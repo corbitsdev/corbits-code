@@ -34,7 +34,7 @@ The evidence is in how the product fails today: the personas already produce exc
 
 ## Key Value Propositions
 
-1. **Deterministic progress** — Every turn must produce a tool call. No idle thinking; the director aborts a stalled run rather than spinning.
+1. **Deterministic progress** — Primary chat is multi-turn and text-only turns are legal; sub-agent workers complete on a tool-less turn plus the report envelope. Loop protection is a wrap-up nudge after a long tool-only streak, not a hard abort for missing tool calls.
 2. **Task tracking** — The agent can maintain a `manage_tasks` checklist for multi-step work; non-interactive `submit_output` is blocked while checklist items remain open. (A "task" here is a work item, not a child agent — spawning uses the separate `spawn_agent` fleet-agent surface.)
 3. **Stall detection** — The director detects idle cycles and intervenes.
 4. **Safe by default** — Consequential actions (writes, edits, shell) pass a permission gate; secret files and catastrophic commands are denied outright, regardless of intent.
