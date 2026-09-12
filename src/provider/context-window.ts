@@ -1,6 +1,7 @@
 // Approximate total context window (tokens) per model, used to render
 // context-window occupancy in the status bar and to size compaction. When
-// models.dev metadata is loaded at startup it takes priority; otherwise we fall
+// a provider settings override is applied at config load it takes priority;
+// otherwise models.dev metadata loaded at startup wins; otherwise we fall
 // back to conservative per-family floors, and finally a common 128k window.
 
 import type { TokenUsage } from "@intx/types/runtime";
@@ -23,10 +24,57 @@ export function contextTokensFromUsage(usage: TokenUsage | undefined): number {
 // Exact model-id match wins over the family heuristics below.
 let contextWindowRegistry: Record<string, number> = {};
 
+// Populated at config load from providers.<name>.contextWindow. Survives a
+// later models.dev refresh because it lives beside the registry, not in it.
+let contextWindowOverrides: Record<string, number> = {};
+
 export function setModelContextWindows(
   windows: Record<string, number> | undefined,
 ): void {
   contextWindowRegistry = windows ?? {};
+}
+
+export function setProviderContextWindowOverrides(
+  windows: Record<string, number> | undefined,
+): void {
+  contextWindowOverrides = windows ?? {};
+}
+
+export type ProviderContextWindowSource = {
+  models: readonly string[];
+  contextWindow?: number;
+};
+
+function isPositiveWindow(window: number | undefined): window is number {
+  return window !== undefined && Number.isFinite(window) && window > 0;
+}
+
+// Key `<provider>:<model>` for every model on a provider that sets the knob.
+// Bare model ids are added only for the resolved provider so occupancy
+// lookups that only have `source.model` still hit, without letting another
+// provider's same model id steal the bare slot.
+export function buildProviderContextWindowOverrides(
+  providers: Record<string, ProviderContextWindowSource>,
+  resolvedProviderName: string,
+  resolvedModel: string,
+): Record<string, number> {
+  const overrides: Record<string, number> = {};
+  for (const [name, provider] of Object.entries(providers)) {
+    const window = provider.contextWindow;
+    if (!isPositiveWindow(window)) continue;
+    const models = new Set(provider.models);
+    if (name === resolvedProviderName && resolvedModel.length > 0) {
+      models.add(resolvedModel);
+    }
+    for (const model of models) {
+      if (model.length === 0) continue;
+      overrides[`${name}:${model}`] = window;
+      if (name === resolvedProviderName) {
+        overrides[model] = window;
+      }
+    }
+  }
+  return overrides;
 }
 
 function heuristicWindow(model: string): number {
@@ -60,20 +108,33 @@ function lookupCandidates(model: string): string[] {
   return [model, bareModel, `${canonicalProvider}/${bareModel}`];
 }
 
-/** True when the registry has an entry for `model` under any known form, so a
- * caller can distinguish a confident lookup from the heuristic fallback. */
+function lookupWindow(
+  table: Record<string, number>,
+  model: string,
+): number | undefined {
+  for (const candidate of lookupCandidates(model)) {
+    const exact = table[candidate];
+    if (exact !== undefined) return exact;
+  }
+  return undefined;
+}
+
+/** True when an override or the registry has an entry for `model` under any
+ * known form, so a caller can distinguish a confident lookup from the
+ * heuristic fallback. */
 export function hasContextWindowFor(model: string): boolean {
-  return lookupCandidates(model).some(
-    (candidate) => contextWindowRegistry[candidate] !== undefined,
+  return (
+    lookupWindow(contextWindowOverrides, model) !== undefined ||
+    lookupWindow(contextWindowRegistry, model) !== undefined
   );
 }
 
 export function contextWindowFor(model: string): number {
-  for (const candidate of lookupCandidates(model)) {
-    const exact = contextWindowRegistry[candidate];
-    if (exact !== undefined) return exact;
-  }
-  return heuristicWindow(model);
+  return (
+    lookupWindow(contextWindowOverrides, model) ??
+    lookupWindow(contextWindowRegistry, model) ??
+    heuristicWindow(model)
+  );
 }
 
 // Fraction of the window at which proactive compaction should fire. Kept well
