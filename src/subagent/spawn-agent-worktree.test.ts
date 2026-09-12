@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { createFleetMailbox, createSpawnAgentTool } from "./agent-fleet.js";
+import { isLiveWaitStatus, projectWaitStatus } from "./lifecycle.js";
 import { unlimitedAdmissionQueue } from "./admission.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
@@ -453,5 +454,81 @@ describe("spawn_agent worktree isolation", () => {
     await waitFor(async () => !(await pathExists(completedWorkerCwd)));
 
     expect(await pathExists(completedWorkerCwd)).toBe(false);
+  });
+
+  test("interrupt during worktree setup settles the run instead of stranding it", async () => {
+    const repo = await makeRepo();
+    tempDirs.push(repo);
+    const workdirBase = await mkdtemp(join(tmpdir(), "corbits-workdir-"));
+    tempDirs.push(workdirBase);
+
+    let started = 0;
+    const { telemetry, events } = telemetryCapture();
+    const sessions = createSubAgentSessionStore();
+    const mailbox = createFleetMailbox(sessions);
+    const tool = createSpawnAgentTool({
+      permissionGate: testPermissionGate,
+      cwd: repo,
+      getWorkdirBase: () => workdirBase,
+      provider,
+      useWorktree: true,
+      telemetry,
+      run: async () => {
+        started += 1;
+        return { report: "ok" };
+      },
+      sessions,
+      fleetRecords: mailbox,
+      admission: unlimitedAdmissionQueue(),
+    });
+    if (tool.kind !== "full") throw new Error("expected full tool");
+    const spawned = await tool.handler(
+      {
+        id: "wt-interrupt",
+        name: "spawn_agent",
+        arguments: {
+          description: "interrupted setup",
+          prompt: "Do the work",
+          intent: "explore",
+        },
+      },
+      new AbortController().signal,
+    );
+    const content = typeof spawned.content === "string" ? spawned.content : "";
+    const agentId = (JSON.parse(content) as { agent_id: string }).agent_id;
+
+    // CL-7787: the fleet admitted the spawn and marked a run in flight, then
+    // suspended on worktree creation — the interrupt lands in exactly that
+    // window, before any run handle exists.
+    expect(sessions.isRunInFlight(agentId)).toBe(true);
+    expect(sessions.interruptOne(agentId).ok).toBe(true);
+
+    // Once the worktree resolves, the stranded run must settle through the
+    // normal terminal path: wait status leaves "running", the fleet goes dry
+    // so mail drives fire, and run() never starts leftover work.
+    await waitFor(
+      () =>
+        mailbox.peek(agentId) !== undefined &&
+        !isLiveWaitStatus(defined(mailbox.peek(agentId)).status),
+    );
+    expect(started).toBe(0);
+    expect(sessions.isRunInFlight(agentId)).toBe(false);
+    const snap = defined(sessions.get(agentId));
+    expect(snap.lifecycleStatus).toBe("interrupted");
+    expect(
+      projectWaitStatus(snap.lifecycle, sessions.isRunInFlight(agentId)),
+    ).toBe("interrupted");
+    expect(mailbox.peek(agentId)?.status).toBe("interrupted");
+    // The fleet is dry: no session projects a live wait status, so mail
+    // drives fire.
+    expect(
+      sessions
+        .list()
+        .every((s) => !isLiveWaitStatus(projectWaitStatus(s.lifecycle, s.runInFlight === true))),
+    ).toBe(true);
+    await waitFor(() => events.some((event) => event.event === "subagent_end"));
+    const ends = events.filter((event) => event.event === "subagent_end");
+    expect(ends).toHaveLength(1);
+    expect(ends[0]?.properties).toMatchObject({ status: "interrupted" });
   });
 });

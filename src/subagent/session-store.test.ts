@@ -4,6 +4,7 @@ import {
   createSubAgentSessionStore,
   DEFAULT_MAX_ENTRY_CHARS,
 } from "./session-store.js";
+import { projectWaitStatus } from "./lifecycle.js";
 import { createAdmissionQueue } from "./admission.js";
 import { forcedStopReport } from "./stop-policy.js";
 import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
@@ -1321,6 +1322,15 @@ describe("CL-7269 one stored worker lifecycle", () => {
     expect(store.interruptOne(session.id).ok).toBe(true);
     expect(aborted).toBe(1);
     expect(store.get(session.id)?.lifecycleStatus).toBe("interrupted");
+    // CL-7787: the pending_init interrupt must not strand a run-in-flight
+    // marker — projectWaitStatus would otherwise report "running" forever and
+    // the fleet would never go dry.
+    expect(store.isRunInFlight(session.id)).toBe(false);
+    expect(store.get(session.id)?.runInFlight).toBe(false);
+    const snap = defined(store.get(session.id));
+    expect(
+      projectWaitStatus(snap.lifecycle, store.isRunInFlight(session.id)),
+    ).toBe("interrupted");
   });
 
   test("closeOne of a queued pending_init session does not wait for a close handle", async () => {

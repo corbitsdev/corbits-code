@@ -1258,6 +1258,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         deps.sessions.markRunInFlight(session.id);
         void (async () => {
           if (!stillAdmissible()) {
+            // CL-7787: the run was marked in flight above but will never
+            // start — settle through the normal terminal path instead of just
+            // releasing the admission slot, or the wait projection strands on
+            // "running" with nothing left to settle it.
+            deps.sessions.settleRun(session.id);
+            finalizeEnd();
             admission.release(session.id);
             return;
           }
@@ -1292,6 +1298,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           }
 
           if (!stillAdmissible()) {
+            // CL-7787: same stranded-run settle as above — the interrupt (or
+            // cancel) landed while worktree setup was in flight.
+            deps.sessions.settleRun(session.id);
+            finalizeEnd();
             await reclaimWorktree();
             admission.release(session.id);
             return;
