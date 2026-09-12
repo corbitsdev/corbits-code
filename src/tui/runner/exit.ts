@@ -774,8 +774,10 @@ export async function finalizeTUIRun(
 
   try {
     await state.streamPromise;
-  } catch {
-    // ignore
+  } catch (err: unknown) {
+    tuiLogger.debug("stream promise rejected during exit: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   return resolveExitCode({

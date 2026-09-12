@@ -348,7 +348,11 @@ export function wirePostStartup(
   // Recall spans the whole session, including what was sent before a resume.
   void loadSentMessages(state.config.cwd, state.sessionId)
     .then((sent) => setSentMessageHistory(hostOf(state).shell, sent))
-    .catch(() => undefined);
+    .catch((err: unknown) => {
+      tuiLogger.debug("sent-message history load failed: {error}", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
   if (!state.resumeSkipInitialTask && state.config.task.trim().length > 0) {
     // The operator's initial task, typed as a CLI argument before launch —

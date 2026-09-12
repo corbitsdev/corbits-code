@@ -69,6 +69,7 @@ export async function loadLocalSettingsWriteBase(
   try {
     return (await load(path)) ?? {};
   } catch {
+    // Unreadable or invalid local settings — caller must skip the write.
     return null;
   }
 }
@@ -196,8 +197,10 @@ export async function wireSettings(
   if (state.telemetryFirstRun) {
     void services.globalSettingsWriter
       .enqueue(() => markTelemetryNoticeShown(trueGlobalSettingsPath))
-      .catch(() => {
-        // Best-effort: worst case the notice shows again next launch.
+      .catch((err: unknown) => {
+        tuiLogger.debug("telemetry notice watermark persist failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
   }
 
@@ -218,8 +221,10 @@ export async function wireSettings(
       .enqueue(() =>
         markLastChangelogVersion(trueGlobalSettingsPath, stampVersion),
       )
-      .catch(() => {
-        // Best-effort watermark.
+      .catch((err: unknown) => {
+        tuiLogger.debug("changelog watermark persist failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
   }
 

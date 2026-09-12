@@ -1,6 +1,15 @@
 import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
-import { dedupePluginModules, type PluginModule } from "./loader.js";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createPluginLoadDiagnostics } from "./diagnostics.js";
+import {
+  dedupePluginModules,
+  loadPluginEntry,
+  loadPluginsFromPaths,
+  type PluginModule,
+} from "./loader.js";
 import { isPluginModuleEnabled } from "./register.js";
 import { disablePluginSettings } from "./uninstall.js";
 
@@ -99,5 +108,95 @@ describe("isPluginModuleEnabled with dedupe shadowing", () => {
   test("without dedupe shadowing, a plain user-origin module needs an explicit enable", () => {
     const user = userInstall("scout");
     expect(isPluginModuleEnabled(user, {})).toBe(false);
+  });
+});
+
+async function makeJsPlugin(files: Record<string, string>): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "manifest-plugin-"));
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = join(dir, rel);
+    await mkdir(join(abs, ".."), { recursive: true });
+    await writeFile(abs, body);
+  }
+  return dir;
+}
+
+describe("readManifestJson malformed vs missing", () => {
+  test("malformed manifest.json warns with path and parse error", async () => {
+    const dir = await makeJsPlugin({
+      "index.js": "export {};\n",
+      "manifest.json": "{not-json",
+    });
+    const warnings: string[] = [];
+    await loadPluginEntry(dir, { onWarning: (msg) => warnings.push(msg) });
+    const manifestPath = join(dir, "manifest.json");
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings.some((w) => w.includes(manifestPath))).toBe(true);
+    expect(
+      warnings.some(
+        (w) =>
+          w.includes(manifestPath) &&
+          (w.toLowerCase().includes("parse") ||
+            w.toLowerCase().includes("json")),
+      ),
+    ).toBe(true);
+  });
+
+  test("invalid manifest.json schema warns with path and validation error", async () => {
+    const dir = await makeJsPlugin({
+      "index.js": "export {};\n",
+      "manifest.json": JSON.stringify({ id: "x", name: "X" }),
+    });
+    const warnings: string[] = [];
+    await loadPluginEntry(dir, { onWarning: (msg) => warnings.push(msg) });
+    const manifestPath = join(dir, "manifest.json");
+    expect(warnings.some((w) => w.includes(manifestPath))).toBe(true);
+    expect(
+      warnings.some((w) => w.includes(manifestPath) && w.includes("kind")),
+    ).toBe(true);
+  });
+
+  test("missing manifest.json stays silent", async () => {
+    const dir = await makeJsPlugin({
+      "index.js": "export {};\n",
+    });
+    const warnings: string[] = [];
+    await loadPluginEntry(dir, { onWarning: (msg) => warnings.push(msg) });
+    expect(warnings).toEqual([]);
+  });
+
+  test("malformed .claude-plugin/manifest.json warns on metadata-only load", async () => {
+    const dir = await makeJsPlugin({
+      ".claude-plugin/manifest.json": "{not-json",
+    });
+    const diag = createPluginLoadDiagnostics();
+    const cwd = await mkdtemp(join(tmpdir(), "manifest-cwd-"));
+    const mods = await loadPluginsFromPaths([dir], cwd, {
+      isPluginTrusted: () => false,
+      diagnostics: diag,
+    });
+    expect(mods).toEqual([]);
+    const manifestPath = join(dir, ".claude-plugin", "manifest.json");
+    expect(diag.warnings.some((w) => w.includes(manifestPath))).toBe(true);
+    expect(
+      diag.warnings.some(
+        (w) =>
+          w.includes(manifestPath) &&
+          (w.toLowerCase().includes("parse") ||
+            w.toLowerCase().includes("json")),
+      ),
+    ).toBe(true);
+  });
+
+  test("missing manifest on metadata-only load stays silent", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "manifest-empty-"));
+    const diag = createPluginLoadDiagnostics();
+    const cwd = await mkdtemp(join(tmpdir(), "manifest-cwd-"));
+    const mods = await loadPluginsFromPaths([dir], cwd, {
+      isPluginTrusted: () => false,
+      diagnostics: diag,
+    });
+    expect(mods).toEqual([]);
+    expect(diag.warnings).toEqual([]);
   });
 });
