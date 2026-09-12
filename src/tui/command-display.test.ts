@@ -23,6 +23,11 @@ test("display segments exactly match authorization segments", () => {
     "cmd1 && \\\ncmd2",
     "(cd packages/shared && bunx tsc --noEmit 2>&1 | tail -3)",
     "echo start && (cd apps/web && bun test) && echo done",
+    "echo $((a << 1)) && echo done",
+    "((x = a << 1)) && echo done",
+    "# example: cat <<EOF\necho hi",
+    "# (( \ncat <<EOF\nbody\nEOF\n&& echo done",
+    "cat <<EOF\n# payload\nEOF\necho done",
   ];
 
   for (const command of commands) {
@@ -73,6 +78,40 @@ test("a here-string never opens a pending heredoc", () => {
   expect(verbatimCommandLines('cat <<< "word"\n# a real comment')).toEqual([
     { text: 'cat <<< "word"', isComment: false },
     { text: "# a real comment", isComment: true },
+  ]);
+});
+
+test("a << inside arithmetic never opens a pending heredoc", () => {
+  expect(groupChainSegmentsForDisplay("echo $((a << 1)) && echo done")).toEqual(
+    ["echo $((a << 1))", "echo done"],
+  );
+  // With no pending heredoc, a later line is ordinary text, never body.
+  expect(verbatimCommandLines("echo $((a<<1))\nEOF\necho done")).toEqual([
+    { text: "echo $((a<<1))", isComment: false },
+    { text: "EOF", isComment: false },
+    { text: "echo done", isComment: false },
+  ]);
+});
+
+test("a << inside a comment documents rather than opens", () => {
+  expect(verbatimCommandLines("# example: cat <<EOF\necho hi")).toEqual([
+    { text: "# example: cat <<EOF", isComment: true },
+    { text: "echo hi", isComment: false },
+  ]);
+  expect(groupChainSegmentsForDisplay("# c <<EOF")).toEqual(["# c <<EOF"]);
+});
+
+test("comment parens never suppress a later heredoc on the display", () => {
+  // Mirrors the splitter pin: `# ((` is comment text, so the heredoc opens
+  // here exactly as it does for authorization and `&& echo done` separates.
+  expect(
+    verbatimCommandLines("# (( \ncat <<EOF\nbody\nEOF\n&& echo done"),
+  ).toEqual([
+    { text: "# (( ", isComment: true },
+    { text: "cat <<EOF", isComment: false },
+    { text: "body", isComment: false },
+    { text: "EOF", isComment: false },
+    { text: "&& echo done", isComment: false },
   ]);
 });
 

@@ -1,4 +1,7 @@
 import {
+  isArithmeticCloser,
+  isArithmeticOpener,
+  isCommentStart,
   isHeredocTerminator,
   splitChainedCommand,
 } from "../shell/command-segments.js";
@@ -66,6 +69,9 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
   let heredocStripTabs = false;
   let heredocPending: { marker: string; stripTabs: boolean } | null = null;
   let continued = false;
+  // Arithmetic depth (`((` / `$((`): `<<` inside is the shift operator and
+  // `#`-to-EOL comments never open a heredoc — mirrors the splitter.
+  let arithDepth = 0;
 
   const push = (): void => {
     const isComment =
@@ -135,7 +141,25 @@ export function verbatimCommandLines(text: string): VerbatimLine[] {
       continue;
     }
 
-    if (ch === "<" && normalized[i + 1] === "<" && heredocPending === null) {
+    if (isArithmeticOpener(normalized, i)) arithDepth++;
+    else if (isArithmeticCloser(normalized, i) && arithDepth > 0) arithDepth--;
+
+    // A top-level `#` comment runs to end of line: `<<` inside it documents
+    // rather than opens. The line still renders whole (see push's isComment).
+    if (arithDepth === 0 && isCommentStart(normalized, i)) {
+      let j = i;
+      while (j < normalized.length && normalized[j] !== "\n") j++;
+      current += normalized.slice(i, j);
+      i = j - 1;
+      continue;
+    }
+
+    if (
+      arithDepth === 0 &&
+      ch === "<" &&
+      normalized[i + 1] === "<" &&
+      heredocPending === null
+    ) {
       const opener = parseHeredocMarker(normalized, i);
       if (opener !== null) heredocPending = opener;
     }
@@ -232,6 +256,9 @@ function segmentWords(segment: string): string[] {
   let heredocMarker: string | null = null;
   let heredocStripTabs = false;
   let heredocPending: { marker: string; stripTabs: boolean } | null = null;
+  // Arithmetic depth (`((` / `$((`): `<<` inside shifts, never opens —
+  // mirrors the splitter (keyed on arithmetic, NOT on bare parens).
+  let arithDepth = 0;
 
   const push = (): void => {
     if (current.length > 0) words.push(current);
@@ -275,7 +302,10 @@ function segmentWords(segment: string): string[] {
       continue;
     }
 
-    if (ch === "<" && segment[i + 1] === "<") {
+    if (isArithmeticOpener(segment, i)) arithDepth++;
+    else if (isArithmeticCloser(segment, i) && arithDepth > 0) arithDepth--;
+
+    if (arithDepth === 0 && ch === "<" && segment[i + 1] === "<") {
       const opener = parseHeredocMarker(segment, i);
       if (opener !== null) {
         push();

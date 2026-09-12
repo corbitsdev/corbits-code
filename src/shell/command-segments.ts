@@ -7,7 +7,9 @@
 // Parentheses group: operators inside a subshell or command substitution never
 // split, and a segment that is exactly one `( ... )` group is unwrapped and its
 // inner chain split recursively — so `(cd a && b)` yields `cd a` and `b`, not
-// the fragment `(cd a`.
+// the fragment `(cd a`. `<<` inside `(( ... ))` / `$(( ... ))` arithmetic is the
+// left-shift operator and a top-level `#` starts a comment — neither opens a
+// heredoc (see isArithmeticOpener / isCommentStart).
 export function splitChainedCommand(command: string): string[] {
   const segments: string[] = [];
   let current = "";
@@ -15,6 +17,11 @@ export function splitChainedCommand(command: string): string[] {
   let heredocMarker: string | null = null;
   let heredocStripTabs = false;
   let parenDepth = 0;
+  let arithDepth = 0;
+  let commentToEOL = false;
+  // Inside a top-level `#`-to-EOL comment: suppresses only the `<<` heredoc
+  // opener below. Chain operators after `#` still split, so
+  // `# note && rm -rf /` surfaces `rm -rf /` as its own segment.
 
   const push = (): void => {
     const trimmed = current.trim();
@@ -72,7 +79,20 @@ export function splitChainedCommand(command: string): string[] {
     }
 
     // Detect heredoc redirect: << or <<-
-    if (ch === "<" && command[i + 1] === "<") {
+    // A top-level `#` starts a comment through end of line: a `<<` down there
+    // (e.g. `# example: cat <<EOF`) documents rather than opens. Only the
+    // opener is suppressed — the comment text flows through the normal scan
+    // below, so chain operators after `#` still split.
+    if (ch === "\n") commentToEOL = false;
+    if (!commentToEOL && arithDepth === 0 && isCommentStart(command, i)) {
+      commentToEOL = true;
+    }
+    if (
+      !commentToEOL &&
+      arithDepth === 0 &&
+      ch === "<" &&
+      command[i + 1] === "<"
+    ) {
       const opener = parseHeredocOpener(command, i);
       if (opener !== null) {
         current += command.slice(i, opener.lineEnd);
@@ -83,12 +103,17 @@ export function splitChainedCommand(command: string): string[] {
       }
     }
 
-    if (ch === "(") {
+    if (ch === "(" && !commentToEOL) {
+      // `((` / `$((` opens arithmetic, where `<<` shifts instead of opening a
+      // heredoc (see the `<<` guard above). Bare `(` subshells still detect
+      // heredocs — e.g. `(cat <<EOF ...)` is genuine.
+      if (isArithmeticOpener(command, i)) arithDepth++;
       parenDepth++;
       current += ch;
       continue;
     }
-    if (ch === ")") {
+    if (ch === ")" && !commentToEOL) {
+      if (isArithmeticCloser(command, i) && arithDepth > 0) arithDepth--;
       if (parenDepth > 0) parenDepth--;
       current += ch;
       continue;
@@ -143,6 +168,38 @@ export function splitChainedCommand(command: string): string[] {
   }
   push();
   return segments;
+}
+
+// Whether text[i] opens an arithmetic context (`((` or `$((`): inside it `<<`
+// is the left-shift operator, never a heredoc opener. Keyed on the doubled
+// paren — a bare `( ... )` subshell can still contain a genuine heredoc.
+// Deliberately not a full arithmetic evaluator: callers only track depth.
+export function isArithmeticOpener(text: string, i: number): boolean {
+  return text[i] === "(" && text[i + 1] === "(";
+}
+
+// Whether text[i] closes one arithmetic-context level (`))`).
+export function isArithmeticCloser(text: string, i: number): boolean {
+  return text[i] === ")" && text[i + 1] === ")";
+}
+
+// Whether text[i] starts a `#`-to-EOL comment: at the very start of the input
+// or right after whitespace, a newline, or a command separator (`;`, `&`,
+// `|`, `(`). A `#` glued to a word (`foo#bar`, `$#`, `${a#b}`) is data.
+export function isCommentStart(text: string, i: number): boolean {
+  if (text[i] !== "#") return false;
+  if (i === 0) return true;
+  const prev = text[i - 1] as string;
+  return (
+    prev === " " ||
+    prev === "\t" ||
+    prev === "\r" ||
+    prev === "\n" ||
+    prev === ";" ||
+    prev === "&" ||
+    prev === "|" ||
+    prev === "("
+  );
 }
 
 // Parses a heredoc opener (`<<` or `<<-`) starting at `command[i]` (which must
