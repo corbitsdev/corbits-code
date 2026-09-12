@@ -7,13 +7,21 @@
 // Parentheses group: operators inside a subshell or command substitution never
 // split, and a segment that is exactly one `( ... )` group is unwrapped and its
 // inner chain split recursively — so `(cd a && b)` yields `cd a` and `b`, not
-// the fragment `(cd a`.
+// the fragment `(cd a`. `<<` inside `(( ... ))` / `$(( ... ))` arithmetic is the
+// left-shift operator and a top-level `#` starts a comment — neither opens a
+// heredoc (see isArithmeticOpener / isCommentStart).
 export function splitChainedCommand(command: string): string[] {
   const segments: string[] = [];
   let current = "";
   let quote: '"' | "'" | "`" | null = null;
   let heredocMarker: string | null = null;
+  let heredocStripTabs = false;
   let parenDepth = 0;
+  let arithDepth = 0;
+  let commentToEOL = false;
+  // Inside a top-level `#`-to-EOL comment: suppresses only the `<<` heredoc
+  // opener below. Chain operators after `#` still split, so
+  // `# note && rm -rf /` surfaces `rm -rf /` as its own segment.
 
   const push = (): void => {
     const trimmed = current.trim();
@@ -31,14 +39,16 @@ export function splitChainedCommand(command: string): string[] {
     const ch = command[i] as string;
 
     // Inside a heredoc body: scan for the terminating marker on its own line.
+    // A second `<<` down here is payload, never a nested opener.
     if (heredocMarker !== null) {
       current += ch;
       if (ch === "\n") {
         // Check whether the line just completed is the marker.
         const lines = current.split("\n");
         const lastLine = lines[lines.length - 2] ?? "";
-        if (lastLine.trim() === heredocMarker) {
+        if (isHeredocTerminator(lastLine, heredocMarker, heredocStripTabs)) {
           heredocMarker = null;
+          heredocStripTabs = false;
         }
       }
       continue;
@@ -69,22 +79,41 @@ export function splitChainedCommand(command: string): string[] {
     }
 
     // Detect heredoc redirect: << or <<-
-    if (ch === "<" && command[i + 1] === "<") {
+    // A top-level `#` starts a comment through end of line: a `<<` down there
+    // (e.g. `# example: cat <<EOF`) documents rather than opens. Only the
+    // opener is suppressed — the comment text flows through the normal scan
+    // below, so chain operators after `#` still split.
+    if (ch === "\n") commentToEOL = false;
+    if (!commentToEOL && arithDepth === 0 && isCommentStart(command, i)) {
+      commentToEOL = true;
+    }
+    if (
+      !commentToEOL &&
+      arithDepth === 0 &&
+      ch === "<" &&
+      command[i + 1] === "<"
+    ) {
       const opener = parseHeredocOpener(command, i);
       if (opener !== null) {
         current += command.slice(i, opener.lineEnd);
         i = opener.lineEnd - 1;
         heredocMarker = opener.marker;
+        heredocStripTabs = opener.stripTabs;
         continue;
       }
     }
 
-    if (ch === "(") {
+    if (ch === "(" && !commentToEOL) {
+      // `((` / `$((` opens arithmetic, where `<<` shifts instead of opening a
+      // heredoc (see the `<<` guard above). Bare `(` subshells still detect
+      // heredocs — e.g. `(cat <<EOF ...)` is genuine.
+      if (isArithmeticOpener(command, i)) arithDepth++;
       parenDepth++;
       current += ch;
       continue;
     }
-    if (ch === ")") {
+    if (ch === ")" && !commentToEOL) {
+      if (isArithmeticCloser(command, i) && arithDepth > 0) arithDepth--;
       if (parenDepth > 0) parenDepth--;
       current += ch;
       continue;
@@ -141,19 +170,62 @@ export function splitChainedCommand(command: string): string[] {
   return segments;
 }
 
+// Whether text[i] opens an arithmetic context (`((` or `$((`): inside it `<<`
+// is the left-shift operator, never a heredoc opener. Keyed on the doubled
+// paren — a bare `( ... )` subshell can still contain a genuine heredoc.
+// Deliberately not a full arithmetic evaluator: callers only track depth.
+export function isArithmeticOpener(text: string, i: number): boolean {
+  return text[i] === "(" && text[i + 1] === "(";
+}
+
+// Whether text[i] closes one arithmetic-context level (`))`).
+export function isArithmeticCloser(text: string, i: number): boolean {
+  return text[i] === ")" && text[i + 1] === ")";
+}
+
+// Whether text[i] starts a `#`-to-EOL comment: at the very start of the input
+// or right after whitespace, a newline, or a command separator (`;`, `&`,
+// `|`, `(`). A `#` glued to a word (`foo#bar`, `$#`, `${a#b}`) is data.
+export function isCommentStart(text: string, i: number): boolean {
+  if (text[i] !== "#") return false;
+  if (i === 0) return true;
+  const prev = text[i - 1] as string;
+  return (
+    prev === " " ||
+    prev === "\t" ||
+    prev === "\r" ||
+    prev === "\n" ||
+    prev === ";" ||
+    prev === "&" ||
+    prev === "|" ||
+    prev === "("
+  );
+}
+
 // Parses a heredoc opener (`<<` or `<<-`) starting at `command[i]` (which must
-// be the first "<"). Returns the terminating marker text and the exclusive end
-// index of the line that opened the heredoc, so the caller can copy the
-// opening line verbatim and resume scanning the heredoc body from there.
+// be the first "<"). Returns the terminating marker text, the exclusive end
+// index of the line that opened the heredoc, and whether the opener was `<<-`
+// (which strips leading tabs from the closing line) — so the caller can copy
+// the opening line verbatim and resume scanning the heredoc body from there.
 // Shared by splitChainedCommand and stripCommentLines so both stay in sync on
 // what counts as heredoc syntax.
 export function parseHeredocOpener(
   command: string,
   i: number,
-): { marker: string; lineEnd: number } | null {
+): { marker: string; lineEnd: number; stripTabs: boolean } | null {
   if (command[i] !== "<" || command[i + 1] !== "<") return null;
+  // `<<<` is a here-string, not a heredoc: its word is an inline argument,
+  // so there is no marker line to wait for.
+  if (command[i + 2] === "<") return null;
+  // A `<<` opener cannot start in the middle of a `<` run: when the scan
+  // reaches the second `<` of a `<<<` here-string, the character ahead is no
+  // longer `<`, so only this backward guard stops it from parsing the
+  // here-string word as a heredoc marker and swallowing the rest of the
+  // command as body.
+  if (command[i - 1] === "<") return null;
   let j = i + 2;
-  if (command[j] === "-") j++; // <<- strips leading tabs
+  const stripTabs = command[j] === "-";
+  if (stripTabs) j++; // <<- strips leading tabs
   // Skip whitespace between << and the marker word.
   while (j < command.length && (command[j] === " " || command[j] === "\t")) j++;
   // The marker may be quoted ('EOF', "EOF", or bare EOF).
@@ -175,9 +247,27 @@ export function parseHeredocOpener(
     marker += command[j++];
   }
   if (markerQuote !== null && command[j] === markerQuote) j++;
+  // A CRLF opener line leaves a trailing \r on a bare marker word; the
+  // terminator line carries the same \r, so drop it here and compare
+  // CR-stripped lines at close time.
+  if (marker.endsWith("\r")) marker = marker.slice(0, -1);
   // Advance j to the end of the line that opened the heredoc.
   while (j < command.length && command[j] !== "\n") j++;
-  return { marker, lineEnd: j };
+  return { marker, lineEnd: j, stripTabs };
+}
+
+// Whether a completed body line closes a heredoc: an exact match against the
+// marker, ignoring one trailing CR from CRLF input and leading tabs only when
+// the opener was `<<-`. A space-indented close never terminates a plain `<<`
+// heredoc — it stays body, exactly like a real shell.
+export function isHeredocTerminator(
+  line: string,
+  marker: string,
+  stripTabs: boolean,
+): boolean {
+  const noCR = line.endsWith("\r") ? line.slice(0, -1) : line;
+  const candidate = stripTabs ? noCR.replace(/^\t+/, "") : noCR;
+  return candidate === marker;
 }
 
 // Whether `text` ends (ignoring trailing whitespace) in a redirect operator

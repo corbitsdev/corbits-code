@@ -151,3 +151,111 @@ describe("splitChainedCommand redirect and background fragments", () => {
     expect(splitChainedCommand(prose)).toEqual([prose]);
   });
 });
+
+describe("splitChainedCommand heredoc boundaries", () => {
+  // A marker glued to `<<` is still an opener, and separators trailing the
+  // opener line do not split while the heredoc body is pending.
+  test("keeps separators on the opener line inside a glued-marker heredoc", () => {
+    const command = "cat <<B && echo done\nbody\nB";
+    expect(splitChainedCommand(command)).toEqual([command]);
+    const semicolon = "cat <<EOF; echo done\nbody\nEOF";
+    expect(splitChainedCommand(semicolon)).toEqual([semicolon]);
+  });
+
+  test("opens and closes a heredoc across CRLF line endings", () => {
+    const command = "cat <<EOF\r\nbody\r\nEOF";
+    expect(splitChainedCommand(command)).toEqual([command]);
+    expect(
+      splitChainedCommand("cat <<EOF\r\nbody\r\nEOF\r\n&& echo done"),
+    ).toEqual(["cat <<EOF\r\nbody\r\nEOF", "echo done"]);
+  });
+
+  // Only `<<-` strips leading tabs from the closing line; a space-indented
+  // close never terminates a plain `<<` heredoc.
+  test("closes <<- on a tab-indented marker but not << on spaces", () => {
+    expect(
+      splitChainedCommand("cat <<-EOF\nbody\n\tEOF\n&& echo evil"),
+    ).toEqual(["cat <<-EOF\nbody\n\tEOF", "echo evil"]);
+    const spaces = "cat <<EOF\nbody\n  EOF\n&& echo evil";
+    expect(splitChainedCommand(spaces)).toEqual([spaces]);
+  });
+
+  test("an unterminated heredoc swallows a later chain separator", () => {
+    const command = "cat <<EOF\nbody\n&& echo evil";
+    expect(splitChainedCommand(command)).toEqual([command]);
+  });
+
+  // Single-slot heredoc state: a second `<<` inside the body is payload, so
+  // the outer marker still closes and the following chain still splits.
+  test("treats a second << inside the body as payload, not a nested opener", () => {
+    expect(
+      splitChainedCommand("cat <<OUTER\nfoo <<INNER\nOUTER\n&& echo done"),
+    ).toEqual(["cat <<OUTER\nfoo <<INNER\nOUTER", "echo done"]);
+  });
+});
+
+describe("splitChainedCommand lexical context (arithmetic and comments)", () => {
+  // Inside `((` / `$((` the `<<` token is the left-shift operator, never a
+  // heredoc opener — the chain after it must still split.
+  test("never opens a heredoc inside arithmetic expansion", () => {
+    expect(splitChainedCommand("echo $((a<<1))")).toEqual(["echo $((a<<1))"]);
+    expect(splitChainedCommand("echo $((a << 1)) && echo done")).toEqual([
+      "echo $((a << 1))",
+      "echo done",
+    ]);
+  });
+
+  test("never opens a heredoc inside a (( )) arithmetic command", () => {
+    expect(splitChainedCommand("((x = a << 1)) && echo done")).toEqual([
+      "x = a << 1",
+      "echo done",
+    ]);
+  });
+
+  // A bare `( ... )` subshell is not arithmetic: a heredoc inside it is real.
+  test("still opens a heredoc inside a bare-paren subshell", () => {
+    const command = "(cat <<EOF\nbody\nEOF) && echo done";
+    expect(splitChainedCommand(command)).toEqual([command]);
+  });
+
+  // A top-level `#` starts a comment through end of line: a `<<` down there
+  // documents rather than opens, so the next line still splits.
+  test("never opens a heredoc from a #-to-EOL comment", () => {
+    expect(splitChainedCommand("# example: cat <<EOF\necho hi")).toEqual([
+      "# example: cat <<EOF",
+      "echo hi",
+    ]);
+    expect(splitChainedCommand("echo hi # tail <<EOF\n&& echo done")).toEqual([
+      "echo hi # tail <<EOF",
+      "echo done",
+    ]);
+  });
+
+  // Comment text never touches arithmetic depth: an unbalanced `((` inside
+  // a `#` comment must not poison later lines, so a genuine heredoc after
+  // the comment still opens and the following chain still splits.
+  test("never counts comment parens toward arithmetic depth", () => {
+    const command = "# (( \ncat <<EOF\nbody\nEOF\n&& echo done";
+    expect(splitChainedCommand(command)).toEqual([
+      "# ((",
+      "cat <<EOF\nbody\nEOF",
+      "echo done",
+    ]);
+  });
+
+  // Chain operators after `#` still split, so a dangerous command hiding
+  // behind a comment still surfaces as its own approval subject.
+  test("still splits chain operators after a # comment", () => {
+    expect(splitChainedCommand("# note && rm -rf /")).toEqual([
+      "# note",
+      "rm -rf /",
+    ]);
+  });
+
+  // A `#` line inside a genuine heredoc body stays payload: the marker still
+  // closes and the following chain still splits.
+  test("keeps a # line inside a heredoc body as payload", () => {
+    const command = "cat <<EOF\n# payload\nEOF\necho done";
+    expect(splitChainedCommand(command)).toEqual([command]);
+  });
+});

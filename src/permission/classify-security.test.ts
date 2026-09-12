@@ -1080,3 +1080,52 @@ describe("CL-6988 — nested / escaped interpreter peels do not auto-allow", () 
     expect(rule?.effect === "ask" || rule?.effect === "deny").toBe(true);
   });
 });
+
+describe("CL-5420 — secret checks run before pure-listing exemptions", () => {
+  test("a pure listing of a secret name still asks", () => {
+    const rule = autoShellRuleForCall(shellCall("ls .env"));
+    expect(rule?.name).toBe("sensitive-path");
+    expect(rule?.effect).toBe("ask");
+  });
+
+  test("a chain with a safe listing half flags the content-reading half", () => {
+    const rule = autoShellRuleForCall(shellCall("ls /tmp && cat .env"));
+    expect(rule?.name).toBe("sensitive-path");
+    expect(rule?.effect).toBe("ask");
+  });
+
+  test("a bounded listing with no secret reference stays exempt", () => {
+    expect(autoShellRuleForCall(shellCall("ls /tmp"))).toBeUndefined();
+  });
+
+  test("a flag-glued secret path asks", () => {
+    const rule = autoShellRuleForCall(
+      shellCall("bun --env-file=.env run publish.ts"),
+    );
+    expect(rule?.name).toBe("sensitive-path");
+    expect(rule?.effect).toBe("ask");
+  });
+
+  test("unbounded listing still asks", () => {
+    expect(autoShellRuleForCall(shellCall("ls -R"))?.name).toBe(
+      "unbounded-listing",
+    );
+  });
+
+  test("the gate asks on a pure listing of a secret name", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+    });
+    const verdict = await gate.evaluate(shellCall("ls .env"));
+    expect(verdict.allowed).toBe(false);
+    expect(asked).toBe(1);
+  });
+});

@@ -176,6 +176,23 @@ describe("splitChainedCommand", () => {
     expect(splitChainedCommand(cmd)).toHaveLength(2);
   });
 
+  test("does not treat a here-string (<<<) as a heredoc opener", () => {
+    expect(splitChainedCommand('cat <<< "word" && echo hi')).toEqual([
+      'cat <<< "word"',
+      "echo hi",
+    ]);
+    expect(splitChainedCommand("cmd <<<EOF")).toEqual(["cmd <<<EOF"]);
+    expect(splitChainedCommand("<<< EOF && echo done")).toEqual([
+      "<<< EOF",
+      "echo done",
+    ]);
+  });
+
+  test("still treats <<- as a heredoc opener", () => {
+    const cmd = "cat <<-EOF\nbody\nEOF";
+    expect(splitChainedCommand(cmd)).toHaveLength(1);
+  });
+
   test("treats shell line continuation (backslash + newline) as glue, not a chain split", () => {
     // Common pattern from agents emitting readable multi-line shell calls.
     expect(splitChainedCommand("cd foo && \\\nbun test")).toEqual([
@@ -3960,6 +3977,11 @@ describe("stripCommentLines", () => {
     const command =
       "cat << 'EOF'\n# not a comment, this is heredoc payload\nEOF";
     expect(stripCommentLines(command)).toBe(command);
+  });
+
+  test("a here-string never swallows a later line into a heredoc body", () => {
+    const command = 'cat <<< "word"\n# a real comment';
+    expect(stripCommentLines(command)).toBe('cat <<< "word"\n');
   });
 
   test("leaves a real command with a trailing inline comment untouched", () => {

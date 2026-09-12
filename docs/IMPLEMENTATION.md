@@ -185,6 +185,17 @@ When auto is on, the gate auto-allows workspace file tools in `AUTO_ALLOWED_TOOL
 
 Unmatched shell auto-allows, including contained non-force `git worktree add`/`remove`/`prune` and read-only `list`. Path-arg tools that escape the workspace are denied at authorize time (the same sandbox path-escape enforces at execution). Writes under the in-workspace session state root (legacy `.agent-state`), mutating MCP, and unknown built-ins still prompt. Authorization hard-denies (catastrophic commands, open-ended shell search) remain independent of auto mode.
 
+Listings are list-free, dumps are dump-locked: a bounded `ls`/`tree` prints names only, so it auto-allows even in a directory containing a secret file — but the secret check runs before the listing exemption, so naming the secret itself still asks. Anything that dumps file contents never auto-allows in auto mode; shell references stay ask (not deny) so legitimate uses proceed after an explicit yes, while path-keyed tools hard-deny.
+
+| Command                                   | Verdict                                                 |
+| ----------------------------------------- | ------------------------------------------------------- |
+| `ls` in a directory containing `.env`     | auto-allow (names only, no secret named)                |
+| `ls .env`                                 | ask (secret check beats the listing exemption)          |
+| `cat .env`, `head .corbits/settings.json` | ask, never auto-allow                                   |
+| `bun --env-file=.env run …`               | ask; runs after an explicit yes                         |
+| `read_file` on `.env`                     | hard deny via secret-guard, even under skip-permissions |
+| `cat README.md` in the workspace          | auto-allow under the existing contained-read rules      |
+
 ### Reasoning Effort
 
 **Shift+Tab** in the TUI cycles reasoning effort for the live model (`cycleReasoningEffort` in `src/provider/reasoning-effort.ts`); the runner rebuilds inference sources and the prompt-border `profile · model · effort` label so the next turn picks it up. Plain Tab still toggles focus.
