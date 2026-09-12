@@ -20,6 +20,10 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   logged for diagnosis.
 - Expanded coalesced transcript lanes show a per-call subject, so grouped tool
   rows stay attributable to the file or pattern each call touched.
+- Greybeard review checklist restored in Corbits idiom: verdict-scoped checks
+  in checklist order.
+- Gaasbot CTO voice restored from the GaaS original; still advisory-only, not
+  a gate.
 
 ### Changed
 
@@ -63,6 +67,9 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
   visible choice instead of collapsing below their minimum size.
 - The MCP authorization marker survives a browser-timeout re-auth cycle
   instead of being dropped.
+- A missing or unreadable agent-plugin prompt file now surfaces a warning
+  naming the plugin, agent, and path instead of silently loading the profile
+  without its system prompt.
 
 ## [0.3.22] - 2026-09-11
 
