@@ -628,26 +628,50 @@ Two mid-run gestures, two delivery times (CL-6290):
 - **Enter, mid-run** — soft steer: enqueues kind `"steer"` and delivers at the
   next **parent** `tool.boundary` (the parent tool finishing, not a child) via
   `Agent.deliver` into the live reactor, not a new `send`. A
-  long parent `run_shell` is parent-busy and holds steers. A queued steer
-  delivers at the next parent `tool.boundary` so occupancy can pick it up.
-  The transcript row says
-  `[will steer next]` while pending and
-  `[steering]` once delivered (`submitPrompt`, `drainSteersAtBoundary` in
-  `runtime-bridge.ts`). If the captured target agent is already closed when
-  delivery runs, the bridge restores the exact message (and attachments) to an
-  empty prompt, or FIFO-defers behind a draft the operator already typed — it
-  never auto-sends to a rebuilt successor. The transcript row is corrected to
+  long parent `run_shell` or an awaiting `wait_agents` is parent-busy and holds
+  steers. An in-flight TUI-primary `wait_agents` yields as a timeout when a
+  steer is queued so occupancy can pick it up. A queued steer delivers at the
+  next parent `tool.boundary` so occupancy can pick it up. Pending items list
+  in the pending column above the prompt, not the transcript; the transcript
+  only ever sees the item that actually delivers, as an ordinary user row
+  (`submitPrompt`, `drainSteersAtBoundary` in `runtime-bridge.ts`). If the
+  captured target agent is already closed when delivery runs, the bridge
+  restores the exact message (and attachments) to an empty prompt, or
+  FIFO-defers behind a draft the operator already typed — it never
+  auto-sends to a rebuilt successor. The delivered row is corrected to
   `[not delivered]` (or `[delivery uncertain]` for non-closed failures), and
   another explicit Enter is required before any new logical delivery.
 - **Alt+Enter, mid-run** — follow-up: enqueues kind `"queue"` and delivers
   only on **session-idle** (parent-idle and no live fleet lanes) as a `send`.
-  Does not interrupt or reinject. The transcript row says `[will follow up]`
-  while pending and `[following up]` once delivered. Idle, or with an empty
+  Does not interrupt or reinject. Idle, or with an empty
   prompt, Alt+Enter does nothing — there is nothing to wait for. (Internal
   `"reinject"` remains in the submit API for tests; no product chord wires it.)
   Closed-target recovery for follow-ups uses the same prompt-restore / draft-
   defer ownership as soft steer; `/clear`, `/new`, and dispose discard both
   in-flight deliveries and deferred recoveries with the old session.
+
+Held items never touch the transcript. Both kinds list in the **pending
+column** — a transient zone stacked directly on the prompt box, one row per
+item (`› steer …` / `› follow-up …`, `▸` on the selected row), oldest items
+folding into a leading `+N more` past four shown rows so the newest items —
+nearest the prompt, first selected — stay visible, and a guidance row naming
+its keys (`pending-column.ts`, painted by `syncPendingRows` in `chrome.ts`).
+The transcript only ever sees the item that actually delivers, as an ordinary
+user row — pending/delivery labels (`[will steer next]`, `[steering]`,
+`[following up]`) are gone on purpose.
+
+While the column has items, `↑` at the prompt buffer's top edge selects the
+newest held item and `↑`/`↓` walk the rows; `↓` past the last row hands the
+key back to the prompt. On a selected row, **Enter** kills the item out of the
+queue and force-pushes it — `onForceDeliver` drops it on the same
+`port.deliver` hop a drain uses, so a steer still injects when the parent
+cycle is live and otherwise sends immediately. **Ctrl+X** drops the selected
+item outright. **Ctrl+G** pops the selected item back into an empty prompt
+for editing (dropping it mid-compose); with no selection it pops the newest
+held item instead. **Esc** ends the selection; any other composer key ends it
+and falls through to normal handling, except `↑`/`↓`, which stay with the
+column. While an overlay is open, keys go to the overlay and leave the
+selection alone.
 
 When `steer > 0` and a parent tool has been in flight ≥ `STEER_WAIT_NOTICE_MS`
 (3s), the notice row adds `waiting on <tool>` (e.g. `waiting on run_shell`).
@@ -691,7 +715,9 @@ session exit still call `subAgentSessions.cancelAll` for an explicit
 session-wide cancel; that path is separate from interrupt and must stay off
 the soft-steer / follow-up gestures.
 
-Up/Down are caret motion first inside a multi-line buffer. History recall
+Up/Down are caret motion first inside a multi-line buffer — except while the
+pending column is engaged, when ↑ at the buffer's top edge selects a held item
+instead (see "Soft steer vs. follow-up"). History recall
 only fires when the caret is already at the first or last wrapped row of the
 buffer — i.e., has nowhere further to go
 (`promptCaretAtFirstRow`/`promptCaretAtLastRow` in `prompt-input.ts`,
@@ -800,8 +826,9 @@ list they move the active selection. Only the mouse wheel and the modal's
 own page keys (PgUp/PgDn) move a scroll position, and only the surface
 holding the current scroll lease responds to them.
 
-`Ctrl+G` (the Emacs/readline "abort" chord) cancels the most recently queued
-mid-run message. `Tab` toggles focus between the prompt and the transcript.
+`Ctrl+G` (the Emacs/readline "abort" chord) pops the most recently queued
+mid-run message back into an empty prompt for editing, or drops it mid-compose.
+`Tab` toggles focus between the prompt and the transcript.
 `Shift+Tab` cycles reasoning effort for the current model (wrapping the
 supported ladder) and flashes the new level; the prompt-border effort
 segment updates immediately. A model with no effort levels flashes instead

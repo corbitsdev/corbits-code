@@ -21,8 +21,11 @@ import {
 } from "../prompt-recognition.js";
 import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
 import { composeCostContextMeter, meterEquals } from "../prompt-border.js";
+import { pendingWindowStart } from "../pending-column.js";
+import { promptCaretAtFirstRow } from "../prompt-input.js";
 import {
   badgeCount,
+  cancelItem,
   cancelLast,
   clearInterruptFlash,
   enqueue,
@@ -40,12 +43,10 @@ import {
   shellPromptImageSource,
   shellRecognitionSource,
 } from "./internals.js";
-import { streamRowAt } from "./transcript.js";
 import {
   appendStreamRow,
   paintChrome,
   paintPromptBorder,
-  replaceStreamRowAt,
   setStatusFlash,
 } from "./chrome.js";
 
@@ -355,63 +356,169 @@ export function submitPrompt(
     kind === "steer"
       ? enqueueSteer(shell.session, t, undefined, attachments)
       : enqueue(shell.session, t, "queue", undefined, attachments);
-  const queued = shell.session.items[shell.session.items.length - 1];
   shell.prompt.value = "";
   clearPendingAttachments(shell);
-  // Show the message itself, not the internal transition ("queue +1 →
-  // pending N") — the notice row already carries the depth once, in plain
-  // language, so this row's job is making the pending item identifiable.
-  appendStreamRow(shell, {
-    role: "user",
-    text: userRowText(t, attachments),
-    meta: kind === "steer" ? "steer" : "queue",
-    ...(queued !== undefined ? { queueItemId: queued.id } : {}),
-  });
+  // No transcript echo while pending: the item lives in the column stacked on
+  // the prompt box and lands in the transcript as an ordinary user row when
+  // it actually delivers.
   paintChrome(shell);
 }
 
 /**
- * Find the transcript row a still-pending queue/steer item echoed, so a
- * cancel can retract it instead of leaving a message tagged "queue" that will
- * never dispatch. Absolute index, matching `replaceStreamRowAt`.
- */
-function findQueueRowIndex(
-  shell: AppShell,
-  queueItemId: string,
-): number | undefined {
-  for (let local = shell.streamLog.length - 1; local >= 0; local--) {
-    if (shell.streamLog[local]?.queueItemId === queueItemId) {
-      return shell.streamLogBase + local;
-    }
-  }
-  return undefined;
-}
-
-/**
- * Cancel the most recently queued or steered message (last-only: see
- * `cancelLast`'s doc comment for why picking an earlier item is out of
- * scope). Retracts it from the queue and rewrites its transcript row so the
- * readout never shows a message tagged "queue"/"steer" that will not send.
+ * Pop the most recently queued or steered message back into the composer
+ * (last-only: see `cancelLast`'s doc comment for why picking an earlier item
+ * is out of scope). With an empty prompt the item's text and attachments come
+ * back for editing and resend; mid-compose the item is simply dropped, since
+ * merging it into an in-progress draft would send two messages as one.
  */
 export function applyShellCancelLast(shell: AppShell): void {
   const { state, item } = cancelLast(shell.session);
   if (item === null) return;
   shell.session = state;
-  const index = findQueueRowIndex(shell, item.id);
-  if (index !== undefined) {
-    const row = streamRowAt(shell, index);
-    if (row !== undefined) {
-      // `cancelled` stays a flag, not a `text` rewrite — `paintStreamRow`
-      // owns turning it into the "[cancelled]" prefix, so `row.text` still
-      // holds what the operator actually typed for anything else that reads
-      // it (copy mode, a resumed transcript).
-      replaceStreamRowAt(shell, index, {
-        ...row,
-        meta: "cancelled",
-        cancelled: true,
-      });
+  if (shell.prompt.value.length === 0) {
+    shell.prompt.value = item.text;
+    shell.prompt.cursorOffset = item.text.length;
+    if (item.attachments !== undefined && item.attachments.length > 0) {
+      shell.pendingAttachments = [
+        ...shell.pendingAttachments,
+        ...item.attachments,
+      ];
     }
   }
+  paintChrome(shell);
+}
+
+/** Index of the selected pending item, or -1 when nothing is selected. */
+function pendingSelIndex(shell: AppShell): number {
+  const selId = shellInternals(shell)?.pendingSelId;
+  if (selId === undefined || selId === null) return -1;
+  return shell.session.items.findIndex((item) => item.id === selId);
+}
+
+/** True while the pending column, not the prompt, owns the keys. */
+export function pendingSelectionActive(shell: AppShell): boolean {
+  return pendingSelIndex(shell) >= 0;
+}
+
+/** End pending selection (if any). Returns whether a selection was dropped. */
+export function clearPendingSelection(shell: AppShell): boolean {
+  const bag = shellInternals(shell);
+  if (bag === undefined || bag.pendingSelId === null) return false;
+  bag.pendingSelId = null;
+  paintChrome(shell);
+  return true;
+}
+
+/**
+ * ↑/↓ on the pending column. ↑ from the prompt's top edge selects the newest
+ * held item (the row nearest the box); ↑/↓ walk the column; ↓ past the last
+ * row hands the key back to the prompt's own motion. The selection only ever
+ * lands on rows the column actually paints — a folded-away item can't be
+ * selected. Returns whether the key was claimed.
+ */
+export function applyPendingNav(shell: AppShell, delta: -1 | 1): boolean {
+  const bag = shellInternals(shell);
+  if (bag === undefined) return false;
+  const items = shell.session.items;
+  const itemRows = Math.max(0, shell.layout.heights.pending - 1);
+  const floor = pendingWindowStart(items.length, itemRows);
+  const sel = pendingSelIndex(shell);
+  if (delta === -1) {
+    // Nothing visible to land on: the column folded or has no grant.
+    if (items.length === 0 || items.length - 1 < floor) return false;
+    // Entering the column only happens from the buffer's top row, so ↑ inside
+    // a multi-row draft still moves the caret rather than stealing focus.
+    if (sel === -1 && !promptCaretAtFirstRow(shell.prompt)) return false;
+    const next = sel === -1 ? items.length - 1 : Math.max(floor, sel - 1);
+    bag.pendingSelId = items[next]?.id ?? null;
+    paintChrome(shell);
+    return true;
+  }
+  if (sel === -1) return false;
+  bag.pendingSelId =
+    sel >= items.length - 1 ? null : (items[sel + 1]?.id ?? null);
+  paintChrome(shell);
+  return true;
+}
+
+/**
+ * No-runtime path for leaving the queue through the selected row: kill the
+ * selected item out of the queue. Same contract as applyShellCancelLast —
+ * an empty prompt gets the item back for editing; mid-draft it's dropped
+ * rather than merged, since merging would send two messages as one.
+ */
+function popSelectedToPrompt(shell: AppShell): void {
+  const bag = shellInternals(shell);
+  const sel = pendingSelIndex(shell);
+  if (bag === undefined || sel < 0) return;
+  const id = shell.session.items[sel]?.id;
+  if (id === undefined) return;
+  const { state, item: popped } = cancelItem(shell.session, id);
+  if (popped === null) return;
+  shell.session = state;
+  bag.pendingSelId = null;
+  if (shell.prompt.value.length === 0) {
+    shell.prompt.value = popped.text;
+    shell.prompt.cursorOffset = popped.text.length;
+    shell.pendingAttachments = [
+      ...shell.pendingAttachments,
+      ...(popped.attachments ?? []),
+    ];
+  }
+  paintChrome(shell);
+}
+
+/**
+ * Enter on a selected pending item: kill it out of the queue and force-push —
+ * deliver it now through the runtime, skipping its boundary/idle wait. With
+ * no runtime attached there is nothing to deliver to, so it falls back to
+ * the cancel contract: back into an empty prompt for editing, dropped
+ * mid-draft rather than merged.
+ */
+export function applyPendingForcePush(shell: AppShell): void {
+  const bag = shellInternals(shell);
+  const sel = pendingSelIndex(shell);
+  if (bag === undefined || sel < 0) return;
+  const item = shell.session.items[sel];
+  if (item === undefined) return;
+  const hooks = getShellBridgeHooks(shell);
+  if (hooks?.exclusive === true && hooks.onForceDeliver !== undefined) {
+    bag.pendingSelId = null;
+    hooks.onForceDeliver(item.id);
+    // The hook owns the delivery repaint; this pass covers stubs that don't.
+    paintChrome(shell);
+    return;
+  }
+  popSelectedToPrompt(shell);
+}
+
+/**
+ * Ctrl+G on a selected pending item: cancel that row, not the newest — the
+ * operator pointed at it. Without hooks this is the same pop-to-prompt as
+ * the force-push fallback; with a runtime attached it still only cancels,
+ * never delivers.
+ */
+export function applyPendingCancelSelected(shell: AppShell): void {
+  popSelectedToPrompt(shell);
+}
+
+/**
+ * ^X on a selected pending item: kill it outright, keeping the selection on
+ * whatever slides into the freed slot so a second ^X walks the list down
+ * without re-entering the column.
+ */
+export function applyPendingDrop(shell: AppShell): void {
+  const bag = shellInternals(shell);
+  const sel = pendingSelIndex(shell);
+  if (bag === undefined || sel < 0) return;
+  const id = shell.session.items[sel]?.id;
+  if (id === undefined) return;
+  const { state, item } = cancelItem(shell.session, id);
+  if (item === null) return;
+  shell.session = state;
+  bag.pendingSelId =
+    shell.session.items[Math.min(sel, shell.session.items.length - 1)]?.id ??
+    null;
   paintChrome(shell);
 }
 

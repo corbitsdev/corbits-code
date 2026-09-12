@@ -69,6 +69,12 @@ export interface ShellBridgeHooks {
     attachments?: readonly PendingImageAttachment[],
   ) => void;
   onInterrupt: () => void;
+  /**
+   * Enter on a selected pending item: kill it out of the queue and push it
+   * through `port.deliver` immediately, skipping its boundary/idle wait.
+   * Absent on hosts that cannot deliver — the prompt falls back to editing.
+   */
+  onForceDeliver?: (itemId: string) => void;
   exclusive: boolean;
 }
 
@@ -387,6 +393,12 @@ export interface AppShell {
   readonly promptBottomRule: TextRenderable;
   /** Transient state row above the prompt box (hidden when it has nothing to say). */
   readonly notice: TextRenderable;
+  /**
+   * Queued steer/follow-up items stacked on the prompt box — one row each
+   * while pending. Hidden when the session queue is empty; geometry owns its
+   * row budget (zone `pending`).
+   */
+  readonly pendingBox: BoxRenderable;
   /** Latest geometry resolution (updated on resize / relayout). */
   layout: GeometryLayout;
   /** Focus tree + scroll lease (updated by shell helpers). */
@@ -808,6 +820,12 @@ interface ShellInternals {
   };
   /** Operator toggle for the task panel; in-memory, held for the life of the shell. */
   tasksPanelHidden: boolean;
+  /**
+   * Pending-column selection, by queue item id (stable across drains/cancels
+   * of other items). Null while the prompt holds the keys — selection is
+   * entered with ↑ and left with ↓, Esc, or any other claimed key.
+   */
+  pendingSelId: string | null;
 }
 
 export const internals = new WeakMap<AppShell, ShellInternals>();

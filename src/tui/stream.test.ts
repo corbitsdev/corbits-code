@@ -57,22 +57,13 @@ describe("stream paint", () => {
     }
   });
 
-  test("steer / follow-up prefixes distinguish pending vs delivered", () => {
-    expect(userBody({ role: "user", text: "a", meta: "steer" })[0]).toContain(
-      "[will steer next] a",
-    );
-    expect(userBody({ role: "user", text: "b", meta: "queue" })[0]).toContain(
-      "[will follow up] b",
-    );
-    expect(
-      userBody({ role: "user", text: "c", meta: "steering" })[0],
-    ).toContain("[steering] c");
-    expect(
-      userBody({ role: "user", text: "d", meta: "following-up" })[0],
-    ).toContain("[following up] d");
-    expect(
-      userBody({ role: "user", text: "e", meta: "following-up" })[0],
-    ).not.toContain("steering");
+  test("queued-item meta paints as a plain operator row — no delivery prefixes", () => {
+    // Pending state lives in the column above the prompt; a row that reaches
+    // the transcript has already delivered and reads as an ordinary message.
+    for (const meta of ["steer", "queue", "steering", "following-up"]) {
+      expect(userBody({ role: "user", text: "a", meta })[0]).toContain(" a");
+      expect(userBody({ role: "user", text: "a", meta })[0]).not.toContain("[");
+    }
   });
 
   test("delivery settlement prefixes keep the original row text", () => {

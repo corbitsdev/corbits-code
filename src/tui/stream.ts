@@ -775,9 +775,11 @@ export function paintStreamRow(
 ): PaintedStreamLine {
   const fg = rowFg(row);
   if (row.role === "user") {
-    // A queued/steered/reinjected message looks identical to a plain sent
-    // one otherwise — the operator needs to see, on the row itself, what
-    // will happen to it, not just infer it from a badge count elsewhere.
+    // A queued/steered message looks identical to a plain sent one otherwise,
+    // so only settlement state paints onto the row itself: delivery failures
+    // and cancels (pending lives in the column above the prompt, and a
+    // delivered row is an ordinary operator row). The row text is untouched
+    // so copy/resume still sees the original body.
     const prefix =
       row.cancelled === true
         ? "[cancelled] "
@@ -785,17 +787,9 @@ export function paintStreamRow(
           ? "[not delivered] "
           : row.deliveryStatus === "uncertain"
             ? "[delivery uncertain] "
-            : row.meta === "steer"
-              ? "[will steer next] "
-              : row.meta === "queue"
-                ? "[will follow up] "
-                : row.meta === "steering"
-                  ? "[steering] "
-                  : row.meta === "following-up"
-                    ? "[following up] "
-                    : row.meta === "reinject"
-                      ? "[restarted here] "
-                      : "";
+            : row.meta === "reinject"
+              ? "[restarted here] "
+              : "";
     return {
       content: userBubbleLines(`${prefix}${row.text}`, layout.width).join("\n"),
       fg,

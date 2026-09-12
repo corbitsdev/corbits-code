@@ -7,8 +7,6 @@ import {
 } from "./notice-line";
 
 const state = (over: Partial<NoticeState> = {}): NoticeState => ({
-  steer: 0,
-  followUp: 0,
   waitingOn: null,
   interrupt: false,
   pinned: false,
@@ -23,41 +21,27 @@ describe("composeNoticeLine", () => {
   });
 
   test("default state segments stay off the row", () => {
-    const line = composeNoticeLine(
-      state({ steer: 0, followUp: 0, pinned: false }),
-    );
+    const line = composeNoticeLine(state({ pinned: false }));
     expect(line).not.toContain("steer");
     expect(line).not.toContain("follow-up");
     expect(line).not.toContain("queue");
     expect(line).not.toContain("pinned");
   });
 
-  test("steer and follow-up are distinct segments", () => {
+  test("pending counts are not segments — the column lists the items", () => {
     const line = composeNoticeLine(
-      state({
-        steer: 2,
-        followUp: 1,
-        pinned: true,
-        interrupt: true,
-        attachments: 1,
-      }),
+      state({ pinned: true, interrupt: true, attachments: 1 }),
     );
-    expect(line).toContain("steer 2");
-    expect(line).toContain("follow-up 1");
-    expect(line).not.toContain("queue 2");
     expect(line).toContain("pinned");
     expect(line).not.toContain("interrupt");
     expect(line).toContain("1 image");
+    expect(line).not.toContain("steer");
+    expect(line).not.toContain("follow-up");
   });
 
-  test("waitingOn + steer names the in-flight command", () => {
-    const line = composeNoticeLine(state({ steer: 1, waitingOn: "run_shell" }));
+  test("waitingOn names the in-flight command", () => {
+    const line = composeNoticeLine(state({ waitingOn: "run_shell" }));
     expect(line).toContain("waiting on run_shell");
-  });
-
-  test("follow-up only does not wait on a tool", () => {
-    const line = composeNoticeLine(state({ followUp: 1, waitingOn: null }));
-    expect(line).not.toContain("waiting on");
   });
 
   test("a flash is carried verbatim so paths keep their case", () => {
@@ -67,7 +51,7 @@ describe("composeNoticeLine", () => {
   });
 
   test("no keys strip survives anywhere in the composition", () => {
-    const line = composeNoticeLine(state({ followUp: 1, interrupt: true }));
+    const line = composeNoticeLine(state({ attachments: 1, interrupt: true }));
     expect(line).not.toContain("commands");
     expect(line).not.toContain("files");
     expect(line).not.toContain("^C");

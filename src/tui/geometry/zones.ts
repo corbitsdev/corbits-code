@@ -7,6 +7,7 @@ export const ZONE_IDS = [
   "progress",
   "progress_divider",
   "notice",
+  "pending",
   "prompt",
   "task",
   "agents",
@@ -70,6 +71,13 @@ export const FLEET_FLOOR_MIN_LANES = 2;
 export const TASKS_PANEL_MAX_VISIBLE = 5;
 
 /**
+ * Queued steer/follow-up rows the pending column lists before folding into a
+ * trailing "+N more" row. The column is a glance at what will send, not a
+ * full editor for the queue — a deep stack is rarer than the room it costs.
+ */
+export const PENDING_MAX_VISIBLE = 4;
+
+/**
  * Fixed-with-test budgets from the constitution table.
  * Residual zones (transcript, overlay_host) use min/max as floor/cap hints;
  * actual heights are assigned by the geometry resolver.
@@ -86,6 +94,16 @@ export const ZONE_REGISTRY: Readonly<Record<ZoneId, ZoneDeclaration>> = {
   // Transient: rows only while the shell has state worth a row (queue depth,
   // latched interrupt, a flash, a live turn). Idle it is off.
   notice: { id: "notice", min: 0, max: 1, idleDefault: 0, alwaysOn: false },
+  // Queued steer/follow-up messages stacked directly on the prompt box —
+  // one row per shown item, a leading "+N more" fold plus a key-guidance
+  // row, bounded by the zone max.
+  pending: {
+    id: "pending",
+    min: 0,
+    max: PENDING_MAX_VISIBLE + 2,
+    idleDefault: 0,
+    alwaysOn: false,
+  },
   // Grows with what is being composed; the resolver caps it at PROMPT_CAP_FRACTION
   // and collapses it back toward min when the transcript would breach its floor.
   prompt: {
@@ -202,6 +220,9 @@ export const COLLAPSE_ORDER = [
   "progress",
   "progress_divider",
   "notice",
+  // Pending items are the operator's own queued words: cut last of the
+  // optionals, just ahead of prompt growth reclaim.
+  "pending",
   // prompt growth reclaimed next (handled specially; never below PROMPT_BASE_ROWS)
   "prompt",
 ] as const satisfies readonly ZoneId[];
@@ -222,6 +243,7 @@ export const PAINT_ORDER = [
   "progress",
   "progress_divider",
   "notice",
+  "pending",
   "prompt",
 ] as const satisfies readonly ZoneId[];
 

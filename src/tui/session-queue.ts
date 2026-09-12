@@ -150,6 +150,26 @@ export function cancelLast(state: SessionQueueState): {
   };
 }
 
+/**
+ * Retract a specific item by id — the pending column's per-row drop, where the
+ * operator picked exactly which held message to kill rather than the newest.
+ */
+export function cancelItem(
+  state: SessionQueueState,
+  id: string,
+): { state: SessionQueueState; item: QueueItem | null } {
+  const index = state.items.findIndex((item) => item.id === id);
+  const item = state.items[index] ?? null;
+  if (item === null) return { state, item: null };
+  return {
+    state: {
+      ...state,
+      items: [...state.items.slice(0, index), ...state.items.slice(index + 1)],
+    },
+    item,
+  };
+}
+
 /** Drain order: steers first (FIFO within class), then queue (FIFO). */
 export function drainOrder(state: SessionQueueState): readonly QueueItem[] {
   const steers = state.items.filter((i) => i.kind === "steer");

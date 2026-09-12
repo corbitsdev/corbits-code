@@ -18,7 +18,12 @@ import {
   toggleShellFocus,
 } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
-import { isTranscriptFollowing, stickyMode } from "./shell/internals";
+import {
+  isTranscriptFollowing,
+  setShellBridgeHooks,
+  shellInternals,
+  stickyMode,
+} from "./shell/internals";
 import { closeInsetOverlay, openInsetOverlay } from "./shell/overlay-host";
 import {
   applyShellCancelLast,
@@ -284,7 +289,7 @@ describe("createAppShell", () => {
     });
   });
 
-  test("pending queue badge paints in status", async () => {
+  test("pending queue lists in the column above the prompt", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -295,8 +300,213 @@ describe("createAppShell", () => {
           setPendingQueue(shell, 3);
           expect(shell.pendingQueue).toBe(3);
           await h.renderOnce();
-          // setPendingQueue pads with kind "queue" → follow-up badge.
-          expect(h.captureCharFrame()).toContain("follow-up 3");
+          const frame = h.captureCharFrame();
+          // setPendingQueue pads with kind "queue" → follow-up rows.
+          expect(frame).toContain("follow-up  pad-1");
+          expect(frame).toContain("follow-up  pad-3");
+          expect(shell.streamLog).toHaveLength(0);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("↑/↓ walk the column; the selected row paints ▸", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        });
+        try {
+          setPendingQueue(shell, 3);
+          await h.renderOnce();
+          // ↑ at the buffer's top edge selects the newest held item.
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          expect(shellInternals(shell)?.pendingSelId).toBe(
+            shell.session.items[2]?.id,
+          );
+          expect(h.captureCharFrame()).toContain("▸ follow-up  pad-3");
+          // ↑ walks up the column.
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          expect(h.captureCharFrame()).toContain("▸ follow-up  pad-2");
+          // ↓ past the last row hands the key back to the prompt.
+          h.mockInput.pressKey("\x1b[B");
+          h.mockInput.pressKey("\x1b[B");
+          await h.renderOnce();
+          expect(shellInternals(shell)?.pendingSelId).toBeNull();
+          expect(h.captureCharFrame()).not.toContain("▸");
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("Ctrl+X drops the selected row, sliding the selection", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        });
+        try {
+          setPendingQueue(shell, 2);
+          await h.renderOnce();
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          h.pressKey("x", { ctrl: true });
+          await h.renderOnce();
+          expect(shell.session.items.map((i) => i.text)).toEqual(["pad-1"]);
+          // Selection slid onto the row that filled the freed slot.
+          expect(shellInternals(shell)?.pendingSelId).toBe(
+            shell.session.items[0]?.id,
+          );
+          expect(h.captureCharFrame()).not.toContain("pad-2");
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("Enter on a selected row force-delivers through the bridge hook", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        });
+        const pushed: string[] = [];
+        setShellBridgeHooks(shell, {
+          exclusive: true,
+          onSubmit: () => undefined,
+          onInterrupt: () => undefined,
+          onForceDeliver: (id) => pushed.push(id),
+        });
+        try {
+          setPendingQueue(shell, 2);
+          await h.renderOnce();
+          const oldest = defined(shell.session.items[0]).id;
+          h.mockInput.pressKey("\x1b[A");
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          h.pressKey("Enter");
+          await h.renderOnce();
+          expect(pushed).toEqual([oldest]);
+          expect(shellInternals(shell)?.pendingSelId).toBeNull();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("Enter without a deliver hook pops the row back for editing", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        });
+        try {
+          setPendingQueue(shell, 1);
+          await h.renderOnce();
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          h.pressKey("Enter");
+          await h.renderOnce();
+          expect(shell.session.items).toHaveLength(0);
+          expect(shell.prompt.value).toBe("pad-1");
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("Esc ends the selection and leaves the queue alone", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        });
+        try {
+          setPendingQueue(shell, 2);
+          await h.renderOnce();
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          // ESC needs disambiguation delay on the mock stdin path.
+          h.pressKey("Escape");
+          await new Promise((r) => setTimeout(r, 60));
+          await h.renderOnce();
+          expect(shellInternals(shell)?.pendingSelId).toBeNull();
+          expect(shell.session.items).toHaveLength(2);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("Ctrl+G pops the selected row, not the newest", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        });
+        try {
+          setPendingQueue(shell, 2);
+          await h.renderOnce();
+          // ↑ selects the newest; ↑ again walks up to the older row.
+          h.mockInput.pressKey("\x1b[A");
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          expect(shellInternals(shell)?.pendingSelId).toBe(
+            shell.session.items[0]?.id,
+          );
+          h.pressKey("g", { ctrl: true });
+          await h.renderOnce();
+          expect(shell.session.items.map((i) => i.text)).toEqual(["pad-2"]);
+          expect(shell.prompt.value).toBe("pad-1");
+          expect(shellInternals(shell)?.pendingSelId).toBeNull();
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a prompt paste ends the selection instead of editing under it", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: true,
+        });
+        try {
+          setPendingQueue(shell, 1);
+          await h.renderOnce();
+          h.mockInput.pressKey("\x1b[A");
+          await h.renderOnce();
+          expect(shellInternals(shell)?.pendingSelId).not.toBeNull();
+          await h.mockInput.pasteBracketedText("pasted");
+          await h.renderOnce();
+          expect(shellInternals(shell)?.pendingSelId).toBeNull();
+          expect(shell.prompt.value).toBe("pasted");
+          expect(shell.session.items).toHaveLength(1);
         } finally {
           shell.dispose();
         }
@@ -416,7 +626,9 @@ describe("product skin: stream + queue + overlay", () => {
           expect(defined(shell.session.items[0]).kind).toBe("queue");
           expect(shell.prompt.value).toBe("");
           await h.renderOnce();
-          expect(h.captureCharFrame()).toContain("follow-up 1");
+          const frame = h.captureCharFrame();
+          expect(frame).toContain("follow-up  queue me");
+          expect(shell.streamLog).toHaveLength(0);
         } finally {
           shell.dispose();
         }
@@ -441,8 +653,8 @@ describe("product skin: stream + queue + overlay", () => {
           await h.renderOnce();
           await h.renderOnce();
           const frame = h.captureCharFrame();
-          expect(frame).toContain("will steer next");
-          expect(frame).toContain("steer 1");
+          expect(frame).toContain("steer      steer me");
+          expect(frame).not.toContain("will steer next");
           expect(frame).not.toContain("follow-up");
         } finally {
           shell.dispose();
@@ -483,7 +695,7 @@ describe("product skin: stream + queue + overlay", () => {
     );
   });
 
-  test("Ctrl+G cancels the last queued message and the screen shows it", async () => {
+  test("Ctrl+G pops the last queued message back into the prompt", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -497,46 +709,26 @@ describe("product skin: stream + queue + overlay", () => {
           shell.prompt.value = "oops wrong message";
           submitPrompt(shell, "queue");
           expect(shell.pendingQueue).toBe(2);
-
-          const before = shell.streamLog.map((row) => ({
-            text: row.text,
-            meta: row.meta,
-            cancelled: row.cancelled,
-          }));
-          expect(before).toEqual([
-            { text: "keep this one", meta: "queue", cancelled: undefined },
-            { text: "oops wrong message", meta: "queue", cancelled: undefined },
-          ]);
+          // Queued items live in the column — the transcript stays empty.
+          expect(shell.streamLog).toHaveLength(0);
           await h.renderOnce();
           const frameBefore = h.captureCharFrame();
           expect(frameBefore).toContain("keep this one");
           expect(frameBefore).toContain("oops wrong message");
-          expect(frameBefore).not.toContain("[cancelled]");
 
           applyShellCancelLast(shell);
 
           expect(shell.pendingQueue).toBe(1);
           expect(defined(shell.session.items[0]).text).toBe("keep this one");
+          // The popped item comes back as an editable draft; nothing lands
+          // in the transcript as a cancellation marker.
+          expect(shell.prompt.value).toBe("oops wrong message");
+          expect(shell.streamLog).toHaveLength(0);
 
-          const after = shell.streamLog.map((row) => ({
-            text: row.text,
-            meta: row.meta,
-            cancelled: row.cancelled,
-          }));
-          // The stored text is untouched — the cancel is a flag the paint
-          // layer reads, not a rewrite of what the operator typed.
-          expect(after).toEqual([
-            { text: "keep this one", meta: "queue", cancelled: undefined },
-            { text: "oops wrong message", meta: "cancelled", cancelled: true },
-          ]);
-
-          // The screen, not just the model, is asserted on: this is exactly
-          // what the first attempt at this issue got wrong (the row read
-          // back unchanged from streamLog while the model looked cancelled).
           await h.renderOnce();
           const frameAfter = h.captureCharFrame();
-          expect(frameAfter).toContain("[cancelled] oops wrong message");
           expect(frameAfter).toContain("keep this one");
+          expect(frameAfter).toContain("oops wrong message");
         } finally {
           shell.dispose();
         }
@@ -545,7 +737,7 @@ describe("product skin: stream + queue + overlay", () => {
     );
   });
 
-  test("Ctrl+G cancels a steered message the same way", async () => {
+  test("Ctrl+G pops a steered message the same way", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -563,11 +755,11 @@ describe("product skin: stream + queue + overlay", () => {
 
           expect(shell.pendingQueue).toBe(0);
           expect(shell.session.items).toHaveLength(0);
-          expect(shell.streamLog[0]?.cancelled).toBe(true);
-          expect(shell.streamLog[0]?.meta).toBe("cancelled");
+          expect(shell.prompt.value).toBe("steer me now");
+          expect(shell.streamLog).toHaveLength(0);
 
           await h.renderOnce();
-          expect(h.captureCharFrame()).toContain("[cancelled] steer me now");
+          expect(h.captureCharFrame()).not.toContain("cancelled");
         } finally {
           shell.dispose();
         }

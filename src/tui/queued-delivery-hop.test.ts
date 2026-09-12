@@ -491,7 +491,14 @@ describe("closed-target recovery", () => {
           expect(calls).toHaveLength(1);
 
           expect(shell.prompt.value).toBe("");
-          expect(drainedUserRow(shell).meta).toBe("steering");
+          // The pending column carried the item until delivery, so the
+          // transcript row is a plain operator message — no [steering]
+          // label on purpose.
+          const row = drainedUserRow(shell);
+          expect(row.meta).toBeUndefined();
+          expect(shell.streamLog.map((r) => r.text).join("\n")).toContain(
+            "steer the ship",
+          );
           expect(recoveryNotices(shell)).toEqual([]);
         } finally {
           bridge.dispose();
