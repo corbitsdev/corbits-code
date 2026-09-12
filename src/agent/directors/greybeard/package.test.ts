@@ -22,12 +22,35 @@ describe("greybeardPackage", () => {
     expect(p).not.toMatch(/architecture director/i);
   });
 
-  test("systemPrompt teaches judgment for architecture approach", () => {
+  test("systemPrompt frames value as analysis via Corbits read tools", () => {
     const p = greybeardPackage.systemPrompt;
-    expect(p).toContain("Judge the approach");
+    expect(p).toMatch(/value is analysis/i);
+    expect(p).toContain("read_file");
+    expect(p).toContain("grep");
+    expect(p).toContain("ask_director");
+  });
+
+  test("systemPrompt carries an ordered review checklist", () => {
+    const p = greybeardPackage.systemPrompt;
+    expect(p).toMatch(/Review checklist/);
+    expect(p).toMatch(/architectural claim/);
     expect(p).toMatch(/constraint ownership|owns constraints/i);
-    expect(p).toMatch(/hold \/ revise \/ block|verdict/i);
+    expect(p).toMatch(/anti-patterns/);
+    expect(p).toMatch(/Rank risks/);
+  });
+
+  test("systemPrompt ends the checklist with the hold/revise/block verdict triad", () => {
+    const p = greybeardPackage.systemPrompt;
+    expect(p).toMatch(/hold \/ revise \/ block/);
     expect(p).toMatch(/backward-compatibility|backward compatibility/i);
+  });
+
+  test("systemPrompt has no self-spawn language", () => {
+    const p = greybeardPackage.systemPrompt;
+    expect(p).not.toMatch(/spawn.*greybeard/i);
+    expect(p).not.toContain('agent="greybeard"');
+    expect(p).not.toMatch(/spawn yourself/i);
+    expect(p).not.toMatch(/spawn a (greybeard|reviewer)/i);
   });
 
   test("systemPrompt allows limited spawn without fake caps or scheduler language", () => {
