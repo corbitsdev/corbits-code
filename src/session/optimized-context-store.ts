@@ -848,6 +848,7 @@ export async function createSessionStores(
     commitErrors: (records, signal) =>
       withResolvedDirLock(dir, () => base.commitErrors(records, signal)),
     loadAudit: (sessionId, signal) => base.loadAudit(sessionId, signal),
+    loadErrors: (sessionId, signal) => base.loadErrors(sessionId, signal),
   };
 
   return { storage: store, audit: store };

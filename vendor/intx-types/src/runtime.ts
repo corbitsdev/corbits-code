@@ -2837,6 +2837,14 @@ export interface AuditStore {
    * and shutdown with all error records accumulated since the last flush.
    */
   commitErrors(records: ErrorRecord[], signal?: AbortSignal): Promise<void>;
+
+  /**
+   * Load error records for a session. Returns all records matching
+   * the given sessionId, ordered by seq.
+   *
+   * Locally patched — see vendor/intx-types/PATCHES.md#runtime-ts-audit-store-load-errors
+   */
+  loadErrors(sessionId: string, signal?: AbortSignal): Promise<ErrorRecord[]>;
 }
 
 // ---------------------------------------------------------------------------

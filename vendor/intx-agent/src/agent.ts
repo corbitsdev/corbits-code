@@ -512,9 +512,37 @@ export async function createAgent<EnvReq extends BaseEnv>(
     // the next flush, so a fourth caller arriving after the follow-up
     // begins still observes a clean state and starts its own flush.
     const accumulatedErrors: ErrorRecord[] = [];
+    // Resume from durable records so a rebuilt agent does not reuse seq 0
+    // and collide with files the previous assembly already committed.
+    // Locally patched — see vendor/intx-agent/PATCHES.md#agent-ts-resume-error-seq
     let errorSeq = 0;
+    try {
+      for (const record of await auditStore.loadErrors(sessionId)) {
+        if (record.seq >= errorSeq) errorSeq = record.seq + 1;
+      }
+    } catch {
+      logger.warn`loadErrors failed during assembly; starting error seq at 0`;
+    }
     let flushInProgress: Promise<void> | undefined;
     let pendingFollowUp: Promise<void> | undefined;
+
+    // File key mirror of the isogit store's error filename scheme
+    // (`state/errors/<sessionId>/<seq>-<category>.json`, seq padded to
+    // 8, unsafe category chars replaced). Maps a
+    // `Duplicate error record: <key>` collision back to the batch member
+    // that caused it so only that record is dropped.
+    function errorFileKey(record: ErrorRecord): string {
+      const seq = String(record.seq).padStart(8, "0");
+      const category = record.category.replace(/[^a-zA-Z0-9_-]/g, "_");
+      return `${record.sessionId}/${seq}-${category}`;
+    }
+
+    function dropFromAccumulator(records: readonly ErrorRecord[]): void {
+      for (const record of records) {
+        const index = accumulatedErrors.indexOf(record);
+        if (index !== -1) accumulatedErrors.splice(index, 1);
+      }
+    }
 
     function flushErrors(): Promise<void> {
       if (flushInProgress !== undefined) {
@@ -549,8 +577,39 @@ export async function createAgent<EnvReq extends BaseEnv>(
       // expectation is that commitErrors failures are transient.
       flushInProgress = (async () => {
         try {
-          await auditStore.commitErrors(batch);
-          accumulatedErrors.splice(0, count);
+          let remaining = batch;
+          for (;;) {
+            try {
+              await auditStore.commitErrors(remaining);
+            } catch (cause) {
+              // Locally patched — see vendor/intx-agent/PATCHES.md#agent-ts-duplicate-error-flush
+              if (
+                cause instanceof Error &&
+                cause.message.startsWith("Duplicate error record:")
+              ) {
+                const key = cause.message
+                  .slice("Duplicate error record:".length)
+                  .trim();
+                const index = remaining.findIndex(
+                  (record) => errorFileKey(record) === key,
+                );
+                if (index === -1) {
+                  logger.warn`duplicate error record already stored; dropping the colliding batch`;
+                  dropFromAccumulator(remaining);
+                  return;
+                }
+                const [colliding] = remaining.splice(index, 1);
+                if (colliding !== undefined)
+                  dropFromAccumulator([colliding]);
+                logger.warn`duplicate error record already stored; dropping the colliding record`;
+                if (remaining.length === 0) return;
+                continue;
+              }
+              throw cause;
+            }
+            dropFromAccumulator(remaining);
+            return;
+          }
         } finally {
           flushInProgress = undefined;
         }

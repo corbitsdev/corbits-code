@@ -22,19 +22,19 @@ points straight at `./src/*.ts` files rather than a `dist/` build.
 
 ## What's vendored
 
-| Package                                            | Vendor path                           | License       | Synced from upstream commit                | Retrieved  | Local patches                                |
-| -------------------------------------------------- | ------------------------------------- | ------------- | ------------------------------------------ | ---------- | -------------------------------------------- |
-| `@intx/inference`                                  | `vendor/intx-inference/`              | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | Yes — see `vendor/intx-inference/PATCHES.md` |
-| `@intx/types`                                      | `vendor/intx-types/`                  | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/storage-isogit`                             | `vendor/intx-storage-isogit/`         | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/agent`                                      | `vendor/intx-agent/`                  | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/authz`                                      | `vendor/intx-authz/`                  | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/log`                                        | `vendor/intx-log/`                    | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/tools-posix`                                | `vendor/intx-tools-posix/`            | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/mailbox`                                    | `vendor/intx-mailbox/`                | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/harness`                                    | `vendor/intx-harness/`                | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/mime`                                       | `vendor/intx-mime/`                   | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
-| `@intx/workflow-host` (partial — `adapters/` only) | `vendor/intx-workflow-host/adapters/` | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                              |
+| Package                                            | Vendor path                           | License       | Synced from upstream commit                | Retrieved  | Local patches                                     |
+| -------------------------------------------------- | ------------------------------------- | ------------- | ------------------------------------------ | ---------- | ------------------------------------------------- |
+| `@intx/inference`                                  | `vendor/intx-inference/`              | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | Yes — see `vendor/intx-inference/PATCHES.md`      |
+| `@intx/types`                                      | `vendor/intx-types/`                  | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | Yes — see `vendor/intx-types/PATCHES.md`          |
+| `@intx/storage-isogit`                             | `vendor/intx-storage-isogit/`         | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | Yes — see `vendor/intx-storage-isogit/PATCHES.md` |
+| `@intx/agent`                                      | `vendor/intx-agent/`                  | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | Yes — see `vendor/intx-agent/PATCHES.md`          |
+| `@intx/authz`                                      | `vendor/intx-authz/`                  | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                                   |
+| `@intx/log`                                        | `vendor/intx-log/`                    | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                                   |
+| `@intx/tools-posix`                                | `vendor/intx-tools-posix/`            | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                                   |
+| `@intx/mailbox`                                    | `vendor/intx-mailbox/`                | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                                   |
+| `@intx/harness`                                    | `vendor/intx-harness/`                | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                                   |
+| `@intx/mime`                                       | `vendor/intx-mime/`                   | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                                   |
+| `@intx/workflow-host` (partial — `adapters/` only) | `vendor/intx-workflow-host/adapters/` | LGPL-2.1-only | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | 2026-09-07 | None — verbatim                                   |
 
 ## Provenance, ownership, and kill dates
 
@@ -48,9 +48,9 @@ package; the date is the deadline even if it is not.
 | Vendor path                           | Upstream repo           | Upstream commit                            | Patched            | Why not the published package                                                                                                                                   | Owner   | Proposed kill date                                                                         |
 | ------------------------------------- | ----------------------- | ------------------------------------------ | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------ |
 | `vendor/intx-inference/`              | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | Yes — `PATCHES.md` | Local fixes not yet upstream                                                                                                                                    | runtime | 2027-03-07 or when patches land upstream and publish                                       |
-| `vendor/intx-types/`                  | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Cross-package coupling with `@intx/inference`                                                                                                                   | runtime | 2027-03-07 or when the coupled trio publishes past `0.3.0`                                 |
-| `vendor/intx-storage-isogit/`         | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Cross-package coupling with `@intx/inference`                                                                                                                   | runtime | 2027-03-07 or when the coupled trio publishes past `0.3.0`                                 |
-| `vendor/intx-agent/`                  | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/agent@>=0.4.0` publishes                                         |
+| `vendor/intx-types/`                  | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | Yes — `PATCHES.md` | Cross-package coupling with `@intx/inference`                                                                                                                   | runtime | 2027-03-07 or when the coupled trio publishes past `0.3.0`                                 |
+| `vendor/intx-storage-isogit/`         | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | Yes — `PATCHES.md` | Cross-package coupling with `@intx/inference`                                                                                                                   | runtime | 2027-03-07 or when the coupled trio publishes past `0.3.0`                                 |
+| `vendor/intx-agent/`                  | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | Yes — `PATCHES.md` | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/agent@>=0.4.0` publishes                                         |
 | `vendor/intx-authz/`                  | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/authz@>=0.4.0` publishes                                         |
 | `vendor/intx-log/`                    | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/log@>=0.4.0` publishes                                           |
 | `vendor/intx-tools-posix/`            | `faremeter/interchange` | `0205b07b64d03f0fec2e4be3593c764070a9ba8a` | No                 | Vendored at Interchange head ahead of npm                                                                                                                       | runtime | 2027-03-07 or when `@intx/tools-posix@>=0.4.0` publishes                                   |
@@ -118,9 +118,11 @@ The 2026-09-07 sync also vendored the remaining four consumed packages
 (`@intx/agent`, `@intx/authz`, `@intx/log`, `@intx/tools-posix`) at the
 same upstream commit, completing the set: every `@intx/*` package this
 repo imports now resolves to vendored source. None of the four carried
-local patches at vendoring time; their trees are verbatim upstream
-copies. `@intx/tools-lsp` remains on published npm (`0.3.0`) — it is a
-thin adapter whose transitive `@intx/*` dependencies resolve to the
+local patches at vendoring time. `@intx/agent` later gained the error-seq
+patches ledgered in `vendor/intx-agent/PATCHES.md`; the other three remain
+verbatim upstream copies. `@intx/tools-lsp` remains on published npm
+(`0.3.0`) — it is a thin adapter whose transitive `@intx/*` dependencies
+resolve to the
 vendored workspaces via root `overrides`, so it tracks the vendored set
 without being vendored itself. Published transitive dependencies that
 stay on npm (`@intx/crypto`, `@intx/inference-discovery`,
@@ -187,13 +189,14 @@ those packages now resolves to the single root instance. As of this sync,
 
 ## Patched vs. verbatim
 
-Of the eleven vendored paths, exactly one carries local patches:
-`@intx/inference` — every divergence is a real fix not yet upstream, listed
-one-per-patch in `vendor/intx-inference/PATCHES.md`. The other ten paths
-(nine whole packages plus the partial `vendor/intx-workflow-host/adapters/`
+Of the eleven vendored paths, four carry local patches:
+`@intx/inference`, `@intx/types`, `@intx/storage-isogit`, and
+`@intx/agent` — every divergence is a real fix not yet upstream, listed
+one-per-patch in that package's `PATCHES.md`. The other seven paths
+(six whole packages plus the partial `vendor/intx-workflow-host/adapters/`
 tree) are verbatim copies of upstream — no modifications. A diff against a
 pristine upstream checkout at the same commit and paths will show 100%
-upstream-authored lines.
+upstream-authored lines for those seven.
 
 ## Notable upstream shape changes carried by the 2026-08-22 sync
 
@@ -229,12 +232,12 @@ different reason — the vendored mime sources import `@intx/crypto`, which
 stays on published npm, and `Bun.build` cannot resolve that bare specifier
 from inside the vendor workspace.
 
-`@intx/inference` carries local patches — real fixes not yet present
-upstream, not workarounds for something upstream has since fixed. Every
-patched location carries a one-line comment naming its site-specific entry
-in `vendor/intx-inference/PATCHES.md` (e.g. `#reactor-ts-correlating-ids-leak`),
-so `grep -rn "Locally patched" vendor/intx-inference/src` finds every
-divergence. **Markers are navigation; the SHA-diff is proof.** Run
+Patched packages carry local fixes not yet present upstream, not
+workarounds for something upstream has since fixed. Every patched
+location carries a one-line comment naming its site-specific entry in
+that package's `PATCHES.md` (e.g. `#reactor-ts-correlating-ids-leak`),
+so `grep -rn "Locally patched" vendor/*/src` finds every divergence.
+**Markers are navigation; the SHA-diff is proof.** Run
 `bin/vendor-patch-diff` against a pristine upstream checkout at the
 recorded SHA to print exactly the lines that are ours. A correspondence
 test (`tests/unit/vendor-patch-ledger.test.ts`) fails if a marker anchor
@@ -253,7 +256,8 @@ does not resolve to a ledger heading, or if a ledger heading has no marker.
    `adapters/substrate-mailbox-store.ts` and
    `adapters/substrate-mailbox-store.test.ts`). Run
    `bun install`, `bun run typecheck`, `bun run build`, `bun run test`.
-3. For a **patched** package (`@intx/inference`): before overwriting
+3. For a **patched** package (`@intx/inference`, `@intx/types`,
+   `@intx/storage-isogit`, `@intx/agent`): before overwriting
    anything, run `bin/vendor-patch-diff` (optionally
    `--upstream /path/to/interchange`) to re-derive the exact local
    divergences against the recorded SHA — do not trust `PATCHES.md`'s

@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type } from "arktype";
 
+import { createDefaultDependencies } from "@intx/inference/providers";
 import { createInboundMessage } from "@intx/mime";
 import { createIsogitStore } from "@intx/storage-isogit/node";
 import type { AuditRecord, ErrorRecord } from "@intx/types/audit";
@@ -59,6 +60,9 @@ function makeRecordingAuditStore(): RecordingAuditStore {
     async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
       return [];
     },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return committedErrors.flat();
+    },
     getCommittedErrors() {
       return committedErrors;
     },
@@ -89,6 +93,69 @@ function makeFailFirstAuditStore(): FailingAuditStore {
       committedErrors.push([...records]);
     },
     async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
+      return [];
+    },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return committedErrors.flat();
+    },
+    getCommittedErrors() {
+      return committedErrors;
+    },
+  };
+}
+
+function makeDuplicateErrorAuditStore(): FailingAuditStore {
+  return {
+    async commitAudit(_records: AuditRecord[]): Promise<void> {
+      // No-op.
+    },
+    async commitErrors(records: ErrorRecord[]): Promise<void> {
+      throw new Error(
+        `Duplicate error record: ${records[0]?.sessionId ?? "session"}/00000000-credential_failure`,
+      );
+    },
+    async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
+      return [];
+    },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return [];
+    },
+    getCommittedErrors() {
+      return [];
+    },
+  };
+}
+
+// Audit store that collides on the first batch's leading record only,
+// simulating a stale-seq assembly flushing [seq0/dup, seq1/fresh]: the
+// first `commitErrors` throws `Duplicate error record` naming the
+// colliding record's file key, and the retry succeeds.
+function makePartialDuplicateAuditStore(): FailingAuditStore {
+  const committedErrors: ErrorRecord[][] = [];
+  let firstAttempt = true;
+  return {
+    async commitAudit(_records: AuditRecord[]): Promise<void> {
+      // No-op.
+    },
+    async commitErrors(records: ErrorRecord[]): Promise<void> {
+      if (firstAttempt) {
+        firstAttempt = false;
+        const colliding = records[0];
+        const seq = String(colliding?.seq ?? 0).padStart(8, "0");
+        const category = (colliding?.category ?? "").replace(
+          /[^a-zA-Z0-9_-]/g,
+          "_",
+        );
+        throw new Error(
+          `Duplicate error record: ${colliding?.sessionId ?? "session"}/${seq}-${category}`,
+        );
+      }
+      committedErrors.push([...records]);
+    },
+    async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
+      return [];
+    },
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
       return [];
     },
     getCommittedErrors() {
@@ -151,6 +218,86 @@ async function waitForReactorDone(
   for await (const event of stream) {
     if (event.type === "reactor.done") return;
   }
+}
+
+const FORBIDDEN_DEPS = {
+  ...createDefaultDependencies(),
+  fetch: async () =>
+    new Response("Unauthorized", { status: 401, statusText: "Unauthorized" }),
+};
+
+function credentialFailureDirectors(): BaseEnv["directors"] {
+  return makeDirectorRegistry(
+    async (
+      event: ReactorInboundEvent,
+      _state: ReactorState,
+      caps: ReactorCapabilities,
+    ) => {
+      if (event.type === "message.received") return caps.infer();
+      if (event.type === "inference.error") {
+        return [caps.checkpoint("after-error"), caps.done()];
+      }
+      return caps.done();
+    },
+  );
+}
+
+function forbiddenAgentDef(id: string) {
+  return defineAgent({
+    id,
+    systemPrompt: "test",
+    tools: [],
+    capabilities: [],
+    inference: {
+      sources: [
+        {
+          provider: UNREACHABLE_SOURCE.provider,
+          model: UNREACHABLE_SOURCE.model,
+        },
+      ],
+    },
+  });
+}
+
+function duplicateFlushFailures(
+  events: ReadonlyArray<{ type: string; data?: unknown }>,
+): ReadonlyArray<{ type: string; data?: unknown }> {
+  return events.filter((event) => {
+    if (event.type !== "reactor.error") return false;
+    return JSON.stringify(event.data ?? {}).includes("Duplicate error record");
+  });
+}
+
+async function runForbiddenCycle(opts: {
+  workdir: string;
+  sessionId: string;
+  agentId: string;
+}): Promise<{ events: Array<{ type: string; data?: unknown }> }> {
+  const store = await createIsogitStore(opts.workdir);
+  const env: BaseEnv = {
+    sources: [UNREACHABLE_SOURCE],
+    defaultSource: UNREACHABLE_SOURCE.id,
+    storage: store,
+    workdir: opts.workdir,
+    audit: store,
+    authorize: permissiveAuthorize(),
+    directors: credentialFailureDirectors(),
+    sessionId: opts.sessionId,
+    deps: FORBIDDEN_DEPS,
+  };
+  const agent = await createAgent(forbiddenAgentDef(opts.agentId), env);
+  const events: Array<{ type: string; data?: unknown }> = [];
+  const stream = agent.stream();
+  try {
+    agent.deliver(inboundConversation());
+    for await (const event of stream) {
+      events.push(event);
+      if (event.type === "reactor.done") break;
+    }
+  } finally {
+    await agent.close();
+  }
+  return { events };
 }
 
 describe("agent error flushing", () => {
@@ -469,5 +616,170 @@ describe("agent error flushing", () => {
     const batches = audit.getCommittedErrors();
     expect(batches.length).toBe(1);
     expect(batches[0]?.[0]?.source).toBe("reactor");
+  });
+
+  test("two credential_failure errors in one session persist without failing the run", async () => {
+    const sessionId = "session-credential-once";
+    let inferenceErrors = 0;
+    const store = await createIsogitStore(workDir);
+    const env: BaseEnv = {
+      sources: [UNREACHABLE_SOURCE],
+      defaultSource: UNREACHABLE_SOURCE.id,
+      storage: store,
+      workdir: workDir,
+      audit: store,
+      authorize: permissiveAuthorize(),
+      directors: makeDirectorRegistry(
+        async (
+          event: ReactorInboundEvent,
+          _state: ReactorState,
+          caps: ReactorCapabilities,
+        ) => {
+          if (event.type === "message.received") return caps.infer();
+          if (event.type === "inference.error") {
+            inferenceErrors += 1;
+            if (inferenceErrors === 1) {
+              return [caps.checkpoint("after-first"), caps.infer()];
+            }
+            return [caps.checkpoint("after-second"), caps.done()];
+          }
+          return caps.done();
+        },
+      ),
+      sessionId,
+      deps: FORBIDDEN_DEPS,
+    };
+    const agent = await createAgent(forbiddenAgentDef("cred-flush-once"), env);
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const stream = agent.stream();
+    try {
+      agent.deliver(inboundConversation());
+      for await (const event of stream) {
+        events.push(event);
+        if (event.type === "reactor.done") break;
+      }
+    } finally {
+      await agent.close();
+    }
+
+    expect(duplicateFlushFailures(events)).toEqual([]);
+    const records = (await store.loadErrors(sessionId)).filter(
+      (record) => record.category === "credential_failure",
+    );
+    expect(records).toHaveLength(2);
+    expect(new Set(records.map((record) => record.seq)).size).toBe(2);
+  });
+
+  test("two credential_failure errors persist across re-assembly without failing the session", async () => {
+    const sessionId = "session-credential";
+    const first = await runForbiddenCycle({
+      workdir: workDir,
+      sessionId,
+      agentId: "cred-flush-1",
+    });
+    const second = await runForbiddenCycle({
+      workdir: workDir,
+      sessionId,
+      agentId: "cred-flush-2",
+    });
+
+    expect(duplicateFlushFailures(first.events)).toEqual([]);
+    expect(duplicateFlushFailures(second.events)).toEqual([]);
+    const store = await createIsogitStore(workDir);
+    const records = (await store.loadErrors(sessionId)).filter(
+      (record) => record.category === "credential_failure",
+    );
+    expect(records).toHaveLength(2);
+    expect(new Set(records.map((record) => record.seq)).size).toBe(2);
+  });
+
+  test("a duplicate error record from commitErrors does not fail the session", async () => {
+    const audit = makeDuplicateErrorAuditStore();
+    const directors = credentialFailureDirectors();
+    const def = forbiddenAgentDef("cred-flush-duplicate");
+    const env = await buildAgentEnv({ workdir: workDir, audit, directors });
+    const agent = await createAgent(def, { ...env, deps: FORBIDDEN_DEPS });
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const stream = agent.stream();
+    try {
+      agent.deliver(inboundConversation());
+      for await (const event of stream) {
+        events.push(event);
+        if (event.type === "reactor.done") break;
+      }
+    } finally {
+      await agent.close();
+    }
+
+    expect(duplicateFlushFailures(events)).toEqual([]);
+    expect(events.some((event) => event.type === "reactor.done")).toBe(true);
+  });
+
+  test("a partial duplicate collision drops only the colliding record", async () => {
+    // A stale-seq assembly flushing [seq0/dup, seq1/fresh] must persist
+    // the fresh record: the first commit names only the colliding key,
+    // so the flush drops that record and retries the rest.
+    const audit = makePartialDuplicateAuditStore();
+    let inferenceErrors = 0;
+    const directors = makeDirectorRegistry(
+      async (
+        event: ReactorInboundEvent,
+        _state: ReactorState,
+        caps: ReactorCapabilities,
+      ) => {
+        if (event.type === "message.received") return caps.infer();
+        if (event.type === "inference.error") {
+          inferenceErrors += 1;
+          if (inferenceErrors === 1) return caps.infer();
+          return [caps.checkpoint("after-second"), caps.done()];
+        }
+        return caps.done();
+      },
+    );
+    const def = forbiddenAgentDef("cred-flush-partial-duplicate");
+    const env = await buildAgentEnv({ workdir: workDir, audit, directors });
+    const agent = await createAgent(def, { ...env, deps: FORBIDDEN_DEPS });
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const stream = agent.stream();
+    try {
+      agent.deliver(inboundConversation());
+      for await (const event of stream) {
+        events.push(event);
+        if (event.type === "reactor.done") break;
+      }
+    } finally {
+      await agent.close();
+    }
+
+    expect(duplicateFlushFailures(events)).toEqual([]);
+    expect(events.some((event) => event.type === "reactor.done")).toBe(true);
+    const persisted = audit.getCommittedErrors().flat();
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.seq).toBe(1);
+  });
+
+  test("createAgent still assembles when loadErrors throws", async () => {
+    const audit = makeRecordingAuditStore();
+    audit.loadErrors = async () => {
+      throw new Error("simulated loadErrors failure");
+    };
+    const directors = credentialFailureDirectors();
+    const def = forbiddenAgentDef("cred-flush-load-errors");
+    const env = await buildAgentEnv({ workdir: workDir, audit, directors });
+    const agent = await createAgent(def, { ...env, deps: FORBIDDEN_DEPS });
+    const events: Array<{ type: string; data?: unknown }> = [];
+    const stream = agent.stream();
+    try {
+      agent.deliver(inboundConversation());
+      for await (const event of stream) {
+        events.push(event);
+        if (event.type === "reactor.done") break;
+      }
+    } finally {
+      await agent.close();
+    }
+
+    expect(events.some((event) => event.type === "reactor.done")).toBe(true);
+    expect(audit.getCommittedErrors().flat().length).toBeGreaterThan(0);
   });
 });

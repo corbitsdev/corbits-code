@@ -143,6 +143,7 @@ function stubAuditStore(): AuditStore {
     commitAudit: async () => undefined,
     commitErrors: async () => undefined,
     loadAudit: async () => [],
+    loadErrors: async () => [],
   };
 }
 

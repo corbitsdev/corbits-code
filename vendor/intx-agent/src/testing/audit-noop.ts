@@ -25,5 +25,9 @@ export function noopAuditStore(): AuditStore {
     async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
       return [];
     },
+    // Locally patched — see vendor/intx-agent/PATCHES.md#testing-audit-noop-ts-load-errors
+    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
+      return [];
+    },
   };
 }

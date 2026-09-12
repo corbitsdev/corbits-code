@@ -800,6 +800,7 @@ describe("createSessionStores", () => {
     expect(typeof audit.commitAudit).toBe("function");
     expect(typeof audit.commitErrors).toBe("function");
     expect(typeof audit.loadAudit).toBe("function");
+    expect(typeof audit.loadErrors).toBe("function");
   });
 });
 

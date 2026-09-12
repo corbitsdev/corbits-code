@@ -18,6 +18,11 @@ describe("noopAuditStore", () => {
     expect(await store.loadAudit("sess")).toEqual([]);
   });
 
+  test("loadErrors returns an empty array", async () => {
+    const store = noopAuditStore();
+    expect(await store.loadErrors("sess")).toEqual([]);
+  });
+
   test("each call returns a fresh object", () => {
     expect(noopAuditStore()).not.toBe(noopAuditStore());
   });
