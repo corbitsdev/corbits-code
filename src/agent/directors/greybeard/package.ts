@@ -2,12 +2,12 @@ import type { DirectorPackage } from "../types.js";
 import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
- * Greybeard nested orchestrator (CL-7019).
+ * Greybeard leaf worker (CL-7019).
  * Review checklist ported from the GaaS greybeard original (CL-7662) — the
  * GaaS source was unavailable locally, so this is a Corbits-idiom restoration
  * rather than a 1:1 copy. Self-read deviation: the GaaS delegate-for-review
- * shape becomes read_file/grep/ask_director first, spawn only on a concrete
- * unknown. Architecture judgment with limited spawn — never ships product code.
+ * shape becomes read_file/grep/ask_director first, concluding with a verdict
+ * rather than a spawn. Architecture judgment as a leaf — never ships product code.
  */
 export const greybeardPackage: DirectorPackage = {
   id: "greybeard",
@@ -29,7 +29,7 @@ Follow style and philosophy conventions (baked into this prompt) when reviewing 
 
 Your value is analysis, not delegation: reach the judgment yourself with
 targeted reads (read_file, grep) and pointed questions (ask_director)
-before considering a spawn.
+before concluding.
 
 Review checklist — work the list in order:
 1. Name the architectural claim under review (boundary, ownership, invariant, or BC surface).
