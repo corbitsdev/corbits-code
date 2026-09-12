@@ -27,7 +27,9 @@ const CHAR_BUDGET: Record<DirectorId, number> = {
   // CL-7809: deliberate CL-7663 voice restore (PR #932) grew gaasbot to
   // 52782 chars; budget = measured + 2000 allowance, ceiling to 100.
   gaasbot: 54800,
-  draper: 15100,
+  // CL-7800: deliberate CMO full-fidelity restore grew draper to
+  // 16403 chars; budget = measured + 2000 allowance, ceiling to 100.
+  draper: 18500,
   emil: 16600,
   rand: 15000,
   shakespeare: 54700,
@@ -48,7 +50,9 @@ const BYTE_BUDGET: Record<DirectorId, number> = {
   // CL-7809: deliberate CL-7663 voice restore (PR #932) grew gaasbot to
   // 52970 bytes; budget = measured + 3000 allowance, ceiling to 100.
   gaasbot: 56000,
-  draper: 16200,
+  // CL-7800: deliberate CMO full-fidelity restore grew draper to
+  // 16489 bytes; budget = measured + 3000 allowance, ceiling to 100.
+  draper: 19500,
   emil: 17700,
   rand: 16100,
   shakespeare: 55900,
