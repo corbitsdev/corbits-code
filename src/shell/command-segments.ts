@@ -113,12 +113,14 @@ export function splitChainedCommand(command: string): string[] {
       i++;
       continue;
     }
-    // `&` participates in a redirect when it opens a bash combined redirect
-    // (`&>file`) or duplicates a fd after `>`/`<` (`2>&1`, `<&-`). In those
-    // positions it is not a background operator and must not split the chain —
-    // otherwise `bun run build 2>&1` fragments into a real command and a stray
-    // `1`, and the operator gets a separate approval prompt for "1".
-    if (ch === "&" && isRedirectAmpersand(next)) {
+    // `&` is redirect-bound only by its neighbours: a preceding `>`/`<`
+    // (fd duplication: `2>&1`, `>&2`, `<&-`) or an immediately following `>`
+    // (combined redirect: `&>file`, `&>>file`). Any other `&` — including one
+    // with no trailing space (`a &b`) — is the background operator and must
+    // split the chain; otherwise `bun run build 2>&1` fragments into a real
+    // command and a stray `1`, and the operator gets a separate approval
+    // prompt for "1".
+    if (ch === "&" && isRedirectAmpersand(previousNonSpace(current), next)) {
       current += ch;
       continue;
     }
@@ -215,9 +217,22 @@ function unwrapGroup(segment: string): string | null {
   return null;
 }
 
-// `&` is the background operator when it stands alone as a word — followed by
-// whitespace or end of input. Anywhere else it is part of a redirect token:
-// `2>&1`, `<&-`, `&>file`.
-function isRedirectAmpersand(next: string | undefined): boolean {
-  return !(next === undefined || next === " " || next === "\t");
+// The closest non-space character already scanned into the current segment,
+// or undefined at the start of a segment. `&` consults this (not the
+// following character) to decide whether it is redirect-bound.
+function previousNonSpace(current: string): string | undefined {
+  const trimmed = current.trimEnd();
+  return trimmed.length > 0 ? trimmed[trimmed.length - 1] : undefined;
+}
+
+// `&` is redirect-bound only when the previous non-space character is `>` or
+// `<` (fd duplication or close: `2>&1`, `>&2`, `<&-`), or when `&` is
+// immediately followed by `>` (combined redirect: `&>file`, `&>>file`).
+// Everything else is the background operator — a chain boundary.
+function isRedirectAmpersand(
+  prev: string | undefined,
+  next: string | undefined,
+): boolean {
+  if (next === ">") return true;
+  return prev === ">" || prev === "<";
 }
