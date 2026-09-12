@@ -270,7 +270,13 @@ export function resolveExecDirectorOverlay(
   const advertisedAllow =
     allow !== undefined && allow.length > 0
       ? pkg.spawn.maySpawn
-        ? [...allow]
+        ? [
+            ...allow,
+            // Exec mounts wait_agents beside the fleet verbs (mountWaitAgents),
+            // so it stays advertised here even though the package allow omits
+            // it for TUI/nested mailbox-mail collection.
+            ...(!allow.includes("wait_agents") ? ["wait_agents"] : []),
+          ]
         : allow.filter(
             (name) =>
               ![
@@ -592,6 +598,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const toolAvailability: ToolAvailability = {
       languageServerAvailable: detectLanguageServerAvailable(config.cwd),
       operatorAvailable: interactive,
+      // Exec primary keeps wait_agents mounted: headless runs have no
+      // mailbox-mail flush, so wait_agents stays the collection path here.
+      waitAgentsMounted: true,
     };
 
     let currentAgent: Agent | null = null;
@@ -640,6 +649,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
         : {}),
       sessionMode,
       toolAvailability,
+      // Exec-primary keeps wait_agents mounted (with an advertised allow):
+      // headless runs have no mailbox-mail flush, so wait_agents stays the
+      // collection path here. TUI primary and nested orchestrators omit it.
+      mountWaitAgents: true,
       ...(config.mcpServers !== undefined
         ? { mcpServers: config.mcpServers }
         : {}),

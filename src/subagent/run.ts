@@ -161,7 +161,6 @@ import {
 import {
   createFleetMailbox,
   createSpawnAgentTool,
-  createWaitAgentsTool,
   createListAgentsTool,
 } from "./agent-fleet.js";
 import {
@@ -799,7 +798,6 @@ async function runSubAgentInner(
         ...(mayDiscoverFleet ? (["search_agents"] as const) : []),
         "read_agent_trace",
         "spawn_agent",
-        "wait_agents",
         "list_agents",
         "close_agent",
         "resume_agent",
@@ -889,11 +887,6 @@ async function runSubAgentInner(
       tools = [
         ...tools,
         createSpawnAgentTool(fleetDeps),
-        createWaitAgentsTool({
-          sessions: fleetSessions,
-          fleetRecords,
-          authority: lifecycleAuthority,
-        }),
         createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({
           sessions: fleetSessions,

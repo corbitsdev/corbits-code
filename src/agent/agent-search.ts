@@ -111,7 +111,7 @@ export function formatAgentSearchResults(
       "",
       ...entries.flatMap((entry, i) => (i === 0 ? [entry] : ["", entry])),
       "",
-      "Spawn with spawn_agent(description, prompt, agent=<id>). For a team, call spawn_agent once per member (parallel in one turn when independent), then reply and idle — mailbox mail arrives as inbound. Nested orchestrators still collect with wait_agents.",
+      "Spawn with spawn_agent(description, prompt, agent=<id>). For a team, call spawn_agent once per member (parallel in one turn when independent), then reply and idle — mailbox mail arrives as inbound. wait_agents is mounted on exec-primary runs only.",
     ].join("\n"),
   );
 }

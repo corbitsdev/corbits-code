@@ -164,7 +164,13 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
   expect(guidelines).toContain("report_focus");
   expect(guidelines).toContain("intent");
   expect(guidelines).toContain("spawn_agent");
-  expect(guidelines).toContain("wait_agents");
+  // CL-7678: the default (TUI/nested) surface is unmounted — spawn then idle
+  // on mailbox mail. The wait_agents collect path is exec-primary opt-in.
+  expect(guidelines).toContain("mailbox mail arrives as inbound");
+  expect(guidelines).not.toContain("wait_agents");
+  expect(
+    buildGuidelines({ sessionMode: "orchestrator", waitAgentsMounted: true }),
+  ).toContain("wait_agents");
   expect(guidelines).toContain("required for implement/review");
   expect(guidelines).toContain("and their default directors");
   expect(guidelines).not.toContain("weaker");
@@ -216,8 +222,20 @@ test("default session lists split fleet tools and search_agents", () => {
   );
   expect(prompt).not.toContain("- task:");
   expect(prompt).toContain("- spawn_agent:");
-  expect(prompt).toContain("- wait_agents:");
+  // CL-7678: default (TUI/nested) session leaves wait_agents unmounted —
+  // collection is mailbox mail. Exec-primary mounts it via waitAgentsMounted.
+  expect(prompt).not.toContain("- wait_agents:");
   expect(prompt).toContain("- search_agents:");
+  const mounted = buildChatSystemPrompt(
+    undefined,
+    undefined,
+    undefined,
+    [],
+    "orchestrator",
+    { languageServerAvailable: true, waitAgentsMounted: true },
+  );
+  expect(mounted).toContain("- wait_agents:");
+  expect(mounted).toContain("collect with wait_agents");
 });
 
 test("chat prompt advertises core tools but never enumerates MCP integrations", () => {
@@ -280,7 +298,9 @@ test("SYSTEM.md override still appends orchestrator harness rules", () => {
   expect(prompt).toContain("## Session mode");
   expect(prompt).toContain("Orchestration:");
   expect(prompt).toContain("- spawn_agent:");
-  expect(prompt).toContain("- wait_agents:");
+  // CL-7678: SYSTEM.md override keeps the unmounted default — no wait_agents ad.
+  expect(prompt).not.toContain("- wait_agents:");
+  expect(prompt).toContain("Mailbox mail arrives as inbound");
 });
 
 test("an empty base override falls back to the default base", () => {

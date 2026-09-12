@@ -660,6 +660,16 @@ describe("resolveExecDirectorOverlay", () => {
     expect(overlay.systemPrompt).toContain("BuilderDirector");
   });
 
+  test("greybeard exec primary keeps wait_agents advertised (CL-7678)", () => {
+    const overlay = resolveExecDirectorOverlay("greybeard");
+    expect(overlay.mountFleet).toBe(true);
+    expect(overlay.advertisedAllow).toBeDefined();
+    // Exec mounts wait_agents beside the fleet verbs even though the package
+    // allow omits it for TUI/nested mailbox-mail collection.
+    expect(overlay.advertisedAllow).toContain("wait_agents");
+    expect(overlay.advertisedAllow).toContain("spawn_agent");
+  });
+
   test("skywalker default still can mount fleet", () => {
     expect(resolveExecDirectorOverlay(undefined).mountFleet).toBe(true);
     expect(resolveExecDirectorOverlay(undefined).systemPrompt).toBeUndefined();

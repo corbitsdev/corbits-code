@@ -9,7 +9,7 @@
  *    resume_agent, send_input, read_agent_trace, search_agents).
  *    Fleet *discovery* of the director catalog (search_agents) is Tier 1 only
  *    (CL-7051). list_agents is not catalog discovery — it lists this install's
- *    own spawn_agent workers, the same scoped mailbox wait_agents uses, so
+ *    own spawn_agent workers, the same scoped mailbox the fleet uses, so
  *    nested orchestrators may mount it.
  *  - assertCanTargetAgent: a Tier 2 nested orchestrator may act only on its
  *    own descendants, never a sibling or anything above it in the tree.

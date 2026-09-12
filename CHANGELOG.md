@@ -15,6 +15,11 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ### Changed
 
+- `wait_agents` is now exec-primary opt-in (`mountWaitAgents` in
+  `createAgentToolset`; CL-7678). The TUI primary and nested orchestrators no
+  longer mount it and collect fleet results through mailbox mail instead:
+  spawn then idle, do not poll. Headless `corbits exec` keeps it mounted with
+  an advertised allow.
 - Headless `corbits exec` unmounts `ask_operator` when stdin/stdout are not
   TTYs instead of advertising a cancel stub. TUI Skywalker still mounts it;
   TTY exec still prompts on stdin.

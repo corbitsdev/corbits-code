@@ -471,7 +471,9 @@ test("default session registers split fleet tools and search_agents", async () =
   const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
   expect(names).not.toContain("task");
   expect(names).toContain("spawn_agent");
-  expect(names).toContain("wait_agents");
+  // CL-7678: default (TUI) session leaves wait_agents unmounted — mailbox mail
+  // is the collect path. Exec primary opts in via mountWaitAgents.
+  expect(names).not.toContain("wait_agents");
   expect(names).toContain("search_agents");
 });
 

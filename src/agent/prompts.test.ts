@@ -140,6 +140,44 @@ describe("sub-agent report contract", () => {
   });
 });
 
+describe("wait_agents mount-gated prompt copy (CL-7678)", () => {
+  const TUI_AVAILABILITY = {
+    languageServerAvailable: false,
+    operatorAvailable: false,
+  };
+  function chatPrompt(
+    toolAvailability:
+      | typeof TUI_AVAILABILITY
+      | (typeof TUI_AVAILABILITY & { waitAgentsMounted: boolean }),
+  ): string {
+    return buildChatSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      [],
+      "orchestrator",
+      toolAvailability,
+    );
+  }
+
+  it("tells an unmounted primary to spawn then idle on mailbox mail", () => {
+    const prompt = chatPrompt(TUI_AVAILABILITY);
+    expect(prompt).toContain("mailbox mail arrives as inbound");
+    // No wait_agents tool ad on an unmounted primary — only the exec-only note.
+    expect(prompt).not.toContain("- wait_agents:");
+    expect(prompt).not.toContain("collect with wait_agents");
+    expect(prompt).toContain(
+      "wait_agents is mounted on exec-primary runs only",
+    );
+  });
+
+  it("keeps the wait_agents collect path on an exec-mounted primary", () => {
+    const prompt = chatPrompt({ ...TUI_AVAILABILITY, waitAgentsMounted: true });
+    expect(prompt).toContain("- wait_agents:");
+    expect(prompt).toContain("collect with wait_agents");
+  });
+});
+
 describe("shared verification guidance", () => {
   it("requires evidence-carrying verification in worker prompts", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {

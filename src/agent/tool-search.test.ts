@@ -14,6 +14,8 @@ import {
 
 const FULL_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: true,
+  // Exec-primary mount: wait_agents stays advertised here.
+  waitAgentsMounted: true,
 };
 const NO_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: false,
@@ -104,6 +106,30 @@ describe("createToolIndex", () => {
       expect(CORE_TOOL_NAMES).toContain(name);
       expect(advertised).toContain(name);
     }
+  });
+
+  test("wait_agents is advertised only when mounted (exec primary)", () => {
+    for (const availability of [
+      { languageServerAvailable: true, waitAgentsMounted: false },
+      { languageServerAvailable: true },
+    ] as const) {
+      const advertised = advertisedToolNamesForSessionMode(
+        "orchestrator",
+        availability,
+      );
+      expect(advertised).not.toContain("wait_agents");
+      // The rest of the fleet surface stays advertised on TUI/nested.
+      for (const name of [
+        "spawn_agent",
+        "list_agents",
+        "send_input",
+      ] as const) {
+        expect(advertised).toContain(name);
+      }
+    }
+    expect(
+      advertisedToolNamesForSessionMode("orchestrator", FULL_AVAILABILITY),
+    ).toContain("wait_agents");
   });
 
   test("manage_tasks is advertised regardless of availability", () => {

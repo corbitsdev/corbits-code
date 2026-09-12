@@ -1,7 +1,8 @@
 /**
- * Primary createAgentToolset mounts the seven fleet verbs beside search_agents /
+ * Primary createAgentToolset mounts six fleet verbs beside search_agents /
  * read_agent_trace when subAgent (with the shared TUI
- * sessions store) is wired. Leaves / no-subAgent toolsets stay without them.
+ * sessions store) is wired; wait_agents is exec-primary opt-in via
+ * mountWaitAgents (CL-7678). Leaves / no-subAgent toolsets stay without them.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,7 +13,6 @@ import { createSubAgentSessionStore } from "../subagent/session-store.js";
 
 const FLEET_VERBS = [
   "spawn_agent",
-  "wait_agents",
   "list_agents",
   "close_agent",
   "resume_agent",
@@ -21,7 +21,7 @@ const FLEET_VERBS = [
 ] as const;
 
 describe("primary fleet verb mount", () => {
-  test("createAgentToolset registers the seven fleet verbs when subAgent + sessions are set", async () => {
+  test("createAgentToolset registers six fleet verbs without wait_agents by default", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "corbits-fleet-mount-"));
     const { createAgentToolset } = await import("./tools.js");
     const permissionGate = {
@@ -48,6 +48,39 @@ describe("primary fleet verb mount", () => {
     expect(names).not.toContain("task");
     expect(names).toContain("read_agent_trace");
     for (const name of FLEET_VERBS) {
+      expect(names).toContain(name);
+    }
+    // TUI primary and nested orchestrators collect via mailbox mail.
+    expect(names).not.toContain("wait_agents");
+    await toolset.dispose();
+  });
+
+  test("createAgentToolset mounts wait_agents when mountWaitAgents is true (exec primary)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-fleet-mount-"));
+    const { createAgentToolset } = await import("./tools.js");
+    const permissionGate = {
+      check: async () => ({ allowed: true }),
+      getSkipPermissions: () => false,
+    } as never;
+    const sessions = createSubAgentSessionStore();
+
+    const toolset = await createAgentToolset({
+      cwd,
+      permissionGate,
+      onOperatorGate: async () => ({ kind: "option", index: 0 }),
+      mountWaitAgents: true,
+      subAgent: {
+        provider: {
+          providerName: "test",
+          baseURL: "http://127.0.0.1:0",
+          model: "test-model",
+        },
+        getWorkdirBase: () => cwd,
+        sessions,
+      },
+    });
+    const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+    for (const name of [...FLEET_VERBS, "wait_agents"] as const) {
       expect(names).toContain(name);
     }
     await toolset.dispose();

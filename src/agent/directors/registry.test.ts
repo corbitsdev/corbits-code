@@ -188,7 +188,9 @@ describe("director registry", () => {
     expect(s.systemPrompt).toMatch(/No catch-all worker/i);
     expect(s.tools?.allow).not.toContain("task");
     expect(s.tools?.allow).toContain("spawn_agent");
-    expect(s.tools?.allow).toContain("wait_agents");
+    // CL-7678: wait_agents is exec-primary opt-in, off the Skywalker allow —
+    // TUI primary collects through mailbox mail.
+    expect(s.tools?.allow).not.toContain("wait_agents");
     expect(s.tools?.allow).toContain("write_file");
     expect(s.tools?.allow).toContain("edit_file");
     expect(s.tools?.allow).toContain("delete_file");
