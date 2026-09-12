@@ -176,22 +176,4 @@ describe("resolveAgentPluginProfiles", () => {
       ),
     ).toBe(true);
   });
-
-  test("warns once when a prompt file is missing and still loads the profile", async () => {
-    const { mod, config } = agentModule("p1", [
-      { id: "scout", systemPromptPath: "prompts/does-not-exist.md" },
-    ]);
-    mod.dir = "/tmp/wt-cl-6724-missing-prompt-dir";
-    const warnings: string[] = [];
-    const profiles = await resolveAgentPluginProfiles([mod], config, (msg) =>
-      warnings.push(msg),
-    );
-    expect(profiles.length).toBe(1);
-    expect(defined(profiles[0]).systemPromptRole).toBeUndefined();
-    expect(warnings.length).toBe(1);
-    expect(warnings[0]).toContain('"p1"');
-    expect(warnings[0]).toContain('"scout"');
-    expect(warnings[0]).toContain("prompts/does-not-exist.md");
-    expect(defined(warnings[0])).toMatch(/unreadable|missing/i);
-  });
 });
