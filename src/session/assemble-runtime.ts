@@ -243,6 +243,12 @@ export interface SessionGateArgs {
   /** Read at persist time so a live model switch stores under the pair in use. */
   getActiveProviderModel: () => string;
   onPersistNotice?: ((text: string) => void) | undefined;
+  /**
+   * First encounter with an unconfirmed project approvals file: the runners
+   * surface what the file would grant (exec: stderr, TUI: persist notice).
+   * Entries stay gated regardless of delivery.
+   */
+  onPendingProjectGrants?: ((text: string) => void) | undefined;
   interactive: boolean;
   skipPermissions: boolean;
   auto?: boolean | undefined;
@@ -265,7 +271,12 @@ export interface SessionGate {
 export async function assembleSessionGate(
   args: SessionGateArgs,
 ): Promise<SessionGate> {
-  const seededApprovals = await loadSeededApprovals(args.cwd, args.sessionId);
+  const seededApprovals = await loadSeededApprovals(
+    args.cwd,
+    args.sessionId,
+    undefined,
+    { onPendingProjectGrants: args.onPendingProjectGrants },
+  );
   const gate = createPermissionGate({
     approvals: seededApprovals,
     telemetry: args.telemetry,

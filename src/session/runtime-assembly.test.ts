@@ -165,10 +165,14 @@ describe("loadSeededApprovals merge order", () => {
         approvals: [{ tool: "run_shell", pattern: "session npm *" }],
       }),
     );
-    await permissionStore.saveProjectApproval(cwd, {
-      tool: "run_shell",
-      pattern: "project npm *",
-    });
+    await permissionStore.saveProjectApproval(
+      cwd,
+      {
+        tool: "run_shell",
+        pattern: "project npm *",
+      },
+      home,
+    );
 
     const seeded = await loadSeededApprovals(cwd, sessionId, home);
 

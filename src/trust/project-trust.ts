@@ -18,6 +18,7 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "trust"]);
 const ProjectTrustRecordSchema = type({
   "trustedPluginPaths?": "unknown[]",
   "trustedMcpFingerprints?": "unknown[]",
+  "trustedGrantFingerprints?": "unknown[]",
   "repo?": "string",
 });
 
@@ -34,11 +35,18 @@ export interface ProjectTrustStore {
   trustedPluginPaths: string[];
   /** MCP fingerprints (see mcpServerFingerprint) trusted for this project. */
   trustedMcpFingerprints: string[];
+  /**
+   * Grant fingerprints (see projectGrantFingerprint) confirmed for this
+   * project's approvals file. Trusting the project never implies trusting its
+   * grants: each entry requires its own operator confirmation (CL-7782).
+   */
+  trustedGrantFingerprints: string[];
 }
 
 const emptyStore = (): ProjectTrustStore => ({
   trustedPluginPaths: [],
   trustedMcpFingerprints: [],
+  trustedGrantFingerprints: [],
 });
 
 /**
@@ -156,6 +164,11 @@ export async function readProjectTrustStore(
     "trustedMcpFingerprints",
     path,
   );
+  const trustedGrantFingerprints = extractStringArrayField(
+    validated.trustedGrantFingerprints,
+    "trustedGrantFingerprints",
+    path,
+  );
   // Guard against a stale/copied record keyed to a different repo path: the
   // file records the repo it was written for and must match this cwd. A
   // missing or non-string `repo` is invalid too — without it, a hand-edited
@@ -186,6 +199,7 @@ export async function readProjectTrustStore(
     store: {
       trustedPluginPaths: absolutePluginPaths,
       trustedMcpFingerprints: [...trustedMcpFingerprints],
+      trustedGrantFingerprints: [...trustedGrantFingerprints],
     },
   };
 }
@@ -301,6 +315,82 @@ export async function trustMcpServer(
     const store = await loadProjectTrust(cwd, home);
     if (!store.trustedMcpFingerprints.includes(fp)) {
       store.trustedMcpFingerprints = [...store.trustedMcpFingerprints, fp];
+      await saveProjectTrust(cwd, store, home);
+    }
+    return store;
+  });
+}
+
+/**
+ * Stable fingerprint for one project-approval entry: tool + pattern, with the
+ * provider-model binding folded in when set, so switching models invalidates a
+ * prior confirmation exactly the way the gate's providerModel check does.
+ * The fingerprint deliberately excludes the file's cwd — the trust record is
+ * already keyed per project (realpath-keyed filename plus the repo guard).
+ */
+export function projectGrantFingerprint(approval: {
+  tool: string;
+  pattern: string;
+  providerModel?: string;
+}): string {
+  const payload = JSON.stringify({
+    tool: approval.tool,
+    pattern: approval.pattern,
+    providerModel: approval.providerModel ?? "",
+  });
+  return createHash("sha256").update(payload).digest("hex");
+}
+
+export function isProjectGrantTrusted(
+  store: ProjectTrustStore,
+  approval: { tool: string; pattern: string; providerModel?: string },
+): boolean {
+  return store.trustedGrantFingerprints.includes(
+    projectGrantFingerprint(approval),
+  );
+}
+
+/**
+ * Record the operator's confirmation of project-approval entries: trusting the
+ * project (plugins, MCP) never implies trusting its grants — these
+ * fingerprints are only written by an explicit confirmation path (an
+ * interactive grant persisted to the project scope, or a first-encounter
+ * review of a planted file), never by the mere existence of the file.
+ */
+export async function trustProjectGrants(
+  cwd: string,
+  approvals: { tool: string; pattern: string; providerModel?: string }[],
+  home: string = homedir(),
+): Promise<ProjectTrustStore> {
+  const fps = approvals.map(projectGrantFingerprint);
+  return enqueueMutation(projectTrustPath(cwd, home), async () => {
+    const store = await loadProjectTrust(cwd, home);
+    const missing = fps.filter(
+      (fp) => !store.trustedGrantFingerprints.includes(fp),
+    );
+    if (missing.length > 0) {
+      store.trustedGrantFingerprints = [
+        ...store.trustedGrantFingerprints,
+        ...missing,
+      ];
+      await saveProjectTrust(cwd, store, home);
+    }
+    return store;
+  });
+}
+
+/** Drop confirmations for removed entries so a replanted file re-surfaces. */
+export async function untrustProjectGrants(
+  cwd: string,
+  approvals: { tool: string; pattern: string; providerModel?: string }[],
+  home: string = homedir(),
+): Promise<ProjectTrustStore> {
+  const fps = new Set(approvals.map(projectGrantFingerprint));
+  return enqueueMutation(projectTrustPath(cwd, home), async () => {
+    const store = await loadProjectTrust(cwd, home);
+    const kept = store.trustedGrantFingerprints.filter((fp) => !fps.has(fp));
+    if (kept.length !== store.trustedGrantFingerprints.length) {
+      store.trustedGrantFingerprints = kept;
       await saveProjectTrust(cwd, store, home);
     }
     return store;

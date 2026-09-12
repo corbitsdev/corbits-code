@@ -189,6 +189,8 @@ export async function assembleTUISession(
     getActiveProviderModel: () =>
       `${state.config.providerName}:${state.config.model}`,
     onPersistNotice: (text) => state.approvalPersistNotice.notify?.(text),
+    onPendingProjectGrants: (text) =>
+      state.approvalPersistNotice.notify?.(text),
     interactive: true,
     skipPermissions: config.dangerouslySkipPermissions,
     auto: config.auto,

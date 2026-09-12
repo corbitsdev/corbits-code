@@ -363,7 +363,11 @@ describe("loadConfig", () => {
       filterMcpServersForConnect(servers, {
         source: "local",
         cwd: "/repo/without-trust-grant",
-        store: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+        store: {
+          trustedPluginPaths: [],
+          trustedMcpFingerprints: [],
+          trustedGrantFingerprints: [],
+        },
       }),
     ).resolves.toEqual([BUILTIN_EXA_MCP]);
   });

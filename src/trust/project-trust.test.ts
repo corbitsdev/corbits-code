@@ -52,14 +52,22 @@ describe("project trust store", () => {
       filterMcpServersForConnect(servers, {
         source: "global",
         cwd: "/repo/under/test",
-        store: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+        store: {
+          trustedPluginPaths: [],
+          trustedMcpFingerprints: [],
+          trustedGrantFingerprints: [],
+        },
       }),
     ).resolves.toEqual(servers);
     await expect(
       filterMcpServersForConnect(servers, {
         source: "local",
         cwd: "/repo/under/test",
-        store: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+        store: {
+          trustedPluginPaths: [],
+          trustedMcpFingerprints: [],
+          trustedGrantFingerprints: [],
+        },
       }),
     ).resolves.toEqual([]);
   });
@@ -228,6 +236,7 @@ describe("project trust store", () => {
       expect(result.store).toEqual({
         trustedPluginPaths: [],
         trustedMcpFingerprints: [],
+        trustedGrantFingerprints: [],
       });
     });
   });

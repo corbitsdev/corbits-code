@@ -37,8 +37,10 @@ import {
 } from "../plugins/loader.js";
 import { isPluginModuleEnabled } from "../plugins/register.js";
 import {
+  formatPendingProjectApprovals,
   loadApprovals,
   loadGlobalApprovals,
+  loadPendingProjectApprovals,
   loadProjectApprovals,
   loadProviderModelApprovals,
   saveGlobalApproval,
@@ -128,14 +130,32 @@ export async function loadSeededApprovals(
   cwd: string,
   sessionId: string,
   home?: string,
+  opts?: { onPendingProjectGrants?: ((text: string) => void) | undefined },
 ): Promise<Approval[]> {
   const sessionApprovals = await loadApprovals(cwd, sessionId, home);
-  const [projectApprovals, globalApprovals, providerModelApprovals] =
-    await Promise.all([
-      loadProjectApprovals(cwd),
-      loadGlobalApprovals(),
-      loadProviderModelApprovals(),
-    ]);
+  const [
+    projectApprovals,
+    globalApprovals,
+    providerModelApprovals,
+    pendingProjectApprovals,
+  ] = await Promise.all([
+    loadProjectApprovals(cwd, home),
+    loadGlobalApprovals(),
+    loadProviderModelApprovals(),
+    loadPendingProjectApprovals(cwd, home),
+  ]);
+  // First encounter with an unconfirmed project approvals file: show the
+  // operator what it would grant. The entries stay out of the seeded set
+  // (loadProjectApprovals gates them) — this notice is the only trace.
+  const pendingNotice = formatPendingProjectApprovals(pendingProjectApprovals);
+  if (pendingNotice !== "") {
+    persistLogger.warn("Unconfirmed project approvals in {cwd}", { cwd });
+    try {
+      opts?.onPendingProjectGrants?.(pendingNotice);
+    } catch {
+      // Notice delivery is best-effort; the grants stay gated regardless.
+    }
+  }
   return [
     ...sessionApprovals,
     ...projectApprovals,
