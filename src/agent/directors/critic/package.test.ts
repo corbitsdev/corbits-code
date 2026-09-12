@@ -73,6 +73,23 @@ describe("criticPackage", () => {
     );
   });
 
+  test("systemPrompt restores verify-by-temporary-test workflow", () => {
+    const p = criticPackage.systemPrompt;
+    expect(p).toMatch(/Verify by temporary test/i);
+    expect(p).toMatch(/Form hypotheses/i);
+    expect(p).toContain("tmp/critique-tests/");
+    expect(p).toMatch(/report only verified issues/i);
+    expect(p).toMatch(/keepers for permanent inclusion/i);
+    expect(p).toMatch(/clean up/i);
+  });
+
+  test("systemPrompt owns no report envelope", () => {
+    const p = criticPackage.systemPrompt;
+    expect(p).not.toMatch(/## Summary/);
+    expect(p).not.toMatch(/## Findings/);
+    expect(p).not.toMatch(/Recommended Tests for Permanent Inclusion/);
+  });
+
   test("systemPrompt has no tool-schema restatement or fake caps", () => {
     const p = criticPackage.systemPrompt;
     expect(p).not.toMatch(/parameters?:/i);
