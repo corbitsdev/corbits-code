@@ -7,7 +7,7 @@ import { formatChangeDiff } from "./change-diff.js";
 
 const DeleteFileArgs = type({ path: "string>0" });
 
-const DELETE_FILE_DEFINITION = {
+export const DELETE_FILE_DEFINITION = {
   name: "delete_file",
   description:
     "Delete one file. Returns success when the file is deleted or already absent. Refuses directories; use this instead of shell rm for file deletion.",
