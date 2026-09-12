@@ -6,11 +6,12 @@ import { generateSessionId } from "../session/index.js";
 import { loadSeededApprovals } from "../session/runtime-assembly.js";
 import { trustProjectGrants } from "../trust/project-trust.js";
 import { createPermissionGate } from "./gate.js";
-import type { PermissionRequest } from "./types.js";
+import type { Approval, PermissionRequest } from "./types.js";
 import {
   formatPendingProjectApprovals,
   loadPendingProjectApprovals,
   loadProjectApprovals,
+  saveProjectApproval,
 } from "./store.js";
 
 const PLANTED = [
@@ -18,12 +19,15 @@ const PLANTED = [
   { tool: "write_file", pattern: "*.ts" },
 ] as const;
 
-async function plantProjectApprovals(cwd: string): Promise<void> {
+async function plantProjectApprovals(
+  cwd: string,
+  entries: readonly unknown[] = PLANTED,
+): Promise<void> {
   const dir = join(cwd, ".corbits");
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, "permissions.json"),
-    JSON.stringify({ version: 1, approvals: PLANTED }),
+    JSON.stringify({ version: 1, approvals: entries }),
   );
 }
 
@@ -132,5 +136,74 @@ describe("CL-7782: project approvals require grant trust", () => {
     await trustProjectGrants(cwd, [...PLANTED], home);
     expect(await loadPendingProjectApprovals(cwd, home)).toEqual([]);
     expect(formatPendingProjectApprovals([])).toBe("");
+  });
+
+  test("hand-removing an entry revokes its confirmation: a byte-identical replant re-surfaces", async () => {
+    const base = await mkdtemp(join(tmpdir(), "cl-7782-replant-"));
+    const home = join(base, "home");
+    const cwd = join(base, "repo");
+    await plantProjectApprovals(cwd);
+    await trustProjectGrants(cwd, [...PLANTED], home);
+    expect(await loadProjectApprovals(cwd, home)).toHaveLength(2);
+
+    // Hand-edit the first entry out of the file without removeProjectApproval.
+    await plantProjectApprovals(cwd, [PLANTED[1]]);
+    expect(await loadProjectApprovals(cwd, home)).toEqual([{ ...PLANTED[1] }]);
+    expect(await loadPendingProjectApprovals(cwd, home)).toEqual([]);
+
+    // Replant the identical bytes: the removed entry surfaces, not applies.
+    await plantProjectApprovals(cwd);
+    expect(await loadProjectApprovals(cwd, home)).toEqual([{ ...PLANTED[1] }]);
+    expect(await loadPendingProjectApprovals(cwd, home)).toEqual([
+      { ...PLANTED[0] },
+    ]);
+  });
+
+  test("a gate-minted project grant ({tool, pattern, cwd}) survives save → reload and still applies", async () => {
+    const base = await mkdtemp(join(tmpdir(), "cl-7782-cwd-"));
+    const home = join(base, "home");
+    const cwd = join(base, "repo");
+
+    // Mint through the real gate so the entry has the production shape.
+    const minted: Approval[] = [];
+    const mintGate = createPermissionGate({
+      cwd,
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async () => ({
+        allow: true,
+        persist: {
+          id: "exact",
+          label: "Always allow",
+          pattern: "npm test",
+          grant: "project",
+        },
+      }),
+      persist: (approval, scope) => {
+        expect(scope).toBe("project");
+        minted.push(approval);
+      },
+      approvals: await loadSeededApprovals(cwd, generateSessionId(), home),
+    });
+    const NPM_TEST = {
+      id: "npm-test",
+      name: "run_shell",
+      arguments: { command: "npm test" },
+    } as const;
+    expect((await mintGate.evaluate({ ...NPM_TEST })).allowed).toBe(true);
+    expect(minted).toEqual([{ tool: "run_shell", pattern: "npm test", cwd }]);
+
+    // Production persist path, then reload: the cwd must round-trip, not strip.
+    const grant = minted[0];
+    if (grant === undefined) throw new Error("gate minted no project grant");
+    await saveProjectApproval(cwd, grant, home);
+    const reloaded = await loadProjectApprovals(cwd, home);
+    expect(reloaded).toEqual(minted);
+
+    // The reloaded entry still applies: a fresh seeded gate asks nothing.
+    const { gate, asked } = await driveGate(cwd, generateSessionId(), home);
+    expect((await gate.evaluate({ ...NPM_TEST })).allowed).toBe(true);
+    expect(asked).toEqual([]);
   });
 });

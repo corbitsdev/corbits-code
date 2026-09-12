@@ -10,7 +10,7 @@ import { sessionDir } from "../session/index.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import {
   isProjectGrantTrusted,
-  loadProjectTrust,
+  reconcileProjectGrants,
   trustProjectGrants,
   untrustProjectGrants,
 } from "../trust/project-trust.js";
@@ -141,16 +141,17 @@ export async function loadApprovals(
 // require their own confirmation. This is the safer default because a grant
 // auto-allows future tool calls with no further prompt, while plugin/MCP
 // trust only permits code to load or a server to connect.
+// REVOCATION: trust follows the file. Each load reconciles the trust record
+// against the entries currently on disk and drops fingerprints with no
+// corresponding entry, so hand-removing an entry revokes its confirmation
+// just like removeProjectApproval does — a byte-identical replant re-surfaces
+// as pending instead of applying silently.
 export async function loadProjectApprovals(
   cwd: string,
   home?: string,
 ): Promise<Approval[]> {
   const onDisk = await readApprovalsField(projectStorePath(cwd), "approvals");
-  if (onDisk.length === 0) return onDisk;
-  const trust =
-    home === undefined
-      ? await loadProjectTrust(cwd)
-      : await loadProjectTrust(cwd, home);
+  const trust = await reconcileProjectGrants(cwd, onDisk, home);
   return onDisk.filter((approval) => isProjectGrantTrusted(trust, approval));
 }
 
@@ -166,10 +167,7 @@ export async function loadPendingProjectApprovals(
 ): Promise<Approval[]> {
   const onDisk = await readApprovalsField(projectStorePath(cwd), "approvals");
   if (onDisk.length === 0) return [];
-  const trust =
-    home === undefined
-      ? await loadProjectTrust(cwd)
-      : await loadProjectTrust(cwd, home);
+  const trust = await reconcileProjectGrants(cwd, onDisk, home);
   return onDisk.filter((approval) => !isProjectGrantTrusted(trust, approval));
 }
 
@@ -199,8 +197,7 @@ export async function saveProjectApproval(
   // The only production writer is the interactive grant path (an operator
   // answering a prompt with a project-scope persist), so writing an entry is
   // itself the confirmation its fingerprint needs.
-  if (home === undefined) await trustProjectGrants(cwd, [approval]);
-  else await trustProjectGrants(cwd, [approval], home);
+  await trustProjectGrants(cwd, [approval], home);
 }
 
 export async function removeProjectApproval(
@@ -214,8 +211,7 @@ export async function removeProjectApproval(
       (a) => !sameApproval(a, target),
     ),
   }));
-  if (home === undefined) await untrustProjectGrants(cwd, [target]);
-  else await untrustProjectGrants(cwd, [target], home);
+  await untrustProjectGrants(cwd, [target], home);
 }
 
 export async function loadGlobalApprovals(

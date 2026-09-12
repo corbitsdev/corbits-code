@@ -353,9 +353,12 @@ export function isProjectGrantTrusted(
 /**
  * Record the operator's confirmation of project-approval entries: trusting the
  * project (plugins, MCP) never implies trusting its grants — these
- * fingerprints are only written by an explicit confirmation path (an
- * interactive grant persisted to the project scope, or a first-encounter
- * review of a planted file), never by the mere existence of the file.
+ * fingerprints are only written when the operator persists a grant to the
+ * project scope (the interactive grant path whose saveProjectApproval write is
+ * itself the confirmation), never by the mere existence of the file. A planted
+ * entry becomes trusted the next time the operator answers its per-call prompt
+ * with a project-scope persist; there is no separate first-encounter review
+ * writer.
  */
 export async function trustProjectGrants(
   cwd: string,
@@ -389,6 +392,32 @@ export async function untrustProjectGrants(
   return enqueueMutation(projectTrustPath(cwd, home), async () => {
     const store = await loadProjectTrust(cwd, home);
     const kept = store.trustedGrantFingerprints.filter((fp) => !fps.has(fp));
+    if (kept.length !== store.trustedGrantFingerprints.length) {
+      store.trustedGrantFingerprints = kept;
+      await saveProjectTrust(cwd, store, home);
+    }
+    return store;
+  });
+}
+
+/**
+ * Revocation by absence: drop trusted fingerprints with no corresponding
+ * on-disk entry. untrustProjectGrants only runs on the removeProjectApproval
+ * path, so a hand-edit that deletes an entry from the file would otherwise
+ * leave its fingerprint trusted and a byte-identical replant would apply
+ * silently. Loaders reconcile first, so trust follows the file: removing an
+ * entry revokes its confirmation whether or not the removal went through the
+ * store, and replanting it re-surfaces as pending.
+ */
+export async function reconcileProjectGrants(
+  cwd: string,
+  onDisk: { tool: string; pattern: string; providerModel?: string }[],
+  home: string = homedir(),
+): Promise<ProjectTrustStore> {
+  const live = new Set(onDisk.map(projectGrantFingerprint));
+  return enqueueMutation(projectTrustPath(cwd, home), async () => {
+    const store = await loadProjectTrust(cwd, home);
+    const kept = store.trustedGrantFingerprints.filter((fp) => live.has(fp));
     if (kept.length !== store.trustedGrantFingerprints.length) {
       store.trustedGrantFingerprints = kept;
       await saveProjectTrust(cwd, store, home);
