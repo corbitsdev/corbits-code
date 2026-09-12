@@ -7,6 +7,7 @@
  */
 
 import {
+  cancelItem,
   createSessionQueue,
   drainOne,
   enqueue,
@@ -669,7 +670,15 @@ function settleDrainedDelivery(
   paintChrome(shell);
 }
 
-function dispatchDrainedItem(
+/**
+ * One queued item's delivery hop. The pending column carried the item until
+ * now; delivery is what earns the transcript row, painted as an ordinary
+ * operator message. The queueItemId lets the settle path mark this exact row
+ * not-delivered/uncertain and lets rollback keep a delivered row; the echo
+ * ledger keeps the inbound `message.received` from painting a second row
+ * when the runtime echoes the send back.
+ */
+function deliverQueuedItem(
   shell: AppShell,
   bag: BridgeBag,
   item: QueueItem,
@@ -678,9 +687,6 @@ function dispatchDrainedItem(
   appendStreamRow(shell, {
     role: "user",
     text: userRowText(item.text, item.attachments ?? []),
-    // Distinct from the still-pending "steer"/"queue" tag — this row is
-    // being handed to the run right now. Follow-ups must not say steering.
-    meta: item.kind === "steer" ? "steering" : "following-up",
     queueItemId: item.id,
   });
   bag.pendingEchoes.push(item.text.trim());
@@ -1123,14 +1129,19 @@ function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
   }
 }
 
+/**
+ * User rows the shell paints ahead of the runtime's own inbound copy: a
+ * reinject, which lands before the restarted run reports it, and a row the
+ * bridge delivered at a tool boundary (it carries its queueItemId). A
+ * delivered row stays — the delivery already happened, so retracting it
+ * would show a transcript the runtime never saw returned. Queued/steered
+ * items stay off the log while pending (the column above the prompt carries
+ * them), so there is nothing of theirs to preserve here.
+ */
 function isLocallyQueuedUserRow(row: StreamRow): boolean {
   return (
     row.role === "user" &&
-    (row.meta === "queue" ||
-      row.meta === "steer" ||
-      row.meta === "steering" ||
-      row.meta === "following-up" ||
-      row.meta === "reinject")
+    (row.meta === "reinject" || row.queueItemId !== undefined)
   );
 }
 
@@ -1173,7 +1184,7 @@ function drainAtBoundary(shell: AppShell, bag: BridgeBag): void {
     const { state, item } = drainOne(shell.session);
     if (!item) break;
     shell.session = state;
-    dispatchDrainedItem(shell, bag, item);
+    deliverQueuedItem(shell, bag, item);
   }
   paintChrome(shell);
 }
@@ -1188,7 +1199,7 @@ function drainSteersAtBoundary(shell: AppShell, bag: BridgeBag): void {
     const { state, item } = drainOne(shell.session, "steer");
     if (!item) break;
     shell.session = state;
-    dispatchDrainedItem(shell, bag, item);
+    deliverQueuedItem(shell, bag, item);
   }
   paintChrome(shell);
 }
@@ -1709,15 +1720,9 @@ export function attachSessionBridge(
     const queued = shell.session.items[shell.session.items.length - 1];
     bag.port.enqueue(t, kind);
     if (kind === "steer") bag.waitYieldWake?.();
-    // Show the message itself, not the internal transition ("queue +1 →
-    // pending N") — the notice row already carries the depth once, in plain
-    // language, so this row's job is making the pending item identifiable.
-    appendStreamRow(shell, {
-      role: "user",
-      text: userRowText(t, attached),
-      meta: kind === "steer" ? "steer" : "queue",
-      ...(queued !== undefined ? { queueItemId: queued.id } : {}),
-    });
+    // No transcript echo while pending: the item lists in the column stacked
+    // on the prompt box and lands in the transcript as an ordinary user row
+    // when it actually delivers.
     paintChrome(shell);
     restoreNextPromptRecovery(shell, bag);
   };
@@ -1905,6 +1910,24 @@ export function attachSessionBridge(
     },
     onInterrupt: () => {
       doInterrupt();
+    },
+    // Enter on a selected column row: the item leaves the queue and lands on
+    // the same port.deliver hop a boundary/idle drain would use. A steer
+    // pushed while a turn is still in flight keeps its steer semantics —
+    // liveSteerInject routes it to deliverSteer so it injects into the
+    // running cycle instead of becoming the next user message.
+    onForceDeliver: (itemId) => {
+      const { state, item } = cancelItem(shell.session, itemId);
+      if (item === null) return;
+      shell.session = state;
+      const inject = item.kind === "steer" && bag.turn.isProcessing;
+      if (inject) bag.liveSteerInject = true;
+      try {
+        deliverQueuedItem(shell, bag, item);
+      } finally {
+        if (inject) bag.liveSteerInject = false;
+      }
+      paintChrome(shell);
     },
     exclusive: true,
   });

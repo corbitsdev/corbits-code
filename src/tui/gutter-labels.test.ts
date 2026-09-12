@@ -35,14 +35,13 @@ const OVERLAY_KIND_GUTTER = {
 
 const CHROME_LITERALS = ["error", "plan", "report", "stop", "observe"] as const;
 
+// Queued items no longer store a meta — pending state lives in the column
+// and delivery paints a plain operator row, so steer/queue/steering/
+// following-up are gone from the closed set on purpose. Cancelled items are
+// dropped outright instead of marked, so cancelled is gone too.
 const STORED_META_LITERALS = [
   "thinking",
-  "steer",
-  "queue",
-  "steering",
-  "following-up",
   "reinject",
-  "cancelled",
   "not-delivered",
   "delivery-uncertain",
 ];

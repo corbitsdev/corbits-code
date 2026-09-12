@@ -13,6 +13,7 @@ import {
 import { DEFAULT_STALL_MS } from "./agent-progress";
 import { appendStreamRow, paintChrome } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
+import { getShellBridgeHooks } from "./shell/internals";
 import { streamRowCount } from "./shell/transcript";
 import { STEER_WAIT_NOTICE_MS } from "./notice-line";
 import { withTestRenderer } from "./harness";
@@ -158,7 +159,7 @@ describe("attachSessionBridge", () => {
           expect(badgeCount(shell.session)).toBe(1);
           expect(shell.pendingQueue).toBe(1);
           const frame = h.captureCharFrame();
-          expect(frame).toMatch(/steer\s+1/);
+          expect(frame).toContain("steer      queued please");
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -194,8 +195,8 @@ describe("attachSessionBridge", () => {
           expect(shell.session.run).toBe("busy");
           expect(badgeCount(shell.session)).toBe(1);
           const frame = h.captureCharFrame();
-          expect(frame).toMatch(/follow-up\s+1/);
-          expect(frame).toContain("will follow up");
+          expect(frame).toContain("follow-up  follow up later");
+          expect(frame).not.toContain("will follow up");
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -343,7 +344,92 @@ describe("attachSessionBridge", () => {
           await h.renderOnce();
           const frame = h.captureCharFrame();
           expect(frame).toContain("steer now");
-          expect(frame).toMatch(/follow-up\s+1/);
+          expect(frame).toContain("follow-up  follow up");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("onForceDeliver removes the item and delivers it now", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("steer now", "steer");
+          bridge.submit("follow up", "queue");
+          port.clear();
+          const held = defined(shell.session.items[0], "queued item");
+          getShellBridgeHooks(shell)?.onForceDeliver?.(held.id);
+          expect(shell.session.items.map((i) => i.text)).toEqual(["follow up"]);
+          expect(port.calls).toEqual([
+            {
+              op: "deliver",
+              item: expect.objectContaining({ text: "steer now" }),
+            },
+          ]);
+          await h.renderOnce();
+          // Delivered rows are ordinary user rows — no pending/delivery label.
+          const frame = h.captureCharFrame();
+          expect(frame).toContain("steer now");
+          expect(frame).not.toContain("[steering]");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a steer force-pushed mid-turn keeps its inject semantics", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const liveAtDeliver: boolean[] = [];
+        // resolvePort captures handlers at attach time — wrap before it runs.
+        let bridge!: ReturnType<typeof attachSessionBridge>;
+        const recorded = port.deliver;
+        port.deliver = (item) => {
+          liveAtDeliver.push(bridge.parentCycleLive);
+          recorded(item);
+        };
+        bridge = attachSessionBridge(shell, port);
+        try {
+          // A live turn: submit moves the turn to isProcessing.
+          bridge.submit("start work", "immediate");
+          expect(bridge.turn.isProcessing).toBe(true);
+          bridge.submit("steer now", "steer");
+          bridge.submit("follow up", "queue");
+          port.clear();
+          const steer = defined(
+            shell.session.items.find((i) => i.kind === "steer"),
+            "steer item",
+          );
+          const followUp = defined(
+            shell.session.items.find((i) => i.kind === "queue"),
+            "follow-up item",
+          );
+          const hooks = getShellBridgeHooks(shell);
+          hooks?.onForceDeliver?.(steer.id);
+          hooks?.onForceDeliver?.(followUp.id);
+          // parentCycleLive latched for the steer's deliver call so it
+          // injects; the follow-up keeps the send path — it was never a steer.
+          expect(liveAtDeliver).toEqual([true, false]);
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -453,8 +539,9 @@ describe("attachSessionBridge", () => {
           ).toEqual(["late steer", "follow up"]);
           await h.renderOnce();
           const frame = h.captureCharFrame();
-          expect(frame).toContain("following up");
-          expect(frame).toContain("steering");
+          expect(frame).toContain("follow up");
+          expect(frame).toContain("late steer");
+          expect(frame).not.toContain("following up");
         } finally {
           bridge.dispose();
           shell.dispose();
@@ -1108,11 +1195,11 @@ describe("same-turn retry after inference.error", () => {
             (r) => `${r.meta ?? r.role}:${r.text}`,
           );
           expect(rows.indexOf("thinking:planning")).toBeGreaterThan(-1);
-          expect(rows.indexOf("steering:steer this")).toBeGreaterThan(
+          expect(rows.indexOf("user:steer this")).toBeGreaterThan(
             rows.indexOf("thinking:planning"),
           );
           expect(rows.indexOf("thinking:after steer")).toBeGreaterThan(
-            rows.indexOf("steering:steer this"),
+            rows.indexOf("user:steer this"),
           );
           expect(
             shell.streamLog.filter((r) => r.meta === "thinking"),
@@ -1202,6 +1289,62 @@ describe("same-turn retry after inference.error", () => {
           expect(errorRows(shell)).toEqual([]);
           expect(text).toContain("recovered");
           expect(text).toContain("steer this");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("a boundary-delivered steer row survives retry rollback", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          bridge.submit("start work", "immediate");
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "tool.start",
+            data: { call: { id: "c1", name: "run_shell" } },
+          });
+          bridge.submit("steer now", "steer");
+          // The parent tool finishes: the steer delivers at the boundary,
+          // painting its transcript row after the armed attempt mark.
+          bridge.handle({ type: "tool.boundary" });
+          expect(port.calls.some((c) => c.op === "deliver")).toBe(true);
+          // Same-attempt failure: the retry rolls back to the attempt mark.
+          // The delivered row must survive — delivery already happened, so
+          // retracting it would show a transcript the runtime never saw.
+          bridge.handle({
+            type: "inference.error",
+            data: {
+              error: {
+                category: "credential_failure",
+                message: "Forbidden",
+                statusCode: 403,
+              },
+            },
+          });
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.text.delta",
+            data: { token: "recovered" },
+          });
+          bridge.handle({ type: "inference.done", data: {} });
+          bridge.handle({ type: "reactor.done", data: {} });
+
+          const text = shell.streamLog.map((r) => r.text).join("\n");
+          expect(errorRows(shell)).toEqual([]);
+          expect(text).toContain("recovered");
+          expect(text).toContain("steer now");
         } finally {
           bridge.dispose();
           shell.dispose();

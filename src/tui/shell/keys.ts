@@ -36,10 +36,15 @@ import {
   toggleTasksPanel,
 } from "./chrome.js";
 import {
+  applyPendingDrop,
+  applyPendingForcePush,
+  applyPendingNav,
   applyShellCancelLast,
   attachClipboardImage,
   clearPendingAttachments,
+  clearPendingSelection,
   interruptShell,
+  pendingSelectionActive,
   submitPrompt,
 } from "./prompt.js";
 import {
@@ -289,6 +294,12 @@ export function createShellKeyHandlers(
         leaveSubagentObserve(shell);
         return;
       }
+      // A pending-column selection is the shallowest dismiss: Esc backs out
+      // of it before touching transcript focus.
+      if (clearPendingSelection(shell)) {
+        key.preventDefault();
+        return;
+      }
       // Transcript browse (entered with Tab) is the remaining poppable frame:
       // Esc hands typing back to the prompt.
       if (canPopFocus(shell.focus)) {
@@ -481,6 +492,31 @@ export function createShellKeyHandlers(
       }
     }
 
+    // A pending-column selection owns Enter (kill the held item and send it
+    // now) and ^X (drop it) outright; every other key just ends the selection
+    // and falls through to its normal handling. ↑/↓ are exempt — they stay
+    // with the column and are claimed by the nav block below.
+    if (pendingSelectionActive(shell)) {
+      if (
+        (keyName === "return" || keyName === "kpenter") &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.option
+      ) {
+        key.preventDefault();
+        applyPendingForcePush(shell);
+        return;
+      }
+      if (key.ctrl && !key.meta && !key.option && keyName === "x") {
+        key.preventDefault();
+        applyPendingDrop(shell);
+        return;
+      }
+      if (keyName !== "up" && keyName !== "down") {
+        clearPendingSelection(shell);
+      }
+    }
+
     const isCtrlKillYank =
       key.ctrl &&
       !key.meta &&
@@ -651,6 +687,12 @@ export function createShellKeyHandlers(
       (key.name === "up" || key.name === "down") &&
       focusOwner(shell.focus) === "prompt"
     ) {
+      // A live pending column takes ↑/↓ first: ↑ at the buffer's top edge
+      // selects the newest held item, ↓ past the last row hands the key back.
+      if (applyPendingNav(shell, key.name === "up" ? -1 : 1)) {
+        key.preventDefault();
+        return;
+      }
       // Multi-row prompt: Up/Down are caret motion first. Recall only fires at
       // the buffer's edges, which is where a shell history is conventionally
       // reachable and where the caret has nowhere left to go.

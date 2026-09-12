@@ -247,6 +247,18 @@ export function createAppShell(
     visible: layout.heights.notice > 0,
   });
 
+  // The queued steer/follow-up column — same transient pattern as the notice
+  // row: it holds rows only while the session queue has items to list.
+  const pendingBox = new BoxRenderable(ctx, {
+    id: "shell-pending",
+    width: "100%",
+    height: Math.max(1, layout.heights.pending),
+    flexShrink: 0,
+    flexDirection: "column",
+    backgroundColor: UI.ground,
+    visible: layout.heights.pending > 0,
+  });
+
   const promptBox = new BoxRenderable(ctx, {
     id: "shell-prompt-region",
     width: "100%",
@@ -307,6 +319,7 @@ export function createAppShell(
   root.add(agentsBox);
   root.add(taskBox);
   root.add(notice);
+  root.add(pendingBox);
   root.add(promptBox);
   root.add(landingBelow);
   root.add(bottomPad);
@@ -412,6 +425,7 @@ export function createAppShell(
     promptTopRule,
     promptBottomRule,
     notice,
+    pendingBox,
     layout,
     focus: createFocusState(),
     session,
@@ -525,6 +539,7 @@ export function createAppShell(
     // shell's lifetime. Live task data still lands in tasksRaw while hidden,
     // so the first toggle shows current data rather than a stale snapshot.
     tasksPanelHidden: true,
+    pendingSelId: null,
   });
   // The landing's snow needs a frame source that keeps running while the
   // turn monitor is deliberately quiet (idle, no session yet). A plain timer

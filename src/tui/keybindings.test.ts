@@ -41,6 +41,7 @@ import {
   setShellExitHandler,
   setEffortCycleHandler,
   clearShellBridgeHooks,
+  shellInternals,
   type AppShell,
 } from "./shell/internals.js";
 import { leaveSubagentObserve } from "./shell/observe.js";
@@ -499,6 +500,61 @@ const PROBES: Readonly<
       setShellRunState(shell, "idle");
     },
   },
+  "Up / Down / Enter / Ctrl+X": {
+    group: "session",
+    probe: ({ h, shell, chords }) => {
+      // Queue items first via the local path — an exclusive onSubmit hook
+      // owns enqueueing, so installing it earlier would swallow these.
+      clearShellBridgeHooks(shell);
+      setShellRunState(shell, "busy");
+      shell.prompt.value = "a";
+      submitPrompt(shell, "queue");
+      shell.prompt.value = "b";
+      submitPrompt(shell, "queue");
+      expect(shell.pendingQueue).toBe(2);
+      const pushed: string[] = [];
+      setShellBridgeHooks(shell, {
+        onSubmit: () => undefined,
+        onInterrupt: () => undefined,
+        onForceDeliver: (id) => {
+          pushed.push(id);
+          shell.session = {
+            ...shell.session,
+            items: shell.session.items.filter((i) => i.id !== id),
+          };
+        },
+        exclusive: true,
+      });
+
+      // ↑ at the buffer's top edge selects the newest held item; ↑ walks up.
+      press(h, chords[0]);
+      expect(shellInternals(shell)?.pendingSelId).toBe(
+        shell.session.items[1]?.id,
+      );
+      press(h, chords[0]);
+      expect(shellInternals(shell)?.pendingSelId).toBe(
+        shell.session.items[0]?.id,
+      );
+      // ↓ past the last row hands the key back to the prompt.
+      press(h, chords[1]);
+      press(h, chords[1]);
+      expect(shellInternals(shell)?.pendingSelId).toBeNull();
+      // ^X drops the selected item outright.
+      press(h, chords[0]);
+      press(h, chords[3]);
+      expect(shell.session.items.map((i) => i.text)).toEqual(["a"]);
+      // Enter force-pushes the selected item through the bridge.
+      press(h, chords[0]);
+      press(h, chords[2]);
+      expect(pushed).toHaveLength(1);
+      expect(shell.pendingQueue).toBe(0);
+
+      // Shared-shell convention: leave the queue and hooks as found.
+      shell.session = { ...shell.session, items: [] };
+      clearShellBridgeHooks(shell);
+      setShellRunState(shell, "idle");
+    },
+  },
   "Ctrl+C": {
     group: "session",
     probe: ({ h, shell, chords }) => {
@@ -569,18 +625,18 @@ const PROBES: Readonly<
 
       expect(shell.pendingQueue).toBe(1);
       expect(defined(shell.session.items[0]).text).toBe("keep");
-      const rows = shell.streamLog.map((row) => row.meta);
-      // The retracted message's row is rewritten, not left claiming "queue"
-      // as though it will still dispatch (the bug that got the first attempt
-      // at this pulled).
-      expect(rows).toEqual(["queue", "cancelled"]);
+      // Queued items live in the pending column, not the transcript — the
+      // retracted one comes back into the prompt as an editable draft.
+      expect(shell.streamLog).toHaveLength(0);
+      expect(shell.prompt.value).toBe("drop me");
 
       // The chord's whole job is what lands on screen, not the model alone —
       // assert on the rendered frame, not just streamLog.
       await h.renderOnce();
       const frame = h.captureCharFrame();
-      expect(frame).toContain("[cancelled] drop me");
+      expect(frame).toContain("drop me");
       expect(frame).toContain("keep");
+      expect(frame).not.toContain("cancelled");
 
       setShellRunState(shell, "idle");
     },

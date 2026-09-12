@@ -43,6 +43,8 @@ export interface OverlayInput {
 export interface ZoneVisibility {
   /** Transient notice row on (default off). */
   readonly notice?: boolean;
+  /** Pending queue column: exact row count requested (bounded by the zone max). */
+  readonly pending?: boolean | number;
   /** Progress: false/omit = 0; true = 2; or explicit 1|2. */
   readonly progress?: boolean | 1 | 2;
   /** Progress divider (0–1). Default on when progress is shown. */
@@ -154,6 +156,7 @@ export function desiredHeights(input: GeometryInput): MutableHeights {
     progress: clamp(progressRows, 0, ZONE_REGISTRY.progress.max),
     progress_divider: progressDivider,
     notice: vis.notice === true ? 1 : ZONE_REGISTRY.notice.idleDefault,
+    pending: clamp(boolOrRows(vis.pending, 1), 0, ZONE_REGISTRY.pending.max),
     prompt: promptRows,
     task: clamp(boolOrRows(vis.task, 1), 0, ZONE_REGISTRY.task.max),
     // The board asks for exactly the rows it will paint; the fraction is what

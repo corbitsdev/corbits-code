@@ -31,6 +31,7 @@ describe("zone registry", () => {
       "progress",
       "progress_divider",
       "notice",
+      "pending",
       "prompt",
       "task",
       "agents",

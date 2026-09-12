@@ -21,6 +21,12 @@ import { promptRowCount } from "../prompt-input.js";
 import { promptBoxRows } from "../prompt-rows.js";
 import { composeNoticeLine, resolveWaitingOn } from "../notice-line.js";
 import {
+  fitPendingRow,
+  PENDING_COLUMN_HINT,
+  pendingColumnHeight,
+  pendingColumnRows,
+} from "../pending-column.js";
+import {
   lockupCells,
   lockupText,
   lockupWidth,
@@ -61,7 +67,6 @@ import { destroySubtree } from "../teardown.js";
 import {
   badgeCount,
   enqueue,
-  queueCount,
   setRunState,
   steerCount,
   type RunState,
@@ -116,8 +121,6 @@ function syncPending(shell: AppShell): void {
 /** The transient row's text for the current state ("" when it has nothing to say). */
 export function noticeText(shell: AppShell): string {
   return composeNoticeLine({
-    steer: steerCount(shell.session),
-    followUp: queueCount(shell.session),
     waitingOn: resolveWaitingOn(
       steerCount(shell.session),
       shell.inFlightTool,
@@ -157,10 +160,12 @@ export function setPluginNeedsAttention(shell: AppShell, needs: boolean): void {
  * Every input the chrome compose paths read, as one comparable key. A missed
  * input here means stale chrome, so this list is exhaustive:
  *
- * - notice row: the composed `noticeText` output (folds in steer/follow-up
- *   queue counts, the in-flight tool and its start time, `lockupNowMs` as the
- *   waiting-on clock, the interrupt flash, transcript pin state, the status
- *   flash, and pending attachment count)
+ * - notice row: the composed `noticeText` output (folds in the in-flight
+ *   tool and its start time, `lockupNowMs` as the waiting-on clock, the
+ *   interrupt flash, transcript pin state, the status flash, and pending
+ *   attachment count)
+ * - pending column: the session queue's items as composed row text, plus the
+ *   selected item id — nav repaints the highlight without touching row text
  * - border geometry: `layout.contentWidth`
  * - top rule: MCP-needs-auth presence, plugin-needs-attention, `modelLabel`
  * - bottom rule: workspace cwd and branch, `homedir()` (label compression)
@@ -175,6 +180,10 @@ function chromeComposeKey(shell: AppShell, notice: string): string {
   const meter = shell.costContext;
   return [
     notice,
+    pendingColumnRows(shell.session.items)
+      .map((row) => `${row.tag ?? ""}:${row.text}`)
+      .join("\u0001"),
+    shellInternals(shell)?.pendingSelId ?? "",
     shell.layout.contentWidth,
     shell.mcpNeedsAuth.length > 0 ? "1" : "0",
     shell.pluginNeedsAttention ? "1" : "0",
@@ -229,9 +238,83 @@ export function paintChrome(
   shell.notice.content = new StyledText([
     fgChunk(UI.textDim)(notice.length > 0 ? ` ${notice}` : ""),
   ]);
+  syncPendingRows(shell);
   paintPromptBorder(shell);
   syncLandingSuggestions(shell);
   syncNoticeRow(shell, notice);
+  syncPendingColumn(shell);
+}
+
+/**
+ * Rebuild pendingBox's row children when the column's painted content moved —
+ * the items themselves, the fold, the granted height, or the column budget.
+ * Runs inside the compose-key gate, so an unchanged queue costs one signature
+ * compare rather than a row rebuild.
+ */
+function syncPendingRows(shell: AppShell): void {
+  const bag = shellInternals(shell);
+  const granted = Math.max(0, shell.layout.heights.pending);
+  // The last granted row is the key-guidance line; items fill what is left.
+  const rows = pendingColumnRows(shell.session.items, Math.max(0, granted - 1));
+  // A drained or cancelled item cannot stay selected.
+  if (
+    bag !== undefined &&
+    bag.pendingSelId !== null &&
+    !shell.session.items.some((item) => item.id === bag.pendingSelId)
+  ) {
+    bag.pendingSelId = null;
+  }
+  const selId = bag?.pendingSelId ?? null;
+  const key =
+    `${shell.layout.contentWidth} ${granted} ${selId ?? ""}` +
+    rows.map((row) => `${row.tag ?? ""}:${row.text}`).join("\u0001");
+  if (paintedPendingKey.get(shell) === key) return;
+  paintedPendingKey.set(shell, key);
+  for (const child of [...shell.pendingBox.getChildren()]) {
+    shell.pendingBox.remove(child);
+    destroySubtree(child);
+  }
+  for (const row of rows) {
+    const selected = row.id !== null && row.id === selId;
+    const fitted = fitPendingRow(row, shell.layout.contentWidth, selected);
+    shell.pendingBox.add(
+      new TextRenderable(shell.renderer as CliRenderer, {
+        content: new StyledText([
+          fgChunk(selected ? UI.text : UI.textFaint)(fitted.head),
+          fgChunk(
+            row.tag === null ? UI.textFaint : selected ? UI.text : UI.textDim,
+          )(fitted.text),
+        ]),
+      }),
+    );
+  }
+  if (rows.length > 0 && granted > rows.length) {
+    shell.pendingBox.add(
+      new TextRenderable(shell.renderer as CliRenderer, {
+        content: new StyledText([
+          fgChunk(UI.textFaint)(
+            ` ${sliceToWidth(PENDING_COLUMN_HINT, shell.layout.contentWidth)}`,
+          ),
+        ]),
+      }),
+    );
+  }
+}
+
+/** Signature of what the pending column last painted, per shell. */
+const paintedPendingKey = new WeakMap<AppShell, string>();
+
+/**
+ * Give the pending column rows only while the queue has items to list, and
+ * take them back the moment it does not — same transient contract as the
+ * notice row.
+ */
+function syncPendingColumn(shell: AppShell): void {
+  const bag = shellInternals(shell);
+  if (bag === undefined) return;
+  const wanted = pendingColumnHeight(shell.session.items.length);
+  if ((bag.visibility.pending ?? 0) === wanted) return;
+  relayout(shell, { visibility: { ...bag.visibility, pending: wanted } });
 }
 
 /**
@@ -783,6 +866,10 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   shell.notice.height = noticeH > 0 ? noticeH : 1;
   shell.notice.visible = noticeH > 0;
 
+  const pendingH = Math.max(0, h.pending);
+  shell.pendingBox.height = pendingH > 0 ? pendingH : 1;
+  shell.pendingBox.visible = pendingH > 0;
+
   const promptH = Math.max(0, h.prompt);
   shell.promptBox.height = promptH > 0 ? promptH : 1;
   shell.promptBox.visible = promptH > 0;
@@ -805,8 +892,8 @@ export function applyLayout(shell: AppShell, layout: GeometryLayout): void {
   // Rows the flow spends before the prompt box — where a floated host's bottom
   // edge has to land, since the landing's box sits mid-screen rather than at
   // the foot and covering it would hide the thing the operator types into.
-  // Stack: topPad, transcript, agents, task, then prompt (notice omitted —
-  // same as before; it is transient chrome between task and prompt).
+  // Stack: topPad, transcript, agents, task, then prompt (notice and the
+  // pending column omitted — both are transient chrome above the prompt).
   const promptTop = padH + transcriptBody + agentsH + taskH;
   const hostH = floating
     ? Math.min(overlayH, Math.max(1, promptTop))

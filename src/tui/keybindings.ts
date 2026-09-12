@@ -23,12 +23,17 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   {
     keys: "Enter",
     description:
-      "soft-steer at the next tool boundary while busy (badge); send straight through when idle",
+      "soft-steer at the next tool boundary while busy (held above the prompt); send straight through when idle",
   },
   {
     keys: "Alt+Enter",
     description:
       "queue a follow-up delivered only when the run goes idle; does nothing unless a run is busy",
+  },
+  {
+    keys: "Up / Down / Enter / Ctrl+X",
+    description:
+      "on held items above the prompt: select, send now, drop (Esc backs out)",
   },
   {
     keys: "Ctrl+C",
@@ -38,7 +43,7 @@ export const SHELL_SHORTCUTS: readonly ShellShortcut[] = [
   {
     keys: "Ctrl+G",
     description:
-      "cancel the most recently queued or steered message before it dispatches",
+      "pop the most recently queued or steered message back into the prompt for editing",
   },
   {
     keys: "Alt+C",

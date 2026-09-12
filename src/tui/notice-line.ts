@@ -4,7 +4,8 @@
  * There is no permanent status strip: keys are discoverable from the landing
  * screen and the command palette, and the prompt box's border already carries
  * the model and the workspace. What is left is state that is only sometimes
- * true — a queued message, a copy result, pinned scroll, attachments —
+ * true — a steer waiting on a tool, a copy result, pinned scroll,
+ * attachments —
  * and that gets a row only while it has something to say. When every segment
  * is at its default the row composes to the empty string and the shell hides
  * it, giving the row back to the transcript.
@@ -27,10 +28,6 @@ const SEP = "    ";
 export const STEER_WAIT_NOTICE_MS = 3_000;
 
 export interface NoticeState {
-  /** Soft-steer pending (Enter mid-run → drain at tool.boundary). */
-  readonly steer: number;
-  /** Follow-up pending (Alt+Enter mid-run → drain only when idle). */
-  readonly followUp: number;
   /**
    * Parent tool name to surface after `STEER_WAIT_NOTICE_MS`, or null.
    * Gated by `resolveWaitingOn`; this field only controls wording.
@@ -61,8 +58,8 @@ export function resolveWaitingOn(
 
 export function composeNoticeLine(state: NoticeState): string {
   const segments: string[] = [];
-  if (state.steer > 0) segments.push(`steer ${state.steer}`);
-  if (state.followUp > 0) segments.push(`follow-up ${state.followUp}`);
+  // Pending counts earned their own surface: the column stacked on the prompt
+  // box lists the items themselves, so the row no longer says "steer 2".
   if (state.waitingOn) segments.push(`waiting on ${state.waitingOn}`);
   if (state.pinned) segments.push("pinned");
   // "interrupt" is not a standing notice. Mid-run stop feedback is a system
