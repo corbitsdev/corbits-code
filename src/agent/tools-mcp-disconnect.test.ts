@@ -17,7 +17,7 @@ const closedGenerations: number[] = [];
 let connectGeneration = 0;
 let connectOptions: MCPConnectOptions[] = [];
 let releaseDeferredConnect: (() => void) | undefined;
-let connectMode: "success" | "deferred" = "success";
+let connectMode: "success" | "deferred" | "auth-pending" = "success";
 // Reconnect tests repoint this to simulate a server whose tool set drifted
 // between generations; the default matches the original static payload.
 let connectedTools: MCPTool[] = [
@@ -55,6 +55,14 @@ await withMockedModule(
             error: "aborted",
           };
         }
+      }
+      if (connectMode === "auth-pending") {
+        return {
+          ok: false as const,
+          serverName: config.name,
+          error: "timed out waiting for the browser",
+          authPending: true,
+        };
       }
       return {
         ok: true as const,
@@ -436,6 +444,27 @@ describe("setMcpServersSource", () => {
       ).toContain("mcp__acme__list");
       expect(trusted.some((s) => s.state === "connected")).toBe(true);
       expect(trusted.some((s) => s.state === "failed")).toBe(false);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("an auth-pending connect result reaches onStatus marked as such", async () => {
+    const toolset = await makeToolset();
+    const states: MCPServerState[] = [];
+    connectMode = "auth-pending";
+    try {
+      await toolset.connectMCPServer(acme, callbacks(states));
+      const failed = states.filter((s) => s.state === "failed");
+      expect(failed).toEqual([
+        {
+          name: "acme",
+          state: "failed",
+          error: "timed out waiting for the browser",
+          authPending: true,
+        },
+      ]);
+      expect(toolset.hasMCPServer("acme")).toBe(false);
     } finally {
       await toolset.dispose();
     }

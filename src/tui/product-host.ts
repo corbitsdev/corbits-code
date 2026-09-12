@@ -477,8 +477,15 @@ export async function mountProductHost(
     if (disposed) return;
     const parsed = mcpServerState(state);
     if (parsed === null) return;
-    if (parsed.state === "needs-auth") mcpUnauthorized.add(parsed.name);
-    else mcpUnauthorized.delete(parsed.name);
+    // An auth wait that timed out is still waiting on the operator — keep
+    // the marker until the server connects, leaves config, or fails for a
+    // reason that is not the authorization itself.
+    if (
+      parsed.state === "needs-auth" ||
+      (parsed.state === "failed" && parsed.authPending === true)
+    ) {
+      mcpUnauthorized.add(parsed.name);
+    } else mcpUnauthorized.delete(parsed.name);
     setMcpNeedsAuth(shell, [...mcpUnauthorized]);
     show(mcpNotice(parsed));
   }
