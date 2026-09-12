@@ -13,6 +13,12 @@ parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 
 ## [Unreleased]
 
+### Removed
+
+- Profile files no longer accept a `workflow` field. Workflows start only from
+  slash commands; a leftover key is rejected on load rather than ignored. The
+  `--no-workflow` CLI flag is unchanged.
+
 ## [0.3.22] - 2026-09-11
 
 ### Added

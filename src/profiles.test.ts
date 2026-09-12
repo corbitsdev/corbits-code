@@ -65,6 +65,14 @@ test("loadProfile rejects unknown keys", async () => {
   await expect(loadProfile(path)).rejects.toThrow(/unknownKey must be removed/);
 });
 
+test("loadProfile rejects a workflow field", async () => {
+  const dir = makeTmp();
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "profile.json");
+  await writeJson(path, { workflow: "build" });
+  await expect(loadProfile(path)).rejects.toThrow(/workflow must be removed/);
+});
+
 test("loadProfile rejects non-array systemPromptExtensions", async () => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });

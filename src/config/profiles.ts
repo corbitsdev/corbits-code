@@ -8,7 +8,6 @@ const ProfileSchema = type({
   "profile?": "string",
   "model?": "string",
   "systemPromptExtensions?": "string[]",
-  "workflow?": "string",
   // Per-call inactivity timeout in milliseconds. If the provider yields no
   // inference event for this many ms, the call is aborted and the user sees
   // "Request timed out". Default in the inference harness is 120_000 (2 min).
