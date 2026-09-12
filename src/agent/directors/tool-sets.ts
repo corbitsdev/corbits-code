@@ -72,7 +72,7 @@ export const INTERN_TOOLS = [
 ] as const;
 
 /**
- * Nested orchestrator surface (greybeard / package filter): dispatch + path writes.
+ * Nested orchestrator surface (package filter): dispatch + path writes.
  * wait_agents is NOT here: TUI primary and nested orchestrators collect through
  * mailbox mail. Exec primary mounts it separately (mountWaitAgents) and extends
  * its advertised allow in resolveExecDirectorOverlay.

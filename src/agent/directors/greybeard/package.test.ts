@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 import { greybeardPackage } from "./package.js";
 
 describe("greybeardPackage", () => {
@@ -72,13 +73,16 @@ describe("greybeardPackage", () => {
     expect(p).not.toMatch(/spawn a (greybeard|reviewer)/i);
   });
 
-  test("systemPrompt allows limited spawn without fake caps or scheduler language", () => {
+  test("systemPrompt is a leaf worker: no spawn path, no fake caps or scheduler language", () => {
     const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/intern/);
-    expect(p).toMatch(/explorer/);
-    expect(p).toMatch(/critic/);
+    expect(p).toMatch(/you cannot spawn/i);
+    expect(p).toMatch(/leaf worker/i);
+    expect(p).toMatch(/no fleet verbs are mounted/i);
     expect(p).toMatch(/Prefer doing the review yourself/i);
     expect(p).toMatch(/Do not invent numeric spawn caps|not a soft ladder/i);
+    expect(p).not.toMatch(/Spawn only when/i);
+    expect(p).not.toMatch(/Package spawn rules/i);
+    expect(p).not.toMatch(/Spawn then idle/i);
     expect(p).not.toMatch(/at most \d+/i);
     expect(p).not.toMatch(/spawn at most one/i);
     expect(p).not.toMatch(/parallel diagnostic fleet/i);
@@ -87,11 +91,12 @@ describe("greybeardPackage", () => {
     expect(p).not.toMatch(/fan-out/i);
   });
 
-  test("systemPrompt has Blinders against search_agents fleet discovery", () => {
+  test("systemPrompt has Blinders against fleet discovery and any spawn", () => {
     const p = greybeardPackage.systemPrompt;
     expect(p).toMatch(/Blinders/i);
     expect(p).toMatch(/do not call search_agents/i);
-    expect(p).toMatch(/even when nested/i);
+    expect(p).toMatch(/not an orchestrator/i);
+    expect(p).toMatch(/Do not spawn builder/);
   });
 
   test("systemPrompt guides quality without enforcement theater", () => {
@@ -108,12 +113,13 @@ describe("greybeardPackage", () => {
     expect(p).not.toMatch(/not Build\b/);
   });
 
-  test("systemPrompt requires success_criteria when spawning critic", () => {
+  test("systemPrompt routes blocking unknowns to Blockers/ask_director instead of spawn", () => {
     const p = greybeardPackage.systemPrompt;
-    expect(p).toContain("success_criteria");
-    expect(p).toMatch(/When spawning critic/);
-    expect(p).toMatch(/fail-closes without it/);
-    expect(p).toMatch(/intern and explorer remain optional/);
+    expect(p).toMatch(/When a concrete unknown blocks the judgment/);
+    expect(p).toMatch(/name it under Blockers/);
+    expect(p).toContain("ask_director");
+    expect(p).not.toMatch(/When spawning critic/);
+    expect(p).not.toMatch(/success_criteria/);
   });
 
   test("systemPrompt forbids spawning builder and names off-list directors", () => {
@@ -121,39 +127,34 @@ describe("greybeardPackage", () => {
     expect(greybeardPackage.systemPrompt).not.toMatch(/\bspawn implement\b/);
   });
 
-  test("spawn.maySpawn is true with limited allowlist", () => {
-    expect(greybeardPackage.spawn.maySpawn).toBe(true);
-    expect(greybeardPackage.spawn.allowlist).toEqual([
-      "intern",
-      "explorer",
-      "critic",
-    ]);
+  test("spawn.maySpawn is false (leaf)", () => {
+    expect(greybeardPackage.spawn.maySpawn).toBe(false);
+    expect(greybeardPackage.spawn.allowlist).toBeUndefined();
   });
 
-  test("allowlist is only intern, explorer, critic", () => {
-    const allow = greybeardPackage.spawn.allowlist ?? [];
-    expect(allow).toHaveLength(3);
-    expect(allow).toContain("intern");
-    expect(allow).toContain("explorer");
-    expect(allow).toContain("critic");
-    expect(allow).not.toContain("implement");
-    expect(allow).not.toContain("builder");
-    expect(allow).not.toContain("skywalker");
-    expect(allow).not.toContain("counsel");
+  test("no spawn allowlist survives the leaf conversion", () => {
+    expect(greybeardPackage.spawn.allowlist ?? []).toHaveLength(0);
   });
 
-  test("tools.allow is orchestrator surface with product writes but without fleet discovery", () => {
+  test("tools.allow is the review surface without fleet verbs", () => {
     const allow = greybeardPackage.tools?.allow ?? [];
+    expect([...allow]).toEqual([...REVIEW_TOOLS]);
     expect(allow).not.toContain("task");
-    expect(allow).toContain("spawn_agent");
-    // CL-7678: nested orchestrators collect through mailbox mail; wait_agents
-    // is exec-primary opt-in, so it stays off the Greybeard allow.
+    expect(allow).not.toContain("spawn_agent");
     expect(allow).not.toContain("wait_agents");
-    // CL-7051: search_agents is Skywalker-only — nested directors spawn from allowlist.
+    // CL-7051: search_agents is Skywalker-only — leaves never mount discovery.
     expect(allow).not.toContain("search_agents");
+    expect(allow).not.toContain("list_agents");
+    expect(allow).not.toContain("send_input");
+    expect(allow).toContain("read_file");
+    expect(allow).toContain("grep");
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
     expect(allow).toContain("delete_file");
+  });
+
+  test("tier is leaf", () => {
+    expect(greybeardPackage.tier).toBe("leaf");
   });
 
   test("modelRole is review", () => {
@@ -169,9 +170,7 @@ describe("greybeardPackage", () => {
   });
 
   test("primaryIntent and outOfLane match greybeard lane", () => {
-    expect(greybeardPackage.primaryIntent).toBe(
-      "Architecture judgment; limited spawn",
-    );
+    expect(greybeardPackage.primaryIntent).toBe("Architecture judgment");
     expect(greybeardPackage.outOfLane).toContain("shipping product code");
     expect(greybeardPackage.outOfLane).toContain(
       "pedantic style-only nitpicking",

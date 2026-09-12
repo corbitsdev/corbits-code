@@ -2840,7 +2840,7 @@ describe("spawn_agent dispatch contracts", () => {
     expect(raw.content).toContain("builder");
   });
 
-  test("a maySpawn director is launched as an orchestrator with nestedDispatch", async () => {
+  test("greybeard launches as a leaf worker without nestedDispatch (CL-7670)", async () => {
     const captured: RunSubAgentParams[] = [];
     const deps = makeDeps(async (params) => {
       captured.push(params);
@@ -2854,18 +2854,13 @@ describe("spawn_agent dispatch contracts", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(captured).toHaveLength(1);
-    expect(defined(captured[0]).orchestrator).toBe(true);
-    expect(defined(captured[0]).orchestratorTier).toBe("nested-orchestrator");
-    expect(defined(captured[0]).tier).toBe("nested-orchestrator");
-    expect(defined(captured[0]).nestedDispatch).toBeDefined();
-    expect(defined(captured[0]).nestedDispatch?.spawnAllowlist).toEqual([
-      "intern",
-      "explorer",
-      "critic",
-    ]);
+    expect(defined(captured[0]).orchestrator).toBeUndefined();
+    expect(defined(captured[0]).orchestratorTier).toBeUndefined();
+    expect(defined(captured[0]).tier).toBe("leaf");
+    expect(defined(captured[0]).nestedDispatch).toBeUndefined();
   });
 
-  test("allowOrchestrator false strips nested spawn even for maySpawn directors", async () => {
+  test("allowOrchestrator false keeps greybeard a leaf worker", async () => {
     const captured: RunSubAgentParams[] = [];
     const deps = makeDeps(async (params) => {
       captured.push(params);
@@ -2881,7 +2876,7 @@ describe("spawn_agent dispatch contracts", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(defined(captured[0]).orchestrator).toBeUndefined();
     expect(defined(captured[0]).nestedDispatch).toBeUndefined();
-    expect(defined(captured[0]).tier).toBe("nested-orchestrator");
+    expect(defined(captured[0]).tier).toBe("leaf");
   });
 
   const FAIL_CLOSED_CRITERIA =

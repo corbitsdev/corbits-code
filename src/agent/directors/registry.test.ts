@@ -107,7 +107,7 @@ describe("director registry", () => {
     expect(explorer.orchestrator).toBe(false);
 
     const grey = packageToProfile(DIRECTOR_REGISTRY.greybeard);
-    expect(grey.orchestrator).toBe(true);
+    expect(grey.orchestrator).toBe(false);
 
     const shakespeare = packageToProfile(DIRECTOR_REGISTRY.shakespeare);
     expect(shakespeare.capabilities?.mode).toBe("allow");
@@ -121,16 +121,21 @@ describe("director registry", () => {
     expect(profiles.map((p) => p.id)).not.toContain("skywalker");
   });
 
-  // Phase 5 acceptance (CL-5818 / CL-5843): spawn matrix, review envelopes, primary stance.
-  test("greybeard spawn allowlist is intern/explorer/critic only", () => {
+  // Phase 5 acceptance (CL-5818 / CL-5843) as converted by CL-7670: only the
+  // primary spawns — greybeard is a leaf.
+  test("greybeard is a leaf with no spawn", () => {
     const g = DIRECTOR_REGISTRY.greybeard;
-    expect(g.spawn.maySpawn).toBe(true);
-    expect(g.spawn.allowlist?.slice().sort()).toEqual([
-      "critic",
-      "explorer",
-      "intern",
-    ]);
-    expect(packageToProfile(g).orchestrator).toBe(true);
+    expect(g.spawn.maySpawn).toBe(false);
+    expect(g.spawn.allowlist).toBeUndefined();
+    expect(g.tier).toBe("leaf");
+    expect(packageToProfile(g).orchestrator).toBe(false);
+  });
+
+  test("skywalker is the only maySpawn:true closed director", () => {
+    const spawners = DIRECTOR_IDS.filter(
+      (id) => DIRECTOR_REGISTRY[id].spawn.maySpawn,
+    );
+    expect(spawners).toEqual(["skywalker"]);
   });
 
   test("closed directors mount product write tools", () => {
@@ -175,7 +180,7 @@ describe("director registry", () => {
     expect(internAllow).toContain("delete_file");
     expect(internAllow).not.toContain("apply_patch");
     for (const id of DIRECTOR_IDS) {
-      if (id === "skywalker" || id === "greybeard") continue;
+      if (id === "skywalker") continue;
       expect(DIRECTOR_REGISTRY[id].spawn.maySpawn).toBe(false);
     }
   });
@@ -208,7 +213,8 @@ describe("director registry", () => {
       expect(tierForDirectorId(id)).toBe(pkg.tier);
     }
     expect(DIRECTOR_REGISTRY.skywalker.tier).toBe("orchestrator");
-    expect(DIRECTOR_REGISTRY.greybeard.tier).toBe("nested-orchestrator");
+    // CL-7670: greybeard converted to a leaf — only the primary spawns.
+    expect(DIRECTOR_REGISTRY.greybeard.tier).toBe("leaf");
   });
 
   test("every director profile declares matching agent id in system prompt", () => {

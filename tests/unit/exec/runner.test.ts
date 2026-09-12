@@ -30,6 +30,7 @@ import { createAdvertisedToolset } from "../../../src/session/assemble-runtime.j
 import { createDynamicToolRunner } from "../../../src/tui/dynamic-tool-runner.js";
 import {
   BUILD_TOOLS,
+  REVIEW_TOOLS,
   SKYWALKER_TOOLS,
 } from "../../../src/agent/directors/tool-sets.js";
 import {
@@ -660,14 +661,16 @@ describe("resolveExecDirectorOverlay", () => {
     expect(overlay.systemPrompt).toContain("BuilderDirector");
   });
 
-  test("greybeard exec primary keeps wait_agents advertised (CL-7678)", () => {
+  test("greybeard exec primary is a leaf overlay without fleet verbs (CL-7670)", () => {
     const overlay = resolveExecDirectorOverlay("greybeard");
-    expect(overlay.mountFleet).toBe(true);
+    expect(overlay.mountFleet).toBe(false);
     expect(overlay.advertisedAllow).toBeDefined();
-    // Exec mounts wait_agents beside the fleet verbs even though the package
-    // allow omits it for TUI/nested mailbox-mail collection.
-    expect(overlay.advertisedAllow).toContain("wait_agents");
-    expect(overlay.advertisedAllow).toContain("spawn_agent");
+    expect(overlay.advertisedAllow).toEqual([...REVIEW_TOOLS]);
+    expect(overlay.advertisedAllow).not.toContain("spawn_agent");
+    expect(overlay.advertisedAllow).not.toContain("wait_agents");
+    expect(overlay.advertisedAllow).not.toContain("search_agents");
+    expect(overlay.advertisedAllow).toContain("write_file");
+    expect(overlay.systemPrompt).toContain("GreybeardDirector");
   });
 
   test("skywalker default still can mount fleet", () => {

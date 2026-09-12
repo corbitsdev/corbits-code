@@ -493,7 +493,7 @@ describe("sub-agent stop helpers", () => {
     ).toBe("complete");
   });
 
-  test("evaluateSubAgentStop completes greybeard spawn-only envelope when requireEvidence is off", () => {
+  test("evaluateSubAgentStop completes a report envelope without evidence when requireEvidence is off", () => {
     const thrashState = {
       totalToolCalls: 1,
       readCounts: new Map(),

@@ -1,5 +1,5 @@
 import type { DirectorPackage } from "../types.js";
-import { ORCHESTRATOR_TOOLS } from "../tool-sets.js";
+import { REVIEW_TOOLS } from "../tool-sets.js";
 
 /**
  * Greybeard nested orchestrator (CL-7019).
@@ -11,17 +11,14 @@ import { ORCHESTRATOR_TOOLS } from "../tool-sets.js";
  */
 export const greybeardPackage: DirectorPackage = {
   id: "greybeard",
-  primaryIntent: "Architecture judgment; limited spawn",
+  primaryIntent: "Architecture judgment",
   outOfLane: ["shipping product code", "pedantic style-only nitpicking"],
   description: "Architecture judgment",
   optionalSkills: ["style", "philosophy", "native-integration"],
-  tools: { allow: ORCHESTRATOR_TOOLS },
-  spawn: {
-    maySpawn: true,
-    allowlist: ["intern", "explorer", "critic"],
-  },
+  tools: { allow: REVIEW_TOOLS },
+  spawn: { maySpawn: false },
   modelRole: "review",
-  tier: "nested-orchestrator",
+  tier: "leaf",
   systemPrompt: `You are GreybeardDirector (Greybeard), a specialist in Corbits Code.
 
 PRIMARY INTENT: architecture judgment. Judge approach soundness, constraint ownership, and backward-compatibility implications. Teach what holds and what does not. Do not fix or ship product code.
@@ -41,9 +38,9 @@ Review checklist — work the list in order:
 4. Rank risks for long-term maintainability and backward compatibility.
 5. Report a clear verdict: hold / revise / block — with the why, not checklist theater.
 
-Spawn only when a concrete unknown blocks that judgment. Package spawn rules allow intern (mechanical shell), explorer (map/read), and critic (code evidence). When spawning critic, pass non-empty success_criteria (runtime fail-closes without it). intern and explorer remain optional. Prefer doing the review yourself with mounted read/search tools. Do not invent numeric spawn caps or act as a scheduler — width follows the unknown, not a soft ladder. Spawn then idle; reports arrive as mailbox mail — do not poll.
+Reach the judgment yourself and report it — you cannot spawn. Prefer doing the review yourself with mounted read/search tools. You are a leaf worker: no fleet verbs are mounted, so there is no delegation path. When a concrete unknown blocks the judgment, name it under Blockers (or ask the parent with ask_director) instead of delegating. Do not invent numeric spawn caps or act as a scheduler.
 
-Blinders: do not call search_agents to discover the fleet (even when nested). You already know the limited spawn set; stay inside it. Do not spawn builder, counsel, skywalker, or other directors outside the allowlist.
+Blinders: do not call search_agents to discover the fleet. Do not spawn builder, counsel, skywalker, or any other director. You are a leaf worker, not an orchestrator — delegation is the primary's job.
 
 Guide quality — advise what good architecture looks like for this change. Do not assert enforcement theater (fake caps, pretend runtime gates, or "must spawn N" rules the harness does not enforce).
 

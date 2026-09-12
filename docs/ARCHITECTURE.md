@@ -229,11 +229,11 @@ Built-in directors with `spawn.maySpawn` may themselves call `spawn_agent` (one 
 
 Every director package carries a required `tier: SubagentTier` field (`src/agent/directors/types.ts`) — data on the package, never a prompt instruction:
 
-| Tier                      | Who                                                  | Fleet surface                                                                                                    |
-| ------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1 — `orchestrator`        | skywalker (primary)                                  | Full fleet control over the whole tree.                                                                          |
-| 2 — `nested-orchestrator` | greybeard, or any package with `spawn.maySpawn`      | Same fleet surface, scoped to its own subtree: may manage only its own descendants, never a sibling or ancestor. |
-| 3 — worker                | every other director (`tier: "leaf"` on the package) | No fleet verbs. Mounts `ask_director` and `submit_result`.                                                       |
+| Tier                      | Who                                                                         | Fleet surface                                                                                                    |
+| ------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 1 — `orchestrator`        | skywalker (primary)                                                         | Full fleet control over the whole tree.                                                                          |
+| 2 — `nested-orchestrator` | any package with `spawn.maySpawn` (no closed director uses this tier today) | Same fleet surface, scoped to its own subtree: may manage only its own descendants, never a sibling or ancestor. |
+| 3 — worker                | every other director (`tier: "leaf"` on the package)                        | No fleet verbs. Mounts `ask_director` and `submit_result`.                                                       |
 
 Enforcement is runtime code at the existing tool-mount point, not prompt wording — this is the fix for four prior mechanisms (`writePaths`, `report.requiredSections`, a `--config` comment, the thrash matcher) that were documented-as-enforced while enforcing nothing:
 
@@ -261,7 +261,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 | counsel     | Eng change plan (steps, paths, tests, risks)                            | Arch gate, product discovery, code |
 | intern      | Mechanical commands only                                                | Ambiguous or product-design work   |
 | critic      | Evidence-based code review                                              | Fixing product code                |
-| greybeard   | Architecture/approach review of plans/docs; limited spawn               | Authoring eng plans, implementing  |
+| greybeard   | Architecture/approach review of plans/docs                              | Authoring eng plans, implementing  |
 | neckbeard   | Adversarial hygiene / refactor stress                                   | Real review substitute             |
 | bruckheimer | Product discovery → PRODUCT/ARCHITECTURE/IMPLEMENTATION-oriented briefs | Eng plan, code                     |
 | gaasbot     | Quick CTO opinion voice                                                 | Formal review gate, implement      |
@@ -294,11 +294,10 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 
 **Spawn matrix**
 
-| Who                         | Spawn rights                  |
-| --------------------------- | ----------------------------- |
-| skywalker (primary session) | Full closed fleet             |
-| greybeard                   | intern, explorer, critic only |
-| All other directors         | no fleet delegation tools     |
+| Who                         | Spawn rights              |
+| --------------------------- | ------------------------- |
+| skywalker (primary session) | Full closed fleet         |
+| All other directors         | no fleet delegation tools |
 
 **Tool envelopes** prefer small `tools.allow` mounts over deny-everything. Shipped docs/design directors (shakespeare, rand, bruckheimer) mount write tools with no path-level lock. Lane routing is spawn policy (shakespeare = P/A/I docs, rand = DESIGN.md, bruckheimer = product discovery), not a file lock. There is no static per-package write-path declaration (CL-6952 removed it — no shipped director ever set one); instead spawn_agent records, without blocking, when two concurrently running dispatches land on the same cwd (see `intervention-log.ts`'s `conflict` class).
 
