@@ -11,6 +11,7 @@ import * as grokResponses from "./grok-responses.js";
 import * as bifrostAdapter from "./bifrost-adapter.js";
 import * as openaiResponses from "./openai-responses.js";
 import * as opencodeGoAnthropic from "./opencode-go-anthropic-adapter.js";
+import * as zenAnthropic from "./zen-anthropic-adapter.js";
 import {
   CODEX_RESPONSES_PROVIDER,
   withCodexContentTypeRepair,
@@ -22,11 +23,13 @@ import { OPENCODE_GO_PROVIDER_ID } from "../../packages/opencode-go/src/index.js
 import { BIFROST_PROVIDER } from "./bifrost-adapter.js";
 import { OPENAI_RESPONSES_PROVIDER } from "./openai-responses.js";
 import { OPENCODE_GO_MESSAGES_PROVIDER } from "./opencode-go-anthropic-adapter.js";
+import { ZEN_MESSAGES_PROVIDER } from "./zen-anthropic-adapter.js";
 
 // Corbits Code ships first-party adapters on top of the built-in provider set:
 // openai-compatible and OpenCode Go chat-completions adapters, Codex/Grok
 // responses, Bifrost, generic openai-responses (OpenCode Go gpt-* Luna family),
-// and the OpenCode Go Anthropic messages adapter.
+// the OpenCode Go Anthropic messages adapter, and the Zen Anthropic messages
+// adapter.
 const manifest: AdapterManifest = [
   {
     provider: "openai-compatible",
@@ -63,6 +66,11 @@ const manifest: AdapterManifest = [
     specifier: "opencode-go-anthropic-adapter",
     export: "createOpenCodeGoAnthropicAdapter",
   },
+  {
+    provider: ZEN_MESSAGES_PROVIDER,
+    specifier: "zen-anthropic-adapter",
+    export: "createZenAnthropicAdapter",
+  },
 ];
 
 const localModules: Record<string, unknown> = {
@@ -73,6 +81,7 @@ const localModules: Record<string, unknown> = {
   "bifrost-adapter": bifrostAdapter,
   "openai-responses": openaiResponses,
   "opencode-go-anthropic-adapter": opencodeGoAnthropic,
+  "zen-anthropic-adapter": zenAnthropic,
 };
 
 let cached: Promise<Dependencies> | undefined;

@@ -17,6 +17,8 @@ import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../../auth/xai/constants.js";
 import { codexProviderName } from "../../config/codex-providers.js";
 import { xaiProviderName } from "../../config/xai-providers.js";
 import { selectableGoModelIds } from "../../provider/opencode-go-models.js";
+import { selectableZenModelIds } from "../../provider/zen-models.js";
+import { isZenProviderId } from "../../../packages/zen/src/index.js";
 import { buildModelsFirstCatalog } from "../model-catalog.js";
 import type { ResidualCatalogEntry } from "../residuals.js";
 import type { CliRenderer } from "@opentui/core";
@@ -124,7 +126,12 @@ const CUSTOM_CHOICE: ProviderChoice = {
 function choiceFromDef(def: FirstClassProviderDef): ProviderChoice | null {
   if (def.auth !== "api-key" && def.auth !== "keyless") return null;
   if (def.baseURL === undefined || def.models === undefined) return null;
-  const models = def.opencodeGo === true ? selectableGoModelIds() : def.models;
+  const models =
+    def.opencodeGo === true
+      ? selectableGoModelIds()
+      : isZenProviderId(def.id)
+        ? selectableZenModelIds()
+        : def.models;
   const defaultModel = def.defaultModel ?? models[0];
   if (defaultModel === undefined) return null;
   return {
@@ -365,6 +372,7 @@ export function enterModelListRows(
     activeIndex: active,
   });
   discovery.beginGoPrefetch();
+  discovery.beginZenPrefetch();
 }
 
 /** Rebuild the pick-list rows for the provider step, keeping the prior pick focused. */

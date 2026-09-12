@@ -12,9 +12,43 @@ import {
   setProviderContextWindowOverrides,
 } from "../provider/context-window.js";
 import { createOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
+import { createInferenceDependencies } from "../provider/inference-dependencies.js";
+import { OPENAI_RESPONSES_PROVIDER } from "../provider/openai-responses.js";
+import { ZEN_MESSAGES_PROVIDER } from "../provider/zen-anthropic-adapter.js";
 import { firstClassProviderById } from "../../packages/first-class-providers/src/index.js";
+import {
+  ZEN_DEFAULT_BASE_URL,
+  ZEN_PROVIDER_ID,
+} from "../../packages/zen/src/index.js";
 
 const WINDOW = 400_000;
+
+// Routing must stay off the network: any fetch here is a regression.
+const originalFetch = globalThis.fetch;
+
+function zenCatalog(): ProviderCatalogEntry[] {
+  return [
+    {
+      name: ZEN_PROVIDER_ID,
+      baseURL: ZEN_DEFAULT_BASE_URL,
+      apiKey: "zen-key",
+      models: [
+        "muse-spark-1.3-contributor-free",
+        "claude-sonnet-4-5",
+        "gemini-3-flash",
+        "some-future-model",
+      ],
+    },
+  ];
+}
+
+function zenSource(model: string) {
+  return buildInferenceSourceForRef(
+    { provider: ZEN_PROVIDER_ID, model },
+    { sessionId: "sess-zen", catalog: zenCatalog() },
+    undefined,
+  );
+}
 
 function catalog(): ProviderCatalogEntry[] {
   return [
@@ -46,6 +80,7 @@ function settingsWithWindow(): Settings {
 
 afterEach(() => {
   setProviderContextWindowOverrides(undefined);
+  globalThis.fetch = originalFetch;
 });
 
 describe("contextWindow / maxTokens split (CL-7784)", () => {
@@ -168,6 +203,61 @@ describe("OpenAI reasoning max_completion_tokens quirk (CL-7785)", () => {
       const body = wireBody(model, RELAY_BASE_URL);
       expect(body["max_tokens"]).toBe(SOURCE_MAX_TOKENS);
       expect("max_completion_tokens" in body).toBe(false);
+    }
+  });
+});
+
+describe("Zen protocol routing (CL-7811)", () => {
+  test("routes without touching the network", () => {
+    globalThis.fetch = (async () => {
+      throw new Error("routing must not fetch");
+    }) as unknown as typeof fetch;
+    const source = zenSource("muse-spark-1.3-contributor-free");
+    expect(source?.provider).toBe(OPENAI_RESPONSES_PROVIDER);
+  });
+
+  test("Muse Spark contributor-free build rides the Responses protocol", () => {
+    const source = zenSource("muse-spark-1.3-contributor-free");
+    expect(source?.provider).toBe(OPENAI_RESPONSES_PROVIDER);
+    expect(source?.baseURL).toBe(ZEN_DEFAULT_BASE_URL);
+    expect(source?.model).toBe("muse-spark-1.3-contributor-free");
+  });
+
+  test("Claude models ride the Messages protocol on the Zen root", () => {
+    const source = zenSource("claude-sonnet-4-5");
+    expect(source?.provider).toBe(ZEN_MESSAGES_PROVIDER);
+    expect(source?.baseURL).toBe("https://opencode.ai/zen");
+  });
+
+  test("Gemini models stay on chat completions", () => {
+    const source = zenSource("gemini-3-flash");
+    expect(source?.provider).toBe("openai-compatible");
+    expect(source?.baseURL).toBe(ZEN_DEFAULT_BASE_URL);
+  });
+
+  test("unknown ids default to chat completions, never name-prefix inference", () => {
+    const source = zenSource("some-future-model");
+    expect(source?.provider).toBe("openai-compatible");
+    expect(source?.baseURL).toBe(ZEN_DEFAULT_BASE_URL);
+  });
+
+  test("chat-completions Zen sources resolve to a registered adapter", async () => {
+    const deps = await createInferenceDependencies();
+    for (const model of ["gemini-3-flash", "some-future-model"]) {
+      const source = zenSource(model);
+      expect(source?.provider).toBe("openai-compatible");
+      expect(source).toBeDefined();
+      if (source === undefined || source === null) continue;
+      expect(() =>
+        deps.adapters.resolve(
+          {
+            sourceId: source.id,
+            provider: source.provider,
+            model: source.model,
+          },
+          source.quirks,
+        ),
+      ).not.toThrow();
     }
   });
 });

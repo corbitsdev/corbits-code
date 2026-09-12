@@ -25,6 +25,8 @@ import {
   isOllamaProviderId,
 } from "../../provider/ollama.js";
 import { prefetchGoModels as prefetchGoModelsRequest } from "../../provider/opencode-go-models.js";
+import { prefetchZenModels as prefetchZenModelsRequest } from "../../provider/zen-models.js";
+import { isZenProviderId } from "../../../packages/zen/src/index.js";
 import { resolveSideMargin } from "../geometry/margins.js";
 import {
   residualIdFromSelection,
@@ -139,6 +141,8 @@ export async function runProviderSetup(
     ollamaDiscoveryAbort: null,
     prefetchGoModels: config.prefetchGoModels ?? prefetchGoModelsRequest,
     goPrefetchAttempt: 0,
+    prefetchZenModels: config.prefetchZenModels ?? prefetchZenModelsRequest,
+    zenPrefetchAttempt: 0,
     listRows: initialRows,
     list: createOverlayList(renderer as CliRenderer, {
       count: initialRows.length,
@@ -196,6 +200,14 @@ export async function runProviderSetup(
     state.choice.opencodeGo &&
     !state.choice.custom &&
     !state.typedModel;
+  // The Zen first-class row carries no settings flag of its own, so the step
+  // matches on the provider id — the same id choiceFromDef passes through.
+  const isZenModelListStep = (): boolean =>
+    currentStep() === "model" &&
+    state.choice !== null &&
+    isZenProviderId(state.choice.id) &&
+    !state.choice.custom &&
+    !state.typedModel;
   const selectors: SetupSelectors = {
     steps,
     currentStep,
@@ -203,6 +215,7 @@ export async function runProviderSetup(
     isListStep,
     isAccountNameStep,
     isGoModelListStep,
+    isZenModelListStep,
   };
   const isLoginStep = (): boolean => currentStep() === "login";
 
@@ -393,6 +406,7 @@ export async function runProviderSetup(
       state.ollamaDiscovery = "idle";
     }
     if (isGoModelListStep()) discovery.abandonGoPrefetch();
+    if (isZenModelListStep()) discovery.abandonZenPrefetch();
     state.stepIndex -= 1;
     clearError();
     if (currentStep() === "provider") enterProviderList();

@@ -56,6 +56,8 @@ import {
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
 import { isOllamaProviderId, ollamaOpenAIBaseURL } from "../provider/ollama.js";
 import { selectableGoModelIds } from "../provider/opencode-go-models.js";
+import { ZEN_MESSAGES_PROVIDER } from "../provider/zen-anthropic-adapter.js";
+import { selectableZenModelIds } from "../provider/zen-models.js";
 import {
   OPENAI_RESPONSES_PROVIDER,
   OPENAI_SESSION_ID_OPTION,
@@ -68,6 +70,11 @@ import {
   isOpenCodeGoProvider,
   resolveGoEndpoint,
 } from "../../packages/opencode-go/src/index.js";
+import {
+  ZEN_DEFAULT_BASE_URL,
+  isZenProvider,
+  resolveZenEndpoint,
+} from "../../packages/zen/src/index.js";
 
 import {
   globalSettingsPath,
@@ -442,6 +449,74 @@ export function buildGoSource(fields: {
   return {
     ...source,
     provider: OPENCODE_GO_PROVIDER_ID,
+    defaults: {
+      ...source.defaults,
+      providerOptions: {
+        ...(source.defaults?.providerOptions ?? {}),
+        [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+      },
+    },
+  };
+}
+
+// OpenCode Zen: per-model protocol routing (chat completions / responses / messages).
+// sessionId feeds the Responses-protocol prompt_cache_key (see buildXaiSource).
+export function buildZenSource(fields: {
+  id: string;
+  apiKey?: string;
+  model: string;
+  sessionId: string;
+  reasoningEffort?: ReasoningEffort;
+}): InferenceSource {
+  const endpoint = resolveZenEndpoint(fields.model);
+  const apiKey =
+    fields.apiKey !== undefined && fields.apiKey.length > 0
+      ? fields.apiKey
+      : KEYLESS_API_KEY;
+  if (endpoint.adapter === "anthropic") {
+    return {
+      id: fields.id,
+      provider: ZEN_MESSAGES_PROVIDER,
+      baseURL: endpoint.baseURL,
+      apiKey,
+      model: fields.model,
+      defaults: {
+        maxTokens: SOURCE_MAX_TOKENS,
+        providerOptions: {
+          [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+        },
+      },
+    };
+  }
+  if (endpoint.adapter === "openai-responses") {
+    return {
+      id: fields.id,
+      provider: OPENAI_RESPONSES_PROVIDER,
+      baseURL: endpoint.baseURL,
+      apiKey,
+      model: fields.model,
+      defaults: {
+        maxTokens: SOURCE_MAX_TOKENS,
+        providerOptions: {
+          [OPENAI_SESSION_ID_OPTION]: fields.sessionId,
+          [OPENCODE_SESSION_ID_OPTION]: fields.sessionId,
+        },
+      },
+    };
+  }
+  // chat-completions (default)
+  const source = buildOpenAISource({
+    id: fields.id,
+    baseURL:
+      endpoint.baseURL.length > 0 ? endpoint.baseURL : ZEN_DEFAULT_BASE_URL,
+    apiKey,
+    model: fields.model,
+    ...(fields.reasoningEffort !== undefined
+      ? { reasoningEffort: fields.reasoningEffort }
+      : {}),
+  });
+  return {
+    ...source,
     defaults: {
       ...source.defaults,
       providerOptions: {
@@ -1072,7 +1147,9 @@ function mergeOAuthCatalog(
   ].map((entry) =>
     isOpenCodeGoProvider(entry)
       ? { ...entry, models: [...selectableGoModelIds()] }
-      : entry,
+      : isZenProvider(entry)
+        ? { ...entry, models: [...selectableZenModelIds()] }
+        : entry,
   );
 }
 

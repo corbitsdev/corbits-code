@@ -5,6 +5,14 @@ import {
   OPENCODE_GO_MODEL_IDS,
   OPENCODE_GO_PROVIDER_ID,
 } from "../../opencode-go/src/index.js";
+import {
+  ZEN_AUTH_HINT,
+  ZEN_DEFAULT_BASE_URL,
+  ZEN_DEFAULT_MODEL,
+  ZEN_DISPLAY_NAME,
+  ZEN_MODEL_IDS,
+  ZEN_PROVIDER_ID,
+} from "../../zen/src/index.js";
 import type { FirstClassProviderDef } from "./types.js";
 
 const OPENAI_API_MODELS = [
@@ -85,23 +93,15 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     billingProduct: "subscription",
   },
   {
-    id: "zen",
-    label: "OpenCode Zen",
+    id: ZEN_PROVIDER_ID,
+    label: ZEN_DISPLAY_NAME,
     auth: "api-key",
-    baseURL: "https://opencode.ai/zen/v1",
-    models: [
-      "gpt-6-astra",
-      "gpt-5.4",
-      "gpt-5.4-mini",
-      "claude-fable-5-1",
-      "claude-sonnet-4-5",
-      "claude-opus-4-5",
-      "gemini-3-flash",
-      "gemini-3-pro",
-    ],
-    defaultModel: "claude-sonnet-4-5",
-    authHint:
-      "OpenCode Zen pay-as-you-go credits — paste your API key from https://opencode.ai/auth",
+    baseURL: ZEN_DEFAULT_BASE_URL,
+    // Static fallback seed: the Zen /models catalog is discovered live and
+    // overlaid at runtime; this list only covers discovery being unavailable.
+    models: ZEN_MODEL_IDS,
+    defaultModel: ZEN_DEFAULT_MODEL,
+    authHint: ZEN_AUTH_HINT,
     billingProduct: "credits",
   },
   {
