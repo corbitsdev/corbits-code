@@ -524,7 +524,12 @@ describe("spawn_agent worktree isolation", () => {
     expect(
       sessions
         .list()
-        .every((s) => !isLiveWaitStatus(projectWaitStatus(s.lifecycle, s.runInFlight === true))),
+        .every(
+          (s) =>
+            !isLiveWaitStatus(
+              projectWaitStatus(s.lifecycle, s.runInFlight === true),
+            ),
+        ),
     ).toBe(true);
     await waitFor(() => events.some((event) => event.event === "subagent_end"));
     const ends = events.filter((event) => event.event === "subagent_end");
