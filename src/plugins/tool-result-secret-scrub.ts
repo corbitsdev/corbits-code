@@ -27,6 +27,11 @@ const JSON_CREDENTIAL_FIELD =
 // Grep/shell lines often look like path:line:KEY=value
 const ENV_ASSIGNMENT = /(?:^|:)([A-Z][A-Z0-9_]+)=([^\n]+)/gm;
 
+// CL-7790 decision: connection-string keys (DATABASE_URL and friends) are
+// deliberately NOT matched here. Widening this shape-classifier would redact
+// every benign connection string in tool output — a false-positive blast
+// radius on a scrub path, not a prompt path. That needs its own measured
+// ticket; the gap stays documented, not silently fixed.
 function isSecretEnvKey(key: string): boolean {
   return (
     key === "API_KEY" ||

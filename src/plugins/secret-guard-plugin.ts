@@ -1,4 +1,4 @@
-import { isAbsolute } from "node:path";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
 import {
   realpathNearestOr,
@@ -135,11 +135,68 @@ function shellPathTokens(command: string): string[] {
 // name at runtime. Perfect shell sandboxing is out of scope; the goal is to
 // force a prompt for the trivial, single-token references that make exfiltration
 // easy. Tool-result secret scrub still redacts credential-shaped output.
+// Programs that only print directory names / metadata — listing a name never
+// dumps file contents. Single owner for this set: the resolve-leg skip below
+// and classify.ts's pure-listing exemption both read it, so a new names-only
+// program cannot drift into one list without the other.
+export const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
+
+// Worth spending a realpath on: shaped like a path the shell could open
+// (a slash, an extension dot, or absolute), not a flag, variable, glob, or
+// fd number — those can never resolve into a secret file, so they skip the
+// stat and the hot auto-allow path stays syscall-free for them.
+function isPathLikeShellToken(token: string): boolean {
+  if (
+    token.startsWith("-") ||
+    token.includes("$") ||
+    token.includes("*") ||
+    token.includes("`")
+  )
+    return false;
+  return (
+    isAbsolute(token) ||
+    token.includes("/") ||
+    token.includes("\\") ||
+    token.includes(".")
+  );
+}
+
+// CL-7790: the ONE shell-token matcher both secret-guard call sites share —
+// commandReferencesSensitivePath below and classify.ts's per-arg sensitive
+// check. The cheap lexical denylist runs first so the hot auto-allow path
+// never touches the filesystem; only path-like survivors pay for a realpath
+// via the CL-6971 helper, which catches a benign-named symlink into a secret
+// file (notes.txt -> .env) exactly like the secret name itself. Relative
+// tokens resolve against cwd first because the helper takes absolute paths.
+// Pass resolveSymlinks=false for pure name-listings: listing a name is not
+// dumping its contents (CL-5420), so `ls notes.txt` still lists freely while
+// `cat notes.txt` asks.
+export function isSensitiveShellToken(
+  token: string,
+  cwd: string = process.cwd(),
+  resolveSymlinks = true,
+): boolean {
+  if (isSensitivePath(token)) return true;
+  if (!resolveSymlinks || !isPathLikeShellToken(token)) return false;
+  if (isAbsolute(token)) return isSensitivePathResolved(token);
+  return isSensitivePathResolved(resolvePath(cwd, token));
+}
+
 export function commandReferencesSensitivePath(
   command: string,
+  cwd: string = process.cwd(),
 ): string | undefined {
-  for (const token of shellPathTokens(command)) {
-    if (isSensitivePath(token)) return token;
+  const tokens = shellPathTokens(command);
+  // Dump vs list: a lone name-listing never dumps file contents, so only the
+  // cheap lexical leg applies and `ls notes.txt` still lists freely. Anything
+  // composed (pipes, chains, redirects, subshells) takes the resolve leg —
+  // `ls && cat notes.txt` must not ride the listing exemption.
+  const program = tokens[0] ?? "";
+  const listingOnly =
+    PURE_DIRECTORY_LISTING_PROGRAMS.has(program) &&
+    !/[;&|()<>\n]/.test(command);
+  for (const token of tokens) {
+    if (isSensitiveShellToken(token, cwd, !listingOnly)) return token;
   }
   return undefined;
 }
