@@ -11,8 +11,7 @@ import { toolResultRow } from "./mcp-view.js";
 import type { StreamRow } from "./stream.js";
 import { TOOL_DETAIL_WIDTH } from "./tool-args.js";
 import { pushToolCall, pushToolResult } from "./tool-rows.js";
-import { isFleetDryContinuationText } from "../subagent/fleet-dry-drive.js";
-import { isMailboxMailText } from "../subagent/mailbox-mail-drive.js";
+import { isPersistedOccupancyWakeText } from "../subagent/mailbox-mail-drive.js";
 
 /**
  * Loose content-block shape from `history.hydrate` / turns-to-blocks.
@@ -37,6 +36,14 @@ export interface HistoryBlock {
   readonly node?: unknown;
   /** plan block payload. */
   readonly steps?: unknown;
+  /**
+   * Persisted origin for user blocks (turns-to-blocks): "system" marks an
+   * occupancy wake, the only user-type block the resume path ever drops.
+   * Anything else paints at this layer — but the mark itself derives from
+   * content, so a verbatim wake-shaped operator turn arrives marked and
+   * drops here (deliberate-paste-only trigger; one scrollback row).
+   */
+  readonly origin?: string;
 }
 
 /** Body for a resumed error the transcript recorded without its message. */
@@ -61,6 +68,7 @@ function asHistoryBlock(raw: unknown): HistoryBlock | null {
     callId?: string;
     node?: unknown;
     steps?: unknown;
+    origin?: string;
   } = { type: o.type };
   if (typeof o.content === "string") out.content = o.content;
   if (typeof o.name === "string") out.name = o.name;
@@ -70,6 +78,7 @@ function asHistoryBlock(raw: unknown): HistoryBlock | null {
   if (typeof o.callId === "string") out.callId = o.callId;
   if (o.node !== undefined) out.node = o.node;
   if (o.steps !== undefined) out.steps = o.steps;
+  if (typeof o.origin === "string") out.origin = o.origin;
   return out as HistoryBlock;
 }
 
@@ -123,9 +132,11 @@ export function rowFromHistoryBlock(block: HistoryBlock): StreamRow | null {
   switch (block.type) {
     case "user": {
       const content = block.content ?? "";
-      // Occupancy wakes persist as user-role turns; they were never operator
-      // text, so a resumed transcript must not repaint them as such.
-      if (isMailboxMailText(content) || isFleetDryContinuationText(content)) {
+      // Origin-keyed suppression: only a block marked as a system wake
+      // drops. Unmarked or operator-marked wake-shaped text paints at this
+      // layer — but the pipeline marks by content, so a verbatim
+      // wake-shaped operator turn never arrives here unmarked.
+      if (block.origin === "system" && isPersistedOccupancyWakeText(content)) {
         return null;
       }
       return { role: "user", text: content };

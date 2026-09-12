@@ -12,6 +12,7 @@ import {
   type FleetDryBlobWriter,
   type FleetDryLane,
   type FleetDryMailbox,
+  isFleetDryContinuationText,
 } from "./fleet-dry-drive.js";
 
 export const MAILBOX_MAIL_WAKE_PREFIX = "mailbox mail";
@@ -28,12 +29,36 @@ export function mailboxMailWakeLine(): string {
 /**
  * Whether inbound text is occupancy's mailbox mail. Internal runtime→agent
  * traffic — the fleet board already owns worker status and the payload is
- * model-facing report JSON, so the transcript never paints it. Persisted
- * turns carry no message flags, so both the live event map and history
- * hydration must recognise it by content.
+ * model-facing report JSON, so the transcript never paints it. The live event
+ * map recognises it by content; history hydration keys on the persisted
+ * origin marker instead (see isPersistedOccupancyWakeText).
  */
 export function isMailboxMailText(text: string): boolean {
   return text.startsWith(mailboxMailWakeLine());
+}
+
+/**
+ * Reactor envelope wrapping persisted inbound text: createInboundTurn stores
+ * user-role turns as `[From: <sender>]\n\n<content>` (plus an optional
+ * `[Subject: ...]` line), so a resumed wake never starts with its prompt
+ * line. The resume path must see through it; the live event map matches raw
+ * message content and keeps the bare matchers above.
+ */
+const INBOUND_ENVELOPE_PREFIX = /^(\[[^\]\n]*\]\n)+\n/;
+
+function withoutInboundEnvelope(text: string): string {
+  return text.replace(INBOUND_ENVELOPE_PREFIX, "");
+}
+
+/**
+ * Whether persisted text is an occupancy wake (mailbox mail or fleet-dry
+ * continuation), tolerating the reactor envelope above. Resume-path only:
+ * persisted turns carry no message flags, so turns-to-blocks marks wakes by
+ * this shape and history-hydrate keys its drop on that marker.
+ */
+export function isPersistedOccupancyWakeText(text: string): boolean {
+  const bare = withoutInboundEnvelope(text);
+  return isMailboxMailText(bare) || isFleetDryContinuationText(bare);
 }
 
 function isPromiseLike(value: unknown): value is Promise<unknown> {
