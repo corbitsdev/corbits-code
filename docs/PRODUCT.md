@@ -164,7 +164,7 @@ The primary session is always **orchestrator** (single-agent mode is gone). Its 
 | Design    | draper, emil, rand                                                                     |
 | Docs / QA | shakespeare, testsmith, tester                                                         |
 
-There is **no catch-all worker**. `spawn_agent` requires `agent=…` or a non-general `intent` (implement/explore/plan/review→critic); bare dispatch and `intent=general` are refused. Named `spawn_agent(agent=…)` selects a director package without requiring a plugin profile, except `skywalker` which is the primary session identity and is refused as a spawned worker. Nested spawn is runtime-enforced: only skywalker (full fleet allowlist) and greybeard (intern/explorer/critic) may spawn; other workers have no fleet tools. Primary omits an allowlist so plugin profiles remain reachable from the main session.
+There is **no catch-all worker**. `spawn_agent` requires `agent=…` or a non-general `intent` (implement/explore/plan/review→critic); bare dispatch and `intent=general` are refused. Named `spawn_agent(agent=…)` selects a director package without requiring a plugin profile, except `skywalker` which is the primary session identity and is refused as a spawned worker. Nested spawn is runtime-enforced: only skywalker (full fleet allowlist) may spawn; all other workers, including greybeard, have no fleet tools. Primary omits an allowlist so plugin profiles remain reachable from the main session.
 
 Corbits Code fans work out to short-lived **fleet agents** — workers with their own loop, tools, and checklist — while the primary session stays focused.
 

@@ -71,8 +71,8 @@ export type NestedDispatchDeps = SubAgentSandboxDeps & {
   // worktree-isolation behavior as their orchestrator.
   useWorktree?: boolean;
   /**
-   * When set (e.g. greybeard -> intern/explorer/critic), nested `spawn_agent`
-   * may only spawn these director/profile ids. Omitted = no allowlist filter (primary).
+   * When set, nested `spawn_agent` may only spawn these director/profile ids.
+   * Omitted = no allowlist filter (primary). No closed director sets one today.
    */
   spawnAllowlist?: readonly string[];
   /** Same process admission queue as the parent spawn. Tests inject. */

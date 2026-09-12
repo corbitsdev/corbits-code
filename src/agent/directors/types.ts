@@ -37,8 +37,9 @@ export type TaskIntent =
  *
  * - "orchestrator": Tier 1, primary (skywalker). Full fleet control over the
  *   whole tree.
- * - "nested-orchestrator": Tier 2, scoped to its own subtree (e.g. greybeard).
- *   May manage only its own descendants, never siblings or ancestors.
+ * - "nested-orchestrator": Tier 2, scoped to its own subtree (no closed
+ *   director uses this tier today). May manage only its own descendants,
+ *   never siblings or ancestors.
  * - "leaf": Tier 3 worker. No fleet verbs at all.
  */
 export type SubagentTier = "orchestrator" | "nested-orchestrator" | "leaf";

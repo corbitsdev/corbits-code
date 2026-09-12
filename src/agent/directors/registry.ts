@@ -138,7 +138,7 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
     description: `${pkg.description} (agent id: ${pkg.id})`,
     systemPromptRole: formatDirectorSystemPrompt(pkg),
     // Nested spawn is still gated by allowOrchestrator on the parent fleet tools.
-    // Greybeard/skywalker maySpawn marks intent; leaves stay non-orchestrator.
+    // Skywalker maySpawn marks intent; leaves stay non-orchestrator.
     orchestrator: pkg.spawn.maySpawn,
     ...(capabilities !== undefined ? { capabilities } : {}),
   };
