@@ -511,7 +511,11 @@ test("late connect of an untrusted local-source server does not spawn", async ()
     onOperatorGate: async () => ({ kind: "cancel" }),
     mcpServers: [localStdioServer],
     mcpServersSource: "local",
-    projectTrust: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [],
+      trustedGrantFingerprints: [],
+    },
   });
 
   await toolset.connectMCPServer(localStdioServer, {
@@ -537,7 +541,11 @@ test("late connect of an untrusted local-source server fail-closes when requestM
     onOperatorGate: async () => ({ kind: "cancel" }),
     mcpServers: [localStdioServer],
     mcpServersSource: "local",
-    projectTrust: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [],
+      trustedGrantFingerprints: [],
+    },
     requestMcpTrust: async () => {
       trustAsks += 1;
       return false;
@@ -566,6 +574,7 @@ test("late connect of a trusted local-source server still connects", async () =>
     projectTrust: {
       trustedPluginPaths: [],
       trustedMcpFingerprints: [mcpServerFingerprint(localStdioServer)],
+      trustedGrantFingerprints: [],
     },
   });
 
@@ -588,7 +597,11 @@ test("late connect of a global-source HTTP server does not require trust", async
     onOperatorGate: async () => ({ kind: "cancel" }),
     mcpServers: [globalHttpServer],
     mcpServersSource: "global",
-    projectTrust: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [],
+      trustedGrantFingerprints: [],
+    },
   });
 
   await toolset.connectMCPServer(globalHttpServer, {
@@ -611,7 +624,11 @@ test("startup connectMCP still fail-closes untrusted local servers", async () =>
     onOperatorGate: async () => ({ kind: "cancel" }),
     mcpServers: [localStdioServer],
     mcpServersSource: "local",
-    projectTrust: { trustedPluginPaths: [], trustedMcpFingerprints: [] },
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [],
+      trustedGrantFingerprints: [],
+    },
   });
 
   await toolset.connectMCP({

@@ -743,6 +743,7 @@ export async function createAgentToolset(
   let mcpTrustStore: ProjectTrustStore = projectTrust ?? {
     trustedPluginPaths: [],
     trustedMcpFingerprints: [],
+    trustedGrantFingerprints: [],
   };
   const untrustedLocalError = `Not trusted for this project (see ${SETTINGS_DIR_NAME}/trust.json)`;
 

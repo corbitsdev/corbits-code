@@ -8,6 +8,12 @@ import { type } from "arktype";
 import type { Approval } from "./types.js";
 import { sessionDir } from "../session/index.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
+import {
+  isProjectGrantTrusted,
+  reconcileProjectGrants,
+  trustProjectGrants,
+  untrustProjectGrants,
+} from "../trust/project-trust.js";
 
 // Approvals are remembered per session, alongside the run state.
 function storePath(cwd: string, sessionId: string, home?: string): string {
@@ -62,6 +68,20 @@ function parseApprovalList(raw: unknown): Approval[] {
 }
 
 function sameApproval(a: Approval, b: Approval): boolean {
+  // Removal equality deliberately ignores cwd: revocation targets arrive
+  // cwd-less (see admin.ts toApproval), so a strict comparison would silently
+  // keep a confined twin live. Removing the file entry is the revocation;
+  // the next load's reconcile prunes the cwd-bound fingerprint with it.
+  return (
+    a.tool === b.tool &&
+    a.pattern === b.pattern &&
+    a.providerModel === b.providerModel
+  );
+}
+
+// Equality on every confirmed dimension except cwd: a planted file entry and
+// the gate's minted confirmation of it differ only in cwd.
+function sameGrantModuloCwd(a: Approval, b: Approval): boolean {
   return (
     a.tool === b.tool &&
     a.pattern === b.pattern &&
@@ -124,30 +144,100 @@ export async function loadApprovals(
   return readApprovalsField(storePath(cwd, sessionId, home), "approvals");
 }
 
-export async function loadProjectApprovals(cwd: string): Promise<Approval[]> {
-  return readApprovalsField(projectStorePath(cwd), "approvals");
+// CL-7782: the project approvals file is repo content — committable,
+// copyable, plantable — so its entries are NOT approvals until the operator
+// confirms each one (see trustedGrantFingerprints in ../trust/project-trust).
+// An untrusted directory therefore contributes zero approvals here; entries
+// still awaiting confirmation are visible via loadPendingProjectApprovals so
+// the first encounter shows what the file would grant instead of silently
+// dropping it. DECISION: project trust does not imply grant trust — plugins
+// and MCP servers trusted for a directory confer no approval coverage; grants
+// require their own confirmation. This is the safer default because a grant
+// auto-allows future tool calls with no further prompt, while plugin/MCP
+// trust only permits code to load or a server to connect.
+// REVOCATION: trust follows the file. Each load reconciles the trust record
+// against the entries currently on disk and drops fingerprints with no
+// corresponding entry, so hand-removing an entry revokes its confirmation
+// just like removeProjectApproval does — a byte-identical replant re-surfaces
+// as pending instead of applying silently.
+export async function loadProjectApprovals(
+  cwd: string,
+  home?: string,
+): Promise<Approval[]> {
+  const onDisk = await readApprovalsField(projectStorePath(cwd), "approvals");
+  const trust = await reconcileProjectGrants(cwd, onDisk, home);
+  return onDisk.filter((approval) => isProjectGrantTrusted(trust, approval));
+}
+
+/**
+ * Project-file entries the operator has not confirmed yet: the first-encounter
+ * surfacing source. Non-empty means "this directory ships a permissions file
+ * you have not reviewed" — callers should show formatPendingProjectApprovals
+ * output to the operator rather than apply or silently ignore the file.
+ */
+export async function loadPendingProjectApprovals(
+  cwd: string,
+  home?: string,
+): Promise<Approval[]> {
+  const onDisk = await readApprovalsField(projectStorePath(cwd), "approvals");
+  if (onDisk.length === 0) return [];
+  const trust = await reconcileProjectGrants(cwd, onDisk, home);
+  return onDisk.filter((approval) => !isProjectGrantTrusted(trust, approval));
+}
+
+/** Operator-facing rendering of unconfirmed project-file entries. */
+export function formatPendingProjectApprovals(pending: Approval[]): string {
+  if (pending.length === 0) return "";
+  const lines = pending.map(
+    (approval) =>
+      `  - ${approval.tool}: "${approval.pattern}"${approval.providerModel ? ` (only with ${approval.providerModel})` : ""}`,
+  );
+  return [
+    "This directory contains a project approvals file with entries you have not confirmed:",
+    ...lines,
+    "Nothing from this file is applied until you confirm each entry.",
+  ].join("\n");
 }
 
 export async function saveProjectApproval(
   cwd: string,
   approval: Approval,
+  home?: string,
 ): Promise<void> {
-  return chainObjectWrite(projectStorePath(cwd), (current) => ({
+  await chainObjectWrite(projectStorePath(cwd), (current) => ({
     ...current,
-    approvals: [...parseApprovalList(current.approvals), approval],
+    approvals: [
+      // A planted entry carries no cwd; confirming it through the pending flow
+      // mints {tool, pattern, cwd} and writes that shape back here. Displace
+      // its twin instead of stacking a duplicate that would linger as pending
+      // forever — the dropped twin never applied, so nothing confirmed is
+      // lost. A save without cwd keeps the plain append path and never
+      // displaces a confined entry.
+      ...parseApprovalList(current.approvals).filter(
+        (entry) =>
+          approval.cwd === undefined || !sameGrantModuloCwd(entry, approval),
+      ),
+      approval,
+    ],
   }));
+  // The only production writer is the interactive grant path (an operator
+  // answering a prompt with a project-scope persist), so writing an entry is
+  // itself the confirmation its fingerprint needs.
+  await trustProjectGrants(cwd, [approval], home);
 }
 
 export async function removeProjectApproval(
   cwd: string,
   target: Approval,
+  home?: string,
 ): Promise<void> {
-  return chainObjectWrite(projectStorePath(cwd), (current) => ({
+  await chainObjectWrite(projectStorePath(cwd), (current) => ({
     ...current,
     approvals: parseApprovalList(current.approvals).filter(
       (a) => !sameApproval(a, target),
     ),
   }));
+  await untrustProjectGrants(cwd, [target], home);
 }
 
 export async function loadGlobalApprovals(

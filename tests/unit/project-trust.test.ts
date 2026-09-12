@@ -137,6 +137,7 @@ describe("project-trust", () => {
       expect(result.store).toEqual({
         trustedPluginPaths: [],
         trustedMcpFingerprints: [],
+        trustedGrantFingerprints: [],
       });
     } finally {
       await cleanup();
@@ -154,6 +155,7 @@ describe("project-trust", () => {
       expect(result.store).toEqual({
         trustedPluginPaths: [],
         trustedMcpFingerprints: [],
+        trustedGrantFingerprints: [],
       });
     } finally {
       await cleanup();
@@ -171,6 +173,7 @@ describe("project-trust", () => {
           repo: cwd,
           trustedPluginPaths: "nope",
           trustedMcpFingerprints: [],
+          trustedGrantFingerprints: [],
         }),
         "utf8",
       );
@@ -179,6 +182,7 @@ describe("project-trust", () => {
       expect(result.store).toEqual({
         trustedPluginPaths: [],
         trustedMcpFingerprints: [],
+        trustedGrantFingerprints: [],
       });
     } finally {
       await cleanup();
@@ -196,6 +200,7 @@ describe("project-trust", () => {
       expect(result.store).toEqual({
         trustedPluginPaths: [],
         trustedMcpFingerprints: [],
+        trustedGrantFingerprints: [],
       });
     } finally {
       await cleanup();
@@ -213,6 +218,7 @@ describe("project-trust", () => {
           repo: 7,
           trustedPluginPaths: [],
           trustedMcpFingerprints: [],
+          trustedGrantFingerprints: [],
         }),
         "utf8",
       );
@@ -221,6 +227,7 @@ describe("project-trust", () => {
       expect(result.store).toEqual({
         trustedPluginPaths: [],
         trustedMcpFingerprints: [],
+        trustedGrantFingerprints: [],
       });
     } finally {
       await cleanup();

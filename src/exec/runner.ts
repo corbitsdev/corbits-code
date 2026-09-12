@@ -568,6 +568,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       onPersistNotice: (text) => {
         stderr.write(`${text}\n`);
       },
+      onPendingProjectGrants: (text) => {
+        stderr.write(`${text}\n`);
+      },
       interactive,
       skipPermissions: config.dangerouslySkipPermissions,
       auto: config.auto,
