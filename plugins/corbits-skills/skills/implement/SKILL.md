@@ -92,7 +92,9 @@ The order of operations depends on whether you're fixing a bug or building a fea
 
 Keep the test focused on the behavior introduced by this commit. Don't test unrelated functionality. The test is part of the deliverable, not an afterthought.
 
-Keep the scope tight to what was discussed. If you discover additional work is needed, finish the current commit's scope first and note the additional work for a future commit.
+The test lands in the same unit of work as the implementation (Step 4) — same commit when committing — one logical unit (source of truth: style skill, AGENTS.md). When the caller passes testsmith-designed cases, land them as the implementation tests; any case left unlanded goes in the report with why so the caller can route a tester run.
+
+Keep the scope tight to what was discussed. If you discover additional work is needed, finish the current commit's scope first and note the additional work for a future commit. When the landing alters documented behavior beyond the discussed doc scope, flag it for the caller so a shakespeare docs pass can follow.
 
 ### Step 3: Build Gate
 
@@ -105,12 +107,13 @@ Run `make` (or the project's equivalent full pipeline: format, lint, build, test
 - If the build fails due to pre-existing issues unrelated to your changes, report the failure to the caller and let them decide how to proceed
 - Do not move forward with a broken build
 - Do not substitute partial builds (e.g., running only the compiler) for the full pipeline
+- Record the exact verification commands and their exit statuses: the report maps each success criterion to pass, fail, or blocked with command evidence
 
 ### Step 4: Commit
 
 Update `activeForm` to "Committing: {subject}".
 
-Create the commit. Follow the commit message conventions from the `style` skill. Include the test in the same commit as the implementation — they are one logical unit of work.
+Create the commit. Follow the commit message conventions from the `style` skill. Include the test in the same unit of work as the implementation — same commit when committing — one logical unit — and update the docs when the commit changes documented behavior. Worker-chain branch/PR convention: branch name carries the issue id, the PR body ends with `Fixes CL-…` and carries no AI-attribution lines (CONTRIBUTING: title stays a plain-English sentence, body is Summary/Verification).
 
 ### Step 5: Critique Loop
 
