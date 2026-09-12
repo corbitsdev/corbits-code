@@ -169,6 +169,30 @@ describe("mcp.status channel", () => {
     }
   });
 
+  test("an ordinary failure after needs-auth clears the standing auth mark", async () => {
+    const { host, emitter, frame, cleanup } = await mountHeadless();
+    try {
+      emitter.emit("mcp.status", {
+        name: "granola",
+        state: "needs-auth",
+        url: "https://mcp.test/auth",
+      });
+      expect(await frame()).toContain("mcp !");
+
+      emitter.emit("mcp.status", {
+        name: "granola",
+        state: "failed",
+        error: "ECONNREFUSED",
+      });
+      const painted = await frame();
+      expect(host.shell.mcpNeedsAuth).toEqual([]);
+      expect(painted).not.toContain("mcp !");
+      expect(host.shell.statusFlash).toContain("mcp granola did not connect");
+    } finally {
+      cleanup();
+    }
+  });
+
   test("a failed connect keeps the landing mountain and rides the notice strip (CL-5600)", async () => {
     // Full product-host path: mcp.status → mcpNotice → surfaceSystemNotice.
     // The unit landing suite covers surfaceSystemNotice alone; this locks the

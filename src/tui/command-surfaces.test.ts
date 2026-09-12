@@ -1975,6 +1975,31 @@ describe("mcp surface", () => {
     });
   });
 
+  test("a timed-out authorization failure still offers Enter-retry copy", async () => {
+    await withWiredShell(async (shell, harness) => {
+      openCommandSurface(shell, "mcp", {
+        notify: () => undefined,
+        mcp: {
+          // Short timeout wording so the two-line describe zone has room
+          // left for the impact line — a `what` that wraps to both lines
+          // crowds `impact` out by design (see describeZoneLines).
+          list: () => [
+            {
+              name: "granola",
+              state: "failed",
+              error: "timed out waiting for the browser",
+            },
+          ],
+          openAuthURL: () => undefined,
+        },
+      });
+      await harness.renderOnce();
+      const frame = harness.captureCharFrame();
+      expect(frame).toContain("granola — failed");
+      expect(frame).toContain("Enter retries");
+    });
+  });
+
   test("Alt+R confirms before removing a custom server", async () => {
     await withWiredShell(async (shell, harness) => {
       const removed: string[] = [];
