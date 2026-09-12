@@ -1379,7 +1379,8 @@ export const InferenceEvent = type({
   .or({
     type: "'inference.usage'",
     seq: "number",
-    data: { usage: TokenUsage, source: LastCycleSource },
+    // Locally patched — see vendor/intx-types/PATCHES.md#types-ts-usage-stop-reason
+    data: { usage: TokenUsage, source: LastCycleSource, "stopReason?": "string" },
   })
   .or({
     type: "'inference.done'",
@@ -1643,7 +1644,8 @@ export type InferenceEvent =
   | {
       type: "inference.usage";
       seq: number;
-      data: { usage: TokenUsage; source: LastCycleSource };
+      // Locally patched — see vendor/intx-types/PATCHES.md#types-ts-usage-stop-reason
+      data: { usage: TokenUsage; source: LastCycleSource; stopReason?: string };
     }
   | {
       type: "inference.done";
