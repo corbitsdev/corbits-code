@@ -12,7 +12,7 @@ import { REVIEW_TOOLS } from "../tool-sets.js";
  * The CL-7031 overhaul had narrowed the prompt to a design-eng-laws digest;
  * this restore ports back every dropped section: capabilities, the Thinking &
  * Reasoning laws, the Boy Scout Rule, the design-engineering cross-reference
- * checklist, temp-test workflow steps, the full report format, guidelines,
+ * checklist, temp-test workflow steps, the report content, guidelines,
  * and the negative constraints.
  *
  * Deviations from the source (deliberate, exhaustive):
@@ -28,8 +28,11 @@ import { REVIEW_TOOLS } from "../tool-sets.js";
  * 4. `skills: brand-identity` has no Corbits skill equivalent, so it stays
  *    prose: the design-engineering reference substance is inlined (craft
  *    section + cross-reference checklist) instead of mounted.
- * 5. Report format gains Blockers/Paths — the Corbits worker envelope
- *    requires them; source sections otherwise restored in full.
+ * 5. Report format yields to the scaffold-owned Corbits worker envelope
+ *    (Summary / Findings / Blockers / Paths) — the source's report sections
+ *    are carried as Findings sub-bullets (per-issue law/location/evidence/
+ *    confidence/severity, test results, recommended tests, observations)
+ *    instead of re-specified headings.
  * 6. Temp-test path `tmp/critique-tests/` kept verbatim (repo has tmp/).
  * 7. "Do not commit changes" kept verbatim; fleet commits stay parent-owned.
  *
@@ -166,53 +169,14 @@ When asked to critique:
 6. **Assess confidence** — VERIFIED (proven by tests), HIGH (strong evidence but not testable), MEDIUM (plausible but uncertain). Discard LOW confidence.
 7. **Report findings** — clear, evidence-based critique. Every finding cites a law.
 
-# Report format
+# Report
 
-## Summary
-
-- High-level assessment of design engineering quality
-- Critical violations found (if any)
-- Which laws are most violated across the codebase
-
-## Findings
-
-For each issue:
-
-- **Law violated**: which principle and why
-- **Location**: specific file and line references
-- **Evidence**: test results, code examples, or observable behavior
-- **Confidence**: VERIFIED / HIGH / MEDIUM
-- **Severity**: Critical (breaks things), Major (degrades quality), Minor (polish)
-
-Only report issues you have verified or have high confidence in. Do not report speculative concerns. No implementation prescriptions — cite expected craft vs actual, not patch recipes.
-
-## Test results
-
-- Existing test outcomes
-- Temporary test findings
-- What the tests revealed about code behavior
-
-## Recommended tests for permanent inclusion
-
-If you wrote temporary tests that should be permanent, document:
-
-1. **File path** in \`tmp/critique-tests/\`
-2. **What it tests** — specific scenarios or edge cases
-3. **Why it's valuable** — uncovered functionality, regression prevention, non-obvious behavior documentation
-
-## Observations
-
-- Patterns across findings (e.g., "the codebase consistently violates Law of Demeter in API handlers")
-- Areas that need attention but aren't specific violations
-- Positive observations — things done well
-
-## Blockers
-
-- Missing context, out-of-lane asks, unreadable artifacts.
-
-## Paths
-
-- Files inspected.
+When done, stop calling tools and reply with ONLY the Corbits report envelope — the shared scaffold owns its shape (Summary / Findings / Blockers / Paths, in that order), so this package does not re-specify it. Findings for this lane:
+- Per issue: law violated and why, location (file and line references), evidence (test results, code examples, or observable behavior), confidence (VERIFIED / HIGH / MEDIUM), severity (Critical breaks things, Major degrades quality, Minor polish).
+- Test results: existing test outcomes, temporary test findings, what the tests revealed about code behavior.
+- Recommended tests for permanent inclusion: file path in tmp/critique-tests/, what it tests, why it is valuable.
+- Observations: patterns across findings, areas needing attention that are not specific violations, positives — things done well.
+Only report issues you have verified or have high confidence in. Do not report speculative concerns. No implementation prescriptions — cite expected craft vs actual, not patch recipes. Blockers: missing context, out-of-lane asks, unreadable artifacts. Paths: files inspected.
 
 # Guidelines
 

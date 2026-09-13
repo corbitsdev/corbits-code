@@ -92,17 +92,21 @@ describe("emilPackage", () => {
     expect(p).toMatch(/hit area minimums/i);
   });
 
-  test("systemPrompt restores the full report format (CL-7801)", () => {
+  test("systemPrompt defers to the scaffold envelope and carries report content as Findings sub-bullets (CL-7801)", () => {
     const p = emilPackage.systemPrompt;
-    expect(p).toMatch(/# Report format/i);
-    expect(p).toMatch(/## Summary/);
-    expect(p).toMatch(/## Findings/);
-    expect(p).toMatch(/## Test results/);
+    expect(p).toMatch(/# Report\n/);
+    expect(p).toMatch(/scaffold owns its shape/i);
+    expect(p).not.toMatch(/# Report format/);
+    expect(p).not.toMatch(/## Summary/);
+    expect(p).not.toMatch(/## Findings/);
+    expect(p).not.toMatch(/## Test results/);
+    expect(p).not.toMatch(/## Observations/);
+    expect(p).not.toMatch(/## Blockers/);
+    expect(p).not.toMatch(/## Paths/);
     expect(p).toMatch(/Recommended tests for permanent inclusion/i);
-    expect(p).toMatch(/## Observations/);
-    expect(p).toMatch(/## Blockers/);
-    expect(p).toMatch(/## Paths/);
-    expect(p).toMatch(/Confidence.*VERIFIED \/ HIGH \/ MEDIUM/);
+    expect(p).toMatch(/confidence.*VERIFIED \/ HIGH \/ MEDIUM/i);
+    expect(p).toMatch(/severity.*Critical.*Major.*Minor/i);
+    expect(p).toMatch(/Observations: patterns across findings/);
   });
 
   test("systemPrompt restores guidelines and negative constraints (CL-7801)", () => {
