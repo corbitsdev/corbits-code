@@ -10,6 +10,7 @@ import {
   realpathNearestOr,
   UNRESOLVABLE,
 } from "../permission/path-restriction.js";
+import { buildCredentialPatterns } from "../auth/credential-surface.js";
 import { productMutationPaths } from "../agent/product-mutation-tools.js";
 import { looksLikePath } from "./path-escape-plugin.js";
 
@@ -88,6 +89,11 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /(^|\/)\.config\/gcloud\//,
   // Azure CLI's credential cache — the equivalent of ~/.aws/credentials.
   /(^|\/)\.azure\/(accessTokens|azureProfile)\.json$/,
+  // The product's own OAuth token stores and credential sidecars come from the
+  // auth-owned registry, not literals here, so a new store cannot drift off
+  // the denylist. settings.json/permissions.json keep their hand-written
+  // patterns above; the registry only adds their lock/temp sidecars.
+  ...buildCredentialPatterns(),
 ];
 
 export function isSensitivePath(value: string): boolean {

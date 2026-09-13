@@ -33,8 +33,10 @@ export interface MCPAuthIdentity {
   serverURL: string;
 }
 
+export const MCP_AUTH_DIRNAME = "mcp-auth";
+
 export function mcpAuthDir(home: string = homedir()): string {
-  return join(home, SETTINGS_DIR_NAME, "mcp-auth");
+  return join(home, SETTINGS_DIR_NAME, MCP_AUTH_DIRNAME);
 }
 
 function legacyServerSlug(serverName: string): string {

@@ -74,6 +74,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
 - `providers.ts` defines the `ProviderCatalogEntry` type and helpers for building TUI provider lists; `profiles.ts` handles profile-level selection logic.
 - `loadConfig` is async (it reads settings files). Parses a leading `exec`/`run` subcommand, flags `--cwd`, `--config`, `--provider`, `--model`, `--dangerously-skip-permissions` (forces this process; TUI `/yolo` persists as the user-global default), `--auto` / `--no-auto` (auto mode defaults on); collects positional arguments as the optional initial task for the TUI or the required prompt for exec.
 - Both settings files and the project/global grant store (`.corbits/permissions.json`) are on the secret-guard denylist for path-keyed tools, so the agent cannot `read_file` its own credentials or persist standing auto-approvals. Shell commands that reference them still require explicit operator approval.
+- Credential-surface ownership: each auth store module enumerates its own files (`*_AUTH_FILENAME` / `MCP_AUTH_DIRNAME`), the data-only registry in `src/auth/credential-surface.ts` turns them into denylist patterns, `secret-guard-plugin.ts` owns matching (lexical plus realpath), and `@mention` resolution consumes the resolved check — never the registry directly. A new token store is denied only once its store module exports its filename and the registry lists it; the coverage test fails the build until both exist.
 
 ### TUI Runner (`src/tui/runner.ts`)
 

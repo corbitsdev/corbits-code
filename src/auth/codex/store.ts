@@ -37,9 +37,11 @@ export function withDefaultCodexExpiry(
   return { ...tokens, expiresAt: now + DEFAULT_EXPIRES_IN_S * 1000 };
 }
 
+export const CODEX_AUTH_FILENAME = "codex-auth.json";
+
 export function createCodexAuthStore(settingsDirName: string) {
   return createAuthStore<CodexTokens>({
-    filename: "codex-auth.json",
+    filename: CODEX_AUTH_FILENAME,
     settingsDirName,
     isTokens: isCodexTokens,
   });

@@ -19,9 +19,11 @@ function isXaiTokens(value: unknown): value is XaiTokens {
   return !(XaiTokensShape(value) instanceof type.errors);
 }
 
+export const XAI_AUTH_FILENAME = "xai-auth.json";
+
 export function createXaiAuthStore(settingsDirName: string) {
   return createAuthStore<XaiTokens>({
-    filename: "xai-auth.json",
+    filename: XAI_AUTH_FILENAME,
     settingsDirName,
     isTokens: isXaiTokens,
   });

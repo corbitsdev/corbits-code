@@ -236,13 +236,28 @@ describe("resolveAtMentions", () => {
     }
   });
 
-  test("blocks home-relative paths", async () => {
+  test("expands home-relative paths before the sensitivity check", async () => {
     const dir = await fixture();
     try {
-      const resolved = await resolveAtMentions("read @~/some-file.txt", dir);
-      expect(resolved).toContain(
-        "(blocked: home-relative paths are not supported)",
+      const resolved = await resolveAtMentions(
+        "read @~/.corbits/settings.json",
+        dir,
       );
+      expect(resolved).toContain("(blocked: sensitive path)");
+      expect(resolved).not.toContain("home-relative paths are not supported");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reports missing home-relative files as not found", async () => {
+    const dir = await fixture();
+    try {
+      const resolved = await resolveAtMentions(
+        "read @~/some-file-that-does-not-exist.txt",
+        dir,
+      );
+      expect(resolved).toContain("(not found)");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
