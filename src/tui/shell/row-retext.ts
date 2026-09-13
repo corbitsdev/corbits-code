@@ -7,7 +7,6 @@
  */
 import {
   BoxRenderable,
-  StyledText,
   TextRenderable,
   TextTableRenderable,
   bold as boldChunk,
@@ -17,6 +16,7 @@ import {
 } from "@opentui/core";
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
+import { splitLinkSpans, paintLinkLine } from "../url-links.js";
 import {
   splitTrailingArrow,
   expandedRowLines,
@@ -125,13 +125,15 @@ function retextBodyLine(
   const split = splitTrailingArrow(line);
   if (node instanceof TextRenderable) {
     if (split !== null) return false;
-    node.content = new StyledText(diffLineChunks(line));
+    // A URL appearing or disappearing repaints on the same node; re-arming
+    // refreshes the hit ranges, so hover never resolves against stale text.
+    paintLinkLine(node, [splitLinkSpans(line)]);
     return true;
   }
   if (!(node instanceof BoxRenderable) || split === null) return false;
   const [bodyNode] = node.getChildren();
   if (!(bodyNode instanceof TextRenderable)) return false;
-  bodyNode.content = new StyledText(diffLineChunks(split.body));
+  paintLinkLine(bodyNode, [splitLinkSpans(split.body)]);
   return true;
 }
 

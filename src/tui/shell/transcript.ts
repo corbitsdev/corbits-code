@@ -13,6 +13,12 @@ import {
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
 import {
+  buildLinkLine,
+  findLinks,
+  paintLinkLine,
+  splitLinkSpans,
+} from "../url-links.js";
+import {
   splitAtSettledHeading,
   withholdIncompleteHeading,
 } from "../markdown-parser.js";
@@ -198,7 +204,7 @@ function retextStreamRowBody(
     return false;
   if (node instanceof TextRenderable) {
     if (isMarkdownRow(row)) return false;
-    node.content = paintStreamRow(row, layout).content;
+    paintPlainRowNode(node, paintStreamRow(row, layout));
     return true;
   }
 
@@ -347,11 +353,7 @@ export function buildRowNode(
   }
 
   if (!isMarkdownRow(row)) {
-    const painted = paintStreamRow(row, layout);
-    return new TextRenderable(ctx, {
-      content: painted.content,
-      fg: painted.fg,
-    });
+    return buildPlainRowNode(ctx, paintStreamRow(row, layout));
   }
 
   const gutter = streamRowGutter(row, layout);
@@ -376,6 +378,44 @@ function markdownBodyOptions(gutter: PaintedStreamLine, width: number) {
 }
 
 /**
+ * A literal-text row's paint node: always a single text node, as before. Rows
+ * holding URLs paint styled text (URL spans carry OSC-8 metadata) and arm as
+ * Ctrl+click targets; URL-free rows paint the plain string they always have.
+ */
+function buildPlainRowNode(
+  ctx: CliRenderer,
+  painted: PaintedStreamLine,
+): TextRenderable {
+  const node = new TextRenderable(ctx, {
+    content: painted.content,
+    fg: painted.fg,
+  });
+  paintPlainRowNode(node, painted);
+  return node;
+}
+
+/**
+ * Rewrite a plain row's text on its existing node. The node never changes
+ * shape, so a URL appearing or disappearing repaints in place instead of
+ * forcing a rebuild.
+ */
+function paintPlainRowNode(
+  node: TextRenderable,
+  painted: PaintedStreamLine,
+): void {
+  const lines = painted.content.split("\n");
+  if (!lines.some((line) => findLinks(line).length > 0)) {
+    node.content = painted.content;
+    node.fg = painted.fg;
+    return;
+  }
+  paintLinkLine(
+    node,
+    lines.map((line) => splitLinkSpans([{ text: line, fg: painted.fg }])),
+  );
+}
+
+/**
  * A markdown row's body. Most rows have no settled heading yet (no heading at
  * all, or the only one is still the open tail), and paint through a single
  * renderer, same as before this fix existed. Once a heading closes, the body
@@ -396,10 +436,10 @@ function createMarkdownBody(
   const content = markdownContent(row);
   const split = splitAtSettledHeading(content);
   if (split === null) {
+    // Native incremental block stability: only the trailing block is unstable.
     return new MarkdownRenderable(ctx, {
       ...markdownBodyOptions(gutter, width),
       content,
-      // Native incremental block stability: only the trailing block is unstable.
       streaming: row.streaming === true,
     });
   }
@@ -454,8 +494,9 @@ function createStyledLinesRowRenderable(
 
 /**
  * One painted body line. A line ending in an expand arrow is split so the
- * arrow is its own renderable and can answer a click; every other line is a
- * single text node, as before.
+ * arrow is its own renderable and can answer a click; a line holding URLs
+ * paints styled text and arms as a Ctrl+click target (see url-links.ts);
+ * every other line is a single text node, as before.
  */
 function bodyLineNode(
   ctx: CliRenderer,
@@ -464,17 +505,12 @@ function bodyLineNode(
 ): TextRenderable | BoxRenderable {
   const split = onToggle === undefined ? null : splitTrailingArrow(line);
   if (split === null || onToggle === undefined) {
-    return new TextRenderable(ctx, {
-      content: new StyledText(diffLineChunks(line)),
-    });
+    return buildLinkLine(ctx, splitLinkSpans(line));
   }
   const wrapper = new BoxRenderable(ctx, { flexDirection: "row", flexGrow: 1 });
-  wrapper.add(
-    new TextRenderable(ctx, {
-      content: new StyledText(diffLineChunks(split.body)),
-      flexShrink: 0,
-    }),
-  );
+  const body = buildLinkLine(ctx, splitLinkSpans(split.body));
+  body.flexShrink = 0;
+  wrapper.add(body);
   wrapper.add(
     new TextRenderable(ctx, {
       content: new StyledText(diffLineChunks([split.arrow])),
