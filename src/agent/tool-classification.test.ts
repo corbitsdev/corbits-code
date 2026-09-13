@@ -18,6 +18,9 @@ describe("AUTO_ALLOW_READ_TOOLS", () => {
         "manage_tasks",
         "read_file",
         "search_files",
+        // CL-7668: read-only skill discovery/loading needs no approval prompt.
+        "skill_search",
+        "use_skill",
       ].sort(),
     );
   });

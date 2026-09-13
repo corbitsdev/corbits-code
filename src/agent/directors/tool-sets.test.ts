@@ -7,6 +7,7 @@ import {
   READ_TOOLS,
   REVIEW_TOOLS,
   INTERN_TOOLS,
+  SKILL_TOOLS,
   SKYWALKER_TOOLS,
 } from "./tool-sets.js";
 
@@ -92,7 +93,8 @@ describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
     );
   });
 
-  test("skill_search + use_skill mount on every worker surface", () => {
+  test("skill_search + use_skill mount on every worker surface, never ask_operator", () => {
+    expect([...SKILL_TOOLS]).toEqual(["skill_search", "use_skill"]);
     for (const surface of [
       READ_TOOLS,
       BUILD_TOOLS,
@@ -104,6 +106,7 @@ describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
     ] as const) {
       expect(surface as readonly string[]).toContain("skill_search");
       expect(surface as readonly string[]).toContain("use_skill");
+      expect(surface as readonly string[]).not.toContain("ask_operator");
     }
   });
 });

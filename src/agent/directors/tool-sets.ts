@@ -1,18 +1,14 @@
 // Small, explicit tool allowlists for director packages.
 // Prefer tools.allow at mount (CapabilityFilter include) over huge deny lists.
 // manage_tasks is always mounted by runSubAgent after the filter — omit it here.
-// skill_search + use_skill mount on every worker through runSubAgent (scoped to
-// the dispatch's optionalSkills); they ride the allowlists below so the
-// capability filter keeps them. ask_operator stays primary-only.
+// skill_search + use_skill mount on every worker, scoped at mount to the
+// dispatch's optionalSkills. ask_operator stays primary-session-only: workers
+// never mount it (Do not #1).
 
-/**
- * Skill discovery/loading, mounted on every worker surface (read/build/docs/
- * review/intern/orchestrator). runSubAgent scopes both tools to the
- * dispatch's optionalSkills before the capability filter.
- */
+/** Skill discovery + loading — mounted on every worker surface below. */
 export const SKILL_TOOLS = ["skill_search", "use_skill"] as const;
 
-/** Read/search/shell — no product mutation. */
+/** Read/search/shell + skill tools — no product mutation. */
 export const READ_TOOLS = [
   "read_file",
   "grep",
@@ -46,6 +42,7 @@ export const PRODUCT_WRITE_TOOLS = [
 export const BUILD_TOOLS = [
   ...READ_TOOLS,
   ...PRODUCT_WRITE_TOOLS,
+  ...SKILL_TOOLS,
   "apply_patch",
   "shell",
   "update_plan",
@@ -65,12 +62,17 @@ export const BUILD_TOOLS = [
 export const DOCS_TOOLS = [
   ...READ_TOOLS.filter((t) => t !== "run_shell" && t !== "shell_collect"),
   ...PRODUCT_WRITE_TOOLS,
+  ...SKILL_TOOLS,
   "apply_patch",
   "update_plan",
 ] as const;
 
-/** Review / counsel: read surface + path writes (lane discipline in prompts). */
-export const REVIEW_TOOLS = [...READ_TOOLS, ...PRODUCT_WRITE_TOOLS] as const;
+/** Review / counsel: read surface + path writes + skill tools (lane discipline in prompts). */
+export const REVIEW_TOOLS = [
+  ...READ_TOOLS,
+  ...PRODUCT_WRITE_TOOLS,
+  ...SKILL_TOOLS,
+] as const;
 
 /** Mechanical intern: shell-first + path writes when the brief requires them. */
 export const INTERN_TOOLS = [
@@ -90,6 +92,7 @@ export const INTERN_TOOLS = [
 export const ORCHESTRATOR_TOOLS = [
   ...READ_TOOLS,
   ...PRODUCT_WRITE_TOOLS,
+  ...SKILL_TOOLS,
   "spawn_agent",
   "list_agents",
   "close_agent",
