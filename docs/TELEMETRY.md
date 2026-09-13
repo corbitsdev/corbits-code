@@ -76,14 +76,19 @@ share of prompts driven by MCP stays visible without the server key coming
 with it. `agent_name` on `subagent_*` is the same pattern: first-party
 director ids from `DIRECTOR_IDS` (and the legacy `worker` alias) are reported
 by id; project-defined or marketplace profile ids become `custom`.
-`skill_used` carries `skill_name`: a user-invocable first-party skill name
-from the closed `corbits-skills` allowlist (`ast-grep`, `create-issue`,
+`skill_used` carries `skill_name`: a first-party skill name reportable by
+name from the closed `corbits-skills` allowlist (`ast-grep`, `create-issue`,
 `git-rebase`, `git-worktrees`, `implement`, `interview`,
 `linear-issue-workflow`, `opsh`, `philosophy`, `plan`,
 `pull-request-review`, `refactor`, `review`, `scribe`, `style`,
-`typescript`), or `custom` for anything else. Bundled skills marked
-`user-invocable: false` (`native-integration`, `native-runtime`, `ponytail`,
-`idiot-proof`) are excluded from the allowlist by design. Unknown,
+`typescript`), or `custom` for anything else. `user-invocable: false` opts a
+skill out of slash synthesis, not out of name reporting: eleven bundled
+skills carry the flag, and seven of them (`git-rebase`, `git-worktrees`,
+`linear-issue-workflow`, `opsh`, `philosophy`, `style`, `typescript`)
+remain real `use_skill` recipes, so they stay on the allowlist — the names
+are ours either way. Excluded are the four bake-only background skills
+(`idiot-proof`, `native-integration`, `native-runtime`, `ponytail`), which
+are baked into agent prompts rather than invoked as skills. Unknown,
 project-local, and plugin-authored skill names are never transmitted —
 `skill_name` is the only identifying-adjacent property the event can carry.
 `plugin_loaded` goes further: there is no first-party list of plugins to

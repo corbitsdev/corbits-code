@@ -244,6 +244,11 @@ test("first-party skill names are reported by name; everything else stays custom
   expect(classifySkillName("acme-internal-deploy")).toBe("custom");
   // Bundled catalog skills outside the closed allowlist are not reported by
   // name either — the allowlist is the closed set, not the skills directory.
+  // All four bake-only background skills (user-invocable: false, baked into
+  // agent prompts rather than invoked as skills) stay custom, while the
+  // seven flagged-but-allowlisted use_skill-only recipes assert by name above.
+  expect(classifySkillName("idiot-proof")).toBe("custom");
+  expect(classifySkillName("native-integration")).toBe("custom");
   expect(classifySkillName("native-runtime")).toBe("custom");
   expect(classifySkillName("ponytail")).toBe("custom");
   expect(classifySkillName("Review")).toBe("custom");
