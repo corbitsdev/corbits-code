@@ -61,6 +61,19 @@ describe("createCodexResponsesAdapter", () => {
     expect(body.prompt_cache_key).toBe("sess-1");
   });
 
+  test("sends parallel_tool_calls:true on the wire (CL-7420)", () => {
+    const adapter = createCodexResponsesAdapter(source);
+    const request = adapter.buildRequest(
+      [userTurn("hello")],
+      "gpt-5.1-codex",
+      {},
+    );
+    const body = JSON.parse(request.body) as {
+      parallel_tool_calls?: unknown;
+    };
+    expect(body.parallel_tool_calls).toBe(true);
+  });
+
   test("wraps the system prompt with host product identity as a developer item", () => {
     const adapter = createCodexResponsesAdapter(source);
     const request = adapter.buildRequest([userTurn("x")], "gpt-5.1-codex", {

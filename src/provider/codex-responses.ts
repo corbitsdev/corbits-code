@@ -51,9 +51,27 @@ function withHostReasoningEffort(adapter: ProviderAdapter): ProviderAdapter {
   };
 }
 
+// CL-7420 probe: the ChatGPT Codex backend accepts parallel_tool_calls:true
+// (HTTP 200 on POST /codex/responses, echoed true in response.created). The
+// packaged adapter still pins false, so the host rewrites the field on the
+// wire; the reactor already fans out a multi-call batch concurrently.
+function withParallelToolCalls(adapter: ProviderAdapter): ProviderAdapter {
+  return {
+    ...adapter,
+    buildRequest: (messages, model, options) => {
+      const request = adapter.buildRequest(messages, model, options);
+      const body = JSON.parse(request.body) as Record<string, unknown>;
+      body["parallel_tool_calls"] = true;
+      return { ...request, body: JSON.stringify(body) };
+    },
+  };
+}
+
 // CodexQuirks are required by the package factory; Responses option keys are
 // not part of that bag, so host reasoning_effort is aliased at buildRequest.
 export const createCodexResponsesAdapter: AdapterFactory = (source) =>
   withHostReasoningEffort(
-    createPackageCodexResponsesAdapter(source, CODEX_QUIRKS),
+    withParallelToolCalls(
+      createPackageCodexResponsesAdapter(source, CODEX_QUIRKS),
+    ),
   );
