@@ -750,7 +750,7 @@ function fitOverlayListToHost(shell: AppShell, hostH: number): void {
     chrome = chromeOf(bodyCount);
   }
   const bodyH = Math.max(0, hostH - chrome);
-  if (bodyH >= perItem) {
+  if (hasItems && bodyH >= perItem) {
     list.setHeight(
       Math.max(1, Math.floor(bodyH / perItem)),
       isDecisionOverlay(shell.overlayKind) ? DECISION_CHOICE_ROWS : 1,

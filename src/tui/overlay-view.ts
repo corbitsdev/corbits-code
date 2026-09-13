@@ -50,6 +50,13 @@ export interface OverlayListPresentation {
  */
 export const OVERLAY_HOST_BORDER_ROWS = 2;
 
+/**
+ * What an overlay with no choices paints inside the body chrome (CL-6720).
+ * Distinct from the "(no matches)" filter sentinel, which is a real choice
+ * row — this paints when the list itself is empty and reserves zero rows.
+ */
+export const OVERLAY_EMPTY_STATE = "(no choices)";
+
 /** Rule row plus the fixed two content lines — charged whenever `describe` is set. */
 const DESCRIPTION_ZONE_ROWS = 1 + DESCRIPTION_ZONE_LINES;
 
@@ -400,6 +407,7 @@ export function createOverlayView(ctx: RenderContext) {
     // for its background, spending layout budget a chooser with no choices did
     // not reserve.
     if (presentation.items.length > 0) body.add(list.select);
+    else addOverlayRow(` ${OVERLAY_EMPTY_STATE}`, UI.textDim);
     paintAnswerRow(presentation.answer, contentWidth);
     paintDescriptionZone(presentation.describe, contentWidth);
   }
