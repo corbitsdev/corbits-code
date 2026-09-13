@@ -38,7 +38,8 @@ const PROMPT_SIZE_BASELINE: Record<
   gaasbot: { chars: 52782, bytes: 52970 },
   // CL-7800: deliberate CMO full-fidelity restore; re-measured on rebase.
   draper: { chars: 16403, bytes: 16489 },
-  emil: { chars: 14653, bytes: 14765 },
+  // CL-7801: deliberate full-fidelity CMO restore; grok family is the max.
+  emil: { chars: 22770, bytes: 22922 },
   rand: { chars: 13021, bytes: 13089 },
   shakespeare: { chars: 52774, bytes: 52956 },
   testsmith: { chars: 14088, bytes: 14166 },
