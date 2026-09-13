@@ -1132,18 +1132,32 @@ export async function loadConfig(
 // provider connect (mid-session, no restart) can rebuild the picker's
 // catalog after writing new credentials, instead of only taking effect on
 // the next process start.
-function mergeOAuthCatalog(
+export function mergeOAuthCatalog(
   settings: Settings | null,
   resolved: ResolvedProvider,
   codexProfiles: readonly CodexProfile[],
   xaiProfiles: readonly XaiProfile[],
 ): ProviderCatalogEntry[] {
+  const codexEntries = codexProfilesToCatalogEntries(codexProfiles);
+  const xaiEntries = xaiProfilesToCatalogEntries(xaiProfiles);
+  // A legacy bare `codex`/`xai` settings row (the original single-instance
+  // connect key) reads as a second, separately-added provider next to the
+  // credential-backed `<kind>/<profile>` entries. Drop it once that family
+  // has a live profile; when nothing is connected the bare row is the only
+  // ChatGPT/Grok access and stays.
+  const dropBare = new Set([
+    ...(codexEntries.length > 0 ? ["codex"] : []),
+    ...(xaiEntries.length > 0 ? ["xai"] : []),
+  ]);
   return [
     ...buildProviderCatalog(settings, resolved).filter(
-      (e) => !isCodexProviderName(e.name) && !isXaiProviderName(e.name),
+      (e) =>
+        !isCodexProviderName(e.name) &&
+        !isXaiProviderName(e.name) &&
+        !dropBare.has(e.name),
     ),
-    ...codexProfilesToCatalogEntries(codexProfiles),
-    ...xaiProfilesToCatalogEntries(xaiProfiles),
+    ...codexEntries,
+    ...xaiEntries,
   ].map((entry) =>
     isOpenCodeGoProvider(entry)
       ? { ...entry, models: [...selectableGoModelIds()] }

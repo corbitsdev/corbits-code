@@ -218,4 +218,40 @@ describe("describeModelCatalogOption", () => {
     );
     expect(description?.impact).toMatch(/pricing unknown/i);
   });
+
+  test("connected ChatGPT rows state plan billing plainly instead of unknown pricing (CL-5606)", () => {
+    // Subscription-billed models have no per-token price; "Pricing unknown"
+    // misreads as metered billing with a missing rate.
+    const description = describeModelCatalogOption(
+      {
+        id: "codex/default:gpt-5.1-codex-max",
+        label: "gpt-5.1-codex-max * [Codex default]",
+      },
+      { pricing: null },
+    );
+    expect(description?.impact).not.toMatch(/pricing unknown/i);
+    expect(description?.impact).toMatch(/ChatGPT subscription/);
+  });
+
+  test("connected Grok rows state plan billing plainly instead of unknown pricing (CL-5606)", () => {
+    const description = describeModelCatalogOption(
+      {
+        id: "xai/work:grok-4",
+        label: "grok-4 * [xAI work]",
+      },
+      { pricing: null },
+    );
+    expect(description?.impact).not.toMatch(/pricing unknown/i);
+    expect(description?.impact).toMatch(/subscription/);
+  });
+
+  test("colon-less ids keep the full provider instead of dropping the last character", () => {
+    // slice(0, indexOf(":")) truncates a colon-less id (indexOf is -1), so
+    // "codex/" became "code" and missed subscription billing.
+    const description = describeModelCatalogOption(
+      { id: "codex/", label: "default * [Codex default]" },
+      { pricing: null },
+    );
+    expect(description?.impact).toMatch(/ChatGPT subscription/);
+  });
 });
