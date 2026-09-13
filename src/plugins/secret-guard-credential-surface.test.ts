@@ -132,6 +132,22 @@ describe("CL-7789 default-install credential surface", () => {
     expect(
       isSensitivePathResolved(join(home, ".corbits", "codex-auth.json.lock")),
     ).toBe(true);
+    for (const basename of [
+      "settings.json",
+      "permissions.json",
+      "codex-auth.json",
+      "xai-auth.json",
+    ]) {
+      expect(
+        isSensitivePathResolved(join(home, ".corbits", `${basename}~`)),
+      ).toBe(true);
+      expect(
+        isSensitivePathResolved(join(home, ".corbits", `${basename}.swp`)),
+      ).toBe(true);
+      expect(
+        isSensitivePathResolved(join(home, ".corbits", `.${basename}.swp`)),
+      ).toBe(true);
+    }
     expect(
       isSensitivePathResolved(
         join(home, ".corbits", "xai-auth.json.12345.1.tmp"),
@@ -151,6 +167,21 @@ describe("CL-7789 default-install credential surface", () => {
         expect(resolved).toContain("(blocked: sensitive path)");
         expect(resolved).not.toContain(marker);
       }
+    } finally {
+      await fake.cleanup();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("@mentions of credential backup paths stay blocked without leaking bytes", async () => {
+    const fake = await fakeHome();
+    const cwd = await mkdtemp(join(tmpdir(), "cl7789-mention-bak-cwd-"));
+    try {
+      const backup = `${fake.codexAuth}.bak-2026-01-01`;
+      await writeFile(backup, `${CODEX_BYTES}\n`);
+      const resolved = await resolveAtMentions(`read @${backup}`, cwd);
+      expect(resolved).toContain("(blocked: sensitive path)");
+      expect(resolved).not.toContain("CODEX-FIXTURE-ACCESS");
     } finally {
       await fake.cleanup();
       await rm(cwd, { recursive: true, force: true });
