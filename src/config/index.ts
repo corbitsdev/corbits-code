@@ -1136,9 +1136,11 @@ export async function loadConfig(
 // Credential-removal convergence (CL-5446) is rebuild-only: every rebuild
 // derives rows from the current settings file plus the live Codex/xAI
 // stores, so a provider without a credential is rebuilt without one and
-// re-auth restores it on the next rebuild. Manual rows are never deleted —
-// settings-file providers are re-projected verbatim — which is the
-// disable-not-delete rationale: nothing the operator wrote is lost, and
+// re-auth restores it on the next rebuild. Settings-file rows are
+// re-projected verbatim and never deleted — with one exception: the legacy
+// bare `codex`/`xai` row dedupe (CL-5606), which drops the bare settings row
+// once that family has a live credential-backed profile. Otherwise the
+// disable-not-delete rationale holds: nothing the operator wrote is lost, and
 // nothing stale survives past the next rebuild. A dedicated disabled flag
 // was rejected: no such state exists on the catalog entry, the picker
 // option, or the host boundary, and no removal event drives a refresh
