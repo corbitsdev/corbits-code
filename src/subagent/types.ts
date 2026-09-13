@@ -117,6 +117,14 @@ export type RunSubAgentParams = {
   onProgress?: (info: { description: string; toolName: string }) => void;
   onRunSettled?: (summary: Readonly<SubAgentRunSettlement>) => void;
   capabilities?: CapabilityFilter;
+  /**
+   * Skill allowlist for the worker's skill_search + use_skill mounts,
+   * resolved by the caller (agent-fleet.ts) from the dispatch's
+   * DirectorPackage.optionalSkills. When set, both tools only see these
+   * names (the allowlist cannot widen: unknown names refuse). When unset
+   * (non-director plugin profiles), the worker sees every discovered skill.
+   */
+  allowedSkillNames?: readonly string[];
   systemPromptRole?: string;
   /** Resolved closed-director id (e.g. "critic") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
   directorId?: string;

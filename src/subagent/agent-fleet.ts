@@ -1399,6 +1399,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(resolved.capabilities !== undefined
               ? { capabilities: resolved.capabilities }
               : {}),
+            ...(resolved.pkg?.optionalSkills !== undefined
+              ? { allowedSkillNames: resolved.pkg.optionalSkills }
+              : {}),
             ...(resolved.systemPromptRole !== undefined
               ? { systemPromptRole: resolved.systemPromptRole }
               : {}),
