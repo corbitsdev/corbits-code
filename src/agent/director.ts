@@ -2,6 +2,7 @@ import {
   DefaultDirector,
   type ExtendedInferenceOptions,
 } from "@intx/inference";
+import { createHash } from "node:crypto";
 import { getLogger } from "@intx/log";
 import type {
   ReactorDirector,
@@ -47,6 +48,25 @@ import {
 } from "../permission/decline-markers.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "agent", "director"]);
+
+// The serialized `tools` array is the head of the provider's cached prompt
+// prefix, ahead of the system prompt. Measured on OpenCode Go Responses, a warm
+// session holds 99.3% cached and ANY change to that array — a mount, a
+// description edit, or a pure reorder of an unchanged set — drops the next turn
+// to 2-4%. Appending at the end is not cheaper than prepending: 4.5% versus
+// 2.1%, both full misses.
+//
+// `advertisedTools` (src/agent/tool-search.ts) already keeps this array
+// deterministic, so the array should only ever change when a genuine discovery
+// grows it. This digest is here to prove that, because prefix churn is
+// otherwise invisible — it shows up only as a billing and latency spike a turn
+// later. Hashed rather than logged verbatim: MCP tool descriptions are
+// arbitrary-length, server-supplied text and do not belong in the log stream.
+// See CL-7868.
+function toolSetDigest(tools: readonly ToolDefinition[]): string {
+  const shape = tools.map((t) => `${t.name}:${t.description ?? ""}`).join("|");
+  return createHash("sha256").update(shape).digest("hex").slice(0, 12);
+}
 
 function isInternalRecoveryAbort(
   event: Extract<ReactorInboundEvent, { type: "inference.error" }>,
@@ -508,7 +528,11 @@ class ChatDirectorImpl extends DefaultDirector {
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
+    const before = toolSetDigest(this._toolDefinitions);
+    const after = toolSetDigest(toolDefinitions);
     this._toolDefinitions = toolDefinitions;
+    if (before === after) return;
+    logger.debug`tool-set-changed count=${String(this._toolDefinitions.length)} before=${before} after=${after}`;
   }
 
   getTasks(): Task[] {
