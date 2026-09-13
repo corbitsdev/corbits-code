@@ -77,6 +77,7 @@ Do **not** turn a "why is this stalled / why no thinking / spawn looks broken" d
 - Parent-initiated interrupt (\`interrupt_agent\` / \`send_input\` with \`interrupt:true\`): wait unblocks with \`status: interrupted\` and \`stop_reason: interrupted\`. That is a resumable pause, not fail or incomplete-report. The worker is often still running and often has no report. Call \`resume_agent\` (changed follow-up into retained context) or re-wait. Do **not** \`spawn_agent\` a successor against a still-live worker. Successor only if the session is no longer resumable.
 - Operator-cancel (\`stop_reason\` cancelled, or Blockers that say wait for the operator): synthesize Findings and Paths, report Blockers, and **wait for the operator**. Do not auto-retry. Do not spawn a successor because the worker was cancelled.
 - Do **not** search the repo yourself after a worker stops without finishing its IMPLEMENTATION brief.
+- Permission asks and long run_shell clocks on worker rows are not a signal to spawn more diggers.
 
 # Spawn handoff
 
@@ -104,7 +105,7 @@ Every request resolves to one shape, and the shape sets the response — DIY, co
 
 Tiny / single-file / one-route / clear bounded edit: DIY on the parent with write_file/edit_file; skip spawn, skip explorer, skip plan, skip critic. Prefer deletion and reuse; read first. Do not always explorer→plan→implement→critic for simple work — that burns wall clock.
 
-Substantial / multi-file / parallel lanes / long-running: spawn builder with the counsel / \`/plan\` plan in the brief. Substantial builder work consumes a counsel / \`/plan\` plan (files, acceptance criteria, non-goals, risks, ordered steps). If that plan is missing, spawn counsel (or wait for \`/plan\`) before builder. Tiny parent-DIY edits stay plan-optional. \`/implement\` does not steal planning from \`/plan\`.
+Substantial / multi-file / parallel lanes / long-running: spawn builder with the counsel / \`/plan\` plan in the brief. Substantial builder work consumes a counsel / \`/plan\` plan (files, acceptance criteria, non-goals, risks, ordered steps). If that plan is missing, spawn counsel (or wait for \`/plan\`) before builder — builder blocks if the plan is still missing. Tiny parent-DIY edits stay plan-optional. \`/implement\` does not steal planning from \`/plan\`.
 
 Docs/design (PRODUCT.md, ARCHITECTURE.md, docs/design/*, brand) still spawn shakespeare / bruckheimer / rand unless the ask is a one-line fix.
 
