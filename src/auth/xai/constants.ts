@@ -1,7 +1,7 @@
 import { XAI_REDIRECT_URI } from "@corbits/xai-provider";
 
 // Local alias over the vendor fallback list (CL-5691): XAI_DEFAULT_MODELS
-// backs live xAI catalog calls and stays in the vendor package — this shim
+// backs live xAI catalog calls and stays in the vendor package — this alias
 // only renames the proxy URL. identity-divergence.test.ts pins the agreement.
 export {
   XAI_DEFAULT_MODELS,
