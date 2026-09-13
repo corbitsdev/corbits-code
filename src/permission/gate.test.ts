@@ -286,3 +286,132 @@ describe("standing grant covers a later git worktree command (CL-5638)", () => {
     expect(prompts).toBe(1);
   });
 });
+
+// CL-6824: when a standing grant covers a command but a pre-grant guard still
+// forces an ask, the prompt carries PermissionRequest.notice naming the
+// guard's reason. Matching semantics are unchanged — every case below still
+// asks (and stays deniable); only the prompt gains the why.
+describe("grant-mismatch asks carry the guard reason as a notice (CL-6824)", () => {
+  const root = mkdtempSync(join(tmpdir(), "gate-mismatch-notice-"));
+  const sessionCwd = join(root, "main");
+  const git = (args: string[], cwd: string) =>
+    execFileSync("git", args, { cwd, stdio: "ignore" });
+  mkdirSync(sessionCwd);
+  initTemporaryGitRepo(sessionCwd, { initArgs: ["-q"] });
+  writeFileSync(join(sessionCwd, "seed.txt"), "seed\n");
+  git(["add", "."], sessionCwd);
+  git(["commit", "-qm", "seed"], sessionCwd);
+
+  async function askWithGrants(command: string, approvals: Approval[]) {
+    const seen: PermissionRequest[] = [];
+    const gate = createPermissionGate({
+      approvals,
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      cwd: sessionCwd,
+      rootsProvider: () => [],
+      requestApproval: async (request) => {
+        seen.push(request);
+        return { allow: false };
+      },
+    });
+    const verdict = await gate.evaluate(shellCall(command));
+    return { verdict, seen };
+  }
+
+  const worktreeGrant: Approval[] = [
+    { tool: "run_shell", pattern: "git worktree *" },
+  ];
+  const catGrant: Approval[] = [{ tool: "run_shell", pattern: "cat *" }];
+
+  test("force worktree names --force in the notice", async () => {
+    const { verdict, seen } = await askWithGrants(
+      "git worktree add --force ../sib-force",
+      worktreeGrant,
+    );
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.notice).toBe(
+      "A standing grant matches this command, but it uses --force, so it still needs approval.",
+    );
+  });
+
+  test("--force=<value> is still force in the notice", async () => {
+    const { verdict, seen } = await askWithGrants(
+      "git worktree add --force=true ../sib-force-eq",
+      worktreeGrant,
+    );
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.notice).toBe(
+      "A standing grant matches this command, but it uses --force, so it still needs approval.",
+    );
+  });
+
+  test("uncontained destination names the approved locations", async () => {
+    // A direct child of tmpdir() is not a permitted sibling of sessionCwd
+    // (only direct children of root/ are), so the restricted guard trips.
+    const outside = join(tmpdir(), "gate-6824-outside");
+    const { verdict, seen } = await askWithGrants(
+      `git worktree add ${outside}`,
+      worktreeGrant,
+    );
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.notice).toBe(
+      "A standing grant matches this command, but the worktree destination is outside the approved locations, so it still needs approval.",
+    );
+  });
+
+  test("secret reference names the sensitive path", async () => {
+    const { verdict, seen } = await askWithGrants("cat .env", catGrant);
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.notice).toBe(
+      "A standing grant matches this command, but it references a sensitive path, so it still needs approval.",
+    );
+    // The secret ask still strips grant scopes; the notice survives it.
+    expect(seen[0]?.scopes).toEqual([]);
+  });
+
+  test("restricted target names the workspace", async () => {
+    const { verdict, seen } = await askWithGrants("cat /etc/passwd", catGrant);
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.notice).toBe(
+      "A standing grant matches this command, but it targets a path outside the workspace, so it still needs approval.",
+    );
+  });
+
+  test("an ask with no matching grant carries no notice", async () => {
+    const { verdict, seen } = await askWithGrants(
+      "git worktree add --force ../sib-nogrant",
+      [],
+    );
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.notice).toBeUndefined();
+  });
+
+  test("a covered command still allows with no prompt and no notice", async () => {
+    const seen: PermissionRequest[] = [];
+    const gate = createPermissionGate({
+      approvals: worktreeGrant,
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      cwd: sessionCwd,
+      rootsProvider: () => [],
+      requestApproval: async (request) => {
+        seen.push(request);
+        return { allow: false };
+      },
+    });
+    const verdict = await gate.evaluate(
+      shellCall("git worktree add ../sib-plain -b br-plain"),
+    );
+    expect(verdict.allowed).toBe(true);
+    expect(seen).toHaveLength(0);
+  });
+});

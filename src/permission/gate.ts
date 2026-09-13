@@ -18,6 +18,7 @@ import {
 import {
   autoShellRuleForCall,
   safeWorktreeCommand,
+  isWorktreeForceFlag,
 } from "./auto-shell-policy.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import {
@@ -34,6 +35,7 @@ import {
 import {
   splitChainedCommand,
   isShellCommentOnly,
+  tokenize,
   stripCommentLines,
 } from "./command.js";
 import {
@@ -143,6 +145,39 @@ function segmentGuard(
   if (commandTargetsRestricted(segment, isRestricted))
     return { kind: "restricted" };
   return undefined;
+}
+
+// Classifies a guarded `git worktree add/remove` segment so a grant-mismatch
+// notice can name the operative reason: a force flag, or a destination the
+// containment authority did not approve. Returns undefined for anything else.
+// Display-only refinement — the guard decision itself is unchanged.
+function worktreeMismatchKind(
+  segment: string,
+): "force" | "destination" | undefined {
+  const tokens = tokenize(segment);
+  if (tokens[0] !== "git" || tokens[1] !== "worktree") return undefined;
+  if (tokens[2] !== "add" && tokens[2] !== "remove") return undefined;
+  return tokens.slice(3).some(isWorktreeForceFlag) ? "force" : "destination";
+}
+
+// Explains a grant mismatch: a standing grant covers the segment, but the
+// pre-grant guard still forced an ask. The wording names the guard's reason,
+// never the grant — matching semantics are untouched.
+function grantMismatchNotice(
+  segment: string,
+  kind: "secret" | "restricted",
+): string {
+  if (kind === "secret") {
+    return "A standing grant matches this command, but it references a sensitive path, so it still needs approval.";
+  }
+  const worktreeKind = worktreeMismatchKind(segment);
+  if (worktreeKind === "force") {
+    return "A standing grant matches this command, but it uses --force, so it still needs approval.";
+  }
+  if (worktreeKind === "destination") {
+    return "A standing grant matches this command, but the worktree destination is outside the approved locations, so it still needs approval.";
+  }
+  return "A standing grant matches this command, but it targets a path outside the workspace, so it still needs approval.";
 }
 
 // Relative path tokens in a shell command resolve against the process cwd of the
@@ -731,6 +766,7 @@ export function createPermissionGate(
 
         let needsOperator = false;
         let anySecret = false;
+        let mismatchNotice: string | undefined;
         for (const segment of segments) {
           // A secret-path reference or restricted target always requires the
           // operator, whether the segment would otherwise auto-allow or match
@@ -747,6 +783,22 @@ export function createPermissionGate(
           if (guard !== undefined) {
             if (guard.kind === "secret") anySecret = true;
             needsOperator = true;
+            // A standing grant may still cover this segment even though the
+            // pre-grant guard forces an ask — record why so the prompt can say
+            // so. Matching semantics are untouched; this only annotates the ask.
+            if (
+              mismatchNotice === undefined &&
+              (await evaluateApprovals({
+                tool: request.tool,
+                subject: segment,
+                approvals,
+                activeProviderModel,
+                requestCwd: effectiveCwd,
+                workspace: grantWorkspace(),
+              }))
+            ) {
+              mismatchNotice = grantMismatchNotice(segment, guard.kind);
+            }
             continue;
           }
           if (
@@ -788,9 +840,19 @@ export function createPermissionGate(
 
         // Secret-path shell must never mint a stored grant — even an exact match
         // would be misleading because future secret-path shell always re-asks.
+        // A grant mismatch carries the guard's reason on the prompt so the
+        // operator sees why the standing grant did not apply.
         const requestForOperator = anySecret
-          ? { ...request, scopes: [] }
-          : request;
+          ? {
+              ...request,
+              scopes: [],
+              ...(mismatchNotice !== undefined
+                ? { notice: mismatchNotice }
+                : null),
+            }
+          : mismatchNotice !== undefined
+            ? { ...request, notice: mismatchNotice }
+            : request;
         return {
           kind: "ask",
           request: requestForOperator,

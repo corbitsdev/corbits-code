@@ -346,8 +346,12 @@ const WORKTREE_PRUNE_FLAGS = new Set(["-n", "--dry-run", "-v", "--verbose"]);
 // Flags that take a following value on `git worktree add` (branch name, lock reason).
 const WORKTREE_ADD_VALUE_FLAGS = new Set(["-b", "-B", "--reason"]);
 
-function isWorktreeForceFlag(arg: string): boolean {
-  return arg === "-f" || arg === "--force";
+export function isWorktreeForceFlag(arg: string): boolean {
+  // Git's --force takes no value (real git rejects --force=<value> with
+  // "error: option `force' takes no value"), but the spelling still expresses
+  // force intent, so the policy treats it as force rather than letting the
+  // --flag=value path skip swallow it.
+  return arg === "-f" || arg === "--force" || arg.startsWith("--force=");
 }
 
 // True when the path is safe for unattended worktree add/remove: inside the
