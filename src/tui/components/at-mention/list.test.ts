@@ -1,6 +1,14 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdir, writeFile, rm, symlink, mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import {
+  mkdir,
+  writeFile,
+  rm,
+  symlink,
+  mkdtemp,
+  readdir,
+  stat,
+} from "node:fs/promises";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { listPathSuggestions } from "./list.js";
 
@@ -81,8 +89,41 @@ describe("listPathSuggestions", () => {
     expect(results).toContain("../src/");
   });
 
-  test("does not browse home-relative paths", async () => {
-    expect(await listPathSuggestions("~/", fixture)).toEqual([]);
+  // Why the old `[]` pin changed (CL-7930): the submit path already expands
+  // `~/…` via expandHome, so completing to nothing was a dead end — the popup
+  // offered no way to reach a path submit accepts. Completions now list home
+  // in `~/` display form, so both paths agree.
+  test("offers home-relative completions for ~/", async () => {
+    const names = await readdir(homedir());
+    if (names.length === 0) return;
+    const results = await listPathSuggestions("~/", fixture);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((r) => r.startsWith("~/"))).toBe(true);
+  });
+
+  test("offers home-relative completions for bare ~", async () => {
+    const names = await readdir(homedir());
+    if (names.length === 0) return;
+    const results = await listPathSuggestions("~", fixture);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results.every((r) => r.startsWith("~/"))).toBe(true);
+  });
+
+  test("filters home-relative completions by fragment", async () => {
+    const names = await readdir(homedir());
+    const probe = names.find((n) => !n.startsWith(".")) ?? names[0];
+    if (probe === undefined) return;
+    const info = await stat(join(homedir(), probe));
+    const expected = `~/${probe}${info.isDirectory() ? "/" : ""}`;
+    const results = await listPathSuggestions(`~/${probe}`, fixture);
+    expect(results).toContain(expected);
+    expect(results.every((r) => r.startsWith("~/"))).toBe(true);
+  });
+
+  test("returns [] for a nonexistent home-relative path", async () => {
+    expect(
+      await listPathSuggestions("~/nonexistent-path-12345-xyz/", fixture),
+    ).toEqual([]);
   });
 
   test("follows symlinked directories", async () => {
