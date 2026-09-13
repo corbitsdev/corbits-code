@@ -3,23 +3,23 @@ import type { ModelRole } from "./types.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
 
 /**
- * Prefix every director system prompt with a stable identity block so the model
- * always sees agent id, model role, and optional skills — no ambiguity about which
- * package it is or how the parent should re-spawn it.
+ * Worker skill-use rule: skills mount on every worker (scoped to the
+ * dispatch's optionalSkills), so the worker searches only when the brief
+ * names a skill or the task leaves its lane.
  *
  * Skill bodies are never baked here. Workers (non-orchestrator) list skill
  * names only and load bodies on demand with skill_search + use_skill, scoped
  * to the dispatch's optionalSkills. Primary orchestrator (skywalker):
  * use_skill is mounted — list skill names only.
  */
-/**
- * Worker skill-use rule: skills mount on every worker (scoped to the
- * dispatch's optionalSkills), so the worker searches only when the brief
- * names a skill or the task leaves its lane.
- */
 export const WORKER_SKILL_SCOPING =
   "Skills are available; search only when the brief names a skill or the task is outside your lane. For a small, bounded edit, do not search skills.";
 
+/**
+ * Prefix every director system prompt with a stable identity block so the model
+ * always sees agent id, model role, and optional skills — no ambiguity about which
+ * package it is or how the parent should re-spawn it.
+ */
 export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
   const names = pkg.optionalSkills;
   const isPrimaryOrchestrator = pkg.tier === "orchestrator";

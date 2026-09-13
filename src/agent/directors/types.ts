@@ -102,7 +102,7 @@ export interface DirectorPackage {
   readonly description: string;
   /** Opinionated core prompt (prompt-first). */
   readonly systemPrompt: string;
-  /** Optional skill names (ordered). Workers bake matching first-party bodies into the prompt; the primary orchestrator keeps them use_skill-loadable. */
+  /** Optional skill names (ordered). Workers load matching bodies on demand with skill_search + use_skill, scoped to the dispatch's optionalSkills; the primary orchestrator keeps them use_skill-loadable. */
   readonly optionalSkills?: readonly string[];
   readonly tools?: ToolEnvelope;
   readonly spawn: SpawnRights;

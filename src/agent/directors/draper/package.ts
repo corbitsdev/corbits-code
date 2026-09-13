@@ -12,7 +12,8 @@ import { REVIEW_TOOLS } from "../tool-sets.js";
  *
  * Deviations from the original (deliberate Corbits translations):
  * 1. Brand references: the original loads the `brand-identity` skill and
- *    agents-repo `references/*.md` paths. Workers do not mount use_skill,
+ *    agents-repo `references/*.md` paths. Skill bodies load on demand
+ *    scoped to the dispatch's optionalSkills, and Draper declares none,
  *    so Draper loads only in-repo references relevant to the active
  *    lenses (DESIGN.md, design tokens, brand docs already in the tree)
  *    plus the mounted read/search/web tools.
