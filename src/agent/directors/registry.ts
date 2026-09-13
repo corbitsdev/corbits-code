@@ -9,6 +9,7 @@ import { gaasbotPackage } from "./gaasbot/index.js";
 import { greybeardPackage } from "./greybeard/index.js";
 import { builderPackage } from "./builder/index.js";
 import { internPackage } from "./intern/index.js";
+import { migratorPackage } from "./migrator/index.js";
 import { neckbeardPackage } from "./neckbeard/index.js";
 import { counselPackage } from "./counsel/index.js";
 import { shakespearePackage } from "./shakespeare/index.js";
@@ -58,6 +59,7 @@ export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> =
     shakespeare: shakespearePackage,
     testsmith: testsmithPackage,
     tester: testerPackage,
+    migrator: migratorPackage,
   };
 
 export function isDirectorId(value: unknown): value is DirectorId {

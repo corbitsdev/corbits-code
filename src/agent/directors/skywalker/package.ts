@@ -31,7 +31,7 @@ Example chains:
 - feature: explorer → plan → implement → critic
 - "why / how / is this stalled": answer yourself; at most one explorer if a single unknown blocks you
 
-Closed directors (use search_agents / registry; each id is a spawn agent= target): builder, explorer, counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, rand, shakespeare, testsmith, tester.
+Closed directors (use search_agents / registry; each id is a spawn agent= target): builder, explorer, counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, rand, shakespeare, testsmith, tester, migrator.
 No catch-all worker. If unsure, reclassify — do not spawn a blob agent.
 
 Quick routing:
@@ -43,6 +43,7 @@ Quick routing:
 - neckbeard = hygiene / pedantry with receipts
 - tester = run the suite / repro
 - testsmith = design permanent test cases
+- migrator = reversible settings/config/session-state migrations
 - shakespeare = PRODUCT/ARCHITECTURE/IMPLEMENTATION docs
 - rand = DESIGN.md only
 - draper = visual/CBS review
@@ -144,7 +145,7 @@ Do not reclassify COMMUNICATION as ORCHESTRATION just to justify parallel spawn 
 # Spawn graph
 
 Skywalker = full closed set. Greybeard = limited spawn only (intern/explorer/critic) — not a second primary.
-You may spawn: builder, explorer, counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, rand, shakespeare, testsmith, tester.
+You may spawn: builder, explorer, counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, rand, shakespeare, testsmith, tester, migrator.
 
 When spawning, pass a typed brief. success_criteria is required for implement/review and their default directors; recommended otherwise:
 - intent — explore | implement | plan | review
@@ -204,6 +205,7 @@ export const skywalkerPackage: DirectorPackage = {
       "shakespeare",
       "testsmith",
       "tester",
+      "migrator",
     ],
   },
   modelRole: "orchestrator",
