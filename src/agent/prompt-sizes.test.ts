@@ -28,7 +28,9 @@ const CHAR_BUDGET: Record<DirectorId, number> = {
   // 52782 chars; budget = measured + 2000 allowance, ceiling to 100.
   gaasbot: 54800,
   draper: 15100,
-  emil: 16600,
+  // CL-7801: deliberate full-fidelity CMO restore grew emil to 23085 chars;
+  // budget = measured + 2000 allowance, ceiling to 100.
+  emil: 25100,
   rand: 15000,
   shakespeare: 54700,
   testsmith: 16200,
@@ -49,7 +51,9 @@ const BYTE_BUDGET: Record<DirectorId, number> = {
   // 52970 bytes; budget = measured + 3000 allowance, ceiling to 100.
   gaasbot: 56000,
   draper: 16200,
-  emil: 17700,
+  // CL-7801: deliberate full-fidelity CMO restore grew emil to 23239 bytes;
+  // budget = measured + 3000 allowance, ceiling to 100.
+  emil: 26300,
   rand: 16100,
   shakespeare: 55900,
   testsmith: 17200,
