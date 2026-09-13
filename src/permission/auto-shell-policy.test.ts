@@ -96,3 +96,54 @@ describe("read-only git commands pass through the policy", () => {
     ).toBeUndefined();
   });
 });
+
+describe("git worktree force spellings ask (CL-6824)", () => {
+  // Control: a contained non-force add is not flagged at all.
+  test("contained non-force add stays unflagged", () => {
+    expect(
+      autoShellRuleForCall(shellCall("git worktree add ./wt-plain")),
+    ).toBeUndefined();
+  });
+
+  // Git has no --force=<value> form — real git dies with
+  // "error: option `force' takes no value" (exit 129) — but the spelling
+  // still expresses force intent, so the policy asks rather than letting the
+  // --flag=value skip swallow it the way the old exact-match check did.
+  test("--force=<value> spellings hit the worktree ask rule", () => {
+    for (const flag of ["--force=true", "--force=1", "--force="]) {
+      expect(
+        autoShellRuleForCall(shellCall(`git worktree add ${flag} ./wt-eq`))
+          ?.name,
+      ).toBe("git-worktree");
+    }
+  });
+
+  // Short -f takes no value either — real git dies with
+  // "error: unknown switch `='" for `-f=<value>` and
+  // "error: unknown switch `<char>'" for glued `-f<val>` (exit 129 both) —
+  // but the spellings still express force intent, so the policy asks rather
+  // than letting the generic-flag skip swallow them.
+  test("-f=<value> and glued -f<val> spellings hit the worktree ask rule", () => {
+    for (const flag of ["-f=true", "-f=", "-ftrue", "-ff"]) {
+      expect(
+        autoShellRuleForCall(shellCall(`git worktree add ${flag} ./wt-short`))
+          ?.name,
+      ).toBe("git-worktree");
+      expect(
+        autoShellRuleForCall(
+          shellCall(`git worktree remove ${flag} ./wt-short`),
+        )?.name,
+      ).toBe("git-worktree");
+    }
+  });
+
+  // The negation is not force: --no-force must not be caught by the prefix.
+  test("--no-force stays unflagged", () => {
+    expect(
+      autoShellRuleForCall(shellCall("git worktree add --no-force ./wt-no")),
+    ).toBeUndefined();
+    expect(
+      autoShellRuleForCall(shellCall("git worktree remove --no-force ./wt-no")),
+    ).toBeUndefined();
+  });
+});
