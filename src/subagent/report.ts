@@ -61,6 +61,18 @@ export interface DispatchBrief {
   turnToken?: string;
 }
 
+/**
+ * States the active submit_result token. Shared by the initial dispatch brief
+ * and followup steers so both turns state the same contract.
+ */
+export function formatTurnTokenNotice(turnToken: string): string {
+  return [
+    "## Turn token",
+    turnToken,
+    `If you call submit_result, pass turn_token="${turnToken}" exactly. A mismatched token means this turn was superseded — do not resubmit under it.`,
+  ].join("\n");
+}
+
 export function buildDispatchBrief(brief: DispatchBrief): string {
   const parts: string[] = [
     `# Dispatch brief: ${brief.description}`,
@@ -103,12 +115,7 @@ export function buildDispatchBrief(brief: DispatchBrief): string {
   }
   parts.push("", "## Report shape", ...reportLines);
   if (brief.turnToken !== undefined && brief.turnToken.length > 0) {
-    parts.push(
-      "",
-      "## Turn token",
-      brief.turnToken,
-      `If you call submit_result, pass turn_token="${brief.turnToken}" exactly. A mismatched token means this turn was superseded — do not resubmit under it.`,
-    );
+    parts.push("", formatTurnTokenNotice(brief.turnToken));
   }
   return parts.join("\n");
 }

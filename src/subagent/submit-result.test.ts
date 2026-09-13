@@ -5,6 +5,7 @@ import { type } from "arktype";
 import {
   createSubmitResultState,
   evaluateSubmitResult,
+  resetSubmitResultTurn,
 } from "./submit-result.js";
 
 const TOKEN = "turn-abc123";
@@ -84,5 +85,48 @@ describe("evaluateSubmitResult", () => {
     });
     expect(capped.ok).toBe(false);
     expect(capped.message).toContain("correction cap");
+  });
+});
+
+describe("submit_result turn rotation", () => {
+  test("a steered turn rejects the old token and resets the correction budget", () => {
+    const state = createSubmitResultState();
+    const outputType = type({ verdict: "'pass'|'fail'" });
+
+    // The dispatched turn burns one correction on a malformed result.
+    const bad = evaluateSubmitResult({
+      turnToken: TOKEN,
+      submittedToken: TOKEN,
+      result: { verdict: "maybe" },
+      outputType,
+      state,
+    });
+    expect(bad.ok).toBe(false);
+    expect(state.corrections).toBe(1);
+
+    // Steering rotates the token and resets the budget (run.ts followup).
+    const rotated = "turn-def456";
+    resetSubmitResultTurn(state);
+
+    const stale = evaluateSubmitResult({
+      turnToken: rotated,
+      submittedToken: TOKEN,
+      result: { verdict: "pass" },
+      outputType,
+      state,
+    });
+    expect(stale.ok).toBe(false);
+    expect(stale.message).toContain("turn_token does not match");
+    expect(state.corrections).toBe(0);
+
+    const fresh = evaluateSubmitResult({
+      turnToken: rotated,
+      submittedToken: rotated,
+      result: { verdict: "pass" },
+      outputType,
+      state,
+    });
+    expect(fresh.ok).toBe(true);
+    expect(fresh.message).toBe("Result accepted.");
   });
 });

@@ -8,6 +8,7 @@ import {
   evaluateSubAgentStop,
   forcedStopReport,
   formatSubAgentReport,
+  formatTurnTokenNotice,
   parseSubAgentReport,
   appendSubAgentParentHints,
   EMPTY_THRASH_STATE,
@@ -1294,6 +1295,27 @@ describe("SubAgentDirector stall management", () => {
     )?.ephemeralTurns;
     // A fresh first stall nudges again rather than immediately escalating.
     expect(ephemeralTurns).toBeDefined();
+  });
+});
+
+describe("submit_result turn token notice", () => {
+  test("the dispatch brief embeds the shared token notice verbatim", () => {
+    const token = "01a09856-4dd3-7209-a3df-d7e543dc4ffe";
+    const brief = buildDispatchBrief({
+      description: "token probe",
+      prompt: "do the thing",
+      turnToken: token,
+    });
+    // Byte-identity: the brief and followup steers render the same contract
+    // through one shared function, so a worker can never see two wordings.
+    expect(brief).toContain(formatTurnTokenNotice(token));
+    expect(formatTurnTokenNotice(token)).toContain(
+      "A mismatched token means this turn was superseded",
+    );
+    // Non-leaf dispatches state no token.
+    expect(
+      buildDispatchBrief({ description: "plain", prompt: "do the thing" }),
+    ).not.toContain("## Turn token");
   });
 });
 
