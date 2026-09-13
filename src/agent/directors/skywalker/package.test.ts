@@ -225,6 +225,15 @@ describe("skywalkerPackage", () => {
     );
   });
 
+  test("systemPrompt report envelope names each section header explicitly", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("# Report shape");
+    expect(p).toContain("## Summary");
+    expect(p).toContain("## Findings");
+    expect(p).toContain("## Blockers");
+    expect(p).toContain("## Paths");
+  });
+
   test("systemPrompt does not use leaf jargon", () => {
     expect(skywalkerPackage.systemPrompt).not.toMatch(/\bleaf\b/i);
     expect(skywalkerPackage.systemPrompt).not.toMatch(/\bleaves\b/i);
