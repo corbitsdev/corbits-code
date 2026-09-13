@@ -11,14 +11,22 @@ Local hooks in `.corbits/hooks/` take precedence over global hooks in
 `~/.corbits/hooks/` when both directories contain a hook with the same file
 name.
 
-Supported files:
+Supported files (dotfiles skipped; anything else ignored; sorted by path):
 
 - `*.ts` files run with Bun.
 - `*.sh` files run with `sh`.
 
-Hook failures are recorded in hook status and logged, but they do not stop the
-agent run. `postTurn` hooks run in the background. `postRun` hooks finish before
-the process exits so they can flush their output and record final status.
+Hook outcomes are recorded in hook status (`lastExitStatus`) but they do not stop the
+agent run. `postTurn` hooks run in the background. `postRun` hooks are awaited before
+the process exits so they can finish their side effects and record final status.
+
+A hook may exit without reading its payload — for example, a shell hook whose
+`case "$1"` handles only one lifecycle kind. The payload write then fails with
+`EPIPE`; that is treated as a hook outcome, not a crash, and the hook's status
+notes `hook exited without reading its payload`.
+
+Hooks start enabled and can be toggled in the TUI hook panel. Each hook's
+status tracks `enabled`, `lastFiredAt`, `lastKind`, and `lastExitStatus`.
 
 ## TypeScript Hooks
 
@@ -83,3 +91,12 @@ type RunSummary = {
   error?: string;
 };
 ```
+
+Tool results inside hook payloads are truncated to the last 4,000 characters,
+with a `[N chars omitted]` marker, so large tool outputs stay bounded.
+
+Hook stdout is ignored; hook stderr is captured into the hook's
+`lastExitStatus`. The JSON payload is the hook's only structured input.
+
+The nested types (`ConversationTurn`, `ToolCall`, `ToolResult`, `TokenUsage`,
+`LastCycleSource`) are defined with the runtime types; see `src/session/hooks.ts`.
