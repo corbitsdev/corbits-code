@@ -819,6 +819,33 @@ running its own selection. Two chords cover remaining copy needs:
   52 escape sequence when no helper is available, e.g. over SSH). On a
   coalesced tool lane the copy resolves to the most recent call's full
   output; a single-call row copies its own output, exactly as before.
+- **URL click-through (CL-7346).** Holding the platform modifier over an
+  `http(s)` URL in a plain or structured-text transcript row underlines it;
+  pressing and releasing on the same URL opens it in the default browser,
+  while a press that releases anywhere else stays a selection gesture:
+  - **macOS: Cmd+click.** The terminal itself owns this chord: link spans
+    carry OSC-8 metadata, so an emulator with OSC-8 support opens the URL
+    and the app never sees the press. Per-terminal: Terminal.app does not
+    support OSC-8, so Cmd+click does nothing there; iTerm2 3.5+, Ghostty,
+    WezTerm, Kitty, and VS Code support it.
+  - **Linux/Windows: Ctrl+click.** The app opens the URL through the
+    platform opener (`open` on macOS as fallback, `xdg-open`, `rundll32
+    url.dll,FileProtocolHandler` — argv spawns, never through a shell).
+  - **Right-click safety.** The open gesture requires a left (button-0)
+    press with the modifier held, so Ctrl+right-click never opens a URL —
+    context menus stay safe.
+  - Without the modifier, nothing changes: clicks still expand rows and
+    drags still select-and-copy. With mouse capture off (Alt+M), the
+    terminal owns every click and the app sees none, so there is nothing to
+    fight over. Non-`http(s)` targets (`file:`, `mailto:`, `javascript:`,
+    …) never open anywhere — the gate parses the scheme, it does not
+    prefix-match. Hover highlighting needs pointer-motion reports, so the
+    main shell enables them (`enableMouseMovement`, DEC ?1003) alongside
+    the existing capture; the pickers and setup screens stay opted out.
+  - Markdown prose (assistant messages) is not covered: the renderer paints
+    it through childless code renderers with no stable text-leaf API to
+    highlight or hit-test, so those links stay terminal business until the
+    library exposes one.
 
 Arrow keys never scroll anything — inside the prompt they are caret motion
 or, at the buffer's edges, prompt-history recall; inside an open overlay's
@@ -889,7 +916,12 @@ terminal. It cannot observe:
   Alt+letter, or similar modifier combinations depends on the terminal
   negotiating the kitty keyboard protocol (or an equivalent) with the actual
   host terminal emulator — the headless harness has no such negotiation to
-  fail or succeed at.
+  fail or succeed at. URL click-through (CL-7346) inherits this: the unit
+  and headless suites pin the gating (Ctrl+press opens, plain click and
+  Ctrl+drag do not, non-`http(s)` never opens) with a mocked opener, but
+  only a real terminal can show whether it delivers the held Ctrl on motion
+  and press events, whether it honors OSC-8 for Cmd+click, or resolves the
+  `open`/`xdg-open`/`rundll32` spawn into a browser.
 - **The system clipboard.** `system-clipboard.ts`'s helper-binary spawns and
   OSC 52 fallback are exercised with mocked spawn functions in tests; no
   test round-trips through a real `pbcopy`/`xclip`/terminal clipboard.
