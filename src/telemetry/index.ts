@@ -165,9 +165,9 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   // allowlist bounds which keys travel; the classifiers bound which values
   // can, and the two are independent guards on purpose.
   slash_command: ["command_name"],
-  // Skill names are project- or plugin-authored with no first-party set to
-  // match against, so the event counts skill use and carries nothing else.
-  skill_used: [],
+  // skill_name is a first-party corbits-skills name (see classifySkillName)
+  // or "custom" — project- or plugin-authored names never leave the process.
+  skill_used: ["skill_name"],
   // origin is the discovery tier (repo/user/project/path); the manifest id is
   // author-chosen free text and is not sent.
   plugin_loaded: ["origin"],

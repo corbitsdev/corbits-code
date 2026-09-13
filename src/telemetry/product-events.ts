@@ -6,7 +6,7 @@ import type {
   SubAgentTerminalReason,
 } from "../subagent/types.js";
 import type { Telemetry } from "./index.js";
-import { classifyCommandName } from "./classify.js";
+import { classifyCommandName, classifySkillName } from "./classify.js";
 
 /** Emit slash_command with a classified first-party (or `custom`) name. */
 export function captureSlashCommand(
@@ -15,6 +15,16 @@ export function captureSlashCommand(
 ): void {
   telemetry.capture("slash_command", {
     command_name: classifyCommandName(commandName),
+  });
+}
+
+/** Emit skill_used with a classified first-party (or `custom`) skill name. */
+export function captureSkillUsed(
+  telemetry: Telemetry,
+  skillName: string,
+): void {
+  telemetry.capture("skill_used", {
+    skill_name: classifySkillName(skillName),
   });
 }
 

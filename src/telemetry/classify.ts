@@ -71,6 +71,30 @@ const BUILT_IN_AGENT_NAMES: ReadonlySet<string> = new Set([
   "worker",
 ]);
 
+// First-party skills shipped by the bundled `corbits-skills` plugin
+// (plugins/corbits-skills/skills). The manifest carries only the plugin id
+// and kind — no skill list — so the closed set is spelled out here and pinned
+// by tests/unit/telemetry-product-events.test.ts. Project- or plugin-authored
+// skills are never reported by name.
+const FIRST_PARTY_SKILL_NAMES: ReadonlySet<string> = new Set([
+  "ast-grep",
+  "create-issue",
+  "git-rebase",
+  "git-worktrees",
+  "implement",
+  "interview",
+  "linear-issue-workflow",
+  "opsh",
+  "philosophy",
+  "plan",
+  "pull-request-review",
+  "refactor",
+  "review",
+  "scribe",
+  "style",
+  "typescript",
+]);
+
 // Error constructors defined by the language. A subclass name is application
 // or plugin code and can be as identifying as any other author-chosen string.
 const STANDARD_ERROR_NAMES: ReadonlySet<string> = new Set([
@@ -98,6 +122,10 @@ export function classifyCommandName(commandName: string): string {
 
 export function classifyAgentName(agentName: string): string {
   return BUILT_IN_AGENT_NAMES.has(agentName) ? agentName : CUSTOM;
+}
+
+export function classifySkillName(skillName: string): string {
+  return FIRST_PARTY_SKILL_NAMES.has(skillName) ? skillName : CUSTOM;
 }
 
 export function classifyErrorClass(error: unknown): string {
