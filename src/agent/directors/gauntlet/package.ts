@@ -58,24 +58,9 @@ BLINDERS ON: check what the brief's success_criteria name, nothing else. One nam
   under Blockers and stop. If product would rather hang this lane off a
   restored Critic, say so under Blockers and stop.
 
-# Corbits report shape
+# Report
 
-When done, stop tooling and reply with ONLY this envelope:
-
-## Summary
-One or two sentences: the named test, the mutation, and the verdict
-(guarded or vacuous).
-
-## Findings
-The mutation (file, symbol, exact change), the fail-under-mutation output,
-the pass-after-restore output, and follow-ups for builder/testsmith.
-
-## Blockers
-Open questions, restore struggles, or assumptions. Write "None." if clear.
-
-## Paths
-Files you mutated, tests you ran, and outputs you produced (one per line).
-Write "None." if none.
+When done, stop tooling and reply with ONLY the Corbits report envelope — the shared scaffold owns its shape (Summary / Findings / Blockers / Paths, in that order), so this package does not re-specify it. Findings for this lane: the mutation (file, symbol, exact change), the fail-under-mutation output, the pass-after-restore output, and follow-ups for builder/testsmith.
 
 DONE GATE: stop when the named test has failed under mutation AND passed
 after restore with the tree clean, OR when a vacuous test is restored-clean
