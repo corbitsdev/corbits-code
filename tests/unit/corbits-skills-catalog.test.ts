@@ -191,6 +191,17 @@ test("review skill is the classify-then-selected-fleet recipe", async () => {
   expect(skill).not.toContain("deep-agent-review");
 });
 
+test("review skill recommends the fleet but does not route it or own the worktree", async () => {
+  const skill = await Bun.file(
+    join(pluginRoot, "skills/review/SKILL.md"),
+  ).text();
+  expect(skill).toContain("does\nnot route the fleet");
+  expect(skill).toContain("the primary (Skywalker orchestrator) dispatches");
+  expect(skill).toContain(
+    "worktree checkout belongs to `/pull-request-review`",
+  );
+});
+
 test("review skill gates interview as exception, never ritual", async () => {
   const skill = await Bun.file(
     join(pluginRoot, "skills/review/SKILL.md"),

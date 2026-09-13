@@ -7,10 +7,12 @@ description: Perform a code review or pull request review on a branch
 
 Use this skill when performing code reviews or pull request reviews.
 
-## Classify, Then Dispatch a Selected Fleet
+## Classify, Then Recommend a Selected Fleet
 
-First classify the review target, then dispatch only the fleet the
-target warrants. Do not fan out a default wide fleet.
+First classify the review target, then recommend only the fleet the
+target warrants. Do not fan out a default wide fleet. This skill does
+not route the fleet — the primary (Skywalker orchestrator) dispatches;
+the classification below tells it which lenses the target warrants.
 
 Classify the review target as one of:
 
@@ -19,15 +21,14 @@ Classify the review target as one of:
 - Interview: only when the review object or base is genuinely missing.
   Never run interview as ritual.
 
-Then dispatch a selected fleet with `spawn_agent`, one target per wave:
+Then the primary dispatches the warranted lenses with `spawn_agent`, one target per wave:
 
 - Critic always.
 - Greybeard when architecture, API, or approach is at stake.
 - Draper, Emil, Gaasbot, Bruckheimer, or Neckbeard only when the
   touched files warrant that lens.
 
-When the target is a PR, read the PR tree (fetch the PR branch into a
-worktree) — never review the local checkout as a stand-in for the PR.
+When the target is a PR, read the PR tree from the worktree — worktree checkout belongs to `/pull-request-review`; never review the local checkout as a stand-in for the PR.
 
 ## Base Branch Determination
 
