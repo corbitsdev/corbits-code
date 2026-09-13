@@ -13,9 +13,9 @@ import {
 } from "./registry.js";
 
 describe("director registry", () => {
-  test("closed set has exactly 16 directors", () => {
-    expect(DIRECTOR_IDS).toHaveLength(16);
-    expect(listDirectors()).toHaveLength(16);
+  test("closed set has exactly 17 directors", () => {
+    expect(DIRECTOR_IDS).toHaveLength(17);
+    expect(listDirectors()).toHaveLength(17);
     for (const id of DIRECTOR_IDS) {
       expect(DIRECTOR_REGISTRY[id].id).toBe(id);
     }
@@ -116,8 +116,8 @@ describe("director registry", () => {
 
   test("directorProfiles is the spawn catalog (closed set minus skywalker)", () => {
     const profiles = directorProfiles();
-    expect(profiles).toHaveLength(15);
-    expect(new Set(profiles.map((p) => p.id)).size).toBe(15);
+    expect(profiles).toHaveLength(16);
+    expect(new Set(profiles.map((p) => p.id)).size).toBe(16);
     expect(profiles.map((p) => p.id)).not.toContain("skywalker");
   });
 
@@ -131,6 +131,21 @@ describe("director registry", () => {
       "intern",
     ]);
     expect(packageToProfile(g).orchestrator).toBe(true);
+  });
+
+  test("migrator is a dry-run-scoped leaf with no fleet verbs (CL-7671)", () => {
+    const m = DIRECTOR_REGISTRY.migrator;
+    expect(m.id).toBe("migrator");
+    expect(m.tier).toBe("leaf");
+    expect(m.spawn.maySpawn).toBe(false);
+    expect(m.modelRole).toBe("plan");
+    expect(m.tools?.allow).toEqual(["read_file", "grep", "lsp", "run_shell"]);
+    expect(packageToProfile(m).orchestrator).toBe(false);
+    expect(m.systemPrompt).toMatch(/dry-run and scratch-copy execution ONLY/);
+    expect(m.systemPrompt).toMatch(/Background shells are forbidden/);
+    const r = resolveDirector({ agentId: "migrator" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.package.id).toBe("migrator");
   });
 
   test("closed directors mount product write tools", () => {
@@ -194,11 +209,11 @@ describe("director registry", () => {
     expect(s.tools?.allow).toContain("write_file");
     expect(s.tools?.allow).toContain("edit_file");
     expect(s.tools?.allow).toContain("delete_file");
-    expect(s.spawn.allowlist).toHaveLength(15);
+    expect(s.spawn.allowlist).toHaveLength(16);
   });
 
   // CL-6941: tier and spawn.maySpawn independently encode "may this package
-  // spawn", hand-set across 16 files. This pins their agreement so drift
+  // spawn", hand-set across 17 files. This pins their agreement so drift
   // (adding maySpawn: true without bumping tier, or vice versa) fails a test
   // instead of surfacing as an unexplained FleetAuthorityError at dispatch.
   test("tier agrees with spawn.maySpawn for every director", () => {
