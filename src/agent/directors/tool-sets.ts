@@ -1,8 +1,16 @@
 // Small, explicit tool allowlists for director packages.
 // Prefer tools.allow at mount (CapabilityFilter include) over huge deny lists.
 // manage_tasks is always mounted by runSubAgent after the filter — omit it here.
-// use_skill / tool_search / ask_operator are primary-session tools: fleet agents /
-// workers do not mount ask_operator (skill guidance is baked into package system prompts).
+// skill_search + use_skill mount on every worker through runSubAgent (scoped to
+// the dispatch's optionalSkills); they ride the allowlists below so the
+// capability filter keeps them. ask_operator stays primary-only.
+
+/**
+ * Skill discovery/loading, mounted on every worker surface (read/build/docs/
+ * review/intern/orchestrator). runSubAgent scopes both tools to the
+ * dispatch's optionalSkills before the capability filter.
+ */
+export const SKILL_TOOLS = ["skill_search", "use_skill"] as const;
 
 /** Read/search/shell — no product mutation. */
 export const READ_TOOLS = [
@@ -15,6 +23,7 @@ export const READ_TOOLS = [
   "shell_collect",
   "web_fetch",
   "web_search",
+  ...SKILL_TOOLS,
 ] as const;
 
 /**
@@ -69,6 +78,7 @@ export const INTERN_TOOLS = [
   "read_file",
   "list_dir",
   ...PRODUCT_WRITE_TOOLS,
+  ...SKILL_TOOLS,
 ] as const;
 
 /**
