@@ -63,8 +63,8 @@ This repo's history used a bare `component: description` prefix (`executor:`,
 `nameref:`). New commits keep the component as the **scope** and lead with the
 type: `executor: add retry` becomes `feat(executor): add retry`.
 
-Releases use `chore(release): perfi X.Y.Z`. Release notes use
-`docs(release): add perfi X.Y.Z release notes`.
+Releases use `chore(release): corbits X.Y.Z`. Release notes are generated
+from merged pull requests, so there are no hand-written notes commits.
 
 **Still banned in the subject:**
 
