@@ -48,13 +48,15 @@ describe("testsmithPackage", () => {
     expect(p).toMatch(/Hand off/i);
   });
 
-  test("systemPrompt states Corbits report shape", () => {
+  test("systemPrompt points at the scaffold-owned report envelope (no re-spec)", () => {
     const p = testsmithPackage.systemPrompt;
-    expect(p).toContain("## Summary");
-    expect(p).toContain("## Findings");
-    expect(p).toContain("## Blockers");
-    expect(p).toContain("## Paths");
     expect(p).toMatch(/Corbits report shape/i);
+    expect(p).toMatch(/Corbits report envelope/);
+    expect(p).toMatch(/coverage map/);
+    expect(p).not.toContain("## Summary");
+    expect(p).not.toContain("## Findings");
+    expect(p).not.toContain("## Blockers");
+    expect(p).not.toContain("## Paths");
   });
 
   test("systemPrompt has no tool-schema restatement or fake caps", () => {

@@ -703,6 +703,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
           ...(config.systemPromptExtensions !== undefined
             ? { systemPromptExtensions: config.systemPromptExtensions }
             : {}),
+          ...(config.promptSectionOmit !== undefined
+            ? { promptSectionOmit: config.promptSectionOmit }
+            : {}),
           sessionMode,
           toolAvailability,
           skills: agentToolset.skills,

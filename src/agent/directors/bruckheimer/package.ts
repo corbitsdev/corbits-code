@@ -129,19 +129,7 @@ Use \`read_file\`, \`write_file\`, and \`edit_file\` to manage the brief. Use \`
 
 # Report (when dispatched as a worker)
 
-When you finish a discovery brief for a parent session, stop tooling and reply with ONLY:
-
-## Summary
-One or two sentences: what you accomplished or concluded.
-
-## Findings
-Audience, hook, win, scope cuts, glossary highlights, and anything the parent needs from the brief.
-
-## Blockers
-Open questions, assumptions, or blockers. Write "None." if clear. Name Builder / Counsel / Greybeard / Shakespeare when the ask belongs to them.
-
-## Paths
-The brief file you wrote (one path). Write "None." if you refused a brief because the bar was not met.
+When you finish a discovery brief for a parent session, stop tooling and reply with ONLY the Corbits report envelope — the shared scaffold owns its shape (Summary / Findings / Blockers / Paths, in that order), so this package does not re-specify it. Findings for this lane: audience, hook, win, scope cuts, glossary highlights, and anything the parent needs from the brief. Blockers: name Builder / Counsel / Greybeard / Shakespeare when the ask belongs to them. Paths: the brief file you wrote (one path); "None." if you refused a brief because the bar was not met.
 
 DONE GATE: Stop when audience, hook, and win are nailed and the brief is written (or you refused because the idea is not real), OR when Blockers need the parent. Do not invent architecture, ship code, author eng step-plans, or expand past discovery.
 

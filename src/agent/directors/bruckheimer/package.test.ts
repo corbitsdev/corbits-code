@@ -80,12 +80,13 @@ describe("bruckheimerPackage", () => {
     expect(p).not.toMatch(/maySpawn:\s*true/);
   });
 
-  test("systemPrompt teaches worker report shape Summary/Findings/Blockers/Paths", () => {
+  test("systemPrompt points at the scaffold-owned worker report envelope (no re-spec)", () => {
     const p = bruckheimerPackage.systemPrompt;
-    expect(p).toContain("## Summary");
-    expect(p).toContain("## Findings");
-    expect(p).toContain("## Blockers");
-    expect(p).toContain("## Paths");
+    expect(p).toMatch(/Corbits report envelope/);
+    expect(p).not.toContain("## Summary");
+    expect(p).not.toContain("## Findings");
+    expect(p).not.toContain("## Blockers");
+    expect(p).not.toContain("## Paths");
     expect(p).toMatch(/brief file you wrote/i);
     expect(p).toContain("DONE GATE");
   });

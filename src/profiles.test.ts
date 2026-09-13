@@ -57,6 +57,27 @@ test("loadProfile parses systemPromptExtensions", async () => {
   });
 });
 
+test("loadProfile parses promptSectionOmit", async () => {
+  const dir = makeTmp();
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "profile.json");
+  await writeJson(path, {
+    promptSectionOmit: ["toolChoice", "orchestration"],
+  });
+  const result = await loadProfile(path);
+  expect(result).toEqual({
+    promptSectionOmit: ["toolChoice", "orchestration"],
+  });
+});
+
+test("loadProfile rejects unknown promptSectionOmit ids", async () => {
+  const dir = makeTmp();
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, "profile.json");
+  await writeJson(path, { promptSectionOmit: ["no-such-block"] });
+  await expect(loadProfile(path)).rejects.toThrow(/promptSectionOmit/);
+});
+
 test("loadProfile rejects unknown keys", async () => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });

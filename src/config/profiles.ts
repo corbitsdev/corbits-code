@@ -3,11 +3,17 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { type } from "arktype";
 import { SETTINGS_DIR_NAME } from "../branding.js";
+import { GUIDELINE_SUB_BLOCK_IDS } from "../agent/prompts.js";
 
 const ProfileSchema = type({
   "profile?": "string",
   "model?": "string",
   "systemPromptExtensions?": "string[]",
+  // Guideline sub-block ids to drop from the chat system prompt (see
+  // GUIDELINE_SUB_BLOCK_IDS in agent/prompts.ts). Omitted = full guidelines.
+  // Unknown ids are rejected here so profile typos fail closed at load
+  // instead of silently keeping the full guidelines.
+  "promptSectionOmit?": type.enumerated(...GUIDELINE_SUB_BLOCK_IDS).array(),
   // Per-call inactivity timeout in milliseconds. If the provider yields no
   // inference event for this many ms, the call is aborted and the user sees
   // "Request timed out". Default in the inference harness is 120_000 (2 min).
@@ -98,6 +104,9 @@ export async function resolveProfile(
     if (projectProfile.model !== undefined) merged.model = projectProfile.model;
     if (projectProfile.systemPromptExtensions !== undefined) {
       merged.systemPromptExtensions = projectProfile.systemPromptExtensions;
+    }
+    if (projectProfile.promptSectionOmit !== undefined) {
+      merged.promptSectionOmit = projectProfile.promptSectionOmit;
     }
     if (projectProfile.inactivityTimeoutMs !== undefined)
       merged.inactivityTimeoutMs = projectProfile.inactivityTimeoutMs;

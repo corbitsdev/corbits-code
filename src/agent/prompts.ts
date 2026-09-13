@@ -108,54 +108,68 @@ export function buildHarnessFacts(
   ].join("\n");
 }
 
-export function buildGuidelines(
-  opts: {
-    subAgent?: boolean;
-    sessionMode?: SessionMode;
-    askDirector?: boolean;
-    // True where createAgentToolset mounted wait_agents (exec primary).
-    // Picks the collection-path copy: wait_agents vs mailbox mail.
-    waitAgentsMounted?: boolean;
-  } = {},
-): string {
-  const subAgent = opts.subAgent ?? false;
-  const askDirector = opts.askDirector === true;
-  const waitAgentsMounted = opts.waitAgentsMounted === true;
-  return [
-    "Guidelines:",
-    "",
+// Guideline sub-block ids — the policy surface for `promptSectionOmit`.
+// Omit drops whole named blocks; prose inside a kept block is untouched.
+export const GUIDELINE_SUB_BLOCK_IDS = [
+  "responseStyle",
+  "toolChoice",
+  "askVsProceed",
+  "scopeConventions",
+  "orchestration",
+] as const;
+
+export type GuidelineSubBlockId = (typeof GUIDELINE_SUB_BLOCK_IDS)[number];
+
+/** Id-based guideline policy: which sub-blocks to drop. */
+export interface GuidelineConfig {
+  readonly omit?: readonly GuidelineSubBlockId[];
+}
+
+interface GuidelineBlockContext {
+  readonly subAgent: boolean;
+  readonly askDirector: boolean;
+  readonly waitAgentsMounted: boolean;
+}
+
+const GUIDELINE_SUB_BLOCKS: Record<
+  GuidelineSubBlockId,
+  (ctx: GuidelineBlockContext) => string[]
+> = {
+  responseStyle: () => [
     "Response style:",
     "- Default to short, direct answers; skip preamble and filler.",
     "- For substantial work, lead with the outcome, then what changed and why; use bullets or short headers only when they help scanning.",
     "- Cite paths instead of pasting large files; fenced snippets only when essential.",
     "- No emojis in code or docs unless the user uses them.",
-    "",
+  ],
+  toolChoice: (ctx) => [
     "Tool choice:",
-    ...(subAgent
+    ...(ctx.subAgent
       ? []
       : [
           "- Prefer spawn_agent(agent=…) then idle for substantial product implementation, exploration, review, and docs — " +
-            (waitAgentsMounted
+            (ctx.waitAgentsMounted
               ? "collect with wait_agents; do not poll list_agents."
               : "mailbox mail arrives as inbound; do not poll.") +
             " Spawn remains default for substantial work, not a tool ban.",
         ]),
     "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
-    subAgent
+    ctx.subAgent
       ? "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs."
       : "- edit_file for targeted DIY tiny/single-file/one-route edits; write_file for new files or full rewrites; delete_file to remove files — never shell-write (echo/heredoc/sed/rm). Spawn builder (or a docs director) for substantial/multi-file/parallel/specialist work.",
     "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
-    ...(subAgent
+    ...(ctx.subAgent
       ? []
       : [
           "- tool_search before assuming a plugin or MCP tool exists; skill_search when choosing among listed skills, use_skill to load a body.",
         ]),
-    "",
-    subAgent ? "Proceed vs pause:" : "Ask vs proceed:",
-    ...(subAgent
+  ],
+  askVsProceed: (ctx) => [
+    ctx.subAgent ? "Proceed vs pause:" : "Ask vs proceed:",
+    ...(ctx.subAgent
       ? [
           "- Stick to the dispatch brief; proceed autonomously on bounded work.",
-          askDirector
+          ctx.askDirector
             ? "- If permission denies an action, make a best-effort call and record assumptions under Blockers. If the brief is genuinely ambiguous, ask_director — you cannot reach the operator."
             : "- If permission denies an action or the brief is unclear, make a best-effort call and record assumptions under Blockers — you cannot ask the parent mid-run.",
           "- Preserve unrelated user edits; never revert changes you did not make unless the brief requires it.",
@@ -167,10 +181,11 @@ export function buildGuidelines(
           "- Preserve unrelated user edits; never revert changes you did not make unless asked.",
           "- Unexpected changes in files you did not touch: stop and ask_operator.",
         ]),
-    "",
+  ],
+  scopeConventions: (ctx) => [
     "Scope and conventions:",
     "- Touch only code required for the task; no drive-by refactors, formatting sweeps, or unrelated fixes.",
-    subAgent
+    ctx.subAgent
       ? "- Follow AGENTS.md and /docs for architecture."
       : "- Follow AGENTS.md and /docs for architecture; use_skill style and philosophy when starting repo work.",
     "- Match existing project patterns (functional style, arktype at boundaries, small focused diffs).",
@@ -178,26 +193,55 @@ export function buildGuidelines(
     "- If the repository defines no typecheck command, do not invent a typecheck command: report its absence as an explicit Blocker with evidence from AGENTS.md and package scripts (or equivalent project configuration).",
     "- In Findings, report every exact verification command and its outcome, including exit status. A bare `pass` without command evidence is an incomplete report.",
     "- If a required check genuinely cannot run because of a missing runtime or dependency, sandbox restriction, or permissions, record the exact inability under Blockers; never silently skip a required check.",
-    ...(subAgent
-      ? []
-      : [
-          "",
-          "Orchestration:",
-          "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle. " +
-            (waitAgentsMounted
-              ? "This surface has no mailbox delivery: collect with `wait_agents`; do not poll `list_agents`."
-              : "Mailbox mail arrives as inbound when a worker finishes; read it and do not poll.") +
-            " `list_agents` shows the fleet without blocking; after a parked ask is surfaced, answer with `send_input` and do not poll `list_agents`.",
-          "- Pass the typed spawn contract: `intent`, `success_criteria` (done-when; required for implement/review and their default directors), `do_not` (scope fence), and `report_focus`. Free-form `prompt` without `success_criteria` fail-closes for implement/review and their default directors.",
-          "- After workers return, classify fail / incomplete-report vs parent-initiated interrupt vs operator-cancel vs clean complete. Fail-path (`status: failed` or salvage `incomplete-report`): diagnose from the report or error and MAY spawn one successor with a changed brief. Parent-initiated interrupt (`interrupt_agent` / `send_input` with `interrupt:true` unblocks wait with `stop_reason: interrupted`): the worker is often still running and often has no report — `resume_agent`" +
-            (waitAgentsMounted
-              ? " or re-wait"
-              : ", or idle for its mailbox mail") +
-            "; do not `spawn_agent` a successor against a still-live worker. Successor only if that session is no longer resumable. Operator-cancel (`stop_reason` cancelled): wait for the operator; do not auto-retry. Identical brief: refuse. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
-          "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent`, not manage_tasks.",
-          "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
-        ]),
-  ].join("\n");
+  ],
+  orchestration: (ctx) => {
+    if (ctx.subAgent) return [];
+    return [
+      "Orchestration:",
+      "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle. " +
+        (ctx.waitAgentsMounted
+          ? "This surface has no mailbox delivery: collect with `wait_agents`; do not poll `list_agents`."
+          : "Mailbox mail arrives as inbound when a worker finishes; read it and do not poll.") +
+        " `list_agents` shows the fleet without blocking; after a parked ask is surfaced, answer with `send_input` and do not poll `list_agents`.",
+      "- Pass the typed spawn contract: `intent`, `success_criteria` (done-when; required for implement/review and their default directors), `do_not` (scope fence), and `report_focus`. Free-form `prompt` without `success_criteria` fail-closes for implement/review and their default directors.",
+      "- After workers return, classify fail / incomplete-report vs parent-initiated interrupt vs operator-cancel vs clean complete. Fail-path (`status: failed` or salvage `incomplete-report`): diagnose from the report or error and MAY spawn one successor with a changed brief. Parent-initiated interrupt (`interrupt_agent` / `send_input` with `interrupt:true` unblocks wait with `stop_reason: interrupted`): the worker is often still running and often has no report — `resume_agent`" +
+        (ctx.waitAgentsMounted
+          ? " or re-wait"
+          : ", or idle for its mailbox mail") +
+        "; do not `spawn_agent` a successor against a still-live worker. Successor only if that session is no longer resumable. Operator-cancel (`stop_reason` cancelled): wait for the operator; do not auto-retry. Identical brief: refuse. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
+      "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent`, not manage_tasks.",
+      "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
+    ];
+  },
+};
+
+export function buildGuidelines(
+  opts: {
+    subAgent?: boolean;
+    sessionMode?: SessionMode;
+    askDirector?: boolean;
+    // True where createAgentToolset mounted wait_agents (exec primary).
+    // Picks the collection-path copy: wait_agents vs mailbox mail.
+    waitAgentsMounted?: boolean;
+    // Id-based policy: drop the named sub-blocks (see GUIDELINE_SUB_BLOCKS).
+    // Empty (default) keeps the full guidelines.
+    omit?: readonly GuidelineSubBlockId[];
+  } = {},
+): string {
+  const ctx: GuidelineBlockContext = {
+    subAgent: opts.subAgent ?? false,
+    askDirector: opts.askDirector === true,
+    waitAgentsMounted: opts.waitAgentsMounted === true,
+  };
+  const omitted = new Set(opts.omit ?? []);
+  const blocks = GUIDELINE_SUB_BLOCK_IDS.filter((id) => !omitted.has(id))
+    .map((id) => GUIDELINE_SUB_BLOCKS[id](ctx))
+    // The orchestration block is empty for workers; dropping it (rather than
+    // its separator) keeps default output byte-identical to before the split.
+    .filter((lines) => lines.length > 0);
+  return ["Guidelines:", ...blocks.flatMap((lines) => ["", ...lines])].join(
+    "\n",
+  );
 }
 
 // Shared across every provider family and both chat/sub-agent entry points —
@@ -357,6 +401,7 @@ function baseSection(
   baseOverride: string | undefined,
   sessionMode: SessionMode,
   waitAgentsMounted?: boolean,
+  guidelineConfig?: GuidelineConfig,
 ): string {
   if (baseOverride !== undefined && baseOverride.trim().length > 0) {
     const custom = baseOverride.trim();
@@ -368,6 +413,9 @@ function baseSection(
       buildGuidelines({
         sessionMode: "orchestrator",
         ...(waitAgentsMounted !== undefined ? { waitAgentsMounted } : {}),
+        ...(guidelineConfig?.omit !== undefined
+          ? { omit: guidelineConfig.omit }
+          : {}),
       }),
       buildPromptDisciplineBlock(),
     ]);
@@ -378,6 +426,9 @@ function baseSection(
     buildGuidelines({
       sessionMode,
       ...(waitAgentsMounted !== undefined ? { waitAgentsMounted } : {}),
+      ...(guidelineConfig?.omit !== undefined
+        ? { omit: guidelineConfig.omit }
+        : {}),
     }),
     buildPromptDisciplineBlock(),
   ]);
@@ -399,9 +450,15 @@ export function buildChatSystemPrompt(
   skills: readonly SkillSummary[] = [],
   sessionMode: SessionMode = "orchestrator",
   toolAvailability: ToolAvailability = DEFAULT_TOOL_AVAILABILITY,
+  guidelineConfig?: GuidelineConfig,
 ): string {
   const sections = [
-    baseSection(baseOverride, sessionMode, toolAvailability.waitAgentsMounted),
+    baseSection(
+      baseOverride,
+      sessionMode,
+      toolAvailability.waitAgentsMounted,
+      guidelineConfig,
+    ),
     buildAvailableTools(
       coreToolNamesForSessionMode(sessionMode, toolAvailability),
       { advertiseArchive: true },

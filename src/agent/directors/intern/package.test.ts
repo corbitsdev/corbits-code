@@ -18,9 +18,11 @@ describe("internPackage", () => {
     expect(p).toMatch(/execute clear (mechanical )?instructions/i);
     expect(p).toMatch(/STOP/i);
     expect(p).toMatch(/Blockers/i);
-    expect(p).toMatch(/## Summary/);
-    expect(p).toMatch(/## Findings/);
-    expect(p).toMatch(/## Paths/);
+    // Envelope shape is scaffold-owned: point at it, do not re-specify it.
+    expect(p).toMatch(/Corbits report envelope/);
+    expect(p).not.toMatch(/## Summary/);
+    expect(p).not.toMatch(/## Findings/);
+    expect(p).not.toMatch(/## Paths/);
     expect(p).toMatch(/run_shell/);
     // Role forbids debugging; body states the ban explicitly
     expect(p).toMatch(/You do NOT:[\s\S]*Debug failures/);

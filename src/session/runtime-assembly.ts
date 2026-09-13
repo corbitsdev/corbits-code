@@ -14,6 +14,7 @@ import type {
 import type { Compactor } from "@intx/types/runtime";
 
 import { buildChatSystemPrompt } from "../agent/prompts.js";
+import type { GuidelineSubBlockId } from "../agent/prompts.js";
 import type { ToolAvailability } from "../agent/tool-search.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import {
@@ -288,6 +289,9 @@ export interface SessionChatPromptArgs {
   systemPromptExtensions?: readonly string[];
   sessionMode: SessionMode;
   toolAvailability: ToolAvailability;
+  // Guideline sub-block ids to drop (see GUIDELINE_SUB_BLOCK_IDS).
+  // Omitted = full guidelines.
+  promptSectionOmit?: readonly GuidelineSubBlockId[];
   // Session-start snapshot from createAgentToolset. When provided, skip
   // rediscovery so the prompt listing and skill_search share one catalog.
   skills?: readonly SkillSummary[];
@@ -323,6 +327,9 @@ export async function loadSessionChatPrompt(
       skills,
       args.sessionMode,
       args.toolAvailability,
+      args.promptSectionOmit !== undefined
+        ? { omit: args.promptSectionOmit }
+        : undefined,
     ),
     skills,
   };
