@@ -324,7 +324,9 @@ export function describeModelCatalogOption(
     what: whatLine(model),
     impact: pricingImpact(
       pricing,
-      option.id.slice(0, option.id.indexOf(":")),
+      // Exact provider parse: slice(0, indexOf(":")) drops the last
+      // character of a colon-less id (indexOf returns -1).
+      option.id.split(":")[0] ?? option.id,
       model,
     ),
     tone: "plain",

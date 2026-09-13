@@ -244,4 +244,14 @@ describe("describeModelCatalogOption", () => {
     expect(description?.impact).not.toMatch(/pricing unknown/i);
     expect(description?.impact).toMatch(/subscription/);
   });
+
+  test("colon-less ids keep the full provider instead of dropping the last character", () => {
+    // slice(0, indexOf(":")) truncates a colon-less id (indexOf is -1), so
+    // "codex/" became "code" and missed subscription billing.
+    const description = describeModelCatalogOption(
+      { id: "codex/", label: "default * [Codex default]" },
+      { pricing: null },
+    );
+    expect(description?.impact).toMatch(/ChatGPT subscription/);
+  });
 });
