@@ -161,6 +161,9 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("synthesize what returned");
     expect(p).toContain("do **not** re-fan-out another diagnostic wave");
     expect(p).toContain(
+      "Permission asks and long run_shell clocks on worker rows are not a signal to spawn more diggers",
+    );
+    expect(p).toContain(
       "`incomplete-report` from plan/counsel is not an attachable plan",
     );
     expect(p).not.toContain("Then start the next worker");
@@ -223,6 +226,15 @@ describe("skywalkerPackage", () => {
     expect(p.indexOf("Critic stays clean-room")).toBeGreaterThan(
       p.indexOf("# Verify after ship"),
     );
+  });
+
+  test("systemPrompt report envelope names each section header explicitly", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("# Report shape");
+    expect(p).toContain("## Summary");
+    expect(p).toContain("## Findings");
+    expect(p).toContain("## Blockers");
+    expect(p).toContain("## Paths");
   });
 
   test("systemPrompt does not use leaf jargon", () => {
@@ -293,6 +305,7 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("explorer → plan → implement → critic");
     expect(p).toContain("Do not always explorer→plan→implement→critic");
     expect(p).toContain("Substantial builder work consumes a counsel");
+    expect(p).toContain("builder blocks if the plan is still missing");
     expect(p).toContain("Tiny parent-DIY edits stay plan-optional");
     expect(p).toContain("`/implement` does not steal planning from `/plan`");
   });
