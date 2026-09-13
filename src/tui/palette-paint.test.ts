@@ -8,7 +8,11 @@ import type { KeyEvent } from "@opentui/core";
 
 import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness";
-import type { PaletteCommand } from "./command-catalog";
+import {
+  commandItemsFromRegistry,
+  type PaletteCommand,
+} from "./command-catalog";
+import { BUNDLED_PLUGIN_MARKER as BUNDLED_MARKER } from "../plugins/origin-marker.js";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
 import { acceptOverlaySelection } from "./shell/overlay-host";
@@ -191,6 +195,36 @@ describe("palette filters as you type", () => {
       expect(shell.overlayList).not.toBeNull();
       expect(shell.overlayItems).toEqual(["(no matches)"]);
     });
+  });
+
+  test("bundled plugin rows paint the bundled marker; other origins their label", async () => {
+    const catalog = commandItemsFromRegistry([
+      { name: "bundled-cmd", description: "Bundled command", origin: "repo" },
+      {
+        name: "market-cmd",
+        description: "Marketplace command",
+        origin: "user",
+      },
+    ]);
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 32 },
+          wireKeys: false,
+          run: "idle",
+        });
+        try {
+          openPalette(shell, { catalog, typeToFilter: true });
+          expect(shell.overlayItems).toEqual([
+            `/bundled-cmd ${BUNDLED_MARKER}`,
+            "/market-cmd [user]",
+          ]);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 100, height: 32 },
+    );
   });
 });
 

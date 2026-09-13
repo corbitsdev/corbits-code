@@ -7,12 +7,16 @@
  *   setPaletteCatalog(shell, () => commandItemsFromRegistry(listCommands()))
  */
 
+import { withOriginMarker } from "../plugins/origin-marker.js";
+import type { PluginOrigin } from "../trust/project-trust.js";
 import { sliceToWidth, stringWidth } from "./view/height.js";
 
 /** Minimal registry shape — matches `listCommands()` entries without importing them. */
 export interface RegistryCommandSource {
   readonly name: string;
   readonly description: string;
+  /** Discovery origin of the contributing plugin, when the command has one. */
+  readonly origin?: PluginOrigin;
 }
 
 /** One entry in the `/` command list: registry command name + display label. */
@@ -33,8 +37,9 @@ export function commandItemsFromRegistry(
     id: c.name,
     // Name-only rows keep the slash popup scannable; description is a
     // dedicated field for the overlay zone and stays in keywords so typed
-    // filter still finds prose matches.
-    label: `/${c.name}`,
+    // filter still finds prose matches. Plugin rows carry their origin
+    // marker ([bundled] for bundled, origin label otherwise).
+    label: withOriginMarker(`/${c.name}`, c.origin),
     description: c.description,
     keywords: [c.name, c.description, "slash", "command"],
   }));
