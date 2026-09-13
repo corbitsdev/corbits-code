@@ -38,7 +38,7 @@ export function commandItemsFromRegistry(
     // Name-only rows keep the slash popup scannable; description is a
     // dedicated field for the overlay zone and stays in keywords so typed
     // filter still finds prose matches. Plugin rows carry their origin
-    // marker (mountain for bundled, origin label otherwise).
+    // marker ([bundled] for bundled, origin label otherwise).
     label: withOriginMarker(`/${c.name}`, c.origin),
     description: c.description,
     keywords: [c.name, c.description, "slash", "command"],

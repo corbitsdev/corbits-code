@@ -83,7 +83,7 @@ describe("paletteLabels", () => {
 });
 
 describe("command origin markers", () => {
-  test("bundled repo rows carry the mountain, other origins their label", () => {
+  test("bundled repo rows carry the bundled marker, other origins their label", () => {
     const items = commandItemsFromRegistry([
       { name: "implement", description: "Bundled command", origin: "repo" },
       { name: "mine", description: "Marketplace command", origin: "user" },

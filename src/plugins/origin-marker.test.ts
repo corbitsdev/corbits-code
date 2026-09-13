@@ -7,7 +7,7 @@ import {
 } from "./origin-marker";
 
 describe("pluginOriginMarker", () => {
-  test("bundled repo plugins get the mountain marker", () => {
+  test("bundled repo plugins get the bundled marker", () => {
     expect(pluginOriginMarker("repo")).toBe(BUNDLED_PLUGIN_MARKER);
   });
 
