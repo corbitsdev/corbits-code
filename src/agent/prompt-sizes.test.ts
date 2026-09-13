@@ -33,7 +33,9 @@ const CHAR_BUDGET: Record<DirectorId, number> = {
   shakespeare: 54700,
   testsmith: 16200,
   tester: 13900,
-  migrator: 12300,
+  // CL-7671 scope-honesty sentences grew migrator past the 12300-char
+  // placeholder: measured-max + 2000 allowance, ceiling to 100.
+  migrator: 12800,
 };
 
 const BYTE_BUDGET: Record<DirectorId, number> = {
@@ -55,7 +57,9 @@ const BYTE_BUDGET: Record<DirectorId, number> = {
   shakespeare: 55900,
   testsmith: 17200,
   tester: 15000,
-  migrator: 13400,
+  // CL-7671 scope-honesty sentences grew migrator past the 13400-byte
+  // placeholder: measured-max + 3000 allowance, ceiling to 100.
+  migrator: 13900,
 };
 
 function budgetMessage(

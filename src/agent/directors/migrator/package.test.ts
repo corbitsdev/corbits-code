@@ -43,6 +43,29 @@ describe("migratorPackage", () => {
     expect(p).toMatch(/do not ship it/);
   });
 
+  test("systemPrompt scopes run_shell to dry-run/scratch-only, forbids live execution", () => {
+    const p = migratorPackage.systemPrompt;
+    expect(p).toMatch(/dry-run and scratch-copy execution ONLY/);
+    expect(p).toMatch(/never execute the forward migration/);
+    expect(p).toMatch(/live state/);
+  });
+
+  test("systemPrompt forbids background shells — foreground with timeouts only", () => {
+    const p = migratorPackage.systemPrompt;
+    expect(p).toMatch(/Background shells are forbidden/);
+    expect(p).toMatch(/background: true/);
+    expect(p).toMatch(/shell_collect/);
+    expect(p).toMatch(/foreground/);
+    expect(p).toMatch(/timeouts only/);
+  });
+
+  test("systemPrompt makes scratch auditable under tmp/ with reported path", () => {
+    const p = migratorPackage.systemPrompt;
+    expect(p).toMatch(/tmp\//);
+    expect(p).toMatch(/clean them up afterwards/);
+    expect(p).toMatch(/scratch path in the delivery/);
+  });
+
   test("systemPrompt states the report shape", () => {
     const p = migratorPackage.systemPrompt;
     expect(p).toMatch(
