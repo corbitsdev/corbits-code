@@ -179,6 +179,33 @@ test("only background and bake-only skills carry disable-model-invocation", asyn
   }
 });
 
+test("review skill is the classify-then-selected-fleet recipe", async () => {
+  const skill = await Bun.file(
+    join(pluginRoot, "skills/review/SKILL.md"),
+  ).text();
+  expect(skill).toContain("Classify the review target");
+  expect(skill).toContain("Critic always");
+  expect(skill).toContain("Greybeard");
+  expect(skill).toContain("one target per wave");
+  expect(skill).toContain("read the PR tree");
+  expect(skill).not.toContain("deep-agent-review");
+});
+
+test("pull-request-review is the worktree surface pass", async () => {
+  const skill = await Bun.file(
+    join(pluginRoot, "skills/pull-request-review/SKILL.md"),
+  ).text();
+  expect(skill).toContain("worktree");
+  expect(skill).toContain("quality rules only");
+  expect(skill).toContain("at most one");
+  expect(skill).toContain("Post the Review on GitHub");
+  expect(skill).not.toContain("Classify the review target");
+});
+
+test("no third review slash exists", () => {
+  expect(existsSync(join(pluginRoot, "skills/deep-agent-review"))).toBe(false);
+});
+
 test("review skill does not own GitHub posting or Linear In Review", async () => {
   const skill = await Bun.file(
     join(pluginRoot, "skills/review/SKILL.md"),
