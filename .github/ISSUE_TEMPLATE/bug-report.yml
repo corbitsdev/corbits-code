@@ -14,7 +14,7 @@ body:
     id: what-happened
     attributes:
       label: What happened
-      description: What you did, and what Corbits Code did instead.
+      description: What Corbits Code actually did. Keep the reproduction steps for the next box.
       placeholder: |
         I ran `corbits exec "..."` and the session stopped after the first tool call.
     validations:
@@ -60,17 +60,13 @@ body:
     attributes:
       label: How you installed it
       placeholder: Homebrew, or built from source at <commit>
-    validations:
-      required: true
 
   - type: input
     id: provider-model
     attributes:
       label: Provider and model
-      description: Required when the bug involves inference — a wrong answer, a hang, a protocol error, token or cost accounting. Write "not inference" if it does not.
+      description: Fill this in if the bug involves inference at all — a wrong answer, a hang, a protocol error, token or cost accounting. Leave it blank otherwise.
       placeholder: opencode-go, muse-spark-1.3-contributor
-    validations:
-      required: true
 
   - type: textarea
     id: output
