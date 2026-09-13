@@ -64,6 +64,8 @@ export const TYPE_MODEL_ID = "__type_model__";
  * What a signed-in subscription provider resolves to. The endpoint and model
  * list are the same constants the auth stack projects into the catalog, so a
  * first run and a later `/model` connect land on the same provider entry.
+ * These are views over the Codex/xAI live-fetch fallbacks, not a separate
+ * list — identity-divergence.test.ts pins them to the fallback constants.
  */
 export const OAUTH_SURFACES: Record<
   OAuthKind,
