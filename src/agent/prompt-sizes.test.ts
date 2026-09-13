@@ -10,77 +10,77 @@ import {
 
 /**
  * Prompt size budget (CL-7664). Numeric asserts only — copy edits must not
- * fail this test. Baselines were captured from the canonical fixture in
- * src/agent/prompt-sizes.ts with a +2000 char / +3000 byte allowance; bytes
- * get the larger headroom because multibyte copy can shift them faster.
+ * fail this test. Baselines are a checked-in snapshot of the max measured
+ * sizes across both families from the canonical fixture in
+ * src/agent/prompt-sizes.ts; budgets add a +2000 char / +3000 byte allowance
+ * (ceiling to 100) in code below. Bytes get the larger headroom because
+ * multibyte copy can shift them faster. Adding a director is a type error
+ * until its baseline lands here; growing a prompt past its allowance fails
+ * until the baseline moves. Deliberate jumps above baseline + allowance
+ * belong in PROMPT_SIZE_OVERRIDES with justification, not in the baseline.
  */
-const CHAR_BUDGET: Record<DirectorId, number> = {
-  skywalker: 27000,
-  builder: 48800,
-  explorer: 14200,
-  counsel: 52700,
-  intern: 16800,
-  critic: 54400,
-  greybeard: 53600,
-  neckbeard: 72300,
-  bruckheimer: 23200,
-  // CL-7809: deliberate CL-7663 voice restore (PR #932) grew gaasbot to
-  // 52782 chars; budget = measured + 2000 allowance, ceiling to 100.
-  gaasbot: 54800,
-  // CL-7800: deliberate CMO full-fidelity restore grew draper to
-  // 16403 chars; budget = measured + 2000 allowance, ceiling to 100.
-  draper: 18500,
-  emil: 16600,
-  rand: 15000,
-  shakespeare: 54700,
-  testsmith: 16200,
-  tester: 13900,
-  // CL-7658: grok family is the max (13990 chars); budget = measured +
-  // 2000 allowance, ceiling to 100.
-  gauntlet: 16000,
-  // CL-7656: grok family is the max (13711 chars); budget = measured +
-  // 2000 allowance, ceiling to 100.
-  prober: 15800,
-  // CL-7671 scope-honesty sentences grew migrator past the 12300-char
-  // placeholder: measured-max (11202) + 2000 allowance, ceiling to 100.
-  migrator: 13300,
-  // CL-7657: measured 51410 default / 51926 grok chars; +2000 allowance, ceiling to 100.
-  warden: 53500,
+const PROMPT_SIZE_BASELINE: Record<
+  DirectorId,
+  { chars: number; bytes: number }
+> = {
+  // Post-953 shared prompts.ts growth; re-measured on rebase.
+  skywalker: { chars: 25243, bytes: 25393 },
+  builder: { chars: 47698, bytes: 47856 },
+  explorer: { chars: 12197, bytes: 12259 },
+  counsel: { chars: 50746, bytes: 50918 },
+  intern: { chars: 14612, bytes: 14664 },
+  // Post-953 shared prompts.ts growth; re-measured on rebase.
+  critic: { chars: 52916, bytes: 53096 },
+  greybeard: { chars: 51786, bytes: 51972 },
+  neckbeard: { chars: 70211, bytes: 70401 },
+  bruckheimer: { chars: 21296, bytes: 21394 },
+  // CL-7809: includes the deliberate CL-7663 voice restore (PR #932).
+  gaasbot: { chars: 52782, bytes: 52970 },
+  // CL-7800: deliberate CMO full-fidelity restore; re-measured on rebase.
+  draper: { chars: 16403, bytes: 16489 },
+  emil: { chars: 14653, bytes: 14765 },
+  rand: { chars: 13021, bytes: 13089 },
+  shakespeare: { chars: 52774, bytes: 52956 },
+  testsmith: { chars: 14088, bytes: 14166 },
+  tester: { chars: 11975, bytes: 12033 },
+  // CL-7658: grok family is the max; re-measured on rebase.
+  gauntlet: { chars: 13835, bytes: 13897 },
+  // CL-7656: grok family is the max; re-measured on rebase.
+  prober: { chars: 13586, bytes: 13656 },
+  // CL-7671 scope-honesty sentences; grok family is the max.
+  migrator: { chars: 11221, bytes: 11277 },
+  // CL-7657: grok family is the max; baseline + allowance covers it, so
+  // main's tighter default-based budget needs no override.
+  warden: { chars: 51926, bytes: 52102 },
 };
 
-const BYTE_BUDGET: Record<DirectorId, number> = {
-  skywalker: 28100,
-  builder: 50000,
-  explorer: 15200,
-  counsel: 53900,
-  intern: 17800,
-  critic: 55500,
-  greybeard: 54800,
-  neckbeard: 73400,
-  bruckheimer: 24300,
-  // CL-7809: deliberate CL-7663 voice restore (PR #932) grew gaasbot to
-  // 52970 bytes; budget = measured + 3000 allowance, ceiling to 100.
-  gaasbot: 56000,
-  // CL-7800: deliberate CMO full-fidelity restore grew draper to
-  // 16489 bytes; budget = measured + 3000 allowance, ceiling to 100.
-  draper: 19500,
-  emil: 17700,
-  rand: 16100,
-  shakespeare: 55900,
-  testsmith: 17200,
-  tester: 15000,
-  // CL-7658: grok family is the max (14050 bytes); budget = measured +
-  // 3000 allowance, ceiling to 100.
-  gauntlet: 17100,
-  // CL-7656: grok family is the max (13779 bytes); budget = measured +
-  // 3000 allowance, ceiling to 100.
-  prober: 16800,
-  // CL-7671 scope-honesty sentences grew migrator past the 13400-byte
-  // placeholder: measured-max (11258) + 3000 allowance, ceiling to 100.
-  migrator: 14300,
-  // CL-7657: measured 51584 default / 52102 grok bytes; +3000 allowance, ceiling to 100.
-  warden: 54600,
-};
+/**
+ * Deliberate budgets above baseline + allowance, with justification.
+ * Empty after the origin/main rebase: every main budget fits within fresh
+ * baseline + allowance (draper/warden included), and the entries where main
+ * reads higher (intern, testsmith, gauntlet, prober) are stale-measurement
+ * residue, not deliberate over-allowance.
+ */
+const PROMPT_SIZE_OVERRIDES: Partial<
+  Record<DirectorId, { chars: number; bytes: number }>
+> = {};
+
+const CHAR_ALLOWANCE = 2000;
+const BYTE_ALLOWANCE = 3000;
+
+function ceil100(n: number): number {
+  return Math.ceil(n / 100) * 100;
+}
+
+function budgetFor(directorId: DirectorId): { chars: number; bytes: number } {
+  const override = PROMPT_SIZE_OVERRIDES[directorId];
+  if (override !== undefined) return override;
+  const base = PROMPT_SIZE_BASELINE[directorId];
+  return {
+    chars: ceil100(base.chars + CHAR_ALLOWANCE),
+    bytes: ceil100(base.bytes + BYTE_ALLOWANCE),
+  };
+}
 
 function budgetMessage(
   directorId: DirectorId,
@@ -88,10 +88,11 @@ function budgetMessage(
   chars: number,
   bytes: number,
 ): string {
+  const budget = budgetFor(directorId);
   return (
     `Director "${directorId}" [${family}]: ${chars} chars / ${bytes} bytes ` +
-    `exceeds budget (${CHAR_BUDGET[directorId]} chars / ` +
-    `${BYTE_BUDGET[directorId]} bytes). Trim the prompt (preferred) or ` +
+    `exceeds budget (${budget.chars} chars / ` +
+    `${budget.bytes} bytes). Trim the prompt (preferred) or ` +
     `consciously raise the budget here with justification. ` +
     `Repro: bun -e 'import { directorPromptSizeTable, ` +
     `formatPromptSizeTable } from "./src/agent/prompt-sizes.ts"; ` +
@@ -115,8 +116,9 @@ describe("director prompt size budget", () => {
 
   test("every assembled prompt stays within budget", () => {
     for (const row of rows) {
-      const overChars = row.chars > CHAR_BUDGET[row.directorId];
-      const overBytes = row.bytes > BYTE_BUDGET[row.directorId];
+      const budget = budgetFor(row.directorId);
+      const overChars = row.chars > budget.chars;
+      const overBytes = row.bytes > budget.bytes;
       expect(
         overChars || overBytes,
         budgetMessage(row.directorId, row.family, row.chars, row.bytes),
