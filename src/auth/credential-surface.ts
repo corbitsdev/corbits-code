@@ -54,11 +54,16 @@ export function buildCredentialPatterns(): RegExp[] {
     const scope = escapeRegExp(settingsDirName);
     patterns.push(new RegExp(`(^|\\/)${scope}\\/${escapeRegExp(dirname)}\\/`));
   }
-  // Editor backup copies keep full credential bytes next to the live file.
-  patterns.push(new RegExp(`(^|\\/)${dir}\\/settings\\.json\\.bak[^/]*$`));
   for (const basename of credentialSidecarBasenames) {
     const base = escapeRegExp(basename);
+    // Editor backup copies keep full credential bytes next to the live file.
+    // Scoped to the settings dir and anchored to known basenames, never a
+    // generic *.bak.
+    patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}\\.bak[^/]*$`));
     patterns.push(new RegExp(`(^|\\/)${base}\\.lock$`));
+    // Writers emit a pid.counter middle segment (auth/store.ts,
+    // mcp/auth-store.ts), so the middle segment is required; a bare
+    // `<base>.tmp` has no known writer and stays unmatched.
     patterns.push(new RegExp(`(^|\\/)${base}\\.[^/]*\\.tmp$`));
   }
   return patterns;

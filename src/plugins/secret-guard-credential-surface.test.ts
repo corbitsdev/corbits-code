@@ -107,9 +107,26 @@ describe("CL-7789 default-install credential surface", () => {
 
   test("credential backups and sidecars resolve as sensitive", () => {
     const home = join(tmpdir(), "cl7789-never-created");
+    for (const basename of [
+      "settings.json",
+      "permissions.json",
+      "codex-auth.json",
+      "xai-auth.json",
+    ]) {
+      expect(
+        isSensitivePathResolved(
+          join(home, ".corbits", `${basename}.bak-2026-01-01`),
+        ),
+      ).toBe(true);
+    }
     expect(
       isSensitivePathResolved(
-        join(home, ".corbits", "settings.json.bak-2026-01-01"),
+        join(
+          home,
+          ".corbits",
+          "mcp-auth",
+          "my-server-9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00.json.bak-2026-01-01",
+        ),
       ),
     ).toBe(true);
     expect(
@@ -128,7 +145,7 @@ describe("CL-7789 default-install credential surface", () => {
     try {
       for (const [path, marker] of [
         [fake.codexAuth, "CODEX-FIXTURE-ACCESS"],
-        [fake.mcpAuth, "MCP-FIXTURE-ACCESS"],
+        [fake.mcpAuth, "access_token"],
       ] as const) {
         const resolved = await resolveAtMentions(`read @${path}`, cwd);
         expect(resolved).toContain("(blocked: sensitive path)");

@@ -1,7 +1,9 @@
 import { readFile, opendir, realpath, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { resolve, isAbsolute, join } from "node:path";
-import { isSensitivePathResolved } from "../plugins/secret-guard-plugin.js";
+import { resolve, isAbsolute } from "node:path";
+import {
+  expandHome,
+  isSensitivePathResolved,
+} from "../plugins/secret-guard-plugin.js";
 
 const MAX_MENTION_FILE_BYTES = 200_000;
 const MAX_MENTION_TOTAL_BYTES = 400_000;
@@ -45,16 +47,8 @@ async function summarizeDir(abs: string): Promise<string> {
   return parts.length > 0 ? parts.join(", ") : "empty directory";
 }
 
-// `~` means the operator's home to the shell, not a cwd-relative name —
-// expand before both sensitivity gates (same ordering as the shell-token
-// matcher) so a home-relative credential path denies as itself instead of
-// resolving to a usually-missing cwd child that reads as merely not found.
-function expandHome(path: string): string {
-  if (path === "~") return homedir();
-  if (path.startsWith("~/")) return join(homedir(), path.slice(2));
-  return path;
-}
-// An @mention is the operator directly asking the agent to read one path, once,
+// `~` expansion lives in secret-guard-plugin.ts (single owner); the comment
+// there documents the ordering. An @mention is the operator directly asking the agent to read one path, once,
 // right now — the same consent that already lets the agent read any workspace
 // file. There is no workspace-boundary check here: mentioning a path outside
 // the workspace inlines it exactly like a workspace path would, gated only by

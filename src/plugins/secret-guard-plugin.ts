@@ -183,7 +183,7 @@ function isPathLikeShellToken(token: string): boolean {
 // resolves the home symlink instead of a (usually missing) cwd child.
 // classify.ts's outside-workspace rule would ask anyway; the expansion fixes
 // the *reason* (sensitive-path) rather than relying on that coincidence.
-function expandHome(token: string): string {
+export function expandHome(token: string): string {
   if (token === "~") return homedir();
   if (token.startsWith("~/")) return joinPath(homedir(), token.slice(2));
   return token;
