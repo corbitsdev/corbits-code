@@ -11,7 +11,7 @@ import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
-import { acceptOverlaySelection } from "./shell/overlay-host";
+import { acceptOverlaySelection, openListOverlay } from "./shell/overlay-host";
 import { moveOverlaySelection } from "./shell/overlay-list";
 import { handlePaletteFilterKey, openPalette } from "./shell/palette";
 
@@ -191,6 +191,36 @@ describe("palette filters as you type", () => {
       expect(shell.overlayList).not.toBeNull();
       expect(shell.overlayItems).toEqual(["(no matches)"]);
     });
+  });
+
+  test("accept on an empty overlay is a no-op", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 100, rows: 32 },
+          wireKeys: false,
+          run: "idle",
+        });
+        try {
+          let accepted = 0;
+          openListOverlay(shell, {
+            kind: "demo",
+            items: [],
+            onAccept: () => {
+              accepted += 1;
+            },
+          });
+          expect(shell.overlayItems).toEqual([]);
+          acceptOverlaySelection(shell);
+          expect(accepted).toBe(0);
+          expect(shell.overlayList).not.toBeNull();
+          expect(shell.overlayItems).toEqual([]);
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 100, height: 32 },
+    );
   });
 });
 
