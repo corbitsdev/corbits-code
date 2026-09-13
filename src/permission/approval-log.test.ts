@@ -53,8 +53,8 @@ describe("createApprovalLog", () => {
     now += 100; // operator decides
     ask.settle("allow-with-scope");
 
-    // Appends are fire-and-forget; give the microtask queue a turn to flush.
-    await new Promise((r) => setTimeout(r, 10));
+    // Appends are fire-and-forget; await the log's tail so the read sees them.
+    await log.flush();
 
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
@@ -76,7 +76,7 @@ describe("createApprovalLog", () => {
     const ask = log.ask({ tool: "write_file", mode: "auto" });
     ask.settle("auto-allow");
     ask.settle("deny");
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     expect(readRecords(dir)).toHaveLength(1);
   });
 });
@@ -91,6 +91,7 @@ describe("approval-log wiring through the permission gate", () => {
   test("logs an auto-deny for a file-mutation shell command in auto mode, with no command text", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-gate-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const log = createApprovalLog(dir);
     const gate = createPermissionGate({
       approvals: [],
       interactive: false,
@@ -98,14 +99,14 @@ describe("approval-log wiring through the permission gate", () => {
       reactorGated: false,
       auto: true,
       cwd,
-      approvalLog: createApprovalLog(dir),
+      approvalLog: log,
     });
     const verdict = await gate.evaluate(
       shellCall("echo hunter2 > /tmp/leaked-secret-file.txt"),
     );
     expect(verdict.allowed).toBe(false);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
     expect(defined(record).mode).toBe("auto");
@@ -119,13 +120,14 @@ describe("approval-log wiring through the permission gate", () => {
   test("logs an interactive allow-once with no command text in the record", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-gate-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const log = createApprovalLog(dir);
     const gate = createPermissionGate({
       approvals: [],
       interactive: true,
       skipPermissions: false,
       reactorGated: false,
       cwd,
-      approvalLog: createApprovalLog(dir),
+      approvalLog: log,
       requestApproval: async (request) => {
         request.markDisplayed?.();
         return { allow: true };
@@ -136,7 +138,7 @@ describe("approval-log wiring through the permission gate", () => {
     );
     expect(verdict.allowed).toBe(true);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
     expect(defined(record).mode).toBe("interactive");
@@ -150,18 +152,19 @@ describe("approval-log wiring through the permission gate", () => {
   test("logs deny with non-interactive rule when no operator is attached", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-gate-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const log = createApprovalLog(dir);
     const gate = createPermissionGate({
       approvals: [],
       interactive: false,
       skipPermissions: false,
       reactorGated: false,
       cwd,
-      approvalLog: createApprovalLog(dir),
+      approvalLog: log,
     });
     const verdict = await gate.evaluate(shellCall("curl https://example.com"));
     expect(verdict.allowed).toBe(false);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
     expect(defined(record).outcome).toBe("deny");
@@ -180,13 +183,14 @@ describe("approval-log wiring through the permission gate", () => {
       await import("../subagent/identity-context.js");
     const dir = mkdtempSync(join(tmpdir(), "approval-log-gate-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
+    const log = createApprovalLog(dir);
     const gate = createPermissionGate({
       approvals: [],
       interactive: true,
       skipPermissions: false,
       reactorGated: false,
       cwd,
-      approvalLog: createApprovalLog(dir),
+      approvalLog: log,
       requestApproval: async (request) => {
         request.markDisplayed?.();
         return { allow: true };
@@ -202,7 +206,7 @@ describe("approval-log wiring through the permission gate", () => {
     );
     expect(verdict.allowed).toBe(true);
 
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const [record] = readRecords(dir);
     expect(record).toBeDefined();
     expect(Object.keys(defined(record))).not.toContain("agentLabel");
@@ -225,7 +229,7 @@ describe("approval-log record size cap", () => {
       rule: "x".repeat(10_000),
     });
     ask.settle("allow-once");
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     expect(readRecords(dir)).toHaveLength(0);
   });
 });

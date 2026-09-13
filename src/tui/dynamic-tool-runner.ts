@@ -117,7 +117,12 @@ export function createDynamicToolRunner(
             };
           }
         },
-        { waitForApproval },
+        {
+          waitForApproval,
+          ...(watchdogConfig?.salvageGraceMs !== undefined
+            ? { salvageGraceMs: watchdogConfig.salvageGraceMs }
+            : {}),
+        },
       );
       // Every tool result — posix, MCP, or built-in — passes through this single
       // dispatch point before reaching the reactor/renderer, so it is the one

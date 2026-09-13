@@ -347,7 +347,7 @@ describe("tool execution watchdog", () => {
           () => new Promise<string>(() => undefined), // never resolves — wedged server
         ),
       ],
-      { mcpTimeoutMs: 30 },
+      { mcpTimeoutMs: 30, salvageGraceMs: TEST_SALVAGE_GRACE_MS },
     );
     const result = await runner.run(
       { id: "1", name: "mcp__linear__get_issue", arguments: {} },
@@ -369,7 +369,7 @@ describe("tool execution watchdog", () => {
         ),
         stringTool("mcp__linear__list_issues", async () => "ok"),
       ],
-      { mcpTimeoutMs: 30 },
+      { mcpTimeoutMs: 30, salvageGraceMs: TEST_SALVAGE_GRACE_MS },
     );
     const signal = new AbortController().signal;
     const [hung1, hung2, fast] = await Promise.all([

@@ -34,6 +34,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src ./tests ./evals ./scripts --randomize --seed 424242",
     "test:paths": "bun scripts/test-paths.ts",
+    "test:parallel": "bun scripts/test-parallel.ts",
     "lint": "oxfmt --check . && oxlint",
     "check:projects-dir-guard": "bun scripts/guard-real-projects-dir.ts",
     "check": "bun run lint && bun run typecheck && bun run build && bun run check:projects-dir-guard",

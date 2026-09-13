@@ -23,12 +23,18 @@ const disposeCountPath = countPath;
 
 // Handlers must be installed before READY. Importing src/index.js is slow, and
 // the parent sends the signal as soon as it sees READY.
+//
+// The dispose host's agent.close() deliberately never settles, so the
+// handler's bounded-teardown deadline is the only exit for the crash and
+// signal paths. Shorten it so those tests don't pay the production 2s in
+// wall clock; production never sets the option and keeps the 2s default.
+const TEST_TEARDOWN_DEADLINE_MS = 200;
 if (exitPath === "crash") {
   const { installCrashHandlers } = await import("../../../src/index.js");
-  installCrashHandlers();
+  installCrashHandlers({ teardownDeadlineMs: TEST_TEARDOWN_DEADLINE_MS });
 } else if (exitPath === "signal") {
   const { installSignalHandlers } = await import("../../../src/index.js");
-  installSignalHandlers();
+  installSignalHandlers({ teardownDeadlineMs: TEST_TEARDOWN_DEADLINE_MS });
 }
 
 const fallback = async (call: ToolCall): Promise<ToolResult> => ({

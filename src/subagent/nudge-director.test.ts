@@ -26,6 +26,12 @@ const longState = {
   ),
 } as unknown as ReactorState;
 
+// These tests are not about stall timing. With the default real clock, a
+// parallel-run load gap over the 30 ms stall window between awaited
+// decides would trip a spurious stall nudge on the empty continuation
+// pings, so freeze time instead.
+const frozenNow = () => 0;
+
 function capabilities(): ReactorCapabilities {
   return {
     infer: (options) =>
@@ -314,6 +320,7 @@ describe("SubAgentDirector tool failure recovery", () => {
         continuations++;
       },
       30,
+      frozenNow,
     );
     const caps = capabilities();
 
@@ -437,6 +444,7 @@ describe("SubAgentDirector tool failure recovery", () => {
         continuations++;
       },
       30,
+      frozenNow,
     );
     const caps = capabilities();
 
@@ -489,6 +497,7 @@ describe("SubAgentDirector tool failure recovery", () => {
         continuations++;
       },
       30,
+      frozenNow,
     );
     const caps = capabilities();
 
