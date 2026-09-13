@@ -794,6 +794,35 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     expect(reply.content).toContain("read-1.ts");
   });
 
+  test("tool-using turns reset the tool-less narration count (CL-7788)", async () => {
+    const director = new SubAgentDirector("system", [], undefined, 30);
+    const caps = capabilities();
+
+    await director.decide(
+      inferenceDoneText("Still looking at the files..."),
+      state,
+      caps,
+    );
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+    await director.decide(inferenceDone(["read-2"]), state, caps);
+    await director.decide(toolDone("read-2"), state, caps);
+
+    const result = actions(
+      await director.decide(
+        inferenceDoneText("Still narrating, no envelope."),
+        state,
+        caps,
+      ),
+    );
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report-nudge",
+    });
+    expect(result.some((action) => action.type === "reply")).toBe(false);
+    expect(result.some((action) => action.type === "infer")).toBe(true);
+  });
+
   test("tool-less turn with the four headings completes normally", async () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = capabilities();

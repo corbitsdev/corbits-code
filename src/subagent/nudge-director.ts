@@ -330,6 +330,7 @@ export class SubAgentDirector extends DefaultDirector {
       this.lastAssistantText = lastText(content);
       const hasToolCalls = content.some((block) => block.type === "tool_call");
       if (hasToolCalls) {
+        this.toolLessNarrationCycles = 0;
         this.verbatimToolCallNudgeFired = false;
         this.thrashState = nextThrashState(this.thrashState, content);
       }
