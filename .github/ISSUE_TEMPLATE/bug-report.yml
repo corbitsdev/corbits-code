@@ -1,0 +1,92 @@
+name: Bug report
+description: Something in Corbits Code does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please search existing issues — including closed ones.
+
+        Never paste API keys, tokens, or the contents of `~/.corbits/settings.json`.
+        Redact anything that looks like a credential before you submit.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what Corbits Code did instead.
+      placeholder: |
+        I ran `corbits exec "..."` and the session stopped after the first tool call.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The shortest sequence that shows the problem. A fixture repo or a minimal project beats a description.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `corbits --version`.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      placeholder: macOS 15.2 arm64
+    validations:
+      required: true
+
+  - type: input
+    id: install-method
+    attributes:
+      label: How you installed it
+      placeholder: Homebrew, or built from source at <commit>
+    validations:
+      required: true
+
+  - type: input
+    id: provider-model
+    attributes:
+      label: Provider and model
+      description: Required when the bug involves inference — a wrong answer, a hang, a protocol error, token or cost accounting. Write "not inference" if it does not.
+      placeholder: opencode-go, muse-spark-1.3-contributor
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Relevant output
+      description: The error and the lines around it — not a whole session transcript. This is rendered as a code block, so no backticks needed.
+      render: text
+
+  - type: dropdown
+    id: clean-config
+    attributes:
+      label: Does it reproduce on a clean config?
+      description: A fresh profile, without your plugins, skills, MCP servers, or hooks. This is the single most useful thing you can tell us.
+      options:
+        - "Yes — reproduces on a clean config"
+        - "No — only with my config"
+        - "Not tried"
+    validations:
+      required: true
