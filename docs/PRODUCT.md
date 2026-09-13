@@ -123,11 +123,11 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 ### Stall (tool-only turns with no narration)
 
-**What the user sees:** The agent runs several turns in a row that are all tool calls with no explanation of what it's doing. After a one-shot nudge to explain itself, if the pattern continues the session **auto-pauses**: it stops issuing new inferences and replies with "Auto-paused: the model ran N steps in a row without explaining its progress. Send a message to resume." The session is not aborted — sending any message resumes it.
+**What the user sees:** The agent runs several turns in a row that are all tool calls with no explanation of what it's doing. After a configured number of such turns the director injects a one-shot wrap-up nudge asking for an explanation — a check-in, not a stop. There is no automated stop or pause: the session keeps running until the operator intervenes.
 
-The exact turn thresholds are model-family-dependent (tighter for models with observed runaway tool-only behavior); see "Main-session loop protection" in `docs/ARCHITECTURE.md`.
+The exact turn threshold is model-family-dependent (tighter for models with observed runaway tool-only behavior); see "Main-session loop protection" in `docs/ARCHITECTURE.md`.
 
-**Recovery:** Send a message to resume. To inspect state first, see `~/.corbits/projects/<project-key>/<session-id>/run.json` (or a legacy in-repo `.agent-state/` tree if not yet migrated).
+**Recovery:** Nothing to recover — the session never pauses. To redirect it, send a message (steer) or interrupt. To inspect state, see `~/.corbits/projects/<project-key>/<session-id>/run.json` (or a legacy in-repo `.agent-state/` tree if not yet migrated).
 
 ### Permission denied (exec)
 
