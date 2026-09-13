@@ -77,13 +77,14 @@ const BUILT_IN_AGENT_NAMES: ReadonlySet<string> = new Set([
 // plugin id and kind — no skill list — so the closed set is spelled out here
 // and pinned by tests/unit/telemetry-product-events.test.ts.
 // `user-invocable: false` is a slash-surface flag, not a telemetry flag:
-// eleven bundled skills carry it, and seven of them (git-rebase,
-// git-worktrees, linear-issue-workflow, opsh, philosophy, style, typescript)
-// opt out of slash synthesis yet remain real `use_skill` recipes, so they
-// stay reportable by name. Excluded are the four bake-only background skills
-// (idiot-proof, native-integration, native-runtime, ponytail), which are
-// baked into agent prompts rather than invoked as skills. Project- or
-// plugin-authored skills are never reported by name.
+// eleven bundled skills carry it — eight stay listed and loadable
+// (git-rebase, linear-issue-workflow, opsh, philosophy, style, typescript,
+// native-integration, ponytail), `git-worktrees` resolves by explicit name
+// only, and two stay hidden bake-only (idiot-proof, native-runtime), which
+// are baked into agent prompts rather than invoked as skills. Of the eleven,
+// seven are reported by name and four stay `custom` (pinned; conservative
+// under-reporting, never a leak). Project- or plugin-authored skills are
+// never reported by name.
 const FIRST_PARTY_SKILL_NAMES: ReadonlySet<string> = new Set([
   "ast-grep",
   "create-issue",
