@@ -33,6 +33,13 @@ describe("lexicon skill shape", () => {
     expect(skill).toContain("linear-issue-workflow");
   });
 
+  test("checkout resolution is portable (no hardcoded machine path)", async () => {
+    const skill = await Bun.file(skillPath).text();
+    expect(skill).not.toMatch(/\/Users\/[\w-]+/);
+    expect(skill).toMatch(/AGENTS_CHECKOUT/);
+    expect(skill).toMatch(/ask the operator/);
+  });
+
   test("lexicon is a slash command", async () => {
     const cmds = await loadSkillCommands(pluginRoot);
     expect(defined(cmds, "skill commands").map((c) => c.name)).toContain(
