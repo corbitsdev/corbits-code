@@ -83,7 +83,7 @@ Do not invent fixes. If blocked, ask_director (parent, not the human). After the
 - Read error messages and report them
 - Execute mechanical, deterministic operations with zero ambiguity
 - Perform exact path writes when the brief spells them out
-- Load exactly the brief-named skill (if any) with \`skill_search\` then \`use_skill\` and follow it literally — never wander beyond it
+- Load exactly the brief-named skill (if any) with \`use_skill\` directly using its exact brief-given name — never a \`skill_search\` round-trip for a known name (\`skill_search\` is only for choosing among skills, and some workers do not mount it) — and follow it literally — never wander beyond it
 
 **How to Report Back**
 

@@ -722,19 +722,34 @@ async function runSubAgentInner(
       }),
     ];
 
-    // Every worker mounts skill_search + use_skill, scoped to the dispatch's
-    // allowedSkillNames (pkg.optionalSkills). Mounted before the capability
-    // filter so worker allowlists keep them like any other named tool; the
-    // scope cannot widen — use_skill refuses names outside the allowlist.
+    // Worker skill mounts, family-gated (CL-7668): grok/kimi leaves omit
+    // skill_search and load brief-named skills straight through use_skill,
+    // which is never denied. Scoped to the dispatch's allowedSkillNames
+    // (pkg.optionalSkills). Mounted before the capability filter so worker
+    // allowlists keep them like any other named tool; the scope cannot
+    // widen — use_skill refuses names outside the allowlist.
+    // Resolved here (not below with the director wiring) so the mount itself
+    // executes the deny; toolNames/prompt derivation below inherits it.
+    const modelFamilyPolicy = resolveModelFamilyPolicy({
+      providerName: params.provider.providerName,
+      model: params.provider.model,
+      orchestrator: params.orchestrator === true,
+    });
     const skillSnapshot = await discoverSkills(params.cwd);
+    const skillSearchDenied =
+      modelFamilyPolicy.advertisedToolDeny.includes("skill_search");
     tools = [
       ...tools,
-      createSkillSearchTool({
-        skills: skillSnapshot,
-        ...(params.allowedSkillNames !== undefined
-          ? { allowedNames: params.allowedSkillNames }
-          : {}),
-      }),
+      ...(skillSearchDenied
+        ? []
+        : [
+            createSkillSearchTool({
+              skills: skillSnapshot,
+              ...(params.allowedSkillNames !== undefined
+                ? { allowedNames: params.allowedSkillNames }
+                : {}),
+            }),
+          ]),
       createUseSkillTool(
         params.cwd,
         [],
@@ -991,11 +1006,9 @@ async function runSubAgentInner(
       });
     };
 
-    const modelFamilyPolicy = resolveModelFamilyPolicy({
-      providerName: params.provider.providerName,
-      model: params.provider.model,
-      orchestrator: params.orchestrator === true,
-    });
+    // modelFamilyPolicy is resolved above at the skill mount so the
+    // grok/kimi skill_search deny executes there; reused here for stall
+    // timing and wire-schema normalization.
 
     // Family-gate wire schemas the same way main sessions do (kimi present rewrite).
     // Sub-agent toolsets currently omit `present` (main-session only); normalize is

@@ -191,4 +191,106 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
       'No skills matched "off-lane". Try different keywords describing the capability.',
     );
   }, 15_000);
+
+  test("grok/kimi leaves omit skill_search but keep scoped use_skill; orchestrators keep both", async () => {
+    const cwd = await tmpCwd();
+    await writeSkill(
+      cwd,
+      "style",
+      "Code style rules.",
+      "Follow the style guide.",
+    );
+
+    async function runCase(params: RunSubAgentParams): Promise<{
+      searchCalls: number;
+      useSkillCalls: number;
+    }> {
+      let searchCalls = 0;
+      let useSkillCalls = 0;
+      await runWithFailingInference((baseURL) =>
+        withMockedModuleDuring(
+          import.meta.resolve("../agent/skill-search.js"),
+          (real: typeof import("../agent/skill-search.js")) => ({
+            ...real,
+            createSkillSearchTool: (
+              args: Parameters<typeof real.createSkillSearchTool>[0],
+            ) => {
+              searchCalls += 1;
+              return real.createSkillSearchTool(args);
+            },
+          }),
+          () =>
+            withMockedModuleDuring(
+              import.meta.resolve("../agent/use-skill.js"),
+              (real: typeof import("../agent/use-skill.js")) => ({
+                ...real,
+                createUseSkillTool: (...args: unknown[]) => {
+                  useSkillCalls += 1;
+                  return (
+                    real.createUseSkillTool as (...a: never[]) => unknown
+                  )(...(args as never[]));
+                },
+              }),
+              async () => {
+                const { runSubAgent: run } = await import("./run.js");
+                await run({
+                  ...params,
+                  cwd,
+                  workdirBase: join(cwd, ".ctx"),
+                  provider: { ...params.provider, baseURL },
+                }).catch(() => {
+                  // Inference fails by design; mount decisions run first.
+                });
+              },
+            ),
+        ),
+      );
+      return { searchCalls, useSkillCalls };
+    }
+
+    function leafParams(
+      providerName: string,
+      model: string,
+      extra?: Partial<RunSubAgentParams>,
+    ): RunSubAgentParams {
+      return {
+        cwd,
+        workdirBase: join(cwd, ".ctx"),
+        permissionGate: testPermissionGate,
+        provider: { providerName, baseURL: "http://localhost", model },
+        description: "skill deny probe",
+        prompt: "no-op",
+        allowedSkillNames: ["style"],
+        ...extra,
+      };
+    }
+
+    // Grok + kimi leaves: deny executes — skill_search omitted, use_skill kept.
+    for (const [providerName, model] of [
+      ["xai", "grok-4-1-fast-non-reasoning"],
+      ["moonshot", "kimi-k2-0711"],
+    ] as const) {
+      const counts = await runCase(leafParams(providerName, model));
+      expect({ providerName, ...counts }).toEqual({
+        providerName,
+        searchCalls: 0,
+        useSkillCalls: 1,
+      });
+    }
+
+    // Default family leaf: both mount (existing behavior unchanged).
+    expect(await runCase(leafParams("test", "test-model"))).toEqual({
+      searchCalls: 1,
+      useSkillCalls: 1,
+    });
+
+    // Grok orchestrator: deny cleared — both mount.
+    expect(
+      await runCase(
+        leafParams("xai", "grok-4-1-fast-non-reasoning", {
+          orchestrator: true,
+        }),
+      ),
+    ).toEqual({ searchCalls: 1, useSkillCalls: 1 });
+  }, 30_000);
 });

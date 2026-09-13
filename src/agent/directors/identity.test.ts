@@ -28,16 +28,22 @@ describe("formatDirectorSystemPrompt", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     expect(text).not.toContain("# Baked skill guidance");
     expect(text).toContain(
-      "Optional skills (names for awareness; load with skill_search then use_skill): style, philosophy, native-runtime, idiot-proof, ponytail.",
+      "Optional skills (names for awareness; load brief-named skills straight through use_skill, skill_search for discovery when mounted): style, philosophy, native-runtime, idiot-proof, ponytail.",
     );
     expect(text).toContain(WORKER_SKILL_SCOPING);
     expect(text).toContain(
       "Skills are available; search only when the brief names a skill or the task is outside your lane. For a small, bounded edit, do not search skills.",
     );
     expect(text).toContain(
-      "Call skill_search for descriptions, then use_skill",
+      "Load a brief-named skill straight through use_skill",
     );
     expect(text).toContain("load only the skills the task needs");
+  });
+
+  test("worker guidance never mandates skill_search (deny-safe for grok/kimi leaves)", () => {
+    const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
+    expect(text).not.toContain("Call skill_search for descriptions");
+    expect(text).toContain("only when choosing among skills and it is mounted");
   });
 
   test("skywalker does not bake Ponytail", () => {
@@ -60,7 +66,7 @@ describe("formatDirectorSystemPrompt", () => {
     });
     expect(text).not.toContain("# Baked skill guidance");
     expect(text).toContain(
-      "Optional skills (names for awareness; load with skill_search then use_skill): does-not-exist-xyz.",
+      "Optional skills (names for awareness; load brief-named skills straight through use_skill, skill_search for discovery when mounted): does-not-exist-xyz.",
     );
     expect(text).toContain(WORKER_SKILL_SCOPING);
   });

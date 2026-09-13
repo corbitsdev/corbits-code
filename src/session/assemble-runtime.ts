@@ -370,9 +370,12 @@ export function createAdvertisedToolset(args: {
   ];
   const activated = createActivatedToolTracker();
   // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
-  // advertisedToolDeny (CL-7668) drops grok/kimi-leaf skill_search from the
-  // wire prefix and the dispatch gate; orchestrators keep the full surface.
-  // Resolved per call so a live model switch re-gates without a rebuild.
+  // The primary session is always the orchestrator (SessionMode is the single
+  // literal "orchestrator"), so orchestrator: true is passed directly instead
+  // of comparing against sessionMode — the comparison was always true and the
+  // deny always [], an unexecuted committed claim. Leaf gating lives at the
+  // worker mount in subagent/run.ts, which resolves the same policy with the
+  // leaf's provider and its own orchestrator flag.
   // use_skill is never denied — leaves load brief-named skills by exact name.
   const deniedFor = (provider: {
     providerName: string;
@@ -381,7 +384,7 @@ export function createAdvertisedToolset(args: {
     resolveModelFamilyPolicy({
       providerName: provider.providerName,
       model: provider.model,
-      orchestrator: args.sessionMode === "orchestrator",
+      orchestrator: true,
     }).advertisedToolDeny;
   const computeAdvertised = (
     all: readonly ToolDefinition[],

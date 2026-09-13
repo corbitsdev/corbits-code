@@ -101,6 +101,24 @@ describe("createAdvertisedToolset", () => {
     expect(names).toContain("mcp__linear__save_issue");
     expect(names).not.toContain("mcp__acme__do");
   });
+
+  test("primary keeps skill_search for grok/kimi providers (always orchestrator; leaf deny lives at the worker mount)", () => {
+    for (const getProvider of [
+      () => ({ providerName: "xai", model: "grok-4-1-fast-non-reasoning" }),
+      () => ({ providerName: "moonshot", model: "kimi-k2-0711" }),
+    ]) {
+      const { computeAdvertised, isAdvertised } = createAdvertisedToolset(
+        wiring({ getProvider }),
+      );
+      const names = computeAdvertised([
+        def("skill_search"),
+        def("use_skill"),
+      ]).map((d) => d.name);
+      expect(names).toContain("skill_search");
+      expect(names).toContain("use_skill");
+      expect(isAdvertised("skill_search")).toBe(true);
+    }
+  });
 });
 
 describe("loadSessionLocalSettings", () => {

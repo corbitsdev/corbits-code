@@ -109,6 +109,21 @@ describe("SKYWALKER_TOOLS / ORCHESTRATOR_TOOLS", () => {
       expect(surface as readonly string[]).not.toContain("ask_operator");
     }
   });
+
+  test("no surface lists a tool twice (SKILL_TOOLS spread once via READ_TOOLS)", () => {
+    for (const surface of [
+      READ_TOOLS,
+      BUILD_TOOLS,
+      DOCS_TOOLS,
+      REVIEW_TOOLS,
+      INTERN_TOOLS,
+      ORCHESTRATOR_TOOLS,
+      SKYWALKER_TOOLS,
+    ] as const) {
+      const names = surface as readonly string[];
+      expect(new Set(names).size).toBe(names.length);
+    }
+  });
 });
 
 describe("REVIEW_TOOLS / INTERN_TOOLS", () => {

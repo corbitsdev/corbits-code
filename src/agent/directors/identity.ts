@@ -33,14 +33,17 @@ export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
   } else if (isPrimaryOrchestrator) {
     skillsLine = `Optional skills (names for awareness; use_skill is primary-mounted): ${names.join(", ")}.`;
   } else {
-    skillsLine = `Optional skills (names for awareness; load with skill_search then use_skill): ${names.join(", ")}.`;
+    skillsLine = `Optional skills (names for awareness; load brief-named skills straight through use_skill, skill_search for discovery when mounted): ${names.join(", ")}.`;
   }
 
   // Worker skill scoping (CL-7668): skills mount on every worker, so search
   // only when the brief or the lane calls for it — never bulk-load.
+  // Deny-safe: grok/kimi leaves omit skill_search (family policy) and load
+  // brief-named skills straight through use_skill, so the guidance never
+  // mandates a skill_search call — it is discovery-only, when mounted.
   const skillGuidance =
     names !== undefined && names.length > 0 && !isPrimaryOrchestrator
-      ? `${WORKER_SKILL_SCOPING} Call skill_search for descriptions, then use_skill with the skill name; load only the skills the task needs.`
+      ? `${WORKER_SKILL_SCOPING} Load a brief-named skill straight through use_skill with its exact name; call skill_search for descriptions only when choosing among skills and it is mounted, then use_skill; load only the skills the task needs.`
       : null;
 
   const header = [

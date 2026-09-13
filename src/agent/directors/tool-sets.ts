@@ -42,7 +42,6 @@ export const PRODUCT_WRITE_TOOLS = [
 export const BUILD_TOOLS = [
   ...READ_TOOLS,
   ...PRODUCT_WRITE_TOOLS,
-  ...SKILL_TOOLS,
   "apply_patch",
   "shell",
   "update_plan",
@@ -62,17 +61,12 @@ export const BUILD_TOOLS = [
 export const DOCS_TOOLS = [
   ...READ_TOOLS.filter((t) => t !== "run_shell" && t !== "shell_collect"),
   ...PRODUCT_WRITE_TOOLS,
-  ...SKILL_TOOLS,
   "apply_patch",
   "update_plan",
 ] as const;
 
-/** Review / counsel: read surface + path writes + skill tools (lane discipline in prompts). */
-export const REVIEW_TOOLS = [
-  ...READ_TOOLS,
-  ...PRODUCT_WRITE_TOOLS,
-  ...SKILL_TOOLS,
-] as const;
+/** Review / counsel: read surface + path writes (skill tools arrive via READ_TOOLS; lane discipline in prompts). */
+export const REVIEW_TOOLS = [...READ_TOOLS, ...PRODUCT_WRITE_TOOLS] as const;
 
 /** Mechanical intern: shell-first + path writes when the brief requires them. */
 export const INTERN_TOOLS = [
@@ -92,7 +86,6 @@ export const INTERN_TOOLS = [
 export const ORCHESTRATOR_TOOLS = [
   ...READ_TOOLS,
   ...PRODUCT_WRITE_TOOLS,
-  ...SKILL_TOOLS,
   "spawn_agent",
   "list_agents",
   "close_agent",
