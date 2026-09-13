@@ -13,9 +13,9 @@ import {
 } from "./registry.js";
 
 describe("director registry", () => {
-  test("closed set has exactly 19 directors", () => {
-    expect(DIRECTOR_IDS).toHaveLength(19);
-    expect(listDirectors()).toHaveLength(19);
+  test("closed set has exactly 20 directors", () => {
+    expect(DIRECTOR_IDS).toHaveLength(20);
+    expect(listDirectors()).toHaveLength(20);
     for (const id of DIRECTOR_IDS) {
       expect(DIRECTOR_REGISTRY[id].id).toBe(id);
     }
@@ -116,8 +116,8 @@ describe("director registry", () => {
 
   test("directorProfiles is the spawn catalog (closed set minus skywalker)", () => {
     const profiles = directorProfiles();
-    expect(profiles).toHaveLength(18);
-    expect(new Set(profiles.map((p) => p.id)).size).toBe(18);
+    expect(profiles).toHaveLength(19);
+    expect(new Set(profiles.map((p) => p.id)).size).toBe(19);
     expect(profiles.map((p) => p.id)).not.toContain("skywalker");
   });
 
@@ -168,6 +168,7 @@ describe("director registry", () => {
       "prober",
       "skywalker",
       "gauntlet",
+      "warden",
     ] as const) {
       const allow = DIRECTOR_REGISTRY[id].tools?.allow ?? [];
       expect(allow).toContain("write_file");
@@ -211,11 +212,11 @@ describe("director registry", () => {
     expect(s.tools?.allow).toContain("write_file");
     expect(s.tools?.allow).toContain("edit_file");
     expect(s.tools?.allow).toContain("delete_file");
-    expect(s.spawn.allowlist).toHaveLength(18);
+    expect(s.spawn.allowlist).toHaveLength(19);
   });
 
   // CL-6941: tier and spawn.maySpawn independently encode "may this package
-  // spawn", hand-set across 19 files. This pins their agreement so drift
+  // spawn", hand-set across 20 files. This pins their agreement so drift
   // (adding maySpawn: true without bumping tier, or vice versa) fails a test
   // instead of surfacing as an unexplained FleetAuthorityError at dispatch.
   test("tier agrees with spawn.maySpawn for every director", () => {

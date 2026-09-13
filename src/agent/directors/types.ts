@@ -23,6 +23,7 @@ export const DIRECTOR_IDS = [
   "gauntlet",
   "prober",
   "migrator",
+  "warden",
 ] as const;
 
 export type DirectorId = (typeof DIRECTOR_IDS)[number];

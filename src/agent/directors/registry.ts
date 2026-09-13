@@ -18,6 +18,7 @@ import { testerPackage } from "./tester/index.js";
 import { testsmithPackage } from "./testsmith/index.js";
 import { gauntletPackage } from "./gauntlet/index.js";
 import { proberPackage } from "./prober/index.js";
+import { wardenPackage } from "./warden/index.js";
 import { formatDirectorSystemPrompt } from "./identity.js";
 import {
   DIRECTOR_IDS,
@@ -64,6 +65,7 @@ export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> =
     gauntlet: gauntletPackage,
     prober: proberPackage,
     migrator: migratorPackage,
+    warden: wardenPackage,
   };
 
 export function isDirectorId(value: unknown): value is DirectorId {

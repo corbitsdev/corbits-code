@@ -44,6 +44,8 @@ const CHAR_BUDGET: Record<DirectorId, number> = {
   // CL-7671 scope-honesty sentences grew migrator past the 12300-char
   // placeholder: measured-max (11202) + 2000 allowance, ceiling to 100.
   migrator: 13300,
+  // CL-7657: measured 51410 default / 51926 grok chars; +2000 allowance, ceiling to 100.
+  warden: 53500,
 };
 
 const BYTE_BUDGET: Record<DirectorId, number> = {
@@ -76,6 +78,8 @@ const BYTE_BUDGET: Record<DirectorId, number> = {
   // CL-7671 scope-honesty sentences grew migrator past the 13400-byte
   // placeholder: measured-max (11258) + 3000 allowance, ceiling to 100.
   migrator: 14300,
+  // CL-7657: measured 51584 default / 52102 grok bytes; +3000 allowance, ceiling to 100.
+  warden: 54600,
 };
 
 function budgetMessage(

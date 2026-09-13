@@ -28,7 +28,7 @@ describe("skywalkerPackage", () => {
 
   test("maySpawn true with full closed allowlist", () => {
     expect(skywalkerPackage.spawn.maySpawn).toBe(true);
-    expect(skywalkerPackage.spawn.allowlist).toHaveLength(18);
+    expect(skywalkerPackage.spawn.allowlist).toHaveLength(19);
     expect(skywalkerPackage.spawn.allowlist).toEqual([
       "builder",
       "explorer",
@@ -48,6 +48,7 @@ describe("skywalkerPackage", () => {
       "gauntlet",
       "prober",
       "migrator",
+      "warden",
     ]);
   });
 
@@ -337,5 +338,15 @@ describe("skywalkerPackage", () => {
     expect(p).toContain(
       "gauntlet = mutation-check that tests can actually fail (tree clean)",
     );
+  });
+
+  test("systemPrompt routes trust-path diffs to warden (tiny verify-after-ship mention)", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("warden = permission / provider-auth / plugin-loader");
+    expect(p).toContain("only when the diff touches those paths");
+    expect(p).toContain(
+      "When the diff touches permission, provider-auth, or plugin-loader paths, add a warden trust review alongside critic",
+    );
+    expect(p).toContain("never ships fixes");
   });
 });
