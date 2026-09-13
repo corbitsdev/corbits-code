@@ -2061,6 +2061,58 @@ describe("refreshLiveProviderCatalog", () => {
   });
 });
 
+describe("catalog credential-removal convergence", () => {
+  const resolved: ResolvedProvider = {
+    providerName: "fp",
+    baseURL: "https://fp/v1",
+    apiKey: "fp-key",
+    model: "fp-large",
+  };
+  const credentialed: Settings = {
+    providers: {
+      fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },
+    },
+  };
+  const credentialRemoved: Settings = {
+    providers: {
+      fp: { baseURL: "https://fp/v1", models: ["fp-large"] },
+    },
+  };
+
+  test("rebuild preserves the manual row across removal and restore", async () => {
+    expect(
+      buildProviderCatalog(credentialed, resolved).find((c) => c.name === "fp")
+        ?.apiKey,
+    ).toBe("fp-key");
+
+    const converged = await refreshLiveProviderCatalog(
+      credentialRemoved,
+      resolved,
+    );
+    const row = converged.find((c) => c.name === "fp");
+    expect(row?.models).toEqual(["fp-large"]);
+    expect(row?.baseURL).toBe("https://fp/v1");
+    expect(row?.apiKey).toBeUndefined();
+
+    const restored = await refreshLiveProviderCatalog(credentialed, resolved);
+    expect(restored.find((c) => c.name === "fp")?.apiKey).toBe("fp-key");
+  });
+
+  test("persisting the converged catalog keeps the manual row", async () => {
+    const converged = await refreshLiveProviderCatalog(
+      credentialRemoved,
+      resolved,
+    );
+    const persisted = providerCatalogToSettings(
+      converged,
+      undefined,
+      credentialRemoved,
+    );
+    expect(persisted.providers.fp?.models).toEqual(["fp-large"]);
+    expect(persisted.providers.fp?.baseURL).toBe("https://fp/v1");
+  });
+});
+
 describe("mergeProviderIntoSettings", () => {
   test("preserves plugins and non-provider fields when upserting a provider", () => {
     const existing: Settings = {
