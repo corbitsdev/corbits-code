@@ -5,11 +5,20 @@ All notable changes to Corbits Code are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/). Versions
 are `package.json` / `vX.Y.Z` git tags cut by `scripts/release.sh`.
 
-**This file is the only release-notes source.** `/changelog` and the shipped
-binary read it; `scripts/release.sh` builds the GitHub release body from the
-matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
-parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
-`## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
+**Release sections are generated, not hand-written.** At cut time
+`scripts/release.sh` asks GitHub for the notes covering every pull request
+merged since the previous tag — each one credited to its author — writes that
+in as `## [X.Y.Z] - YYYY-MM-DD`, and uses the same text as the GitHub release
+body. Nothing to write, and nothing that can drift from what actually merged.
+
+`/changelog` and the shipped binary read this file, so it still ships with the
+release and still works offline. Do not maintain parallel copies under `docs/`
+or `scripts/notes/`.
+
+A section written by hand before the cut wins over the generated one, for a
+release that deserves narration. Passing `--notes <file>` overrides both for
+the GitHub body. Sections below this line predate generation and were written
+by hand.
 
 ## [Unreleased]
 
