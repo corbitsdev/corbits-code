@@ -28,7 +28,7 @@ describe("skywalkerPackage", () => {
 
   test("maySpawn true with full closed allowlist", () => {
     expect(skywalkerPackage.spawn.maySpawn).toBe(true);
-    expect(skywalkerPackage.spawn.allowlist).toHaveLength(15);
+    expect(skywalkerPackage.spawn.allowlist).toHaveLength(16);
     expect(skywalkerPackage.spawn.allowlist).toEqual([
       "builder",
       "explorer",
@@ -45,6 +45,7 @@ describe("skywalkerPackage", () => {
       "shakespeare",
       "testsmith",
       "tester",
+      "gauntlet",
     ]);
   });
 
@@ -315,5 +316,12 @@ describe("skywalkerPackage", () => {
     expect(p).not.toContain("mcp__linear__save_issue");
     expect(p).not.toContain("gh pr create");
     expect(p).not.toContain("gh pr review");
+  });
+
+  test("systemPrompt routes mutation-checks to gauntlet (tiny verify-after-ship mention)", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain(
+      "gauntlet = mutation-check that tests can actually fail (tree clean)",
+    );
   });
 });

@@ -198,7 +198,7 @@ Corbits Code keeps repository guidance and the closed director fleet separate:
 - `src/agent/directors/` — closed spawn catalog (`directorProfiles()`). Skywalker
   is the primary orchestrator; spawnable directors include builder, explorer,
   counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot, draper,
-  emil, rand, shakespeare, testsmith, and tester. Closed ids cannot be
+  emil, rand, shakespeare, testsmith, tester, and gauntlet. Closed ids cannot be
   overridden by plugins or local files.
 - `.agents/agents/` — optional local profile additions; this directory is not
   required and may be absent
