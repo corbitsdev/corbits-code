@@ -1,7 +1,7 @@
 ---
 name: Feature request
 about: Suggest a capability Corbits Code does not have
-labels: ["feature"]
+labels: ["enhancement"]
 ---
 
 ## The problem
