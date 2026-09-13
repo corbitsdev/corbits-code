@@ -23,7 +23,6 @@ export {
 export {
   startCodexLogin,
   openInBrowser,
-  codexProviderSurface,
   type CodexLoginHandle,
   type StartCodexLoginOptions,
 } from "./login.js";

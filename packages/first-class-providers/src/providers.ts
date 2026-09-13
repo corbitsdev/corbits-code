@@ -47,6 +47,12 @@ export const OPENAI_API_MAX_COMPLETION_TOKENS_MODELS: readonly string[] = [
 /**
  * First-class providers shown in the models-surface Connect list.
  * Tier A order: dual-path OpenAI, OAuth xAI, Go/Zen, Z.AI, big three, Custom.
+ *
+ * Canonical static registry for provider identity (CL-5691): base URLs, model
+ * lists, and defaults live here. The Codex/xAI OAuth fallbacks stay separate
+ * — they back live catalog calls, not static identity — but must agree with
+ * this registry; src/provider/identity-divergence.test.ts pins that.
+ * Do not add another edge list: reference this registry or the fallbacks.
  */
 export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
   {

@@ -26,14 +26,17 @@ export const CODEX_ORIGINATOR = "codex_cli_rs";
 // unavailable — e.g. while rate-limited it returns an empty list. The Codex
 // backend rotates its serving set (codex-rs no longer hardcodes presets), so
 // the live fetch is authoritative and these are just a current-generation
-// default so the picker is never empty.
+// default so the picker is never empty. The first entry doubles as the
+// ChatGPT-OAuth default model: it must stay the model shared with the OpenAI
+// API-key path's default in FIRST_CLASS_PROVIDERS (gpt-5.4), so both auth
+// paths serving OpenAI agree. identity-divergence.test.ts pins this.
 export const CODEX_DEFAULT_MODELS = [
+  "gpt-5.4",
   "gpt-5.5",
   "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
-  "gpt-5.4",
   "gpt-5.4-mini",
 ] as const;
 

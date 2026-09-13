@@ -6,8 +6,6 @@ import {
 } from "@corbits/oauth-core";
 import {
   exchangeXaiCode,
-  XAI_DEFAULT_MODELS,
-  XAI_OAUTH_PROXY_BASE_URL,
   xaiOAuthConfig,
   type XaiTokens,
 } from "@corbits/xai-provider";
@@ -34,8 +32,3 @@ export async function startXaiLogin(
     saveProfile: (profile) => saveXaiProfile(profile, home),
   });
 }
-
-export const xaiProviderSurface = {
-  baseURL: XAI_OAUTH_PROXY_BASE_URL,
-  models: [...XAI_DEFAULT_MODELS],
-} as const;

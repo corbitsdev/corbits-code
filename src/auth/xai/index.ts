@@ -17,7 +17,6 @@ export {
 } from "./session.js";
 export {
   startXaiLogin,
-  xaiProviderSurface,
   type XaiLoginHandle,
   type StartXaiLoginOptions,
 } from "./login.js";

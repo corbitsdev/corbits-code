@@ -6,7 +6,6 @@ import {
   type StartOAuthLoginOptions,
 } from "@corbits/oauth-core";
 import {
-  CODEX_BASE_URL,
   codexOAuthConfig,
   exchangeCodexCode,
   type CodexTokens,
@@ -15,7 +14,6 @@ import {
 import type { CallbackPageCopy } from "../callback-page.js";
 import { saveCodexProfile } from "../../config/oauth-stores.js";
 import { startCodexCallbackServer } from "./callback-server.js";
-import { CODEX_DEFAULT_MODELS } from "./constants.js";
 import { withDefaultCodexExpiry } from "./store.js";
 
 export { openInBrowser };
@@ -39,8 +37,3 @@ export async function startCodexLogin(
     saveProfile: (profile) => saveCodexProfile(profile, home),
   });
 }
-
-export const codexProviderSurface = {
-  baseURL: CODEX_BASE_URL,
-  models: [...CODEX_DEFAULT_MODELS],
-} as const;
