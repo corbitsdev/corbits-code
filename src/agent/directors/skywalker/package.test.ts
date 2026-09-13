@@ -28,7 +28,7 @@ describe("skywalkerPackage", () => {
 
   test("maySpawn true with full closed allowlist", () => {
     expect(skywalkerPackage.spawn.maySpawn).toBe(true);
-    expect(skywalkerPackage.spawn.allowlist).toHaveLength(15);
+    expect(skywalkerPackage.spawn.allowlist).toHaveLength(16);
     expect(skywalkerPackage.spawn.allowlist).toEqual([
       "builder",
       "explorer",
@@ -45,6 +45,7 @@ describe("skywalkerPackage", () => {
       "shakespeare",
       "testsmith",
       "tester",
+      "prober",
     ]);
   });
 
