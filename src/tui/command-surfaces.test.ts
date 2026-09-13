@@ -432,7 +432,7 @@ describe("plugins surface", () => {
     });
   });
 
-  test("marks bundled rows with the mountain and other origins by label", async () => {
+  test("marks bundled rows with the bundled marker and other origins by label", async () => {
     await withShell(async (shell) => {
       const deps: CommandSurfaceDeps = {
         notify: () => undefined,

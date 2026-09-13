@@ -197,7 +197,7 @@ describe("palette filters as you type", () => {
     });
   });
 
-  test("bundled plugin rows paint the mountain; other origins their label", async () => {
+  test("bundled plugin rows paint the bundled marker; other origins their label", async () => {
     const catalog = commandItemsFromRegistry([
       { name: "bundled-cmd", description: "Bundled command", origin: "repo" },
       {
