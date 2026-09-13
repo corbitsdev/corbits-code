@@ -33,6 +33,8 @@ const CHAR_BUDGET: Record<DirectorId, number> = {
   shakespeare: 54700,
   testsmith: 16200,
   tester: 13900,
+  // CL-7657: measured 51410 default / 51926 grok chars; +2000 allowance, ceiling to 100.
+  warden: 53500,
 };
 
 const BYTE_BUDGET: Record<DirectorId, number> = {
@@ -54,6 +56,8 @@ const BYTE_BUDGET: Record<DirectorId, number> = {
   shakespeare: 55900,
   testsmith: 17200,
   tester: 15000,
+  // CL-7657: measured 51584 default / 52102 grok bytes; +3000 allowance, ceiling to 100.
+  warden: 54600,
 };
 
 function budgetMessage(

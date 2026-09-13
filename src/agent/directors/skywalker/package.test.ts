@@ -28,7 +28,7 @@ describe("skywalkerPackage", () => {
 
   test("maySpawn true with full closed allowlist", () => {
     expect(skywalkerPackage.spawn.maySpawn).toBe(true);
-    expect(skywalkerPackage.spawn.allowlist).toHaveLength(15);
+    expect(skywalkerPackage.spawn.allowlist).toHaveLength(16);
     expect(skywalkerPackage.spawn.allowlist).toEqual([
       "builder",
       "explorer",
@@ -45,6 +45,7 @@ describe("skywalkerPackage", () => {
       "shakespeare",
       "testsmith",
       "tester",
+      "warden",
     ]);
   });
 
@@ -315,5 +316,15 @@ describe("skywalkerPackage", () => {
     expect(p).not.toContain("mcp__linear__save_issue");
     expect(p).not.toContain("gh pr create");
     expect(p).not.toContain("gh pr review");
+  });
+
+  test("systemPrompt routes trust-path diffs to warden (tiny verify-after-ship mention)", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).toContain("warden = permission / provider-auth / plugin-loader");
+    expect(p).toContain("only when the diff touches those paths");
+    expect(p).toContain(
+      "When the diff touches permission, provider-auth, or plugin-loader paths, add a warden trust review alongside critic",
+    );
+    expect(p).toContain("never ships fixes");
   });
 });

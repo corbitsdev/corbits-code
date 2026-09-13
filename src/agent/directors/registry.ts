@@ -15,6 +15,7 @@ import { shakespearePackage } from "./shakespeare/index.js";
 import { skywalkerPackage } from "./skywalker/index.js";
 import { testerPackage } from "./tester/index.js";
 import { testsmithPackage } from "./testsmith/index.js";
+import { wardenPackage } from "./warden/index.js";
 import { formatDirectorSystemPrompt } from "./identity.js";
 import {
   DIRECTOR_IDS,
@@ -58,6 +59,7 @@ export const DIRECTOR_REGISTRY: Readonly<Record<DirectorId, DirectorPackage>> =
     shakespeare: shakespearePackage,
     testsmith: testsmithPackage,
     tester: testerPackage,
+    warden: wardenPackage,
   };
 
 export function isDirectorId(value: unknown): value is DirectorId {
