@@ -76,11 +76,14 @@ share of prompts driven by MCP stays visible without the server key coming
 with it. `agent_name` on `subagent_*` is the same pattern: first-party
 director ids from `DIRECTOR_IDS` (and the legacy `worker` alias) are reported
 by id; project-defined or marketplace profile ids become `custom`.
-`skill_used` carries `skill_name`: a first-party skill name from the closed
-`corbits-skills` allowlist (`ast-grep`, `create-issue`, `git-rebase`,
-`git-worktrees`, `implement`, `interview`, `linear-issue-workflow`, `opsh`,
-`philosophy`, `plan`, `pull-request-review`, `refactor`, `review`, `scribe`,
-`style`, `typescript`), or `custom` for anything else. Unknown,
+`skill_used` carries `skill_name`: a user-invocable first-party skill name
+from the closed `corbits-skills` allowlist (`ast-grep`, `create-issue`,
+`git-rebase`, `git-worktrees`, `implement`, `interview`,
+`linear-issue-workflow`, `opsh`, `philosophy`, `plan`,
+`pull-request-review`, `refactor`, `review`, `scribe`, `style`,
+`typescript`), or `custom` for anything else. Bundled skills marked
+`user-invocable: false` (`native-integration`, `native-runtime`, `ponytail`,
+`idiot-proof`) are excluded from the allowlist by design. Unknown,
 project-local, and plugin-authored skill names are never transmitted —
 `skill_name` is the only identifying-adjacent property the event can carry.
 `plugin_loaded` goes further: there is no first-party list of plugins to
@@ -193,8 +196,10 @@ retry paths.
 - Prompts, model output, or any conversation content (except intentional
   free-text the operator types into `/feedback` — see below)
 - File paths, file contents, or repo/project names
-- Names anyone but this project chose: MCP servers, skills, plugins, agent
-  profiles, plugin-registered slash commands, error subclasses (see above)
+- Names anyone but this project chose: MCP servers, skills (other than
+  first-party `corbits-skills` names, which are sent by name per the table
+  above), plugins, agent profiles, plugin-registered slash commands, error
+  subclasses (see above)
 - Shell commands, tool arguments, or tool results
 - API keys, tokens, or any other credential
 - Anything not in the allowlist above

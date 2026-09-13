@@ -71,11 +71,15 @@ const BUILT_IN_AGENT_NAMES: ReadonlySet<string> = new Set([
   "worker",
 ]);
 
-// First-party skills shipped by the bundled `corbits-skills` plugin
-// (plugins/corbits-skills/skills). The manifest carries only the plugin id
-// and kind — no skill list — so the closed set is spelled out here and pinned
-// by tests/unit/telemetry-product-events.test.ts. Project- or plugin-authored
-// skills are never reported by name.
+// User-invocable first-party skills shipped by the bundled `corbits-skills`
+// plugin (plugins/corbits-skills/skills). The manifest carries only the plugin
+// id and kind — no skill list — so the closed set is spelled out here and
+// pinned by tests/unit/telemetry-product-events.test.ts. Bundled skills marked
+// `user-invocable: false` (native-integration, native-runtime, ponytail,
+// idiot-proof) are deliberately excluded — they are baked into agent prompts
+// rather than user-invoked — so the set covers only the user-invocable
+// first-party skills. Project- or plugin-authored skills are never reported by
+// name.
 const FIRST_PARTY_SKILL_NAMES: ReadonlySet<string> = new Set([
   "ast-grep",
   "create-issue",
