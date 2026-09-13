@@ -153,11 +153,14 @@ function segmentGuard(
 // Display-only refinement — the guard decision itself is unchanged.
 function worktreeMismatchKind(
   segment: string,
-): "force" | "destination" | undefined {
+): "force" | "destination" | "worktree" | undefined {
   const tokens = tokenize(segment);
   if (tokens[0] !== "git" || tokens[1] !== "worktree") return undefined;
   if (tokens[2] !== "add" && tokens[2] !== "remove") return undefined;
-  return tokens.slice(3).some(isWorktreeForceFlag) ? "force" : "destination";
+  if (tokens.slice(3).some(isWorktreeForceFlag)) return "force";
+  // `add` takes a destination for the new worktree; `remove` names an
+  // existing worktree, so only `add` gets the destination noun.
+  return tokens[2] === "remove" ? "worktree" : "destination";
 }
 
 // Explains a grant mismatch: a standing grant covers the segment, but the
@@ -176,6 +179,9 @@ function grantMismatchNotice(
   }
   if (worktreeKind === "destination") {
     return "A standing grant matches this command, but the worktree destination is outside the approved locations, so it still needs approval.";
+  }
+  if (worktreeKind === "worktree") {
+    return "A standing grant matches this command, but the worktree is outside the approved locations, so it still needs approval.";
   }
   return "A standing grant matches this command, but it targets a path outside the workspace, so it still needs approval.";
 }

@@ -351,7 +351,13 @@ export function isWorktreeForceFlag(arg: string): boolean {
   // "error: option `force' takes no value"), but the spelling still expresses
   // force intent, so the policy treats it as force rather than letting the
   // --flag=value path skip swallow it.
-  return arg === "-f" || arg === "--force" || arg.startsWith("--force=");
+  if (arg === "--force" || arg.startsWith("--force=")) return true;
+  // Short -f takes no value either (real git rejects `-f=<value>` with
+  // "error: unknown switch `='" and glued `-f<val>` with
+  // "error: unknown switch `<char>'"); the same fail-closed reasoning applies.
+  // Any `-f`-prefixed token expresses force intent. `--no-force` negations are
+  // unaffected: they start with "--n", not "-f".
+  return arg.startsWith("-f");
 }
 
 // True when the path is safe for unattended worktree add/remove: inside the

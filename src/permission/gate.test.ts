@@ -349,7 +349,31 @@ describe("grant-mismatch asks carry the guard reason as a notice (CL-6824)", () 
     );
   });
 
-  test("uncontained destination names the approved locations", async () => {
+  test("short -f=<value> is still force in the notice", async () => {
+    const { verdict, seen } = await askWithGrants(
+      "git worktree add -f=true ../sib-force-short-eq",
+      worktreeGrant,
+    );
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.notice).toBe(
+      "A standing grant matches this command, but it uses --force, so it still needs approval.",
+    );
+  });
+
+  test("glued -f<val> is still force in the notice", async () => {
+    const { verdict, seen } = await askWithGrants(
+      "git worktree remove -ftrue ../sib-force-glued",
+      worktreeGrant,
+    );
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.notice).toBe(
+      "A standing grant matches this command, but it uses --force, so it still needs approval.",
+    );
+  });
+
+  test("uncontained add destination names the approved locations", async () => {
     // A direct child of tmpdir() is not a permitted sibling of sessionCwd
     // (only direct children of root/ are), so the restricted guard trips.
     const outside = join(tmpdir(), "gate-6824-outside");
@@ -361,6 +385,21 @@ describe("grant-mismatch asks carry the guard reason as a notice (CL-6824)", () 
     expect(seen).toHaveLength(1);
     expect(seen[0]?.notice).toBe(
       "A standing grant matches this command, but the worktree destination is outside the approved locations, so it still needs approval.",
+    );
+  });
+
+  test("uncontained remove names the worktree, not a destination", async () => {
+    // `remove` names an existing worktree — there is no destination — so the
+    // notice drops the destination noun the `add` case uses.
+    const outside = join(tmpdir(), "gate-6824-outside-remove");
+    const { verdict, seen } = await askWithGrants(
+      `git worktree remove ${outside}`,
+      worktreeGrant,
+    );
+    expect(verdict.allowed).toBe(false);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.notice).toBe(
+      "A standing grant matches this command, but the worktree is outside the approved locations, so it still needs approval.",
     );
   });
 
@@ -410,6 +449,27 @@ describe("grant-mismatch asks carry the guard reason as a notice (CL-6824)", () 
     });
     const verdict = await gate.evaluate(
       shellCall("git worktree add ../sib-plain -b br-plain"),
+    );
+    expect(verdict.allowed).toBe(true);
+    expect(seen).toHaveLength(0);
+  });
+
+  test("a --no-force command still allows with no prompt and no notice", async () => {
+    const seen: PermissionRequest[] = [];
+    const gate = createPermissionGate({
+      approvals: worktreeGrant,
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      cwd: sessionCwd,
+      rootsProvider: () => [],
+      requestApproval: async (request) => {
+        seen.push(request);
+        return { allow: false };
+      },
+    });
+    const verdict = await gate.evaluate(
+      shellCall("git worktree add --no-force ../sib-noforce -b br-noforce"),
     );
     expect(verdict.allowed).toBe(true);
     expect(seen).toHaveLength(0);
