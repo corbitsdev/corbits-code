@@ -13,9 +13,9 @@ import {
 } from "./registry.js";
 
 describe("director registry", () => {
-  test("closed set has exactly 17 directors", () => {
-    expect(DIRECTOR_IDS).toHaveLength(17);
-    expect(listDirectors()).toHaveLength(17);
+  test("closed set has exactly 18 directors", () => {
+    expect(DIRECTOR_IDS).toHaveLength(18);
+    expect(listDirectors()).toHaveLength(18);
     for (const id of DIRECTOR_IDS) {
       expect(DIRECTOR_REGISTRY[id].id).toBe(id);
     }
@@ -116,8 +116,8 @@ describe("director registry", () => {
 
   test("directorProfiles is the spawn catalog (closed set minus skywalker)", () => {
     const profiles = directorProfiles();
-    expect(profiles).toHaveLength(16);
-    expect(new Set(profiles.map((p) => p.id)).size).toBe(16);
+    expect(profiles).toHaveLength(17);
+    expect(new Set(profiles.map((p) => p.id)).size).toBe(17);
     expect(profiles.map((p) => p.id)).not.toContain("skywalker");
   });
 
@@ -150,6 +150,7 @@ describe("director registry", () => {
       "shakespeare",
       "bruckheimer",
       "rand",
+      "prober",
       "skywalker",
       "gauntlet",
     ] as const) {
@@ -199,7 +200,7 @@ describe("director registry", () => {
   });
 
   // CL-6941: tier and spawn.maySpawn independently encode "may this package
-  // spawn", hand-set across 17 files. This pins their agreement so drift
+  // spawn", hand-set across 18 files. This pins their agreement so drift
   // (adding maySpawn: true without bumping tier, or vice versa) fails a test
   // instead of surfacing as an unexplained FleetAuthorityError at dispatch.
   test("tier agrees with spawn.maySpawn for every director", () => {
@@ -224,6 +225,20 @@ describe("director registry", () => {
     }
     expect(isDirectorId("gauntlet")).toBe(true);
     expect(tierForDirectorId("gauntlet")).toBe("leaf");
+  });
+
+  test("prober is a measure-only leaf (CL-7656)", () => {
+    const r = resolveDirector({ agentId: "prober" });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.package.id).toBe("prober");
+      expect(r.package.tier).toBe("leaf");
+      expect(r.package.spawn.maySpawn).toBe(false);
+      expect(r.package.modelRole).toBe("test");
+      expect(r.package.primaryIntent).toMatch(/measure/i);
+    }
+    expect(isDirectorId("prober")).toBe(true);
+    expect(tierForDirectorId("prober")).toBe("leaf");
   });
 
   test("every director profile declares matching agent id in system prompt", () => {
