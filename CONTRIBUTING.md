@@ -43,56 +43,67 @@ not substitute a bare `bun test` (it also scans
 
 ### Title (MUST)
 
-- Imperative, present tense, max **72** characters
-- Starts with a verb: `Add`, `Fix`, `Remove`, `Harden`, `Document`, …
-- No trailing punctuation, no abbreviations for their own sake
-- No filenames or paths in the subject — the diff already lists them
-- Match the voice of recent history:
+Follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
 
-```bash
-git log origin/main --format='%s' | head -20
+```text
+<type>(<scope>): <description>
 ```
 
-**Banned subject prefixes** (all of them, including habits from other projects):
+- **Type** — one of `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`,
+  `ci`, `chore`, `style`
+- **Scope** — the component the change lives in: `feat(executor)`,
+  `fix(nameref)`, `perf(glob)`, `docs(release)`. Omit it only when a change
+  genuinely spans the repo
+- **Description** — imperative, present tense, lowercase after the colon, no
+  trailing period. The whole subject line stays within **72** characters
+- **Breaking changes** — `!` after the type/scope (`feat(config)!: ...`), or a
+  `BREAKING CHANGE:` footer in the body
 
-- Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`, `perf:`, `style:`, `build:`
-- Scoped forms: `docs(changelog):`, `net:`, `frontend:`
-- Ticket IDs: `CL-1234:`, `INTR-79:`, `#456:`
+This repo's history used a bare `component: description` prefix (`executor:`,
+`nameref:`). New commits keep the component as the **scope** and lead with the
+type: `executor: add retry` becomes `feat(executor): add retry`.
+
+Releases use `chore(release): perfi X.Y.Z`. Release notes use
+`docs(release): add perfi X.Y.Z release notes`.
+
+**Still banned in the subject:**
+
+- Ticket IDs: `CL-1234:`, `INTR-79:`, `#456:` — linking is a pull-request
+  concern (see [Issue tracking](#issue-tracking-linear-and-github))
 - Status tags: `WIP:`, `[urgent]`, `(security):`
+- Filenames and paths — the diff already lists them
+- Abbreviations for their own sake
 
 **Good:**
 
 ```text
-Add retry logic for failed network requests
-Fix race condition in transaction verification
-Document the permission queue behavior
+feat(executor): add retry logic for failed network requests
+fix(inference): close race condition in transaction verification
+docs(permissions): document the permission queue behavior
+perf(glob): stop rescanning ignored directories
 ```
 
 **Bad:**
 
 ```text
-feat: add retry logic
-fix(auth): race in server.ts
-CL-5494: flatten model picker
-Update code
+add retry logic                      (no type)
+feat: add retry to src/executor.ts   (no scope, filename in subject)
+fix(auth): CL-5494 race in server.ts (ticket ID, filename)
+chore: update code                   (says nothing)
 ```
 
-### Why not `feat:` / `fix:` / `docs:` / `ci:`?
+### A note on the previous rule
 
-Conventional Commits are useful when tools **generate** changelogs, SemVer bumps,
-or release notes from commit types. This project does not:
+This project previously **banned** Conventional Commits and required a plain
+imperative subject. That rule rested on the repo generating nothing from commit
+types — release notes were hand-written in `CHANGELOG.md`. That is changing:
+release notes move to being generated from merged pull requests, so the premise
+no longer holds.
 
-- Release notes are hand-written in `CHANGELOG.md` and deliberately strip ticket
-  and PR IDs from public notes.
-- Reviewers and `git log` readers need a sentence that stands alone years later,
-  not a taxonomy debate (`chore` vs `refactor` vs `fix`).
-- An imperative subject already encodes the action: `Fix race in the approval
-queue` is clearer than `fix: race in the approval queue`.
-- Prefixes train agents and humans to smuggle scope, ticket IDs, and file names
-  into the subject — noise we already reject elsewhere.
-
-The Git and Go projects use the same plain-English model. Familiarity with
-Angular-style prefixes is not a reason to adopt them here.
+The parts of the old rule that were right are kept: the subject is still an
+imperative sentence that stands on its own years later, and the ticket-ID,
+status-tag, and filename bans are unchanged. Only the type and scope are new.
+Please do not re-open this from reading older `git log` entries.
 
 ### Body (usually omit)
 
@@ -118,6 +129,9 @@ hand, not for the person reviewing this PR today.
 - Separate refactors from feature additions
 - Separate formatting/whitespace from behavioral changes
 - Commit with the operator's local git identity (never invent author metadata)
+- **Never** add a `Co-Authored-By` trailer — to a commit, a pull request, a
+  GitHub issue, or any other artifact. This holds whoever or whatever wrote the
+  change
 
 ## Pull requests
 
@@ -136,9 +150,13 @@ git log origin/main..HEAD --format='%s'
 
 ### Title (MUST)
 
-Same rules as [commit titles](#title-must): imperative present-tense sentence,
-no prefixes, no ticket IDs, no trailing punctuation. The title describes the
-**whole branch**, not a single commit.
+Same rules as [commit titles](#title-must): `<type>(<scope>): <description>`,
+imperative present tense, no ticket IDs, no trailing punctuation. The title
+describes the **whole branch**, not a single commit — pick the type that fits
+the branch's main effect.
+
+The pull-request title is what generated release notes quote, so it is read by
+people who never see the diff. Write it for them.
 
 ### Body (MUST)
 

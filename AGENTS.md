@@ -61,11 +61,15 @@ same reason.
 
 ## Commits, pull requests, and issue tracking
 
-**MUST follow `CONTRIBUTING.md`.** That file is the source of truth for commit
-titles and bodies, PR titles and bodies, and Linear/GitHub linking. Do not use
-Conventional Commits prefixes (`feat:`, `fix:`, `docs:`, `ci:`, …), ticket IDs
-in commit subjects, or free-form PR body sections. Rewrite before push if a
-message violates those rules. Commit with the operator's local git identity.
+**MUST follow `CONTRIBUTING.md`.** That file is the single source of truth for
+commit titles and bodies, PR titles and bodies, and Linear/GitHub linking. It
+is not summarized here on purpose — a second copy of the rules is a copy that
+goes stale, and the rules have changed before. Read it.
+
+**This binds humans and agents equally. A pull request that violates
+`CONTRIBUTING.md` will be declined** — not fixed in review. Check your commit
+subjects against that file before you push, and rewrite them if they do not
+match. Commit with the operator's local git identity.
 
 ## Pushing
 
