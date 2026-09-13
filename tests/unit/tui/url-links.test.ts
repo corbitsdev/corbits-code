@@ -80,6 +80,12 @@ describe("findLinks", () => {
       [],
     );
   });
+
+  test("matches uppercase schemes", () => {
+    expect(findLinks("see HTTP://EXAMPLE.COM/x ok").map((h) => h.url)).toEqual([
+      "HTTP://EXAMPLE.COM/x",
+    ]);
+  });
 });
 
 describe("splitLinkSpans", () => {
@@ -142,5 +148,14 @@ describe("openUrl", () => {
       throw new Error("no browser");
     });
     expect(() => openUrl("https://example.com")).not.toThrow();
+  });
+
+  test("an uppercase URL round-trips through the opener", () => {
+    const calls: string[] = [];
+    setUrlOpener((url) => {
+      calls.push(url);
+    });
+    openUrl("HTTP://EXAMPLE.COM/x");
+    expect(calls).toEqual(["HTTP://EXAMPLE.COM/x"]);
   });
 });

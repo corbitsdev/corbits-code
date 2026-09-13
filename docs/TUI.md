@@ -823,12 +823,17 @@ running its own selection. Two chords cover remaining copy needs:
   `http(s)` URL in a plain or structured-text transcript row underlines it;
   pressing and releasing on the same URL opens it in the default browser,
   while a press that releases anywhere else stays a selection gesture:
-  - **macOS: Cmd+click.** The terminal itself owns this chord: every link
-    span carries OSC-8 metadata, so the emulator opens the URL and the app
-    never sees the press.
+  - **macOS: Cmd+click.** The terminal itself owns this chord: link spans
+    carry OSC-8 metadata, so an emulator with OSC-8 support opens the URL
+    and the app never sees the press. Per-terminal: Terminal.app does not
+    support OSC-8, so Cmd+click does nothing there; iTerm2 3.5+, Ghostty,
+    WezTerm, Kitty, and VS Code support it.
   - **Linux/Windows: Ctrl+click.** The app opens the URL through the
     platform opener (`open` on macOS as fallback, `xdg-open`, `cmd /c
 start`).
+  - **Right-click safety.** The open gesture requires a left (button-0)
+    press with the modifier held, so Ctrl+right-click never opens a URL —
+    context menus stay safe.
   - Without the modifier, nothing changes: clicks still expand rows and
     drags still select-and-copy. With mouse capture off (Alt+M), the
     terminal owns every click and the app sees none, so there is nothing to
@@ -915,7 +920,8 @@ terminal. It cannot observe:
   and headless suites pin the gating (Ctrl+press opens, plain click and
   Ctrl+drag do not, non-`http(s)` never opens) with a mocked opener, but
   only a real terminal can show whether it delivers the held Ctrl on motion
-  and press events, or resolves the `open`/`xdg-open` spawn into a browser.
+  and press events, whether it honors OSC-8 for Cmd+click, or resolves the
+  `open`/`xdg-open` spawn into a browser.
 - **The system clipboard.** `system-clipboard.ts`'s helper-binary spawns and
   OSC 52 fallback are exercised with mocked spawn functions in tests; no
   test round-trips through a real `pbcopy`/`xclip`/terminal clipboard.

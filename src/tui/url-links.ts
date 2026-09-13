@@ -41,7 +41,7 @@ interface LinkHit {
   readonly end: number;
 }
 
-const URL_PATTERN = /https?:\/\/[^\s<>"'`\]]+/g;
+const URL_PATTERN = /https?:\/\/[^\s<>"'`\]]+/gi;
 const TRAILING_PUNCTUATION = new Set([
   ".",
   ",",
@@ -296,9 +296,10 @@ function linkLinesChunks(
 /**
  * Arm a text node as a link hit target over caller-built per-line spans:
  * Ctrl+hover highlights the URL under the pointer, Ctrl+press and release on
- * the same URL opens it. A no-op when no line holds a URL, so URL-free nodes
- * carry no handlers at all; handler assignment replaces, so re-arming after
- * a retext never stacks.
+ * the same URL opens it. When no line holds a URL the node is disarmed — any
+ * handlers a previous arming installed are cleared — so a retext that drops
+ * the last URL leaves no stale hit target behind; handler assignment
+ * replaces, so re-arming after a retext never stacks.
  *
  * The press deliberately keeps bubbling — stopping it would break drag-select
  * starting on a URL — and the open fires on release only when the pointer
@@ -312,7 +313,14 @@ export function armLinkLine(
   lines: readonly (readonly LinkSpan[])[],
 ): void {
   const hits = lines.map(linkColumnHits);
-  if (!hits.some((line) => line.length > 0)) return;
+  if (!hits.some((line) => line.length > 0)) {
+    node.onMouseDown = undefined;
+    node.onMouseUp = undefined;
+    node.onMouseOver = undefined;
+    node.onMouseMove = undefined;
+    node.onMouseOut = undefined;
+    return;
+  }
   const at = (event: MouseEvent): string | null => {
     // Events carry terminal-absolute coordinates with no per-node transform,
     // so map through the node's own screen position (scroll-aware through the

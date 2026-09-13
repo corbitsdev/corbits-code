@@ -13,6 +13,7 @@ import {
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
 import {
+  armLinkLine,
   buildLinkLine,
   findLinks,
   paintLinkLine,
@@ -407,6 +408,9 @@ function paintPlainRowNode(
   if (!lines.some((line) => findLinks(line).length > 0)) {
     node.content = painted.content;
     node.fg = painted.fg;
+    // Route through the armer so a retext that drops the last URL disarms
+    // the handlers a previous arming installed (armLinkLine clears them).
+    armLinkLine(node, []);
     return;
   }
   paintLinkLine(

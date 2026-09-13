@@ -7,12 +7,19 @@
  * spot (docs/TUI.md); headless, the mock delivers it like any click.
  */
 import { describe, expect, test } from "bun:test";
+import { TextRenderable } from "@opentui/core";
 
 import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness";
 import { appendStreamRow } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
-import { isUnderlined, resetUrlOpener, setUrlOpener } from "./url-links";
+import {
+  isUnderlined,
+  paintLinkLine,
+  resetUrlOpener,
+  setUrlOpener,
+  splitLinkSpans,
+} from "./url-links";
 import { type StreamRow } from "./stream";
 
 const CALL: StreamRow = {
@@ -118,6 +125,64 @@ describe("Ctrl+clicking a transcript URL", () => {
           expect(linkSpanUnderlined()).toBe(false);
         } finally {
           shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("retexting the URL away disarms the node: old columns open nothing", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const opened: string[] = [];
+        setUrlOpener((url) => {
+          opened.push(url);
+        });
+        try {
+          const line = "see https://example.com/x ok";
+          const node = new TextRenderable(h.renderer, { content: line });
+          h.root.add(node);
+          paintLinkLine(node, [splitLinkSpans([{ text: line, fg: "#fff" }])]);
+          await h.renderOnce();
+
+          const link = findCell(h.captureCharFrame(), "example.com");
+          expect(link).not.toBeNull();
+          const at = defined(link);
+
+          await h.mockMouse.click(at.x, at.y, 0, {
+            modifiers: { ctrl: true },
+          });
+          await h.renderOnce();
+          expect(opened).toEqual(["https://example.com/x"]);
+
+          // Retext the URL away, exactly as the row retext path does. The
+          // handlers are setter-only (no getter to assert on), so pin the
+          // disarm behaviorally: the old columns open nothing and hover
+          // leaves the painted text intact.
+          const retexted = "see nothing here";
+          paintLinkLine(node, [
+            splitLinkSpans([{ text: retexted, fg: "#fff" }]),
+          ]);
+          await h.renderOnce();
+          const frame = h.captureCharFrame();
+          expect(frame).toContain("nothing here");
+          expect(frame).not.toContain("example.com");
+
+          opened.length = 0;
+          await h.mockMouse.click(at.x, at.y, 0, {
+            modifiers: { ctrl: true },
+          });
+          await h.renderOnce();
+          expect(opened).toEqual([]);
+
+          const before = h.captureCharFrame();
+          await h.mockMouse.moveTo(at.x, at.y, {
+            modifiers: { ctrl: true },
+          });
+          await h.renderOnce();
+          expect(h.captureCharFrame()).toBe(before);
+        } finally {
+          resetUrlOpener();
         }
       },
       { width: 80, height: 24 },
