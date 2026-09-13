@@ -163,10 +163,13 @@ describe("wait_agents mount-gated prompt copy (CL-7678)", () => {
   it("tells an unmounted primary to spawn then idle on mailbox mail", () => {
     const prompt = chatPrompt(TUI_AVAILABILITY);
     expect(prompt).toContain("mailbox mail arrives as inbound");
-    // No wait_agents tool ad on an unmounted primary — only the exec-only note.
+    // No wait_agents tool ad on an unmounted primary — and no mount-fact
+    // restatement either (CL-6953: the mount lives in the runtime toolset +
+    // mount-gated guidelines copy, not the static prompt; naming an unmounted
+    // tool is an impossible-tool ref per CL-6807 hygiene).
     expect(prompt).not.toContain("- wait_agents:");
     expect(prompt).not.toContain("collect with wait_agents");
-    expect(prompt).toContain(
+    expect(prompt).not.toContain(
       "wait_agents is mounted on exec-primary runs only",
     );
   });
