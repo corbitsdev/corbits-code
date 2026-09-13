@@ -6,7 +6,7 @@
 #
 # End to end this:
 #   1. bumps "version" in package.json,
-#   2. commits "Release corbits X.Y.Z" locally (no tag yet -- see step 5),
+#   2. commits "chore(release): corbits X.Y.Z" locally (no tag yet -- see step 5),
 #   3. cross-compiles standalone binaries (no runtime required) for
 #      macOS arm64/x64 and Linux x64/arm64 with `bun build --compile`,
 #   4. smoke-tests the host-native binary, then packages each target as a
@@ -334,7 +334,7 @@ write_changelog_section() {
   # to its header and `/changelog` renders an empty release.
   body=$(printf '%s\n' "$body" | sed 's/^## /### /')
   tmp=$(mktemp)
-  first=$(grep -n '^## \[[0-9]' CHANGELOG.md | head -1 | cut -d: -f1)
+  first=$(grep -n '^## \[[0-9]' CHANGELOG.md | head -1 | cut -d: -f1 || true)
   if [ -z "$first" ]; then
     cp CHANGELOG.md "$tmp"
     printf '\n## [%s] - %s\n\n%s\n' "$VERSION" "$(date -u +%Y-%m-%d)" "$body" >> "$tmp"
@@ -432,7 +432,7 @@ else
     git add CHANGELOG.md
     info "wrote generated ## [$VERSION] section into CHANGELOG.md"
   fi
-  git commit -q -m "Release $FORMULA $VERSION"
+  git commit -q -m "chore(release): $FORMULA $VERSION"
   info "committed release $VERSION (PR and tag deferred until after build)"
 fi
 
@@ -505,7 +505,7 @@ else
       --json number --jq '.[0].number // empty')
     if [ -z "$PR_NUM" ]; then
       gh pr create --repo "$MAIN_REPO" --head "$RELEASE_BRANCH" --base main \
-        --title "Release $FORMULA $VERSION" \
+        --title "chore(release): $FORMULA $VERSION" \
         --body "Version bump to $VERSION. Release notes are generated from the pull requests merged since the previous release." >/dev/null
       PR_NUM=$(gh pr list --repo "$MAIN_REPO" --head "$RELEASE_BRANCH" --state open \
         --json number --jq '.[0].number // empty')
