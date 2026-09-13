@@ -33,6 +33,7 @@ const CHAR_BUDGET: Record<DirectorId, number> = {
   shakespeare: 54700,
   testsmith: 16200,
   tester: 13900,
+  prober: 15200,
 };
 
 const BYTE_BUDGET: Record<DirectorId, number> = {
@@ -54,6 +55,7 @@ const BYTE_BUDGET: Record<DirectorId, number> = {
   shakespeare: 55900,
   testsmith: 17200,
   tester: 15000,
+  prober: 16300,
 };
 
 function budgetMessage(
