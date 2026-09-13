@@ -57,7 +57,7 @@ async function paletteFrame(
           ...presentation,
           list: createOverlayList(h.renderer, {
             count: presentation.items.length,
-            items: Math.max(1, presentation.items.length),
+            items: presentation.items.length,
           }),
         },
         width,

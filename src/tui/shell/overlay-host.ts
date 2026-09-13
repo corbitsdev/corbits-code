@@ -13,8 +13,6 @@ import {
   overlayRowWidth,
   overlayRowsPerItem,
   overlayTitleRows,
-  overlayChromeRows,
-  overlayMinHostRows,
   OVERLAY_HOST_BORDER_ROWS,
 } from "../overlay-view.js";
 import {
@@ -243,7 +241,7 @@ export function openListOverlay(
 
   shell.overlayList = createOverlayList(shell.renderer as CliRenderer, {
     count: labels.length,
-    items: Math.max(1, listItems),
+    items: listItems,
     activeIndex: opts?.activeIndex ?? 0,
   });
 
@@ -646,24 +644,7 @@ export function setOverlayBody(
   // Ask for the whole list again, not the height it currently has: a body that
   // shrank should hand its rows back to the choices rather than leave the
   // viewport stuck at the size an earlier, taller body forced it to.
-  const perItem = overlayRowsPerItem(shell.overlayKind);
-  const chrome = overlayChromeRows(
-    shell.overlayKind,
-    shell.overlayBodyLines.length,
-    !!shellInternals(shell)?.primaryBindings.describe,
-    overlayAnswerState(shell) !== null,
-  );
-  const hostRows = chrome + Math.max(1, shell.overlayItems.length) * perItem;
-  const minHostRows = overlayMinHostRows(
-    chrome,
-    perItem,
-    shell.overlayItems.length > 0,
-  );
-  relayout(shell, {
-    overlayMode: "inset",
-    overlayBodyRows: hostRows,
-    overlayMinBodyRows: minHostRows,
-  });
+  relayoutOverlayHost(shell, shell.overlayItems.length);
   paintOverlayList(shell);
 }
 
@@ -735,7 +716,7 @@ export function setOwnedOverlayItems(
       paintOverlayList(shell);
     }
     if (displayedCount !== previousCount) {
-      shell.overlayList?.setHeight(Math.max(1, displayedCount));
+      shell.overlayList?.setHeight(displayedCount);
       relayoutOverlayHost(shell, displayedCount);
       paintOverlayList(shell);
     }

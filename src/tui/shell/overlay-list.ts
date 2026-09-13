@@ -104,9 +104,11 @@ export function dispatchOverlayAccept(
  */
 export function relayoutOverlayHost(shell: AppShell, itemCount: number): void {
   const perItem = overlayRowsPerItem(shell.overlayKind);
+  // An empty list reserves zero rows but still paints its one-line empty
+  // state, so the chrome budget carries that row as a body line (CL-6720).
   const chrome = overlayChromeRows(
     shell.overlayKind,
-    shell.overlayBodyLines.length,
+    shell.overlayBodyLines.length + (itemCount === 0 ? 1 : 0),
     !!shellInternals(shell)?.primaryBindings.describe,
     overlayAnswerState(shell) !== null,
   );
@@ -156,7 +158,7 @@ export function createOverlayList(
   opts: { count: number; items: number; activeIndex?: number },
 ): OverlayList {
   let shape: OverlayListShape = {
-    items: Math.max(1, opts.items),
+    items: Math.max(0, opts.items),
     rowsPerItem: 1,
   };
   let count = Math.max(0, opts.count);
@@ -244,7 +246,7 @@ export function createOverlayList(
     },
     setHeight(items: number, rowsPerItem?: number) {
       reshape({
-        items: Math.max(1, Math.floor(items)),
+        items: Math.max(0, Math.floor(items)),
         ...(rowsPerItem ? { rowsPerItem } : {}),
       });
     },
