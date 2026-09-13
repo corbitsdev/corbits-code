@@ -6,7 +6,6 @@ import {
   buildPromptDisciplineBlock,
   buildSubAgentSystemPrompt,
   GUIDELINE_SUB_BLOCK_IDS,
-  KEEPSTYLE_PROMPT_SECTION_OMIT,
 } from "./prompts.js";
 import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
 
@@ -222,25 +221,15 @@ Orchestration:
 - If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.`);
   });
 
-  it("keepstyle omit keeps response style, drops tool-choice / ask-vs-proceed / orchestration", () => {
-    expect([...KEEPSTYLE_PROMPT_SECTION_OMIT].sort()).toEqual([
-      "askVsProceed",
-      "orchestration",
-      "toolChoice",
-    ]);
-    const guidelines = buildGuidelines({ omit: KEEPSTYLE_PROMPT_SECTION_OMIT });
+  it("omit keeps response style, drops tool-choice / ask-vs-proceed / orchestration", () => {
+    const guidelines = buildGuidelines({
+      omit: ["toolChoice", "askVsProceed", "orchestration"],
+    });
     expect(guidelines).toContain("Response style:");
     expect(guidelines).toContain("Scope and conventions:");
     expect(guidelines).not.toContain("Tool choice:");
     expect(guidelines).not.toContain("Ask vs proceed:");
     expect(guidelines).not.toContain("Orchestration:");
-  });
-
-  it("ignores unknown omit ids", () => {
-    const guidelines = buildGuidelines({ omit: ["no-such-block"] });
-    expect(guidelines).toContain("Response style:");
-    expect(guidelines).toContain("Tool choice:");
-    expect(guidelines).toContain("Orchestration:");
   });
 
   it("threads guidelineConfig through the chat system prompt", () => {
@@ -260,7 +249,7 @@ Orchestration:
       [],
       "orchestrator",
       undefined,
-      { omit: KEEPSTYLE_PROMPT_SECTION_OMIT },
+      { omit: ["toolChoice", "askVsProceed", "orchestration"] },
     );
     expect(keepstyle).toContain("Response style:");
     expect(keepstyle).not.toContain("Tool choice:");

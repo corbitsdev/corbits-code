@@ -120,21 +120,10 @@ export const GUIDELINE_SUB_BLOCK_IDS = [
 
 export type GuidelineSubBlockId = (typeof GUIDELINE_SUB_BLOCK_IDS)[number];
 
-/** Id-based guideline policy: which sub-blocks to drop. Unknown ids are ignored. */
+/** Id-based guideline policy: which sub-blocks to drop. */
 export interface GuidelineConfig {
-  readonly omit?: readonly string[];
+  readonly omit?: readonly GuidelineSubBlockId[];
 }
-
-/**
- * Omit-set for the keepstyle guideline footprint: terse response style stays,
- * tool-choice / ask-vs-proceed / orchestration guidance drops. Scope and
- * conventions (build gate, verification evidence) always stay.
- */
-export const KEEPSTYLE_PROMPT_SECTION_OMIT: readonly string[] = [
-  "toolChoice",
-  "askVsProceed",
-  "orchestration",
-];
 
 interface GuidelineBlockContext {
   readonly subAgent: boolean;
@@ -235,8 +224,8 @@ export function buildGuidelines(
     // Picks the collection-path copy: wait_agents vs mailbox mail.
     waitAgentsMounted?: boolean;
     // Id-based policy: drop the named sub-blocks (see GUIDELINE_SUB_BLOCKS).
-    // Unknown ids are ignored; empty (default) keeps the full guidelines.
-    omit?: readonly string[];
+    // Empty (default) keeps the full guidelines.
+    omit?: readonly GuidelineSubBlockId[];
   } = {},
 ): string {
   const ctx: GuidelineBlockContext = {
