@@ -11,7 +11,7 @@ import { TextRenderable } from "@opentui/core";
 
 import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness";
-import { appendStreamRow } from "./shell/chrome";
+import { appendStreamRow, replaceStreamRowAt } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import {
   isUnderlined,
@@ -183,6 +183,71 @@ describe("Ctrl+clicking a transcript URL", () => {
           expect(h.captureCharFrame()).toBe(before);
         } finally {
           resetUrlOpener();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("retexting a plain row's URL away through the row path disarms it", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const opened: string[] = [];
+        setUrlOpener((url) => {
+          opened.push(url);
+        });
+        try {
+          // A user row paints literal text through paintPlainRowNode, so the
+          // arm and the later disarm both run on the production row path.
+          appendStreamRow(shell, {
+            role: "user",
+            text: "see https://example.com/x ok",
+          });
+          await h.renderOnce();
+
+          const link = findCell(h.captureCharFrame(), "example.com");
+          expect(link).not.toBeNull();
+          const at = defined(link);
+
+          await h.mockMouse.click(at.x, at.y, 0, {
+            modifiers: { ctrl: true },
+          });
+          await h.renderOnce();
+          expect(opened).toEqual(["https://example.com/x"]);
+
+          // Retext in place through replaceStreamRowAt -> retextStreamRow ->
+          // paintPlainRowNode's URL-free branch. Reverting that branch's
+          // disarm must fail this test (stale handlers survive on the node).
+          replaceStreamRowAt(shell, 0, {
+            role: "user",
+            text: "see nothing here",
+          });
+          await h.renderOnce();
+          const frame = h.captureCharFrame();
+          expect(frame).toContain("nothing here");
+          expect(frame).not.toContain("example.com");
+
+          opened.length = 0;
+          await h.mockMouse.click(at.x, at.y, 0, {
+            modifiers: { ctrl: true },
+          });
+          await h.renderOnce();
+          expect(opened).toEqual([]);
+
+          const before = h.captureCharFrame();
+          await h.mockMouse.moveTo(at.x, at.y, {
+            modifiers: { ctrl: true },
+          });
+          await h.renderOnce();
+          expect(h.captureCharFrame()).toBe(before);
+        } finally {
+          resetUrlOpener();
+          shell.dispose();
         }
       },
       { width: 80, height: 24 },
