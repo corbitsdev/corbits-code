@@ -91,6 +91,7 @@ const FIRST_PARTY_SKILL_NAMES: ReadonlySet<string> = new Set([
   "git-worktrees",
   "implement",
   "interview",
+  "lexicon",
   "linear-issue-workflow",
   "opsh",
   "philosophy",

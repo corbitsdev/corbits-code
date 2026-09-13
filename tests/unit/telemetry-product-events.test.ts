@@ -228,6 +228,7 @@ test("first-party skill names are reported by name; everything else stays custom
     "git-worktrees",
     "implement",
     "interview",
+    "lexicon",
     "linear-issue-workflow",
     "opsh",
     "philosophy",

@@ -78,7 +78,7 @@ director ids from `DIRECTOR_IDS` (and the legacy `worker` alias) are reported
 by id; project-defined or marketplace profile ids become `custom`.
 `skill_used` carries `skill_name`: a first-party skill name reportable by
 name from the closed `corbits-skills` allowlist (`ast-grep`, `create-issue`,
-`git-rebase`, `git-worktrees`, `implement`, `interview`,
+`git-rebase`, `git-worktrees`, `implement`, `interview`, `lexicon`,
 `linear-issue-workflow`, `opsh`, `philosophy`, `plan`,
 `pull-request-review`, `refactor`, `review`, `scribe`, `style`,
 `typescript`), or `custom` for anything else. `user-invocable: false` opts a
