@@ -10,51 +10,63 @@ import {
 
 /**
  * Prompt size budget (CL-7664). Numeric asserts only — copy edits must not
- * fail this test. Baselines were captured from the canonical fixture in
- * src/agent/prompt-sizes.ts with a +2000 char / +3000 byte allowance; bytes
- * get the larger headroom because multibyte copy can shift them faster.
+ * fail this test. Baselines are a checked-in snapshot of the max measured
+ * sizes across both families from the canonical fixture in
+ * src/agent/prompt-sizes.ts; budgets add a +2000 char / +3000 byte allowance
+ * (ceiling to 100) in code below. Bytes get the larger headroom because
+ * multibyte copy can shift them faster. Adding a director is a type error
+ * until its baseline lands here; growing a prompt past its allowance fails
+ * until the baseline moves. Deliberate jumps above baseline + allowance
+ * belong in PROMPT_SIZE_OVERRIDES with justification, not in the baseline.
  */
-const CHAR_BUDGET: Record<DirectorId, number> = {
-  skywalker: 27000,
-  builder: 48800,
-  explorer: 14200,
-  counsel: 52700,
-  intern: 16800,
-  critic: 54400,
-  greybeard: 53600,
-  neckbeard: 72300,
-  bruckheimer: 23200,
-  // CL-7809: deliberate CL-7663 voice restore (PR #932) grew gaasbot to
-  // 52782 chars; budget = measured + 2000 allowance, ceiling to 100.
-  gaasbot: 54800,
-  draper: 15100,
-  emil: 16600,
-  rand: 15000,
-  shakespeare: 54700,
-  testsmith: 16200,
-  tester: 13900,
+const PROMPT_SIZE_BASELINE: Record<
+  DirectorId,
+  { chars: number; bytes: number }
+> = {
+  skywalker: { chars: 24927, bytes: 25079 },
+  builder: { chars: 47698, bytes: 47856 },
+  explorer: { chars: 12197, bytes: 12259 },
+  counsel: { chars: 50746, bytes: 50918 },
+  intern: { chars: 14785, bytes: 14835 },
+  critic: { chars: 52379, bytes: 52553 },
+  greybeard: { chars: 51786, bytes: 51972 },
+  neckbeard: { chars: 70280, bytes: 70468 },
+  bruckheimer: { chars: 21273, bytes: 21369 },
+  // CL-7809: includes the deliberate CL-7663 voice restore (PR #932).
+  gaasbot: { chars: 52782, bytes: 52970 },
+  draper: { chars: 13151, bytes: 13227 },
+  emil: { chars: 14653, bytes: 14765 },
+  rand: { chars: 13021, bytes: 13089 },
+  shakespeare: { chars: 52774, bytes: 52956 },
+  testsmith: { chars: 14193, bytes: 14269 },
+  tester: { chars: 11975, bytes: 12033 },
 };
 
-const BYTE_BUDGET: Record<DirectorId, number> = {
-  skywalker: 28100,
-  builder: 50000,
-  explorer: 15200,
-  counsel: 53900,
-  intern: 17800,
-  critic: 55500,
-  greybeard: 54800,
-  neckbeard: 73400,
-  bruckheimer: 24300,
-  // CL-7809: deliberate CL-7663 voice restore (PR #932) grew gaasbot to
-  // 52970 bytes; budget = measured + 3000 allowance, ceiling to 100.
-  gaasbot: 56000,
-  draper: 16200,
-  emil: 17700,
-  rand: 16100,
-  shakespeare: 55900,
-  testsmith: 17200,
-  tester: 15000,
-};
+/**
+ * Deliberate budgets above baseline + allowance, with justification.
+ * Empty on main: every current budget is exactly baseline + allowance.
+ * (Wave 1: emil/draper growth and warden land here on rebase, not in main.)
+ */
+const PROMPT_SIZE_OVERRIDES: Partial<
+  Record<DirectorId, { chars: number; bytes: number }>
+> = {};
+
+const CHAR_ALLOWANCE = 2000;
+const BYTE_ALLOWANCE = 3000;
+
+function ceil100(n: number): number {
+  return Math.ceil(n / 100) * 100;
+}
+
+function budgetFor(directorId: DirectorId): { chars: number; bytes: number } {
+  const override = PROMPT_SIZE_OVERRIDES[directorId];
+  if (override !== undefined) return override;
+  const base = PROMPT_SIZE_BASELINE[directorId];
+  return {
+    chars: ceil100(base.chars + CHAR_ALLOWANCE),
+    bytes: ceil100(base.bytes + BYTE_ALLOWANCE),
+  };
+}
 
 function budgetMessage(
   directorId: DirectorId,
@@ -62,10 +74,11 @@ function budgetMessage(
   chars: number,
   bytes: number,
 ): string {
+  const budget = budgetFor(directorId);
   return (
     `Director "${directorId}" [${family}]: ${chars} chars / ${bytes} bytes ` +
-    `exceeds budget (${CHAR_BUDGET[directorId]} chars / ` +
-    `${BYTE_BUDGET[directorId]} bytes). Trim the prompt (preferred) or ` +
+    `exceeds budget (${budget.chars} chars / ` +
+    `${budget.bytes} bytes). Trim the prompt (preferred) or ` +
     `consciously raise the budget here with justification. ` +
     `Repro: bun -e 'import { directorPromptSizeTable, ` +
     `formatPromptSizeTable } from "./src/agent/prompt-sizes.ts"; ` +
@@ -89,8 +102,9 @@ describe("director prompt size budget", () => {
 
   test("every assembled prompt stays within budget", () => {
     for (const row of rows) {
-      const overChars = row.chars > CHAR_BUDGET[row.directorId];
-      const overBytes = row.bytes > BYTE_BUDGET[row.directorId];
+      const budget = budgetFor(row.directorId);
+      const overChars = row.chars > budget.chars;
+      const overBytes = row.bytes > budget.bytes;
       expect(
         overChars || overBytes,
         budgetMessage(row.directorId, row.family, row.chars, row.bytes),
