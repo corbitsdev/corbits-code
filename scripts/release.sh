@@ -137,12 +137,27 @@ host_label() {
 # node_modules; leaving it external makes first TUI load fail with
 # "Cannot find package 'react-devtools-core'".
 # Keep this block in sync with package.json "build:bin" when those flags change.
+#
+# macOS targets are ad-hoc re-signed after compile. `bun build --compile`
+# appends the JS payload to Bun's linker-signed executable without re-signing
+# it (oven-sh/bun#32159), so the embedded signature no longer matches the file
+# and macOS 26+/27 SIGKILLs the binary at launch (exit 137, no output).
+# `codesign` only exists on macOS hosts, which is where darwin releases are cut.
 compile_bin() {  # compile_bin BUN_TARGET OUTFILE
   local target=$1 out=$2
   bun build ./src/index.ts --compile --target="$target" --minify \
     --define process.env.NODE_ENV='"production"' \
     --define process.env.DEV='"false"' \
     --outfile "$out" >/dev/null
+  case "$target" in
+    bun-darwin-*)
+      if command -v codesign >/dev/null 2>&1; then
+        codesign -s - --force "$out" >/dev/null 2>&1 \
+          || die "codesign failed for $target ($out)"
+      else
+        info "warning: codesign not available; $target binary is not re-signed and will not launch on macOS 26+"
+      fi ;;
+  esac
 }
 
 # Smoke-test a freshly compiled native binary before packaging. Cross-compiled
