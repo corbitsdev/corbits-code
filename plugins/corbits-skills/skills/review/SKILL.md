@@ -257,7 +257,7 @@ git log <base>..HEAD --format='%s'
 
 Scan for:
 
-- **Prefix violations.** Any subject starting with a `word:`, `[tag]`, or `(scope)` pattern. Includes Conventional Commits (`feat:`, `fix:`), component or scope prefixes (`Anthropic adapter:`, `mm:`, `[X86]`), ticket IDs (`INTR-79:`), and status tags (`WIP:`). Project convention is plain English sentences; any prefix is a violation regardless of how idiomatic it looks in other ecosystems.
+- **Subject-form violations.** Project convention is Conventional Commits: `<type>(<scope>): <description>` with type from `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`, `style`. Flag a subject with no type (`Anthropic adapter: handle 429s`, `Add retry logic`), an unrecognized type, a ticket ID (`INTR-79:`), or a status tag (`WIP:`, `[urgent]`). Do **not** flag `feat:`/`fix:`-style prefixes themselves — those are the convention.
 - **Filename or path references.** Tokens that look like file paths or extensions (`server.ts`, `INFERENCE.md`, `src/foo/bar.py`). The diff lists what changed; subjects describe the change, not the file.
 - **Trailing punctuation.** Subjects ending with `.`, `!`, or `?`.
 - **Vague subjects.** "Update code," "Fix bug," "Misc changes," "Address review."

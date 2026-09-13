@@ -104,37 +104,54 @@ git log origin/main --format='%s' | head -20
 
 The existing commits document the project's actual subject convention — verb tense, level of detail, voice, capitalization. Match what is there.
 
-The project's log can override the no-prefix rule below, but only when the recent history is **predominantly** prefixed in a single consistent convention — i.e., the prefix is the obvious shape of the last ~20 commits, not a minority pattern visible in a few. Mixed signals fall through to the no-prefix rule; tie goes to no prefix.
+**Conventional Commits.** Summary lines follow
+[Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/):
 
-**No subject prefixes.** Summary lines are plain English sentences that start with a verb and describe the change directly. Do not prefix the subject with anything — no tag, no scope, no category, no ticket ID, no severity marker. This is a flat rule across every prefix convention, including:
+```text
+<type>(<scope>): <description>
+```
 
-- Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`
-- Scope or component prefixes: `Anthropic adapter:`, `mm:`, `[X86]`, `drivers/net:`, `frontend:`
+- **Type** — one of `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`,
+  `ci`, `chore`, `style`
+- **Scope** — the component the change lives in. Omit only when the change
+  genuinely spans the whole project
+- **Description** — plain English, imperative, starts with a verb, describes
+  the change directly
+- **Breaking changes** — `!` after the type/scope, or a `BREAKING CHANGE:`
+  footer
+
+Everything after the colon still obeys the rules below: no abbreviations, no
+trailing punctuation, no filenames, self-contained.
+
+**Still banned as subject prefixes**, before or instead of the type:
+
 - Ticket IDs: `INTR-79:`, `JIRA-1234:`, `#456:`
 - Status or severity tags: `WIP:`, `[urgent]`, `(security):`
-
-Several of these patterns are widespread in well-known projects (Linux kernel, LLVM, Conventional-Commits-adopting projects) and feel idiomatic from sheer exposure. They are still banned here. Familiarity is not a justification.
+- Bare component prefixes with no type: `Anthropic adapter:`, `mm:`, `[X86]`,
+  `drivers/net:`, `frontend:` — the component belongs in the scope, so
+  `mm: fix leak` becomes `fix(mm): fix leak`
 
 Summary lines also use no abbreviations and do not end with punctuation.
 
 **Good examples:**
 
 ```
-Add retry logic for failed network requests
-Fix race condition in transaction verification
-Document API response format
+feat(executor): add retry logic for failed network requests
+fix(inference): resolve race condition in transaction verification
+docs(api): document response format
+perf(glob): stop rescanning ignored directories
 ```
 
 **Bad examples:**
 
 ```
-feat: add retry logic                  (Conventional Commits prefix)
-Anthropic adapter: handle 429s         (component-scope prefix)
+Add retry logic                        (no type or scope)
+feat: add retry logic                  (no scope, and says nothing specific)
+Anthropic adapter: handle 429s         (bare component, no type)
 INTR-79: add retry logic               (ticket-ID prefix)
 [WIP] refactor the parser              (status tag)
-Update code                            (too vague)
-Fix bug in server.ts                   (filename in subject)
-Document INFERENCE.md updates          (filename in subject)
+chore: update code                     (too vague)
+fix: bug in server.ts                  (filename in subject)
 ```
 
 **Self-contained:**

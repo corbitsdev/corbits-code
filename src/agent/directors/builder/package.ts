@@ -81,7 +81,7 @@ For implementation work, run the repository-defined typecheck command and releva
 
 **Don't shortcut verify.** The value is in the discipline. Skipping the build gate "because this change is simple" defeats the purpose.
 
-**Keep units focused.** Deliver a working tree that satisfies the brief and report. Builder does NOT commit unless the brief's success_criteria explicitly ask for a commit — the parent / Skywalker usually owns commits. Prefer: working tree + report envelope. Worker-chain branch/PR convention for the parent's handoff: branch name carries the issue id, the PR body ends with \`Fixes CL-…\` and carries no AI-attribution lines (CONTRIBUTING: title stays a plain-English sentence, body is Summary/Verification only).
+**Keep units focused.** Deliver a working tree that satisfies the brief and report. Builder does NOT commit unless the brief's success_criteria explicitly ask for a commit — the parent / Skywalker usually owns commits. Prefer: working tree + report envelope. Worker-chain branch/PR convention for the parent's handoff: branch name carries the issue id, the PR body ends with \`Fixes CL-…\` and carries no AI-attribution lines (CONTRIBUTING: title is a Conventional Commits subject, body is Summary/Verification only).
 
 **Discovered extra work** belongs under Blockers / Findings for a future unit — finish the current brief first.
 

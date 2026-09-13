@@ -113,7 +113,7 @@ Run `make` (or the project's equivalent full pipeline: format, lint, build, test
 
 Update `activeForm` to "Committing: {subject}".
 
-Create the commit. Follow the commit message conventions from the `style` skill. Include the test in the same unit of work as the implementation — same commit when committing — one logical unit — and update the docs when the commit changes documented behavior. Worker-chain branch/PR convention: branch name carries the issue id, the PR body ends with `Fixes CL-…` and carries no AI-attribution lines (CONTRIBUTING: title stays a plain-English sentence, body is Summary/Verification).
+Create the commit. Follow the commit message conventions from the `style` skill. Include the test in the same unit of work as the implementation — same commit when committing — one logical unit — and update the docs when the commit changes documented behavior. Worker-chain branch/PR convention: branch name carries the issue id, the PR body ends with `Fixes CL-…` and carries no AI-attribution lines (CONTRIBUTING: title is a Conventional Commits subject, body is Summary/Verification).
 
 ### Step 5: Critique Loop
 

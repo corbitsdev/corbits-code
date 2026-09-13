@@ -135,6 +135,9 @@ hand, not for the person reviewing this PR today.
 
 ## Pull requests
 
+These rules bind humans and agents alike. **A pull request that does not follow
+them will be declined** rather than fixed in review.
+
 ### Scope (MUST)
 
 1. One concern per PR. See scope discipline in `AGENTS.md`.

@@ -18,6 +18,7 @@ Fixes #123
 Partial work: Related to CL-1234
 No tracker: delete this comment block and leave no magic-word line.
 
-Do not put CL-… or #N in the PR title. Commit subjects stay plain English
-with no ticket IDs — see CONTRIBUTING.md.
+Do not put CL-… or #N in the PR title. Commit subjects are Conventional
+Commits — <type>(<scope>): <description> — with no ticket IDs. See
+CONTRIBUTING.md.
 -->
