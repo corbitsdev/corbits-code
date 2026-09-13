@@ -115,19 +115,25 @@ describe("skywalkerPackage", () => {
     expect(p).not.toContain("2–4 workers");
     expect(p).not.toContain("at most 4");
     expect(p).not.toContain("Prefer synthesizing early returns");
-    expect(p).toContain("queues excess");
+    // CL-6953: admission queue owns queueing (src/subagent/admission.ts) —
+    // the prompt keeps the fan-out judgment, not the mechanism restatement.
+    expect(p).not.toContain("queues excess");
     expect(p).toContain("Do not invent a numeric cap");
   });
 
   test("systemPrompt prefers spawn_agent then idle (idle-orchestrator)", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("spawn_agent");
-    expect(p).toContain("wait_agents");
+    // CL-6953: collection path (wait_agents vs mailbox) lives in the runtime
+    // mount + spawn_agent tool description — not the static prompt.
+    expect(p).not.toContain("wait_agents");
     expect(p).toContain("Idle-orchestrator");
     expect(p).not.toContain("task()");
     expect(p).toContain("Spawn then idle; do not poll");
     expect(p).not.toContain("do not poll wait_agents");
-    expect(p).toContain("wait_agents is mounted on exec-primary runs only");
+    // CL-6953: wait_agents mounting lives in the runtime (exec/runner.ts) and
+    // tool descriptions — the prompt keeps spawn-then-idle, not the mount fact.
+    expect(p).not.toContain("wait_agents is mounted on exec-primary runs only");
     expect(p).toContain("mailbox mail arrives as inbound");
     expect(p).toContain(
       "When the fleet goes dry the runtime re-enters with collected reports",
@@ -218,6 +224,9 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("clean-room");
     expect(p).toContain("no fork");
     expect(p).toContain("required for implement/review");
+    // CL-6953 / CL-6807: single contract statement (spawn graph); the routing
+    // and handoff restatements are gone.
+    expect(p).not.toContain("Runtime requires success_criteria");
     expect(p).not.toContain("Brief completeness");
     expect(p).not.toContain("Prefer typed spawn");
     expect(p.indexOf("Critic stays clean-room")).toBeGreaterThan(
@@ -303,7 +312,9 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("re-dispatch **builder**");
     expect(p).toMatch(/narrowed or changed follow-up brief/i);
     expect(p).toContain("ship → verify → fix → re-verify");
-    expect(p).toContain("Cap re-fix rounds");
+    // CL-6953: no runtime retry budget enforces a re-fix cap — keep the loop
+    // judgment, not the number.
+    expect(p).not.toContain("Cap re-fix rounds");
   });
 
   test("systemPrompt Linear three-state: In Review at PR-open, never Done at PR-open", () => {
