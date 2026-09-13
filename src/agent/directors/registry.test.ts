@@ -133,7 +133,7 @@ describe("director registry", () => {
     expect(packageToProfile(g).orchestrator).toBe(true);
   });
 
-  test("migrator is a read-only leaf with no fleet verbs (CL-7671)", () => {
+  test("migrator is a dry-run-scoped leaf with no fleet verbs (CL-7671)", () => {
     const m = DIRECTOR_REGISTRY.migrator;
     expect(m.id).toBe("migrator");
     expect(m.tier).toBe("leaf");
@@ -141,6 +141,8 @@ describe("director registry", () => {
     expect(m.modelRole).toBe("plan");
     expect(m.tools?.allow).toEqual(["read_file", "grep", "lsp", "run_shell"]);
     expect(packageToProfile(m).orchestrator).toBe(false);
+    expect(m.systemPrompt).toMatch(/dry-run and scratch-copy execution ONLY/);
+    expect(m.systemPrompt).toMatch(/Background shells are forbidden/);
     const r = resolveDirector({ agentId: "migrator" });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.package.id).toBe("migrator");
