@@ -52,4 +52,39 @@ describe("resolveModelFamilyPolicy", () => {
     expect(kimi.toolOnlyTurnNudgeAt).toBe(base.toolOnlyTurnNudgeAt);
     expect(kimi.subAgentStallTimeoutMs).toBe(base.subAgentStallTimeoutMs);
   });
+
+  test("advertisedToolDeny is empty by default and never contains use_skill", () => {
+    const leaf = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-opus-4-6",
+      orchestrator: false,
+    });
+    expect(leaf.advertisedToolDeny).toEqual([]);
+    expect(leaf.advertisedToolDeny).not.toContain("use_skill");
+  });
+
+  test("grok and kimi leaves deny skill_search only", () => {
+    for (const input of [
+      { providerName: "xai", model: "grok-4-1-fast-non-reasoning" },
+      { providerName: "moonshot", model: "kimi-k2-0711" },
+    ] as const) {
+      const leaf = resolveModelFamilyPolicy({
+        ...input,
+        orchestrator: false,
+      });
+      expect(leaf.advertisedToolDeny).toEqual(["skill_search"]);
+      expect(leaf.advertisedToolDeny).not.toContain("use_skill");
+    }
+  });
+
+  test("orchestrators keep the full surface on every family", () => {
+    for (const input of [
+      { providerName: "xai", model: "grok-4-1-fast-non-reasoning" },
+      { providerName: "moonshot", model: "kimi-k2-0711" },
+      { providerName: "anthropic", model: "claude-opus-4-6" },
+    ] as const) {
+      const policy = resolveModelFamilyPolicy({ ...input, orchestrator: true });
+      expect(policy.advertisedToolDeny).toEqual([]);
+    }
+  });
 });

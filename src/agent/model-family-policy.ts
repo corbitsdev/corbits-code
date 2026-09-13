@@ -25,6 +25,13 @@ export interface ModelFamilyPolicy {
   subAgentStallTimeoutMs: number;
   /** Grok's finish-bias residual (withhold from orchestrators; see provider-family.ts). */
   applyGrokFinishBias: boolean;
+  /**
+   * Tool names to drop from the advertised wire prefix and the dispatch gate
+   * (CL-7668). Empty by default; grok/kimi leaves deny `skill_search` only and
+   * load brief-named skills straight through `use_skill`, which is never
+   * denied. Orchestrators keep the full surface.
+   */
+  advertisedToolDeny: readonly string[];
 }
 
 const DEFAULT_WRAP_UP_NUDGE_TEXT =
@@ -50,6 +57,7 @@ const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   wrapUpNudgeText: DEFAULT_WRAP_UP_NUDGE_TEXT,
   subAgentStallTimeoutMs: 5 * 60_000,
   applyGrokFinishBias: false,
+  advertisedToolDeny: [],
 };
 
 // A directly observed 14-turn pure-tool-call session for this family
@@ -67,6 +75,8 @@ const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   wrapUpNudgeText: GROK_WRAP_UP_NUDGE_TEXT,
   subAgentStallTimeoutMs: DEFAULT_POLICY.subAgentStallTimeoutMs,
   applyGrokFinishBias: true,
+  // Leaf value; the resolver clears it for orchestrators below.
+  advertisedToolDeny: ["skill_search"],
 };
 
 // Kimi (Moonshot) detection ships now so callers can branch on family, but
@@ -92,10 +102,15 @@ export function resolveModelFamilyPolicy(input: {
       return {
         ...policy,
         applyGrokFinishBias: policy.applyGrokFinishBias && !orchestrator,
+        advertisedToolDeny: orchestrator ? [] : policy.advertisedToolDeny,
       };
     }
     case "kimi":
-      return { family, ...KIMI_POLICY };
+      return {
+        family,
+        ...KIMI_POLICY,
+        advertisedToolDeny: orchestrator ? [] : ["skill_search"],
+      };
     default:
       return { family: "default", ...DEFAULT_POLICY };
   }

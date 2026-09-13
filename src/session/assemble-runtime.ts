@@ -48,6 +48,7 @@ import {
   type ToolAvailability,
 } from "../agent/tool-search.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
+import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 import { createChatDirector, type ChatDirector } from "../agent/director.js";
 import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
 import type { Task } from "../agent/tasks.js";
@@ -369,17 +370,39 @@ export function createAdvertisedToolset(args: {
   ];
   const activated = createActivatedToolTracker();
   // Advertise then family-gate wire schemas (kimi gets a non-recursive present).
+  // advertisedToolDeny (CL-7668) drops grok/kimi-leaf skill_search from the
+  // wire prefix and the dispatch gate; orchestrators keep the full surface.
+  // Resolved per call so a live model switch re-gates without a rebuild.
+  // use_skill is never denied — leaves load brief-named skills by exact name.
+  const deniedFor = (provider: {
+    providerName: string;
+    model: string;
+  }): readonly string[] =>
+    resolveModelFamilyPolicy({
+      providerName: provider.providerName,
+      model: provider.model,
+      orchestrator: args.sessionMode === "orchestrator",
+    }).advertisedToolDeny;
   const computeAdvertised = (
     all: readonly ToolDefinition[],
-  ): ToolDefinition[] =>
-    normalizeToolDefinitionsForProvider(
-      advertisedTools(all, activated.list(), prefix),
+  ): ToolDefinition[] => {
+    const provider = args.getProvider();
+    const denied = deniedFor(provider);
+    const gatedPrefix =
+      denied.length === 0
+        ? prefix
+        : prefix.filter((name) => !denied.includes(name));
+    return normalizeToolDefinitionsForProvider(
+      advertisedTools(all, activated.list(), gatedPrefix),
       {
-        ...args.getProvider(),
+        ...provider,
       },
     );
-  const isAdvertised = (name: string): boolean =>
-    prefix.includes(name) || activated.has(name);
+  };
+  const isAdvertised = (name: string): boolean => {
+    if (deniedFor(args.getProvider()).includes(name)) return false;
+    return prefix.includes(name) || activated.has(name);
+  };
   return { activated, computeAdvertised, isAdvertised };
 }
 
