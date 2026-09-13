@@ -252,6 +252,26 @@ describe("provider setup pure helpers", () => {
     expect(custom?.accountCount).toBe(0);
   });
 
+  test("Alt+A ChatGPT row hides the login CTA once connected (CL-5606)", () => {
+    // After a successful browser login the ChatGPT row must not present the
+    // "Login via Browser" connect option as if unconnected. The row stays
+    // listed (CL-5899: a second account remains reachable) — only the
+    // connected-state rendering changes.
+    const choices = providerChoices();
+    const connected = addProviderSelectorChoices(choices, [
+      { name: "codex/default" },
+    ]);
+    const codex = connected.find((r) => r.id === "codex");
+    expect(codex?.accountCount).toBe(1);
+    expect(codex?.label).not.toContain("Login via Browser");
+    expect(codex?.label).toContain("ChatGPT");
+
+    const disconnected = addProviderSelectorChoices(choices, []);
+    const login = disconnected.find((r) => r.id === "codex");
+    expect(login?.accountCount).toBe(0);
+    expect(login?.label).toContain("Login via Browser");
+  });
+
   test("a connected Codex account counts under its profile-qualified name (CL-5606)", () => {
     // The ChatGPT-via-browser choice is keyed "codex", but a signed-in
     // account lands in the catalog as "codex/<profile>" — one row per

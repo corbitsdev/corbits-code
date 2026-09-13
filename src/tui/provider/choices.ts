@@ -263,12 +263,23 @@ export function addProviderSelectorChoices(
   readonly hint: string;
   readonly accountCount: number;
 }[] {
-  return choices.map((choice) => ({
-    id: choice.id,
-    label: choice.label,
-    hint: choice.hint,
-    accountCount: connectedAccountCount(choice, providers),
-  }));
+  return choices.map((choice) => {
+    const accountCount = connectedAccountCount(choice, providers);
+    // Once an OAuth kind has a connected account the browser-login CTA in its
+    // label ("ChatGPT — Login via Browser") reads as if still unconnected, so
+    // render the connected state plainly instead. The row stays listed so a
+    // second account remains reachable.
+    const connected =
+      choice.oauth !== null && !choice.custom && accountCount > 0;
+    return {
+      id: choice.id,
+      label: connected
+        ? `${choice.label.split(" — ")[0]} · ${accountCount} connected`
+        : choice.label,
+      hint: choice.hint,
+      accountCount,
+    };
+  });
 }
 
 /** Pick-list rows for the provider step. */

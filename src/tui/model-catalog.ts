@@ -251,9 +251,23 @@ function formatPrice(perToken: number): string {
 /** Rough per-Mtok multiplier over the "standard" $3 input tier, for decision-relevant framing. */
 const STANDARD_INPUT_PER_MTOK = 3;
 
-function pricingImpact(pricing: PricingCache | null, model: string): string {
+function pricingImpact(
+  pricing: PricingCache | null,
+  providerId: string,
+  model: string,
+): string {
   const price = lookupModelPricing(pricing, model);
-  if (price === null) return "Pricing unknown for this model.";
+  if (price === null) {
+    // Subscription-billed rows (ChatGPT/Grok OAuth) have no per-token price;
+    // "unknown" misreads as metered billing with a missing rate.
+    if (providerId.startsWith("codex/")) {
+      return "Billed through your ChatGPT subscription, not per-token.";
+    }
+    if (providerId.startsWith("xai/")) {
+      return "Billed through your Grok subscription, not per-token.";
+    }
+    return "Pricing unknown for this model.";
+  }
   const inputPerMtok = price.inputPricePerToken * 1_000_000;
   const ratio = inputPerMtok / STANDARD_INPUT_PER_MTOK;
   const ratioText =
@@ -308,7 +322,11 @@ export function describeModelCatalogOption(
 
   return {
     what: whatLine(model),
-    impact: pricingImpact(pricing, model),
+    impact: pricingImpact(
+      pricing,
+      option.id.slice(0, option.id.indexOf(":")),
+      model,
+    ),
     tone: "plain",
   };
 }
