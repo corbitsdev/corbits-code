@@ -116,6 +116,7 @@ import {
   appendActivitySummary,
   buildDispatchBrief,
   formatSubAgentReport,
+  formatTurnTokenNotice,
   parseSubAgentReport,
   subAgentToolName,
 } from "./report.js";
@@ -140,6 +141,7 @@ import { createReadAgentTraceTool } from "./trace-tool.js";
 import {
   createSubmitResultState,
   evaluateSubmitResult,
+  resetSubmitResultTurn,
   SUBMIT_RESULT_MAX_CORRECTIONS,
 } from "./submit-result.js";
 import {
@@ -578,8 +580,9 @@ async function runSubAgentInner(
   const permissionGate = workerPermissionGate(params.permissionGate);
   // Identifies this dispatch to submit_result so a submission survives
   // only for the turn it was spawned under — a stale call from a redirected
-  // orchestrator (echoing an old token) is rejected.
-  const turnToken = params.tier === "leaf" ? generateSessionId() : undefined;
+  // orchestrator (echoing an old token) is rejected. Steering (followup)
+  // rotates it: the old token dies with the superseded turn.
+  let turnToken = params.tier === "leaf" ? generateSessionId() : undefined;
   const submitResultState = createSubmitResultState();
   const askDirectorState = createAskDirectorState();
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
@@ -747,8 +750,15 @@ async function runSubAgentInner(
           handler: async (
             rawArgs: Record<string, unknown>,
           ): Promise<string> => {
+            // Read the live binding (not the dispatch-time value): steering
+            // rotates turnToken, so a submission under the old token lands here
+            // and must be rejected as stale.
+            const currentToken = turnToken;
+            if (currentToken === undefined) {
+              return "Error: this run has no turn token, so submit_result cannot verify freshness.";
+            }
             const outcome = evaluateSubmitResult({
-              turnToken,
+              turnToken: currentToken,
               submittedToken: rawArgs.turn_token,
               result: rawArgs.result,
               ...(params.reportType !== undefined
@@ -1353,7 +1363,16 @@ async function runSubAgentInner(
       const followup = async (message: string): Promise<string> => {
         resetAskDirectorTurn(askDirectorState);
         interruptController = new AbortController();
-        const result = await sendWithProviderFailure(message, {
+        // A steer supersedes the dispatched turn: mint a fresh submit_result
+        // token (the handler closure reads this binding, so the old token is
+        // rejected from here on) and hand the worker the replacement.
+        let steered = message;
+        if (turnToken !== undefined) {
+          turnToken = generateSessionId();
+          resetSubmitResultTurn(submitResultState);
+          steered = `${message}\n\n${formatTurnTokenNotice(turnToken)}`;
+        }
+        const result = await sendWithProviderFailure(steered, {
           signal: sendAbortSignal(),
         });
         if (terminalProviderError !== undefined) {
