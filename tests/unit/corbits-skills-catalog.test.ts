@@ -191,6 +191,13 @@ test("review skill is the classify-then-selected-fleet recipe", async () => {
   expect(skill).not.toContain("deep-agent-review");
 });
 
+test("review skill gates interview as exception, never ritual", async () => {
+  const skill = await Bun.file(
+    join(pluginRoot, "skills/review/SKILL.md"),
+  ).text();
+  expect(skill).toContain("Never run interview as ritual");
+});
+
 test("pull-request-review is the worktree surface pass", async () => {
   const skill = await Bun.file(
     join(pluginRoot, "skills/pull-request-review/SKILL.md"),
