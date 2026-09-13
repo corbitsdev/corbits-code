@@ -4,6 +4,7 @@ import {
   isOpenableUrl,
   isUrlOpenClick,
   openUrl,
+  platformUrlCommand,
   setUrlOpener,
   resetUrlOpener,
   splitLinkSpans,
@@ -120,6 +121,29 @@ describe("isUrlOpenClick", () => {
     expect(isUrlOpenClick({ ...base, button: 0 })).toBe(false);
     expect(isUrlOpenClick({ ...base, button: 2, modifiers: ctrl })).toBe(false);
     expect(isUrlOpenClick({ ...base, button: 1, modifiers: ctrl })).toBe(false);
+  });
+});
+
+describe("platformUrlCommand", () => {
+  test("windows opens without cmd /c so metacharacters never parse", () => {
+    const url = "https://example.com/x?a=1&b=2";
+    expect(platformUrlCommand("win32", url)).toEqual([
+      "rundll32",
+      "url.dll,FileProtocolHandler",
+      url,
+    ]);
+    expect(platformUrlCommand("win32", url)).not.toContain("cmd");
+  });
+
+  test("darwin and linux use their openers with the URL as argv", () => {
+    expect(platformUrlCommand("darwin", "https://example.com")).toEqual([
+      "open",
+      "https://example.com",
+    ]);
+    expect(platformUrlCommand("linux", "https://example.com")).toEqual([
+      "xdg-open",
+      "https://example.com",
+    ]);
   });
 });
 

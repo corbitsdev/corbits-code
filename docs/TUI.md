@@ -829,8 +829,8 @@ running its own selection. Two chords cover remaining copy needs:
     support OSC-8, so Cmd+click does nothing there; iTerm2 3.5+, Ghostty,
     WezTerm, Kitty, and VS Code support it.
   - **Linux/Windows: Ctrl+click.** The app opens the URL through the
-    platform opener (`open` on macOS as fallback, `xdg-open`, `cmd /c
-start`).
+    platform opener (`open` on macOS as fallback, `xdg-open`, `rundll32
+    url.dll,FileProtocolHandler` — argv spawns, never through a shell).
   - **Right-click safety.** The open gesture requires a left (button-0)
     press with the modifier held, so Ctrl+right-click never opens a URL —
     context menus stay safe.
@@ -921,7 +921,7 @@ terminal. It cannot observe:
   Ctrl+drag do not, non-`http(s)` never opens) with a mocked opener, but
   only a real terminal can show whether it delivers the held Ctrl on motion
   and press events, whether it honors OSC-8 for Cmd+click, or resolves the
-  `open`/`xdg-open` spawn into a browser.
+  `open`/`xdg-open`/`rundll32` spawn into a browser.
 - **The system clipboard.** `system-clipboard.ts`'s helper-binary spawns and
   OSC 52 fallback are exercised with mocked spawn functions in tests; no
   test round-trips through a real `pbcopy`/`xclip`/terminal clipboard.

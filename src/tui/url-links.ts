@@ -166,13 +166,21 @@ export function isUrlOpenClick(
 
 export type UrlOpener = (url: string) => void;
 
+/**
+ * Argv for opening a URL with the platform handler, without a shell. Windows
+ * must never route through `cmd /c start`: cmd.exe re-parses the assembled
+ * command line, so `&`, `|` and `&&` in an attacker-influenceable transcript
+ * URL would execute as command separators. `rundll32 url.dll,FileProtocolHandler`
+ * takes the URL as a plain argv element instead.
+ */
+export function platformUrlCommand(platform: string, url: string): string[] {
+  if (platform === "darwin") return ["open", url];
+  if (platform === "win32") return ["rundll32", "url.dll,FileProtocolHandler", url];
+  return ["xdg-open", url];
+}
+
 function defaultUrlOpener(url: string): void {
-  const command =
-    process.platform === "darwin"
-      ? ["open", url]
-      : process.platform === "win32"
-        ? ["cmd", "/c", "start", "", url]
-        : ["xdg-open", url];
+  const command = platformUrlCommand(process.platform, url);
   try {
     Bun.spawn(command, {
       stdout: "ignore",
