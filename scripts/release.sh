@@ -307,33 +307,25 @@ changelog_section() {
   ' CHANGELOG.md
 }
 
-# Most recent vX.Y.Z tag before this one, so generated notes span the right
-# range. Empty output lets GitHub pick, which is right for a first release.
-previous_tag() {
-  git tag --list 'v*' --sort=-v:refname \
-    | grep -v "^${TAG}$" \
-    | head -1
-}
-
 # GitHub renders the merged-PR list, crediting each author. The tag does not
 # exist yet at this point in the run, so target_commitish anchors the range end
 # at the commit being released.
+# previous_tag_name is deliberately NOT passed. The script fetches with
+# --no-tags and never refreshes local tags, so deriving the previous tag
+# locally would silently widen the range on a stale clone and replay
+# already-released pull requests. GitHub derives it from actual release
+# history instead.
 generate_notes() {
-  local prev
-  prev=$(previous_tag)
-  local args=(
-    -X POST
-    "repos/$MAIN_REPO/releases/generate-notes"
-    -f "tag_name=$TAG"
-    -f "target_commitish=$(git rev-parse HEAD)"
-  )
-  [ -n "$prev" ] && args+=(-f "previous_tag_name=$prev")
-  gh api "${args[@]}" --jq '.body'
+  gh api -X POST "repos/$MAIN_REPO/releases/generate-notes" \
+    -f "tag_name=$TAG" \
+    -f "target_commitish=$(git rev-parse HEAD)" \
+    --jq '.body'
 }
 
-# Insert a rendered section immediately before the first existing `## [`
-# header, so it lands after the file's title and preamble and ahead of every
-# older release. Appending at the top of the file would bury the preamble.
+# Insert a rendered section immediately before the first existing VERSIONED
+# header, so it lands after the title, the preamble, and any `## [Unreleased]`
+# section, and ahead of every older release. Matching the first `## [` of any
+# kind would sort the new release above a live `[Unreleased]` heading.
 write_changelog_section() {
   local body=$1 tmp first
   # Demote the generated body's own h2s ("## What's Changed", "## New
@@ -342,7 +334,7 @@ write_changelog_section() {
   # to its header and `/changelog` renders an empty release.
   body=$(printf '%s\n' "$body" | sed 's/^## /### /')
   tmp=$(mktemp)
-  first=$(grep -n '^## \[' CHANGELOG.md | head -1 | cut -d: -f1)
+  first=$(grep -n '^## \[[0-9]' CHANGELOG.md | head -1 | cut -d: -f1)
   if [ -z "$first" ]; then
     cp CHANGELOG.md "$tmp"
     printf '\n## [%s] - %s\n\n%s\n' "$VERSION" "$(date -u +%Y-%m-%d)" "$body" >> "$tmp"
@@ -392,8 +384,19 @@ else
     SECTION=$(generate_notes) || die "gh could not generate release notes for $TAG"
     [ -n "$(printf '%s' "$SECTION" | sed '/^[[:space:]]*$/d')" ] || \
       die "GitHub returned empty release notes for $TAG"
-    write_changelog_section "$SECTION"
+    # Deferred, not written here: the release commit step below refuses to run
+    # on a dirty tree, so touching a tracked file during preflight would abort
+    # every generated-notes release before it started.
+    CHANGELOG_PENDING=$SECTION
     NOTES_SOURCE="generated from merged pull requests"
+    # Nothing renames `## [Unreleased]` any more, so content left there is
+    # invisible to /changelog (parseChangelogText skips non-semver headers)
+    # and will never appear in a release. Say so rather than silently
+    # stranding it below the new section.
+    if awk '/^## \[Unreleased\]/ { u = 1; next } /^## \[/ { u = 0 } u && NF' \
+      CHANGELOG.md | grep -q .; then
+      info "WARNING: CHANGELOG.md has a non-empty ## [Unreleased] section; generated notes do not consume it. Fold it in or delete it."
+    fi
   fi
   {
     printf '%s\n\n' "$SECTION"
@@ -421,6 +424,14 @@ else
   mv package.json.tmp package.json
   [ "$(jq -r .version package.json)" = "$VERSION" ] || die "package.json bump failed"
   git add package.json
+  # Generated notes land in the release commit, so the section ships in
+  # DOC_FILES with the binaries built in the next step and reaches main with
+  # the version bump.
+  if [ -n "${CHANGELOG_PENDING:-}" ]; then
+    write_changelog_section "$CHANGELOG_PENDING"
+    git add CHANGELOG.md
+    info "wrote generated ## [$VERSION] section into CHANGELOG.md"
+  fi
   git commit -q -m "Release $FORMULA $VERSION"
   info "committed release $VERSION (PR and tag deferred until after build)"
 fi
@@ -495,7 +506,7 @@ else
     if [ -z "$PR_NUM" ]; then
       gh pr create --repo "$MAIN_REPO" --head "$RELEASE_BRANCH" --base main \
         --title "Release $FORMULA $VERSION" \
-        --body "Version bump to $VERSION. Release notes are the CHANGELOG.md \`## [$VERSION]\` section." >/dev/null
+        --body "Version bump to $VERSION. Release notes are generated from the pull requests merged since the previous release." >/dev/null
       PR_NUM=$(gh pr list --repo "$MAIN_REPO" --head "$RELEASE_BRANCH" --state open \
         --json number --jq '.[0].number // empty')
       [ -n "$PR_NUM" ] || die "could not create or find the release PR for $RELEASE_BRANCH"
