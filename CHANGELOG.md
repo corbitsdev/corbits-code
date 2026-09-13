@@ -11,6 +11,31 @@ matching `## [X.Y.Z]` section (plus install instructions). Do not maintain
 parallel copies under `docs/` or `scripts/notes/`. At cut time: rename
 `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, then run the release script.
 
+## [0.3.24] - 2026-09-13
+
+### Added
+
+- Queued steers and follow-ups now surface in a pending column above the
+  prompt: pick with Up/Down, force-deliver with Enter, drop with Ctrl+X,
+  exit with Esc, and pop back to the composer with Ctrl+G.
+- OpenCode Zen models are discovered live with a seed fallback, per-model
+  protocol routing, and a picker overlay.
+
+### Changed
+
+- Builder chain now mandates same-commit regression tests, docs upkeep, and
+  criteria-mapped reporting.
+- Prompt size budgets are now per-director per-family, and the gaasbot
+  ceiling is raised (chars 54800, bytes 56000).
+
+### Fixed
+
+- Shell parsing serial: here-strings stay inline, heredoc terminators match
+  exactly, arithmetic and comment openers parse correctly, and secret checks
+  run in the right order.
+- First-party OpenAI reasoning models now send max_completion_tokens.
+- The shell secret denylist resolves symlinks before matching.
+
 ## [0.3.23] - 2026-09-12
 
 ### Added
