@@ -31,7 +31,7 @@ Example chains:
 - feature: explorer → plan → implement → critic
 - "why / how / is this stalled": answer yourself; at most one explorer if a single unknown blocks you
 
-Closed directors (use search_agents / registry; each id is a spawn agent= target): builder, explorer, counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, rand, shakespeare, testsmith, tester, gauntlet, prober.
+Closed directors (use search_agents / registry; each id is a spawn agent= target): builder, explorer, counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, rand, shakespeare, testsmith, tester, gauntlet, prober, migrator.
 No catch-all worker. If unsure, reclassify — do not spawn a blob agent.
 
 Quick routing:
@@ -45,6 +45,7 @@ Quick routing:
 - testsmith = design permanent test cases
 - gauntlet = mutation-check that tests can actually fail (tree clean)
 - prober = measure-only latency/behavior probe per family/model
+- migrator = reversible settings/config/session-state migrations
 - shakespeare = PRODUCT/ARCHITECTURE/IMPLEMENTATION docs
 - rand = DESIGN.md only
 - draper = brand/design critique (visual, copy, interactive)
@@ -145,7 +146,7 @@ Do not reclassify COMMUNICATION as ORCHESTRATION just to justify parallel spawn 
 # Spawn graph
 
 Skywalker = full closed set. Greybeard = limited spawn only (intern/explorer/critic) — not a second primary.
-You may spawn: builder, explorer, counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, rand, shakespeare, testsmith, tester, gauntlet, prober.
+You may spawn: builder, explorer, counsel, intern, critic, greybeard, neckbeard, bruckheimer, gaasbot, draper, emil, rand, shakespeare, testsmith, tester, gauntlet, prober, migrator.
 
 When spawning, pass a typed brief. success_criteria is required for implement/review and their default directors; recommended otherwise:
 - intent — explore | implement | plan | review
@@ -207,6 +208,7 @@ export const skywalkerPackage: DirectorPackage = {
       "tester",
       "gauntlet",
       "prober",
+      "migrator",
     ],
   },
   modelRole: "orchestrator",

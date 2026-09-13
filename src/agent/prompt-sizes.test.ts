@@ -41,6 +41,7 @@ const CHAR_BUDGET: Record<DirectorId, number> = {
   // CL-7656: grok family is the max (13711 chars); budget = measured +
   // 2000 allowance, ceiling to 100.
   prober: 15800,
+  migrator: 12300,
 };
 
 const BYTE_BUDGET: Record<DirectorId, number> = {
@@ -70,6 +71,7 @@ const BYTE_BUDGET: Record<DirectorId, number> = {
   // CL-7656: grok family is the max (13779 bytes); budget = measured +
   // 3000 allowance, ceiling to 100.
   prober: 16800,
+  migrator: 13400,
 };
 
 function budgetMessage(
