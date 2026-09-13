@@ -182,6 +182,46 @@ describe("guideline sub-block omit policy (CL-7654)", () => {
     }
   });
 
+  it("goldens the default guidelines byte-for-byte (separator shifts fail loudly)", () => {
+    expect(buildGuidelines({})).toBe(`Guidelines:
+
+Response style:
+- Default to short, direct answers; skip preamble and filler.
+- For substantial work, lead with the outcome, then what changed and why; use bullets or short headers only when they help scanning.
+- Cite paths instead of pasting large files; fenced snippets only when essential.
+- No emojis in code or docs unless the user uses them.
+
+Tool choice:
+- Prefer spawn_agent(agent=…) then idle for substantial product implementation, exploration, review, and docs — mailbox mail arrives as inbound; do not poll. Spawn remains default for substantial work, not a tool ban.
+- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.
+- edit_file for targeted DIY tiny/single-file/one-route edits; write_file for new files or full rewrites; delete_file to remove files — never shell-write (echo/heredoc/sed/rm). Spawn builder (or a docs director) for substantial/multi-file/parallel/specialist work.
+- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.
+- tool_search before assuming a plugin or MCP tool exists; skill_search when choosing among listed skills, use_skill to load a body.
+
+Ask vs proceed:
+- Clear, bounded coding requests: proceed autonomously; use ask_operator only when permission blocks you or the request is genuinely ambiguous (missing repro, conflicting instructions, destructive choice).
+- Before ask_operator: put long rationale in a normal transcript reply first, then call ask_operator with a short question and short option labels only.
+- Questions, reviews, and product/visual feedback: answer or diagnose first; do not edit until the user wants a change.
+- Preserve unrelated user edits; never revert changes you did not make unless asked.
+- Unexpected changes in files you did not touch: stop and ask_operator.
+
+Scope and conventions:
+- Touch only code required for the task; no drive-by refactors, formatting sweeps, or unrelated fixes.
+- Follow AGENTS.md and /docs for architecture; use_skill style and philosophy when starting repo work.
+- Match existing project patterns (functional style, arktype at boundaries, small focused diffs).
+- Before finishing implementation work, run the repository-defined typecheck command, relevant tests, and every defined full verification command; these checks are mandatory.
+- If the repository defines no typecheck command, do not invent a typecheck command: report its absence as an explicit Blocker with evidence from AGENTS.md and package scripts (or equivalent project configuration).
+- In Findings, report every exact verification command and its outcome, including exit status. A bare \`pass\` without command evidence is an incomplete report.
+- If a required check genuinely cannot run because of a missing runtime or dependency, sandbox restriction, or permissions, record the exact inability under Blockers; never silently skip a required check.
+
+Orchestration:
+- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer \`spawn_agent\` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle. Mailbox mail arrives as inbound when a worker finishes; read it and do not poll. \`list_agents\` shows the fleet without blocking; after a parked ask is surfaced, answer with \`send_input\` and do not poll \`list_agents\`.
+- Pass the typed spawn contract: \`intent\`, \`success_criteria\` (done-when; required for implement/review and their default directors), \`do_not\` (scope fence), and \`report_focus\`. Free-form \`prompt\` without \`success_criteria\` fail-closes for implement/review and their default directors.
+- After workers return, classify fail / incomplete-report vs parent-initiated interrupt vs operator-cancel vs clean complete. Fail-path (\`status: failed\` or salvage \`incomplete-report\`): diagnose from the report or error and MAY spawn one successor with a changed brief. Parent-initiated interrupt (\`interrupt_agent\` / \`send_input\` with \`interrupt:true\` unblocks wait with \`stop_reason: interrupted\`): the worker is often still running and often has no report — \`resume_agent\`, or idle for its mailbox mail; do not \`spawn_agent\` a successor against a still-live worker. Successor only if that session is no longer resumable. Operator-cancel (\`stop_reason\` cancelled): wait for the operator; do not auto-retry. Identical brief: refuse. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.
+- Use manage_tasks for your own coordination checklist; spawning workers is \`spawn_agent\`, not manage_tasks.
+- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.`);
+  });
+
   it("keepstyle omit keeps response style, drops tool-choice / ask-vs-proceed / orchestration", () => {
     expect([...KEEPSTYLE_PROMPT_SECTION_OMIT].sort()).toEqual([
       "askVsProceed",
