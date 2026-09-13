@@ -28,6 +28,7 @@ const SKILL_DIRS = [
   "opsh",
   "plan",
   "idiot-proof",
+  "lexicon",
 ] as const;
 
 /** use_skill listing + resolve; not slash. No disable-model-invocation. */
@@ -58,6 +59,7 @@ const SLASH_SKILLS = [
   "interview",
   "ast-grep",
   "plan",
+  "lexicon",
 ] as const;
 
 const BANNED_TOKENS = ["TaskCreate", "@greybeard", 'intent="general"'] as const;
@@ -96,8 +98,8 @@ test("corbits-skills plugin has no agents directory", () => {
   expect(existsSync(join(pluginRoot, "agents"))).toBe(false);
 });
 
-test("corbits-skills catalog lists 20 skills with name and description", async () => {
-  expect(SKILL_DIRS).toHaveLength(20);
+test("corbits-skills catalog lists 21 skills with name and description", async () => {
+  expect(SKILL_DIRS).toHaveLength(21);
   const entries = await readdir(join(pluginRoot, "skills"), {
     withFileTypes: true,
   });
@@ -218,7 +220,7 @@ test("Corbits-only skills do not contain GaaS tool names", async () => {
   }
 });
 
-test("loadSkillCommands lists exactly the nine slash actions", async () => {
+test("loadSkillCommands lists exactly the ten slash actions", async () => {
   const cmds = await loadSkillCommands(
     join(import.meta.dirname, "../../plugins/corbits-skills"),
   );
@@ -231,6 +233,7 @@ test("loadSkillCommands lists exactly the nine slash actions", async () => {
     "create-issue",
     "implement",
     "interview",
+    "lexicon",
     "plan",
     "pull-request-review",
     "refactor",
