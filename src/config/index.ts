@@ -1154,6 +1154,21 @@ export async function loadConfig(
 // (there is no logout/disconnect surface or auth-store watcher; refresh
 // runs on connect, prefetch, and startup), so removal takes effect on the
 // next rebuild, not live.
+// Compare a settings-row baseURL against the OAuth endpoint so a
+// proxy/mirror row is never mistaken for the legacy bare-row duplicate.
+// Normalization failures fall back to a trailing-slash-insensitive compare
+// rather than dropping a row whose URL cannot be parsed.
+function sameEndpoint(raw: string | undefined, oauthBaseURL: string): boolean {
+  if (raw === undefined) return false;
+  const normalized = (value: string): string => {
+    try {
+      return normalizeOpenAICompatibleBaseURL(value);
+    } catch {
+      return value.trim().replace(/\/+$/, "");
+    }
+  };
+  return normalized(raw) === normalized(oauthBaseURL);
+}
 export function mergeOAuthCatalog(
   settings: Settings | null,
   resolved: ResolvedProvider,
@@ -1166,10 +1181,18 @@ export function mergeOAuthCatalog(
   // connect key) reads as a second, separately-added provider next to the
   // credential-backed `<kind>/<profile>` entries. Drop it once that family
   // has a live profile; when nothing is connected the bare row is the only
-  // ChatGPT/Grok access and stays.
+  // ChatGPT/Grok access and stays. A bare row pointed at a different
+  // endpoint (proxy/mirror) is a distinct provider, not the legacy
+  // duplicate, so it stays alongside the credential-backed entries.
   const dropBare = new Set([
-    ...(codexEntries.length > 0 ? ["codex"] : []),
-    ...(xaiEntries.length > 0 ? ["xai"] : []),
+    ...(codexEntries.length > 0 &&
+    sameEndpoint(settings?.providers["codex"]?.baseURL, CODEX_BASE_URL)
+      ? ["codex"]
+      : []),
+    ...(xaiEntries.length > 0 &&
+    sameEndpoint(settings?.providers["xai"]?.baseURL, XAI_BASE_URL)
+      ? ["xai"]
+      : []),
   ]);
   return [
     ...buildProviderCatalog(settings, resolved).filter(

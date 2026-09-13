@@ -63,11 +63,11 @@ export function buildCredentialPatterns(): RegExp[] {
     patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}~$`));
     patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}\\.swp$`));
     patterns.push(new RegExp(`(^|\\/)${dir}\\/\\.${base}\\.swp$`));
-    patterns.push(new RegExp(`(^|\\/)${base}\\.lock$`));
+    patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}\\.lock$`));
     // Writers emit a pid.counter middle segment (auth/store.ts,
     // mcp/auth-store.ts), so the middle segment is required; a bare
     // `<base>.tmp` has no known writer and stays unmatched.
-    patterns.push(new RegExp(`(^|\\/)${base}\\.[^/]*\\.tmp$`));
+    patterns.push(new RegExp(`(^|\\/)${dir}\\/${base}\\.[^/]*\\.tmp$`));
   }
   return patterns;
 }
