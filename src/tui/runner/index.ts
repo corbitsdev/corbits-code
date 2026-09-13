@@ -160,6 +160,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
         listCommands().map((c) => ({
           name: c.name,
           description: c.description,
+          ...(c.pluginOrigin !== undefined ? { origin: c.pluginOrigin } : {}),
         })),
       onCommand: (name) => {
         const route = routeSubmission(name);

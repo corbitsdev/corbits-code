@@ -1,4 +1,5 @@
 import type { CostSummary } from "../../cost/cost-summary.js";
+import type { PluginOrigin } from "../../trust/project-trust.js";
 
 export interface CommandContext {
   signalClear: () => void;
@@ -58,6 +59,11 @@ export interface CommandDefinition {
   name: string;
   description: string;
   /**
+   * Discovery origin of the plugin that contributed this command, when the
+   * command came from a plugin. Built-ins leave it unset and render unmarked.
+   */
+  pluginOrigin?: PluginOrigin;
+  /**
    * Claude Code–compatible free-form arg guidance (frontmatter `argument-hint`).
    * Shown greyed next to the command and after `/cmd ` until the operator types.
    * Never inserted into the prompt on Tab.
@@ -78,6 +84,7 @@ export interface CommandPlugin {
 interface PluginCommandCandidate {
   command: CommandDefinition;
   isActive: () => boolean;
+  origin?: PluginOrigin;
 }
 
 const registry = new Map<string, CommandDefinition>();
@@ -94,10 +101,15 @@ export function registerCommand(def: CommandDefinition): void {
 export function registerCommandPlugin(
   plugin: CommandPlugin,
   isActive: () => boolean = () => true,
+  origin?: PluginOrigin,
 ): void {
   for (const cmd of plugin.commands) {
     const candidates = pluginCandidates.get(cmd.name) ?? [];
-    candidates.push({ command: cmd, isActive });
+    candidates.push({
+      command: cmd,
+      isActive,
+      ...(origin !== undefined ? { origin } : {}),
+    });
     pluginCandidates.set(cmd.name, candidates);
   }
 }
@@ -118,8 +130,15 @@ export function listCommands(): CommandDefinition[] {
   const commands = [...registry.values()];
   for (const name of pluginCandidates.keys()) {
     if (registry.has(name)) continue;
-    const command = getCommand(name);
-    if (command !== undefined) commands.push(command);
+    const winner = pluginCandidates
+      .get(name)
+      ?.find((candidate) => candidate.isActive());
+    if (winner === undefined) continue;
+    commands.push(
+      winner.origin === undefined
+        ? winner.command
+        : { ...winner.command, pluginOrigin: winner.origin },
+    );
   }
   return commands
     .filter(

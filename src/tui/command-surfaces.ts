@@ -10,6 +10,7 @@
 
 import { isAbsoluteHTTPURL, validateMCPServerName } from "../mcp/add-server.js";
 import { formatPluginWarningsSummary } from "../plugins/diagnostics.js";
+import { withOriginMarker } from "../plugins/origin-marker.js";
 import type { PluginOrigin } from "../plugins/admin.js";
 import {
   classifyPluginRemove,
@@ -283,9 +284,12 @@ export function pluginRowLabel(entry: PluginEntry): string {
       : pluginHasWarnings(entry)
         ? "has warnings"
         : entry.kind;
-  return blocker
-    ? `${entry.name} — ${state} — ${blocker}`
-    : `${entry.name} — ${state}`;
+  return withOriginMarker(
+    blocker
+      ? `${entry.name} — ${state} — ${blocker}`
+      : `${entry.name} — ${state}`,
+    entry.origin,
+  );
 }
 
 function pluginNeedsDiskConfirm(

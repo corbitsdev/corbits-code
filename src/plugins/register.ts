@@ -76,8 +76,10 @@ export function registerCommandPluginModule(
   if (!isCommandPluginModule(mod)) return false;
   const commandPlugin = mod.commandPlugin;
   if (commandPlugin === undefined) return false;
-  registerCommandPlugin(commandPlugin, () =>
-    isPluginModuleEnabled(mod, getConfig()),
+  registerCommandPlugin(
+    commandPlugin,
+    () => isPluginModuleEnabled(mod, getConfig()),
+    mod.origin,
   );
   return true;
 }

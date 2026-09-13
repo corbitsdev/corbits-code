@@ -2,8 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   commandItemsFromRegistry,
   filterPaletteCommands,
+  formatPaletteRows,
   paletteLabels,
 } from "./command-catalog";
+import { BUNDLED_PLUGIN_MARKER } from "../plugins/origin-marker.js";
+import { stringWidth } from "./view/height.js";
 
 describe("commandItemsFromRegistry", () => {
   test("maps listCommands-shaped entries to name-only `/` labels", () => {
@@ -76,5 +79,44 @@ describe("paletteLabels", () => {
       { name: "tasks", description: "Show work list" },
     ]);
     expect(paletteLabels(catalog)).toEqual(["/tasks"]);
+  });
+});
+
+describe("command origin markers", () => {
+  test("bundled repo rows carry the mountain, other origins their label", () => {
+    const items = commandItemsFromRegistry([
+      { name: "implement", description: "Bundled command", origin: "repo" },
+      { name: "mine", description: "Marketplace command", origin: "user" },
+      { name: "proj", description: "Project command", origin: "project" },
+      { name: "local", description: "Path command", origin: "path" },
+      { name: "help", description: "Built-in" },
+    ]);
+    expect(paletteLabels(items)).toEqual([
+      `/implement ${BUNDLED_PLUGIN_MARKER}`,
+      "/mine [user]",
+      "/proj [project]",
+      "/local [path]",
+      "/help",
+    ]);
+  });
+
+  test("marked rows still filter by command name", () => {
+    const catalog = commandItemsFromRegistry([
+      { name: "implement", description: "Bundled command", origin: "repo" },
+    ]);
+    expect(filterPaletteCommands("implem", catalog).map((c) => c.id)).toEqual([
+      "implement",
+    ]);
+  });
+
+  test("a marked row still formats to exactly the target width", () => {
+    const catalog = commandItemsFromRegistry([
+      { name: "implement", description: "Bundled command", origin: "repo" },
+    ]);
+    for (const width of [16, 24, 40]) {
+      const rows = formatPaletteRows(paletteLabels(catalog), width);
+      expect(rows).toHaveLength(1);
+      expect(stringWidth(rows[0] ?? "")).toBe(width);
+    }
   });
 });
