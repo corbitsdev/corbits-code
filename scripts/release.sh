@@ -176,7 +176,9 @@ smoke_bin() {  # smoke_bin LABEL BINARY
   local rc=0
   "$bin" --__release_smoke__ >/dev/null 2>&1 || rc=$?
   # 126 = cannot execute, 127 = not found — real link/exec failures.
-  if [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ]; then
+  # 137 = SIGKILL before any code ran: on macOS that is the kernel rejecting an
+  # invalid code signature (see compile_bin), so the binary is dead on arrival.
+  if [ "$rc" -eq 126 ] || [ "$rc" -eq 127 ] || [ "$rc" -eq 137 ]; then
     die "smoke: cannot execute $label binary (rc=$rc)"
   fi
   # Non-zero from "unrecognized flag" (or similar) still proves the binary ran.
