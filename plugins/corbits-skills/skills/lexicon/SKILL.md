@@ -25,8 +25,9 @@ Linear issues for drift.
 All comparisons in one run use a single pinned commit of the agents
 checkout — never float mid-run.
 
-1. Resolve the checkout (default `/Users/thegreataxios/abklabs/agents`;
-   accept an operator override path).
+1. Resolve the checkout — probe `../agents` beside this repo, then
+   `$AGENTS_CHECKOUT` when set, else ask the operator for the path.
+   Never assume a machine-specific default.
 2. Record the pin: `git -C <checkout> rev-parse HEAD`.
 3. Read every agents-side file with `git show <pin>:<path>` so local
    working-tree edits cannot skew the diff.
