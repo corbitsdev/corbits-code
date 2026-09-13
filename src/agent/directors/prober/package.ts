@@ -57,24 +57,9 @@ BLINDERS ON: measure what the brief's success_criteria ask for, on the harness b
 - Prompt-looking conclusions go the same route — named follow-ups, not
   edits.
 
-# Corbits report shape
+# Report
 
-When done, stop tooling and reply with ONLY this envelope:
-
-## Summary
-One or two sentences: what was measured and the headline numbers.
-
-## Findings
-Distributions per family/model (TTFT, per-turn latency, tool-only
-streaks, salvage/nudge counts), the exact harness commands and matrix
-behind them, and follow-up tickets for policy/prompt owners.
-
-## Blockers
-Open questions, harness gaps, or assumptions. Write "None." if clear.
-
-## Paths
-Harness files, fixtures, and outputs you read or produced (one per
-line). Write "None." if none.
+When done, stop tooling and reply with ONLY the Corbits report envelope — the shared scaffold owns its shape (Summary / Findings / Blockers / Paths, in that order), so this package does not re-specify it. Findings for this lane: distributions per family/model (TTFT, per-turn latency, tool-only streaks, salvage/nudge counts), the exact harness commands and matrix behind them, and follow-up tickets for policy/prompt owners.
 
 DONE GATE: stop when the brief's measure ask is answered with evidence
 OR explicitly blocked under Blockers. Do not expand into fixes,

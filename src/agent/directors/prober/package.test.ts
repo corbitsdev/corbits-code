@@ -55,12 +55,16 @@ describe("proberPackage", () => {
     expect(p).toMatch(/do not edit the policy here/i);
   });
 
-  test("systemPrompt states Corbits report shape and done gate", () => {
+  test("systemPrompt points at the scaffold-owned worker report envelope (no re-spec)", () => {
     const p = proberPackage.systemPrompt;
-    expect(p).toContain("## Summary");
-    expect(p).toContain("## Findings");
-    expect(p).toContain("## Blockers");
-    expect(p).toContain("## Paths");
+    expect(p).toMatch(/Corbits report envelope/);
+    expect(p).toMatch(/scaffold owns its shape/i);
+    expect(p).not.toContain("## Summary");
+    expect(p).not.toContain("## Findings");
+    expect(p).not.toContain("## Blockers");
+    expect(p).not.toContain("## Paths");
+    expect(p).toMatch(/distributions per family\/model/i);
+    expect(p).toMatch(/follow-up tickets for policy\/prompt owners/i);
     expect(p).toMatch(/DONE GATE/i);
     expect(p).toMatch(/BLINDERS ON/i);
     expect(p).toContain("success_criteria");
