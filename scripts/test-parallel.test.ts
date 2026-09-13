@@ -15,8 +15,12 @@ function processAlive(pid: number): boolean {
 }
 
 // These probes are `bun -e` one-liners, so they never import project modules
-// and finish in milliseconds. Stall windows are tiny (300-500ms) to keep the
-// file fast while still exercising the watchdog's timing logic.
+// and finish in seconds. Stall windows are ~1.5s: under the `--parallel`
+// load this runner exists to enable, a delayed output tick can look like a
+// stall against a tighter window, so the window keeps several ticks of
+// scheduling headroom while a broken never-resetting timer still fires
+// mid-run (the tick test's total runtime exceeds the window).
+const TEST_STALL_MS = 1_500;
 
 describe("runWithWatchdog", () => {
   test("passes through a successful run without retrying", async () => {
@@ -48,15 +52,15 @@ describe("runWithWatchdog", () => {
   });
 
   test("output resets the stall timer", async () => {
-    // Prints every 100ms for ~700ms against a 300ms stall window: a broken
-    // timer that never reset would fire on the second tick.
+    // Prints every 250ms for ~2.5s against a 1.5s stall window: a broken
+    // timer that never reset would fire mid-run.
     const result = await runWithWatchdog({
       command: process.execPath,
       args: [
         "-e",
-        "for (let i = 0; i < 7; i++) { console.log('tick', i); await new Promise(r => setTimeout(r, 100)); }",
+        "for (let i = 0; i < 10; i++) { console.log('tick', i); await new Promise(r => setTimeout(r, 250)); }",
       ],
-      stallMs: 300,
+      stallMs: TEST_STALL_MS,
     });
     expect(result.exitCode).toBe(0);
     expect(result.stalled).toBe(false);
@@ -79,7 +83,7 @@ describe("runWithWatchdog", () => {
     const result = await runWithWatchdog({
       command: process.execPath,
       args: ["-e", code],
-      stallMs: 300,
+      stallMs: TEST_STALL_MS,
       onStall: (attempt, max) => stalls.push([attempt, max]),
     });
     expect(result.exitCode).toBe(0);
@@ -93,7 +97,7 @@ describe("runWithWatchdog", () => {
     const result = await runWithWatchdog({
       command: process.execPath,
       args: ["-e", "setTimeout(() => {}, 30_000)"],
-      stallMs: 300,
+      stallMs: TEST_STALL_MS,
       attempts: 2,
       onStall: (attempt, max) => stalls.push([attempt, max]),
     });
@@ -117,7 +121,7 @@ describe("runWithWatchdog", () => {
     const result = await runWithWatchdog({
       command: process.execPath,
       args: ["-e", code],
-      stallMs: 300,
+      stallMs: TEST_STALL_MS,
       attempts: 1,
     });
     expect(result.exitCode).toBe(1);

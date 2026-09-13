@@ -139,6 +139,12 @@ export const RUNTIME_TEARDOWN_DEADLINE_MS = 2_000;
 // the bound so a deliberately never-settling dispose host doesn't pay the
 // full 2s of wall clock per test (same pattern as the tool watchdog's
 // salvageGraceMs override).
+// Single-setter assumption: this is one process-global read by both
+// installCrashHandlers and installSignalHandlers, so the last installer call
+// wins. Production never sets it; the only setter is the reap-fixture
+// subprocess (tests/fixtures/exec-shutdown-reap/simulate-reap.ts), which sets
+// it once per process before installing — never both installers with
+// different values in one process.
 let teardownDeadlineMs = RUNTIME_TEARDOWN_DEADLINE_MS;
 
 export interface ProcessHandlerOptions {
