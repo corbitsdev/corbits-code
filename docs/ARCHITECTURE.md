@@ -244,7 +244,7 @@ Enforcement is runtime code at the existing tool-mount point, not prompt wording
 
 #### Closed director fleet (`src/agent/directors/`)
 
-Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, `modelRole`, fleet authority `tier`) registered in a **closed** set of 16 ids. There is no catch-all worker: `spawn_agent` without `agent` or non-general `intent`, and `spawn_agent(intent="general")`, fail closed so the primary reclassifies. Nested directors with a spawn allowlist reject off-list children at `spawn_agent` dispatch time (not prompt-only). Skywalker is the primary session identity: `spawn_agent(agent="skywalker")` is refused, and `directorProfiles()` omits it from the spawn catalog.
+Every shipped specialist is a **director package** — a prompt-first `DirectorPackage` (system prompt, tool envelope, spawn rights, nudge budget, report contract, `modelRole`, fleet authority `tier`) registered in a **closed** set of 17 ids. There is no catch-all worker: `spawn_agent` without `agent` or non-general `intent`, and `spawn_agent(intent="general")`, fail closed so the primary reclassifies. Nested directors with a spawn allowlist reject off-list children at `spawn_agent` dispatch time (not prompt-only). Skywalker is the primary session identity: `spawn_agent(agent="skywalker")` is refused, and `directorProfiles()` omits it from the spawn catalog.
 
 **Primary**
 
@@ -281,6 +281,7 @@ Every shipped specialist is a **director package** — a prompt-first `DirectorP
 | shakespeare | Docs maintain (scribe core baked into prompt); PRODUCT/ARCHITECTURE/IMPLEMENTATION lane |
 | testsmith   | Test design only (what/how to test)                                                     |
 | tester      | Runtime verification; never fix product code                                            |
+| gauntlet    | Mutation/vacuity check that named tests can actually fail                               |
 
 **Intent → director** (`spawn_agent(intent=…)` when `agent` is omitted). implement/review (and their default directors) fail closed without non-empty `success_criteria`.
 
