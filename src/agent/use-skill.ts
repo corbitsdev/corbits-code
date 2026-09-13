@@ -5,6 +5,7 @@ import { type } from "arktype";
 
 import { resolveSkillBody } from "../extensions/skills.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { captureSkillUsed } from "../telemetry/product-events.js";
 
 // Lazy skill loading: names are listed in the system prompt; details come from
 // skill_search; this tool pulls the full instructions into context when the
@@ -50,10 +51,10 @@ export function createUseSkillTool(
       }
       const body = await resolveSkillBody(cwd, name, skillDirs);
       if (body === undefined) return `No skill named "${name}" is available.`;
-      // Skills are project- or plugin-authored, so the name is as identifying
-      // as any other user-written string and never leaves the process; the
-      // event records only that a skill was loaded.
-      telemetry.capture("skill_used");
+      // Skill names are project- or plugin-authored, so an unrecognised
+      // name never leaves the process: first-party `corbits-skills` names
+      // are reported by name, everything else as `custom`.
+      captureSkillUsed(telemetry, name);
       return `Skill "${name}" — follow these instructions for this task:\n\n${body}`;
     },
   });

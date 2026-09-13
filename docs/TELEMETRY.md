@@ -18,7 +18,7 @@ Each event carries a small set of properties:
 | `$ai_generation`     | Once per completed turn (may be sampled); always on turn failure                    | `$ai_trace_id`, `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_is_error`, `$ai_error`, `$ai_cache_read_input_tokens`, `$ai_cache_creation_input_tokens`, `$ai_reasoning_tokens`, `tool_call_count`, `tool_error_count`, `subagent_call_count` |
 | `$ai_span`           | Opt-in only — once per top-level tool call when `CORBITS_TELEMETRY_AI_SPANS` is set | `$ai_trace_id`, `$ai_span_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_is_error`                                                                                                                                                                                                          |
 | `slash_command`      | A slash command is dispatched (shared product-event path)                           | `command_name`                                                                                                                                                                                                                                                                           |
-| `skill_used`         | `use_skill` loads a skill that resolved                                             | (none beyond common properties)                                                                                                                                                                                                                                                          |
+| `skill_used`         | `use_skill` loads a skill that resolved                                             | `skill_name`                                                                                                                                                                                                                                                                             |
 | `plugin_loaded`      | First successful load of a plugin identity in this process                          | `origin`                                                                                                                                                                                                                                                                                 |
 | `subagent_start`     | A `spawn_agent` dispatch begins                                                     | `agent_name`                                                                                                                                                                                                                                                                             |
 | `subagent_end`       | A `spawn_agent` dispatch finishes                                                   | `agent_name`, `status`, `duration_ms`, `model`, `turn_count`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, `tool_call_count`, `tool_error_count`, `stop_reason`, `parent_trace_id`                                                    |
@@ -76,13 +76,27 @@ share of prompts driven by MCP stays visible without the server key coming
 with it. `agent_name` on `subagent_*` is the same pattern: first-party
 director ids from `DIRECTOR_IDS` (and the legacy `worker` alias) are reported
 by id; project-defined or marketplace profile ids become `custom`.
-`skill_used` and `plugin_loaded` go further: there is no first-party list of
-skills or plugins to match against, so `skill_used` carries no name at all and
-`plugin_loaded` carries only `origin`, the discovery tier (`repo`, `user`,
-`project`, `path`). Enabled telemetry reports the same plugin identity at most
-once per runtime reporter, including across reloads. Disabled/no-op loads do not
-consume that identity, so enabling telemetry later can report the first real
-load.
+`skill_used` carries `skill_name`: a first-party skill name reportable by
+name from the closed `corbits-skills` allowlist (`ast-grep`, `create-issue`,
+`git-rebase`, `git-worktrees`, `implement`, `interview`,
+`linear-issue-workflow`, `opsh`, `philosophy`, `plan`,
+`pull-request-review`, `refactor`, `review`, `scribe`, `style`,
+`typescript`), or `custom` for anything else. `user-invocable: false` opts a
+skill out of slash synthesis, not out of name reporting: eleven bundled
+skills carry the flag, and seven of them (`git-rebase`, `git-worktrees`,
+`linear-issue-workflow`, `opsh`, `philosophy`, `style`, `typescript`)
+remain real `use_skill` recipes, so they stay on the allowlist — the names
+are ours either way. Excluded are the four bake-only background skills
+(`idiot-proof`, `native-integration`, `native-runtime`, `ponytail`), which
+are baked into agent prompts rather than invoked as skills. Unknown,
+project-local, and plugin-authored skill names are never transmitted —
+`skill_name` is the only identifying-adjacent property the event can carry.
+`plugin_loaded` goes further: there is no first-party list of plugins to
+match against, so it carries only `origin`, the discovery tier (`repo`,
+`user`, `project`, `path`). Enabled telemetry reports the same plugin
+identity at most once per runtime reporter, including across reloads.
+Disabled/no-op loads do not consume that identity, so enabling telemetry later
+can report the first real load.
 
 `error_class` is bucketed the same way: only the error types defined by the
 language are reported by name, because an error subclass defined in
@@ -187,8 +201,10 @@ retry paths.
 - Prompts, model output, or any conversation content (except intentional
   free-text the operator types into `/feedback` — see below)
 - File paths, file contents, or repo/project names
-- Names anyone but this project chose: MCP servers, skills, plugins, agent
-  profiles, plugin-registered slash commands, error subclasses (see above)
+- Names anyone but this project chose: MCP servers, skills (other than
+  first-party `corbits-skills` names, which are sent by name per the table
+  above), plugins, agent profiles, plugin-registered slash commands, error
+  subclasses (see above)
 - Shell commands, tool arguments, or tool results
 - API keys, tokens, or any other credential
 - Anything not in the allowlist above

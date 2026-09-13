@@ -28,6 +28,7 @@ import {
   classifyAgentName,
   classifyErrorClass,
   classifyPermissionKind,
+  classifySkillName,
 } from "../../src/telemetry/classify.js";
 
 import {
@@ -37,6 +38,7 @@ import {
 } from "../../src/telemetry/index.js";
 import {
   buildSubagentEndProperties,
+  captureSkillUsed,
   captureSlashCommand,
   createPluginLoadReporter,
 } from "../../src/telemetry/product-events.js";
@@ -167,7 +169,7 @@ test("permission_prompt reports built-in tool ids by name", () => {
 // 2. skill_name — a project-local skill can be named after the employer
 // ---------------------------------------------------------------------------
 
-test("skill_used carries no skill name, so an employer-named skill cannot leak", async () => {
+test("skill_used buckets an employer-named skill to custom so it cannot leak", async () => {
   const { telemetry, wire, events } = harness();
   const cwd = await tempDir("corbits-skill-");
   const skillDir = join(cwd, ".agents", "skills", "acme-internal-deploy");
@@ -190,8 +192,79 @@ test("skill_used carries no skill name, so an employer-named skill cannot leak",
   expect(result).toContain("Deploy the internal service");
   const [event] = await events();
   expect(event?.event).toBe("skill_used");
-  expect(event?.properties.skill_name).toBeUndefined();
+  expect(event?.properties.skill_name).toBe("custom");
   expect(await wire()).not.toContain("acme-internal");
+});
+
+test("skill_used reports a first-party skill by name", async () => {
+  const { telemetry, events } = harness();
+  const cwd = await tempDir("corbits-skill-");
+  const skillDir = join(cwd, ".agents", "skills", "review");
+  await mkdir(skillDir, { recursive: true });
+  await writeFile(
+    join(skillDir, "SKILL.md"),
+    "---\nname: review\n---\n\nReview the branch.\n",
+  );
+
+  const tool = createUseSkillTool(cwd, [], telemetry);
+  if (tool.kind !== "string")
+    throw new Error(`expected string tool, got ${tool.kind}`);
+  const result = await tool.handler(
+    { name: "review" },
+    new AbortController().signal,
+  );
+
+  expect(result).toContain("Review the branch");
+  const [event] = await events();
+  expect(event?.event).toBe("skill_used");
+  expect(event?.properties.skill_name).toBe("review");
+});
+
+test("first-party skill names are reported by name; everything else stays custom", () => {
+  for (const name of [
+    "ast-grep",
+    "create-issue",
+    "git-rebase",
+    "git-worktrees",
+    "implement",
+    "interview",
+    "linear-issue-workflow",
+    "opsh",
+    "philosophy",
+    "plan",
+    "pull-request-review",
+    "refactor",
+    "review",
+    "scribe",
+    "style",
+    "typescript",
+  ]) {
+    expect(classifySkillName(name)).toBe(name);
+  }
+  expect(classifySkillName("acme-internal-deploy")).toBe("custom");
+  // Bundled catalog skills outside the closed allowlist are not reported by
+  // name either — the allowlist is the closed set, not the skills directory.
+  // All four bake-only background skills (user-invocable: false, baked into
+  // agent prompts rather than invoked as skills) stay custom, while the
+  // seven flagged-but-allowlisted use_skill-only recipes assert by name above.
+  expect(classifySkillName("idiot-proof")).toBe("custom");
+  expect(classifySkillName("native-integration")).toBe("custom");
+  expect(classifySkillName("native-runtime")).toBe("custom");
+  expect(classifySkillName("ponytail")).toBe("custom");
+  expect(classifySkillName("Review")).toBe("custom");
+  expect(classifySkillName("")).toBe("custom");
+});
+
+test('skill_used buckets a plugin-authored skill to "custom"', async () => {
+  const { telemetry, wire, events } = harness();
+
+  captureSkillUsed(telemetry, "acmecorp-deploy");
+  captureSkillUsed(telemetry, "plan");
+
+  const captured = await events();
+  expect(captured[0]?.properties.skill_name).toBe("custom");
+  expect(captured[1]?.properties.skill_name).toBe("plan");
+  expect(await wire()).not.toContain("acmecorp");
 });
 
 // ---------------------------------------------------------------------------
