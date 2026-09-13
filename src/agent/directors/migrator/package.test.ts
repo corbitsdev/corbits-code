@@ -13,7 +13,7 @@ describe("migratorPackage", () => {
 
   test("systemPrompt identity is the reversible-migration leaf", () => {
     const p = migratorPackage.systemPrompt;
-    expect(p).toContain("You are Migrator");
+    expect(p).toContain("You are MigratorDirector (Migrator)");
     expect(p).toMatch(/reversible-migration leaf/);
     expect(p).toContain("PRIMARY INTENT");
   });
