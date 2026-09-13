@@ -196,7 +196,7 @@ describe("director registry", () => {
     expect(s.tools?.allow).toContain("write_file");
     expect(s.tools?.allow).toContain("edit_file");
     expect(s.tools?.allow).toContain("delete_file");
-    expect(s.spawn.allowlist).toHaveLength(16);
+    expect(s.spawn.allowlist).toHaveLength(17);
   });
 
   // CL-6941: tier and spawn.maySpawn independently encode "may this package
