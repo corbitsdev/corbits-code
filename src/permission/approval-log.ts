@@ -133,7 +133,7 @@ export const NOOP_APPROVAL_LOG: ApprovalLog = {
 export function createApprovalLog(
   dir: string,
   now: () => Date = () => new Date(),
-): ApprovalLog {
+): ApprovalLog & { flush: () => Promise<void> } {
   const path = join(dir, APPROVAL_LOG_FILE);
   const log = getLogger(`${LOG_NAMESPACE_ROOT}:approval-log`);
   let tail: Promise<void> = Promise.resolve();
@@ -187,5 +187,9 @@ export function createApprovalLog(
         },
       };
     },
+    // Resolves once every append issued so far has settled. The decision
+    // path never awaits it; tests use it instead of a sleep to read the
+    // log deterministically.
+    flush: () => tail,
   };
 }

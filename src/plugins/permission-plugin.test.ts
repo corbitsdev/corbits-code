@@ -9,7 +9,11 @@ import {
   createApprovalLog,
 } from "../permission/approval-log.js";
 import { BLOCKED_BY_POLICY_PREFIX } from "../permission/decline-markers.js";
-import { createPermissionGate } from "../permission/gate.js";
+import {
+  createPermissionGate,
+  type PermissionGate,
+  type PermissionGateOptions,
+} from "../permission/gate.js";
 import { gateToolCall, permissionPlugin } from "./permission-plugin.js";
 
 function shellCall(command: string): ToolCall {
@@ -46,6 +50,32 @@ function readApprovalRecords(dir: string): Record<string, unknown>[] {
     .split("\n")
     .filter((l) => l.trim().length > 0)
     .map((l) => JSON.parse(l) as Record<string, unknown>);
+}
+
+// requestApproval for the reactor-gated tests: it must never be invoked.
+const refuseApproval = async () => {
+  throw new Error("requestApproval must not be invoked under reactor gating");
+};
+
+// Gate bound to a fresh approval log so a test can await the log's
+// fire-and-forget appends (log.flush) before reading the records file.
+function approvalGate(
+  dir: string,
+  cwd: string,
+  overrides: Partial<PermissionGateOptions> = {},
+): { gate: PermissionGate; log: ReturnType<typeof createApprovalLog> } {
+  const log = createApprovalLog(dir);
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: true,
+    skipPermissions: false,
+    reactorGated: true,
+    auto: true,
+    cwd,
+    approvalLog: log,
+    ...overrides,
+  });
+  return { gate, log };
 }
 
 describe("gateToolCall", () => {
@@ -157,19 +187,8 @@ describe("gateToolCall", () => {
   test("reactor-gated auto-allow records once across authorizeCall then gateToolCall", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
-    const gate = createPermissionGate({
-      approvals: [],
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: true,
-      auto: true,
-      cwd,
-      approvalLog: createApprovalLog(dir),
-      requestApproval: async () => {
-        throw new Error(
-          "requestApproval must not be invoked under reactor gating",
-        );
-      },
+    const { gate, log } = approvalGate(dir, cwd, {
+      requestApproval: refuseApproval,
     });
     const call: ToolCall = {
       id: "write-1",
@@ -187,7 +206,7 @@ describe("gateToolCall", () => {
     );
     expect(result.isError).not.toBe(true);
     expect(wasCalled()).toBe(true);
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(1);
     expect(records[0]?.outcome).toBe("auto-allow");
@@ -196,19 +215,8 @@ describe("gateToolCall", () => {
   test("reactor-gated auto-shell deny records once across authorizeCall then gateToolCall", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
-    const gate = createPermissionGate({
-      approvals: [],
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: true,
-      auto: true,
-      cwd,
-      approvalLog: createApprovalLog(dir),
-      requestApproval: async () => {
-        throw new Error(
-          "requestApproval must not be invoked under reactor gating",
-        );
-      },
+    const { gate, log } = approvalGate(dir, cwd, {
+      requestApproval: refuseApproval,
     });
     const call = shellCall("echo x | tee src/a.ts");
     const first = await gate.authorizeCall(call);
@@ -223,7 +231,7 @@ describe("gateToolCall", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(wasCalled()).toBe(false);
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(1);
     expect(records[0]?.outcome).toBe("auto-deny");
@@ -232,13 +240,9 @@ describe("gateToolCall", () => {
   test("reactor-gated headless deny records once across authorizeCall then gateToolCall", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
-    const gate = createPermissionGate({
-      approvals: [],
+    const { gate, log } = approvalGate(dir, cwd, {
       interactive: false,
-      skipPermissions: false,
-      reactorGated: true,
-      cwd,
-      approvalLog: createApprovalLog(dir),
+      auto: false,
     });
     const call = shellCall("curl https://example.com");
     const first = await gate.authorizeCall(call);
@@ -253,7 +257,7 @@ describe("gateToolCall", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(wasCalled()).toBe(false);
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(1);
     expect(records[0]?.outcome).toBe("deny");
@@ -262,19 +266,8 @@ describe("gateToolCall", () => {
   test("nested posix with reused call.id records each auto-allow", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
-    const gate = createPermissionGate({
-      approvals: [],
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: true,
-      auto: true,
-      cwd,
-      approvalLog: createApprovalLog(dir),
-      requestApproval: async () => {
-        throw new Error(
-          "requestApproval must not be invoked under reactor gating",
-        );
-      },
+    const { gate, log } = approvalGate(dir, cwd, {
+      requestApproval: refuseApproval,
     });
     const first: ToolCall = {
       id: "codex-proxy",
@@ -296,7 +289,7 @@ describe("gateToolCall", () => {
         .isError,
     ).not.toBe(true);
     expect(wasCalled()).toBe(true);
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(2);
     expect(records[0]?.outcome).toBe("auto-allow");
@@ -306,19 +299,8 @@ describe("gateToolCall", () => {
   test("nested posix with reused call.id records each auto-deny and blocks", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
-    const gate = createPermissionGate({
-      approvals: [],
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: true,
-      auto: true,
-      cwd,
-      approvalLog: createApprovalLog(dir),
-      requestApproval: async () => {
-        throw new Error(
-          "requestApproval must not be invoked under reactor gating",
-        );
-      },
+    const { gate, log } = approvalGate(dir, cwd, {
+      requestApproval: refuseApproval,
     });
     const first: ToolCall = {
       id: "codex-proxy",
@@ -348,7 +330,7 @@ describe("gateToolCall", () => {
     expect(firstResult.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(secondResult.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(run.wasCalled()).toBe(false);
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(2);
     expect(records[0]?.outcome).toBe("auto-deny");
@@ -358,19 +340,9 @@ describe("gateToolCall", () => {
   test("colliding reused call.id does not inherit allow onto a different tool", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
-    const gate = createPermissionGate({
+    const { gate, log } = approvalGate(dir, cwd, {
       approvals: [{ tool: "shell", pattern: "shell" }],
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: true,
-      auto: true,
-      cwd,
-      approvalLog: createApprovalLog(dir),
-      requestApproval: async () => {
-        throw new Error(
-          "requestApproval must not be invoked under reactor gating",
-        );
-      },
+      requestApproval: refuseApproval,
     });
     const outer: ToolCall = {
       id: "codex-proxy",
@@ -393,7 +365,7 @@ describe("gateToolCall", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(wasCalled()).toBe(false);
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(1);
     expect(records[0]?.outcome).toBe("auto-deny");
@@ -402,19 +374,9 @@ describe("gateToolCall", () => {
   test("colliding reused call.id does not inherit allow onto different args", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
-    const gate = createPermissionGate({
+    const { gate, log } = approvalGate(dir, cwd, {
       approvals: [{ tool: "run_shell", pattern: "echo hello" }],
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: true,
-      auto: true,
-      cwd,
-      approvalLog: createApprovalLog(dir),
-      requestApproval: async () => {
-        throw new Error(
-          "requestApproval must not be invoked under reactor gating",
-        );
-      },
+      requestApproval: refuseApproval,
     });
     const granted: ToolCall = {
       id: "codex-proxy",
@@ -437,7 +399,7 @@ describe("gateToolCall", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain(BLOCKED_BY_POLICY_PREFIX);
     expect(wasCalled()).toBe(false);
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(1);
     expect(records[0]?.outcome).toBe("auto-deny");
@@ -446,19 +408,8 @@ describe("gateToolCall", () => {
   test("authorizeCall apply_patch then nested posix with reused id each record", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
-    const gate = createPermissionGate({
-      approvals: [],
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: true,
-      auto: true,
-      cwd,
-      approvalLog: createApprovalLog(dir),
-      requestApproval: async () => {
-        throw new Error(
-          "requestApproval must not be invoked under reactor gating",
-        );
-      },
+    const { gate, log } = approvalGate(dir, cwd, {
+      requestApproval: refuseApproval,
     });
     const outer: ToolCall = {
       id: "apply-1",
@@ -488,7 +439,7 @@ describe("gateToolCall", () => {
         .isError,
     ).not.toBe(true);
     expect(wasCalled()).toBe(true);
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(3);
     expect(records.map((r) => r.outcome)).toEqual([
@@ -501,19 +452,8 @@ describe("gateToolCall", () => {
   test("leftover authorizeCall is cleared by reset so a later gateToolCall records", async () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
-    const gate = createPermissionGate({
-      approvals: [],
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: true,
-      auto: true,
-      cwd,
-      approvalLog: createApprovalLog(dir),
-      requestApproval: async () => {
-        throw new Error(
-          "requestApproval must not be invoked under reactor gating",
-        );
-      },
+    const { gate, log } = approvalGate(dir, cwd, {
+      requestApproval: refuseApproval,
     });
     const call: ToolCall = {
       id: "write-1",
@@ -531,7 +471,7 @@ describe("gateToolCall", () => {
     );
     expect(result.isError).not.toBe(true);
     expect(wasCalled()).toBe(true);
-    await new Promise((r) => setTimeout(r, 10));
+    await log.flush();
     const records = readApprovalRecords(dir);
     expect(records).toHaveLength(2);
     expect(records[0]?.outcome).toBe("auto-allow");
