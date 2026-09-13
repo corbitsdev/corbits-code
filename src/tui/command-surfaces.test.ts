@@ -23,6 +23,7 @@ import {
 import type { KeyEvent } from "@opentui/core";
 
 import { focusOwner } from "./focus/index.js";
+import { BUNDLED_PLUGIN_MARKER as BUNDLED_MARKER } from "../plugins/origin-marker.js";
 import { withTestRenderer, type Harness } from "./harness";
 import { projectPluginsRoot, userPluginsRoot } from "../plugins/uninstall.js";
 import { createAppShell } from "./shell/index";
@@ -109,7 +110,7 @@ describe("surface labels", () => {
       credentialValues: {},
       origin: "project",
     };
-    expect(pluginRowLabel(entry)).toBe("linear — untrusted");
+    expect(pluginRowLabel(entry)).toBe("linear — untrusted [project]");
     expect(
       pluginRowLabel({
         id: "b",
@@ -119,7 +120,7 @@ describe("surface labels", () => {
         credentialValues: {},
         origin: "user",
       }),
-    ).toBe("exa — enabled");
+    ).toBe("exa — enabled [user]");
   });
 
   test("mcp label reports disabled without a tool count", () => {
@@ -141,7 +142,24 @@ describe("surface labels", () => {
           'agent a: skill "style" referenced but not found in skill search path',
         ],
       }),
-    ).toBe("agents — enabled — has warnings");
+    ).toBe("agents — enabled — has warnings [user]");
+  });
+
+  test("plugin label marks bundled and non-bundled origins differently", () => {
+    const entry = (origin: PluginEntry["origin"], name = "repo-plugin") =>
+      pluginRowLabel({
+        id: name,
+        name,
+        enabled: true,
+        credentials: [],
+        credentialValues: {},
+        origin,
+      });
+    expect(entry("repo")).toBe(`repo-plugin — enabled ${BUNDLED_MARKER}`);
+    expect(entry("user", "market-plugin")).toBe(
+      "market-plugin — enabled [user]",
+    );
+    expect(entry("path", "local-plugin")).toBe("local-plugin — enabled [path]");
   });
 });
 
@@ -411,6 +429,39 @@ describe("plugins surface", () => {
       await Promise.resolve();
       expect(state.get("linear")).toBe(true);
       expect(shell.overlayItems[0]).toBe("linear — enabled");
+    });
+  });
+
+  test("marks bundled rows with the mountain and other origins by label", async () => {
+    await withShell(async (shell) => {
+      const deps: CommandSurfaceDeps = {
+        notify: () => undefined,
+        plugins: {
+          list: () => [
+            {
+              id: "bundled",
+              name: "bundled",
+              enabled: true,
+              credentials: [],
+              credentialValues: {},
+              origin: "repo",
+            },
+            {
+              id: "market",
+              name: "market",
+              enabled: true,
+              credentials: [],
+              credentialValues: {},
+              origin: "user",
+            },
+          ],
+        } as unknown as PluginsSurfaceDeps,
+      };
+      openCommandSurface(shell, "plugins", deps);
+      expect(shell.overlayItems.slice(0, 2)).toEqual([
+        `bundled — enabled ${BUNDLED_MARKER}`,
+        "market — enabled [user]",
+      ]);
     });
   });
 });

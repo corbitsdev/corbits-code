@@ -274,6 +274,40 @@ describe("registerCommandPlugin", () => {
       "built-in",
     );
   });
+
+  it("surfaces the winning candidate's plugin origin via listCommands", () => {
+    registerCommandPlugin(
+      {
+        commands: [
+          {
+            name: "origin-marked-cmd",
+            description: "bundled",
+            handler: () => ({ type: "noop" }),
+          },
+        ],
+      },
+      () => true,
+      "repo",
+    );
+    registerCommandPlugin({
+      commands: [
+        {
+          name: "unmarked-plugin-cmd",
+          description: "no origin",
+          handler: () => ({ type: "noop" }),
+        },
+      ],
+    });
+
+    expect(
+      listCommands().find((command) => command.name === "origin-marked-cmd")
+        ?.pluginOrigin,
+    ).toBe("repo");
+    expect(
+      listCommands().find((command) => command.name === "unmarked-plugin-cmd")
+        ?.pluginOrigin,
+    ).toBeUndefined();
+  });
 });
 
 describe("setHiddenCommands", () => {
