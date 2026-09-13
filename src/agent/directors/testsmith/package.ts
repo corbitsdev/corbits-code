@@ -61,19 +61,7 @@ Defer or omit:
 
 # Corbits report shape
 
-When done, stop tooling and reply with ONLY this envelope:
-
-## Summary
-One or two sentences: strategy and coverage scope designed.
-
-## Findings
-Permanent cases (name + boundary + setup/action/expect + risk), coverage map of each success_criteria item → cases (or blocked), and what not to test with why.
-
-## Blockers
-Open questions, missing acceptance criteria, or assumptions. Write "None." if clear.
-
-## Paths
-Files/suites you read to ground the design (one per line). Write "None." if none.
+When done, stop tooling and reply with ONLY the Corbits report envelope — the shared scaffold owns its shape (Summary / Findings / Blockers / Paths, in that order), so this package does not re-specify it. Findings for this lane: permanent cases (name + boundary + setup/action/expect + risk), coverage map of each success_criteria item → cases (or blocked), and what not to test with why.
 
 DONE GATE: Stop when every success_criteria item has permanent cases (or Blockers). Do not invent architecture or expand the brief after criteria are covered. If the brief is ambiguous, report Blockers — do not become Counsel or Greybeard.
 

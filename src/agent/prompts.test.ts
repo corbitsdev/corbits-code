@@ -2,8 +2,11 @@ import { describe, expect, it } from "bun:test";
 import {
   buildChatSystemPrompt,
   buildGrokLeafAntiThrashNote,
+  buildGuidelines,
   buildPromptDisciplineBlock,
   buildSubAgentSystemPrompt,
+  GUIDELINE_SUB_BLOCK_IDS,
+  KEEPSTYLE_PROMPT_SECTION_OMIT,
 } from "./prompts.js";
 import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
 
@@ -137,6 +140,91 @@ describe("sub-agent report contract", () => {
     expect(prompt).not.toContain("omit empty sections");
     expect(prompt).toMatch(/emit all four headings/);
     expect(prompt).toContain('"None."');
+  });
+
+  it("emits the four-heading envelope exactly once (scaffold owns the shape)", () => {
+    const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      grokAntiThrash: false,
+    });
+    for (const heading of [
+      "## Summary",
+      "## Findings",
+      "## Blockers",
+      "## Paths",
+    ]) {
+      expect(countOccurrences(prompt, heading)).toBe(1);
+    }
+  });
+});
+
+describe("guideline sub-block omit policy (CL-7654)", () => {
+  it("exposes the keepstyle set as ids", () => {
+    expect([...GUIDELINE_SUB_BLOCK_IDS]).toEqual([
+      "responseStyle",
+      "toolChoice",
+      "askVsProceed",
+      "scopeConventions",
+      "orchestration",
+    ]);
+  });
+
+  it("keeps the full guidelines by default", () => {
+    const guidelines = buildGuidelines({});
+    for (const marker of [
+      "Response style:",
+      "Tool choice:",
+      "Ask vs proceed:",
+      "Scope and conventions:",
+      "Orchestration:",
+    ]) {
+      expect(guidelines).toContain(marker);
+    }
+  });
+
+  it("keepstyle omit keeps response style, drops tool-choice / ask-vs-proceed / orchestration", () => {
+    expect([...KEEPSTYLE_PROMPT_SECTION_OMIT].sort()).toEqual([
+      "askVsProceed",
+      "orchestration",
+      "toolChoice",
+    ]);
+    const guidelines = buildGuidelines({ omit: KEEPSTYLE_PROMPT_SECTION_OMIT });
+    expect(guidelines).toContain("Response style:");
+    expect(guidelines).toContain("Scope and conventions:");
+    expect(guidelines).not.toContain("Tool choice:");
+    expect(guidelines).not.toContain("Ask vs proceed:");
+    expect(guidelines).not.toContain("Orchestration:");
+  });
+
+  it("ignores unknown omit ids", () => {
+    const guidelines = buildGuidelines({ omit: ["no-such-block"] });
+    expect(guidelines).toContain("Response style:");
+    expect(guidelines).toContain("Tool choice:");
+    expect(guidelines).toContain("Orchestration:");
+  });
+
+  it("threads guidelineConfig through the chat system prompt", () => {
+    const full = buildChatSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      [],
+      "orchestrator",
+    );
+    expect(full).toContain("Tool choice:");
+    expect(full).toContain("Orchestration:");
+    const keepstyle = buildChatSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      [],
+      "orchestrator",
+      undefined,
+      { omit: KEEPSTYLE_PROMPT_SECTION_OMIT },
+    );
+    expect(keepstyle).toContain("Response style:");
+    expect(keepstyle).not.toContain("Tool choice:");
+    expect(keepstyle).not.toContain("Orchestration:");
   });
 });
 

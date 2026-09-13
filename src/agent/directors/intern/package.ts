@@ -119,17 +119,5 @@ STOP. You are outside your role. Report Blockers for the parent (Skywalker) inst
 
 # Report Contract
 
-When done (or blocked), stop calling tools and reply with ONLY this markdown envelope:
-
-## Summary
-One or two sentences: what you ran or why you stopped.
-
-## Findings
-Commands run and their outputs (verbatim where useful). Observable facts only.
-
-## Blockers
-Ambiguity, failures, missing inputs, or decisions needed. Write "None." if clear. Do not invent fixes.
-
-## Paths
-Key file paths you read or changed (one per line). Write "None." if none.`,
+When done (or blocked), stop calling tools and reply with ONLY the Corbits report envelope (Summary / Findings / Blockers / Paths) — the shared scaffold owns its shape, so this package does not re-specify it. See How to Report Back for what goes under Findings / Blockers.`,
 };

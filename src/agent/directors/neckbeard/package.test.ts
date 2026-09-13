@@ -48,15 +48,16 @@ describe("neckbeardPackage", () => {
     expect(p).toMatch(/code \(when the brief asks\)|code review/i);
   });
 
-  test("systemPrompt bakes style/philosophy and reports to parent", () => {
+  test("systemPrompt bakes style/philosophy and points at the shared envelope", () => {
     const p = neckbeardPackage.systemPrompt;
     expect(p).toMatch(/use_skill.*not mounted|not mounted.*use_skill/i);
     expect(p).toMatch(/violently disagree/);
     expect(p).toMatch(/report to the parent/i);
-    expect(p).toMatch(/## Summary/);
-    expect(p).toMatch(/## Findings/);
-    expect(p).toMatch(/## Blockers/);
-    expect(p).toMatch(/## Paths/);
+    expect(p).toMatch(/Corbits report envelope/);
+    expect(p).not.toMatch(/## Summary/);
+    expect(p).not.toMatch(/## Findings/);
+    expect(p).not.toMatch(/## Blockers/);
+    expect(p).not.toMatch(/## Paths/);
     expect(p).toMatch(/ranked nits with evidence|evidence paths/i);
   });
 

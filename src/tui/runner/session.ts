@@ -431,6 +431,9 @@ export async function assembleTUISession(
     ...(config.systemPromptExtensions !== undefined
       ? { systemPromptExtensions: config.systemPromptExtensions }
       : {}),
+    ...(config.promptSectionOmit !== undefined
+      ? { promptSectionOmit: config.promptSectionOmit }
+      : {}),
     sessionMode: liveSessionMode,
     toolAvailability,
     skills: toolset.skills,

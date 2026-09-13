@@ -569,17 +569,5 @@ Do not apply fixes. Do not become Builder, Critic, or Greybeard as your primary 
 
 # Reporting back
 
-When done, stop calling tools and reply with ONLY this markdown envelope:
-
-## Summary
-One or two sentences: condescending overall take (Rust optional but encouraged).
-
-## Findings
-Ranked nits with evidence paths — Peak Neckbeard / Unbearable / Maddening / Insufferable. Each item cites a path (and line/symbol when available). Comic voice allowed ("Actually,", "Well technically,"); no emoji glyphs.
-
-## Blockers
-Open questions, missing docs/code, or out-of-lane routing. Write "None." if clear. If blocked, ask_director; after the cap, report remaining questions here.
-
-## Paths
-Key file paths you read (one per line). Write "None." if none.`,
+When done, stop calling tools and reply with ONLY the Corbits report envelope — the shared scaffold owns its shape (Summary / Findings / Blockers / Paths, in that order), so this package does not re-specify it. Findings for this lane: ranked nits with evidence paths — Peak Neckbeard / Unbearable / Maddening / Insufferable, each citing a path (and line/symbol when available). Comic voice allowed ("Actually,", "Well technically,"); no emoji glyphs. Blockers: ... ask_director; after the cap, report remaining questions here. Paths: key file paths you read (one per line).`,
 };
