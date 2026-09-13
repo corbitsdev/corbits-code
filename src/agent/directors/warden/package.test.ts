@@ -82,7 +82,10 @@ describe("wardenPackage", () => {
   test("tools.allow is review surface with product writes", () => {
     const allow = wardenPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
-    expect(allow).not.toContain("use_skill");
+    // Skill tools ride REVIEW_TOOLS via READ_TOOLS (scoped at mount to
+    // optionalSkills) so warden loads its skills on demand like critic.
+    expect(allow).toContain("skill_search");
+    expect(allow).toContain("use_skill");
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
     expect(allow).toContain("delete_file");
