@@ -1132,6 +1132,19 @@ export async function loadConfig(
 // provider connect (mid-session, no restart) can rebuild the picker's
 // catalog after writing new credentials, instead of only taking effect on
 // the next process start.
+//
+// Credential-removal convergence (CL-5446) is rebuild-only: every rebuild
+// derives rows from the current settings file plus the live Codex/xAI
+// stores, so a provider without a credential is rebuilt without one and
+// re-auth restores it on the next rebuild. Manual rows are never deleted —
+// settings-file providers are re-projected verbatim — which is the
+// disable-not-delete rationale: nothing the operator wrote is lost, and
+// nothing stale survives past the next rebuild. A dedicated disabled flag
+// was rejected: no such state exists on the catalog entry, the picker
+// option, or the host boundary, and no removal event drives a refresh
+// (there is no logout/disconnect surface or auth-store watcher; refresh
+// runs on connect, prefetch, and startup), so removal takes effect on the
+// next rebuild, not live.
 function mergeOAuthCatalog(
   settings: Settings | null,
   resolved: ResolvedProvider,
