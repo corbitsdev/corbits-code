@@ -177,6 +177,7 @@ describe("skywalkerPackage", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("incomplete-report");
     expect(p).toContain("MAY `spawn_agent` **one** successor");
+    expect(p).toContain("Cap is one successor for that stall");
     expect(p).toContain("changed** brief");
     expect(p).toContain("wait for the operator");
     expect(p).toContain("Do not auto-retry");
