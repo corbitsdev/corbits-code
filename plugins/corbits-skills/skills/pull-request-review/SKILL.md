@@ -126,16 +126,29 @@ glab mr view --output json | jq -r '.target_branch'
 git branch -r | grep -E 'origin/(main|master)$' | head -1 | sed 's/.*origin\///'
 ```
 
-### Step 8: Load Code Review Skill
+### Step 8: Load Review Quality Rules Only
 
-Load and follow the `code-review` skill to perform the actual review. The code-review skill provides guidance on:
+Load the `review` skill for quality rules only — signal over noise,
+cite the check, comment tone and body. Skip its classify and fleet
+dispatch: this skill already owns the target (this PR) and the fleet
+(the surface pass below).
 
-- Scope determination using git diff
-- Handling pre-existing code
-- Convention compliance
-- Test coverage philosophy
-- Signal over noise (avoiding unactionable findings)
-- Review checklist
+### Step 9: Surface Pass
+
+Run a surface pass on the diff: Critic on the diff plus at most one
+extra lens. Do not dispatch a wider fleet.
+
+### Step 10: Post the Review on GitHub
+
+Post the findings on the pull request:
+
+```bash
+# For GitHub PRs
+gh pr review <number> --comment --body "<review body>"
+
+# Or leave a plain comment
+gh pr comment <number> --body "<review body>"
+```
 
 ## Cleanup
 

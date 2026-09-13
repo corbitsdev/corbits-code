@@ -7,6 +7,28 @@ description: Perform a code review or pull request review on a branch
 
 Use this skill when performing code reviews or pull request reviews.
 
+## Classify, Then Dispatch a Selected Fleet
+
+First classify the review target, then dispatch only the fleet the
+target warrants. Do not fan out a default wide fleet.
+
+Classify the review target as one of:
+
+- Diff: a branch, PR, path, or post-PR work.
+- Topic: an architecture or approach question.
+- Interview: only when the review object or base is genuinely missing.
+  Never run interview as ritual.
+
+Then dispatch a selected fleet with `spawn_agent`, one target per wave:
+
+- Critic always.
+- Greybeard when architecture, API, or approach is at stake.
+- Draper, Emil, Gaasbot, Bruckheimer, or Neckbeard only when the
+  touched files warrant that lens.
+
+When the target is a PR, read the PR tree (fetch the PR branch into a
+worktree) — never review the local checkout as a stand-in for the PR.
+
 ## Base Branch Determination
 
 Before reviewing, you must determine the correct base branch. Use these methods
