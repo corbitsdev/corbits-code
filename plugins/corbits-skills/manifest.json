@@ -3,5 +3,5 @@
   "name": "Corbits Skills",
   "kind": "command",
   "defaultEnabled": true,
-  "description": "Default operator skills and slash commands (implement, refactor, review, pull-request-review, create-issue, scribe, interview, ast-grep, plan)."
+  "description": "Default operator skills and slash commands (implement, refactor, review, pull-request-review, create-issue, scribe, interview, ast-grep, plan, lexicon)."
 }
