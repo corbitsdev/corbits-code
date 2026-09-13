@@ -64,13 +64,14 @@ describe("builderPackage", () => {
     expect(p).toContain("`/implement` does not steal planning from `/plan`");
   });
 
-  test("systemPrompt requires baked core constraints and Ponytail prerequisites", () => {
+  test("systemPrompt requires core constraints and Ponytail prerequisites", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toContain("Prerequisites");
     expect(p).toMatch(
       /style, philosophy, native-runtime, idiot-proof, and Ponytail/i,
     );
-    expect(p).toMatch(/use_skill is not mounted/i);
+    expect(p).toMatch(/load each with skill_search \+ use_skill/i);
+    expect(p).not.toMatch(/use_skill is not mounted/i);
     expect(p).toMatch(
       /including their TypeScript conventions when TypeScript is the task surface/i,
     );

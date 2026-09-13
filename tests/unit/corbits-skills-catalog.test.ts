@@ -46,7 +46,7 @@ const USE_SKILL_ONLY = [
 /** Background libs: absent from slash and use_skill listing; explicit resolve only. */
 const BACKGROUND_ONLY = ["git-worktrees"] as const;
 
-/** Bake source only: no slash, no use_skill listing; workers load via bake-skills. */
+/** Hidden from listing: no slash, no skill_search description; workers load by exact name via use_skill. */
 const BAKE_ONLY = ["idiot-proof", "native-runtime"] as const;
 
 const SLASH_SKILLS = [

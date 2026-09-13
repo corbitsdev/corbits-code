@@ -61,7 +61,7 @@ API contract check (blocking when brief specifies signatures):
 - Prefer reading tests/callers; a tiny sync call that would hang on a Promise is evidence.
 - Rank these as blocking, not style nits.
 
-Before substantial review work: follow style, philosophy, native-integration, and idiot-proof (baked; use_skill is not mounted). Read the code under review.
+Before substantial review work: follow style, philosophy, native-integration, and idiot-proof — load each with skill_search + use_skill only when the brief needs it. Read the code under review.
 
 OUT OF LANE → refuse or reclassify under Blockers:
 - implementing fixes (route to builder)

@@ -1,24 +1,30 @@
 import type { DirectorPackage } from "./types.js";
 import type { ModelRole } from "./types.js";
 import type { ReasoningEffort } from "../../provider/reasoning-effort.js";
-import { formatBakedOptionalSkills } from "./bake-skills.js";
 
 /**
  * Prefix every director system prompt with a stable identity block so the model
  * always sees agent id, model role, and optional skills — no ambiguity about which
  * package it is or how the parent should re-spawn it.
  *
- * Workers (non-orchestrator): bake first-party optionalSkills bodies (CL-6803)
- * and only advertise that bake when at least one body resolved. Primary
- * orchestrator (skywalker): use_skill is mounted — list skill names only; do
- * not bake huge interview bodies or claim use_skill is unmounted.
+ * Skill bodies are never baked here. Workers (non-orchestrator) list skill
+ * names only and load bodies on demand with skill_search + use_skill, scoped
+ * to the dispatch's optionalSkills. Primary orchestrator (skywalker):
+ * use_skill is mounted — list skill names only.
  */
+/**
+ * Worker skill-use rule: skills mount on every worker (scoped to the
+ * dispatch's optionalSkills), so the worker searches only when the brief
+ * names a skill or the task leaves its lane.
+ */
+export const WORKER_SKILL_SCOPING =
+  "Skills are available; search only when the brief names a skill or the task is outside your lane. For a small, bounded edit, do not search skills.";
+
 export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
   const names = pkg.optionalSkills;
   const isPrimaryOrchestrator = pkg.tier === "orchestrator";
 
   let skillsLine: string | null = null;
-  let baked = "";
 
   if (names === undefined) {
     skillsLine = null;
@@ -27,19 +33,24 @@ export function formatDirectorSystemPrompt(pkg: DirectorPackage): string {
   } else if (isPrimaryOrchestrator) {
     skillsLine = `Optional skills (names for awareness; use_skill is primary-mounted): ${names.join(", ")}.`;
   } else {
-    baked = formatBakedOptionalSkills(names);
-    skillsLine =
-      baked.length > 0
-        ? `Optional skills (names for awareness; guidance is baked into this prompt — use_skill is not mounted on workers): ${names.join(", ")}.`
-        : `Optional skills (names for awareness — use_skill is not mounted on workers): ${names.join(", ")}.`;
+    skillsLine = `Optional skills (names for awareness; load with skill_search then use_skill): ${names.join(", ")}.`;
   }
+
+  // Worker skill scoping (CL-7668): skills mount on every worker, so search
+  // only when the brief or the lane calls for it — never bulk-load.
+  const skillGuidance =
+    names !== undefined && names.length > 0 && !isPrimaryOrchestrator
+      ? `${WORKER_SKILL_SCOPING} Call skill_search for descriptions, then use_skill with the skill name; load only the skills the task needs.`
+      : null;
 
   const header = [
     `Identity: agent id \`${pkg.id}\` — spawn as spawn_agent(agent="${pkg.id}").`,
     `Model role: ${pkg.modelRole}.`,
     ...(skillsLine !== null ? [skillsLine] : []),
   ].join("\n");
-  return `${header}\n\n${pkg.systemPrompt}${baked}`;
+  return skillGuidance === null
+    ? `${header}\n\n${pkg.systemPrompt}`
+    : `${header}\n\n${skillGuidance}\n\n${pkg.systemPrompt}`;
 }
 
 /**

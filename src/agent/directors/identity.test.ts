@@ -1,19 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import {
   MODEL_ROLE_DEFAULT_EFFORT,
+  WORKER_SKILL_SCOPING,
   defaultEffortForDirector,
   formatDirectorSystemPrompt,
 } from "./identity.js";
 import { DIRECTOR_REGISTRY } from "./registry.js";
-
-function stripFrontmatter(raw: string): string {
-  if (!raw.startsWith("---")) return raw.trim();
-  const end = raw.indexOf("\n---", 3);
-  if (end === -1) return raw.trim();
-  return raw.slice(end + 4).trim();
-}
 
 describe("formatDirectorSystemPrompt", () => {
   test("prefixes agent id, model role, and optional skills", () => {
@@ -32,84 +24,20 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("Optional skills: none by default");
   });
 
-  test("bakes real compact Builder skill bodies without broad native-integration or typescript", () => {
+  test("worker lists skill names with the scoping rule and no bodies", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
-    const style = stripFrontmatter(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../../../plugins/corbits-skills/skills/style/SKILL.md",
-        ),
-        "utf8",
-      ),
+    expect(text).not.toContain("# Baked skill guidance");
+    expect(text).toContain(
+      "Optional skills (names for awareness; load with skill_search then use_skill): style, philosophy, native-runtime, idiot-proof, ponytail.",
     );
-    const philosophy = stripFrontmatter(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../../../plugins/corbits-skills/skills/philosophy/SKILL.md",
-        ),
-        "utf8",
-      ),
+    expect(text).toContain(WORKER_SKILL_SCOPING);
+    expect(text).toContain(
+      "Skills are available; search only when the brief names a skill or the task is outside your lane. For a small, bounded edit, do not search skills.",
     );
-    const nativeRuntime = stripFrontmatter(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../../../plugins/corbits-skills/skills/native-runtime/SKILL.md",
-        ),
-        "utf8",
-      ),
+    expect(text).toContain(
+      "Call skill_search for descriptions, then use_skill",
     );
-    const idiotProof = stripFrontmatter(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../../../plugins/corbits-skills/skills/idiot-proof/SKILL.md",
-        ),
-        "utf8",
-      ),
-    );
-    const ponytail = stripFrontmatter(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../../../plugins/corbits-skills/skills/ponytail/SKILL.md",
-        ),
-        "utf8",
-      ),
-    );
-    const nativeIntegration = stripFrontmatter(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../../../plugins/corbits-skills/skills/native-integration/SKILL.md",
-        ),
-        "utf8",
-      ),
-    );
-    const typescript = stripFrontmatter(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../../../plugins/corbits-skills/skills/typescript/SKILL.md",
-        ),
-        "utf8",
-      ),
-    );
-    expect(text).toContain("# Baked skill guidance");
-    expect(text).toContain("### ponytail");
-    expect(text).toContain("### native-runtime");
-    expect(text).toContain(style);
-    expect(text).toContain(philosophy);
-    expect(text).toContain(nativeRuntime);
-    expect(text).toContain(idiotProof);
-    expect(text).toContain(ponytail);
-    expect(text).toContain("Default to `lite`");
-    expect(text).not.toContain(nativeIntegration);
-    expect(text).not.toContain(typescript);
-    expect(text).not.toContain("### native-integration");
-    expect(text).not.toContain("### typescript");
+    expect(text).toContain("load only the skills the task needs");
   });
 
   test("skywalker does not bake Ponytail", () => {
@@ -125,17 +53,16 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).not.toContain("# Baked skill guidance");
   });
 
-  test("does not advertise bake when no skill bodies resolve (total miss)", () => {
+  test("lists names with the scoping rule even when no bodies would resolve", () => {
     const text = formatDirectorSystemPrompt({
       ...DIRECTOR_REGISTRY.builder,
       optionalSkills: ["does-not-exist-xyz"],
     });
     expect(text).not.toContain("# Baked skill guidance");
-    expect(text).not.toMatch(/guidance is baked/i);
     expect(text).toContain(
-      "Optional skills (names for awareness — use_skill is not mounted on workers)",
+      "Optional skills (names for awareness; load with skill_search then use_skill): does-not-exist-xyz.",
     );
-    expect(text).toContain("does-not-exist-xyz");
+    expect(text).toContain(WORKER_SKILL_SCOPING);
   });
 
   test("skywalker does not bake skills or claim use_skill unmounted", () => {
@@ -147,30 +74,21 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("style, philosophy, native-integration, interview");
   });
 
-  test("counsel does not bake interview ask_operator guidance (CL-6803)", () => {
+  test("counsel lists skill names with the scoping rule and no bodies (CL-6803)", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.counsel);
-    const interview = stripFrontmatter(
-      readFileSync(
-        join(
-          import.meta.dirname,
-          "../../../plugins/corbits-skills/skills/interview/SKILL.md",
-        ),
-        "utf8",
-      ),
-    );
     expect(DIRECTOR_REGISTRY.counsel.optionalSkills).toEqual([
       "style",
       "philosophy",
       "native-integration",
     ]);
-    expect(text).not.toContain(interview);
+    expect(text).not.toContain("# Baked skill guidance");
     expect(text).not.toContain("### interview");
     // interview recipe centers on ask_operator batches; counsel must not embed it
     expect(text).not.toMatch(
       /multiple-choice questions in batches via `ask_operator`/,
     );
     expect(text).toContain("style, philosophy");
-    expect(text).toContain("# Baked skill guidance");
+    expect(text).toContain(WORKER_SKILL_SCOPING);
   });
 });
 

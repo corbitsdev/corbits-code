@@ -48,9 +48,10 @@ describe("neckbeardPackage", () => {
     expect(p).toMatch(/code \(when the brief asks\)|code review/i);
   });
 
-  test("systemPrompt bakes style/philosophy and points at the shared envelope", () => {
+  test("systemPrompt loads style/philosophy on demand and reports to parent", () => {
     const p = neckbeardPackage.systemPrompt;
-    expect(p).toMatch(/use_skill.*not mounted|not mounted.*use_skill/i);
+    expect(p).toMatch(/skill_search.*use_skill|use_skill.*skill_search/i);
+    expect(p).not.toMatch(/use_skill.*not mounted|not mounted.*use_skill/i);
     expect(p).toMatch(/violently disagree/);
     expect(p).toMatch(/report to the parent/i);
     expect(p).toMatch(/Corbits report envelope/);

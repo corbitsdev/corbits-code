@@ -24,11 +24,7 @@ export {
 
 export {
   MODEL_ROLE_DEFAULT_EFFORT,
+  WORKER_SKILL_SCOPING,
   defaultEffortForDirector,
   formatDirectorSystemPrompt,
 } from "./identity.js";
-
-export {
-  formatBakedOptionalSkills,
-  loadBakedSkillBody,
-} from "./bake-skills.js";
