@@ -34,7 +34,7 @@ The evidence is in how the product fails today: the personas already produce exc
 
 ## Key Value Propositions
 
-1. **Deterministic progress** — Every turn must produce a tool call. No idle thinking; the director aborts a stalled run rather than spinning.
+1. **Deterministic progress** — Primary chat is multi-turn and text-only turns are legal; sub-agent workers complete on a tool-less turn plus the report envelope. Loop protection is a wrap-up nudge after a long tool-only streak, not a hard abort for missing tool calls.
 2. **Task tracking** — The agent can maintain a `manage_tasks` checklist for multi-step work; non-interactive `submit_output` is blocked while checklist items remain open. (A "task" here is a work item, not a child agent — spawning uses the separate `spawn_agent` fleet-agent surface.)
 3. **Stall detection** — The director detects idle cycles and intervenes.
 4. **Safe by default** — Consequential actions (writes, edits, shell) pass a permission gate; secret files and catastrophic commands are denied outright, regardless of intent.
@@ -123,11 +123,11 @@ Config-driven `postTurn` and `postRun` hooks (TypeScript or shell) run automatic
 
 ### Stall (tool-only turns with no narration)
 
-**What the user sees:** The agent runs several turns in a row that are all tool calls with no explanation of what it's doing. After a one-shot nudge to explain itself, if the pattern continues the session **auto-pauses**: it stops issuing new inferences and replies with "Auto-paused: the model ran N steps in a row without explaining its progress. Send a message to resume." The session is not aborted — sending any message resumes it.
+**What the user sees:** The agent runs several turns in a row that are all tool calls with no explanation of what it's doing. After a configured number of such turns the director injects a one-shot wrap-up nudge asking for an explanation — a check-in, not a stop. There is no automated stop or pause: the session keeps running until the operator intervenes.
 
-The exact turn thresholds are model-family-dependent (tighter for models with observed runaway tool-only behavior); see "Main-session loop protection" in `docs/ARCHITECTURE.md`.
+The exact turn threshold is model-family-dependent (tighter for models with observed runaway tool-only behavior); see "Main-session loop protection" in `docs/ARCHITECTURE.md`.
 
-**Recovery:** Send a message to resume. To inspect state first, see `~/.corbits/projects/<project-key>/<session-id>/run.json` (or a legacy in-repo `.agent-state/` tree if not yet migrated).
+**Recovery:** Nothing to recover — the session never pauses. To redirect it, send a message (steer) or interrupt. To inspect state, see `~/.corbits/projects/<project-key>/<session-id>/run.json` (or a legacy in-repo `.agent-state/` tree if not yet migrated).
 
 ### Permission denied (exec)
 
