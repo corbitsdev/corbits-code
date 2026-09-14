@@ -43,6 +43,12 @@ async function withHost(
     home: string,
   ) => void | Promise<void>,
   onChange?: () => void,
+  // Overrides the director seam: defaults to a tracking director, pass
+  // () => undefined (not yet built) or () => ({}) (no workflow support) to
+  // exercise graceful degradation.
+  getDirector?: () =>
+    | { setWorkflowCoordinator?: (c: WorkflowCoordinator | undefined) => void }
+    | undefined,
 ): Promise<void> {
   const cwd = await mkdtemp(join(tmpdir(), "wf-host-"));
   const home = await mkdtemp(join(tmpdir(), "wf-host-home-"));
@@ -54,11 +60,13 @@ async function withHost(
     cwd,
     getSessionId: () => "session-1",
     getToolDefinitions: () => tools,
-    getDirector: () => ({
-      setWorkflowCoordinator: (c) => {
-        director.coordinator = c;
-      },
-    }),
+    getDirector:
+      getDirector ??
+      (() => ({
+        setWorkflowCoordinator: (c) => {
+          director.coordinator = c;
+        },
+      })),
     home,
     ...(onChange !== undefined ? { onChange } : {}),
   });
@@ -200,4 +208,44 @@ test("resume() restores an on-disk workflow snapshot for the session", async () 
     expect(host.status().name).toBe("review");
     expect(director.coordinator).toBeInstanceOf(WorkflowCoordinator);
   });
+});
+
+test("host degrades gracefully when no director is built yet", async () => {
+  await withHost(
+    [],
+    async (host) => {
+      expect(host.start("review")).toBe("Started review workflow.");
+      expect(host.isActive()).toBe(true);
+      host.reattach();
+      expect(host.isActive()).toBe(true);
+      host.reset();
+      expect(host.isActive()).toBe(false);
+    },
+    undefined,
+    () => undefined,
+  );
+});
+
+test("host degrades gracefully against a director without workflow support", async () => {
+  await withHost(
+    [],
+    async (host, _director, cwd, home) => {
+      const workflow = findWorkflow("review");
+      expect(workflow).toBeDefined();
+      const runtime = new WorkflowRuntime(new Map());
+      runtime.start(defined(workflow, "workflow"));
+      await saveWorkflowState(cwd, "session-1", runtime.state(), home);
+
+      await host.resume();
+      expect(host.isActive()).toBe(true);
+      host.reattach();
+      expect(host.isActive()).toBe(true);
+      expect(host.start("build")).toContain("again to replace");
+      expect(host.start("build")).toBe("Started build workflow.");
+      host.reset();
+      expect(host.isActive()).toBe(false);
+    },
+    undefined,
+    () => ({}),
+  );
 });

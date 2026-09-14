@@ -619,8 +619,9 @@ export async function assembleTUISession(
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
     onTasksChange: (tasks) => emitter.emit("tasks", tasks),
-    // CL-7918: static idle-with-fleet allowance (fleet lanes may appear
-    // mid-session); retry stamping tracks the live source id in-reactor now.
+    // CL-7918 seed for the idle-with-fleet allowance (fleet lanes may appear
+    // mid-session; CL-7972 keeps it live via the fleet-wake publisher);
+    // retry stamping tracks the live source id in-reactor now.
     allowIdleWithFleet: true,
     requestContinuation: () => {
       const targetAgent = liveAgent(state);
