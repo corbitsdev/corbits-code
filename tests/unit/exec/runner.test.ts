@@ -7,11 +7,13 @@ import type { AgentTool } from "@intx/agent";
 import type { InferenceSource } from "@intx/types/runtime";
 import type { Config } from "../../../src/config/index.js";
 import {
+  disposeExecRuntime,
+  formatCaughtError,
+} from "../../../src/exec/dispose.js";
+import {
   createExecToolCallGate,
   createExecToolPromoter,
-  disposeExecRuntime,
   execUserFailureMessage,
-  formatCaughtError,
   refreshSelectedProviderCredential,
   resolveExecDirectorOverlay,
   runExec,

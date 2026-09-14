@@ -45,7 +45,8 @@ await withMockedModuleDuring(
     assembleInferenceBase: () => new Promise<never>(() => undefined),
   }),
   async () => {
-    const { installSignalHandlers } = await import("../../../src/index.js");
+    const { installSignalHandlers } =
+      await import("../../../src/process-handlers.js");
     const { runExec } = await import("../../../src/exec/runner.js");
     const { getActiveRun, syncRunStateHandle } =
       await import("../../../src/session/active-run.js");

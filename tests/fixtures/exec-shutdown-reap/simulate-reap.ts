@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
-import { disposeExecRuntime } from "../../../src/exec/runner.js";
+import { disposeExecRuntime } from "../../../src/exec/dispose.js";
 import { shellGuardPlugin } from "../../../src/plugins/shell-guard-plugin.js";
 import { setActiveDisposeHost } from "../../../src/session/active-host.js";
 
@@ -21,8 +21,9 @@ const reapToken = token;
 const exitPath = path;
 const disposeCountPath = countPath;
 
-// Handlers must be installed before READY. Importing src/index.js is slow, and
-// the parent sends the signal as soon as it sees READY.
+// Handlers must be installed before READY. process-handlers is a light module
+// (unlike src/index.js, which pulls the whole TUI graph), and the parent
+// sends the signal as soon as it sees READY.
 //
 // The dispose host's agent.close() deliberately never settles, so the
 // handler's bounded-teardown deadline is the only exit for the crash and
@@ -30,10 +31,12 @@ const disposeCountPath = countPath;
 // wall clock; production never sets the option and keeps the 2s default.
 const TEST_TEARDOWN_DEADLINE_MS = 200;
 if (exitPath === "crash") {
-  const { installCrashHandlers } = await import("../../../src/index.js");
+  const { installCrashHandlers } =
+    await import("../../../src/process-handlers.js");
   installCrashHandlers({ teardownDeadlineMs: TEST_TEARDOWN_DEADLINE_MS });
 } else if (exitPath === "signal") {
-  const { installSignalHandlers } = await import("../../../src/index.js");
+  const { installSignalHandlers } =
+    await import("../../../src/process-handlers.js");
   installSignalHandlers({ teardownDeadlineMs: TEST_TEARDOWN_DEADLINE_MS });
 }
 

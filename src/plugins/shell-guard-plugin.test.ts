@@ -825,7 +825,7 @@ describe("shellGuardPlugin", () => {
       neverAbort(),
     );
     // Give the waiter a chance to enter the busy loop before enqueuing cd.
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 20));
     const cdPromise = handler(
       { id: "s2", name: "run_shell", arguments: { command: "cd nested" } },
       neverAbort(),
@@ -1034,8 +1034,8 @@ describe("shellGuardPlugin", () => {
       }
 
       await first;
-      await Promise.race([queued, new Promise((r) => setTimeout(r, 400))]);
-      await new Promise((r) => setTimeout(r, 200));
+      await Promise.race([queued, new Promise((r) => setTimeout(r, 250))]);
+      await new Promise((r) => setTimeout(r, 120));
 
       const leftover1 =
         spawnSync("pgrep", ["-f", token1], {

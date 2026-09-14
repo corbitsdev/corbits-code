@@ -3,7 +3,7 @@
 // in state.ts) landing mid-flight when an unrelated uncaughtException fires,
 // rather than simulate-crash.ts's scenario of a crash escaping before any
 // terminal write is issued at all.
-import { installCrashHandlers } from "../../../src/index.js";
+import { installCrashHandlers } from "../../../src/process-handlers.js";
 import {
   setActiveRun,
   setTestWriteGate,

@@ -86,7 +86,10 @@ describe("runWebFetch", () => {
       // Never respond; rely on the tool's own timeout to abort.
       void res;
     };
-    const outcome = await runWebFetch(`${baseUrl}/`, "text", 1);
+    // Short timeout-scale exercises the abort contract without paying 1s.
+    const outcome = await runWebFetch(`${baseUrl}/`, "text", 1, {
+      timeoutScale: 0.1,
+    });
     expect(outcome.ok).toBe(false);
   });
 
@@ -128,19 +131,24 @@ describe("runWebFetch", () => {
 
 describe("createExaMCPWebFetchTool", () => {
   function createTool(call: MCPClient["call"]) {
-    return createExaMCPWebFetchTool({
-      connect: async () => ({
-        ok: true,
-        client: {
-          serverName: "exa",
-          tools: [
-            { name: "web_fetch_exa", description: "Fetch", inputSchema: {} },
-          ],
-          call,
-          close: async () => undefined,
-        },
-      }),
-    });
+    return createExaMCPWebFetchTool(
+      {
+        connect: async () => ({
+          ok: true,
+          client: {
+            serverName: "exa",
+            tools: [
+              { name: "web_fetch_exa", description: "Fetch", inputSchema: {} },
+            ],
+            call,
+            close: async () => undefined,
+          },
+        }),
+      },
+      // Production default is 1:1; the short scale keeps the timeout-error
+      // contract tests from paying a full second each in wall clock.
+      { timeoutScale: 0.1 },
+    );
   }
 
   test("honors the per-call timeout with the native timeout error contract", async () => {
@@ -202,7 +210,9 @@ describe("createExaMCPWebFetchTool", () => {
           });
         }),
     );
-    const nativeRunner = createDynamicToolRunner([createWebFetchTool()]);
+    const nativeRunner = createDynamicToolRunner([
+      createWebFetchTool({ timeoutScale: 0.1 }),
+    ]);
     const exaRunner = createDynamicToolRunner([exa]);
     const call = {
       id: "timeout-call",
