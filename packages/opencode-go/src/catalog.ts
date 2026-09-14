@@ -12,7 +12,7 @@ import {
 } from "./models.js";
 
 /** Host-agnostic catalog projection for connect + model pickers. */
-export interface GoCatalogEntry {
+interface GoCatalogEntry {
   name: typeof OPENCODE_GO_PROVIDER_ID;
   displayName: typeof OPENCODE_GO_DISPLAY_NAME;
   baseURL: typeof OPENCODE_GO_BASE_URL;

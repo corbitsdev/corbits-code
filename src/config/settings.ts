@@ -13,6 +13,7 @@ import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../provider/reasoning-effort.js";
+import type { OtelSettings } from "../perf/otel-config.js";
 import type { SessionMode } from "./session-mode.js";
 import { resolveDefaultModel } from "./providers.js";
 import {
@@ -168,13 +169,7 @@ export interface Settings {
   // Opt-in OTEL export (operator-owned collector). Separate from PostHog product
   // telemetry. Prefer OTEL_* env vars for secrets; see docs/PERFTRACE.md.
   // Local PerfTrace remains always-on regardless of this block.
-  otel?: {
-    enabled?: boolean;
-    endpoint?: string;
-    headers?: Record<string, string>;
-    serviceName?: string;
-    resourceAttributes?: Record<string, string>;
-  };
+  otel?: OtelSettings;
   // Models-first /model picker: most-recently-used provider+model pairs (newest
   // first). Global preference only — no credentials. Cap stored list (~10);
   // UI surfaces fewer via listRecentModels.

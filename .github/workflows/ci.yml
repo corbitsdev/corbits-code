@@ -49,6 +49,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Dead exports
+        run: bun run check:dead-exports
+
   # Build runs beside the suite instead of before it: tests import ./src
   # directly and never read ./dist, so serializing build ahead of test put
   # build time on the critical path for no dependency reason.

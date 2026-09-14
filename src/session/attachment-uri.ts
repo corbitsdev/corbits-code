@@ -3,7 +3,6 @@
 // writeBlob/readBlob. The URI is what survives in conversation turns after
 // base64 is spilled out of the inference-facing context.
 
-const ATTACHMENT_SCHEME = "attachment:";
 const ATTACHMENT_URI_PREFIX = "attachment:///";
 
 /** Marker left in place of a base64 image after aging. */
@@ -15,10 +14,6 @@ export function formatAgedImageMarker(input: {
     `[image attachment aged: ${input.uri} mimeType=${input.mimeType} — ` +
     `rehydratable from the session store; not resent as base64]`
   );
-}
-
-export function isAttachmentUri(value: string): boolean {
-  return value.startsWith(ATTACHMENT_SCHEME);
 }
 
 export function attachmentUri(id: string): string {

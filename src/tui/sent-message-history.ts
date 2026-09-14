@@ -26,12 +26,6 @@ export function createSentHistoryBrowse(
   return { sent: tailSent(sent), draft: null, browseIndex: null };
 }
 
-export function resetSentHistoryBrowse(
-  sent: readonly string[],
-): SentHistoryBrowse {
-  return createSentHistoryBrowse(sent);
-}
-
 export interface HistoryStepResult {
   browse: SentHistoryBrowse;
   value: string;

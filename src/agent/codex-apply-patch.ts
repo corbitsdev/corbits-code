@@ -278,11 +278,6 @@ export function applyUpdateHunks(original: string, hunks: PatchHunk[]): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** Content for an Add File op (already on the op; helper for call sites). */
-export function contentFromAddOp(op: PatchAddOp): string {
-  return op.content;
-}
-
 function parseHunk(
   body: string[],
   start: number,

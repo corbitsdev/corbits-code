@@ -19,8 +19,6 @@ export const PRODUCT_MUTATION_TOOLS = [
   "apply_patch",
 ] as const;
 
-export type ProductMutationToolName = (typeof PRODUCT_MUTATION_TOOLS)[number];
-
 const PRODUCT_MUTATION_TOOL_SET: ReadonlySet<string> = new Set(
   PRODUCT_MUTATION_TOOLS,
 );

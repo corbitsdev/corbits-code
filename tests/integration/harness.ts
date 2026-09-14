@@ -356,27 +356,3 @@ export async function runUntilSuspended(
     waitSettled: () => settled,
   };
 }
-
-/** Deliver an approval decision on the correlationId signal channel. */
-export function deliverDecision(
-  session: IntegrationSession,
-  correlationId: string,
-  outcome: "approved" | "rejected",
-  message?: string,
-): void {
-  session.agent.deliver({
-    ref: { uid: 0, mailbox: "approval" },
-    headers: {
-      from: "approval@local",
-      to: ["agent@local"],
-      date: new Date().toISOString(),
-      messageId: `approval-${correlationId}`,
-      interchangeCorrelationId: correlationId,
-    },
-    flags: [],
-    content: JSON.stringify(
-      message !== undefined ? { outcome, message } : { outcome },
-    ),
-    signatureStatus: "missing",
-  });
-}

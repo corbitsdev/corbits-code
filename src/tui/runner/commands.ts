@@ -37,34 +37,16 @@ import { contextTokensFromUsage } from "../../provider/context-window.js";
 import { fleetDigest } from "../../subagent/index.js";
 import { renameSession } from "../../session/index.js";
 import { truncateSessionLabel } from "../../session/session-label.js";
-import {
-  surfaceSystemNotice,
-  attachClipboardImage,
-  setPromptModelLabel,
-} from "../shell/prompt.js";
+import { attachClipboardImage, setPromptModelLabel } from "../shell/prompt.js";
 import { yoloModeLabel } from "../components/prompt-action-bar-label.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
 import { resolveSessionEffort } from "../../provider/reasoning-effort.js";
-import type { InferenceErrorLike } from "../../inference-gateway-error.js";
-import { terminalProviderFailureMessage } from "../../inference-error-message.js";
 import type { InferenceAttemptIdentity } from "./state.js";
 import { hostOf, type RunnerServices, type RunnerState } from "./state.js";
 import { userInboundMessage } from "./submit.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
-
-export function surfaceTerminalProviderFailure(
-  shell: Parameters<typeof surfaceSystemNotice>[0],
-  providerId: string,
-  error: InferenceErrorLike,
-  displayLabel?: string,
-): void {
-  surfaceSystemNotice(
-    shell,
-    terminalProviderFailureMessage(providerId, error, displayLabel),
-  );
-}
 
 /**
  * Populate the slash-command registry for a session: built-ins first, then

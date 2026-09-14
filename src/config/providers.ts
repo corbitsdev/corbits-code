@@ -112,34 +112,3 @@ export function buildProviderEntry(
   }
   return { ok: true, entry, catalog, selectedModel };
 }
-
-export function defaultProviderAfterSave(
-  submission: ProviderSubmission,
-  catalog: readonly ProviderCatalogEntry[],
-  currentGlobalDefault: string | undefined,
-): string | undefined {
-  if (currentGlobalDefault === submission.originalName) return submission.name;
-  if (
-    currentGlobalDefault !== undefined &&
-    catalog.some((p) => p.name === currentGlobalDefault)
-  ) {
-    return currentGlobalDefault;
-  }
-  return catalog.length === 1 ? catalog[0]?.name : submission.name;
-}
-
-export function defaultProviderAfterDelete(
-  deletedProvider: string,
-  fallbackProvider: string,
-  catalog: readonly ProviderCatalogEntry[],
-  currentGlobalDefault: string | undefined,
-): string | undefined {
-  if (currentGlobalDefault === deletedProvider) return fallbackProvider;
-  if (
-    currentGlobalDefault !== undefined &&
-    catalog.some((p) => p.name === currentGlobalDefault)
-  ) {
-    return currentGlobalDefault;
-  }
-  return catalog.length === 1 ? catalog[0]?.name : undefined;
-}

@@ -29,11 +29,6 @@ export interface FocusState {
   readonly frames: readonly FocusFrame[];
 }
 
-/** Current scroll lease derived from the top frame. */
-export interface ScrollLease {
-  readonly owner: FocusTarget | null;
-}
-
 export interface OpenOverlayOpts {
   /**
    * Surface kind. Defaults to `"overlay"`.

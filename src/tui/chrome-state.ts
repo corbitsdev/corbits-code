@@ -206,15 +206,6 @@ export function formatChromeZones(
 }
 
 /**
- * Convenience: format then assign to shell. Equivalent to
- * `setChromeZones(shell, formatChromeZones(state))` when the host already
- * holds a setChromeZones reference.
- */
-export function chromeZonesContent(state: ChromeLiveState): ChromeZoneContent {
-  return formatChromeZones(state);
-}
-
-/**
  * True while the agents strip still needs wall-clock ticks: any live worker,
  * or any finished row still inside the post-finish linger window. Product-host
  * sticky poll uses this both to keep clocks/linger fresh and to freeze

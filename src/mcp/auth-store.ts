@@ -111,15 +111,6 @@ async function readAuthFile(path: string): Promise<string | undefined> {
   }
 }
 
-// Synchronous connect-contract load. Tolerates a missing (ENOENT) or corrupt
-// file with empty state, matching loadAuthState; other read errors propagate.
-export function loadAuthStateSync(
-  identity: MCPAuthIdentity,
-  home: string = homedir(),
-): MCPAuthState {
-  return stateFromRaw(readAuthFileSync(authFilePath(identity, home)));
-}
-
 export async function loadAuthState(
   identity: MCPAuthIdentity,
   home: string = homedir(),

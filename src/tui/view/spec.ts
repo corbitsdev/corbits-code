@@ -30,8 +30,6 @@ export type ViewNode =
       rows: ViewNode[][];
     };
 
-export type ViewNodeType = ViewNode["type"];
-
 // Bounds protect the renderer (and the token bill) from pathological specs.
 export const VIEW_MAX_NODES = 500;
 export const VIEW_MAX_DEPTH = 8;

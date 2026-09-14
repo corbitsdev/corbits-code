@@ -27,7 +27,6 @@ import {
   badgeCount,
   cancelItem,
   cancelLast,
-  clearInterruptFlash,
   enqueue,
   enqueueSteer,
   interrupt,
@@ -543,9 +542,4 @@ export function interruptShell(shell: AppShell): void {
     return;
   }
   applyShellInterrupt(shell);
-}
-
-export function clearShellInterruptFlash(shell: AppShell): void {
-  shell.session = clearInterruptFlash(shell.session);
-  paintChrome(shell);
 }
