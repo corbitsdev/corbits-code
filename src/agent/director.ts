@@ -596,6 +596,7 @@ class ChatDirectorImpl extends DefaultDirector {
         logger.warn`workflow-coordinator-directive-not-string`;
         return null;
       }
+      if (directive.length === 0) return null;
       if (directive.length > MAX_WORKFLOW_DIRECTIVE_CHARS) {
         logger.warn`workflow-coordinator-directive-truncated chars=${String(directive.length)} max=${String(MAX_WORKFLOW_DIRECTIVE_CHARS)}`;
         return `${directive.slice(0, MAX_WORKFLOW_DIRECTIVE_CHARS)}\n…[truncated]`;
@@ -618,7 +619,13 @@ class ChatDirectorImpl extends DefaultDirector {
 
   private coordinatorCurrentStepId(): string | null {
     try {
-      return this.workflowCoordinator?.currentStepId() ?? null;
+      const stepId = this.workflowCoordinator?.currentStepId() ?? null;
+      if (stepId === null) return null;
+      if (typeof stepId !== "string") {
+        logger.warn`workflow-coordinator-step-id-not-string`;
+        return null;
+      }
+      return stepId;
     } catch (err) {
       logger.warn`workflow-coordinator-step-id-threw error=${err instanceof Error ? err.message : String(err)}`;
       return null;

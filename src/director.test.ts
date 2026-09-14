@@ -1574,6 +1574,72 @@ describe("CL-7919 coordinator shape", () => {
       MAX_WORKFLOW_DIRECTIVE_CHARS + "…[truncated]".length + 1,
     );
   });
+
+  // A non-string step id never reaches prompt text: the stall nudge falls
+  // back to the generic clause instead of interpolating the foreign value.
+  test("a non-string step id falls back to the generic submit_output clause", async () => {
+    const director = createChatDirector("base-prompt", [], {
+      onTasksChange: () => undefined,
+    });
+    director.setWorkflowCoordinator({
+      directive: () => "do the thing",
+      isActive: () => true,
+      currentStepIsGate: () => false,
+      currentStepId: () => 42,
+      handleToolDone: () => false,
+    } as unknown as WorkflowCoordinator);
+    const actions = actionsArray(
+      await director.decide(
+        {
+          type: "inference.done",
+          turn: {
+            role: "assistant",
+            model: "test",
+            timestamp: 0,
+            content: [{ type: "text", text: "all set" }],
+          },
+          usage: {
+            input: 10,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            thinking: 0,
+          },
+          source: { model: "test-model" },
+        } as unknown as ReactorInboundEvent,
+        mockState,
+        capabilitiesWithInferArgs,
+      ),
+    );
+    const text = inferEphemeralText(actions.find((a) => a.type === "infer"));
+    expect(text).toContain("call submit_output with this step's id now");
+    expect(text).not.toContain("42");
+  });
+
+  // An empty directive is absent guidance: no ephemeral turn is appended
+  // and the turn resolves as plain inference.
+  test("an empty-string directive resolves as plain inference", async () => {
+    const director = createChatDirector("base-prompt", [], {
+      onTasksChange: () => undefined,
+    });
+    director.setWorkflowCoordinator({
+      directive: () => "",
+      isActive: () => true,
+      currentStepIsGate: () => false,
+      currentStepId: () => "a",
+      handleToolDone: () => false,
+    } as unknown as WorkflowCoordinator);
+    const actions = actionsArray(
+      await director.decide(
+        makeMessageReceivedEvent("hello"),
+        mockState,
+        capabilitiesWithInferArgs,
+      ),
+    );
+    const infer = actions.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    expect(inferEphemeralText(infer)).toBeUndefined();
+  });
 });
 
 describe("submit_output workflow handler", () => {
