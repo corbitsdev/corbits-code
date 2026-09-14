@@ -12,10 +12,10 @@ import { fileURLToPath } from "node:url";
 // positives only.
 //
 // Hardening: stale allowlist entries fail the gate instead of warning, every
-// entry must pass shape validation and sit under a reason comment naming its
-// owning lane (this repo has no CODEOWNERS, so the allowlist header documents
-// the review convention and the gate enforces the reason comments), the
-// ts-prune invocation is pinned to scripts/dead-export-guard.json, and the
+// entry must pass shape validation and sit under a reason comment (the gate
+// enforces the reason's presence; review enforces the owning lane — this repo
+// has no CODEOWNERS, so the allowlist header documents the review convention),
+// the ts-prune invocation is pinned to scripts/dead-export-guard.json, and the
 // gate fails closed when the scanned file count drops below that config's
 // floor.
 
@@ -125,10 +125,10 @@ export function validateAllowlistText(text: string): string[] {
   return problems;
 }
 
-// Every entry must sit under a reason comment naming its owning lane, in the
-// same blank-line section and above the entry. A section of entries with no
-// reason above it fails, so exemptions cannot land without an owner on
-// record for review.
+// Every entry must sit under a reason comment in the same blank-line section
+// and above the entry. The gate enforces the reason's presence; human review
+// enforces that it names the owning lane. A section of entries with no reason
+// above it fails, so exemptions cannot land without a reason on record.
 export function validateAllowlistOwnership(text: string): string[] {
   const problems: string[] = [];
   let reasoned = false;
@@ -155,10 +155,10 @@ export function loadAllowlist(): AllowRule[] {
   return parseAllowlistText(readFileSync(allowlistPath, "utf8"));
 }
 
-// Parses and validates the pinned scan config. The invocation must pin the
-// project explicitly ("-p <tsconfig>") so the scan never depends on ts-prune's
-// working-directory config discovery, and the floor must be a positive
-// integer the gate fails closed against.
+// Parses and validates the pinned scan config. The invocation must be exactly
+// "-p <tsconfig>" and nothing else, so narrowing flags (e.g. "-i"/"--ignore")
+// cannot shrink the scan while the tsc --listFilesOnly file count stays flat.
+// The floor must be a positive integer the gate fails closed against.
 export function parseGuardConfig(raw: unknown): GuardConfig {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("dead-export guard config must be a JSON object");
@@ -179,10 +179,9 @@ export function parseGuardConfig(raw: unknown): GuardConfig {
     );
   }
   const args = tsPruneArgs as string[];
-  const projectFlag = args.indexOf("-p");
-  if (projectFlag === -1 || args[projectFlag + 1] !== tsconfig) {
+  if (args.length !== 2 || args[0] !== "-p" || args[1] !== tsconfig) {
     throw new Error(
-      'dead-export guard config "tsPruneArgs" must pin the project ("-p <tsconfig>")',
+      'dead-export guard config "tsPruneArgs" must be exactly ["-p", "<tsconfig>"] with no extra flags',
     );
   }
   const minScannedFiles = config["minScannedFiles"];

@@ -274,6 +274,24 @@ describe("pinned scan invocation", () => {
     ).toThrow();
   });
 
+  test("parseGuardConfig rejects extra narrowing flags on a pinned invocation", () => {
+    const valid = {
+      tsconfig: "tsconfig.json",
+      tsPruneArgs: ["-p", "tsconfig.json"],
+      minScannedFiles: 1130,
+    };
+    expect(parseGuardConfig(valid)).toEqual(valid);
+    const narrowed = [
+      ["-p", "tsconfig.json", "-i", "src/.*"],
+      ["-p", "tsconfig.json", "--ignore", "src/.*"],
+      ["-p", "tsconfig.json", "--error"],
+      ["--ignore", "src/.*", "-p", "tsconfig.json"],
+    ];
+    for (const tsPruneArgs of narrowed) {
+      expect(() => parseGuardConfig({ ...valid, tsPruneArgs })).toThrow();
+    }
+  });
+
   test("parseGuardConfig rejects a missing floor", () => {
     const valid = {
       tsconfig: "tsconfig.json",
