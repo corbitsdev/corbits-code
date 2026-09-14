@@ -303,6 +303,26 @@ describe("compaction governor", () => {
     ).toBe(true);
   });
 
+  test("idle arming with a closure fires once and never returns true", () => {
+    // Single-delivery contract: a caller that both installs the legacy closure
+    // and honors the boolean (appending an emit action on true) must still
+    // deliver exactly once. The closure fires; the return stays false.
+    let continuations = 0;
+    const governor = createCompactionGovernor(() => continuations++);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+
+    const terminal: ReactorAction[] = [{ type: "reply", content: "done" }];
+    expect(governor.noteIdleTurn(inferenceDone(overThreshold), terminal)).toBe(
+      false,
+    );
+    expect(continuations).toBe(1);
+    // A repeated idle turn neither refires nor arms.
+    expect(governor.noteIdleTurn(inferenceDone(overThreshold), terminal)).toBe(
+      false,
+    );
+    expect(continuations).toBe(1);
+  });
+
   // Idle compact with an empty continuation previously left postCompactInfer
   // unset, so resumeAfterCompact never fired and notePostCompact never ran —
   // the Ctx meter stayed on pre-compact lastTurnUsage until the next user turn.

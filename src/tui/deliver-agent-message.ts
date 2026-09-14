@@ -59,6 +59,28 @@ export async function deliverAgentMessage(
   }
 }
 
+/**
+ * Settles a deliver that was enqueued on the serial operation queue against
+ * the shoot generation captured at enqueue time. The queue is FIFO with no
+ * preemption, so a deliver queued ahead of a reload still executes after the
+ * reload has replaced the agent — the generation must be re-checked when the
+ * queued closure runs, not just when it enqueues. A stale deliver takes the
+ * `onStale` path (the caller reports `not-delivered`); a current deliver runs
+ * the real settle. This is what closes the reload-vs-async-deliver race: a
+ * reload that lands while a continuation answer is queued wins, and the stale
+ * answer is dropped instead of reaching the replaced agent.
+ */
+export async function runGenerationGuardedDeliver(options: {
+  stillCurrent: () => boolean;
+  run: () => Promise<AgentDeliveryResult>;
+  onStale: () => AgentDeliveryResult;
+}): Promise<AgentDeliveryResult> {
+  if (!options.stillCurrent()) {
+    return options.onStale();
+  }
+  return options.run();
+}
+
 /** Operator-facing copy for a settled delivery that did not accept. */
 export function deliveryResultNotice(
   result: Exclude<AgentDeliveryResult, { status: "accepted" }>,

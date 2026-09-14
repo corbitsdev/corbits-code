@@ -3,6 +3,7 @@ import { AgentClosedError } from "@intx/agent";
 import {
   deliverAgentMessage,
   deliveryResultNotice,
+  runGenerationGuardedDeliver,
 } from "./deliver-agent-message.js";
 
 describe("deliverAgentMessage", () => {
@@ -69,6 +70,58 @@ describe("deliverAgentMessage", () => {
 
     expect(delivered).toBe(1);
     expect(result).toEqual({ status: "accepted" });
+  });
+});
+
+describe("runGenerationGuardedDeliver", () => {
+  test("a reload between enqueue and execution drops the deliver without touching the agent", async () => {
+    // Pins the reload-vs-async-deliver verdict: the serial op queue is FIFO
+    // with no preemption, so a continuation answer queued ahead of a reload
+    // still executes — the generation re-check at execution time is what
+    // keeps the stale answer from reaching the replaced agent.
+    let generation = 1;
+    const stillCurrent = () => generation === 1;
+    // Enqueue captures the closure; the reload lands before it executes.
+    const queued = () =>
+      runGenerationGuardedDeliver({
+        stillCurrent,
+        onStale: () => ({
+          status: "not-delivered",
+          reason: "superseded",
+          detail: "session identity changed before delivery",
+        }),
+        run: async () => {
+          delivered += 1;
+          return { status: "accepted" as const };
+        },
+      });
+    let delivered = 0;
+    generation = 2;
+    const stale = await queued();
+    expect(stale).toEqual({
+      status: "not-delivered",
+      reason: "superseded",
+      detail: "session identity changed before delivery",
+    });
+    expect(delivered).toBe(0);
+  });
+
+  test("a current deliver runs the real settle exactly once", async () => {
+    let runs = 0;
+    const result = await runGenerationGuardedDeliver({
+      stillCurrent: () => true,
+      onStale: () => ({
+        status: "not-delivered",
+        reason: "superseded",
+        detail: "stale",
+      }),
+      run: async () => {
+        runs += 1;
+        return { status: "accepted" as const };
+      },
+    });
+    expect(result).toEqual({ status: "accepted" });
+    expect(runs).toBe(1);
   });
 });
 

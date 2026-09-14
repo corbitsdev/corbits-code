@@ -227,8 +227,15 @@ export function createCompactionGovernor(
   // Interactive sessions can end a turn with a reply and then sit idle, so a
   // pending compaction would wait indefinitely for the next tool batch. When
   // the turn ends without follow-up work, request a continuation re-entry and
-  // compact when it (or the operator's next message) arrives. Returns whether
-  // this call newly armed the idle continuation.
+  // compact when it (or the operator's next message) arrives.
+  //
+  // Single-delivery contract: the closure channel and the boolean return are
+  // mutually exclusive, matching continuationActions below. When a legacy
+  // closure is installed (the sub-agent path) it fires here and this returns
+  // false, so a caller that also honors the return cannot double-deliver.
+  // When no closure is installed (the chat path) nothing fires and the return
+  // reports whether this call newly armed the idle continuation — the caller
+  // must then append compactionContinuationAction to its returned actions.
   function noteIdleTurn(
     event: ReactorInboundEvent,
     actions: ReactorAction[],
@@ -242,7 +249,10 @@ export function createCompactionGovernor(
       !actions.some((a) => a.type === "infer" || a.type === "execute_tools");
     if (!terminal) return false;
     idlePending = true;
-    requestContinuation?.();
+    if (requestContinuation !== undefined) {
+      requestContinuation();
+      return false;
+    }
     return true;
   }
 
