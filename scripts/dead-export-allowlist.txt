@@ -13,11 +13,17 @@
 # vendor workspaces on the next sync. Prune upstream, not here.
 vendor/
 
-# CL-6815 lane owns the test-only consumer modules (Codex/xAI usage data
-# paths). That lane decides their fate; this lane must not delete them.
-src/auth/codex/usage.ts
-src/auth/xai/usage.ts
-src/auth/codex/constants.ts
+# Deferred Codex/xAI usage-data cleanup owned by the CL-6815 lane: these
+# modules are fully dead deferred code with no live importers (not test-only
+# helpers), and that lane decides their fate. Scoped to the exact ts-prune
+# flags so a new dead export in these files fails the guard instead of
+# hiding under a whole-file exemption. Remove each entry with the export it
+# names when the owning cleanup lands.
+src/auth/codex/usage.ts: fetchCodexUsage
+src/auth/codex/usage.ts: fetchCodexModels
+src/auth/xai/usage.ts: fetchXaiUsage
+src/auth/codex/constants.ts: CODEX_REFRESH_SKEW_MS
+src/auth/codex/constants.ts: CODEX_HEADLESS_REFRESH_INTERVAL_MS
 
 # Plugin fixture entry point. Loaded by file path from the fixture's plugin
 # manifest by the plugin-registration tests, so it has no static importers.
