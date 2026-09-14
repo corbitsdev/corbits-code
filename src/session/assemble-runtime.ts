@@ -52,7 +52,6 @@ import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normal
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 import { createChatDirector, type ChatDirector } from "../agent/director.js";
 import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
-import type { Task } from "../agent/tasks.js";
 import type { AgentToolset } from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { createSessionStores } from "./optimized-context-store.js";
@@ -469,10 +468,8 @@ export interface ChatAgentWiring {
   systemPrompt: string;
   getDynamicRunner: () => AgentToolset["dynamicRunner"];
   computeAdvertised: (all: readonly ToolDefinition[]) => ToolDefinition[];
-  activateTools: (names: readonly string[]) => boolean;
   inactivityTimeoutMs: number;
   totalTimeoutMs?: number | undefined;
-  onTasksChange: (tasks: Task[]) => void;
   /**
    * Live running-lane count for ChatDirector idle-with-fleet. Omitted in exec
    * (treated as 0).
@@ -529,17 +526,8 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         agentCtx.systemPrompt,
         wiring.computeAdvertised([...agentCtx.toolDefinitions]),
         {
-          onActivateTools: (names) => {
-            // Gate-only: activation lets the model invoke the tool from the
-            // tool_search result card's schema at once. The schema itself
-            // stays off the wire array until flushPromotions commits it at a
-            // cache-safe boundary, so mid-session promotion never reshapes
-            // the provider's cached prefix (CL-7868).
-            wiring.activateTools(names);
-          },
           inactivityTimeoutMs: wiring.inactivityTimeoutMs,
           totalTimeoutMs: wiring.totalTimeoutMs,
-          onTasksChange: wiring.onTasksChange,
           requestContinuation: wiring.requestContinuation,
           provider: { ...wiring.getProvider() },
           getProviderId: wiring.getProviderId,

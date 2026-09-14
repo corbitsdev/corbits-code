@@ -21,7 +21,14 @@ import {
 import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type { DirectorId, DirectorPackage } from "../agent/directors/types.js";
-import { submitOutputDefinition } from "../agent/director.js";
+import {
+  CHAT_TASKS_CHANGED_EVENT,
+  CHAT_TOOLS_ACTIVATE_EVENT,
+  ChatTasksChangedDataSchema,
+  ChatToolsActivateDataSchema,
+  submitOutputDefinition,
+} from "../agent/director.js";
+import { type } from "arktype";
 import {
   shellDefinition,
   updatePlanDefinition,
@@ -842,17 +849,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       systemPrompt,
       getDynamicRunner: () => agentToolset.dynamicRunner,
       computeAdvertised,
-      activateTools: (names) => activatedToolNames.activate(names),
       inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
       totalTimeoutMs: config.totalTimeoutMs,
-      // Exec mode has no live task panel or task stdout output today (unlike
-      // the TUI's chrome zone) — debug logging is the closest match to how
-      // this mode already surfaces other in-session state changes.
-      onTasksChange: (tasks) => {
-        logger.debug("tasks updated: {tasks}", {
-          tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
-        });
-      },
       requestContinuation: () => {
         // Compaction governor self-delivers after compact so the loop re-enters.
         currentAgent?.deliver(buildCompactionContinuationMessage());
@@ -973,6 +971,23 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // keeps the in-flight cycle's text so an errored or aborted turn leaves
     // its partial output in partial.jsonl instead of vanishing.
     const sink = (event: ReactorEmittedEvent): void => {
+      // Chat-director reactor events (replacing the former onTasksChange /
+      // onActivateTools closures). Exec mode has no live task panel or task
+      // stdout output today (unlike the TUI's chrome zone) — debug logging
+      // is the closest match to how this mode already surfaces other
+      // in-session state changes.
+      if (event.type === CHAT_TASKS_CHANGED_EVENT) {
+        const parsed = ChatTasksChangedDataSchema(event.data);
+        if (!(parsed instanceof type.errors)) {
+          logger.debug("tasks updated: {tasks}", {
+            tasks: parsed.tasks.map((t) => `${t.status}:${t.title}`).join(", "),
+          });
+        }
+      } else if (event.type === CHAT_TOOLS_ACTIVATE_EVENT) {
+        const parsed = ChatToolsActivateDataSchema(event.data);
+        if (!(parsed instanceof type.errors))
+          activatedToolNames.activate(parsed.names);
+      }
       if (event.type === "inference.start" || event.type === "inference.done") {
         providerFailureObserved = false;
         providerError = undefined;

@@ -257,7 +257,7 @@ describe("mountRunnerHost chrome wiring", () => {
       expect(host.shell.taskBox.visible).toBe(false);
       expect(notify).toBeDefined();
 
-      // Mirrors createChatDirector's onTasksChange: live source changes, then
+      // Mirrors the chat tasks-changed event path: live source changes, then
       // the runner notifies the host. formatChromeZones parks the checklist.
       liveTasks = [{ title: "wire task panel", status: "doing" }];
       notify?.();

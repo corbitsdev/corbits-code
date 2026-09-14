@@ -618,10 +618,8 @@ export async function assembleTUISession(
     systemPrompt,
     getDynamicRunner: () => toolset.dynamicRunner,
     computeAdvertised,
-    activateTools: (names) => activatedToolNames.activate(names),
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
-    onTasksChange: (tasks) => emitter.emit("tasks", tasks),
     getLiveFleetCount: () => liveFleetCount(subAgentSessions.list()),
     requestContinuation: () => {
       const targetAgent = liveAgent(state);

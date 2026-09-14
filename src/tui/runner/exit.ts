@@ -58,6 +58,13 @@ import {
   type SnapshotKind,
   type SnapshotStatus,
 } from "./state.js";
+import { type } from "arktype";
+import {
+  CHAT_TASKS_CHANGED_EVENT,
+  CHAT_TOOLS_ACTIVATE_EVENT,
+  ChatTasksChangedDataSchema,
+  ChatToolsActivateDataSchema,
+} from "../../agent/director.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -298,6 +305,18 @@ export async function createRunLifecycle(
       }
     } else if (event.type === "message.run.ended") {
       providerFailureAttempts.consumeTerminal();
+    }
+    // Chat-director reactor events (replacing the former onTasksChange /
+    // onActivateTools closures): task-list changes repaint the chrome panel,
+    // tool activation opens the call gate for the named tools.
+    if (event.type === CHAT_TASKS_CHANGED_EVENT) {
+      const parsed = ChatTasksChangedDataSchema(event.data);
+      if (!(parsed instanceof type.errors))
+        services.emitter.emit("tasks", parsed.tasks);
+    } else if (event.type === CHAT_TOOLS_ACTIVATE_EVENT) {
+      const parsed = ChatToolsActivateDataSchema(event.data);
+      if (!(parsed instanceof type.errors))
+        services.activatedToolNames.activate(parsed.names);
     }
     services.runSink.sink(eventForSink);
     services.cycleRecorder.handleEvent(event);

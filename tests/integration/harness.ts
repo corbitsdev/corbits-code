@@ -128,7 +128,6 @@ export async function openIntegrationSession(
     configSchema: type({}),
     factory: (_config, _env, agentCtx) =>
       createChatDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], {
-        onTasksChange: () => undefined,
         inactivityTimeoutMs: 750_000,
         ...(opts.compactionCompletion !== undefined
           ? {

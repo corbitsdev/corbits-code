@@ -237,9 +237,7 @@ function stubChatAgentWiring(
       );
     },
     computeAdvertised: () => [],
-    activateTools: () => false,
     inactivityTimeoutMs: 1_000,
-    onTasksChange: () => undefined,
     requestContinuation: () => undefined,
     getProvider: () => ({ providerName: "test", model: "m" }),
     getWorkdir: () => "/build-dir",
