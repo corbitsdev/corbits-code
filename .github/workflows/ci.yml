@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Nightly pollution-detector run (see test-one-process below).
+  schedule:
+    - cron: "17 7 * * *"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
@@ -152,10 +155,14 @@ jobs:
   # files fails in the one-process suite yet passes when the files land in
   # different shards (CL-6967). This job reruns the whole union in one
   # process with no filters, exactly like the local `bun run check` gate.
-  # Non-blocking (continue-on-error) so a slow or flaky full run cannot hold
-  # the gate; a real pollution failure still shows up red for triage.
+  # Nightly (plus manual workflow_dispatch), not per-PR: the one-process
+  # suite takes ~2 minutes on CI and would put that back on the PR wall
+  # clock this sharding removes. Non-blocking (continue-on-error) so a slow
+  # or flaky full run cannot hold the gate; a real pollution failure still
+  # shows up red for triage.
   test-one-process:
     name: test (one-process pollution detector)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
