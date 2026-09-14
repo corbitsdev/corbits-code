@@ -240,7 +240,6 @@ function stubChatAgentWiring(
     activateTools: () => false,
     inactivityTimeoutMs: 1_000,
     onTasksChange: () => undefined,
-    requestContinuation: () => undefined,
     getProvider: () => ({ providerName: "test", model: "m" }),
     getWorkdir: () => "/build-dir",
     getSessionId: () => "test-session",

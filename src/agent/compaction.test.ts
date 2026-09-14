@@ -6,7 +6,10 @@ import type {
   ReactorInboundEvent,
   TokenUsage,
 } from "@intx/types/runtime";
-import { createCompactionGovernor } from "./compaction.js";
+import {
+  COMPACTION_CONTINUATION_EVENT,
+  createCompactionGovernor,
+} from "./compaction.js";
 import {
   compactionResumeDeltaFor,
   compactionThresholdFor,
@@ -27,6 +30,11 @@ const capabilities = {
     type: "compact",
     compactor,
     reason,
+  }),
+  emit: (eventType: string, data: unknown) => ({
+    type: "emit",
+    eventType,
+    data,
   }),
 } as unknown as ReactorCapabilities;
 
@@ -182,15 +190,34 @@ describe("compaction governor", () => {
     ).toBeNull();
   });
 
-  test("stays inert without a continuation channel", () => {
+  test("expresses continuation as an emit action without a closure", () => {
     const governor = createCompactionGovernor(undefined);
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    const actions = governor.interceptActions(
+      toolDone(),
+      inferAction,
+      capabilities,
+    );
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+    expect(actions?.some((a) => a.type === "infer")).toBe(false);
     expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).toBeNull();
+      actions?.some(
+        (a) =>
+          a.type === "emit" &&
+          "eventType" in a &&
+          a.eventType === COMPACTION_CONTINUATION_EVENT,
+      ),
+    ).toBe(true);
     expect(
-      governor.interceptOverflow(overflowError(), capabilities),
-    ).toBeNull();
+      governor
+        .interceptOverflow(overflowError(), capabilities)
+        ?.some(
+          (a) =>
+            a.type === "emit" &&
+            "eventType" in a &&
+            a.eventType === COMPACTION_CONTINUATION_EVENT,
+        ),
+    ).toBe(true);
   });
 
   test("recovers from context overflow a bounded number of times", () => {
@@ -239,6 +266,41 @@ describe("compaction governor", () => {
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
+  });
+
+  test("an idle over-threshold turn arms an emit continuation without a closure", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+
+    const terminal: ReactorAction[] = [{ type: "reply", content: "done" }];
+    expect(governor.noteIdleTurn(inferenceDone(overThreshold), terminal)).toBe(
+      true,
+    );
+    // Only arms once even if the idle turn is observed again.
+    expect(governor.noteIdleTurn(inferenceDone(overThreshold), terminal)).toBe(
+      false,
+    );
+
+    const actions = governor.interceptIdleContinuation(
+      emptyMessage(),
+      capabilities,
+    );
+    expect(
+      actions?.some(
+        (a) =>
+          a.type === "compact" &&
+          "reason" in a &&
+          a.reason === "context-threshold",
+      ),
+    ).toBe(true);
+    expect(
+      actions?.some(
+        (a) =>
+          a.type === "emit" &&
+          "eventType" in a &&
+          a.eventType === COMPACTION_CONTINUATION_EVENT,
+      ),
+    ).toBe(true);
   });
 
   // Idle compact with an empty continuation previously left postCompactInfer

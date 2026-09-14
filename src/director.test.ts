@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { createChatDirector, askOperatorDefinition } from "./agent/director.js";
+import { COMPACTION_CONTINUATION_EVENT } from "./agent/compaction.js";
 import { createAgentToolset } from "./agent/tools.js";
 import { createAdvertisedToolset } from "./session/assemble-runtime.js";
 import { createPermissionGate } from "./permission/gate.js";
@@ -652,12 +653,8 @@ describe("chatDirector compaction", () => {
   }
 
   test("schedules idle compaction after an over-threshold text-only reply", async () => {
-    let continuations = 0;
     const director = createChatDirector("", [], {
       onTasksChange: () => undefined,
-      requestContinuation: () => {
-        continuations++;
-      },
     });
     // One turn past createPruningCompactor's own no-op floor (session/compactor.ts),
     // so the arming check finds a history actually worth compacting.
@@ -681,7 +678,15 @@ describe("chatDirector compaction", () => {
     );
     expect(replyActions.some((a) => a.type === "reply")).toBe(true);
     expect(replyActions.some((a) => a.type === "compact")).toBe(false);
-    expect(continuations).toBe(1);
+    // Continuation is expressed as an emit action the host drives.
+    expect(
+      replyActions.some(
+        (a) =>
+          a.type === "emit" &&
+          "eventType" in a &&
+          a.eventType === COMPACTION_CONTINUATION_EVENT,
+      ),
+    ).toBe(true);
 
     const compactActions = actionsArray(
       await director.decide(messageReceived(""), longState, mockCapabilities),
@@ -692,16 +697,17 @@ describe("chatDirector compaction", () => {
         compactor: "pruning-compactor",
         reason: "context-threshold",
       },
+      {
+        type: "emit",
+        eventType: COMPACTION_CONTINUATION_EVENT,
+        data: {},
+      },
     ]);
-    // Idle empty compact schedules a second continuation so decide can adopt
-    // the shrunk turns for the meter without starting a new inference.
-    expect(continuations).toBe(2);
   });
 
   test("idle empty compact makes the post-compact estimate authoritative without inferring", async () => {
     const director = createChatDirector("", [], {
       onTasksChange: () => undefined,
-      requestContinuation: () => undefined,
     });
     const largeTurns = Array.from(
       { length: compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS) + 1 },
@@ -788,18 +794,14 @@ describe("chatDirector compaction", () => {
     } as unknown as ReactorInboundEvent;
   }
 
-  function chatDirectorWithContinuation(
-    systemPrompt: string,
-    onContinuation?: () => void,
-  ) {
+  function chatDirector(systemPrompt: string) {
     return createChatDirector(systemPrompt, [], {
       onTasksChange: () => undefined,
-      requestContinuation: onContinuation ?? (() => undefined),
     });
   }
 
   test("compacts at the tool.done pause once over threshold", async () => {
-    const director = chatDirectorWithContinuation("Corbits operating prompt");
+    const director = chatDirector("Corbits operating prompt");
     await director.decide(overThresholdToolTurn(), longState, mockCapabilities);
     const actions = actionsArray(
       await director.decide(
@@ -837,7 +839,7 @@ describe("chatDirector compaction", () => {
   // turn); it now falls through to the base director's terminal
   // checkpoint + reply instead of recovering.
   test("does not re-issue inference for a timeout already exhausted by the harness", async () => {
-    const director = chatDirectorWithContinuation("");
+    const director = chatDirector("");
     const timeout = {
       type: "inference.error",
       error: { category: "timeout", message: "request timed out" },
@@ -851,7 +853,7 @@ describe("chatDirector compaction", () => {
   });
 
   test("recovers an internally aborted inference but keeps explicit abort terminal", async () => {
-    const director = chatDirectorWithContinuation("Corbits operating prompt");
+    const director = chatDirector("Corbits operating prompt");
     const internalAbort = {
       type: "inference.error",
       error: {
@@ -881,7 +883,7 @@ describe("chatDirector compaction", () => {
   });
 
   test("does not auto-recover user-stop aborted inference errors", async () => {
-    const director = chatDirectorWithContinuation("");
+    const director = chatDirector("");
     const userStopAbort = {
       type: "inference.error",
       error: {
@@ -905,22 +907,23 @@ describe("chatDirector compaction", () => {
   });
 
   test("a context_overflow inference error triggers compact-and-retry, not a terminal reply", async () => {
-    let continuations = 0;
-    const director = chatDirectorWithContinuation(
-      "Corbits operating prompt",
-      () => continuations++,
-    );
+    const director = chatDirector("Corbits operating prompt");
     const actions = actionsArray(
       await director.decide(overflowError(), longState, mockCapabilities),
     );
+    // Continuation is expressed as an emit action the host drives.
     expect(actions).toEqual([
       {
         type: "compact",
         compactor: "pruning-compactor",
         reason: "context-overflow",
       },
+      {
+        type: "emit",
+        eventType: COMPACTION_CONTINUATION_EVENT,
+        data: {},
+      },
     ]);
-    expect(continuations).toBe(1);
 
     const resumed = actionsArray(
       await director.decide(messageReceived(""), longState, mockCapabilities),
@@ -933,7 +936,7 @@ describe("chatDirector compaction", () => {
   });
 
   test("overflow recovery is bounded so an incompressible history cannot loop forever", async () => {
-    const director = chatDirectorWithContinuation("");
+    const director = chatDirector("");
     for (let i = 0; i < 2; i++) {
       const actions = actionsArray(
         await director.decide(overflowError(), longState, mockCapabilities),
@@ -948,7 +951,7 @@ describe("chatDirector compaction", () => {
   });
 
   test("chat posture is preserved: an idle turn never terminates the session", async () => {
-    const director = chatDirectorWithContinuation("");
+    const director = chatDirector("");
     const idle = actionsArray(
       await director.decide(textInferenceDone(10), longState, mockCapabilities),
     );
@@ -1627,13 +1630,16 @@ describe("chatDirector spacer echo", () => {
   });
 
   test("spacer-echo does not arm idle compact, including after the nudge cap", async () => {
-    let continuations = 0;
     const director = createChatDirector("base", [], {
       onTasksChange: () => undefined,
-      requestContinuation: () => {
-        continuations++;
-      },
     });
+    const hasContinuationEmit = (actions: ReactorAction[]) =>
+      actions.some(
+        (a) =>
+          a.type === "emit" &&
+          "eventType" in a &&
+          a.eventType === COMPACTION_CONTINUATION_EVENT,
+      );
     for (let i = 0; i < 2; i++) {
       const nudged = actionsArray(
         await director.decide(
@@ -1643,7 +1649,7 @@ describe("chatDirector spacer echo", () => {
         ),
       );
       expect(nudged.some((a) => a.type === "infer")).toBe(true);
-      expect(continuations).toBe(0);
+      expect(hasContinuationEmit(nudged)).toBe(false);
     }
     const settled = actionsArray(
       await director.decide(
@@ -1658,7 +1664,7 @@ describe("chatDirector spacer echo", () => {
         (a) => a.type === "reply" && "content" in a && a.content === "",
       ),
     ).toBe(true);
-    expect(continuations).toBe(0);
+    expect(hasContinuationEmit(settled)).toBe(false);
   });
 
   test("echo-nudge cap is two then empty settle, and resets on message.received", async () => {

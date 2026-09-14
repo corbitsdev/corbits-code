@@ -21,6 +21,7 @@ import {
 } from "../session/compactor.js";
 import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import {
+  compactionContinuationAction,
   createCompactionGovernor,
   type CompactionGovernor,
 } from "./compaction.js";
@@ -431,7 +432,6 @@ export interface ChatDirectorOptions {
   totalTimeoutMs?: number | undefined;
   workflowCoordinator?: WorkflowCoordinator | undefined;
   onTasksChange: (tasks: Task[]) => void;
-  requestContinuation?: (() => void) | undefined;
   provider?: { providerName: string; model?: string } | undefined;
   /**
    * Live catalog provider id for retry stamping. Resolved on each retry
@@ -530,8 +530,10 @@ class ChatDirectorImpl extends DefaultDirector {
     this.onActivateTools = options.onActivateTools;
     this.workflowCoordinator = options.workflowCoordinator;
     this.onTasksChange = options.onTasksChange;
+    // The chat path holds no continuation closure: the governor expresses
+    // continuation as an emit action the host answers with a deliver.
     this.compaction = createCompactionGovernor(
-      options.requestContinuation,
+      undefined,
       composedPrompt,
       toolDefinitions,
     );
@@ -975,13 +977,21 @@ class ChatDirectorImpl extends DefaultDirector {
       );
     }
 
-    this.compaction.noteIdleTurn(event, baseActions);
+    // Idle arming returns an emit action (continuation as a ReactorAction)
+    // so the host re-enters the loop and the governor can compact on the
+    // continuation's arrival.
+    const idleContinuationArmed = this.compaction.noteIdleTurn(
+      event,
+      baseActions,
+    );
     const compacted = this.compaction.interceptActions(
       event,
       baseActions,
       capabilities,
     );
     if (compacted !== null) return compacted;
+    if (idleContinuationArmed)
+      return [...baseActions, compactionContinuationAction(capabilities)];
 
     // Loop protection takes precedence over workflow/open-task
     // continuation nudges below: those exist to keep a session moving,

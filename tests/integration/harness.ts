@@ -58,6 +58,7 @@ import {
   buildCompactionContinuationMessage,
   createSessionPruningCompactor,
 } from "../../src/session/runtime-assembly.js";
+import { COMPACTION_CONTINUATION_EVENT } from "../../src/agent/compaction.js";
 
 export const INTEGRATION_SOURCE: InferenceSource = {
   id: "anthropic:claude-integration",
@@ -130,12 +131,6 @@ export async function openIntegrationSession(
       createChatDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], {
         onTasksChange: () => undefined,
         inactivityTimeoutMs: 750_000,
-        ...(opts.compactionCompletion !== undefined
-          ? {
-              requestContinuation: () =>
-                agent.deliver(buildCompactionContinuationMessage()),
-            }
-          : {}),
       }),
   });
 
@@ -284,6 +279,11 @@ export async function runUntilDone(
   const collect = (async () => {
     for await (const event of stream) {
       events.push(event);
+      if (event.type === COMPACTION_CONTINUATION_EVENT) {
+        // Compaction continuation as a ReactorAction: re-enter the loop with
+        // the same message the old requestContinuation closure delivered.
+        session.agent.deliver(buildCompactionContinuationMessage());
+      }
       if (turnComplete && event.type === "message.run.ended") return;
     }
   })();

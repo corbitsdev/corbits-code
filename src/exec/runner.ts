@@ -76,6 +76,7 @@ import {
   type ExpandPluginPathSkip,
 } from "../plugins/loader.js";
 import { consumeStream } from "../session/stream-consumer.js";
+import { COMPACTION_CONTINUATION_EVENT } from "../agent/compaction.js";
 import {
   generateSessionId,
   initSessionDir,
@@ -853,10 +854,6 @@ export async function runExec(config: Config): Promise<ExecResult> {
           tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
         });
       },
-      requestContinuation: () => {
-        // Compaction governor self-delivers after compact so the loop re-enters.
-        currentAgent?.deliver(buildCompactionContinuationMessage());
-      },
       getProvider: () => config,
       getWorkdir: () => workdir,
       getSessionId: () => sessionId,
@@ -989,6 +986,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
             ? { providerId: error.providerId }
             : {}),
         };
+      } else if (event.type === COMPACTION_CONTINUATION_EVENT) {
+        // Compaction governor self-delivers after compact so the loop re-enters.
+        currentAgent?.deliver(buildCompactionContinuationMessage());
       }
       liveSink.sink(event);
       cycleRecorder.handleEvent(event);

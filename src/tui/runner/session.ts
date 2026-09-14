@@ -63,7 +63,6 @@ import type { CompactionArchive } from "../../session/compaction-archive.js";
 import { createApprovalResume } from "../../session/approval-resume.js";
 import { createReactorAuthorize } from "../../permission/reactor-authorize.js";
 import {
-  buildCompactionContinuationMessage,
   buildShellBackgroundMessage,
   createLiveSubAgentSources,
   createSessionPruningCompactor,
@@ -623,12 +622,6 @@ export async function assembleTUISession(
     totalTimeoutMs: config.totalTimeoutMs,
     onTasksChange: (tasks) => emitter.emit("tasks", tasks),
     getLiveFleetCount: () => liveFleetCount(subAgentSessions.list()),
-    requestContinuation: () => {
-      const targetAgent = liveAgent(state);
-      state.enqueueAgentDeliver?.(() =>
-        targetAgent.deliver(buildCompactionContinuationMessage()),
-      );
-    },
     getProvider: () => state.config,
     // Live id so mid-session `/model` updates xAI bare-429 remapping
     // without rebuilding the agent (aligned with transcript stamp).

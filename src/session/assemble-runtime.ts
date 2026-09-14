@@ -478,8 +478,6 @@ export interface ChatAgentWiring {
    * (treated as 0).
    */
   getLiveFleetCount?: () => number;
-  /** Compaction governor re-entry (the reactor emits no event after compact). */
-  requestContinuation: () => void;
   getProvider: () => { providerName: string; model: string };
   getProviderId?: (() => string | undefined) | undefined;
   /** Pre-created holder so the workflow controller can close over it first. */
@@ -540,7 +538,6 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           inactivityTimeoutMs: wiring.inactivityTimeoutMs,
           totalTimeoutMs: wiring.totalTimeoutMs,
           onTasksChange: wiring.onTasksChange,
-          requestContinuation: wiring.requestContinuation,
           provider: { ...wiring.getProvider() },
           getProviderId: wiring.getProviderId,
           getLiveFleetCount: wiring.getLiveFleetCount,

@@ -13,6 +13,8 @@ import {
 import { getLogger } from "@intx/log";
 import type { InferenceSource } from "@intx/types/runtime";
 import { consumeStream } from "../../session/stream-consumer.js";
+import { COMPACTION_CONTINUATION_EVENT } from "../../agent/compaction.js";
+import { buildCompactionContinuationMessage } from "../../session/runtime-assembly.js";
 import { getTelemetry } from "../../telemetry/singleton.js";
 import { onTurnBoundary } from "../../agent/reactor-events.js";
 import { setAgentSourceUnlessClosed } from "../agent-source-sync.js";
@@ -298,6 +300,14 @@ export async function createRunLifecycle(
       }
     } else if (event.type === "message.run.ended") {
       providerFailureAttempts.consumeTerminal();
+    } else if (event.type === COMPACTION_CONTINUATION_EVENT) {
+      // Compaction continuation as a ReactorAction: re-enter the loop with
+      // the same message the old requestContinuation closure delivered,
+      // through the serial op queue like every other deliver.
+      const targetAgent = liveAgent(state);
+      state.enqueueAgentDeliver?.(() =>
+        targetAgent.deliver(buildCompactionContinuationMessage()),
+      );
     }
     services.runSink.sink(eventForSink);
     services.cycleRecorder.handleEvent(event);

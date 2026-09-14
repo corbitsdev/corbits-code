@@ -40,11 +40,25 @@ const MAX_CONSECUTIVE_THRESHOLD_COMPACTS = 2;
 // A compact action runs in its own reactor cycle, after which the reactor
 // idles until the next inbound event. Worker loops (sub-agents, the coding
 // director) have no operator to send that next message, so the governor swaps
-// the post-tool infer for a compact action, asks the host to deliver an empty
-// continuation message, and re-issues the infer when that message arrives.
-// Without a continuation channel the governor stays inert: stalling the loop
-// would be worse than growing the context.
+// the post-tool infer for a compact action, requests a continuation re-entry,
+// and re-issues the infer when that message arrives. Without a continuation
+// channel the governor stays inert: stalling the loop would be worse than
+// growing the context.
 export type CompactionGovernor = ReturnType<typeof createCompactionGovernor>;
+
+// Continuation re-entry expressed as a ReactorAction: the reactor emits this
+// event on the agent stream and the host answers it with
+// buildCompactionContinuationMessage(), the same message the old
+// requestContinuation closure delivered. Subscribers that only care about
+// provider/connector traffic must ignore this event.
+export const COMPACTION_CONTINUATION_EVENT = "custom.compaction.continue";
+
+/** Build the continuation re-entry action for a compacted governor cycle. */
+export function compactionContinuationAction(
+  capabilities: ReactorCapabilities,
+): ReactorAction {
+  return capabilities.emit(COMPACTION_CONTINUATION_EVENT, {});
+}
 
 export function createCompactionGovernor(
   requestContinuation?: () => void,
@@ -119,6 +133,20 @@ export function createCompactionGovernor(
     noteCompactIssued();
   }
 
+  // Continuation re-entry for a compact-bearing return. The legacy subagent
+  // path still holds a host closure and drives its stall-ping loop through
+  // it; the chat path holds none and gets an emit action the host answers
+  // with a deliver instead.
+  function continuationActions(
+    capabilities: ReactorCapabilities,
+  ): ReactorAction[] {
+    if (requestContinuation !== undefined) {
+      requestContinuation();
+      return [];
+    }
+    return [compactionContinuationAction(capabilities)];
+  }
+
   function isSpacerEchoTerminal(
     event: ReactorInboundEvent,
     actions: ReactorAction[],
@@ -141,7 +169,6 @@ export function createCompactionGovernor(
     if (event.turn.content.some((block) => block.type === "tool_call")) {
       consecutiveThresholdCompacts = 0;
     }
-    if (requestContinuation === undefined) return;
     syncFromTurns(turns);
     lastModel = event.source?.model;
     const reportedTokens = contextTokensFromUsage(event.usage);
@@ -190,31 +217,33 @@ export function createCompactionGovernor(
     pending = false;
     postCompactInfer = true;
     issueThresholdCompact();
-    requestContinuation?.();
     return [
       ...actions.filter((a) => a.type !== "infer"),
       capabilities.compact(COMPACTOR_NAME, "context-threshold"),
+      ...continuationActions(capabilities),
     ];
   }
 
   // Interactive sessions can end a turn with a reply and then sit idle, so a
   // pending compaction would wait indefinitely for the next tool batch. When
-  // the turn ends without follow-up work, ask the host for a continuation and
-  // compact when it (or the operator's next message) arrives.
+  // the turn ends without follow-up work, request a continuation re-entry and
+  // compact when it (or the operator's next message) arrives. Returns whether
+  // this call newly armed the idle continuation.
   function noteIdleTurn(
     event: ReactorInboundEvent,
     actions: ReactorAction[],
-  ): void {
-    if (!pending || idlePending || requestContinuation === undefined) return;
-    if (atThresholdCompactCap()) return;
-    if (!onTurnBoundary(event)) return;
-    if (isSpacerEchoTerminal(event, actions)) return;
+  ): boolean {
+    if (!pending || idlePending) return false;
+    if (atThresholdCompactCap()) return false;
+    if (!onTurnBoundary(event)) return false;
+    if (isSpacerEchoTerminal(event, actions)) return false;
     const terminal =
       actions.some((a) => a.type === "reply" || a.type === "wait") &&
       !actions.some((a) => a.type === "infer" || a.type === "execute_tools");
-    if (!terminal) return;
+    if (!terminal) return false;
     idlePending = true;
-    requestContinuation();
+    requestContinuation?.();
+    return true;
   }
 
   function interceptIdleContinuation(
@@ -240,8 +269,10 @@ export function createCompactionGovernor(
       postCompactMeter = true;
     }
     issueThresholdCompact();
-    requestContinuation?.();
-    return [capabilities.compact(COMPACTOR_NAME, "context-threshold")];
+    return [
+      capabilities.compact(COMPACTOR_NAME, "context-threshold"),
+      ...continuationActions(capabilities),
+    ];
   }
 
   // A context-overflow inference error would otherwise terminate the loop
@@ -251,7 +282,6 @@ export function createCompactionGovernor(
     event: ReactorInboundEvent,
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
-    if (requestContinuation === undefined) return null;
     if (
       event.type !== "inference.error" ||
       event.error.category !== "context_overflow"
@@ -263,8 +293,10 @@ export function createCompactionGovernor(
     pending = false;
     postCompactInfer = true;
     noteCompactIssued();
-    requestContinuation();
-    return [capabilities.compact(COMPACTOR_NAME, "context-overflow")];
+    return [
+      capabilities.compact(COMPACTOR_NAME, "context-overflow"),
+      ...continuationActions(capabilities),
+    ];
   }
 
   // After compact, a content-less continuation re-enters decide. "infer" means
