@@ -366,3 +366,172 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     );
   });
 });
+
+// CL-7973: the director's live source id (which stamps retry decisions so a
+// mid-session /model switch remaps the xAI short-429 handling) is observable
+// only through the retry policy it hands to each infer action. An xAI-gated
+// capacity error retries when the tracked id is an xAI source and aborts
+// otherwise, so driving tracking events then invoking the attached policy
+// reads the tracked id without reaching into privates.
+type LiveRetryPolicy = (situation: {
+  attempt: number;
+  elapsedMs: number;
+  error: { category: "protocol_mismatch"; message: string };
+}) => Promise<{ kind: string }> | { kind: string };
+
+function textCompletion(sourceId?: string): ReactorInboundEvent {
+  const turn = {
+    role: "assistant",
+    model: "test",
+    timestamp: 0,
+    content: [{ type: "text", text: "done work" }],
+  };
+  const event: Record<string, unknown> = {
+    type: "inference.done",
+    turn,
+    usage: { input: 0, output: 0 },
+  };
+  if (sourceId !== undefined)
+    event["source"] = { sourceId, provider: "p", model: "test" };
+  return event as unknown as ReactorInboundEvent;
+}
+
+function stateWithCycleSource(sourceId: string): ReactorState {
+  return {
+    turns: [],
+    lastCycleSource: { sourceId, provider: "p", model: "test" },
+  } as unknown as ReactorState;
+}
+
+async function liveRetryPolicy(
+  director: ReturnType<typeof createChatDirector>,
+  capabilities: ReactorCapabilities,
+): Promise<LiveRetryPolicy> {
+  await director.decide(toolOnlyTurn("source-probe"), mockState, capabilities);
+  const actions = actionsArray(
+    await director.decide(
+      toolDoneEvent("source-probe"),
+      mockState,
+      capabilities,
+    ),
+  );
+  const infer = actions.find((a) => a.type === "infer") as
+    | { type: "infer"; options?: { retryPolicy?: LiveRetryPolicy } }
+    | undefined;
+  if (infer?.options?.retryPolicy === undefined)
+    throw new Error("expected an infer action carrying the live retry policy");
+  return infer.options.retryPolicy;
+}
+
+async function isXaiStamped(policy: LiveRetryPolicy): Promise<boolean> {
+  const decision = await policy({
+    attempt: 1,
+    elapsedMs: 0,
+    error: {
+      category: "protocol_mismatch",
+      message: "The model is currently at capacity",
+    },
+  });
+  return decision.kind === "retry";
+}
+
+describe("ChatDirector live source-id tracking (CL-7973)", () => {
+  test("a sourceless or empty-string completion never wipes the learned id", async () => {
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => undefined,
+      provider: { providerName: "test-provider" },
+    });
+    const capabilities = makeCapabilities();
+    const policy = await liveRetryPolicy(director, capabilities);
+
+    // The seed id is not an xAI source, so the capacity error aborts.
+    expect(await isXaiStamped(policy)).toBe(false);
+
+    // A completion stamps the source that served it.
+    await director.decide(
+      textCompletion("xai/learned"),
+      mockState,
+      capabilities,
+    );
+    expect(await isXaiStamped(policy)).toBe(true);
+
+    // A completion carrying no source keeps the learned id.
+    await director.decide(textCompletion(), mockState, capabilities);
+    expect(await isXaiStamped(policy)).toBe(true);
+
+    // An empty-string source id never clobbers the learned id.
+    await director.decide(textCompletion(""), mockState, capabilities);
+    expect(await isXaiStamped(policy)).toBe(true);
+
+    // An empty-string cycle source never clobbers it either.
+    await director.decide(
+      toolDoneEvent("empty-cycle"),
+      stateWithCycleSource(""),
+      capabilities,
+    );
+    expect(await isXaiStamped(policy)).toBe(true);
+  });
+
+  test("a cycle source remaps tracking on a non-inference event", async () => {
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => undefined,
+      provider: { providerName: "test-provider" },
+    });
+    const capabilities = makeCapabilities();
+    const policy = await liveRetryPolicy(director, capabilities);
+    expect(await isXaiStamped(policy)).toBe(false);
+
+    // tool.done carries no source of its own; the harness's cycle source
+    // covers the turn and remaps tracking from it.
+    await director.decide(
+      toolDoneEvent("cycle-remap"),
+      stateWithCycleSource("xai/cycle"),
+      capabilities,
+    );
+    expect(await isXaiStamped(policy)).toBe(true);
+  });
+
+  test("a drained fleet capitulates to the terminal action after the nudge budget", async () => {
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => undefined,
+      provider: { providerName: "test-provider" },
+    });
+    director.restoreTasks([{ id: "t1", title: "keep going", status: "todo" }]);
+    const capabilities = makeCapabilities();
+
+    // Without the idle-with-fleet allowance (drained fleet), a terminal base
+    // action with open tasks re-infers with the open-task nudge a bounded
+    // number of times, then lets the terminal action through — the accepted
+    // loss stays locked in rather than resuming the nudge.
+    for (let i = 0; i < 3; i++) {
+      const actions = actionsArray(
+        await director.decide(textCompletion(), mockState, capabilities),
+      );
+      expect(actions.some((a) => a.type === "infer")).toBe(true);
+      expect(actions.some((a) => a.type === "reply")).toBe(false);
+    }
+    const terminal = actionsArray(
+      await director.decide(textCompletion(), mockState, capabilities),
+    );
+    expect(terminal.some((a) => a.type === "infer")).toBe(false);
+    expect(terminal.some((a) => a.type === "reply")).toBe(true);
+  });
+
+  test("a cycle source wins over a contradictory event source", async () => {
+    const director = createChatDirector("system", [], {
+      onTasksChange: () => undefined,
+      provider: { providerName: "test-provider" },
+    });
+    const capabilities = makeCapabilities();
+    const policy = await liveRetryPolicy(director, capabilities);
+
+    // The harness's call-start snapshot is authoritative over the event's
+    // own stamp, so when both are present the cycle source defines tracking.
+    await director.decide(
+      textCompletion("other/default"),
+      stateWithCycleSource("xai/cycle"),
+      capabilities,
+    );
+    expect(await isXaiStamped(policy)).toBe(true);
+  });
+});

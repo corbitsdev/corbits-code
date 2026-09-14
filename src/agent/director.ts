@@ -991,10 +991,10 @@ class ChatDirectorImpl extends DefaultDirector {
     // lastCycleSource covers turns whose event carries no source.
     if (event.type === "inference.done") {
       const served = event.source?.sourceId;
-      if (typeof served === "string") this.currentSourceId = served;
+      if (served !== undefined && served !== "") this.currentSourceId = served;
     }
     const cycled = state.lastCycleSource?.sourceId;
-    if (typeof cycled === "string") this.currentSourceId = cycled;
+    if (cycled !== undefined && cycled !== "") this.currentSourceId = cycled;
     if (onTurnBoundary(event)) {
       this.compaction.noteInferenceDone(event, turns);
     }
