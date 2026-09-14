@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   CompletionReport,
   assertTaskSetContained,
@@ -190,5 +193,14 @@ describe("human summary", () => {
     expect(summary).toContain("stub-scripted");
     expect(summary).toContain("version-endpoint r0: complete");
     expect(summary).toContain("stall-read r0: incomplete");
+  });
+});
+
+describe("checked-in baseline", () => {
+  test("the frozen baseline validates against the current report schema", async () => {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const raw = await readFile(join(dir, "baseline-2026-09-14.json"), "utf8");
+    const report = CompletionReport.assert(JSON.parse(raw));
+    expect(report.totals.runsTotal).toBe(report.results.length);
   });
 });
