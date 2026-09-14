@@ -357,6 +357,9 @@ test("flush gives up after its deadline when a request never settles", async () 
     env: {},
     fetchFn: impl,
     apiKey: "test-key",
+    // The production deadline is 500ms; a short override exercises the same
+    // give-up contract without paying that in wall clock.
+    flushDeadlineMs: 30,
   });
   telemetry.capture("cli_start");
   const start = Date.now();

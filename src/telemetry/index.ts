@@ -296,6 +296,10 @@ export interface CreateTelemetryOptions {
   host?: string;
   apiKey?: string;
   batch?: BatchTuning;
+  // Upper bound on how long flush() may hold up process exit, in ms.
+  // Defaults to FLUSH_DEADLINE_MS; tests override this so the give-up
+  // contract is exercised without paying the production 500ms.
+  flushDeadlineMs?: number;
 }
 
 interface QueuedEvent {
@@ -373,6 +377,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
   const batchSize = options.batch?.size ?? DEFAULT_BATCH_SIZE;
   const batchIntervalMs =
     options.batch?.intervalMs ?? DEFAULT_BATCH_INTERVAL_MS;
+  const flushDeadlineMs = options.flushDeadlineMs ?? FLUSH_DEADLINE_MS;
   const queueLimit = options.batch?.queueLimit ?? DEFAULT_QUEUE_LIMIT;
 
   const queue: QueuedEvent[] = [];
@@ -502,7 +507,7 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     await Promise.race([
       drain(),
       new Promise<void>((resolve) => {
-        const deadline = setTimeout(resolve, FLUSH_DEADLINE_MS);
+        const deadline = setTimeout(resolve, flushDeadlineMs);
         deadline.unref?.();
       }),
     ]);

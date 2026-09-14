@@ -16,11 +16,11 @@ def main() -> int:
         os.execvp("bun", ["bun", "run", probe_path])
         os._exit(127)
 
-    time.sleep(1)
+    time.sleep(0.4)
     os.write(fd, b"\x03")
 
     out = b""
-    deadline = time.time() + 4
+    deadline = time.time() + 2.5
     while time.time() < deadline:
         ready, _, _ = select.select([fd], [], [], 0.5)
         if fd not in ready:

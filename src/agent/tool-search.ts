@@ -285,6 +285,10 @@ export interface ToolSearchDeps {
   // below so even a stuck dependency can never hang the call. Omitted callers
   // (tests, ad-hoc indexes) have no pending handshakes to wait for.
   awaitPendingConnections?: (timeoutMs?: number) => Promise<number>;
+  // Bounded wait before answering a miss with late-mounting tools, in ms.
+  // Defaults to TOOL_SEARCH_PENDING_WAIT_MS; tests override this so the
+  // bounded-wait contract is exercised without paying the production 1s.
+  pendingWaitMs?: number;
 }
 
 // Brief bound a tool_search miss waits for in-flight MCP handshakes before
@@ -317,16 +321,14 @@ function indent(text: string, pad: string): string {
 // Resolves undefined when this race itself times out.
 async function racePendingCount(
   awaitPending: (timeoutMs?: number) => Promise<number>,
+  waitMs: number,
 ): Promise<number | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      awaitPending(TOOL_SEARCH_PENDING_WAIT_MS),
+      awaitPending(waitMs),
       new Promise<undefined>((resolve) => {
-        timer = setTimeout(
-          () => resolve(undefined),
-          TOOL_SEARCH_PENDING_WAIT_MS,
-        );
+        timer = setTimeout(() => resolve(undefined), waitMs);
       }),
     ]);
   } finally {
@@ -352,6 +354,7 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
         // (hung OAuth) — undefined means the wait itself timed out.
         const stillPending = await racePendingCount(
           deps.awaitPendingConnections,
+          deps.pendingWaitMs ?? TOOL_SEARCH_PENDING_WAIT_MS,
         );
         names = deps.search(query);
         if (names.length === 0 && (stillPending ?? 1) > 0) {

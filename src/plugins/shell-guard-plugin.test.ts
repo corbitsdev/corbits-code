@@ -286,7 +286,7 @@ describe("background run_shell (shellGuardPlugin)", () => {
     const result = await runWith(registry, {
       id: "bg1",
       name: "run_shell",
-      arguments: { command: "sleep 0.5; echo finished", background: true },
+      arguments: { command: "sleep 0.2; echo finished", background: true },
     });
     expect(result.isError).toBeUndefined();
     const parsed = JSON.parse(String(result.content)) as {
