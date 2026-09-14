@@ -113,7 +113,7 @@ describe("attachSessionBridge", () => {
         try {
           bridge.play(FIXTURE_BUSY_SESSION);
           // Assistant rows are markdown; their blocks highlight asynchronously.
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          await new Promise((resolve) => setTimeout(resolve, 100));
           await h.renderOnce();
           const frame = h.captureCharFrame();
           // Sticky follows the tail; early user line may scroll off.

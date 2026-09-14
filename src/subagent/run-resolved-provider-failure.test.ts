@@ -11,6 +11,7 @@ import {
   type ResolvedProviderFailureError,
 } from "../inference-error-message.js";
 import type { InferenceErrorLike } from "../inference-gateway-error.js";
+import type { RetryPolicy } from "@intx/types/runtime";
 import { MAX_BLIND_WAIT_MS } from "../agent/retry-policy.js";
 import { createPermissionGate } from "../permission/gate.js";
 import {
@@ -143,6 +144,14 @@ async function callTool(
   );
 }
 
+// The retry schedules are exercised, not timed: a 1ms outer backoff and a
+// fast per-attempt policy keep the suite off the production 500/1000ms
+// delays while the retry behavior under test stays identical.
+const fastRetryPolicy: RetryPolicy = (situation) =>
+  situation.error.category === "retryable" && situation.attempt < 3
+    ? { kind: "retry", delayMs: 1 }
+    : { kind: "abort" };
+
 function runParams(cwd: string): RunSubAgentParams {
   return {
     cwd,
@@ -151,6 +160,8 @@ function runParams(cwd: string): RunSubAgentParams {
     provider,
     description: "provider failure probe",
     prompt: "trigger the provider",
+    outerRetryDelayMs: 1,
+    retryPolicy: fastRetryPolicy,
   };
 }
 
@@ -358,6 +369,8 @@ describe("resolved sub-agent provider failures", () => {
           sessions,
           fleetRecords,
           admission: unlimitedAdmissionQueue(),
+          outerRetryDelayMs: 1,
+          retryPolicy: fastRetryPolicy,
           run,
         };
         const spawned = await callTool(

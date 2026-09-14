@@ -556,7 +556,7 @@ describe("product skin: stream + queue + overlay", () => {
           });
           expect(shell.lineCount).toBe(3);
           // Assistant rows are markdown; their blocks highlight asynchronously.
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          await new Promise((resolve) => setTimeout(resolve, 100));
           await h.renderOnce();
           const frame = h.captureCharFrame();
           // Sticky follows the tail — the last rows stay in view.

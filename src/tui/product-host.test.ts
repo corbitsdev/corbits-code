@@ -287,10 +287,17 @@ describe("mountProductHost", () => {
       expect(captureCharFrame()).toContain("0:59");
       expect(captureCharFrame()).toContain("map callers");
 
-      await new Promise((r) => setTimeout(r, 1_100));
-      await renderOnce();
-      expect(captureCharFrame()).toMatch(/1:0\d/);
-      expect(captureCharFrame()).toContain("map callers");
+      // Wait for the minute boundary instead of a fixed 1.1s; the sticky poll
+      // repaints the clock each tick.
+      const deadline = Date.now() + 2_500;
+      let frame = "";
+      while (Date.now() < deadline && !/1:0\d/.test(frame)) {
+        await new Promise((r) => setTimeout(r, 100));
+        await renderOnce();
+        frame = captureCharFrame();
+      }
+      expect(frame).toMatch(/1:0\d/);
+      expect(frame).toContain("map callers");
     } finally {
       host.dispose();
     }
@@ -325,11 +332,13 @@ describe("mountProductHost", () => {
       expect(host.shell.layout.heights.agents).toBeGreaterThan(0);
       expect(captureCharFrame()).toContain("map callers");
 
-      // Only sticky poll may clear — no setChrome. Wait past linger + one tick.
-      await new Promise((r) =>
-        setTimeout(r, TEST_AGENTS_PANEL_LINGER_MS + 500),
-      );
-      await renderOnce();
+      // Only sticky poll may clear — no setChrome. Wait for the poll to clear
+      // the zone once linger expires instead of a fixed linger + tick window.
+      const deadline = Date.now() + TEST_AGENTS_PANEL_LINGER_MS + 1_500;
+      while (Date.now() < deadline && host.shell.layout.heights.agents > 0) {
+        await new Promise((r) => setTimeout(r, 100));
+        await renderOnce();
+      }
       expect(host.shell.layout.heights.agents).toBe(0);
       expect(captureCharFrame()).not.toContain("map callers");
     } finally {

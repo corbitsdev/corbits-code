@@ -2,6 +2,17 @@ import { defined } from "../../tests/helpers/defined.js";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+
+/** Poll until no process carries `token`; fail instead of asserting on a pid. */
+async function waitUntilGone(token: string): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < 5_000) {
+    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+    if ((probe.stdout?.trim() ?? "").length === 0) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`tagged child still alive after 5s: ${token}`);
+}
 import { createPermissionGate } from "../permission/gate.js";
 import { shellCollectDefinition } from "./background-shell-tool.js";
 import { createAgentToolset } from "./tools.js";
@@ -120,10 +131,7 @@ describe("background shell through the agent toolset", () => {
       expect(JSON.parse(String(cancelled.content))).toMatchObject({
         status: "cancelling",
       });
-      await new Promise((r) => setTimeout(r, 300));
-      const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-      expect(probe.stdout?.trim() ?? "").toBe("");
-      expect(probe.status).not.toBe(0);
+      await waitUntilGone(token);
     } finally {
       await toolset.dispose();
     }
@@ -221,10 +229,7 @@ describe("background shell through the agent toolset", () => {
     );
     expect(started.isError).not.toBe(true);
     await toolset.dispose();
-    await new Promise((r) => setTimeout(r, 300));
-    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-    expect(probe.stdout?.trim() ?? "").toBe("");
-    expect(probe.status).not.toBe(0);
+    await waitUntilGone(token);
   });
 });
 

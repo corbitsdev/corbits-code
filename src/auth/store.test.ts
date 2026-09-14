@@ -164,10 +164,13 @@ describe("createAuthStore", () => {
   test("gives queued same-process writes their own lock window", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-queue-"));
     try {
+      // A short lock window keeps the queued write's handoff fast without
+      // changing what is asserted; production keeps the 1s default.
       const store = createAuthStore<TestTokens>({
         filename: "test-auth.json",
         settingsDirName: TEST_SETTINGS_DIR,
         isTokens: isTestTokens,
+        lockTimeoutMs: 100,
       });
       await store.saveProfile(
         {
@@ -294,10 +297,12 @@ describe("createAuthStore", () => {
   test("fails closed with manual recovery guidance when an orphan lock exists", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-orphan-"));
     try {
+      // A short lock window keeps the timeout fast; production keeps 1s.
       const store = createAuthStore<TestTokens>({
         filename: "test-auth.json",
         settingsDirName: TEST_SETTINGS_DIR,
         isTokens: isTestTokens,
+        lockTimeoutMs: 100,
       });
       const lockPath = `${store.authPath(home)}.lock`;
       await mkdir(join(home, TEST_SETTINGS_DIR), { recursive: true });

@@ -10,11 +10,22 @@ import {
 
 const tmpCwd = process.cwd();
 
+/** Poll until no process carries `token`; fail instead of asserting on a pid. */
+async function waitUntilGone(token: string): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < 5_000) {
+    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+    if ((probe.stdout?.trim() ?? "").length === 0) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`tagged child still alive after 5s: ${token}`);
+}
+
 describe("background shell registry", () => {
   test("start returns a handle immediately while the process runs", async () => {
     const registry = createBackgroundShellRegistry();
     const started = registry.start({
-      command: "sleep 1; echo done",
+      command: "sleep 0.5; echo done",
       cwd: tmpCwd,
     });
     if ("error" in started) throw new Error(started.error);
@@ -36,7 +47,10 @@ describe("background shell registry", () => {
     const started = registry.start({ command: "echo hi", cwd: tmpCwd });
     if ("error" in started) throw new Error(started.error);
     await registry.collect(started.id, 5_000);
-    await new Promise((r) => setTimeout(r, 50));
+    const deadline = Date.now() + 5_000;
+    while (exits.length === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     expect(exits).toHaveLength(1);
   });
 
@@ -68,10 +82,7 @@ describe("background shell registry", () => {
     expect(registry.cancel(started.id)).toBe(true);
     const exited = await registry.collect(started.id, 5_000);
     expect(exited.state).toBe("completed");
-    await new Promise((r) => setTimeout(r, 300));
-    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-    expect(probe.stdout?.trim() ?? "").toBe("");
-    expect(probe.status).not.toBe(0);
+    await waitUntilGone(token);
   });
 
   test("cancel on an unknown id returns false", () => {
@@ -115,10 +126,7 @@ describe("background shell registry", () => {
     });
     if ("error" in started) throw new Error(started.error);
     registry.disposeAll("session closed");
-    await new Promise((r) => setTimeout(r, 300));
-    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-    expect(probe.stdout?.trim() ?? "").toBe("");
-    expect(probe.status).not.toBe(0);
+    await waitUntilGone(token);
     const after = await registry.collect(started.id, 0);
     expect(after.state).toBe("not-found");
   });

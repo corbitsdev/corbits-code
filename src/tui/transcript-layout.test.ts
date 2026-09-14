@@ -36,7 +36,7 @@ async function paintRows(
       try {
         for (const row of rows) appendStreamRow(shell, row);
         // Markdown bodies highlight asynchronously.
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 100));
         await h.renderOnce();
         inspect(h.captureCharFrame(), shell);
       } finally {

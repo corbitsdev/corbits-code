@@ -64,7 +64,7 @@ async function paint(
       try {
         for (const row of rows) appendStreamRow(shell, row);
         // Bodies the renderer owns settle a frame after they are added.
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 100));
         await h.renderOnce();
         inspect(h.captureCharFrame(), shell);
       } finally {

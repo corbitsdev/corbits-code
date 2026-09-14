@@ -13,7 +13,7 @@ import { rowGroupGap, type StreamRow } from "./stream";
 
 /** Markdown blocks highlight asynchronously; settle before capturing a frame. */
 async function settle(h: Harness): Promise<string> {
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  await new Promise((resolve) => setTimeout(resolve, 100));
   await h.renderOnce();
   await h.renderOnce();
   return h.captureCharFrame();

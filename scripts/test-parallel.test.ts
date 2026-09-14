@@ -15,12 +15,16 @@ function processAlive(pid: number): boolean {
 }
 
 // These probes are `bun -e` one-liners, so they never import project modules
-// and finish in seconds. Stall windows are ~1.5s: under the `--parallel`
-// load this runner exists to enable, a delayed output tick can look like a
-// stall against a tighter window, so the window keeps several ticks of
-// scheduling headroom while a broken never-resetting timer still fires
-// mid-run (the tick test's total runtime exceeds the window).
+// and finish in seconds. The tick test keeps a ~1.5s stall window: under the
+// `--parallel` load this runner exists to enable, a delayed output tick can
+// look like a stall against a tighter window, so the window keeps several
+// ticks of scheduling headroom while a broken never-resetting timer still
+// fires mid-run (the tick test's total runtime exceeds the window). The
+// remaining tests drive children that never emit output, so their stall is
+// declared deterministically on the watchdog's first tick; they use a short
+// window so the suite does not pay the tick test's headroom in wall clock.
 const TEST_STALL_MS = 1_500;
+const SILENT_CHILD_STALL_MS = 400;
 
 describe("runWithWatchdog", () => {
   test("passes through a successful run without retrying", async () => {
@@ -58,7 +62,7 @@ describe("runWithWatchdog", () => {
       command: process.execPath,
       args: [
         "-e",
-        "for (let i = 0; i < 10; i++) { console.log('tick', i); await new Promise(r => setTimeout(r, 250)); }",
+        "for (let i = 0; i < 10; i++) { console.log('tick', i); await new Promise(r => setTimeout(r, 200)); }",
       ],
       stallMs: TEST_STALL_MS,
     });
@@ -83,7 +87,7 @@ describe("runWithWatchdog", () => {
     const result = await runWithWatchdog({
       command: process.execPath,
       args: ["-e", code],
-      stallMs: TEST_STALL_MS,
+      stallMs: SILENT_CHILD_STALL_MS,
       onStall: (attempt, max) => stalls.push([attempt, max]),
     });
     expect(result.exitCode).toBe(0);
@@ -100,9 +104,9 @@ describe("runWithWatchdog", () => {
       command: process.execPath,
       args: [
         "-e",
-        'process.on("SIGTERM", () => {}); setTimeout(() => process.exit(3), 4_000);',
+        'process.on("SIGTERM", () => {}); setTimeout(() => process.exit(3), 1_500);',
       ],
-      stallMs: TEST_STALL_MS,
+      stallMs: SILENT_CHILD_STALL_MS,
       onStall: () => {
         throw new Error("must not retry a run that exited on its own");
       },
@@ -120,7 +124,7 @@ describe("runWithWatchdog", () => {
     const result = await runWithWatchdog({
       command: process.execPath,
       args: ["-e", "setTimeout(() => {}, 30_000)"],
-      stallMs: TEST_STALL_MS,
+      stallMs: SILENT_CHILD_STALL_MS,
       attempts: 2,
       onStall: (attempt, max) => stalls.push([attempt, max]),
     });
@@ -144,7 +148,7 @@ describe("runWithWatchdog", () => {
     const result = await runWithWatchdog({
       command: process.execPath,
       args: ["-e", code],
-      stallMs: TEST_STALL_MS,
+      stallMs: SILENT_CHILD_STALL_MS,
       attempts: 1,
     });
     expect(result.exitCode).toBe(1);

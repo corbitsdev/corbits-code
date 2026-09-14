@@ -25,6 +25,17 @@ import {
 
 const neverAbort = () => new AbortController().signal;
 
+/** Poll until no process carries `token`; fail instead of asserting on a pid. */
+async function waitUntilGone(token: string): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < 5_000) {
+    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+    if ((probe.stdout?.trim() ?? "").length === 0) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`tagged child still alive after 5s: ${token}`);
+}
+
 function toolContentTrimmed(result: ToolResult): string {
   const content = result.content;
   return (typeof content === "string" ? content : String(content)).trim();
@@ -168,10 +179,7 @@ describe("runGuardedShell", () => {
     const token = `ic_guard_orphan_${randomUUID()}`;
     const cmd = `bash -c 'IC_GUARD_TAG=${token} sleep 600 & IC_GUARD_TAG=${token} exec sleep 600'`;
     await runGuardedShell({ command: cmd, timeout: 250 }, neverAbort());
-    await new Promise((r) => setTimeout(r, 300));
-    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-    expect(probe.stdout?.trim() ?? "").toBe("");
-    expect(probe.status).not.toBe(0);
+    await waitUntilGone(token);
   });
 
   test("abort kills grandchildren in a shell pipeline", async () => {
@@ -185,10 +193,7 @@ describe("runGuardedShell", () => {
     );
     setTimeout(() => controller.abort(), 80);
     await expect(promise).rejects.toThrow(/aborted/);
-    await new Promise((r) => setTimeout(r, 300));
-    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-    expect(probe.stdout?.trim() ?? "").toBe("");
-    expect(probe.status).not.toBe(0);
+    await waitUntilGone(token);
   });
 
   test("abort kills the process group", async () => {
@@ -977,10 +982,7 @@ describe("shellGuardPlugin", () => {
       ).not.toBe("");
       expect(plugin.dispose).toBeDefined();
       await defined(plugin.dispose)();
-      await new Promise((r) => setTimeout(r, 300));
-      const after = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-      expect(after.stdout?.trim() ?? "").toBe("");
-      expect(after.status).not.toBe(0);
+      await waitUntilGone(token);
       await defined(plugin.dispose)();
       await running;
     } finally {
@@ -1100,8 +1102,8 @@ describe("shellGuardPlugin", () => {
       signalCode: null,
       kill: () => true,
     }) as ChildProcess;
-    await expect(reapLiveChildren(new Set([child]))).rejects.toThrow(
-      /still live after 2000ms reap/,
+    await expect(reapLiveChildren(new Set([child]), 60)).rejects.toThrow(
+      /still live after 60ms reap/,
     );
   }, 10_000);
 });
