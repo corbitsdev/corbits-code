@@ -23,10 +23,7 @@ import {
   createLocalSettingsWriter,
 } from "../../mcp/add-server.js";
 import { getProcessAdmissionQueue } from "../../subagent/admission.js";
-import {
-  createSubAgentSessionStore,
-  liveFleetCount,
-} from "../../subagent/index.js";
+import { createSubAgentSessionStore } from "../../subagent/index.js";
 import {
   buildPluginDescriptor,
   createPluginsAdmin,
@@ -622,7 +619,9 @@ export async function assembleTUISession(
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
     onTasksChange: (tasks) => emitter.emit("tasks", tasks),
-    getLiveFleetCount: () => liveFleetCount(subAgentSessions.list()),
+    // CL-7918: static idle-with-fleet allowance (fleet lanes may appear
+    // mid-session); retry stamping tracks the live source id in-reactor now.
+    allowIdleWithFleet: true,
     requestContinuation: () => {
       const targetAgent = liveAgent(state);
       state.enqueueAgentDeliver?.(() =>
@@ -630,9 +629,6 @@ export async function assembleTUISession(
       );
     },
     getProvider: () => state.config,
-    // Live id so mid-session `/model` updates xAI bare-429 remapping
-    // without rebuilding the agent (aligned with transcript stamp).
-    getProviderId: () => state.config.providerName,
     directorHolder,
     getWorkdir: () => state.workdir,
     getSessionId: () => state.sessionId,

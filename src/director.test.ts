@@ -316,11 +316,10 @@ describe("open-task termination guard", () => {
     expect(hasInfer(exhausted)).toBe(false);
   });
 
-  test("live fleet with open tasks allows terminal wait/reply and does not spend the nudge budget", async () => {
-    let live = 1;
+  test("idle-with-fleet allows terminal wait/reply with open tasks and spends no nudge budget", async () => {
     const director = createChatDirector("base", [], {
       onTasksChange: () => undefined,
-      getLiveFleetCount: () => live,
+      allowIdleWithFleet: true,
     });
     await director.decide(
       manageTasksEvent("doing"),
@@ -335,23 +334,80 @@ describe("open-task termination guard", () => {
       expect(hasInfer(actions)).toBe(false);
       expect(hasReply(actions)).toBe(true);
     }
-
-    live = 0;
-    for (let i = 0; i < 3; i++) {
-      const nudged = actionsArray(
-        await director.decide(textTurn(), mockState, mockCapabilities),
-      );
-      expect(hasInfer(nudged)).toBe(true);
-      expect(hasReply(nudged)).toBe(false);
-    }
-    const exhausted = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
-    );
-    expect(hasReply(exhausted)).toBe(true);
-    expect(hasInfer(exhausted)).toBe(false);
   });
 
-  test("omitted or zero live fleet count still nudges while a task is open", async () => {
+  test("mid-session source switch remaps retry stamping without host closures", async () => {
+    const director = createChatDirector("base", [], {
+      onTasksChange: () => undefined,
+      provider: { providerName: "openai" },
+    });
+    await director.decide(
+      manageTasksEvent("doing"),
+      mockState,
+      mockCapabilities,
+    );
+    const inferPolicyOf = (actions: ReactorAction[]) => {
+      const infer = actions.find((a) => a.type === "infer");
+      if (infer?.type !== "infer" || infer.options?.retryPolicy === undefined) {
+        throw new Error("expected an infer action carrying a retry policy");
+      }
+      return infer.options.retryPolicy;
+    };
+    const bare429 = {
+      attempt: 1,
+      elapsedMs: 0,
+      error: {
+        category: "quota_exhausted" as const,
+        message: "Too Many Requests",
+        statusCode: 429,
+        retryAfterMs: 45_000,
+        raw: { error: { message: "Too Many Requests" } },
+      },
+    };
+
+    // Seeded from the session provider: bare 429s abort.
+    const before = actionsArray(
+      await director.decide(textTurn(), mockState, mockCapabilities),
+    );
+    expect(await inferPolicyOf(before)(bare429)).toEqual({ kind: "abort" });
+
+    // Mid-session /model switch: the next completion stamps the new source,
+    // so retry stamping remaps without rebuilding the agent.
+    await director.decide(
+      {
+        type: "inference.done",
+        turn: {
+          role: "assistant",
+          model: "grok",
+          timestamp: 0,
+          content: [{ type: "text", text: "all set" }],
+        },
+        usage: {
+          input: 10,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
+        source: {
+          sourceId: "xai/thegreataxios",
+          provider: "xai",
+          model: "grok-4",
+        },
+      } as unknown as ReactorInboundEvent,
+      mockState,
+      mockCapabilities,
+    );
+    const after = actionsArray(
+      await director.decide(textTurn(), mockState, mockCapabilities),
+    );
+    expect(await inferPolicyOf(after)(bare429)).toEqual({
+      kind: "retry",
+      delayMs: 45_000,
+    });
+  });
+
+  test("omitted or false idle-with-fleet still nudges while a task is open", async () => {
     const omitted = createChatDirector("base", [], {
       onTasksChange: () => undefined,
     });
@@ -368,15 +424,19 @@ describe("open-task termination guard", () => {
       ),
     ).toBe(true);
 
-    const zero = createChatDirector("base", [], {
+    const disabled = createChatDirector("base", [], {
       onTasksChange: () => undefined,
-      getLiveFleetCount: () => 0,
+      allowIdleWithFleet: false,
     });
-    await zero.decide(manageTasksEvent("doing"), mockState, mockCapabilities);
+    await disabled.decide(
+      manageTasksEvent("doing"),
+      mockState,
+      mockCapabilities,
+    );
     expect(
       hasInfer(
         actionsArray(
-          await zero.decide(textTurn(), mockState, mockCapabilities),
+          await disabled.decide(textTurn(), mockState, mockCapabilities),
         ),
       ),
     ).toBe(true);
