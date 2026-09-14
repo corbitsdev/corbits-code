@@ -125,7 +125,9 @@ materialization belongs to the sidecar layer
 evaluates, and validates a caller-materialized package directory. Nothing
 in `src/` consumes the loader or the packaging machinery, so both would
 be inert weight today; the published `@intx/tool-packaging@0.3.0` covers
-the seam if the director needs it before a re-vendor. Revisit when the
+the seam if the director needs it before a re-vendor. It is currently only
+transitive in `bun.lock` (via `@intx/hub-sessions`/`@intx/workflow-deploy`),
+so a direct director import must first add it to `package.json`. Revisit when the
 director consumes the sidecar materialization layer.
 
 The license column records what each package declares in its own
