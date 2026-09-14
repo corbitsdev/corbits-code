@@ -30,8 +30,15 @@ bun run build
 bun run test
 ```
 
-These match the local development loop. CI shards the same path union via
-`test:paths` rather than running the one-process `bun run test` suite.
+These match the local development loop. CI splits the same path union into
+four time-balanced `--shard=k/4` slices via `test:paths` (balanced by the
+checked-in per-file durations in `scripts/ci-timings.json`) rather than
+running the one-process `bun run test` suite. Regenerate that file with
+`bun run check:projects-dir-guard ./src ./tests ./evals ./scripts
+--timings=./scripts/ci-timings.json --update-timings` when the slowest
+shard skews more than ~20% above a quarter of the one-process suite time,
+or proactively whenever slow files land — see `.github/workflows/ci.yml`
+for the full policy.
 Run `bun run check`
 (lint, typecheck, build, and the guarded test suite) before opening a PR —
 `bun run test` alone skips the projects-dir sandbox guard, which only runs

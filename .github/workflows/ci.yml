@@ -78,22 +78,29 @@ jobs:
         run: bun run build
 
   # The suite is sharded so the slowest slice, not the whole suite, sets the
-  # wall clock. Every shard still goes through check:projects-dir-guard: the
-  # guard forwards these path filters to the suite it wraps, and the union of
-  # the shards' filters is exactly ./src ./tests ./evals ./scripts, so the gate covers
-  # the same tests as before, all of them sandboxed.
+  # wall clock. Four time-balanced shards split the same
+  # ./src ./tests ./evals ./scripts union via bun's --shard=k/4, balanced by
+  # the checked-in per-file durations in scripts/ci-timings.json (--timings).
+  # Every shard still goes through check:projects-dir-guard: the guard
+  # forwards the path union plus the shard flags to the suite it wraps, so the
+  # gate covers the same tests as before, all of them sandboxed.
+  #
+  # Timings refresh policy: regenerate scripts/ci-timings.json by running the
+  # full union locally with --update-timings (same seeded flags as `test`):
+  #   bun run check:projects-dir-guard ./src ./tests ./evals ./scripts \
+  #     --timings=./scripts/ci-timings.json --update-timings
+  # Regen when the slowest shard's Test step skews more than ~20% above a
+  # quarter of the one-process suite time (shards drifting apart means the
+  # timings no longer describe the suite), or proactively whenever slow files
+  # land. A scheduled refresh artifact is a future option, not current setup.
   test:
     runs-on: ubuntu-latest
     strategy:
-      # A red shard must not cancel the other; both results are the signal.
+      # A red shard must not cancel the others; all results are the signal.
       fail-fast: false
       matrix:
-        shard:
-          - name: src
-            paths: ./src
-          - name: tests-evals-and-scripts
-            paths: ./tests ./evals ./scripts
-    name: test (${{ matrix.shard.name }})
+        shard: ["1/4", "2/4", "3/4", "4/4"]
+    name: test (${{ matrix.shard }})
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -122,19 +129,63 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # The same script the local `bun run check` gate runs, with the shard's
-      # path filters forwarded through the guard to the suite. The guard
-      # routes a filtered run through test:paths, which carries the same
-      # seeded flags as the `test` script; bun test filters are additive, so
-      # appending filters to `bun run test` could not narrow it. Randomized
-      # order catches tests that only pass in the default file order (shared
-      # module-level state, an unrestored global mock, a leaked env var).
+      # The same script the local `bun run check` gate runs, with the full
+      # path union plus the shard's --shard/--timings flags forwarded through
+      # the guard to the suite. The guard routes a filtered run through
+      # test:paths, which carries the same seeded flags as the `test` script;
+      # bun test filters are additive, so appending filters to `bun run test`
+      # could not narrow it. --shard splits by file (balanced by --timings),
+      # so every shard covers the same union and the four shards together
+      # cover the whole suite. Randomized order catches tests that only pass
+      # in the default file order (shared module-level state, an unrestored
+      # global mock, a leaked env var).
       # The seed stays 424242 in every shard rather than varying per shard:
       # the shards already run disjoint file sets, and a fixed seed keeps
       # any failure reproducible locally with the same
-      # `bun run test:paths <paths>`.
+      # `bun run test:paths <paths> --shard=k/4
+      # --timings=./scripts/ci-timings.json`.
       - name: Test
-        run: bun run check:projects-dir-guard ${{ matrix.shard.paths }}
+        run: bun run check:projects-dir-guard ./src ./tests ./evals ./scripts --shard=${{ matrix.shard }} --timings=./scripts/ci-timings.json
+
+  # Cross-shard pollution detector: the shards above split the path union,
+  # but the union is not the isolation domain — a mock.module leak across
+  # files fails in the one-process suite yet passes when the files land in
+  # different shards (CL-6967). This job reruns the whole union in one
+  # process with no filters, exactly like the local `bun run check` gate.
+  # Non-blocking (continue-on-error) so a slow or flaky full run cannot hold
+  # the gate; a real pollution failure still shows up red for triage.
+  test-one-process:
+    name: test (one-process pollution detector)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: bun-${{ hashFiles('bun.lock') }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run check:projects-dir-guard
 
   # protect-main still requires the pre-restructure check names. These jobs
   # exist only to publish those contexts after the real work succeeds.
