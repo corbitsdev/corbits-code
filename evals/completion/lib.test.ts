@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   CompletionReport,
+  assertTaskSetContained,
   computeTotals,
   formatSummary,
   isCompletedRun,
   parseResponderScript,
   parseTaskSetFile,
+  resolveTaskRelativePath,
   TaskResult,
   type CompletionReport as CompletionReportType,
   type TaskResult as TaskResultType,
@@ -106,6 +108,59 @@ describe("boundary parsing", () => {
       totals: { ...computeTotals([result()]), completionRate: 2 },
     };
     expect(() => CompletionReport.assert(report)).toThrow();
+  });
+});
+
+describe("task path containment", () => {
+  const root = "/repo/evals/completion";
+
+  test("keeps relative fixture paths inside the harness directory", () => {
+    expect(resolveTaskRelativePath(root, "tasks/sum-fix/fixture")).toBe(
+      "/repo/evals/completion/tasks/sum-fix/fixture",
+    );
+  });
+
+  test("rejects absolute escapes", () => {
+    expect(() => resolveTaskRelativePath(root, "/etc/passwd")).toThrow(
+      /escapes the harness directory/,
+    );
+  });
+
+  test("rejects dot-dot escapes outside the harness directory", () => {
+    expect(() => resolveTaskRelativePath(root, "../capability/lib.ts")).toThrow(
+      /escapes the harness directory/,
+    );
+    expect(() =>
+      resolveTaskRelativePath(root, "tasks/../../package.json"),
+    ).toThrow(/escapes the harness directory/);
+  });
+
+  test("rejects an empty reference", () => {
+    expect(() => resolveTaskRelativePath(root, "  ")).toThrow(
+      /escapes the harness directory/,
+    );
+  });
+
+  test("assertTaskSetContained rejects a task set with an escaped grader", () => {
+    const taskSet = parseTaskSetFile({
+      version: 1,
+      note: "x",
+      tasks: [
+        {
+          id: "evil",
+          title: "evil",
+          profile: "solve",
+          prompt: "p",
+          fixture: "tasks/sum-fix/fixture",
+          script: "tasks/sum-fix/script.json",
+          verify: "/tmp/evil.sh",
+          maxTurns: 1,
+        },
+      ],
+    });
+    expect(() => assertTaskSetContained(taskSet, root)).toThrow(
+      /escapes the harness directory/,
+    );
   });
 });
 

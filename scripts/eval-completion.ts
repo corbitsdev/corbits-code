@@ -14,6 +14,14 @@
  * purpose: solve/decline/stall profiles exercise finish, decline, and
  * guard-trip paths deterministically so the 0.4.x re-measure sees the
  * control layer move, not provider noise.
+ *
+ * TRUST BOUNDARY: the version-controlled files under evals/completion/tasks/
+ * (tasks.json, per-task script.json, verify.sh, fixture/) are the trusted
+ * grading boundary — edits there are grading changes requiring owner review.
+ * A custom --tasks JSON file is untrusted: its fixture/script/verify
+ * references are confined to evals/completion/ (see resolveTaskRelativePath;
+ * absolute paths and `..` escapes are rejected) before any fixture copy or
+ * grader spawn.
  */
 
 import { cpSync } from "node:fs";
@@ -29,11 +37,13 @@ import {
 } from "../tests/integration/harness.js";
 import {
   CompletionReport,
+  assertTaskSetContained,
   computeTotals,
   formatSummary,
   isCompletedRun,
   parseResponderScript,
   parseTaskSetFile,
+  resolveTaskRelativePath,
   TaskResult,
   type CompletionTask,
   type RunStatus,
@@ -64,7 +74,7 @@ function printUsage(): void {
   --help            Print this message`);
 }
 
-function parseArgs(argv: string[]): CliOptions {
+export function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
     tasksPath: join(COMPLETION_ROOT, "tasks.json"),
     caseId: "all",
@@ -99,6 +109,11 @@ function parseArgs(argv: string[]): CliOptions {
   if (!Number.isInteger(opts.repeats) || opts.repeats < 1) {
     throw new Error(
       `--repeats must be a positive integer, got ${opts.repeats}`,
+    );
+  }
+  if (!Number.isInteger(opts.timeoutMs) || opts.timeoutMs <= 0) {
+    throw new Error(
+      `--timeout-ms must be a positive integer, got ${opts.timeoutMs}`,
     );
   }
   return opts;
@@ -213,11 +228,15 @@ async function runTask(
   });
   const agentStart = Date.now();
   try {
-    cpSync(resolve(COMPLETION_ROOT, task.fixture), session.cwd, {
-      recursive: true,
-    });
+    cpSync(
+      resolveTaskRelativePath(COMPLETION_ROOT, task.fixture),
+      session.cwd,
+      {
+        recursive: true,
+      },
+    );
     const scriptRaw = await readFile(
-      resolve(COMPLETION_ROOT, task.script),
+      resolveTaskRelativePath(COMPLETION_ROOT, task.script),
       "utf8",
     );
     const script = parseResponderScript(JSON.parse(scriptRaw));
@@ -280,11 +299,15 @@ async function runTask(
     if (signals.runFailed) runStatus = "failed";
 
     const verifyStart = Date.now();
-    const verify = spawnSync("bash", [resolve(COMPLETION_ROOT, task.verify)], {
-      cwd: session.cwd,
-      encoding: "utf8",
-      timeout: 60_000,
-    });
+    const verify = spawnSync(
+      "bash",
+      [resolveTaskRelativePath(COMPLETION_ROOT, task.verify)],
+      {
+        cwd: session.cwd,
+        encoding: "utf8",
+        timeout: 60_000,
+      },
+    );
     const verifyDurationMs = Date.now() - verifyStart;
     const verifyExitCode = verify.status ?? 1;
 
@@ -330,6 +353,7 @@ async function main(): Promise<void> {
   const taskSet = parseTaskSetFile(
     JSON.parse(await readFile(opts.tasksPath, "utf8")),
   );
+  assertTaskSetContained(taskSet, COMPLETION_ROOT);
   const tasks =
     opts.caseId === "all"
       ? taskSet.tasks

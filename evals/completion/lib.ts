@@ -3,8 +3,18 @@
  * No process I/O here: the runner (scripts/eval-completion.ts) owns the
  * filesystem, child processes, and the agent loop; this module owns the
  * shapes at the boundary (arktype) plus completion math and the summary.
+ *
+ * TRUST BOUNDARY: the version-controlled task and grading files under
+ * evals/completion/tasks/ (tasks.json, per-task script.json, verify.sh, and
+ * fixture/ copies) plus evals/completion/lib.ts and
+ * scripts/eval-completion.ts are the trusted grading boundary. Treat edits to
+ * those paths as grading changes requiring owner review; custom --tasks JSON
+ * passed on the CLI is untrusted input and its fixture/script/verify
+ * references stay confined to evals/completion/ via
+ * resolveTaskRelativePath (absolute paths and `..` escapes are rejected).
  */
 
+import { isAbsolute, relative, resolve } from "node:path";
 import { type } from "arktype";
 
 export const ResponderProfile = type("'solve' | 'decline' | 'stall'");
@@ -112,6 +122,36 @@ export function parseTaskSetFile(payload: unknown): CompletionTaskSet {
 /** Parse and validate an unknown responder-script payload. */
 export function parseResponderScript(payload: unknown): ResponderScript {
   return ResponderScript.assert(payload);
+}
+
+/**
+ * Resolve a task-set fixture/script/verify reference against the harness
+ * task directory. Custom task sets are untrusted: absolute paths and `..`
+ * escapes outside the directory are rejected so fixture copies and grader
+ * spawns cannot reach outside evals/completion/.
+ */
+export function resolveTaskRelativePath(taskDir: string, ref: string): string {
+  if (ref.trim() === "" || isAbsolute(ref)) {
+    throw new Error(`Task path escapes the harness directory: ${ref}`);
+  }
+  const resolved = resolve(taskDir, ref);
+  const rel = relative(taskDir, resolved);
+  if (rel === "" || rel === ".." || rel.startsWith("../") || isAbsolute(rel)) {
+    throw new Error(`Task path escapes the harness directory: ${ref}`);
+  }
+  return resolved;
+}
+
+/** Assert every task-set path reference stays inside the harness directory. */
+export function assertTaskSetContained(
+  taskSet: CompletionTaskSet,
+  taskDir: string,
+): void {
+  for (const task of taskSet.tasks) {
+    resolveTaskRelativePath(taskDir, task.fixture);
+    resolveTaskRelativePath(taskDir, task.script);
+    resolveTaskRelativePath(taskDir, task.verify);
+  }
 }
 
 /**

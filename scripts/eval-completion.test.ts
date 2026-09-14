@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { withTimeout } from "./eval-completion.js";
+import { parseArgs, withTimeout } from "./eval-completion.js";
 
 describe("withTimeout", () => {
   test("rejects a hung run after the timeout", async () => {
@@ -27,5 +27,17 @@ describe("withTimeout", () => {
     await expect(
       withTimeout(Promise.reject(new Error("boom")), 1000, "task"),
     ).rejects.toThrow("boom");
+  });
+});
+
+describe("parseArgs timeout validation", () => {
+  test("rejects NaN, zero, and negative timeouts", () => {
+    expect(() => parseArgs(["--timeout-ms", "NaN"])).toThrow(/--timeout-ms/);
+    expect(() => parseArgs(["--timeout-ms", "0"])).toThrow(/--timeout-ms/);
+    expect(() => parseArgs(["--timeout-ms", "-5"])).toThrow(/--timeout-ms/);
+  });
+
+  test("accepts a positive integer timeout", () => {
+    expect(parseArgs(["--timeout-ms", "1000"]).timeoutMs).toBe(1000);
   });
 });
