@@ -147,6 +147,30 @@ const MAX_SPACER_ECHO_NUDGES = 2;
 
 const SPACER_ECHO_NUDGE = "Continue the task. Do not repeat internal markers.";
 
+// Upper bound for a coordinator directive injected into the next infer.
+// Directives are small step blocks; anything beyond this is a runaway prompt
+// or a misbehaving host object. Capped with a marker (never dropped) and
+// logged so the workflow owner can see the trim.
+export const MAX_WORKFLOW_DIRECTIVE_CHARS = 8_000;
+
+// Runtime shape guard for the host-owned live object. TypeScript covers
+// in-repo callers; this covers JS hosts handing back a lookalike with a
+// missing or non-function member, which would otherwise reject decide()
+// a turn later at the first consult site.
+function isWorkflowCoordinatorLike(
+  value: unknown,
+): value is WorkflowCoordinator {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.directive === "function" &&
+    typeof candidate.isActive === "function" &&
+    typeof candidate.currentStepIsGate === "function" &&
+    typeof candidate.currentStepId === "function" &&
+    typeof candidate.handleToolDone === "function"
+  );
+}
+
 const IDLE_OPEN_TASK_NUDGE =
   "\n\nYou are ending your turn while tasks are still open (todo/doing). " +
   "Finish the remaining work and mark each task done or cancelled with " +
@@ -541,7 +565,79 @@ class ChatDirectorImpl extends DefaultDirector {
   }
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
+    if (coordinator !== undefined && !isWorkflowCoordinatorLike(coordinator)) {
+      throw new Error(
+        "setWorkflowCoordinator: invalid coordinator — expected a WorkflowCoordinator " +
+          "with directive(), isActive(), currentStepIsGate(), currentStepId(), " +
+          "and handleToolDone() functions.",
+      );
+    }
     this.workflowCoordinator = coordinator;
+  }
+
+  // Coordinator consults are best-effort per-turn rails: a throwing host
+  // object must degrade to plain inference, never reject decide(). Each
+  // helper below catches, warns once per call, and returns the plain-loop
+  // fallback so the session keeps running.
+  private coordinatorIsActive(): boolean {
+    try {
+      return this.workflowCoordinator?.isActive() === true;
+    } catch (err) {
+      logger.warn`workflow-coordinator-isActive-threw error=${err instanceof Error ? err.message : String(err)}`;
+      return false;
+    }
+  }
+
+  private coordinatorDirective(): string | null {
+    try {
+      const directive = this.workflowCoordinator?.directive() ?? null;
+      if (directive === null) return null;
+      if (typeof directive !== "string") {
+        logger.warn`workflow-coordinator-directive-not-string`;
+        return null;
+      }
+      if (directive.length > MAX_WORKFLOW_DIRECTIVE_CHARS) {
+        logger.warn`workflow-coordinator-directive-truncated chars=${String(directive.length)} max=${String(MAX_WORKFLOW_DIRECTIVE_CHARS)}`;
+        return `${directive.slice(0, MAX_WORKFLOW_DIRECTIVE_CHARS)}\n…[truncated]`;
+      }
+      return directive;
+    } catch (err) {
+      logger.warn`workflow-coordinator-directive-threw error=${err instanceof Error ? err.message : String(err)}`;
+      return null;
+    }
+  }
+
+  private coordinatorCurrentStepIsGate(): boolean {
+    try {
+      return this.workflowCoordinator?.currentStepIsGate() === true;
+    } catch (err) {
+      logger.warn`workflow-coordinator-gate-threw error=${err instanceof Error ? err.message : String(err)}`;
+      return false;
+    }
+  }
+
+  private coordinatorCurrentStepId(): string | null {
+    try {
+      return this.workflowCoordinator?.currentStepId() ?? null;
+    } catch (err) {
+      logger.warn`workflow-coordinator-step-id-threw error=${err instanceof Error ? err.message : String(err)}`;
+      return null;
+    }
+  }
+
+  private coordinatorHandleToolDone(
+    name: string | undefined,
+    args: unknown,
+    isError: boolean,
+  ): boolean {
+    try {
+      return (
+        this.workflowCoordinator?.handleToolDone(name, args, isError) === true
+      );
+    } catch (err) {
+      logger.warn`workflow-coordinator-handleToolDone-threw error=${err instanceof Error ? err.message : String(err)}`;
+      return false;
+    }
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
@@ -624,7 +720,7 @@ class ChatDirectorImpl extends DefaultDirector {
   private withCurrentTools(
     result: ReactorAction | ReactorAction[],
   ): ReactorAction | ReactorAction[] {
-    const active = this.workflowCoordinator?.isActive() === true;
+    const active = this.coordinatorIsActive();
     // submit_output rides on the wire every turn, workflow or not, so
     // activating a workflow never grows the tools array and busts the cache
     // prefix. Outside a workflow it is a harmless no-op the director ignores
@@ -635,9 +731,7 @@ class ChatDirectorImpl extends DefaultDirector {
       ? this._toolDefinitions
       : [...this._toolDefinitions, submitOutputDefinition];
 
-    const directive = active
-      ? (this.workflowCoordinator?.directive() ?? null)
-      : null;
+    const directive = active ? this.coordinatorDirective() : null;
 
     const rewrite = (action: ReactorAction): ReactorAction => {
       if (action.type !== "infer") return action;
@@ -803,7 +897,7 @@ class ChatDirectorImpl extends DefaultDirector {
         this.pendingToolOnlyNudge = true;
       }
 
-      if (this.workflowCoordinator?.isActive()) {
+      if (this.coordinatorIsActive()) {
         if (hasToolCalls) {
           this.workflowIdleTurns = 0;
         } else {
@@ -847,7 +941,7 @@ class ChatDirectorImpl extends DefaultDirector {
     ) {
       const call = this.workflowCalls.get(event.result.callId);
       this.workflowCalls.delete(event.result.callId);
-      const advanced = this.workflowCoordinator?.handleToolDone(
+      const advanced = this.coordinatorHandleToolDone(
         call?.name,
         call?.args,
         event.result.isError === true,
@@ -953,8 +1047,8 @@ class ChatDirectorImpl extends DefaultDirector {
     );
     if (toolOnlyRewrite !== null) return toolOnlyRewrite;
 
-    const coordinator = this.workflowCoordinator;
-    if (coordinator?.isActive() && !coordinator.currentStepIsGate()) {
+    const coordinatorActive = this.coordinatorIsActive();
+    if (coordinatorActive && !this.coordinatorCurrentStepIsGate()) {
       const hasTerminal = baseActions.some(
         (a) => a.type === "wait" || a.type === "reply",
       );
@@ -975,7 +1069,7 @@ class ChatDirectorImpl extends DefaultDirector {
             ),
           ];
         }
-        const stepId = coordinator.currentStepId();
+        const stepId = this.coordinatorCurrentStepId();
         const stepClause =
           stepId !== null
             ? `call submit_output with { "step": "${stepId}" } now`
@@ -1000,7 +1094,7 @@ class ChatDirectorImpl extends DefaultDirector {
     // yielding there with open tasks is not an invariant breach — leave it to
     // the workflow runtime and do not nudge.
     const atWorkflowGate =
-      coordinator?.isActive() === true && coordinator.currentStepIsGate();
+      coordinatorActive && this.coordinatorCurrentStepIsGate();
     if (!atWorkflowGate && hasActiveTasks(this.tasks)) {
       const hasTerminal = baseActions.some(
         (a) => a.type === "wait" || a.type === "reply",
@@ -1022,10 +1116,9 @@ class ChatDirectorImpl extends DefaultDirector {
           // Inside a workflow the terminal action is submit_output with the
           // current step id, so point the nudge at it rather than the general
           // manage_tasks guidance.
-          const nudge =
-            coordinator?.isActive() === true
-              ? WORKFLOW_OPEN_TASK_NUDGE
-              : IDLE_OPEN_TASK_NUDGE;
+          const nudge = coordinatorActive
+            ? WORKFLOW_OPEN_TASK_NUDGE
+            : IDLE_OPEN_TASK_NUDGE;
           return [...passThrough, inferWithNudge(capabilities, nudge)];
         }
         this.logTerminationWithOpenTasks("idle-stall");

@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { createChatDirector, askOperatorDefinition } from "./agent/director.js";
+import type { WorkflowCoordinator } from "./workflows/coordinator.js";
 import { createAgentToolset } from "./agent/tools.js";
 import { createAdvertisedToolset } from "./session/assemble-runtime.js";
 import { createPermissionGate } from "./permission/gate.js";
@@ -1452,6 +1453,126 @@ describe("CL-7919 coordinator shape", () => {
     );
     const infer = actions.find((a) => a.type === "infer");
     expect(inferEphemeralText(infer)).toBeUndefined();
+  });
+
+  // A throwing coordinator degrades to plain inference: decide() resolves
+  // with an infer free of the workflow directive instead of rejecting.
+  test("a throwing directive falls back to plain inference", async () => {
+    const { MAX_WORKFLOW_DIRECTIVE_CHARS } =
+      await import("./agent/director.js");
+    expect(MAX_WORKFLOW_DIRECTIVE_CHARS).toBeGreaterThan(0);
+    const director = createChatDirector("base-prompt", [], {
+      onTasksChange: () => undefined,
+    });
+    director.setWorkflowCoordinator({
+      directive: () => {
+        throw new Error("boom");
+      },
+      isActive: () => true,
+      currentStepIsGate: () => false,
+      currentStepId: () => "a",
+      handleToolDone: () => false,
+    } as unknown as WorkflowCoordinator);
+    const actions = actionsArray(
+      await director.decide(
+        makeMessageReceivedEvent("hello"),
+        mockState,
+        capabilitiesWithInferArgs,
+      ),
+    );
+    const infer = actions.find((a) => a.type === "infer");
+    expect(infer).toBeDefined();
+    expect(inferEphemeralText(infer)).toBeUndefined();
+  });
+
+  // Every per-turn consult is guarded, not just directive(): a coordinator
+  // whose rails all throw still lets decide() (including the tool.done
+  // handleToolDone path) resolve to the plain loop.
+  test("throwing idle rails and handleToolDone fall back to the plain loop", async () => {
+    const director = createChatDirector("base-prompt", [], {
+      onTasksChange: () => undefined,
+    });
+    director.setWorkflowCoordinator({
+      directive: () => {
+        throw new Error("directive boom");
+      },
+      isActive: () => {
+        throw new Error("active boom");
+      },
+      currentStepIsGate: () => {
+        throw new Error("gate boom");
+      },
+      currentStepId: () => {
+        throw new Error("step boom");
+      },
+      handleToolDone: () => {
+        throw new Error("tool boom");
+      },
+    } as unknown as WorkflowCoordinator);
+    const fromMessage = actionsArray(
+      await director.decide(
+        makeMessageReceivedEvent("hello"),
+        mockState,
+        capabilitiesWithInferArgs,
+      ),
+    );
+    expect(fromMessage.find((a) => a.type === "infer")).toBeDefined();
+    const fromToolDone = actionsArray(
+      await director.decide(
+        {
+          type: "tool.done",
+          result: { callId: "missing", content: "ok" },
+        } as unknown as ReactorInboundEvent,
+        mockState,
+        capabilitiesWithInferArgs,
+      ),
+    );
+    expect(fromToolDone.length).toBeGreaterThan(0);
+  });
+
+  // The setter is the shape boundary: a lookalike missing coordinator
+  // members is rejected with a clear error instead of failing a turn later.
+  test("setWorkflowCoordinator rejects a misshapen coordinator", async () => {
+    const director = createChatDirector("base-prompt", [], {
+      onTasksChange: () => undefined,
+    });
+    expect(() =>
+      director.setWorkflowCoordinator({
+        isActive: () => true,
+      } as unknown as Parameters<typeof director.setWorkflowCoordinator>[0]),
+    ).toThrow(/setWorkflowCoordinator.*invalid coordinator/);
+  });
+
+  // An oversized directive is capped with a marker, never dropped: the turn
+  // still carries workflow guidance within the bound.
+  test("an oversized directive is capped with a truncation marker", async () => {
+    const { MAX_WORKFLOW_DIRECTIVE_CHARS } =
+      await import("./agent/director.js");
+    const director = createChatDirector("base-prompt", [], {
+      onTasksChange: () => undefined,
+    });
+    const oversized = `prefix ${"x".repeat(MAX_WORKFLOW_DIRECTIVE_CHARS + 100)}`;
+    director.setWorkflowCoordinator({
+      directive: () => oversized,
+      isActive: () => true,
+      currentStepIsGate: () => false,
+      currentStepId: () => "a",
+      handleToolDone: () => false,
+    } as unknown as WorkflowCoordinator);
+    const actions = actionsArray(
+      await director.decide(
+        makeMessageReceivedEvent("hello"),
+        mockState,
+        capabilitiesWithInferArgs,
+      ),
+    );
+    const text = inferEphemeralText(actions.find((a) => a.type === "infer"));
+    expect(text).toBeDefined();
+    expect(text).toContain("…[truncated]");
+    expect(text?.startsWith("prefix")).toBe(true);
+    expect(text?.length ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+      MAX_WORKFLOW_DIRECTIVE_CHARS + "…[truncated]".length + 1,
+    );
   });
 });
 
