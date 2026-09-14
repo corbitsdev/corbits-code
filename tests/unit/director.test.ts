@@ -216,6 +216,53 @@ test("compaction is self-regulating: a cycle back under threshold does not re-co
   expect(hasContinuationEmit(arr)).toBe(false);
 });
 
+test("a fresh director answers an unsolicited empty continuation without inferring", async () => {
+  const director = makeChatDirector();
+
+  // No compact ever ran, so no continuation is outstanding: a forged or
+  // replayed continuation message must not cost a billable inference.
+  const result = await director.decide(
+    emptyMessageReceived(),
+    state,
+    makeCapabilities(),
+  );
+  const arr = Array.isArray(result) ? result : [result];
+  expect(arr.some((a) => a.type === "infer")).toBe(false);
+});
+
+test("a duplicated continuation resumes inference at most once", async () => {
+  const director = makeChatDirector();
+
+  await director.decide(
+    inferenceDoneWithInput(100_000),
+    manyTurnsState,
+    makeCapabilities(),
+  );
+  await director.decide(
+    toolDoneTurn("call-1"),
+    manyTurnsState,
+    makeCapabilities(),
+  );
+
+  // The first continuation resumes the interrupted loop.
+  const first = await director.decide(
+    emptyMessageReceived(),
+    state,
+    makeCapabilities(),
+  );
+  const firstArr = Array.isArray(first) ? first : [first];
+  expect(firstArr.some((a) => a.type === "infer")).toBe(true);
+
+  // A replayed duplicate of the same continuation must not re-infer.
+  const second = await director.decide(
+    emptyMessageReceived(),
+    state,
+    makeCapabilities(),
+  );
+  const secondArr = Array.isArray(second) ? second : [second];
+  expect(secondArr.some((a) => a.type === "infer")).toBe(false);
+});
+
 // ---------------------------------------------------------------------------
 // Model-family policy / main-session loop protection (CL-5611): a tool-only
 // streak must not hard-pause on turn count alone — a Grok session hard-paused

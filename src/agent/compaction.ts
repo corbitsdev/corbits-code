@@ -328,6 +328,14 @@ export function createCompactionGovernor(
     usingEstimate = true;
   }
 
+  // True while the governor expects the host to answer a continuation emit.
+  // The post-compact resume flags are consume-on-hit, so an empty
+  // message.received that finds neither set is unsolicited — forged or a
+  // replayed duplicate — and answering it would burn a billable inference.
+  function hasOutstandingContinuation(): boolean {
+    return postCompactInfer || postCompactMeter;
+  }
+
   return {
     get estimatedTokens(): number {
       return estimate.tokens;
@@ -346,5 +354,6 @@ export function createCompactionGovernor(
     interceptIdleContinuation,
     interceptOverflow,
     resumeAfterCompact,
+    hasOutstandingContinuation,
   };
 }

@@ -699,6 +699,22 @@ class ChatDirectorImpl extends DefaultDirector {
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) return recovery;
 
+    // A forged or replayed compaction continuation arrives as an empty
+    // message.received with no outstanding compact state (the legit resume
+    // is consumed above). Answering it with infer would burn a billable
+    // model turn and reset the loop-protection budgets below, so hold the
+    // loop instead.
+    if (event.type === "message.received") {
+      const content =
+        typeof event.message.content === "string" ? event.message.content : "";
+      if (
+        content.length === 0 &&
+        !this.compaction.hasOutstandingContinuation()
+      ) {
+        return capabilities.wait();
+      }
+    }
+
     // Only `aborted` (internal-recovery-abort) lands here: the harness's own
     // retry policy already owns `timeout`/`retryable`/`quota_exhausted` and
     // has exhausted its own attempt budget (up to MAX_ATTEMPTS full-context

@@ -443,6 +443,31 @@ export function buildCompactionContinuationMessage(): InboundMessage {
 }
 
 /**
+ * Per-host consume-once gate for the compaction continuation emit. The
+ * reactor emits the continuation before compact runs and emits nothing
+ * after, so a host that only sees the stream cannot observe "compact
+ * occurred" — the emission itself is the outstanding-continuation claim.
+ * Each emission (keyed by its session-scoped seq) is answered at most once:
+ * a replayed duplicate of an already-answered emission is ignored instead
+ * of re-delivered, since each delivery costs a billable inference. A forged
+ * emission with a fresh seq still delivers, but the director answers an
+ * unsolicited continuation with wait rather than infer, so that path cannot
+ * burn a model turn either.
+ */
+export function createContinuationGate(): {
+  shouldDeliver: (seq: number) => boolean;
+} {
+  let lastDeliveredSeq: number | null = null;
+  return {
+    shouldDeliver: (seq: number): boolean => {
+      if (seq === lastDeliveredSeq) return false;
+      lastDeliveredSeq = seq;
+      return true;
+    },
+  };
+}
+
+/**
  * System-originated inbound that re-enters the parent after the fleet goes dry
  * with todo/doing tasks still open. Not operator input, so no
  * OPERATOR_ORIGINATED_FLAG. ChatDirector still resets idle and tool-only
