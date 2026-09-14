@@ -22,9 +22,7 @@ export const XAI_CLIENT_IDENTIFIER = "grok-shell";
 export const XAI_CLIENT_VERSION = "0.2.93";
 export const XAI_USER_AGENT = "grok-shell/0.2.93 (macos; aarch64)";
 
-export const XAI_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing";
-
-// Cap every token and billing request to the xAI proxy. The refresh runs on the
+// Cap every token request to the xAI proxy. The refresh runs on the
 // send path before the inference fetch arms its inactivity/total timers, so a
 // stalled token endpoint would otherwise freeze the agent at turn 0.
 export const XAI_TOKEN_TIMEOUT_MS = 15_000;

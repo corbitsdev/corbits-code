@@ -11,10 +11,8 @@ const codexRedirect = new URL(CODEX_REDIRECT_URI);
 export const CODEX_CALLBACK_PORT = Number(codexRedirect.port);
 export const CODEX_CALLBACK_PATH = codexRedirect.pathname;
 
-// Live usage/quota for the prepaid plan (window %, reset, credits) and the
-// account's available model catalog. The models endpoint requires a
+// The account's available model catalog. The models endpoint requires a
 // client_version query param.
-export const CODEX_USAGE_PATH = "/codex/usage";
 export const CODEX_MODELS_PATH = "/codex/models";
 export const CODEX_CLIENT_VERSION = "0.50.0";
 

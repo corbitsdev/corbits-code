@@ -19,11 +19,11 @@ import {
 } from "./codex/constants.js";
 import { refreshStagedCodexTokens } from "./codex/session.js";
 import type { CodexTokens } from "./codex/store.js";
-import { codexAuthHeadersForToken } from "./codex/usage.js";
+import { codexAuthHeadersForToken } from "./codex/auth-headers.js";
 import { XAI_BASE_URL, XAI_TOKEN_TIMEOUT_MS } from "./xai/constants.js";
 import { refreshStagedXaiTokens } from "./xai/session.js";
 import type { XaiTokens } from "./xai/store.js";
-import { xaiAuthHeadersForToken } from "./xai/usage.js";
+import { xaiAuthHeadersForToken } from "./xai/auth-headers.js";
 
 export type OAuthScopeCheckKind = "codex" | "xai";
 
