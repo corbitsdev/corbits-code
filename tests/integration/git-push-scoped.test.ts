@@ -146,7 +146,7 @@ describe("git-push-scoped", () => {
 
     // The pre-receive hook sleeps 5s, so the push is still in flight here;
     // kill it well inside that window.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 30));
     child.kill("SIGKILL");
     const { signal } = await exited;
 

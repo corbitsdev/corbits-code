@@ -104,7 +104,7 @@ describe("runWithWatchdog", () => {
       command: process.execPath,
       args: [
         "-e",
-        'process.on("SIGTERM", () => {}); setTimeout(() => process.exit(3), 600);',
+        'process.on("SIGTERM", () => {}); setTimeout(() => process.exit(3), 400);',
       ],
       stallMs: SILENT_CHILD_STALL_MS,
       onStall: () => {

@@ -29,7 +29,10 @@ const disposeCountPath = countPath;
 // handler's bounded-teardown deadline is the only exit for the crash and
 // signal paths. Shorten it so those tests don't pay the production 2s in
 // wall clock; production never sets the option and keeps the 2s default.
-const TEST_TEARDOWN_DEADLINE_MS = 200;
+// The deadline only bounds the hung agent.close() — the dispose-count write
+// and the child reap both happen synchronously before the first await, so
+// 120ms is pure padding, not a real work budget.
+const TEST_TEARDOWN_DEADLINE_MS = 120;
 if (exitPath === "crash") {
   const { installCrashHandlers } =
     await import("../../../src/process-handlers.js");

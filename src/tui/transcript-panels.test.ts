@@ -11,12 +11,44 @@ import { appendStreamRow } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import { rowGroupGap, type StreamRow } from "./stream";
 
-/** Markdown blocks highlight asynchronously; settle before capturing a frame. */
-async function settle(h: Harness): Promise<string> {
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  await h.renderOnce();
-  await h.renderOnce();
-  return h.captureCharFrame();
+/**
+ * Text the frame must show once the last row's body has painted: a collapsed
+ * skill row never shows its raw text (it waits for the collapsed summary
+ * line instead), and a markdown table renders its cells without the pipe
+ * delimiters, so those probe a cell body rather than the raw line.
+ */
+function rowProbe(row: StreamRow | undefined): string {
+  if (row === undefined) return "";
+  if (row.skill !== undefined) return `skill "${row.skill}" loaded`;
+  const firstLine = String(row.text).split("\n")[0] ?? "";
+  if (firstLine.startsWith("|")) {
+    const cell = firstLine
+      .split("|")
+      .map((part) => part.trim())
+      .find((part) => part.length > 0);
+    if (cell !== undefined) return cell.replace(/[*_`]/g, "").slice(0, 12);
+  }
+  return firstLine.slice(0, 12);
+}
+
+/**
+ * Markdown blocks highlight asynchronously; settle before capturing a frame.
+ * Polls until the last row's text is painted instead of paying a fixed wait,
+ * bounded by a deadline so a highlight stall fails the inspect assertions
+ * instead of hanging.
+ */
+async function settle(h: Harness, rows: readonly StreamRow[]): Promise<string> {
+  const deadline = Date.now() + 2_000;
+  const probe = rowProbe(rows[rows.length - 1]);
+  for (;;) {
+    await h.renderOnce();
+    await h.renderOnce();
+    const frame = h.captureCharFrame();
+    if (probe.length === 0 || frame.includes(probe) || Date.now() >= deadline) {
+      return frame;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 async function paint(
@@ -32,7 +64,7 @@ async function paint(
       });
       try {
         for (const row of rows) appendStreamRow(shell, row);
-        inspect(await settle(h));
+        inspect(await settle(h, rows));
       } finally {
         shell.dispose();
       }

@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { resolveSideMargin } from "./geometry/zones";
-import { withTestRenderer } from "./harness";
+import { withTestRenderer, type Harness } from "./harness";
 import { appendStreamRow } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
@@ -22,6 +22,35 @@ function rowsContaining(frame: string, needle: string): readonly string[] {
   return inkRows(frame).filter((row) => row.includes(needle));
 }
 
+/**
+ * Poll for the async markdown highlight pass instead of a fixed wait: the
+ * tree-sitter pass repaints markdown row bodies asynchronously, so a frame
+ * can lack row ink for a few tens of milliseconds after `appendStreamRow`.
+ * Returns as soon as the last row's text is painted (a collapsed skill row
+ * never shows its raw text, so those wait for the collapsed summary line),
+ * bounded by a deadline so a highlight stall fails the inspect assertions
+ * instead of hanging the suite.
+ */
+async function waitForRowInk(
+  h: Harness,
+  rows: readonly StreamRow[],
+): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  const last = rows[rows.length - 1];
+  const firstLine =
+    last !== undefined ? (String(last.text).split("\n")[0] ?? "") : "";
+  const probe =
+    last?.skill !== undefined
+      ? `skill "${last.skill}" loaded`
+      : firstLine.slice(0, 12);
+  for (;;) {
+    await h.renderOnce();
+    if (probe.length === 0 || h.captureCharFrame().includes(probe)) return;
+    if (Date.now() >= deadline) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 async function paintRows(
   rows: readonly StreamRow[],
   columns: number,
@@ -35,9 +64,7 @@ async function paintRows(
       });
       try {
         for (const row of rows) appendStreamRow(shell, row);
-        // Markdown bodies highlight asynchronously.
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        await h.renderOnce();
+        await waitForRowInk(h, rows);
         inspect(h.captureCharFrame(), shell);
       } finally {
         shell.dispose();

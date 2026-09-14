@@ -38,7 +38,7 @@ describe("createGateRequestApproval", () => {
         const budget = getToolApprovalBudget();
         // finish() must have resumed the budget: with the clock ticking again
         // the 50ms budget expires during this wait.
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 70));
         expect(budget?.signal.aborted).toBe(true);
         return { callId: "1", content: "done" };
       },

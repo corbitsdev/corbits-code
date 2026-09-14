@@ -555,10 +555,16 @@ describe("product skin: stream + queue + overlay", () => {
             meta: "bash",
           });
           expect(shell.lineCount).toBe(3);
-          // Assistant rows are markdown; their blocks highlight asynchronously.
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          await h.renderOnce();
-          const frame = h.captureCharFrame();
+          // Assistant rows are markdown; their blocks highlight asynchronously,
+          // so poll for the painted body instead of a fixed wait.
+          const deadline = Date.now() + 2_000;
+          let frame = "";
+          for (;;) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            await h.renderOnce();
+            frame = h.captureCharFrame();
+            if (frame.includes("hi there") || Date.now() >= deadline) break;
+          }
           // Sticky follows the tail — the last rows stay in view.
           expect(frame).toContain("hi there");
           expect(frame).toContain("bash");

@@ -229,7 +229,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
 
         // A true dismiss still drains the queue as before.
         press("Escape");
-        await Bun.sleep(60);
+        await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
         expect(closedCount).toBe(1);
@@ -267,7 +267,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(shell.prompt.value).toBe("/moz");
 
         // Popup close is a genuine dismiss: the queued gate drains onto it.
-        await Bun.sleep(60);
+        await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
       } finally {
@@ -296,7 +296,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(isSlashPopupOpen(shell)).toBe(false);
         expect(shell.prompt.value).toBe("/help ");
 
-        await Bun.sleep(60);
+        await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
       } finally {
@@ -329,7 +329,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
         expect(resolved).toBeUndefined();
 
         closeInsetOverlay(shell);
-        await Bun.sleep(60);
+        await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
       } finally {
@@ -355,7 +355,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
 
         press("Enter");
         expect(isSlashPopupOpen(shell)).toBe(false);
-        await Bun.sleep(60);
+        await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
       } finally {
@@ -479,7 +479,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
             // onCommand throws; idle-notify must still run in finally.
           }
           expect(isSlashPopupOpen(shell)).toBe(false);
-          await Bun.sleep(60);
+          await Bun.sleep(20);
           expect(shell.overlayKind).toBe("permissions");
           expect(resolved).toBeUndefined();
         } finally {
@@ -528,7 +528,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           expect(resolved).toBeUndefined();
 
           closeInsetOverlay(shell);
-          await Bun.sleep(60);
+          await Bun.sleep(20);
           expect(shell.overlayKind).toBe("permissions");
           expect(resolved).toBeUndefined();
         } finally {
@@ -867,7 +867,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
       ).toBe(false);
       press("Escape");
       await render();
-      await Bun.sleep(60);
+      await Bun.sleep(20);
       expect(shell.overlayList).toBeNull();
     });
   });
@@ -910,7 +910,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
 
           press("Escape");
           await render();
-          await Bun.sleep(60);
+          await Bun.sleep(20);
           expect(isOverlayHostIdle(shell)).toBe(true);
           hanging.resolve();
           await Promise.resolve();
@@ -943,7 +943,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
 
         press("Escape");
         await render();
-        await Bun.sleep(60);
+        await Bun.sleep(20);
         expect(shell.overlayKind).not.toBe("settings");
         expect(isOverlayHostIdle(shell)).toBe(true);
         resolveSecond();
@@ -1035,7 +1035,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
           expect(resolved).toBeUndefined();
 
           closeInsetOverlay(shell);
-          await Bun.sleep(60);
+          await Bun.sleep(20);
           expect(shell.overlayKind).toBe("permissions");
           expect(resolved).toBeUndefined();
         } finally {
@@ -1109,7 +1109,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
 
       press("Escape");
       await render();
-      await Bun.sleep(60);
+      await Bun.sleep(20);
       expect(isOverlayHostIdle(shell)).toBe(true);
 
       release();
@@ -1132,7 +1132,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
 
         press("Escape");
         await render();
-        await Bun.sleep(60);
+        await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
       } finally {
@@ -1148,7 +1148,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
 
       press("Escape");
       await render();
-      await Bun.sleep(60);
+      await Bun.sleep(20);
       expect(isOverlayHostIdle(shell)).toBe(true);
 
       const second = reserveOverlayHost(shell);

@@ -267,6 +267,10 @@ describe("mountProductHost", () => {
 
   test("setChrome with running agents paints an agents panel clock", async () => {
     const now = Date.now();
+    // Start 500ms before the minute boundary: the rollover assertion stays
+    // identical while the boundary wait (up to a full minute from a 59:00
+    // start) shrinks to at most ~0.5s of wall clock, with plenty of margin
+    // left for the mount + first capture to still see 0:59.
     const { host, renderOnce, captureCharFrame } = await mountHeadless({
       chrome: {
         agents: [
@@ -275,7 +279,7 @@ describe("mountProductHost", () => {
             currentToolStartedAt: null,
             description: "map callers",
             status: "running",
-            startedAt: now - 59_000,
+            startedAt: now - 59_500,
             lastActivityAt: now,
           },
         ],
@@ -289,10 +293,10 @@ describe("mountProductHost", () => {
 
       // Wait for the minute boundary instead of a fixed 1.1s; the sticky poll
       // repaints the clock each tick.
-      const deadline = Date.now() + 2_500;
+      const deadline = Date.now() + 1_500;
       let frame = "";
       while (Date.now() < deadline && !/1:0\d/.test(frame)) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 50));
         await renderOnce();
         frame = captureCharFrame();
       }
@@ -336,7 +340,7 @@ describe("mountProductHost", () => {
       // the zone once linger expires instead of a fixed linger + tick window.
       const deadline = Date.now() + TEST_AGENTS_PANEL_LINGER_MS + 1_500;
       while (Date.now() < deadline && host.shell.layout.heights.agents > 0) {
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 50));
         await renderOnce();
       }
       expect(host.shell.layout.heights.agents).toBe(0);

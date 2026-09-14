@@ -112,10 +112,20 @@ describe("attachSessionBridge", () => {
         const bridge = attachSessionBridge(shell, port);
         try {
           bridge.play(FIXTURE_BUSY_SESSION);
-          // Assistant rows are markdown; their blocks highlight asynchronously.
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          await h.renderOnce();
-          const frame = h.captureCharFrame();
+          // Assistant rows are markdown; their blocks highlight asynchronously,
+          // so poll for the painted body instead of a fixed wait.
+          const deadline = Date.now() + 2_000;
+          let frame = "";
+          for (;;) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            await h.renderOnce();
+            frame = h.captureCharFrame();
+            if (
+              frame.includes("I'll list the directory.") ||
+              Date.now() >= deadline
+            )
+              break;
+          }
           // Sticky follows the tail; early user line may scroll off.
           expect(shell.lineCount).toBeGreaterThanOrEqual(3);
           expect(frame).toContain("I'll list the directory.");

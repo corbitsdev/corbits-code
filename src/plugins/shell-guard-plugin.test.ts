@@ -55,7 +55,7 @@ describe("runGuardedShell", () => {
     const feed = createShellOutputFeed();
     let finished = false;
     const running = runGuardedShell(
-      { command: "echo first; sleep 0.02; echo second; sleep 0.4" },
+      { command: "echo first; sleep 0.02; echo second; sleep 0.2" },
       neverAbort(),
       undefined,
       undefined,
@@ -83,7 +83,7 @@ describe("runGuardedShell", () => {
   test("omitted timeout does not arm a timer", async () => {
     const start = Date.now();
     const { exitCode, timedOut, output } = await runGuardedShell(
-      { command: "sleep 0.25; echo done" },
+      { command: "sleep 0.1; echo done" },
       neverAbort(),
     );
     expect(timedOut).toBe(false);
@@ -116,7 +116,7 @@ describe("runGuardedShell", () => {
   test("returns partial output and a timed-out flag instead of throwing", async () => {
     const start = Date.now();
     const { exitCode, timedOut, output } = await runGuardedShell(
-      { command: "echo early; sleep 60", timeout: 200 },
+      { command: "echo early; sleep 60", timeout: 100 },
       neverAbort(),
     );
     expect(timedOut).toBe(true);
@@ -286,7 +286,7 @@ describe("background run_shell (shellGuardPlugin)", () => {
     const result = await runWith(registry, {
       id: "bg1",
       name: "run_shell",
-      arguments: { command: "sleep 0.2; echo finished", background: true },
+      arguments: { command: "sleep 0.05; echo finished", background: true },
     });
     expect(result.isError).toBeUndefined();
     const parsed = JSON.parse(String(result.content)) as {
@@ -542,16 +542,16 @@ describe("shellGuardPlugin", () => {
     const result = await run({
       id: "c2",
       name: "run_shell",
-      arguments: { command: "echo before; sleep 60", timeout: 120 },
+      arguments: { command: "echo before; sleep 60", timeout: 80 },
     });
     expect(result.isError).toBeUndefined();
     expect(result.content).toContain("before");
-    expect(result.content).toMatch(/timed out after 120ms and was terminated/);
+    expect(result.content).toMatch(/timed out after 80ms and was terminated/);
   });
 
   test("clamps a per-command timeout override to the configured max", async () => {
     const handler = defined(
-      shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware,
+      shellGuardPlugin(process.cwd(), { maxMs: 60 }).middleware,
     )(fallback);
     const result = await handler(
       {
@@ -561,18 +561,18 @@ describe("shellGuardPlugin", () => {
       },
       neverAbort(),
     );
-    expect(result.content).toMatch(/timed out after 100ms/);
+    expect(result.content).toMatch(/timed out after 60ms/);
   });
 
   test("applies a configured default timeout when none is passed", async () => {
     const handler = defined(
-      shellGuardPlugin(process.cwd(), { defaultMs: 90 }).middleware,
+      shellGuardPlugin(process.cwd(), { defaultMs: 60 }).middleware,
     )(fallback);
     const result = await handler(
       { id: "c2c", name: "run_shell", arguments: { command: "sleep 60" } },
       neverAbort(),
     );
-    expect(result.content).toMatch(/timed out after 90ms/);
+    expect(result.content).toMatch(/timed out after 60ms/);
   });
 
   test("omitted timeout with no settings default does not time out", async () => {
@@ -583,7 +583,7 @@ describe("shellGuardPlugin", () => {
       {
         id: "c2d",
         name: "run_shell",
-        arguments: { command: "sleep 0.2; echo ok" },
+        arguments: { command: "sleep 0.05; echo ok" },
       },
       neverAbort(),
     );
@@ -599,7 +599,7 @@ describe("shellGuardPlugin", () => {
       {
         id: "c2e",
         name: "run_shell",
-        arguments: { command: "sleep 0.2; echo ok" },
+        arguments: { command: "sleep 0.05; echo ok" },
       },
       neverAbort(),
     );
@@ -926,7 +926,7 @@ describe("shellGuardPlugin", () => {
 
   test("treats timeout 0 as the configured default", async () => {
     const handler = defined(
-      shellGuardPlugin(process.cwd(), { defaultMs: 90, maxMs: 100 }).middleware,
+      shellGuardPlugin(process.cwd(), { defaultMs: 60, maxMs: 70 }).middleware,
     )(fallback);
     const result = await handler(
       {
@@ -936,7 +936,7 @@ describe("shellGuardPlugin", () => {
       },
       neverAbort(),
     );
-    expect(result.content).toMatch(/timed out after 90ms/);
+    expect(result.content).toMatch(/timed out after 60ms/);
   });
 
   test("returns promptly when the search tool ignores the budget", async () => {

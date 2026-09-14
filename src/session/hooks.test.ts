@@ -103,7 +103,7 @@ describe("lifecycle hook payload delivery", () => {
     process.on("unhandledRejection", onUnhandled);
     try {
       await manager.dispatchPostRun(summary);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 40));
     } finally {
       process.off("unhandledRejection", onUnhandled);
     }

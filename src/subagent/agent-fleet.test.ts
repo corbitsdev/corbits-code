@@ -327,7 +327,7 @@ describe("spawn_agent + wait_agents", () => {
 
     const waited = await callTool(wait, {
       targets: [ids[0]],
-      timeout_ms: 5000,
+      timeout_ms: 2000,
     });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as {
@@ -353,7 +353,7 @@ describe("spawn_agent + wait_agents", () => {
       sessions: deps.sessions,
       fleetRecords: deps.fleetRecords,
     });
-    const { content } = await callToolRaw(wait, { timeout_ms: 50 });
+    const { content } = await callToolRaw(wait, { timeout_ms: 20 });
     const parsed = parseFleetJson(content);
     expect(parsed).toEqual({ results: [], timed_out: false });
   });
@@ -374,7 +374,7 @@ describe("spawn_agent + wait_agents", () => {
     });
     const id = spawned.agent_id as string;
 
-    const first = await callTool(wait, { targets: [id], timeout_ms: 50 });
+    const first = await callTool(wait, { targets: [id], timeout_ms: 20 });
     expect(first.timed_out).toBe(true);
     const firstResults = first.results as {
       agent_id: string;
@@ -387,7 +387,7 @@ describe("spawn_agent + wait_agents", () => {
 
     // A second wait still works cleanly (either another timeout, or completion).
     gate.resolve({ report: "finished" });
-    const second = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const second = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(second.timed_out).toBe(false);
     const secondResults = second.results as {
       agent_id: string;
@@ -423,7 +423,7 @@ describe("spawn_agent + wait_agents", () => {
     });
 
     defined(gates[0]).resolve({ report: "a done" });
-    const result = await callTool(wait, { timeout_ms: 5000 });
+    const result = await callTool(wait, { timeout_ms: 2000 });
     expect(result.timed_out).toBe(false);
     const results = result.results as { status: string }[];
     expect(results).toHaveLength(2);
@@ -476,7 +476,7 @@ describe("spawn_agent + wait_agents", () => {
     expect(deps.sessions.get(defined(ids[0]))).toBeDefined();
 
     // Every single one is retrievable through wait_agents too.
-    const waited = await callTool(wait, { targets: ids, timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: ids, timeout_ms: 2000 });
     const results = waited.results as {
       agent_id: string;
       status: string;
@@ -525,7 +525,7 @@ describe("spawn_agent + wait_agents", () => {
     expect(deps.sessions.cancel(id)).toBe(true);
     expect(deps.sessions.get(id)?.status).toBe("cancelled");
 
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as {
       agent_id: string;
@@ -573,7 +573,7 @@ describe("spawn_agent + wait_agents", () => {
     const id = spawned.agent_id as string;
     expect(deps.sessions.cancel(id)).toBe(true);
 
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as {
       status: string;
@@ -602,7 +602,7 @@ describe("spawn_agent + wait_agents", () => {
       intent: "explore",
     });
     const id = spawned.agent_id as string;
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     const results = waited.results as {
       status: string;
       report?: string;
@@ -637,7 +637,7 @@ describe("spawn_agent + wait_agents", () => {
       intent: "plan",
     });
     const id = spawned.agent_id as string;
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     const results = waited.results as {
       status: string;
       report?: string;
@@ -666,7 +666,7 @@ describe("spawn_agent + wait_agents", () => {
       intent: "explore",
     });
     const id = spawned.agent_id as string;
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     const results = waited.results as {
       status: string;
       report?: string;
@@ -697,7 +697,7 @@ describe("spawn_agent + wait_agents", () => {
       intent: "explore",
     });
     const id = spawned.agent_id as string;
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     const results = waited.results as {
       status: string;
       report?: string;
@@ -774,7 +774,7 @@ describe("spawn_agent same-cwd concurrency", () => {
       intent: "implement",
       success_criteria: ["thing two ships"],
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     await expect(
       readFile(join(dir, INTERVENTION_FILE), "utf8"),
@@ -905,7 +905,7 @@ describe("spawn_agent same-cwd concurrency", () => {
       intent: "implement",
       success_criteria: ["thing one ships"],
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     await expect(
       readFile(join(dir, INTERVENTION_FILE), "utf8"),
@@ -1035,7 +1035,7 @@ describe("spawn_agent same-cwd concurrency", () => {
     });
     expect(first.status).toBe("running");
     expect(queued.status).toBe("queued");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
     await expect(
       readFile(join(dir, INTERVENTION_FILE), "utf8"),
@@ -1067,7 +1067,7 @@ describe("wait mailbox session tombstone and pin", () => {
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    const waited = await callTool(wait, { targets: ids, timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: ids, timeout_ms: 2000 });
     const results = waited.results as { status: string; report?: string }[];
     const withReport = results.filter((r) => r.report !== undefined).length;
 
@@ -1100,7 +1100,7 @@ describe("wait mailbox session tombstone and pin", () => {
     // never collected, so it was evicted once the cap was exceeded.
     const waited = await callTool(wait, {
       targets: [defined(ids[0])],
-      timeout_ms: 5000,
+      timeout_ms: 2000,
     });
     const results = waited.results as {
       agent_id: string;
@@ -1145,7 +1145,7 @@ describe("wait mailbox session tombstone and pin", () => {
       signal,
     );
     firstRun.resolve({ report: "ok" });
-    await callTool(wait, { targets: ["reuse-id"], timeout_ms: 5000 });
+    await callTool(wait, { targets: ["reuse-id"], timeout_ms: 2000 });
 
     await spawn.handler(
       { id: "reuse-id", name: "spawn_agent", arguments: args },
@@ -1270,7 +1270,7 @@ describe("wait_agents caller scope", () => {
       intent: "explore",
     });
 
-    const waited = await callTool(wait, { timeout_ms: 50 });
+    const waited = await callTool(wait, { timeout_ms: 20 });
     expect(waited.timed_out).toBe(true);
     const results = waited.results as { agent_id: string; status: string }[];
     expect(results.map((r) => r.agent_id)).toEqual([
@@ -1372,7 +1372,7 @@ describe("wait_agents caller scope", () => {
     const partial = await callTool(wait, {
       targets: ids,
       mode: "all",
-      timeout_ms: 50,
+      timeout_ms: 20,
     });
     expect(partial.timed_out).toBe(true);
     const partialResults = partial.results as { status: string }[];
@@ -1382,7 +1382,7 @@ describe("wait_agents caller scope", () => {
     const finished = await callTool(wait, {
       targets: ids,
       mode: "all",
-      timeout_ms: 5000,
+      timeout_ms: 2000,
     });
     expect(finished.timed_out).toBe(false);
     const finishedResults = finished.results as { status: string }[];
@@ -1442,7 +1442,7 @@ describe("wait_agents caller scope", () => {
     const partial = await callTool(wait, {
       targets: ids,
       mode: "all",
-      timeout_ms: 50,
+      timeout_ms: 20,
     });
     expect(partial.timed_out).toBe(true);
     const partialResults = partial.results as {
@@ -1460,7 +1460,7 @@ describe("wait_agents caller scope", () => {
     const finished = await callTool(wait, {
       targets: ids,
       mode: "all",
-      timeout_ms: 5000,
+      timeout_ms: 2000,
     });
     expect(finished.timed_out).toBe(false);
     const finishedResults = finished.results as {
@@ -1499,7 +1499,7 @@ describe("wait_agents caller scope", () => {
       {
         id: "wait-1",
         name: "wait_agents",
-        arguments: { targets: [id], timeout_ms: 5000 },
+        arguments: { targets: [id], timeout_ms: 2000 },
       },
       ac.signal,
     );
@@ -1551,7 +1551,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     });
     const id = spawned.agent_id as string;
 
-    const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waiting = callTool(wait, { targets: [id], timeout_ms: 2000 });
     if (interrupt.kind !== "full") throw new Error("expected full tool");
     await interrupt.handler(
       { id: "int-1", name: "interrupt_agent", arguments: { target: id } },
@@ -1595,7 +1595,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
       interrupted: true,
     });
 
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { status: string; report?: string }[];
     expect(defined(results[0]).status).toBe("interrupted");
@@ -1629,7 +1629,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     });
     const id = spawned.agent_id as string;
     await callTool(sendInput, { target: id, message: "keep going" });
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 50 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 20 });
     expect(waited.timed_out).toBe(true);
     const results = waited.results as { status: string }[];
     expect(defined(results[0]).status).toBe("running");
@@ -1663,7 +1663,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
       intent: "explore",
     });
     const id = spawned.agent_id as string;
-    const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waiting = callTool(wait, { targets: [id], timeout_ms: 2000 });
     await callTool(sendInput, {
       target: id,
       message: "stop that",
@@ -1731,7 +1731,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
     // The queued followup is still running: wait must stay live (not an
     // immediate terminal interrupted), and list must agree with lifecycle.
-    const pending = await callTool(wait, { targets: [id], timeout_ms: 50 });
+    const pending = await callTool(wait, { targets: [id], timeout_ms: 20 });
     expect(pending.timed_out).toBe(true);
     expect(defined((pending.results as { status: string }[])[0]).status).toBe(
       "running",
@@ -1763,7 +1763,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
       report: "original interrupted",
       interrupted: true,
     } as RunSubAgentResult);
-    const done = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const done = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(done.timed_out).toBe(false);
     const doneResults = done.results as { status: string; report?: string }[];
     expect(defined(doneResults[0]).status).toBe("done");
@@ -1803,7 +1803,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     });
     const id = spawned.agent_id as string;
 
-    const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waiting = callTool(wait, { targets: [id], timeout_ms: 2000 });
     await callTool(sendInput, {
       target: id,
       message: "stop that",
@@ -1907,7 +1907,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     ).find((a) => a.agent_id === id);
     expect(entry?.status).toBe("interrupted");
 
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { status: string }[];
     expect(defined(results[0]).status).toBe("interrupted");
@@ -1975,7 +1975,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     followupGate.reject(new Error("followup failed"));
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { status: string; report?: string }[];
     expect(defined(results[0]).status).toBe("interrupted");
@@ -2014,7 +2014,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
 
     const liveWait = await callTool(wait, {
       targets: [worker.id],
-      timeout_ms: 50,
+      timeout_ms: 20,
     });
     expect(liveWait.timed_out).toBe(true);
     expect(defined((liveWait.results as { status: string }[])[0]).status).toBe(
@@ -2039,7 +2039,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     followupGate.resolve("later");
     const done = await callTool(wait, {
       targets: [worker.id],
-      timeout_ms: 5000,
+      timeout_ms: 2000,
     });
     expect(done.timed_out).toBe(false);
     const results = done.results as { status: string; report?: string }[];
@@ -2077,7 +2077,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     deps.fleetRecords.interrupt(id);
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
 
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as {
       agent_id: string;
@@ -2090,7 +2090,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     expect(deps.fleetRecords.peek(id)?.status).toBe("interrupted");
     expect(deps.fleetRecords.peek(id)?.collected).toBe(true);
 
-    const again = await callTool(wait, { timeout_ms: 50 });
+    const again = await callTool(wait, { timeout_ms: 20 });
     expect(again.timed_out).toBe(false);
     expect(again.results).toEqual([]);
   });
@@ -2132,7 +2132,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
       new AbortController().signal,
     );
 
-    const early = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const early = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(defined((early.results as { status: string }[])[0]).status).toBe(
       "interrupted",
     );
@@ -2147,7 +2147,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    const again = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const again = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     const results = again.results as { status: string; report?: string }[];
     expect(defined(results[0]).status).toBe("interrupted");
     expect(defined(results[0]).report).toContain("salvage");
@@ -2227,7 +2227,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
       interrupted: true,
     } as RunSubAgentResult);
     followupGate.resolve("followup report");
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { status: string; report?: string }[];
     expect(defined(results[0]).status).toBe("done");
@@ -2264,7 +2264,7 @@ describe("close_agent unblocks wait_agents", () => {
     });
     const id = spawned.agent_id as string;
 
-    const waiting = callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waiting = callTool(wait, { targets: [id], timeout_ms: 2000 });
     if (close.kind !== "full") throw new Error("expected full tool");
     await close.handler(
       { id: "close-1", name: "close_agent", arguments: { target: id } },
@@ -2467,7 +2467,7 @@ describe("list_agents", () => {
       intent: "explore",
     });
     const id = spawned.agent_id as string;
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(waited.timed_out).toBe(false);
     const first = defined((waited.results as Record<string, unknown>[])[0]);
     expect(first.status).toBe("awaiting_director");
@@ -3105,7 +3105,7 @@ describe("ask_director wait handshake", () => {
     });
     const id = spawned.agent_id as string;
 
-    const waited = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(waited.timed_out).toBe(false);
     const first = defined((waited.results as Record<string, unknown>[])[0]);
     expect(first.status).toBe("awaiting_director");
@@ -3114,7 +3114,7 @@ describe("ask_director wait handshake", () => {
     expect(first.description).toBe("need a path");
     expect(deps.fleetRecords.peek(id)?.collected).not.toBe(true);
 
-    const rewait = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const rewait = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(rewait.timed_out).toBe(false);
     const again = defined((rewait.results as Record<string, unknown>[])[0]);
     expect(again.status).toBe("awaiting_director");
@@ -3123,14 +3123,14 @@ describe("ask_director wait handshake", () => {
     await callTool(sendInput, { target: id, message: "edit src/foo.ts" });
     expect(await answerP).toBe("edit src/foo.ts");
 
-    const after = await callTool(wait, { targets: [id], timeout_ms: 50 });
+    const after = await callTool(wait, { targets: [id], timeout_ms: 20 });
     expect(after.timed_out).toBe(true);
     expect(defined((after.results as { status: string }[])[0]).status).toBe(
       "running",
     );
 
     gate.resolve({ report: "done" });
-    const done = await callTool(wait, { targets: [id], timeout_ms: 5000 });
+    const done = await callTool(wait, { targets: [id], timeout_ms: 2000 });
     expect(done.timed_out).toBe(false);
     expect(defined((done.results as { status: string }[])[0]).status).toBe(
       "done",
@@ -3180,7 +3180,7 @@ describe("ask_director wait handshake", () => {
     const waited = await callTool(wait, {
       targets: [asking.agent_id, running.agent_id],
       mode: "all",
-      timeout_ms: 5000,
+      timeout_ms: 2000,
     });
     expect(waited.timed_out).toBe(false);
     const results = waited.results as { agent_id: string; status: string }[];
@@ -3349,7 +3349,7 @@ describe("admission queue", () => {
     });
     const waited = await callTool(wait, {
       targets: [queuedId],
-      timeout_ms: 50,
+      timeout_ms: 20,
     });
     expect(waited.timed_out).toBe(true);
     const waitResults = waited.results as {
