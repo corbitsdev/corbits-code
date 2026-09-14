@@ -67,14 +67,28 @@ describe("check gate", () => {
   });
 
   test("CI test shards cover exactly the suite's paths", () => {
-    // Sharding must never silently drop part of the suite: the union of the
-    // matrix shards has to equal the unsharded `test` script's paths.
-    const shardPaths = [...ci.matchAll(/^\s+paths: (.+)$/gm)]
-      .flatMap((match) => match[1]?.trim().split(/\s+/) ?? [])
-      .sort();
+    // Time-balanced --shard slices each run the full union (bun splits by
+    // file, balanced by --timings), so coverage holds when the matrix has
+    // all four slices and the shard command template carries the suite's
+    // paths plus the interpolated --shard flag. Sharding must never
+    // silently drop part of the suite.
     const suitePaths = TEST_SUITE.split(" ")
       .filter((part) => part.startsWith("./"))
       .sort();
-    expect(shardPaths).toEqual(suitePaths);
+    for (const shard of ["1/4", "2/4", "3/4", "4/4"]) {
+      expect(ci).toContain(`"${shard}"`);
+    }
+    const runArgs = [
+      ...ci.matchAll(/^\s*run: bun run check:projects-dir-guard(.+)$/gm),
+    ]
+      .map((match) => match[1] ?? "")
+      .find((args) => args.includes("--shard=${{ matrix.shard }}"));
+    expect(runArgs).toBeDefined();
+    const runPaths = (runArgs ?? "")
+      .split(/\s+/)
+      .filter((part) => part.startsWith("./"))
+      .sort();
+    expect(runPaths).toEqual(suitePaths);
+    expect(runArgs).toContain("--timings=./scripts/ci-timings.json");
   });
 });
