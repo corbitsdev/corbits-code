@@ -16,11 +16,9 @@ def main() -> int:
         os.execvp("bun", ["bun", "run", probe_path])
         os._exit(127)
 
-    time.sleep(0.4)
-    os.write(fd, b"\x03")
-
     out = b""
     deadline = time.time() + 2.5
+    sent_ctrl_c = False
     while time.time() < deadline:
         ready, _, _ = select.select([fd], [], [], 0.5)
         if fd not in ready:
@@ -32,6 +30,11 @@ def main() -> int:
         if not chunk:
             break
         out += chunk
+        # Send the keypress only once raw mode is installed (no fixed boot
+        # sleep); the probe's grace window then counts from the keypress.
+        if not sent_ctrl_c and b"READY" in out:
+            os.write(fd, b"\x03")
+            sent_ctrl_c = True
         if b"NO_SIGINT_ON_CTRL_C" in out or b"GOT_SIGINT" in out:
             break
 

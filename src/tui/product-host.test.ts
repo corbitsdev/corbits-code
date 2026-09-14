@@ -267,9 +267,9 @@ describe("mountProductHost", () => {
 
   test("setChrome with running agents paints an agents panel clock", async () => {
     const now = Date.now();
-    // Start 500ms before the minute boundary: the rollover assertion stays
+    // Start 300ms before the minute boundary: the rollover assertion stays
     // identical while the boundary wait (up to a full minute from a 59:00
-    // start) shrinks to at most ~0.5s of wall clock, with plenty of margin
+    // start) shrinks to at most ~0.3s of wall clock, with plenty of margin
     // left for the mount + first capture to still see 0:59.
     const { host, renderOnce, captureCharFrame } = await mountHeadless({
       chrome: {
@@ -279,7 +279,7 @@ describe("mountProductHost", () => {
             currentToolStartedAt: null,
             description: "map callers",
             status: "running",
-            startedAt: now - 59_500,
+            startedAt: now - 59_700,
             lastActivityAt: now,
           },
         ],
@@ -1017,7 +1017,7 @@ describe("flat type-to-filter model picker", () => {
       await harness.renderOnce();
       expect(host.shell.overlayKind).toBe("add_provider");
       harness.pressKey("Escape");
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 30));
       await harness.renderOnce();
       expect(host.shell.overlayKind).toBe("model_picker");
       expect(host.shell.overlayItems).toEqual(modelItems);
@@ -1040,7 +1040,7 @@ describe("flat type-to-filter model picker", () => {
       await harness.renderOnce();
       expect(host.shell.overlayKind).toBe("add_provider");
       harness.pressKey("Escape");
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 30));
       await harness.renderOnce();
       expect(host.shell.overlayKind).not.toBe("model_picker");
       expect(host.shell.overlayKind).toBeNull();
@@ -1078,7 +1078,7 @@ describe("flat type-to-filter model picker", () => {
       await harness.renderOnce();
       expect(host.shell.overlayKind).toBe("add_provider");
       harness.pressKey("Escape");
-      await new Promise((r) => setTimeout(r, 60));
+      await new Promise((r) => setTimeout(r, 30));
       await harness.renderOnce();
       expect(host.shell.overlayKind).toBeNull();
     } finally {

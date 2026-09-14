@@ -55,7 +55,7 @@ describe("runGuardedShell", () => {
     const feed = createShellOutputFeed();
     let finished = false;
     const running = runGuardedShell(
-      { command: "echo first; sleep 0.02; echo second; sleep 0.2" },
+      { command: "echo first; sleep 0.02; echo second; sleep 0.15" },
       neverAbort(),
       undefined,
       undefined,
@@ -83,7 +83,7 @@ describe("runGuardedShell", () => {
   test("omitted timeout does not arm a timer", async () => {
     const start = Date.now();
     const { exitCode, timedOut, output } = await runGuardedShell(
-      { command: "sleep 0.1; echo done" },
+      { command: "sleep 0.05; echo done" },
       neverAbort(),
     );
     expect(timedOut).toBe(false);
@@ -178,7 +178,7 @@ describe("runGuardedShell", () => {
     if (process.platform === "win32") return;
     const token = `ic_guard_orphan_${randomUUID()}`;
     const cmd = `bash -c 'IC_GUARD_TAG=${token} sleep 600 & IC_GUARD_TAG=${token} exec sleep 600'`;
-    await runGuardedShell({ command: cmd, timeout: 250 }, neverAbort());
+    await runGuardedShell({ command: cmd, timeout: 150 }, neverAbort());
     await waitUntilGone(token);
   });
 
@@ -386,12 +386,12 @@ describe("background run_shell (shellGuardPlugin)", () => {
         id: "fg3",
         name: "run_shell",
         arguments: {
-          // Fifteen lines ~10 ms apart: far more chunk arrivals than one
+          // Fifteen lines ~5 ms apart: far more chunk arrivals than one
           // cadence window per 100 ms can allow. Without the Date.now() gate
           // in emitPendingOutput every arrival emits (~16 emissions) and this
           // ceiling fails — the assertion is what pins the cadence.
           command:
-            "i=1; while [ $i -le 15 ]; do echo line$i; sleep 0.01; i=$((i+1)); done",
+            "i=1; while [ $i -le 15 ]; do echo line$i; sleep 0.005; i=$((i+1)); done",
         },
       },
       neverAbort(),
@@ -1035,7 +1035,7 @@ describe("shellGuardPlugin", () => {
 
       await first;
       await Promise.race([queued, new Promise((r) => setTimeout(r, 250))]);
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise((r) => setTimeout(r, 80));
 
       const leftover1 =
         spawnSync("pgrep", ["-f", token1], {

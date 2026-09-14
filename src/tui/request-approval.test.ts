@@ -64,7 +64,7 @@ describe("createGateRequestApproval", () => {
         });
         const pending = requestApproval(request);
         // Longer than the budget — frozen while the prompt is open.
-        await new Promise((r) => setTimeout(r, 120));
+        await new Promise((r) => setTimeout(r, 90));
         expect(getToolApprovalBudget()?.signal.aborted).toBe(false);
         captured?.resolve({ allow: true });
         const outcome = await pending;
@@ -179,7 +179,7 @@ describe("attachApprovalBudget", () => {
         );
         // Longer than the budget — frozen while the question is pending,
         // exactly like the permission gate's budget pause.
-        await new Promise((r) => setTimeout(r, 120));
+        await new Promise((r) => setTimeout(r, 90));
         expect(getToolApprovalBudget()?.signal.aborted).toBe(false);
         finish("answered");
         finish("answered again");

@@ -172,7 +172,7 @@ test("opting out discards events captured before the toggle instead of sending t
   expect(sends).toBe(0);
 
   handler(false);
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  await new Promise((resolve) => setTimeout(resolve, 60));
   expect(getInstance().enabled).toBe(false);
   expect(sends).toBe(0);
 });

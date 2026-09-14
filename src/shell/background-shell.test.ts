@@ -25,7 +25,7 @@ describe("background shell registry", () => {
   test("start returns a handle immediately while the process runs", async () => {
     const registry = createBackgroundShellRegistry();
     const started = registry.start({
-      command: "sleep 0.2; echo done",
+      command: "sleep 0.1; echo done",
       cwd: tmpCwd,
     });
     if ("error" in started) throw new Error(started.error);

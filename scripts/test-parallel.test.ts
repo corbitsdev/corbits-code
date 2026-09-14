@@ -15,7 +15,7 @@ function processAlive(pid: number): boolean {
 }
 
 // These probes are `bun -e` one-liners, so they never import project modules
-// and finish in seconds. The tick test keeps a ~0.7s stall window: under the
+// and finish in seconds. The tick test keeps a ~0.5s stall window: under the
 // `--parallel` load this runner exists to enable, a delayed output tick can
 // look like a stall against a tighter window, so the window keeps several
 // ticks of scheduling headroom while a broken never-resetting timer still
@@ -23,7 +23,7 @@ function processAlive(pid: number): boolean {
 // remaining tests drive children that never emit output, so their stall is
 // declared deterministically on the watchdog's first tick; they use a short
 // window so the suite does not pay the tick test's headroom in wall clock.
-const TEST_STALL_MS = 700;
+const TEST_STALL_MS = 500;
 const SILENT_CHILD_STALL_MS = 250;
 
 describe("runWithWatchdog", () => {
@@ -56,13 +56,13 @@ describe("runWithWatchdog", () => {
   });
 
   test("output resets the stall timer", async () => {
-    // Prints every 120ms for ~1s against a 0.7s stall window: a broken
+    // Prints every 80ms for ~0.7s against a 0.5s stall window: a broken
     // timer that never reset would fire mid-run.
     const result = await runWithWatchdog({
       command: process.execPath,
       args: [
         "-e",
-        "for (let i = 0; i < 8; i++) { console.log('tick', i); await new Promise(r => setTimeout(r, 120)); }",
+        "for (let i = 0; i < 8; i++) { console.log('tick', i); await new Promise(r => setTimeout(r, 80)); }",
       ],
       stallMs: TEST_STALL_MS,
     });
@@ -104,7 +104,7 @@ describe("runWithWatchdog", () => {
       command: process.execPath,
       args: [
         "-e",
-        'process.on("SIGTERM", () => {}); setTimeout(() => process.exit(3), 400);',
+        'process.on("SIGTERM", () => {}); setTimeout(() => process.exit(3), 300);',
       ],
       stallMs: SILENT_CHILD_STALL_MS,
       onStall: () => {

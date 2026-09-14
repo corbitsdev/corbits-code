@@ -44,7 +44,7 @@ describe("background shell through the agent toolset", () => {
         {
           id: "bg-start",
           name: "run_shell",
-          arguments: { command: "sleep 0.4; echo bg-done", background: true },
+          arguments: { command: "sleep 0.2; echo bg-done", background: true },
         },
         new AbortController().signal,
       );
