@@ -107,7 +107,7 @@ export const SOURCE_MAX_TOKENS = 16384;
 
 // Placeholder sent in the Authorization header for keyless local providers
 // (e.g. Ollama). The runtime's InferenceSource type requires a non-empty
-// apiKey string; the value is injected as `Bearer <key>` by the harness but
+// credentialId string; the value is injected as `Bearer <key>` by the harness but
 // keyless servers ignore it entirely.
 export const KEYLESS_API_KEY = "keyless";
 
@@ -259,7 +259,7 @@ export function buildOpenAISource(fields: {
     baseURL: isOllamaProviderId(fields.id)
       ? ollamaOpenAIBaseURL(fields.baseURL)
       : normalizeOpenAICompatibleBaseURL(fields.baseURL),
-    apiKey:
+    credentialId:
       fields.apiKey !== undefined && fields.apiKey.length > 0
         ? fields.apiKey
         : KEYLESS_API_KEY,
@@ -338,7 +338,7 @@ export function buildCodexSource(fields: {
     id: fields.id,
     provider: CODEX_RESPONSES_PROVIDER,
     baseURL: CODEX_BASE_URL,
-    apiKey: fields.apiKey,
+    credentialId: fields.apiKey,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
   };
@@ -368,7 +368,7 @@ export function buildXaiSource(fields: {
     id: fields.id,
     provider: GROK_RESPONSES_PROVIDER,
     baseURL: XAI_BASE_URL,
-    apiKey: fields.apiKey,
+    credentialId: fields.apiKey,
     model: fields.model,
     defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
   };
@@ -392,7 +392,7 @@ export function buildBifrostSource(fields: {
     id: fields.id,
     provider: BIFROST_PROVIDER,
     baseURL: normalizeOpenAICompatibleBaseURL(fields.baseURL),
-    apiKey:
+    credentialId:
       fields.apiKey !== undefined && fields.apiKey.length > 0
         ? fields.apiKey
         : KEYLESS_API_KEY,
@@ -412,7 +412,7 @@ export function buildAnthropicSource(fields: {
     id: fields.id,
     provider: "anthropic",
     baseURL: fields.baseURL.replace(/\/+$/, ""),
-    apiKey:
+    credentialId:
       fields.apiKey !== undefined && fields.apiKey.length > 0
         ? fields.apiKey
         : KEYLESS_API_KEY,
@@ -440,7 +440,7 @@ export function buildGoSource(fields: {
       id: fields.id,
       provider: OPENCODE_GO_MESSAGES_PROVIDER,
       baseURL: endpoint.baseURL,
-      apiKey,
+      credentialId: apiKey,
       model: fields.model,
       defaults: {
         maxTokens: SOURCE_MAX_TOKENS,
@@ -455,7 +455,7 @@ export function buildGoSource(fields: {
       id: fields.id,
       provider: OPENAI_RESPONSES_PROVIDER,
       baseURL: endpoint.baseURL,
-      apiKey,
+      credentialId: apiKey,
       model: fields.model,
       defaults: {
         maxTokens: SOURCE_MAX_TOKENS,
@@ -509,7 +509,7 @@ export function buildZenSource(fields: {
       id: fields.id,
       provider: ZEN_MESSAGES_PROVIDER,
       baseURL: endpoint.baseURL,
-      apiKey,
+      credentialId: apiKey,
       model: fields.model,
       defaults: {
         maxTokens: SOURCE_MAX_TOKENS,
@@ -524,7 +524,7 @@ export function buildZenSource(fields: {
       id: fields.id,
       provider: OPENAI_RESPONSES_PROVIDER,
       baseURL: endpoint.baseURL,
-      apiKey,
+      credentialId: apiKey,
       model: fields.model,
       defaults: {
         maxTokens: SOURCE_MAX_TOKENS,

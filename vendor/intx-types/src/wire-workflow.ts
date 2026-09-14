@@ -7,7 +7,8 @@
 import { type } from "arktype";
 
 import { CredentialBinding } from "./credentials";
-import { InferenceSource } from "./runtime";
+import { InboundMailPolicy, InferenceSource } from "./runtime";
+import { SidecarCapabilityPolicy } from "./sidecar-capabilities";
 
 /**
  * Fields every wire step carries regardless of `kind`. All other keys pass
@@ -112,6 +113,15 @@ export const WorkflowProjectionDefinition = type({
   // credential request surface (no secret material), so they belong in the
   // hashed projection.
   "credentialBindings?": CredentialBinding.array(),
+  "sidecarPlacement?": SidecarCapabilityPolicy,
+  // The author-declared inbound-mail admission policy, projected verbatim by
+  // the live->inert projector. This MUST stay in sync with that projector: the
+  // `"+": "delete"` below strips any undeclared key, so a policy the projector
+  // emits but this schema omits would be silently stripped at the wire
+  // boundary and never reach the sidecar. The policy is part of the hashed
+  // surface, so a stripped policy would also desync the sidecar's re-verify
+  // from the hub-approved hash.
+  "inboundMailPolicy?": InboundMailPolicy,
   "+": "delete",
 }).narrow((value, ctx) => {
   // Every `stepOrder` entry must name a defined step. A legitimately projected

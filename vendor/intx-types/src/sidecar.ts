@@ -22,6 +22,89 @@ import { ToolPackageManifest } from "./tool-packages";
 import { WorkflowDefinitionSource } from "./workflow-sources";
 
 // ---------------------------------------------------------------------------
+// Frame array-length ceilings
+// ---------------------------------------------------------------------------
+//
+// Hostile-absurdity upper bounds on the unbounded `string[]` fields of the wire
+// frames below. They bound element COUNT, not byte size: a peer that sends a
+// `string[]` of millions of tiny elements costs little in bytes but forces the
+// receiver to allocate, iterate, dedup, or map over an absurd count. A total
+// payload byte limit is the weakest defense exactly here -- many one-character
+// elements are a huge count at a small byte cost -- so element-count caps are
+// the right tool for `string[]`. The object-typed frame arrays are out of scope
+// for these caps: their elements each carry many bytes, so an absurd count of
+// them is far costlier on the wire, and a payload-size limit is the right
+// backstop for that byte-heavy dimension. An over-count frame fails this parse
+// and routes through the existing invalid-frame drop+log path; no handler change
+// is needed.
+
+// A sidecar's reported agent addresses. The register/reconnect handler already
+// gates each reported address against the allocation's single minted workflow
+// address, so the legitimate count is ~1; this is a generous absurdity backstop.
+export const MAX_AGENT_ADDRESSES_FRAME = 512;
+
+// A sidecar's reported cached sender addresses. This MUST stay well above the
+// `MAX_RESYNC_SENDER_ADDRESSES` handler cap (currently 2048 in the hub-sessions
+// sidecar-handler): that cap drives a graceful "resync the first N, log the
+// overflow" degrade rather than dropping the frame, so a schema ceiling at or
+// below it would turn the degrade into a hard reconnect outage -- the whole
+// register frame would fail this parse and drop, and the sidecar could not
+// reconnect. The `@intx/types` package must not import from `@intx/hub-sessions`,
+// so the coupling is a documented invariant guarded by a test in that package.
+export const MAX_CACHED_SENDER_ADDRESSES_FRAME = 65536;
+
+// A mail frame's recipient / To / Cc address lists. `recipients` is the routing
+// set; `to`/`cc` are audit-only header metadata. A modest ceiling far above any
+// real recipient list.
+export const MAX_MAIL_ADDRESSES_FRAME = 1024;
+
+// A workflow probe result's flattened grant strings (the deduped union of every
+// step's grants). No enforced workflow step-count or per-step grant-count cap
+// exists to derive this from, so it is a reasonable absurdity ceiling rather
+// than a computed bound.
+export const MAX_PROBE_GRANTS_FRAME = 8192;
+
+// A credentials-update frame's revoked credential ids. A modest ceiling far
+// above any real credential set.
+export const MAX_CREDENTIAL_REVOCATIONS_FRAME = 1024;
+
+// ---------------------------------------------------------------------------
+// Frame payload byte limits
+// ---------------------------------------------------------------------------
+//
+// Byte-size ceilings on the control socket, complementary to the element-count
+// ceilings above. One layer owns each dimension: the hub sidecar websocket's
+// maxPayloadLength owns the whole-frame byte size, and the mail body cap owns
+// one mail's rawMessage.
+
+// The largest rawMessage (base64-encoded MIME) a `mail.outbound` frame may
+// carry. A shared-policy ceiling: it holds the SAME number as `@intx/hub-api`'s
+// `MAX_MAIL_BODY_BYTES`, which caps the inbound HTTP mail route's whole request
+// body, so the frame path and the HTTP path enforce the same body ceiling. The
+// two measure different quantities -- an HTTP whole request body vs the frame's
+// rawMessage alone -- so they are deliberately separate constants held equal by
+// a guard test rather than one constant conflating two policies.
+// Enforced symmetrically: the hub drops an over-cap received frame (the DoS
+// backstop) and the sidecar refuses to send one.
+export const MAX_MAIL_OUTBOUND_BODY_BYTES = 44 * 1024 * 1024;
+
+// Headroom above the largest legit received frame for its base64/JSON framing
+// and its (separately count-capped) address arrays, so `maxPayloadLength` never
+// closes the socket on a legitimate mail frame whose rawMessage sits at the body
+// cap.
+const FRAME_OVERHEAD_BYTES = 20 * 1024 * 1024;
+
+// The ceiling wired as the hub sidecar websocket's `maxPayloadLength`. Bun
+// closes the connection on a RECEIVED message larger than this, so it must clear
+// the largest legit received frame -- the `mail.outbound` frame, whose
+// rawMessage is bounded by `MAX_MAIL_OUTBOUND_BODY_BYTES`, plus framing
+// overhead. maxPayloadLength gates incoming messages only; it does NOT limit
+// what the hub sends, so the hub->sidecar inline-asset deploy does not factor
+// into this number.
+export const MAX_SIDECAR_FRAME_BYTES =
+  MAX_MAIL_OUTBOUND_BODY_BYTES + FRAME_OVERHEAD_BYTES;
+
+// ---------------------------------------------------------------------------
 // Sidecar → Hub
 // ---------------------------------------------------------------------------
 
@@ -34,40 +117,48 @@ export const RegisterFrame = type({
   type: "'register'",
   sidecarId: "string",
   token: "string",
-  agentAddresses: "string[]",
+  agentAddresses: type("string")
+    .array()
+    .atMostLength(MAX_AGENT_ADDRESSES_FRAME),
+  // The rotatable (non-run) sender addresses this sidecar holds cached keys
+  // for. The hub re-resolves each current key and re-pushes it on a
+  // `sender.key.refresh`, so a user-principal rotation that landed while the
+  // sidecar was disconnected reaches its cache. Additive-optional and omitted
+  // when empty: a sidecar with no cached senders (or a pre-upgrade one) sends
+  // no field, and the hub treats absence as "nothing to refresh".
+  "cachedSenderAddresses?": type("string")
+    .array()
+    .atMostLength(MAX_CACHED_SENDER_ADDRESSES_FRAME),
 });
 export type RegisterFrame = typeof RegisterFrame.infer;
 
 /**
- * Sent on connect when the sidecar has agent repositories or deployments
- * from a previous run. Lists the addresses it can serve, triggering the
- * challenge/response ownership-verification flow for every one of them --
- * launched agents and workflow deployments alike, so both are proven, not
- * routed on trust.
+ * Sent on connect after a provisioned sidecar restores its deployment.
+ * The bearer token binds the connection to one allocation generation, so the
+ * Hub accepts only that allocation's workflow address.
  */
 export const ReconnectFrame = type({
   type: "'reconnect'",
   sidecarId: "string",
   token: "string",
-  agentAddresses: "string[]",
-  "deployRefs?": "Record<string, string>",
+  agentAddresses: type("string")
+    .array()
+    .atMostLength(MAX_AGENT_ADDRESSES_FRAME),
+  // The rotatable (non-run) sender addresses this sidecar holds cached keys
+  // for; see `RegisterFrame`. Carried on both frames because the register vs
+  // reconnect choice turns on workflow-address presence, not sender-cache
+  // presence -- a sidecar that restored no workflow substrate still reports its
+  // cached senders on a register frame. Additive-optional, omitted when empty.
+  "cachedSenderAddresses?": type("string")
+    .array()
+    .atMostLength(MAX_CACHED_SENDER_ADDRESSES_FRAME),
 });
 export type ReconnectFrame = typeof ReconnectFrame.infer;
 
 /**
- * Response to a challenge frame. Contains a signature per run address
- * proving the sidecar holds the private key. Each signature is computed
- * over `nonce || utf8(agentAddress)`.
- */
-export const ChallengeResponseFrame = type({
-  type: "'challenge.response'",
-  responses: type({ address: "string", signature: "string" }).array(),
-});
-export type ChallengeResponseFrame = typeof ChallengeResponseFrame.infer;
-
-/**
  * Acknowledges a successful agent deployment. Includes the agent's Ed25519
- * public key (hex-encoded) so the hub can verify ownership on reconnect.
+ * public key (hex-encoded) for published identity and content provenance.
+ * Reconnect authority comes from the allocation credential.
  */
 export const AgentDeployAckFrame = type({
   type: "'agent.deploy.ack'",
@@ -98,12 +189,12 @@ export type AgentErrorFrame = typeof AgentErrorFrame.infer;
 export const MailOutboundFrame = type({
   type: "'mail.outbound'",
   rawMessage: "string",
-  recipients: "string[]",
-  "senderAddress?": "string",
+  recipients: type("string").array().atMostLength(MAX_MAIL_ADDRESSES_FRAME),
+  senderAddress: "string",
   "sessionId?": "string",
   "messageId?": "string",
-  "to?": "string[]",
-  "cc?": "string[]",
+  "to?": type("string").array().atMostLength(MAX_MAIL_ADDRESSES_FRAME),
+  "cc?": type("string").array().atMostLength(MAX_MAIL_ADDRESSES_FRAME),
   "delivered?": "boolean",
 });
 export type MailOutboundFrame = typeof MailOutboundFrame.infer;
@@ -241,11 +332,23 @@ export type SignalCorrelationRegisterAckFrame =
  * makes at-least-once effectively-once. Present only on hub-originated mail
  * that participates in the ack/retry handshake (workflow trigger mail, session
  * conversation mail); agent-to-agent relayed mail omits it.
+ *
+ * `authenticatedSender` is the hub-verified sender ADDRESS of this message.
+ * The hub assigns it at the frame's construction site from a value it has
+ * itself verified -- the ownership-gated sender of a relayed mail, the
+ * address persisted at enqueue for a durable dispatch, or the triggering
+ * principal's address for hub-originated mail -- NEVER from the message's
+ * own (spoofable) MIME `From`. The recipient's signature check takes the
+ * sender of record from this hub-verified value rather than the forgeable
+ * `From`, resolves the sender's key from its local cache, verifies the
+ * signature, and gates delivery on the resulting admission outcome per the
+ * recipient's inbound-mail policy.
  */
 export const MailInboundFrame = type({
   type: "'mail.inbound'",
   agentAddress: "string",
   rawMessage: "string",
+  authenticatedSender: "string",
   "messageId?": "string",
 });
 export type MailInboundFrame = typeof MailInboundFrame.infer;
@@ -295,6 +398,17 @@ export const SignalDeliverFrame = type({
 export type SignalDeliverFrame = typeof SignalDeliverFrame.infer;
 
 /**
+ * A sender address bound to the public key the hub vouches for. `publicKey`
+ * is the hex-encoded raw 32-byte Ed25519 key. `address` is the full
+ * domain-qualified sender address.
+ */
+export const SenderIdentity = type({
+  address: "string",
+  publicKey: "string",
+});
+export type SenderIdentity = typeof SenderIdentity.infer;
+
+/**
  * Deliver a run's authorization grants to a multi-step deployment's
  * supervisor. The hub forwards the frame to the sidecar that hosts the
  * deployment named by `agentAddress` (the deployment-level mail
@@ -307,14 +421,70 @@ export type SignalDeliverFrame = typeof SignalDeliverFrame.infer;
  * frame's `config.grants` ships, so the run's grants ride the same
  * validated grant encoding as the deploy-time step grants rather than a
  * new one.
+ *
+ * `senderIdentities` carries the resolved public keys of the run's
+ * authorized senders, co-delivered on the same `run.grants` barrier as the
+ * authorization grant so a recipient can bind each sender address to the
+ * key the hub vouches for. A sender with no resolvable key is omitted rather
+ * than carried as null, so every entry has a concrete key. The field is
+ * optional: a producer that does not co-deliver keys omits it entirely.
  */
 export const RunGrantsFrame = type({
   type: "'run.grants'",
   agentAddress: "string",
   runId: "string",
   stepGrants: WireGrantRule.array(),
+  "senderIdentities?": SenderIdentity.array(),
 });
 export type RunGrantsFrame = typeof RunGrantsFrame.infer;
+
+/**
+ * Re-push the current public key the hub vouches for a cached sender, keyed by
+ * the sender's `address`. `publicKey` is the hex-encoded raw 32-byte Ed25519
+ * key, exactly as `SenderIdentity` carries it. The sidecar overwrites its cached
+ * key for `address` and touches nothing else -- no grants, no per-run state.
+ *
+ * The hub sends one per rotatable sender the sidecar reported on (re)connect,
+ * after re-resolving the sender's current key: a user-principal rotation that
+ * happened while the sidecar was disconnected lands on the sidecar this way.
+ *
+ * It is a dedicated frame rather than a reuse of two shapes it resembles.
+ * Not `SenderIdentity` (whose shape it currently matches): that type is a fact
+ * embedded in `run.grants`, so composing it would couple this command's wire
+ * contract to a grants-owned type. Not `run.grants`: a rotated key is
+ * address-keyed and cross-run, whereas grants are run-keyed, and routing this
+ * through the grants barrier would poison a healthy idle run on a transient
+ * cache-write fault and do a per-run durable write for a change that alters no
+ * grants. One address per frame keeps each key's cache write independently
+ * fallible -- a fault on one sender never fails the refresh of another -- which
+ * is the property a batched frame would give up.
+ */
+export const SenderKeyRefreshFrame = type({
+  type: "'sender.key.refresh'",
+  address: "string",
+  publicKey: "string",
+});
+export type SenderKeyRefreshFrame = typeof SenderKeyRefreshFrame.infer;
+
+/**
+ * Evict a cached sender key, keyed by the sender's `address`. The sidecar
+ * durably removes its cached key for `address` and touches nothing else. The
+ * hub sends it during reconnect reconciliation for a reported cached sender it
+ * re-resolves to NO durable key -- a sender whose principal was deleted while
+ * the sidecar was disconnected -- so the sidecar stops verifying that sender's
+ * mail against a key the hub no longer vouches for.
+ *
+ * A dedicated sibling of `sender.key.refresh` rather than a mode on it: that
+ * frame's doc argues against a mode-dependent shape, and a refresh always
+ * carries a key whereas an evict never does, so a shared frame would make
+ * `publicKey` conditionally present. One address per frame keeps each eviction
+ * independently fallible, the same property the refresh frame preserves.
+ */
+export const SenderKeyEvictFrame = type({
+  type: "'sender.key.evict'",
+  address: "string",
+});
+export type SenderKeyEvictFrame = typeof SenderKeyEvictFrame.infer;
 
 /**
  * Deliver a workflow-host drain control payload to a multi-step
@@ -411,9 +581,9 @@ export type SourceRefPin = typeof SourceRefPin.infer;
 /**
  * The frozen, fully-serializable record of a code-sourced workflow approval,
  * persisted at prepare time and rehydrated to deploy the exact same definition
- * later. It is the recovery input for an exclusively-placed workflow: the probe
- * runs once on shared capacity at request time, its result is frozen here, and a
- * ready allocation deploys THIS bundle verbatim with no re-probe.
+ * later. It is the recovery input for a provisioned workflow: the probe runs
+ * once on probe-scoped capacity, its result is frozen here, and a ready
+ * allocation deploys THIS bundle verbatim with no re-probe.
  *
  * Every field is inert, secret-free data. `source`/`entry` name where the
  * definition's bytes come from and the entry module the probe evaluated;
@@ -481,12 +651,13 @@ export const AgentDeployWorkflow = type({
   "approvedWireHash?": "string > 0",
   // Extracted trigger bodies -- onTrigger sections and childWorkflow children,
   // lifted transitively. Each entry carries the body's inert definition, its own
-  // per-step inference-source pins, and its approved wire hash. The sidecar
-  // stages each body's `sources.json` so a body child -- in-process, its env
-  // lost across a restart -- resolves inference durably; the body definition
-  // itself is resolved in-memory from the parent's re-verified closure.
-  // Optional: only a deploy that carries an inline onTrigger section or
-  // childWorkflow child populates it.
+  // per-step inference-source pins, and its approved wire hash. The sidecar seals
+  // each body's sources into the per-run record and delivers the plaintext to the
+  // run child through the spawn env, so a body child -- in-process, its env lost
+  // across a restart -- resolves inference durably without holding the cipher
+  // key; the body definition itself is resolved in-memory from the parent's
+  // re-verified closure. Optional: only a deploy that carries an inline onTrigger
+  // section or childWorkflow child populates it.
   "referencedDefinitions?": WorkflowProjectionWithSources.array(),
   // Initial credential material for the deployment's tools, decrypted hub-side
   // and delivered on the deploy frame so it is resident before any step runs
@@ -547,27 +718,6 @@ export const AgentUndeployFrame = type({
 export type AgentUndeployFrame = typeof AgentUndeployFrame.infer;
 
 /**
- * Per-address cryptographic challenge. The sidecar must sign
- * `nonce || utf8(address)` with each agent's private key and respond
- * with a challenge.response frame.
- */
-export const ChallengeFrame = type({
-  type: "'challenge'",
-  challenges: type({ address: "string", nonce: "string" }).array(),
-});
-export type ChallengeFrame = typeof ChallengeFrame.infer;
-
-/**
- * Sent when challenge verification fails for a specific address.
- */
-export const ChallengeFailedFrame = type({
-  type: "'challenge.failed'",
-  address: "string",
-  reason: "string",
-});
-export type ChallengeFailedFrame = typeof ChallengeFailedFrame.infer;
-
-/**
  * Keepalive pong sent by the hub in response to a ping frame.
  * If the sidecar stops receiving pongs, it considers the hub dead.
  */
@@ -593,16 +743,24 @@ export const SourcesUpdateFrame = type({
 export type SourcesUpdateFrame = typeof SourcesUpdateFrame.infer;
 
 /**
- * Push refreshed credential material to a running deployment (a rotation, or a
- * revocation delivered by omitting the revoked credential's material so the
- * child evicts it). Mirrors `SourcesUpdateFrame`: the sidecar routes it to the
- * deployment's supervisor, which forwards it to the child's in-memory cell.
+ * Push refreshed credential material to a running deployment. Mirrors
+ * `SourcesUpdateFrame`: the sidecar routes it to the deployment's supervisor,
+ * which forwards it to the child's in-memory cell. The child MERGES `delivery`
+ * (materials upsert by credentialId, bindings by consumer-and-handle) and drops
+ * each credentialId in `revoke` plus any binding referencing it. Removal is
+ * explicit through `revoke` -- omitting a material does not evict it, because
+ * the cell has several independently-scoped producers and a wholesale swap
+ * would let one evict another's credentials. A pure revocation carries an empty
+ * `delivery` and the revoked ids in `revoke`.
  */
 export const CredentialsUpdateFrame = type({
   type: "'credentials.update'",
   requestId: "string",
   agentAddress: "string",
   delivery: CredentialDelivery,
+  "revoke?": type("string")
+    .array()
+    .atMostLength(MAX_CREDENTIAL_REVOCATIONS_FRAME),
 });
 export type CredentialsUpdateFrame = typeof CredentialsUpdateFrame.infer;
 
@@ -949,7 +1107,7 @@ export const WorkflowProbeResultFrame = type({
   type: "'workflow.probe.result'",
   requestId: "string",
   projection: WorkflowProjectionDefinition,
-  grants: "string[]",
+  grants: type("string").array().atMostLength(MAX_PROBE_GRANTS_FRAME),
   grantWalkSnapshot: GrantWalkSnapshot,
   wireHash: "string",
 });
@@ -972,45 +1130,50 @@ export type WorkflowProbeErrorFrame = typeof WorkflowProbeErrorFrame.infer;
 // ---------------------------------------------------------------------------
 
 /** All frame types the sidecar sends to the hub. */
-export const SidecarFrame = RegisterFrame.or(ReconnectFrame)
-  .or(ChallengeResponseFrame)
-  .or(AgentDeployAckFrame)
-  .or(AgentErrorFrame)
-  .or(MailOutboundFrame)
-  .or(AgentEventFrame)
-  .or(ConnectorStateChangedFrame)
-  .or(PingFrame)
-  .or(SessionAckFrame)
-  .or(SessionErrorFrame)
-  .or(AgentUndeployAckFrame)
-  .or(SignalCorrelationRegisterFrame)
-  .or(PackPushFrame)
-  .or(PackDoneFrame)
-  .or(PackAckFrame)
-  .or(PackRejectFrame)
-  .or(MailInboundAckFrame)
-  .or(WorkflowProbeResultFrame)
-  .or(WorkflowProbeErrorFrame);
+export const SidecarFrame = type.or(
+  RegisterFrame,
+  ReconnectFrame,
+  AgentDeployAckFrame,
+  AgentErrorFrame,
+  MailOutboundFrame,
+  AgentEventFrame,
+  ConnectorStateChangedFrame,
+  PingFrame,
+  SessionAckFrame,
+  SessionErrorFrame,
+  AgentUndeployAckFrame,
+  SignalCorrelationRegisterFrame,
+  PackPushFrame,
+  PackDoneFrame,
+  PackAckFrame,
+  PackRejectFrame,
+  MailInboundAckFrame,
+  WorkflowProbeResultFrame,
+  WorkflowProbeErrorFrame,
+);
 export type SidecarFrame = typeof SidecarFrame.infer;
 
 /** All frame types the hub sends to the sidecar. */
-export const HubFrame = MailInboundFrame.or(AgentDeployFrame)
-  .or(AgentUndeployFrame)
-  .or(ChallengeFrame)
-  .or(ChallengeFailedFrame)
-  .or(PongFrame)
-  .or(SourcesUpdateFrame)
-  .or(CredentialsUpdateFrame)
-  .or(PackPushFrame)
-  .or(PackDoneFrame)
-  .or(PackAckFrame)
-  .or(PackRejectFrame)
-  .or(SyncRequestFrame)
-  .or(SignalDeliverFrame)
-  .or(RunGrantsFrame)
-  .or(SignalCorrelationRegisterAckFrame)
-  .or(DrainDeliverFrame)
-  .or(WorkflowProbeRequestFrame);
+export const HubFrame = type.or(
+  MailInboundFrame,
+  AgentDeployFrame,
+  AgentUndeployFrame,
+  PongFrame,
+  SourcesUpdateFrame,
+  CredentialsUpdateFrame,
+  PackPushFrame,
+  PackDoneFrame,
+  PackAckFrame,
+  PackRejectFrame,
+  SyncRequestFrame,
+  SignalDeliverFrame,
+  RunGrantsFrame,
+  SenderKeyRefreshFrame,
+  SenderKeyEvictFrame,
+  SignalCorrelationRegisterAckFrame,
+  DrainDeliverFrame,
+  WorkflowProbeRequestFrame,
+);
 export type HubFrame = typeof HubFrame.infer;
 
 /** Any frame on the wire, regardless of direction. */

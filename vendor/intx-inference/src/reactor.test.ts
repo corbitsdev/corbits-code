@@ -289,7 +289,7 @@ function createTestReactor(
       id: "anthropic:test-model",
       provider: "anthropic",
       baseURL: "https://api.anthropic.com",
-      apiKey: "test",
+      credentialId: "test",
       model: "test-model",
     },
     toolRunner: overrides.toolRunner ?? noopToolRunner(),
@@ -1008,7 +1008,7 @@ describe("createReactor — director exception", () => {
         id: "anthropic:test-model",
         provider: "anthropic",
         baseURL: "https://api.anthropic.com",
-        apiKey: "test",
+        credentialId: "test",
         model: "test-model",
       },
       toolRunner: noopToolRunner(),
@@ -2123,6 +2123,10 @@ describe("createReactor — doom-loop poll exemption", () => {
     expect(getEvent(events, "message.run.ended").data.status).toBe("completed");
   });
 });
+
+// ---------------------------------------------------------------------------
+// 8. Correlation matching
+// ---------------------------------------------------------------------------
 
 describe("createReactor — correlation", () => {
   test("message with matching correlationId triggers message.correlated", async () => {
@@ -3554,17 +3558,12 @@ describe("createReactor — state snapshot inspection", () => {
           if (event.type === "message.received") {
             messageCount++;
             if (messageCount === 1) {
-              // Mutate the snapshot's content block. Frozen turns throw;
-              // isolation still holds if the assignment is ignored.
+              // Mutate the snapshot's content block.
               const msg = state.turns[0];
               if (msg !== undefined) {
                 const block = msg.content[0];
                 if (block !== undefined && block.type === "text") {
-                  try {
-                    (block as { text: string }).text = "CORRUPTED";
-                  } catch {
-                    /* deepFreeze */
-                  }
+                  (block as { text: string }).text = "CORRUPTED";
                 }
               }
               return caps.wait();
@@ -5812,7 +5811,7 @@ function createDirectReactor(opts: {
       id: "anthropic:test-model",
       provider: "anthropic",
       baseURL: "https://api.anthropic.com",
-      apiKey: "test",
+      credentialId: "test",
       model: "test-model",
     },
     toolRunner: opts.toolRunner ?? noopToolRunner(),
@@ -6268,7 +6267,6 @@ describe("createReactor — transform chain ordering and compact action", () => 
       expect(recording.commits[i]?.message).not.toBe("first-override");
     }
   });
-});
 
 // ---------------------------------------------------------------------------
 // 28. Per-message run-bracket emission
@@ -6518,7 +6516,7 @@ describe("createReactor — source failover", () => {
       id,
       provider: "anthropic",
       baseURL: "https://api.anthropic.com",
-      apiKey: `key-${id}`,
+      credentialId: `key-${id}`,
       model: "test-model",
     }));
     const head = sources[0];

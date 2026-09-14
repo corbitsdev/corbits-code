@@ -1514,13 +1514,13 @@ describe("buildOpenAISource", () => {
     expect(source.baseURL).toBe("http://localhost:11434/v1");
   });
 
-  test("substitutes a placeholder apiKey when none is provided (keyless)", () => {
+  test("substitutes a placeholder credentialId when none is provided (keyless)", () => {
     const source = buildOpenAISource({
       id: "local",
       baseURL: "http://localhost:8080/v1",
       model: "local-model",
     });
-    expect(source.apiKey).toBe(KEYLESS_API_KEY);
+    expect(source.credentialId).toBe(KEYLESS_API_KEY);
   });
 });
 

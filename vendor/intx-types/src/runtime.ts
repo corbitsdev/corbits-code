@@ -248,6 +248,68 @@ export const SignatureStatus = type.enumerated(
 export type SignatureStatus = typeof SignatureStatus.infer;
 
 /**
+ * The admission outcome of an inbound message. This is the single vocabulary a
+ * delivery decision keys on, distinct from the two-axis signature verdict that
+ * produces it.
+ *
+ * - `clean` — nothing suspect; always admitted
+ * - `untrustedFrom` — the visible `From` cannot be trusted, either because it is
+ *   present but unparseable or because a valid signature is worn under a
+ *   mismatched sender identity
+ * - `invalid` — the signature check failed (tampering or the wrong key)
+ * - `missing` — the message carried no signature
+ * - `unknown` — no key was available to verify against
+ * - `error` — a fault stopped the check from running at all; always rejected
+ */
+export const InboundMailOutcome = type.enumerated(
+  "clean",
+  "untrustedFrom",
+  "invalid",
+  "missing",
+  "unknown",
+  "error",
+);
+export type InboundMailOutcome = typeof InboundMailOutcome.infer;
+
+/**
+ * The subset of {@link InboundMailOutcome} a workflow author may relax to admit
+ * a message that would otherwise be rejected. It omits `clean` (which always
+ * admits, so there is nothing to relax) and `error` (pinned to reject, since a
+ * fault we could not check through is never something an author should be able
+ * to wave past). A per-workflow policy keys on exactly these outcomes.
+ */
+export const AuthorControllableOutcome = type.enumerated(
+  "untrustedFrom",
+  "invalid",
+  "missing",
+  "unknown",
+);
+export type AuthorControllableOutcome = typeof AuthorControllableOutcome.infer;
+
+/**
+ * A per-workflow inbound-mail admission policy: for each admission outcome the
+ * author may control, whether a message that resolved to that outcome is
+ * `reject`ed or `admit`ted. The key set is exactly the
+ * {@link AuthorControllableOutcome} values -- `clean` (always admitted) and
+ * `error` (pinned to reject) are deliberately not keys.
+ *
+ * The object is SPARSE: every key is optional, and an omitted key is NOT a
+ * default of any kind here. It is left for a later resolution step to interpret
+ * an absent outcome. Keeping it sparse means the content hash covers only what
+ * the author actually declared, so a definition that omits the policy hashes
+ * identically to one authored before the field existed. Undeclared keys are
+ * rejected so a typo such as `clean` or `errror` fails at the wire boundary
+ * rather than riding through as an inert unknown key.
+ */
+export const InboundMailPolicy = type({
+  "untrustedFrom?": "'reject' | 'admit'",
+  "invalid?": "'reject' | 'admit'",
+  "missing?": "'reject' | 'admit'",
+  "unknown?": "'reject' | 'admit'",
+}).onUndeclaredKey("reject");
+export type InboundMailPolicy = typeof InboundMailPolicy.infer;
+
+/**
  * A parsed MIME part. `content` is the DECODED bytes in memory (the
  * transfer-encoding has already been undone). `filename` and `disposition` are
  * surfaced from the part's `Content-Disposition` / `Content-Type` so a consumer
@@ -881,7 +943,9 @@ const MediaSourceUrl = type({
   url: "string",
 });
 
-export const MediaSource = MediaSourceBase64.or(MediaSourceFileReference).or(
+export const MediaSource = type.or(
+  MediaSourceBase64,
+  MediaSourceFileReference,
   MediaSourceUrl,
 );
 export type MediaSource = typeof MediaSource.infer;
@@ -1166,28 +1230,29 @@ const ToolResultBlock = type({
   // SafetyRatingBlocks (safety signals annotate model/request
   // filtering), and not CodeExecution blocks (server-side code
   // execution is a distinct lifecycle from the user-tool round-trip).
-  content: TextBlock.or(ImageBlock)
-    .or(AudioBlock)
-    .or(VideoBlock)
-    .or(DocumentBlock)
+  content: type
+    .or(TextBlock, ImageBlock, AudioBlock, VideoBlock, DocumentBlock)
     .array(),
   "detail?": "unknown",
   "isError?": "boolean",
 });
 
-export const ContentBlock = TextBlock.or(ThinkingBlock)
-  .or(RedactedThinkingBlock)
-  .or(RefusalBlock)
-  .or(ImageBlock)
-  .or(AudioBlock)
-  .or(VideoBlock)
-  .or(DocumentBlock)
-  .or(CitationBlock)
-  .or(SafetyRatingBlock)
-  .or(CodeExecutionRequestBlock)
-  .or(CodeExecutionResultBlock)
-  .or(ToolCallBlock)
-  .or(ToolResultBlock);
+export const ContentBlock = type.or(
+  TextBlock,
+  ThinkingBlock,
+  RedactedThinkingBlock,
+  RefusalBlock,
+  ImageBlock,
+  AudioBlock,
+  VideoBlock,
+  DocumentBlock,
+  CitationBlock,
+  SafetyRatingBlock,
+  CodeExecutionRequestBlock,
+  CodeExecutionResultBlock,
+  ToolCallBlock,
+  ToolResultBlock,
+);
 export type ContentBlock = typeof ContentBlock.infer;
 
 /**
@@ -1303,12 +1368,13 @@ const WireInboundMessage = type({
  *
  * (INFERENCE.md § Event Protocol)
  */
-export const InferenceEvent = type({
-  type: "'inference.start'",
-  seq: "number",
-  data: { model: "string" },
-})
-  .or({
+export const InferenceEvent = type.or(
+  {
+    type: "'inference.start'",
+    seq: "number",
+    data: { model: "string" },
+  },
+  {
     type: "'inference.thinking.delta'",
     seq: "number",
     data: {
@@ -1316,18 +1382,18 @@ export const InferenceEvent = type({
       partial: PartialMessage,
       "index?": "number",
     },
-  })
-  .or({
+  },
+  {
     type: "'inference.block.signature'",
     seq: "number",
     data: { signature: "string", "index?": "number" },
-  })
-  .or({
+  },
+  {
     type: "'inference.thinking.redacted'",
     seq: "number",
     data: { redactedThinking: RedactedThinkingBlock, "index?": "number" },
-  })
-  .or({
+  },
+  {
     type: "'inference.text.delta'",
     seq: "number",
     data: {
@@ -1335,8 +1401,8 @@ export const InferenceEvent = type({
       partial: PartialMessage,
       "index?": "number",
     },
-  })
-  .or({
+  },
+  {
     type: "'inference.refusal.delta'",
     seq: "number",
     data: {
@@ -1344,8 +1410,8 @@ export const InferenceEvent = type({
       partial: PartialMessage,
       "index?": "number",
     },
-  })
-  .or({
+  },
+  {
     type: "'inference.tool_call.start'",
     seq: "number",
     data: {
@@ -1354,8 +1420,8 @@ export const InferenceEvent = type({
       partial: PartialMessage,
       "index?": "number",
     },
-  })
-  .or({
+  },
+  {
     type: "'inference.tool_call.delta'",
     seq: "number",
     data: {
@@ -1364,8 +1430,8 @@ export const InferenceEvent = type({
       partial: PartialMessage,
       "index?": "number",
     },
-  })
-  .or({
+  },
+  {
     type: "'inference.tool_call.end'",
     seq: "number",
     data: {
@@ -1375,14 +1441,14 @@ export const InferenceEvent = type({
       partial: PartialMessage,
       "index?": "number",
     },
-  })
-  .or({
+  },
+  {
     type: "'inference.usage'",
     seq: "number",
     // Locally patched — see vendor/intx-types/PATCHES.md#types-ts-usage-stop-reason
     data: { usage: TokenUsage, source: LastCycleSource, "stopReason?": "string" },
-  })
-  .or({
+  },
+  {
     type: "'inference.done'",
     seq: "number",
     data: {
@@ -1391,13 +1457,13 @@ export const InferenceEvent = type({
       source: LastCycleSource,
       "pacingDelayMs?": "number",
     },
-  })
-  .or({
+  },
+  {
     type: "'inference.error'",
     seq: "number",
     data: { error: InferenceError, partial: PartialMessage },
-  })
-  .or({
+  },
+  {
     type: "'inference.retry'",
     seq: "number",
     data: {
@@ -1405,8 +1471,8 @@ export const InferenceEvent = type({
       delayMs: "number",
       previousError: InferenceError,
     },
-  })
-  .or({
+  },
+  {
     type: "'inference.citation'",
     seq: "number",
     // `index`, when present, names the source content block (typically
@@ -1418,8 +1484,8 @@ export const InferenceEvent = type({
     // `content[]` and consumers attribute them to the nearest
     // preceding TextBlock per the CitationBlock docstring.
     data: { citation: CitationBlock, "index?": "number" },
-  })
-  .or({
+  },
+  {
     type: "'inference.safety_rating'",
     seq: "number",
     // Prompt-level structured safety signal (observed Gemini
@@ -1427,13 +1493,13 @@ export const InferenceEvent = type({
     // capture has zero candidates. Harness appends the block to the
     // finalized turn's `content[]`.
     data: { safetyRating: SafetyRatingBlock },
-  })
-  .or({
+  },
+  {
     type: "'inference.code_execution.start'",
     seq: "number",
     data: { request: CodeExecutionRequestBlock, "index?": "number" },
-  })
-  .or({
+  },
+  {
     type: "'inference.code_execution.delta'",
     seq: "number",
     // requestId correlates fragments back to the originating
@@ -1448,13 +1514,13 @@ export const InferenceEvent = type({
       codeFragment: "string",
       "index?": "number",
     },
-  })
-  .or({
+  },
+  {
     type: "'inference.code_execution.result'",
     seq: "number",
     data: { result: CodeExecutionResultBlock, "index?": "number" },
-  })
-  .or({
+  },
+  {
     type: "'inference.image_output'",
     seq: "number",
     // Fires mid-stream when an adapter finalizes an image-output
@@ -1465,28 +1531,28 @@ export const InferenceEvent = type({
     // ~1MB inline blobs); consumers that subscribe to this event
     // should treat it as a non-trivial transport size.
     data: { image: ImageBlock, "index?": "number" },
-  })
-  .or({
+  },
+  {
     type: "'tool.start'",
     seq: "number",
     data: { call: ToolCall },
-  })
-  .or({
+  },
+  {
     type: "'tool.update'",
     seq: "number",
     data: { callId: "string", partial: "string" },
-  })
-  .or({
+  },
+  {
     type: "'tool.done'",
     seq: "number",
     data: { result: ToolResult },
-  })
-  .or({
+  },
+  {
     type: "'message.queued'",
     seq: "number",
     data: { message: WireInboundMessage },
-  })
-  .or({
+  },
+  {
     type: "'message.run.started'",
     seq: "number",
     data: {
@@ -1494,8 +1560,8 @@ export const InferenceEvent = type({
       messageRunId: "string",
       receivedAt: "number",
     },
-  })
-  .or({
+  },
+  {
     type: "'message.run.ended'",
     seq: "number",
     data: {
@@ -1507,23 +1573,23 @@ export const InferenceEvent = type({
         "kind?": "string",
       },
     },
-  })
-  .or({
+  },
+  {
     type: "'message.correlated'",
     seq: "number",
     data: { message: WireInboundMessage, correlationId: "string" },
-  })
-  .or({
+  },
+  {
     type: "'connector.reply'",
     seq: "number",
     data: { content: "string", "checkpointHash?": "string" },
-  })
-  .or({
+  },
+  {
     type: "'reactor.start'",
     seq: "number",
     data: "object",
-  })
-  .or({
+  },
+  {
     type: "'reactor.gate.blocked'",
     seq: "number",
     data: {
@@ -1532,50 +1598,51 @@ export const InferenceEvent = type({
       "correlationId?": "string",
       "approvalSnapshot?": ApprovalSnapshot,
     },
-  })
-  .or({
+  },
+  {
     type: "'reactor.gate.cleared'",
     seq: "number",
     data: {
       gateId: "string",
       reason: type.enumerated("resolved", "timeout", "shutdown"),
     },
-  })
-  .or({
+  },
+  {
     type: "'reactor.done'",
     seq: "number",
     data: "object",
-  })
-  .or({
+  },
+  {
     type: "'reactor.error'",
     seq: "number",
     data: { error: "string", fatal: "boolean" },
-  })
-  .or({
+  },
+  {
     type: "'fork.created'",
     seq: "number",
     data: { forkId: "string", parentId: "string", mode: ForkMode },
-  })
-  .or({
+  },
+  {
     type: "'fork.done'",
     seq: "number",
     data: { forkId: "string", "result?": "unknown" },
-  })
-  .or({
+  },
+  {
     type: "'fork.error'",
     seq: "number",
     data: { forkId: "string", error: "string" },
-  })
-  .or({
+  },
+  {
     type: "'fork.aborted'",
     seq: "number",
     data: { forkId: "string" },
-  })
-  .or({
+  },
+  {
     type: /^custom\./,
     seq: "number",
     data: "Record<string, unknown>",
-  });
+  },
+);
 // The TypeScript type is defined manually rather than inferred from the
 // validator because the `custom.*` variant uses a regex pattern which
 // arktype infers as `string`. A bare `string` in the discriminant position
@@ -2422,7 +2489,11 @@ export const InferenceSource = type({
   id: "string",
   provider: "string",
   baseURL: "string",
-  apiKey: "string",
+  // Reference into the run's credential-material cell. The provider's secret
+  // (formerly an inline `apiKey`) is resolved from that cell by `credentialId`
+  // at call time, so the source config carries no secret and the child never
+  // holds the key inline. The same cell backs tool credentials.
+  credentialId: "string",
   model: "string",
   "defaults?": InferenceSourceDefaults,
   "capabilities?": "string[]",
@@ -2449,7 +2520,7 @@ export function applyInferenceSourceFields(
   active.id = next.id;
   active.provider = next.provider;
   active.baseURL = next.baseURL;
-  active.apiKey = next.apiKey;
+  active.credentialId = next.credentialId;
   active.model = next.model;
   if (next.defaults !== undefined) {
     active.defaults = next.defaults;
@@ -2475,7 +2546,7 @@ export function applyInferenceSourceFields(
     id: true,
     provider: true,
     baseURL: true,
-    apiKey: true,
+    credentialId: true,
     model: true,
     defaults: true,
     capabilities: true,

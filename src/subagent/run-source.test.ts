@@ -19,7 +19,7 @@ describe("buildSubAgentPrimarySource", () => {
       id: "ollama/default",
       provider: "openai-compatible",
       baseURL: "http://localhost:11434/v1",
-      apiKey: KEYLESS_API_KEY,
+      credentialId: KEYLESS_API_KEY,
       model: "qwen3",
     });
   });
@@ -43,7 +43,7 @@ describe("buildSubAgentPrimarySource", () => {
       expect(source).toMatchObject({
         id: providerName,
         provider: "openai-responses",
-        apiKey: "sk-go",
+        credentialId: "sk-go",
         model: "gpt-5.6-luna",
       });
       expect(typeof sessionId).toBe("string");

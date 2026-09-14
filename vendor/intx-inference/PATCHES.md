@@ -26,6 +26,21 @@ Re-carryable, "Kill candidate" = Droppable, and "Companion" entries are
 Re-carryable but ride their primary patch's disposition (they ship out or
 die with it).
 
+### 2026-09-13 re-sync (upstream `1ad010463a6bce6034cded3e078b14db482882a8`)
+
+Every entry below was re-carried against the new pin; none was dropped
+as upstream-absorbed. The pinned range is dominated by sidecar/mail
+admission work: `e93fecc7` ("Shadow-verify inbound mail signatures at the
+sidecar ingress") threads verification through `harness.ts`, `reactor.ts`,
+`assembly.ts`, and `providers/anthropic.ts`; `487964f5` constructs the
+Anthropic event union in one call (`providers/anthropic.ts`). The same
+range renames the credential surface (`apiKey` → `credentialId`,
+`readMaterial`, new `credential-resolver.ts`), carried here as unmarked
+upstream drift in the test files. All patches are present against the new
+upstream code with no entry's disposition changed. The `Re-carry:` notes
+on the entries below record the previous (`0205b07b`) sync and are
+retained as history.
+
 ### 2026-09-07 re-sync (upstream `0205b07b`)
 
 Every entry below was re-carried against the new pin; none was dropped as
@@ -428,7 +443,9 @@ surfaces it on `inference.usage`, and `vendor/intx-types`' `InferenceUsageEvent`
 gains the optional `stopReason` field both halves flow through. Guarded by the
 CL-7783 regression suite in `providers/anthropic.test.ts`, which drives the
 exact incident wire sequence and asserts no `tool_call` block reaches the
-reactor. The OpenAI-compatible adapter was audited for the same path: it has
+reactor. The Gemini-side suite in `providers/google-genai.test.ts` — a
+locally kept file with no same-named upstream counterpart at this pin —
+asserts the terminal `finishReason` forwarding half. The OpenAI-compatible adapter was audited for the same path: it has
 no adapter-local args fallback (the harness was the only dispatch site) but
 still drops `finish_reason` on both paths, so OpenAI streams get the generic
 invalid-JSON failure rather than the truncation-specific message. The Gemini

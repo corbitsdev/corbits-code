@@ -953,7 +953,7 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
       provider: "openai",
       model: "test-model",
       baseURL: "http://localhost:1",
-      apiKey: "k",
+      credentialId: "k",
     };
     let calls = 0;
     const summarize = createModelSummarizer({

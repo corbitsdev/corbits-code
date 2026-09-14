@@ -404,9 +404,9 @@ export async function createRunLifecycle(
     if (active === undefined) return;
     const { access } = await getValidCodexToken(active.profile);
     const source: InferenceSource =
-      access === active.source.apiKey
+      access === active.source.credentialId
         ? active.source
-        : { ...active.source, apiKey: access };
+        : { ...active.source, credentialId: access };
     state.activeCodexSource = { profile: active.profile, source };
     state.liveSource = source;
     setAgentSourceUnlessClosed(liveAgent(state), source);
@@ -417,9 +417,9 @@ export async function createRunLifecycle(
     if (active === undefined) return;
     const { access } = await getValidXaiToken(active.profile);
     const source: InferenceSource =
-      access === active.source.apiKey
+      access === active.source.credentialId
         ? active.source
-        : { ...active.source, apiKey: access };
+        : { ...active.source, credentialId: access };
     state.activeXaiSource = { profile: active.profile, source };
     state.liveSource = source;
     setAgentSourceUnlessClosed(liveAgent(state), source);

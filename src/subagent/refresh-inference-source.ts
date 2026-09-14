@@ -18,12 +18,12 @@ export async function ensureFreshInferenceSource(
     entry?.codexProfile ?? codexProfileFromProviderName(source.id);
   if (codexProfile !== undefined) {
     const { access } = await getValidCodexToken(codexProfile);
-    return { ...source, apiKey: access };
+    return { ...source, credentialId: access };
   }
   const xaiProfile = entry?.xaiProfile ?? xaiProfileFromProviderName(source.id);
   if (xaiProfile !== undefined) {
     const { access } = await getValidXaiToken(xaiProfile);
-    return { ...source, apiKey: access };
+    return { ...source, credentialId: access };
   }
   return source;
 }

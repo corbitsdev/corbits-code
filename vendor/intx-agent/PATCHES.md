@@ -8,6 +8,17 @@ which lines are ours — run `bin/vendor-patch-diff` to produce it. The
 `Locally patched — see …#<anchor>` comments and the entries below are
 signposts that point into that diff; they do not define its extent.
 
+### 2026-09-13 re-sync (upstream `1ad010463a6bce6034cded3e078b14db482882a8`)
+
+Every entry below was re-carried against the new pin; none was dropped
+as upstream-absorbed — upstream `agent.ts` at the new pin still neither
+resumes `errorSeq` from durable records nor handles `Duplicate error
+record` collisions. The pinned range renames the credential surface
+(`apiKey` → `credentialId`, `readMaterial`, new
+`credential-resolver.ts`); divergences from the new pin are `agent.ts`,
+`flush-errors.test.ts`, and `testing/audit-noop.*` only. No entry's
+disposition changed.
+
 ## agent-ts-resume-error-seq
 
 `agent.ts` — `createAgent` resumes `errorSeq` from `auditStore.loadErrors`

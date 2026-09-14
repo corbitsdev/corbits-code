@@ -64,6 +64,7 @@ import {
 import { createCodexReadRawFile } from "../agent/codex-read-raw-file.js";
 
 import { isCodexProviderName } from "../config/codex-providers.js";
+import { resolveInlineCredentialMaterial } from "../config/credential-material.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 
@@ -1147,6 +1148,7 @@ async function runSubAgentInner(
     agent = await createAgentWithLiveToolDispatch(def, {
       sources: bundle.sources,
       defaultSource: bundle.defaultSource,
+      readCurrentMaterial: resolveInlineCredentialMaterial,
       storage,
       workdir,
       // contextTransforms ride deps: the published @intx/agent forwards deps

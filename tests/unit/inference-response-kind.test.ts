@@ -19,6 +19,7 @@ import type {
   InferenceSource,
 } from "@intx/types/runtime";
 import { createInferenceDependencies } from "../../src/provider/inference-dependencies.js";
+import { resolveInlineCredentialMaterial } from "../../src/config/credential-material.js";
 import {
   CODEX_RESPONSES_PROVIDER,
   withCodexContentTypeRepair,
@@ -31,7 +32,7 @@ const CODEX_SOURCE: InferenceSource = {
   id: "codex/default",
   provider: CODEX_RESPONSES_PROVIDER,
   baseURL: "https://chatgpt.com/backend-api",
-  apiKey: "test-token",
+  credentialId: "test-token",
   model: "gpt-5.6-sol",
 };
 
@@ -96,6 +97,7 @@ async function runCodexTurn(
       source: CODEX_SOURCE,
       nextSeq: () => ++seq,
       deps,
+      readMaterial: resolveInlineCredentialMaterial,
     }),
   );
 }

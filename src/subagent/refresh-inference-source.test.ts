@@ -4,11 +4,11 @@ import * as xaiSession from "../auth/xai/session.js";
 
 import type { InferenceSource } from "@intx/types/runtime";
 
-const baseSource = (id: string, apiKey = "stale"): InferenceSource => ({
+const baseSource = (id: string, credentialId = "stale"): InferenceSource => ({
   id,
   provider: "openai",
   baseURL: "https://api.openai.com/v1",
-  apiKey,
+  credentialId,
   model: "gpt-4o",
 });
 
@@ -18,7 +18,7 @@ describe("refresh-inference-source", () => {
     spyOn(xaiSession, "getValidXaiToken").mockRestore();
   });
 
-  test("ensureFreshInferenceSource replaces stale Codex apiKey after refresh", async () => {
+  test("ensureFreshInferenceSource replaces stale Codex credentialId after refresh", async () => {
     spyOn(codexSession, "getValidCodexToken").mockResolvedValue({
       access: "fresh-codex-token",
     });
@@ -26,7 +26,7 @@ describe("refresh-inference-source", () => {
       await import("./refresh-inference-source.js");
     const source = baseSource("codex/default", "stale");
     const out = await ensureFreshInferenceSource(source, []);
-    expect(out.apiKey).toBe("fresh-codex-token");
+    expect(out.credentialId).toBe("fresh-codex-token");
   });
 
   test("refreshInferenceSourceBundle refreshes each leg", async () => {
@@ -53,6 +53,6 @@ describe("refresh-inference-source", () => {
         apiKey: "key-abc",
       },
     ]);
-    expect(out.apiKey).toBe("key-abc");
+    expect(out.credentialId).toBe("key-abc");
   });
 });

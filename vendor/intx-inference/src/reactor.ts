@@ -42,6 +42,7 @@ import type {
 
 import { getLogger } from "@intx/log";
 import { ApprovalDecision, signalKindToGateType } from "@intx/types";
+import type { CredentialMaterialResolver } from "@intx/types";
 import { canonicalJsonStringify } from "@intx/types/wire-definition-hash";
 import { type } from "arktype";
 import { runInference } from "./harness";
@@ -76,6 +77,27 @@ function assertNever(x: never): never {
   throw new Error(`Unhandled resume case: ${JSON.stringify(x)}`);
 }
 
+function buildHarnessOpts(
+  turns: ConversationTurn[],
+  source: InferenceSource,
+  options: InferenceOptions | undefined,
+  signal: AbortSignal,
+  nextSeq: () => number,
+  readMaterial: CredentialMaterialResolver | undefined,
+  deps: Dependencies,
+): InferenceHarnessOptions {
+  // exactOptionalPropertyTypes is on: only set the optional keys when defined.
+  return {
+    turns,
+    source,
+    ...(options !== undefined ? { inferenceOptions: options } : {}),
+    signal,
+    nextSeq,
+    ...(readMaterial !== undefined ? { readMaterial } : {}),
+    deps,
+  };
+}
+
 /**
  * `InferenceOptions` plus vendored-only fields the published `@intx/types`
  * does not carry. `ephemeralTurns` are appended to the materialized prompt
@@ -87,27 +109,6 @@ function assertNever(x: never): never {
 export type ExtendedInferenceOptions = InferenceOptions & {
   ephemeralTurns?: ConversationTurn[];
 };
-
-function buildHarnessOpts(
-  turns: ConversationTurn[],
-  source: InferenceSource,
-  options: InferenceOptions | undefined,
-  signal: AbortSignal,
-  nextSeq: () => number,
-  deps: Dependencies,
-): InferenceHarnessOptions {
-  if (options !== undefined) {
-    return {
-      turns,
-      source,
-      inferenceOptions: options,
-      signal,
-      nextSeq,
-      deps,
-    };
-  }
-  return { turns, source, signal, nextSeq, deps };
-}
 
 export type ReactorEmittedEvent =
   | InferenceEvent
@@ -129,6 +130,13 @@ export type ReactorConfig = {
   failOverToNextSource?: () => boolean;
   /** Reset `source` to the most-preferred source, in place. */
   resetToPreferredSource?: () => void;
+  /**
+   * Resolves the active source's credential secret by `credentialId` from the
+   * run's credential cell at send time. Read live per attempt, so a failover to
+   * a source with a different `credentialId` resolves that source's credential.
+   * Optional: the harness installs a fail-closed default when it is omitted.
+   */
+  readMaterial?: CredentialMaterialResolver;
   toolRunner: ToolRunner;
   contextStore: ContextStore;
   correlationValidator?: CorrelationValidator;
@@ -595,7 +603,6 @@ export function createReactor(config: ReactorConfig): Reactor {
       const op = pending;
 
       const dispatch = resumePendingOperation(op, message);
-
       const gate = gates.findByCorrelationId(correlationId);
       switch (dispatch.mode) {
         case "redispatch": {
@@ -719,17 +726,16 @@ export function createReactor(config: ReactorConfig): Reactor {
 
     // Run the context transform chain to produce the materialized prompt.
     let prompt: ConversationTurn[] = stateManager.getTurns();
+    const ephemeral = options?.ephemeralTurns;
+    if (ephemeral !== undefined && ephemeral.length > 0) {
+      prompt = [...prompt, ...ephemeral];
+    }
     for (const transform of contextTransforms) {
       const ctx = buildStrategyContext("pre-inference");
       const result = await transform.apply(prompt, ctx);
       prompt = result.output;
       manifestBuffer.push(result.record);
       await persistBlobs(result.blobs);
-    }
-
-    const ephemeral = options?.ephemeralTurns;
-    if (ephemeral !== undefined && ephemeral.length > 0) {
-      prompt = [...prompt, ...ephemeral];
     }
 
     // Tripwire: a malformed tool sequence is invalid in a coherent tool
@@ -761,6 +767,7 @@ export function createReactor(config: ReactorConfig): Reactor {
           options,
           signal,
           nextSeq,
+          config.readMaterial,
           deps,
         );
 
@@ -1074,9 +1081,9 @@ export function createReactor(config: ReactorConfig): Reactor {
     const result = await compactor.apply(stateManager.getTurns(), ctx);
 
     // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-compact-publish-then-memory
-    await persistBlobs(result.blobs);
     await contextStore.writeTurns(result.output);
     pendingCompactOutput = result.output;
+    await persistBlobs(result.blobs);
     manifestBuffer.push(result.record);
     cycleCompactorName = compactor.name;
 

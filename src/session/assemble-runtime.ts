@@ -40,6 +40,7 @@ import {
   type LocalSettings,
 } from "../config/settings.js";
 import type { SessionMode } from "../config/session-mode.js";
+import { resolveInlineCredentialMaterial } from "../config/credential-material.js";
 import {
   advertisedTools,
   advertisedToolNamesForSessionMode,
@@ -578,6 +579,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
     const agent = await createAgentWithLiveToolDispatch(agentDef, {
       sources: wiring.getSources(),
       defaultSource: wiring.getDefaultSource(),
+      readCurrentMaterial: resolveInlineCredentialMaterial,
       storage: storageForAgent,
       workdir,
       // contextTransforms ride deps: the published @intx/agent forwards deps

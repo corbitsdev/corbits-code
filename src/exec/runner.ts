@@ -772,7 +772,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       const { access } = await refreshSelectedProviderCredential(() =>
         getValidCodexToken(initialCodexProfile),
       );
-      liveSource = { ...liveSource, apiKey: access };
+      liveSource = { ...liveSource, credentialId: access };
       liveSubAgentProvider.current = {
         ...liveSubAgentProvider.current,
         apiKey: access,
@@ -782,7 +782,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       const { access } = await refreshSelectedProviderCredential(() =>
         getValidXaiToken(initialXaiProfile),
       );
-      liveSource = { ...liveSource, apiKey: access };
+      liveSource = { ...liveSource, credentialId: access };
       liveSubAgentProvider.current = {
         ...liveSubAgentProvider.current,
         apiKey: access,
@@ -802,7 +802,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
           liveSource,
           config.providers,
         );
-        if (fresh.apiKey === liveSource.apiKey) return;
+        if (fresh.credentialId === liveSource.credentialId) return;
         liveSource = fresh;
         if (currentAgent !== null)
           setAgentSourceUnlessClosed(currentAgent, fresh);
@@ -861,7 +861,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
         const sources = liveSources.length > 0 ? liveSources : [liveSource];
         // Prefer liveSource credentials on the active id when OAuth was refreshed.
         return sources.map((s) =>
-          s.id === liveSource.id ? { ...s, apiKey: liveSource.apiKey } : s,
+          s.id === liveSource.id
+            ? { ...s, credentialId: liveSource.credentialId }
+            : s,
         );
       },
       getDefaultSource: () =>
@@ -1005,15 +1007,15 @@ export async function runExec(config: Config): Promise<ExecResult> {
       // Final OAuth refresh immediately before send (token may have aged during MCP).
       if (initialCodexProfile !== undefined) {
         const { access } = await getValidCodexToken(initialCodexProfile);
-        if (access !== liveSource.apiKey) {
-          liveSource = { ...liveSource, apiKey: access };
+        if (access !== liveSource.credentialId) {
+          liveSource = { ...liveSource, credentialId: access };
           setAgentSourceUnlessClosed(activeAgent, liveSource);
         }
       }
       if (initialXaiProfile !== undefined) {
         const { access } = await getValidXaiToken(initialXaiProfile);
-        if (access !== liveSource.apiKey) {
-          liveSource = { ...liveSource, apiKey: access };
+        if (access !== liveSource.credentialId) {
+          liveSource = { ...liveSource, credentialId: access };
           setAgentSourceUnlessClosed(activeAgent, liveSource);
         }
       }

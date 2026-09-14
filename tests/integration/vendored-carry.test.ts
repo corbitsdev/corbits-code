@@ -17,6 +17,7 @@ import type { ContextTransform } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { ID_PREFIX } from "../../src/branding.js";
+import { resolveInlineCredentialMaterial } from "../../src/config/credential-material.js";
 import { createPermissionGate } from "../../src/permission/gate.js";
 import { createOptimizedContextStore } from "../../src/session/optimized-context-store.js";
 import {
@@ -151,6 +152,7 @@ describe("integration — vendored feature carry", () => {
       const agent = await createAgent(def, {
         sources: [INTEGRATION_SOURCE],
         defaultSource: INTEGRATION_SOURCE.id,
+        readCurrentMaterial: resolveInlineCredentialMaterial,
         storage,
         workdir,
         deps: harness.deps,

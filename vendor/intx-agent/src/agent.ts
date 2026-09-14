@@ -47,6 +47,8 @@ import {
   type ReactorEmittedEvent,
 } from "@intx/inference";
 import { createDefaultDependencies } from "@intx/inference/providers";
+
+import { createUnconfiguredCredentialResolver } from "./credential-resolver";
 import { getLogger } from "@intx/log";
 import { createInboundMessage } from "@intx/mime";
 import type { ErrorRecord } from "@intx/types/audit";
@@ -526,11 +528,6 @@ export async function createAgent<EnvReq extends BaseEnv>(
     let flushInProgress: Promise<void> | undefined;
     let pendingFollowUp: Promise<void> | undefined;
 
-    // File key mirror of the isogit store's error filename scheme
-    // (`state/errors/<sessionId>/<seq>-<category>.json`, seq padded to
-    // 8, unsafe category chars replaced). Maps a
-    // `Duplicate error record: <key>` collision back to the batch member
-    // that caused it so only that record is dropped.
     function errorFileKey(record: ErrorRecord): string {
       const seq = String(record.seq).padStart(8, "0");
       const category = record.category.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -748,6 +745,8 @@ export async function createAgent<EnvReq extends BaseEnv>(
       source: sourceRegistry.active,
       failOverToNextSource: () => sourceRegistry.failOverToNextSource(),
       resetToPreferredSource: () => sourceRegistry.resetToPreferredSource(),
+      readMaterial:
+        env.readCurrentMaterial ?? createUnconfiguredCredentialResolver(),
       toolRunner: resolvedTools.runner,
       contextStore,
       onEvent: handleEvent,

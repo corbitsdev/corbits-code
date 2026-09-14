@@ -8,6 +8,12 @@ proof of which lines are ours — run `bin/vendor-patch-diff` to produce it.
 The `Locally patched — see …#<anchor>` comments and the entries below are
 signposts that point into that diff; they do not define its extent.
 
+### 2026-09-13 re-sync (upstream `1ad010463a6bce6034cded3e078b14db482882a8`)
+
+The single entry below was re-carried against the new pin; upstream
+`store.ts` at the new pin still has no `loadErrors`. Divergences from
+the new pin are `store.ts` and its test only. No disposition change.
+
 ## store-ts-load-errors
 
 `store.ts` — Implements `AuditStore.loadErrors` by reading

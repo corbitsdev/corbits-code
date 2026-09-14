@@ -49,7 +49,7 @@ const SOURCE: InferenceSource = {
   id: "anthropic:audit-test",
   provider: "anthropic",
   baseURL: "http://localhost:1",
-  apiKey: "test-key",
+  credentialId: "test-key",
   model: "claude-test",
 };
 
@@ -70,9 +70,6 @@ function makeRecordingAuditStore(): RecordingAuditStore {
     },
     async loadAudit(_sessionId: string): Promise<AuditRecord[]> {
       return committedAudit.flat();
-    },
-    async loadErrors(_sessionId: string): Promise<ErrorRecord[]> {
-      return committedErrors.flat();
     },
     getCommittedAudit() {
       return committedAudit;
@@ -188,6 +185,7 @@ async function buildEnv(opts: {
   return {
     sources: [SOURCE],
     defaultSource: SOURCE.id,
+    readCurrentMaterial: (credentialId) => ({ secret: credentialId }),
     storage,
     workdir: opts.workdir,
     audit: opts.audit,

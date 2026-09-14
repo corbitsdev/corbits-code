@@ -19,6 +19,7 @@ import {
   type RetryPolicy,
 } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { resolveInlineCredentialMaterial } from "../config/credential-material.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import {
   buildArchiveSummaryExcerpt,
@@ -200,6 +201,7 @@ function defaultComplete(deps: Dependencies, timeoutMs: number): CompletionFn {
       signal,
       nextSeq: () => seq++,
       deps,
+      readMaterial: resolveInlineCredentialMaterial,
       inferenceOptions: {
         totalTimeoutMs: timeoutMs,
         retryPolicy: NO_HARNESS_RETRY,

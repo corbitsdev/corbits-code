@@ -8,6 +8,16 @@ which lines are ours — run `bin/vendor-patch-diff` to produce it. The
 `Locally patched — see …#<anchor>` comments and the entries below are
 signposts that point into that diff; they do not define its extent.
 
+### 2026-09-13 re-sync (upstream `1ad010463a6bce6034cded3e078b14db482882a8`)
+
+Every entry below was re-carried against the new pin; none was dropped
+as upstream-absorbed — upstream `runtime.ts` at the new pin still
+carries neither `AuditStore.loadErrors` nor `data.stopReason`. The
+pinned range reworks the sidecar placement surface
+(`sidecar-placement.ts` replaced by `sidecar-capabilities.ts`, plus
+`signer-identity.ts`); the only divergence from the new pin is
+`runtime.ts`. No entry's disposition changed.
+
 ## runtime-ts-audit-store-load-errors
 
 `runtime.ts` — `AuditStore` grows `loadErrors(sessionId, signal?)` so a

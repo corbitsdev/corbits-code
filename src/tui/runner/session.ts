@@ -576,7 +576,7 @@ export async function assembleTUISession(
         state.liveSource,
         state.config.providers,
       );
-      if (fresh.apiKey === state.liveSource.apiKey) return;
+      if (fresh.credentialId === state.liveSource.credentialId) return;
       state.liveSource = fresh;
       if (state.currentAgent !== undefined)
         setAgentSourceUnlessClosed(state.currentAgent, fresh);

@@ -31,6 +31,7 @@ import type {
 import { type } from "arktype";
 
 import { createAgentWithLiveToolDispatch } from "../../src/agent/live-tool-dispatch.js";
+import { resolveInlineCredentialMaterial } from "../../src/config/credential-material.js";
 import { createChatDirector } from "../../src/agent/director.js";
 import { createAgentToolset } from "../../src/agent/tools.js";
 import { ID_PREFIX } from "../../src/branding.js";
@@ -59,7 +60,7 @@ export const INTEGRATION_SOURCE: InferenceSource = {
   id: "anthropic:claude-integration",
   provider: "anthropic",
   baseURL: "https://api.anthropic.com",
-  apiKey: "sk-integration-test",
+  credentialId: "sk-integration-test",
   model: "claude-integration",
 };
 
@@ -205,6 +206,7 @@ export async function openIntegrationSession(
   const innerAgent = await startAgent(def, {
     sources: [INTEGRATION_SOURCE],
     defaultSource: INTEGRATION_SOURCE.id,
+    readCurrentMaterial: resolveInlineCredentialMaterial,
     storage: storageForAgent,
     workdir,
     deps: {

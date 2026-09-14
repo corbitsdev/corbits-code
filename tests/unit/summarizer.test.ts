@@ -14,7 +14,7 @@ const source: InferenceSource = {
   provider: "openai",
   model: "test-model",
   baseURL: "http://localhost:1",
-  apiKey: "k",
+  credentialId: "k",
 };
 
 function turns(): ConversationTurn[] {
@@ -201,7 +201,7 @@ test("summarizer timeout is honoured independently of the director total timeout
         provider: "anthropic",
         model: "claude-test",
         baseURL: "https://api.anthropic.com",
-        apiKey: "k",
+        credentialId: "k",
       }),
       deps: harness.deps,
       timeoutMs: 30_000,
