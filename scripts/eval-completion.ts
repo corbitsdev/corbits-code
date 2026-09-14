@@ -113,14 +113,17 @@ function commitSha(): string {
   return result.stdout.trim();
 }
 
-function withTimeout<T>(
+export async function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
   label: string,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return Promise.race([
+    // Await the race so the finally below runs on settle, not synchronously
+    // on return: clearing the timer before Promise.race settles would make
+    // the timeout unreachable and a hung run would hang the harness.
+    return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
         timer = setTimeout(
@@ -370,4 +373,6 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+if (import.meta.main) {
+  await main();
+}
