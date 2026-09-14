@@ -85,6 +85,7 @@ export const CompletionTotals = type({
   totalCompactionEvents: "number.integer >= 0",
   totalDoomLoopInterventions: "number.integer >= 0",
   totalThrashInterventions: "number.integer >= 0",
+  totalGateSuspensions: "number.integer >= 0",
 });
 export type CompletionTotals = typeof CompletionTotals.infer;
 
@@ -158,6 +159,7 @@ export function computeTotals(
     totalThrashInterventions: sum(
       results.map((result) => result.thrashInterventions),
     ),
+    totalGateSuspensions: sum(results.map((result) => result.gateSuspensions)),
   };
 }
 
@@ -172,7 +174,7 @@ export function formatSummary(report: CompletionReport): string {
     `task set v${report.taskSetVersion}: ${report.taskIds.join(", ")}`,
     `completion rate ${formatRate(report.totals.completionRate)} (${report.totals.completedRuns}/${report.totals.runsTotal} runs)`,
     `mean turns to completion ${report.totals.meanTurnsToCompletion.toFixed(1)} mean agent time ${Math.round(report.totals.meanAgentDurationMs)}ms`,
-    `retries ${report.totals.totalRetries} compaction events ${report.totals.totalCompactionEvents} doom-loop interventions ${report.totals.totalDoomLoopInterventions} thrash interventions ${report.totals.totalThrashInterventions}`,
+    `retries ${report.totals.totalRetries} compaction events ${report.totals.totalCompactionEvents} doom-loop interventions ${report.totals.totalDoomLoopInterventions} thrash interventions ${report.totals.totalThrashInterventions} gate suspensions ${report.totals.totalGateSuspensions}`,
     "",
     ...report.results.map(
       (result) =>
