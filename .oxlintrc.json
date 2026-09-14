@@ -91,7 +91,7 @@
       }
     },
     {
-      "files": ["src/tui/smoke.ts", "src/tui/demo.ts"],
+      "files": ["src/tui/smoke.ts"],
       "rules": {
         "no-console": "off"
       }

@@ -126,11 +126,7 @@ describe("transcript gutter labels", () => {
     const captured = new Set<string>();
     const unrecognized: string[] = [];
     for (const relative of files) {
-      if (
-        relative.endsWith(".test.ts") ||
-        relative === "demo.ts" ||
-        relative.endsWith("/demo.ts")
-      ) {
+      if (relative.endsWith(".test.ts")) {
         continue;
       }
       const source = await Bun.file(join(tuiDir, relative)).text();
