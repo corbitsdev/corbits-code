@@ -77,6 +77,14 @@ describe("completion totals", () => {
     expect(totals.meanTurnsToCompletion).toBe(0);
     expect(totals.meanAgentDurationMs).toBe(0);
   });
+
+  test("aggregates gate suspensions across runs", () => {
+    const totals = computeTotals([
+      result({ gateSuspensions: 2 }),
+      result({ taskId: "stall-read", gateSuspensions: 3 }),
+    ]);
+    expect(totals.totalGateSuspensions).toBe(5);
+  });
 });
 
 describe("boundary parsing", () => {
@@ -135,5 +143,27 @@ describe("human summary", () => {
     expect(summary).toContain("stub-scripted");
     expect(summary).toContain("version-endpoint r0: complete");
     expect(summary).toContain("stall-read r0: incomplete");
+  });
+
+  test("prints the aggregated gate suspensions", () => {
+    const results = [
+      result({ gateSuspensions: 2 }),
+      result({ taskId: "stall-read", gateSuspensions: 3 }),
+    ];
+    const report: CompletionReportType = CompletionReport.assert({
+      harness: "completion-baseline",
+      version: 1,
+      startedAt: "2026-09-14T00:00:00.000Z",
+      finishedAt: "2026-09-14T00:01:00.000Z",
+      commitSha: "deadbeef",
+      provider: "stub-scripted",
+      model: "completion-baseline-v1",
+      repeats: 1,
+      taskSetVersion: 1,
+      taskIds: ["version-endpoint", "stall-read"],
+      results,
+      totals: computeTotals(results),
+    });
+    expect(formatSummary(report)).toContain("gate suspensions 5");
   });
 });
