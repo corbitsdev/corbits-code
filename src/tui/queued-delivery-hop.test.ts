@@ -12,10 +12,10 @@ import {
   createLiveSteerDeliver,
   createSessionOperationQueue,
   routeQueuedDelivery,
+  type AgentDeliveryResult,
   type DeliverySettle,
   type QueueItem,
 } from "./delivery-queue.js";
-import type { AgentDeliveryResult } from "./deliver-agent-message.js";
 
 function lastHopPort(bridgeRef: { current: SessionBridge | undefined }) {
   const sends: string[] = [];

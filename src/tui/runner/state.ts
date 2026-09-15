@@ -32,7 +32,7 @@ import type { ProviderFailureAttempt } from "../provider/failure-attempt.js";
 import type { ScopedApproval } from "../../permission/admin.js";
 import type { ConnectedMcpServer, RunState } from "../../session/state.js";
 import type { PendingImageAttachment } from "../image-attachments.js";
-import type { AgentDeliveryResult } from "../deliver-agent-message.js";
+import type { AgentDeliveryResult } from "../delivery-queue.js";
 import type { SubmitOutcome } from "./submit.js";
 import type { mountRunnerHost } from "./host.js";
 import { EventEmitter } from "node:events";

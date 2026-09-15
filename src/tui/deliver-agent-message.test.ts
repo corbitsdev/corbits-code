@@ -4,7 +4,7 @@ import {
   deliverAgentMessage,
   deliveryResultNotice,
   runGenerationGuardedDeliver,
-} from "./deliver-agent-message.js";
+} from "./delivery-queue.js";
 
 describe("deliverAgentMessage", () => {
   test("reports session-unavailable without calling deliver when rebuild failed", async () => {

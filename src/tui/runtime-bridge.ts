@@ -72,7 +72,7 @@ import {
 import {
   deliveryResultNotice,
   type AgentDeliveryResult,
-} from "./deliver-agent-message.js";
+} from "./delivery-queue.js";
 import { toolCallRow } from "./diff.js";
 import { toolResultRow } from "./mcp-view.js";
 import {

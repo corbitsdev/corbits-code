@@ -79,6 +79,10 @@ import { createSessionCostAccumulator } from "../../cost/session-cost.js";
 import {
   createDeliveryGeneration,
   createSessionOperationQueue,
+  deliverAgentMessage,
+  deliveryResultNotice,
+  runGenerationGuardedDeliver,
+  type AgentDeliveryResult,
 } from "../delivery-queue.js";
 import { createCorrelationAcceptance } from "../correlation-acceptance.js";
 import { createApprovalDeliverer } from "../approval-delivery.js";
@@ -92,12 +96,6 @@ import { detectLanguageServerAvailable } from "../../agent/lsp-availability.js";
 import type { SessionMode } from "../../config/session-mode.js";
 import { WorkflowHost, type WorkflowHostState } from "../../workflows/host.js";
 import type { ToolWatchdogConfig } from "../tool-execution-watchdog.js";
-import {
-  deliverAgentMessage,
-  deliveryResultNotice,
-  runGenerationGuardedDeliver,
-  type AgentDeliveryResult,
-} from "../deliver-agent-message.js";
 import { createProviderFailureAttemptTracker } from "../provider/failure-attempt.js";
 import { getTelemetry, liveTelemetry } from "../../telemetry/singleton.js";
 import {
