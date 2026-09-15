@@ -26,15 +26,20 @@ vendor/
 # flags so a new dead export in these files fails the guard instead of
 # hiding under a whole-file exemption. Remove each entry with the export it
 # names when the owning cleanup lands.
-src/auth/codex/usage.ts: fetchCodexUsage
-src/auth/codex/usage.ts: fetchCodexModels
-src/auth/xai/usage.ts: fetchXaiUsage
 src/auth/codex/constants.ts: CODEX_REFRESH_SKEW_MS
 src/auth/codex/constants.ts: CODEX_HEADLESS_REFRESH_INTERVAL_MS
 
 # Plugin fixture entry point. Loaded by file path from the fixture's plugin
 # manifest by the plugin-registration tests, so it has no static importers.
 tests/fixtures/plugins/implement-feature/src/index.ts
+
+# Eval completion-harness task fixtures (CL-7932 lane). Loaded by file path
+# from each task's script.json by the harness runner, so they have no static
+# importers.
+evals/completion/tasks/decline-refactor/fixture/notes.ts: addNote
+evals/completion/tasks/stall-read/fixture/data.ts: data
+evals/completion/tasks/sum-fix/fixture/sum.ts: total
+evals/completion/tasks/version-endpoint/fixture/service.ts: handleRequest
 
 # ts-prune parser false positives: bare tokens on `as const satisfies ...`
 # lines inside live exports. None of these is an export declaration.
