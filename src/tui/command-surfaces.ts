@@ -172,12 +172,15 @@ export interface McpEntry {
     | "connected"
     | "needs-auth"
     | "failed"
+    | "reconnecting"
     | "disabled";
-  /** Tool count once connected. */
+  /** Tool count once connected; retained while `reconnecting`. */
   readonly toolCount?: number;
+  /** Redial count while `reconnecting`. */
+  readonly attempt?: number;
   /** Authorization URL while `needs-auth`. */
   readonly authURL?: string;
-  /** Failure reason while `failed`. */
+  /** Failure reason while `failed`; last error while `reconnecting`. */
   readonly error?: string;
   /** Built-in Exa preset — disable-only; Alt+R must not remove it. */
   readonly builtin?: boolean;
@@ -192,7 +195,7 @@ export interface McpSurfaceDeps {
     name: string,
     url: string,
   ) => Promise<PluginActionResult>;
-  /** Reconnect a failed persisted server without writing a second settings row. */
+  /** Reconnect a failed or reconnecting persisted server without writing a second settings row. */
   readonly retryServer?: (name: string) => Promise<PluginActionResult>;
   readonly setEnabled?: (
     name: string,
@@ -1240,6 +1243,11 @@ export function mcpRowLabel(entry: McpEntry): string {
       return `${entry.name} — needs auth`;
     case "failed":
       return `${entry.name} — failed`;
+    case "reconnecting": {
+      const attempt = entry.attempt ?? 1;
+      const n = entry.toolCount ?? 0;
+      return `${entry.name} — reconnecting · attempt ${attempt} · ${n} tool${n === 1 ? "" : "s"}`;
+    }
     case "disabled":
       return `${entry.name} — disabled`;
   }
@@ -1275,6 +1283,14 @@ function mcpDescription(entry: McpEntry): ItemDescription {
       return {
         what: entry.error ?? "Did not connect.",
         impact: `Enter retries the existing persisted config without adding a second server. ${mcpHowToImpact(entry)}`,
+        tone: "consequence",
+      };
+    case "reconnecting":
+      return {
+        what:
+          entry.error ??
+          "The transport dropped; redialing in the background while its tools fail fast.",
+        impact: `Enter retries now with a single dial instead of waiting for backoff. ${mcpHowToImpact(entry)}`,
         tone: "consequence",
       };
     case "disabled":
@@ -1523,7 +1539,7 @@ export function openMcpSurface(
           );
           return;
         }
-        if (target.state === "failed") {
+        if (target.state === "failed" || target.state === "reconnecting") {
           const retryServer = mcp.retryServer;
           if (retryServer === undefined) return;
           runMcpSurfaceAction(
