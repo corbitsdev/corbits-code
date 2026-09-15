@@ -115,6 +115,32 @@ export function createFleetStallPollTick(
   };
 }
 
+export interface StopTeardownDeps {
+  subAgentSessions: Pick<
+    RunnerServices["subAgentSessions"],
+    "cancelAll" | "teardown"
+  >;
+  fleetRecords: { clear: () => void } | undefined;
+  bridge: { clearQueuedDelivery: () => void };
+}
+
+/**
+ * Stop teardown (CL-8016): cancel the workers, wipe the sessions (leaving
+ * tombstones so a late send_input names the teardown), drop the mailbox
+ * lanes that pin them, and clear the bridge queue so no wake-turn bound
+ * outlives the sessions it was owed to. Exported so the stall-bound
+ * regression test drives this exact production path instead of re-wiring
+ * the three clears by hand.
+ */
+export async function cancelWorkersForStop(
+  deps: StopTeardownDeps,
+): Promise<void> {
+  await deps.subAgentSessions.cancelAll("Session closed");
+  deps.subAgentSessions.teardown("Session closed");
+  deps.fleetRecords?.clear();
+  deps.bridge.clearQueuedDelivery();
+}
+
 export function createFleetWakePublisher(
   sessions: RunnerServices["subAgentSessions"],
   emitter: RunnerServices["emitter"],
@@ -236,14 +262,11 @@ export function wirePostStartup(
   const shutdownRuntime = createRuntimeShutdown({
     disposeHost: hostOf(state).dispose,
     cancelWorkers: async () => {
-      await services.subAgentSessions.cancelAll("Session closed");
-      // Stop teardown (CL-8016): wipe the sessions (leaving tombstones so a
-      // late send_input names the teardown), drop the mailbox lanes that pin
-      // them, and clear the bridge queue so no wake-turn bound outlives the
-      // sessions it was owed to.
-      services.subAgentSessions.teardown("Session closed");
-      services.toolset.fleetRecords?.clear();
-      hostOf(state).bridge.clearQueuedDelivery();
+      await cancelWorkersForStop({
+        subAgentSessions: services.subAgentSessions,
+        fleetRecords: services.toolset.fleetRecords,
+        bridge: hostOf(state).bridge,
+      });
     },
     closeAgent: () => liveAgent(state).close(),
     disposeToolset: () => services.toolset.dispose(),

@@ -318,7 +318,11 @@ export interface SessionBridge {
    * stall poll, which settles deadline-past asks first.
    */
   abortStalledWakeTurn: () => boolean;
-  /** Phase-transition stamps (`TurnMarker`), newest last. */
+  /**
+   * Phase-transition stamps (`TurnMarker`), newest last. Diagnostic-only:
+   * exists so the stall-bound regression test can observe the abort path;
+   * production code never reads it.
+   */
   turnMarkers: () => readonly TurnMarker[];
 }
 
