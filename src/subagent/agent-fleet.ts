@@ -34,7 +34,11 @@ import { join } from "node:path";
 import { tool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
 import { type } from "arktype";
-import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
+import type {
+  RetryPolicy,
+  ToolDefinition,
+  ToolResult,
+} from "@intx/types/runtime";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { getLogger } from "@intx/log";
 
@@ -643,6 +647,13 @@ export type AgentFleetDeps = SubAgentSandboxDeps & {
   telemetry?: Telemetry;
   /** Tests inject a private queue. Production omits and uses the process singleton. */
   admission?: AdmissionQueue;
+  /**
+   * Retry-timing overrides forwarded to each spawned run. Tests inject fast
+   * values so retry suites do not pay the production backoff; production
+   * omits them and keeps the defaults.
+   */
+  outerRetryDelayMs?: number;
+  retryPolicy?: RetryPolicy;
 };
 
 function resolveDep<T>(value: T | (() => T)): T {
@@ -1334,6 +1345,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               : {}),
             signal: childCtl.signal,
             admission,
+            ...(deps.outerRetryDelayMs !== undefined
+              ? { outerRetryDelayMs: deps.outerRetryDelayMs }
+              : {}),
+            ...(deps.retryPolicy !== undefined
+              ? { retryPolicy: deps.retryPolicy }
+              : {}),
             onEvent,
             onRunSettled: (summary) => {
               settlement = summary;

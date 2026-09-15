@@ -3,7 +3,7 @@
 // "running" run.json) and what index.ts does at process entry (install the
 // crash handlers), then throws asynchronously so it surfaces as a genuine
 // uncaughtException rather than a synchronous throw the caller could catch.
-import { installCrashHandlers } from "../../../src/index.js";
+import { installCrashHandlers } from "../../../src/process-handlers.js";
 import {
   setActiveRun,
   setTestWriteGate,

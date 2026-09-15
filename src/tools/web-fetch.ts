@@ -14,6 +14,20 @@ export const DEFAULT_TIMEOUT_S = 30;
 export const MAX_TIMEOUT_S = 120;
 export const MAX_REDIRECTS = 5;
 
+export interface WebFetchTimingOptions {
+  // Test-injectable wall-clock scale for the per-call timeout, applied to the
+  // timer only. Production never sets it; the default keeps the documented
+  // seconds contract, and timeout messages still report the clamped seconds.
+  timeoutScale?: number;
+}
+
+function scaledTimeoutMs(
+  seconds: number,
+  options?: WebFetchTimingOptions,
+): number {
+  return seconds * 1000 * (options?.timeoutScale ?? 1);
+}
+
 const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
@@ -132,8 +146,10 @@ export async function runWebFetch(
   rawUrl: string,
   format: WebFetchFormat,
   timeoutSeconds: number,
+  options?: WebFetchTimingOptions,
 ): Promise<WebFetchOutcome> {
-  const timeoutMs = Math.min(Math.max(timeoutSeconds, 1), MAX_TIMEOUT_S) * 1000;
+  const clampedSeconds = Math.min(Math.max(timeoutSeconds, 1), MAX_TIMEOUT_S);
+  const timeoutMs = scaledTimeoutMs(clampedSeconds, options);
 
   let currentUrl = rawUrl;
   let userAgent = BROWSER_USER_AGENT;
@@ -150,7 +166,7 @@ export async function runWebFetch(
       if (err instanceof Error && err.name === "AbortError") {
         return {
           ok: false,
-          error: `Request to ${currentUrl} timed out after ${timeoutMs / 1000}s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`,
+          error: `Request to ${currentUrl} timed out after ${clampedSeconds}s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`,
         };
       }
       return {
@@ -213,7 +229,7 @@ export async function runWebFetch(
   };
 }
 
-export function createWebFetchTool(): AgentTool {
+export function createWebFetchTool(options?: WebFetchTimingOptions): AgentTool {
   return stringTool({
     definition: webFetchDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
@@ -223,7 +239,7 @@ export function createWebFetchTool(): AgentTool {
       }
       const format = parsed.format ?? "markdown";
       const timeout = parsed.timeout ?? DEFAULT_TIMEOUT_S;
-      const outcome = await runWebFetch(parsed.url, format, timeout);
+      const outcome = await runWebFetch(parsed.url, format, timeout, options);
       if (!outcome.ok) return `Error: ${outcome.error}`;
       const suffix = outcome.truncated
         ? `\n\n[content truncated at ${MAX_FETCH_BYTES} bytes]`
@@ -237,9 +253,12 @@ type ExaMCPWebFetchConnection =
   | { ok: true; client: MCPClient }
   | { ok: false; error: string };
 
-export function createExaMCPWebFetchTool(args: {
-  connect: (signal: AbortSignal) => Promise<ExaMCPWebFetchConnection>;
-}): AgentTool {
+export function createExaMCPWebFetchTool(
+  args: {
+    connect: (signal: AbortSignal) => Promise<ExaMCPWebFetchConnection>;
+  },
+  options?: WebFetchTimingOptions,
+): AgentTool {
   return {
     kind: "full",
     definition: webFetchDefinition,
@@ -290,10 +309,13 @@ export function createExaMCPWebFetchTool(args: {
       const timeoutError = new Error("web_fetch timed out");
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeoutPromise = new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          timeoutController.abort();
-          reject(timeoutError);
-        }, timeoutSeconds * 1000);
+        timer = setTimeout(
+          () => {
+            timeoutController.abort();
+            reject(timeoutError);
+          },
+          scaledTimeoutMs(timeoutSeconds, options),
+        );
       });
       const callSignal = AbortSignal.any([signal, timeoutController.signal]);
       try {

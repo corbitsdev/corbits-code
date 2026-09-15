@@ -25,6 +25,17 @@ import {
 
 const neverAbort = () => new AbortController().signal;
 
+/** Poll until no process carries `token`; fail instead of asserting on a pid. */
+async function waitUntilGone(token: string): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < 5_000) {
+    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+    if ((probe.stdout?.trim() ?? "").length === 0) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`tagged child still alive after 5s: ${token}`);
+}
+
 function toolContentTrimmed(result: ToolResult): string {
   const content = result.content;
   return (typeof content === "string" ? content : String(content)).trim();
@@ -44,7 +55,7 @@ describe("runGuardedShell", () => {
     const feed = createShellOutputFeed();
     let finished = false;
     const running = runGuardedShell(
-      { command: "echo first; sleep 0.02; echo second; sleep 0.4" },
+      { command: "echo first; sleep 0.02; echo second; sleep 0.15" },
       neverAbort(),
       undefined,
       undefined,
@@ -72,7 +83,7 @@ describe("runGuardedShell", () => {
   test("omitted timeout does not arm a timer", async () => {
     const start = Date.now();
     const { exitCode, timedOut, output } = await runGuardedShell(
-      { command: "sleep 0.25; echo done" },
+      { command: "sleep 0.05; echo done" },
       neverAbort(),
     );
     expect(timedOut).toBe(false);
@@ -105,7 +116,7 @@ describe("runGuardedShell", () => {
   test("returns partial output and a timed-out flag instead of throwing", async () => {
     const start = Date.now();
     const { exitCode, timedOut, output } = await runGuardedShell(
-      { command: "echo early; sleep 60", timeout: 200 },
+      { command: "echo early; sleep 60", timeout: 100 },
       neverAbort(),
     );
     expect(timedOut).toBe(true);
@@ -167,11 +178,8 @@ describe("runGuardedShell", () => {
     if (process.platform === "win32") return;
     const token = `ic_guard_orphan_${randomUUID()}`;
     const cmd = `bash -c 'IC_GUARD_TAG=${token} sleep 600 & IC_GUARD_TAG=${token} exec sleep 600'`;
-    await runGuardedShell({ command: cmd, timeout: 250 }, neverAbort());
-    await new Promise((r) => setTimeout(r, 300));
-    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-    expect(probe.stdout?.trim() ?? "").toBe("");
-    expect(probe.status).not.toBe(0);
+    await runGuardedShell({ command: cmd, timeout: 150 }, neverAbort());
+    await waitUntilGone(token);
   });
 
   test("abort kills grandchildren in a shell pipeline", async () => {
@@ -185,10 +193,7 @@ describe("runGuardedShell", () => {
     );
     setTimeout(() => controller.abort(), 80);
     await expect(promise).rejects.toThrow(/aborted/);
-    await new Promise((r) => setTimeout(r, 300));
-    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-    expect(probe.stdout?.trim() ?? "").toBe("");
-    expect(probe.status).not.toBe(0);
+    await waitUntilGone(token);
   });
 
   test("abort kills the process group", async () => {
@@ -281,7 +286,7 @@ describe("background run_shell (shellGuardPlugin)", () => {
     const result = await runWith(registry, {
       id: "bg1",
       name: "run_shell",
-      arguments: { command: "sleep 0.5; echo finished", background: true },
+      arguments: { command: "sleep 0.05; echo finished", background: true },
     });
     expect(result.isError).toBeUndefined();
     const parsed = JSON.parse(String(result.content)) as {
@@ -381,12 +386,12 @@ describe("background run_shell (shellGuardPlugin)", () => {
         id: "fg3",
         name: "run_shell",
         arguments: {
-          // Fifteen lines ~10 ms apart: far more chunk arrivals than one
+          // Fifteen lines ~5 ms apart: far more chunk arrivals than one
           // cadence window per 100 ms can allow. Without the Date.now() gate
           // in emitPendingOutput every arrival emits (~16 emissions) and this
           // ceiling fails — the assertion is what pins the cadence.
           command:
-            "i=1; while [ $i -le 15 ]; do echo line$i; sleep 0.01; i=$((i+1)); done",
+            "i=1; while [ $i -le 15 ]; do echo line$i; sleep 0.005; i=$((i+1)); done",
         },
       },
       neverAbort(),
@@ -537,16 +542,16 @@ describe("shellGuardPlugin", () => {
     const result = await run({
       id: "c2",
       name: "run_shell",
-      arguments: { command: "echo before; sleep 60", timeout: 120 },
+      arguments: { command: "echo before; sleep 60", timeout: 80 },
     });
     expect(result.isError).toBeUndefined();
     expect(result.content).toContain("before");
-    expect(result.content).toMatch(/timed out after 120ms and was terminated/);
+    expect(result.content).toMatch(/timed out after 80ms and was terminated/);
   });
 
   test("clamps a per-command timeout override to the configured max", async () => {
     const handler = defined(
-      shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware,
+      shellGuardPlugin(process.cwd(), { maxMs: 60 }).middleware,
     )(fallback);
     const result = await handler(
       {
@@ -556,18 +561,18 @@ describe("shellGuardPlugin", () => {
       },
       neverAbort(),
     );
-    expect(result.content).toMatch(/timed out after 100ms/);
+    expect(result.content).toMatch(/timed out after 60ms/);
   });
 
   test("applies a configured default timeout when none is passed", async () => {
     const handler = defined(
-      shellGuardPlugin(process.cwd(), { defaultMs: 90 }).middleware,
+      shellGuardPlugin(process.cwd(), { defaultMs: 60 }).middleware,
     )(fallback);
     const result = await handler(
       { id: "c2c", name: "run_shell", arguments: { command: "sleep 60" } },
       neverAbort(),
     );
-    expect(result.content).toMatch(/timed out after 90ms/);
+    expect(result.content).toMatch(/timed out after 60ms/);
   });
 
   test("omitted timeout with no settings default does not time out", async () => {
@@ -578,7 +583,7 @@ describe("shellGuardPlugin", () => {
       {
         id: "c2d",
         name: "run_shell",
-        arguments: { command: "sleep 0.2; echo ok" },
+        arguments: { command: "sleep 0.05; echo ok" },
       },
       neverAbort(),
     );
@@ -594,7 +599,7 @@ describe("shellGuardPlugin", () => {
       {
         id: "c2e",
         name: "run_shell",
-        arguments: { command: "sleep 0.2; echo ok" },
+        arguments: { command: "sleep 0.05; echo ok" },
       },
       neverAbort(),
     );
@@ -820,7 +825,7 @@ describe("shellGuardPlugin", () => {
       neverAbort(),
     );
     // Give the waiter a chance to enter the busy loop before enqueuing cd.
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 20));
     const cdPromise = handler(
       { id: "s2", name: "run_shell", arguments: { command: "cd nested" } },
       neverAbort(),
@@ -921,7 +926,7 @@ describe("shellGuardPlugin", () => {
 
   test("treats timeout 0 as the configured default", async () => {
     const handler = defined(
-      shellGuardPlugin(process.cwd(), { defaultMs: 90, maxMs: 100 }).middleware,
+      shellGuardPlugin(process.cwd(), { defaultMs: 60, maxMs: 70 }).middleware,
     )(fallback);
     const result = await handler(
       {
@@ -931,7 +936,7 @@ describe("shellGuardPlugin", () => {
       },
       neverAbort(),
     );
-    expect(result.content).toMatch(/timed out after 90ms/);
+    expect(result.content).toMatch(/timed out after 60ms/);
   });
 
   test("returns promptly when the search tool ignores the budget", async () => {
@@ -977,10 +982,7 @@ describe("shellGuardPlugin", () => {
       ).not.toBe("");
       expect(plugin.dispose).toBeDefined();
       await defined(plugin.dispose)();
-      await new Promise((r) => setTimeout(r, 300));
-      const after = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
-      expect(after.stdout?.trim() ?? "").toBe("");
-      expect(after.status).not.toBe(0);
+      await waitUntilGone(token);
       await defined(plugin.dispose)();
       await running;
     } finally {
@@ -1032,8 +1034,8 @@ describe("shellGuardPlugin", () => {
       }
 
       await first;
-      await Promise.race([queued, new Promise((r) => setTimeout(r, 400))]);
-      await new Promise((r) => setTimeout(r, 200));
+      await Promise.race([queued, new Promise((r) => setTimeout(r, 250))]);
+      await new Promise((r) => setTimeout(r, 80));
 
       const leftover1 =
         spawnSync("pgrep", ["-f", token1], {
@@ -1100,8 +1102,8 @@ describe("shellGuardPlugin", () => {
       signalCode: null,
       kill: () => true,
     }) as ChildProcess;
-    await expect(reapLiveChildren(new Set([child]))).rejects.toThrow(
-      /still live after 2000ms reap/,
+    await expect(reapLiveChildren(new Set([child]), 60)).rejects.toThrow(
+      /still live after 60ms reap/,
     );
   }, 10_000);
 });

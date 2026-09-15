@@ -45,8 +45,14 @@ describe("createAuthStore", () => {
       );
 
       const barrier = join(home, "start");
+      // Each writer is a full `bun` process (~65 MB: the runtime plus the
+      // store's arktype validators), and the barrier holds every one of them
+      // at that footprint at once. 16 concurrent writers made this test the
+      // suite's peak-RAM event (~1.7 GB); a handful of writers still races
+      // every lock window the queue has to serialize, at a fraction of the
+      // footprint.
       const names = Array.from(
-        { length: 16 },
+        { length: 6 },
         (_, index) => `profile-${String(index)}`,
       );
       const processes = [
@@ -164,10 +170,13 @@ describe("createAuthStore", () => {
   test("gives queued same-process writes their own lock window", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-queue-"));
     try {
+      // A short lock window keeps the queued write's handoff fast without
+      // changing what is asserted; production keeps the 1s default.
       const store = createAuthStore<TestTokens>({
         filename: "test-auth.json",
         settingsDirName: TEST_SETTINGS_DIR,
         isTokens: isTestTokens,
+        lockTimeoutMs: 100,
       });
       await store.saveProfile(
         {
@@ -294,10 +303,12 @@ describe("createAuthStore", () => {
   test("fails closed with manual recovery guidance when an orphan lock exists", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-orphan-"));
     try {
+      // A short lock window keeps the timeout fast; production keeps 1s.
       const store = createAuthStore<TestTokens>({
         filename: "test-auth.json",
         settingsDirName: TEST_SETTINGS_DIR,
         isTokens: isTestTokens,
+        lockTimeoutMs: 100,
       });
       const lockPath = `${store.authPath(home)}.lock`;
       await mkdir(join(home, TEST_SETTINGS_DIR), { recursive: true });
