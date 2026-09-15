@@ -595,3 +595,111 @@ describe("approval identity ordering", () => {
     expect(ctx.deliver).not.toHaveBeenCalled();
   });
 });
+
+describe("approval resume retry re-await", () => {
+  function retryHarness(outcome: { allow: boolean; message?: string }) {
+    const delivered: InboundMessage[] = [];
+    const deliver = mock((message: InboundMessage): void => {
+      delivered.push(message);
+    });
+    const resolveSuspended = mock(async () => outcome);
+    const resume = createApprovalResume({
+      getAgent: () => ({
+        deliver,
+        history: async () => [],
+      }),
+      resolveParkedCallId: () => "call-A",
+      gate: { resolveSuspended } as unknown as PermissionGate,
+    });
+    return { resume, delivered, deliver, resolveSuspended };
+  }
+
+  function onlyDecision(delivered: InboundMessage[]): InboundMessage {
+    const message = delivered[0];
+    if (message === undefined) throw new Error("expected a delivered decision");
+    return message;
+  }
+
+  test("retry after a delivered acceptance reuses it exactly once", async () => {
+    const { resume, delivered, resolveSuspended } = retryHarness({
+      allow: true,
+    });
+    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
+    expect(resolveSuspended).toHaveBeenCalledTimes(1);
+    expect(delivered).toHaveLength(1);
+    expect(decisionBody(onlyDecision(delivered)).outcome).toBe("approved");
+
+    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
+    expect(resolveSuspended).toHaveBeenCalledTimes(1);
+    expect(delivered).toHaveLength(1);
+  });
+
+  test("late duplicate acceptance after a rejected decision is a no-op", async () => {
+    const { resume, delivered, resolveSuspended } = retryHarness({
+      allow: false,
+      message: "not today",
+    });
+    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
+    expect(delivered).toHaveLength(1);
+    expect(decisionBody(onlyDecision(delivered)).outcome).toBe("rejected");
+
+    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
+    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
+    expect(resolveSuspended).toHaveBeenCalledTimes(1);
+    expect(delivered).toHaveLength(1);
+  });
+
+  test("retry without acceptance still gates", async () => {
+    const delivered: InboundMessage[] = [];
+    const deliver = mock((message: InboundMessage): void => {
+      delivered.push(message);
+    });
+    deliver.mockImplementationOnce(() => {
+      throw new Error("agent is done");
+    });
+    const resolveSuspended = mock(async () => ({ allow: true }));
+    const resume = createApprovalResume({
+      getAgent: () => ({
+        deliver,
+        history: async () => [],
+      }),
+      resolveParkedCallId: () => "call-A",
+      gate: { resolveSuspended } as unknown as PermissionGate,
+    });
+    await expect(
+      resume.handle(suspension("corr-A", "echo alpha")),
+    ).rejects.toThrow("agent is done");
+    expect(delivered).toHaveLength(0);
+    expect(resolveSuspended).toHaveBeenCalledTimes(1);
+
+    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
+    expect(resolveSuspended).toHaveBeenCalledTimes(2);
+    expect(delivered).toHaveLength(1);
+  });
+
+  test("concurrent duplicate handles share one gate and one deliver", async () => {
+    const gate = Promise.withResolvers<{ allow: boolean }>();
+    const delivered: InboundMessage[] = [];
+    const deliver = mock((message: InboundMessage): void => {
+      delivered.push(message);
+    });
+    const resolveSuspended = mock(() => gate.promise);
+    const resume = createApprovalResume({
+      getAgent: () => ({
+        deliver,
+        history: async () => [],
+      }),
+      resolveParkedCallId: () => "call-A",
+      gate: { resolveSuspended } as unknown as PermissionGate,
+    });
+    const first = resume.handle(suspension("corr-A", "echo alpha"));
+    const second = resume.handle(suspension("corr-A", "echo alpha"));
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(resolveSuspended).toHaveBeenCalledTimes(1);
+    gate.resolve({ allow: true });
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(resolveSuspended).toHaveBeenCalledTimes(1);
+    expect(delivered).toHaveLength(1);
+  });
+});

@@ -142,100 +142,131 @@ export function createApprovalResume(args: {
   ) => string | undefined | Promise<string | undefined>;
   gate: PermissionGate;
 }): ApprovalResume {
-  return {
-    handle: async (result) => {
-      if (result.type !== "suspended") return false;
-      const generationCurrent = args.captureGeneration?.() ?? (() => true);
-      const parkedAgent = args.getAgent();
-      if (parkedAgent === undefined)
-        throw new Error("approval resume: no live agent");
-      const { correlationId, approvalSnapshot } = result;
-      let cancelled = false;
-      let canReject = false;
-      const stillCurrent = (): boolean => !cancelled && generationCurrent();
-      const cancelParked = (): void => {
-        if (cancelled) return;
-        cancelled = true;
-        if (canReject) {
-          parkedAgent.deliver(
-            decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE),
-          );
-        }
-      };
-      const dropParked = (): void => {
-        args.onDropped?.(APPROVAL_DROPPED_NOTICE);
-        cancelParked();
-      };
-      args.registerParkedCancel?.(cancelParked);
-      try {
-        // The resolver captures the paired store synchronously before its first await.
-        const parkedCallId = await args.resolveParkedCallId(correlationId);
-        if (!stillCurrent()) {
-          dropParked();
-          return true;
-        }
-        if (parkedCallId === undefined) return true;
-        const initialHistory = await parkedAgent.history();
-        if (!stillCurrent()) {
-          dropParked();
-          return true;
-        }
-        if (timeoutResult(initialHistory, parkedCallId)) return true;
-        canReject = true;
+  // Retry re-await wiring: correlation ids whose decision was handed to the
+  // reactor reuse that acceptance. A retry after an observed acceptance
+  // returns without opening the gate or delivering again, so the parked call
+  // resumes exactly once and a late duplicate acceptance is a no-op. Ids are
+  // recorded only when the decision is actually handed over — a failed send
+  // (deliver threw, so nothing reached the reactor) retries as before.
+  const handedOver = new Set<string>();
+  // Settlements currently gating-and-delivering, keyed by correlation id. A
+  // concurrent duplicate handle shares the one in-flight outcome instead of
+  // opening a second gate, so no waiter is lost and none double-resumes.
+  const inflight = new Map<string, Promise<boolean>>();
 
-        const deliverDecision = async (
-          message: InboundMessage,
-        ): Promise<void> => {
-          if (!stillCurrent()) return;
-          if (args.deliver !== undefined) {
-            await args.deliver(message, stillCurrent);
-          } else {
-            parkedAgent.deliver(message);
-          }
-        };
-        const request =
-          approvalSnapshot === undefined
-            ? null
-            : requestFromApprovalSnapshot(approvalSnapshot, correlationId);
-        if (request === null) {
-          args.registerParkedCancel?.(undefined);
-          await deliverDecision(
-            decisionMessage(
-              correlationId,
-              "rejected",
-              "approval surface unavailable",
-            ),
-          );
-          return true;
+  const settleSuspended = async (
+    result: Extract<SendResult, { type: "suspended" }>,
+  ): Promise<boolean> => {
+    const generationCurrent = args.captureGeneration?.() ?? (() => true);
+    const parkedAgent = args.getAgent();
+    if (parkedAgent === undefined)
+      throw new Error("approval resume: no live agent");
+    const { correlationId, approvalSnapshot } = result;
+    let cancelled = false;
+    let canReject = false;
+    const stillCurrent = (): boolean => !cancelled && generationCurrent();
+    const cancelParked = (): void => {
+      if (cancelled) return;
+      cancelled = true;
+      if (canReject) {
+        parkedAgent.deliver(
+          decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE),
+        );
+      }
+    };
+    const dropParked = (): void => {
+      args.onDropped?.(APPROVAL_DROPPED_NOTICE);
+      cancelParked();
+    };
+    args.registerParkedCancel?.(cancelParked);
+    try {
+      // The resolver captures the paired store synchronously before its first await.
+      const parkedCallId = await args.resolveParkedCallId(correlationId);
+      if (!stillCurrent()) {
+        dropParked();
+        return true;
+      }
+      if (parkedCallId === undefined) return true;
+      const initialHistory = await parkedAgent.history();
+      if (!stillCurrent()) {
+        dropParked();
+        return true;
+      }
+      if (timeoutResult(initialHistory, parkedCallId)) return true;
+      canReject = true;
+
+      const deliverDecision = async (
+        message: InboundMessage,
+      ): Promise<boolean> => {
+        if (!stillCurrent()) return false;
+        if (args.deliver !== undefined) {
+          await args.deliver(message, stillCurrent);
+        } else {
+          parkedAgent.deliver(message);
         }
-        const outcome = await args.gate.resolveSuspended(request, stillCurrent);
-        if (!stillCurrent()) {
-          dropParked();
-          return true;
-        }
+        handedOver.add(correlationId);
+        return true;
+      };
+      const request =
+        approvalSnapshot === undefined
+          ? null
+          : requestFromApprovalSnapshot(approvalSnapshot, correlationId);
+      if (request === null) {
         args.registerParkedCancel?.(undefined);
-        const history = await parkedAgent.history();
-        const timedOut = timeoutResult(history, parkedCallId);
-        if (timedOut) canReject = false;
-        if (!stillCurrent()) {
-          dropParked();
-          return true;
-        }
-        if (timedOut) {
-          logger.warn`late approval decision dropped correlation=${correlationId} timeoutCall=${parkedCallId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
-          return true;
-        }
         await deliverDecision(
           decisionMessage(
             correlationId,
-            outcome?.allow === true ? "approved" : "rejected",
-            outcome?.allow === true ? undefined : outcome?.message,
+            "rejected",
+            "approval surface unavailable",
           ),
         );
         return true;
-      } finally {
-        args.registerParkedCancel?.(undefined);
       }
+      const outcome = await args.gate.resolveSuspended(request, stillCurrent);
+      if (!stillCurrent()) {
+        dropParked();
+        return true;
+      }
+      args.registerParkedCancel?.(undefined);
+      const history = await parkedAgent.history();
+      const timedOut = timeoutResult(history, parkedCallId);
+      if (timedOut) canReject = false;
+      if (!stillCurrent()) {
+        dropParked();
+        return true;
+      }
+      if (timedOut) {
+        logger.warn`late approval decision dropped correlation=${correlationId} timeoutCall=${parkedCallId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
+        return true;
+      }
+      await deliverDecision(
+        decisionMessage(
+          correlationId,
+          outcome?.allow === true ? "approved" : "rejected",
+          outcome?.allow === true ? undefined : outcome?.message,
+        ),
+      );
+      return true;
+    } finally {
+      args.registerParkedCancel?.(undefined);
+    }
+  };
+
+  return {
+    handle: (result) => {
+      if (result.type !== "suspended") return Promise.resolve(false);
+      const { correlationId } = result;
+      if (handedOver.has(correlationId)) return Promise.resolve(true);
+      const ongoing = inflight.get(correlationId);
+      if (ongoing !== undefined) return ongoing;
+      const task = settleSuspended(result);
+      inflight.set(correlationId, task);
+      const forget = (): void => {
+        if (inflight.get(correlationId) === task)
+          inflight.delete(correlationId);
+      };
+      task.then(forget, forget);
+      return task;
     },
   };
 }
