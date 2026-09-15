@@ -3,7 +3,14 @@
 # Format: `#` lines are reasons and attach to the entries below them. An entry
 # is either a path prefix ending in `/` (matches a directory subtree), a full
 # file path (matches every export in that file), or `file: name` (matches one
-# export). Every entry must sit under a reason comment.
+# export). Anything else (a directory without its trailing `/`, a `file:`
+# line that is not `path/to/file.ts: ExportName`) fails the gate.
+#
+# Review convention: this repo has no CODEOWNERS, so every entry block should
+# name its owning lane in the reason comment above it, and changes to an
+# entry need that lane's review. The gate rejects entries with no reason
+# comment above them (presence only), and stale entries (matching no current ts-prune flag)
+# fail the gate: remove the entry with the code it covered.
 #
 # Everything NOT listed here must have zero ts-prune flags: any export with no
 # consumer gets deleted instead of allowlisted.
@@ -13,11 +20,17 @@
 # vendor workspaces on the next sync. Prune upstream, not here.
 vendor/
 
-# CL-6815 lane owns the test-only consumer modules (Codex/xAI usage data
-# paths). That lane decides their fate; this lane must not delete them.
-src/auth/codex/usage.ts
-src/auth/xai/usage.ts
-src/auth/codex/constants.ts
+# Deferred Codex/xAI usage-data cleanup owned by the CL-6815 lane: these
+# modules are fully dead deferred code with no live importers (not test-only
+# helpers), and that lane decides their fate. Scoped to the exact ts-prune
+# flags so a new dead export in these files fails the guard instead of
+# hiding under a whole-file exemption. Remove each entry with the export it
+# names when the owning cleanup lands.
+src/auth/codex/usage.ts: fetchCodexUsage
+src/auth/codex/usage.ts: fetchCodexModels
+src/auth/xai/usage.ts: fetchXaiUsage
+src/auth/codex/constants.ts: CODEX_REFRESH_SKEW_MS
+src/auth/codex/constants.ts: CODEX_HEADLESS_REFRESH_INTERVAL_MS
 
 # Plugin fixture entry point. Loaded by file path from the fixture's plugin
 # manifest by the plugin-registration tests, so it has no static importers.
