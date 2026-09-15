@@ -53,6 +53,17 @@ function liveMcpEntry(
         { name: status.name, state: "failed", error: status.error },
         builtin,
       );
+    case "reconnecting":
+      return withBuiltin(
+        {
+          name: status.name,
+          state: "reconnecting",
+          toolCount: status.tools.length,
+          attempt: status.attempt,
+          error: status.error,
+        },
+        builtin,
+      );
     case "connecting":
       return withBuiltin({ name: status.name, state: "connecting" }, builtin);
   }
