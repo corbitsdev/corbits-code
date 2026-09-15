@@ -988,7 +988,7 @@ class ChatDirectorImpl extends DefaultDirector {
     // CL-7918: reactor-supplied live source id (replaces getProviderId). The
     // completion stamps the source that served it, so a mid-session /model
     // switch remaps retry stamping from the next completion on; the harness's
-    // lastCycleSource covers turns whose event carries no source.
+    // lastCycleSource is the call-start snapshot and wins on conflict.
     if (event.type === "inference.done") {
       const served = event.source?.sourceId;
       if (served !== undefined && served !== "") this.currentSourceId = served;
