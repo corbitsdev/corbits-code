@@ -460,9 +460,12 @@ export function createSendInputTool(deps: LifecycleToolDeps): AgentTool {
           : {}),
       });
       if (!outcome.ok) {
+        // CL-8016: name the teardown when one is recorded — after a stop the
+        // session is gone, and a bare status would read as "never existed".
+        const hint = outcome.hint !== undefined ? ` ${outcome.hint}` : "";
         return lifecycleResult(
           call.id,
-          `Error: cannot send_input to "${target}" (status: ${outcome.status}).`,
+          `Error: cannot send_input to "${target}" (status: ${outcome.status}).${hint}`,
         );
       }
       // CL-7331: an interrupt-with-followup is transitional, not terminal.
