@@ -86,6 +86,18 @@ describe("mcpNotice", () => {
     expect(mcpNotice({ name: "linear", state: "connecting" })).toBeNull();
   });
 
+  test("reconnecting is not news — backoff chatter stays off the rows", () => {
+    expect(
+      mcpNotice({
+        name: "linear",
+        state: "reconnecting",
+        tools: ["a"],
+        attempt: 2,
+        error: "transport closed",
+      }),
+    ).toBeNull();
+  });
+
   test("connected flashes with a tool count", () => {
     expect(
       mcpNotice({ name: "linear", state: "connected", tools: ["a", "b"] }),
@@ -183,6 +195,15 @@ describe("payload validation", () => {
       }),
     ).toMatchObject({ state: "failed", authPending: true });
     expect(mcpServerState("nope")).toBeNull();
+    expect(
+      mcpServerState({
+        name: "a",
+        state: "reconnecting",
+        tools: ["t"],
+        attempt: 1,
+        error: "transport closed",
+      }),
+    ).toMatchObject({ state: "reconnecting", attempt: 1 });
   });
 
   test("grant payloads unwrap the approval", () => {

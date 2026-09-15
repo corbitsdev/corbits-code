@@ -285,12 +285,25 @@ export interface ToolSearchDeps {
   // below so even a stuck dependency can never hang the call. Omitted callers
   // (tests, ad-hoc indexes) have no pending handshakes to wait for.
   awaitPendingConnections?: (timeoutMs?: number) => Promise<number>;
+  // True when a reconnecting MCP server holds retained tools that could match
+  // `query`, justifying one short extra wait for the redial to remount them.
+  // Only transport-death reconnects qualify — a needs-auth server settles
+  // solely via out-of-band authorization, so extending the wait for one can
+  // never help and this must stay false for them.
+  hasReconnectingMatch?: (query: string) => boolean;
 }
 
 // Brief bound a tool_search miss waits for in-flight MCP handshakes before
 // answering. A hung authorization must never hang the call, so both the
 // toolset wait and the handler race below are capped by this.
 export const TOOL_SEARCH_PENDING_WAIT_MS = 1_000;
+
+// Short extension past the tier-1 wait, taken at most once and only when a
+// reconnecting server holds tools that could match the query. Covers the
+// redial window where the stubs are dropped and the live set is not yet
+// remounted. Never taken for needs-auth: those servers settle solely via
+// out-of-band authorization.
+export const TOOL_SEARCH_RECONNECT_WAIT_MS = 500;
 
 const ToolSearchArgs = type({ query: "string" });
 
@@ -312,21 +325,19 @@ function indent(text: string, pad: string): string {
     .join("\n");
 }
 
-// Race the dependency's pending-count wait against the same bound, so a
+// Race the dependency's pending-count wait against a bound, so a
 // stuck dependency (hung OAuth that never settles) cannot hang the call.
 // Resolves undefined when this race itself times out.
 async function racePendingCount(
   awaitPending: (timeoutMs?: number) => Promise<number>,
+  timeoutMs: number,
 ): Promise<number | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      awaitPending(TOOL_SEARCH_PENDING_WAIT_MS),
+      awaitPending(timeoutMs),
       new Promise<undefined>((resolve) => {
-        timer = setTimeout(
-          () => resolve(undefined),
-          TOOL_SEARCH_PENDING_WAIT_MS,
-        );
+        timer = setTimeout(() => resolve(undefined), timeoutMs);
       }),
     ]);
   } finally {
@@ -347,13 +358,29 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
         return "Error: tool_search requires a non-empty query.";
       let names = deps.search(query);
       if (names.length === 0 && deps.awaitPendingConnections !== undefined) {
-        // Miss while connectors start up: wait briefly, then re-search so
-        // late-mounting tools land. The race bounds even a stuck dependency
-        // (hung OAuth) — undefined means the wait itself timed out.
-        const stillPending = await racePendingCount(
+        // Tier 1 — miss while connectors start up: wait briefly, then
+        // re-search so late-mounting tools land. The race bounds even a stuck
+        // dependency (hung OAuth) — undefined means the wait itself timed out.
+        let stillPending = await racePendingCount(
           deps.awaitPendingConnections,
+          TOOL_SEARCH_PENDING_WAIT_MS,
         );
         names = deps.search(query);
+        if (
+          names.length === 0 &&
+          (stillPending ?? 1) > 0 &&
+          deps.hasReconnectingMatch?.(query) === true
+        ) {
+          // Tier 2 — a reconnecting server holds tools that could match: one
+          // short extension for the redial to remount them, then a final
+          // re-search. Needs-auth never qualifies (see the dep contract), so
+          // a hung authorization still answers within the tier-1 bound.
+          stillPending = await racePendingCount(
+            deps.awaitPendingConnections,
+            TOOL_SEARCH_RECONNECT_WAIT_MS,
+          );
+          names = deps.search(query);
+        }
         if (names.length === 0 && (stillPending ?? 1) > 0) {
           const detail =
             stillPending === undefined

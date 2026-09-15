@@ -15,6 +15,14 @@ import type { MCPClient, MCPContentBlock } from "./client.js";
 import { mcpToolName } from "./tool-name.js";
 import { unwrapToolContent } from "./client.js";
 
+export const MCP_RECONNECTING_TOOL_ERROR =
+  "MCP server is reconnecting; retry the call once it reports connected.";
+
+/** True while the server keeps its tools mounted but cannot execute. */
+export function isDegradedMcpState(state: { state: string }): boolean {
+  return state.state === "reconnecting";
+}
+
 export interface McpSpillOptions {
   getBlobWriter?: () => SpillBlobWriter | undefined;
   getContextDir?: () => string | undefined;
