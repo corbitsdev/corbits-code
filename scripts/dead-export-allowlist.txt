@@ -3,7 +3,14 @@
 # Format: `#` lines are reasons and attach to the entries below them. An entry
 # is either a path prefix ending in `/` (matches a directory subtree), a full
 # file path (matches every export in that file), or `file: name` (matches one
-# export). Every entry must sit under a reason comment.
+# export). Anything else (a directory without its trailing `/`, a `file:`
+# line that is not `path/to/file.ts: ExportName`) fails the gate.
+#
+# Review convention: this repo has no CODEOWNERS, so every entry block should
+# name its owning lane in the reason comment above it, and changes to an
+# entry need that lane's review. The gate rejects entries with no reason
+# comment above them (presence only), and stale entries (matching no current ts-prune flag)
+# fail the gate: remove the entry with the code it covered.
 #
 # Everything NOT listed here must have zero ts-prune flags: any export with no
 # consumer gets deleted instead of allowlisted.

@@ -1,0 +1,5 @@
+{
+  "tsconfig": "tsconfig.json",
+  "tsPruneArgs": ["-p", "tsconfig.json"],
+  "minScannedFiles": 1130
+}
