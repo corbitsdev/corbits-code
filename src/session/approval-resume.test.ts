@@ -15,6 +15,7 @@ import {
   createApprovalResume,
   resolveParkedCallIdFromStore,
 } from "./approval-resume.js";
+import { createSessionOperationQueue } from "../tui/delivery-queue.js";
 
 function assistantTurn(
   calls: { id: string; name: string; command: string }[],
@@ -105,6 +106,59 @@ function deliveredCorrelationId(message: InboundMessage): string {
     throw new Error("expected an interchange correlation id");
   return correlationId;
 }
+
+describe("approval decision intent headers", () => {
+  for (const allow of [true, false]) {
+    test(`preserves ${allow ? "granted" : "denied"} intent and correlation through the session queue`, async () => {
+      const delivered: InboundMessage[] = [];
+      const queue = createSessionOperationQueue();
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      queue.enqueue(() => held);
+      const agent = {
+        history: async () => [],
+        deliver: (message: InboundMessage) => {
+          delivered.push(message);
+        },
+      };
+      const gate = {
+        resolveSuspended: async () => ({ allow, message: "decision reason" }),
+      } as unknown as PermissionGate;
+      const resume = createApprovalResume({
+        getAgent: () => agent,
+        gate,
+        resolveParkedCallId: () => "typed-call",
+        deliver: (message) =>
+          queue.enqueue(async () => {
+            agent.deliver(message);
+          }),
+      });
+      const handling = resume.handle(
+        suspension("typed-correlation", "echo alpha"),
+      );
+      expect(delivered).toHaveLength(0);
+      release();
+      expect(await handling).toBe(true);
+      await queue.awaitTail();
+      expect(delivered).toHaveLength(1);
+      const message = delivered[0];
+      if (message === undefined) throw new Error("expected decision");
+      expect(message.headers.interchangeType).toBe(
+        allow ? "approval.granted" : "approval.denied",
+      );
+      expect(deliveredCorrelationId(message)).toBe("typed-correlation");
+      expect(decisionBody(message).outcome).toBe(
+        allow ? "approved" : "rejected",
+      );
+      if (!allow)
+        expect(JSON.parse(message.content ?? "").message).toBe(
+          "decision reason",
+        );
+    });
+  }
+});
 
 describe("approval-resume parallel-parked approvals", () => {
   test("delivers A's decision when a different parked call's approval times out", async () => {

@@ -26,6 +26,32 @@ Re-carryable, "Kill candidate" = Droppable, and "Companion" entries are
 Re-carryable but ride their primary patch's disposition (they ship out or
 die with it).
 
+## reactor-ts-atomic-approval-acceptance
+
+**Promotion candidate.** `reactor.ts` classifies native `approval.granted` /
+`approval.denied` headers as conditional decision intent, not authentication.
+Its private correlation disposition distinguishes ordinary input from discarded
+approvals; stale, ineligible and already-claimed decisions never enter history
+or emit `message.received`. `correlation.ts` documents the typed-only exception
+to validator false/throw fallback, without changing the validator signature.
+
+The claim spans validation, parsing, dispatch, consumption and publication in
+one `try/finally`. Before parsing and after synchronous grant hooks, acceptance
+requires the same pending operation and live gate, an accepting lifecycle, and
+strictly unexpired gate and persisted deadlines. A clamped rehydration timer
+cannot revive an expired persisted operation. Typed targets without a suspended
+call are ineligible; eligible bodies must agree with the header. Consumption
+and continuation enqueue run without callbacks before `message.correlated`.
+Grant hooks may reenter or abort; a failed transition publishes no acceptance.
+Arbitrary extension side effects are not rolled back, and observers throwing
+after the transition retain the existing fatal-error policy.
+
+**Re-carry:** preserve all acceptance checks and the ordinary-message path when
+merging upstream correlation changes. Deterministic real-reactor coverage lives
+in `tests/unit/reactor-approval-acceptance.test.ts`. A never-settling validator
+retains its claim until settlement; there are no tombstones or discard receipts.
+This is a local patch, not a change to the upstream pin or retrieval metadata.
+
 ### 2026-09-07 re-sync (upstream `0205b07b`)
 
 Every entry below was re-carried against the new pin; none was dropped as

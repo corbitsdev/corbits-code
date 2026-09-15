@@ -106,7 +106,7 @@ function decisionMessage(
   correlationId: string,
   outcome: "approved" | "rejected",
   message?: string,
-) {
+): InboundMessage {
   const body: { outcome: "approved" | "rejected"; message?: string } = {
     outcome,
   };
@@ -119,6 +119,8 @@ function decisionMessage(
       date: new Date().toISOString(),
       messageId: `approval-${correlationId}`,
       interchangeCorrelationId: correlationId,
+      interchangeType:
+        outcome === "approved" ? "approval.granted" : "approval.denied",
     },
     flags: [],
     content: JSON.stringify(body),

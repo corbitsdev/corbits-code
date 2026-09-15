@@ -495,9 +495,10 @@ export function createReactor(config: ReactorConfig): Reactor {
     | { mode: "gate-cleared" }
     | { mode: "error_result"; result: ToolResult };
 
-  // Decide how a correlated approval-kind pending operation resumes, granting
-  // any one-shot bypass synchronously so no delivery can interleave between the
-  // grant and the re-dispatch enqueued by the caller. An operation that carries
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-atomic-approval-acceptance
+  // Decide how a correlated approval-kind pending operation resumes. Grant
+  // callbacks can reenter; the caller owns the claim and final live checks.
+  // An operation that carries
   // a `suspendedCall` is an ask-flow suspension: the approver's decision routes
   // it down the re-dispatch rail. An operation without one is an async-tool
   // pending marker, which resumes on the normal gate-cleared rail.
@@ -509,6 +510,8 @@ export function createReactor(config: ReactorConfig): Reactor {
   function resumePendingOperation(
     op: PendingOperation,
     message: InboundMessage,
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-atomic-approval-acceptance
+    expectedOutcome: "approved" | "rejected" | undefined,
   ): ResumeDispatch {
     if (op.suspendedCall === undefined) {
       return { mode: "gate-cleared" };
@@ -533,6 +536,13 @@ export function createReactor(config: ReactorConfig): Reactor {
     if (decision instanceof type.errors) {
       throw new Error(
         `Correlated approval decision for ${op.correlationId} is malformed: ${decision.summary}`,
+      );
+    }
+
+    // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-atomic-approval-acceptance
+    if (expectedOutcome !== undefined && decision.outcome !== expectedOutcome) {
+      throw new Error(
+        `Correlated approval decision for ${op.correlationId} contradicts its header`,
       );
     }
 
@@ -569,44 +579,63 @@ export function createReactor(config: ReactorConfig): Reactor {
     }
   }
 
-  async function tryCorrelate(message: InboundMessage): Promise<boolean> {
+  // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-atomic-approval-acceptance
+  type CorrelationDisposition = "correlated" | "ordinary" | "discarded";
+
+  async function tryCorrelate(
+    message: InboundMessage,
+  ): Promise<CorrelationDisposition> {
+    const expectedOutcome =
+      message.headers.interchangeType === "approval.granted"
+        ? "approved"
+        : message.headers.interchangeType === "approval.denied"
+          ? "rejected"
+          : undefined;
+    const typedApproval = expectedOutcome !== undefined;
+    const unmatched = typedApproval ? "discarded" : "ordinary";
     const correlationId = message.headers.interchangeCorrelationId;
-    if (correlationId === undefined) return false;
-
-    if (correlatingIds.has(correlationId)) return false;
-    const pending = correlations.lookup(correlationId);
-    if (pending === undefined) return false;
-
-    correlatingIds.add(correlationId);
-
-    if (correlationValidator !== undefined) {
-      let valid: boolean;
-      try {
-        valid = await correlationValidator.validate(pending, message);
-      } catch (cause) {
-        logger.warn`Correlation validator threw for ${correlationId}: ${cause}`;
-        correlatingIds.delete(correlationId);
-        return false;
-      }
-      if (!valid) {
-        correlatingIds.delete(correlationId);
-        return false;
-      }
+    if (correlationId === undefined || correlatingIds.has(correlationId)) {
+      return unmatched;
     }
+    const pending = correlations.lookup(correlationId);
+    if (pending === undefined) return unmatched;
+    const claimedGate = gates.findByCorrelationId(correlationId);
 
-    // Capture the operation before removal so the resume dispatch can read its
-    // kind and suspended call. Removal happens only after the dispatch is
-    // decided, all inside this correlatingIds-guarded critical section so a
-    // double-deliver early-returns rather than double-dispatching.
-    const op = pending;
+    const isLiveApproval = (): boolean => {
+      const now = Date.now();
+      return (
+        running && !done && !shutdownStarted &&
+        !queue.some((event) => event.type === "abort") &&
+        correlations.lookup(correlationId) === pending &&
+        pending.kind === "approval" &&
+        pending.suspendedCall !== undefined &&
+        claimedGate !== undefined &&
+        claimedGate.gateId === pending.gateId &&
+        gates.findByCorrelationId(correlationId) === claimedGate &&
+        now < claimedGate.timeoutAt &&
+        (pending.timeoutAt === undefined || now < pending.timeoutAt)
+      );
+    };
 
-    // A finally clears the in-flight marker on every exit — success included.
-    // Without it the success path leaves the id in the set forever, leaking
-    // one entry per correlated message for the life of the session.
-    //
     // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-correlating-ids-leak
+    correlatingIds.add(correlationId);
     try {
-      const dispatch = resumePendingOperation(op, message);
+      if (typedApproval && !isLiveApproval()) return "discarded";
+      if (correlationValidator !== undefined) {
+        let valid: boolean;
+        try {
+          valid = await correlationValidator.validate(pending, message);
+        } catch (cause) {
+          logger.warn`Correlation validator threw for ${correlationId}: ${cause}`;
+          return unmatched;
+        }
+        if (!valid) return unmatched;
+      }
+      if (typedApproval && !isLiveApproval()) return "discarded";
+      const dispatch = resumePendingOperation(pending, message, expectedOutcome);
+      // Extension grants are synchronous but can reenter, abort or advance the
+      // clock. Only the internal consume-and-enqueue below is callback-free.
+      if (typedApproval && !isLiveApproval()) return "discarded";
 
       const gate = gates.findByCorrelationId(correlationId);
       switch (dispatch.mode) {
@@ -668,17 +697,18 @@ export function createReactor(config: ReactorConfig): Reactor {
           break;
         }
       }
+      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-atomic-approval-acceptance
+      // Observers may reenter: publish only after consumption and continuation
+      // enqueue, while the claim still excludes a duplicate delivery.
+      emit({
+        type: "message.correlated",
+        seq: nextSeq(),
+        data: { message, correlationId },
+      });
+      return "correlated";
     } finally {
       correlatingIds.delete(correlationId);
     }
-
-    emit({
-      type: "message.correlated",
-      seq: nextSeq(),
-      data: { message, correlationId },
-    });
-
-    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -1809,9 +1839,10 @@ export function createReactor(config: ReactorConfig): Reactor {
 
   function processDelivery(message: InboundMessage): void {
     void (async () => {
-      let correlated: boolean;
+      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-atomic-approval-acceptance
+      let disposition: CorrelationDisposition;
       try {
-        correlated = await tryCorrelate(message);
+        disposition = await tryCorrelate(message);
       } catch (cause) {
         // A correlation-path invariant failed (e.g. a malformed approval
         // decision). Surface it as a fatal reactor error rather than a silent
@@ -1830,7 +1861,8 @@ export function createReactor(config: ReactorConfig): Reactor {
         }
         return;
       }
-      if (!correlated) {
+      // Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-atomic-approval-acceptance
+      if (disposition === "ordinary") {
         emit({
           type: "message.received",
           seq: nextSeq(),

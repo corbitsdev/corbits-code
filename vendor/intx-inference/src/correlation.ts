@@ -15,7 +15,11 @@ import type { InboundMessage, PendingOperation } from "@intx/types/runtime";
 export interface CorrelationValidator {
   /**
    * Return true if `message` is a valid resolution for `pending`.
-   * False causes the message to be delivered as a regular uncorrelated event.
+   * False (or a thrown error) falls back to a regular uncorrelated event,
+   * except explicit approval.granted/approval.denied messages: those are
+   * discarded, leaving a still-live pending operation available for retry.
+   * These headers classify intent; they do not authenticate the sender.
+   * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-atomic-approval-acceptance
    */
   validate(
     pending: PendingOperation,

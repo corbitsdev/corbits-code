@@ -14,6 +14,21 @@ The reactor (from `@intx/agent`) drives a single agent turn-by-turn. Each turn i
 
 This repeats until the director emits `capabilities.done()`.
 
+Explicit approval messages use `headers.interchangeType` (`approval.granted` or
+`approval.denied`) as intent, not authentication. The reactor accepts one only
+while its exact pending operation and matching gate remain live, before both
+epoch deadlines (equality expires), with a body agreeing with the header. Typed
+messages without an eligible suspended call, expired/consumed decisions and
+concurrent duplicates are discarded before body parsing, never ordinary input.
+Validator false/throw also discards typed decisions but leaves a still-live
+operation retryable; untyped and nonapproval response routing is unchanged.
+After validation and synchronous grant callbacks, the reactor rechecks ownership,
+deadlines and lifecycle, then consumes the operation and enqueues its continuation
+before publishing `message.correlated`. The claim is released on every settled
+exit; a never-settling validator retains it. Extension side effects are not rolled
+back. Discards produce no acceptance receipt: the TUI's existing bounded 30-second
+acceptance wait remains unchanged.
+
 ### Reactor Events (Partial)
 
 This table is not the full reactor/stream event vocabulary. `tool.done` is
