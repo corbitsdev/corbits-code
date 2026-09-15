@@ -12,6 +12,68 @@ export type CatalogDiscoveryState =
   | { readonly status: "unavailable"; readonly message: string }
   | { readonly status: "malformed"; readonly message: string };
 
+function catalogErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function declaredCatalogBytes(response: Response): number | undefined {
+  const raw = response.headers.get("content-length");
+  if (raw === null || raw.length === 0) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return n;
+}
+
+async function readBoundedCatalogText(
+  response: Response,
+  args: { readonly maxBytes: number; readonly oversizeMessage: string },
+): Promise<
+  | { readonly ok: true; readonly text: string }
+  | { readonly ok: false; readonly message: string }
+> {
+  const declared = declaredCatalogBytes(response);
+  if (declared !== undefined && declared > args.maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    return { ok: false, message: args.oversizeMessage };
+  }
+
+  try {
+    const body = response.body;
+    if (body === null) {
+      const text = await response.text();
+      if (new TextEncoder().encode(text).byteLength > args.maxBytes) {
+        return { ok: false, message: args.oversizeMessage };
+      }
+      return { ok: true, text };
+    }
+
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value === undefined) continue;
+      total += value.byteLength;
+      if (total > args.maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        return { ok: false, message: args.oversizeMessage };
+      }
+      chunks.push(value);
+    }
+
+    const buffer = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buffer.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return { ok: true, text: new TextDecoder().decode(buffer) };
+  } catch (error) {
+    return { ok: false, message: catalogErrorMessage(error) };
+  }
+}
+
 export function createBoundedModelCatalog(args: {
   baseURL: string;
   seedIds: readonly string[];
@@ -32,14 +94,6 @@ export function createBoundedModelCatalog(args: {
   let inflight: Promise<readonly string[]> | undefined;
   let snapshot: readonly string[] | undefined;
 
-  function declaredCatalogBytes(response: Response): number | undefined {
-    const raw = response.headers.get("content-length");
-    if (raw === null || raw.length === 0) return undefined;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n < 0) return undefined;
-    return n;
-  }
-
   function oversizeMessage(kind: "bytes" | "models"): string {
     if (kind === "bytes") {
       return `${catalogLabel} catalog exceeds ${String(maxBytes)} bytes`;
@@ -53,66 +107,16 @@ export function createBoundedModelCatalog(args: {
     | { readonly ok: true; readonly value: unknown }
     | { readonly ok: false; readonly message: string }
   > {
-    const declared = declaredCatalogBytes(response);
-    if (declared !== undefined && declared > maxBytes) {
-      await response.body?.cancel().catch(() => undefined);
-      return { ok: false, message: oversizeMessage("bytes") };
-    }
-
-    const body = response.body;
-    if (body === null) {
-      try {
-        const text = await response.text();
-        if (new TextEncoder().encode(text).byteLength > maxBytes) {
-          return { ok: false, message: oversizeMessage("bytes") };
-        }
-        const value: unknown = JSON.parse(text);
-        return { ok: true, value };
-      } catch (error) {
-        return {
-          ok: false,
-          message: error instanceof Error ? error.message : String(error),
-        };
-      }
-    }
-
-    const reader = body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
+    const text = await readBoundedCatalogText(response, {
+      maxBytes,
+      oversizeMessage: oversizeMessage("bytes"),
+    });
+    if (!text.ok) return text;
     try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value === undefined) continue;
-        total += value.byteLength;
-        if (total > maxBytes) {
-          await reader.cancel().catch(() => undefined);
-          return { ok: false, message: oversizeMessage("bytes") };
-        }
-        chunks.push(value);
-      }
-    } catch (error) {
-      return {
-        ok: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    }
-
-    const buffer = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      buffer.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-
-    try {
-      const value: unknown = JSON.parse(new TextDecoder().decode(buffer));
+      const value: unknown = JSON.parse(text.text);
       return { ok: true, value };
     } catch (error) {
-      return {
-        ok: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
+      return { ok: false, message: catalogErrorMessage(error) };
     }
   }
 
@@ -130,7 +134,7 @@ export function createBoundedModelCatalog(args: {
     } catch (error) {
       return {
         status: "unavailable",
-        message: error instanceof Error ? error.message : String(error),
+        message: catalogErrorMessage(error),
       };
     }
 

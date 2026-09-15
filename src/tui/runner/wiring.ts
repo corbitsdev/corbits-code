@@ -14,8 +14,10 @@ import {
 } from "../../config/settings.js";
 import { refreshLiveProviderCatalog } from "../../config/index.js";
 import type { ResolvedProvider } from "../../config/settings.js";
-import { prefetchGoModels } from "../../provider/opencode-go-models.js";
-import { prefetchZenModels } from "../../provider/zen-models.js";
+import {
+  prefetchGoModels,
+  prefetchZenModels,
+} from "../../provider/model-catalogs.js";
 import { isOpenCodeGoProvider } from "../../../packages/opencode-go/src/index.js";
 import { isZenProvider } from "../../../packages/zen/src/index.js";
 import { loadRecentTurns } from "../../session/optimized-context-store.js";

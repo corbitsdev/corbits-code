@@ -5,6 +5,7 @@ import { type } from "arktype";
 
 import {
   lexicalFields,
+  rankAndCut,
   scoreLexical,
   tokenizeLexical,
 } from "./lexical-rank.js";
@@ -234,9 +235,9 @@ export interface ToolIndex {
   search(query: string, limit?: number): string[];
 }
 
-// A dependency-free lexical ranker over each tool's name + description. Exact name
-// token hits weigh most, then description token hits, then raw-substring matches
-// (so "linear" finds mcp__linear__* even though it is not a whole token there).
+// Rank registered tools against name + description via the shared lexical
+// scorer. Already-advertised tools are always callable so they never rank;
+// the allow list (when set) keeps search from promoting outside it.
 export function createToolIndex(
   getDefs: () => readonly ToolDefinition[],
   advertisedNames: readonly string[] = ADVERTISED_TOOL_NAMES,
@@ -260,17 +261,14 @@ export function createToolIndex(
       const rawQuery = query.toLowerCase().trim();
       const queryTokens = tokenizeLexical(query);
       if (queryTokens.length === 0) return [];
-      return getDefs()
+      const candidates = getDefs()
         .filter((def) => !advertisedNames.includes(def.name))
-        .filter((def) => allow === undefined || allow.includes(def.name))
-        .map((def) => ({
-          name: def.name,
-          score: score(def, queryTokens, rawQuery),
-        }))
-        .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit)
-        .map((entry) => entry.name);
+        .filter((def) => allow === undefined || allow.includes(def.name));
+      return rankAndCut(
+        candidates,
+        (def) => score(def, queryTokens, rawQuery),
+        limit,
+      ).map((def) => def.name);
     },
   };
 }

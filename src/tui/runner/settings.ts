@@ -38,8 +38,10 @@ import type { GrantScope } from "../../permission/types.js";
 import { connectProviderInline } from "../provider/connect.js";
 import { persistConnectedSelection } from "../provider/submit.js";
 import { modelOptionId } from "../model-catalog.js";
-import { prefetchGoModels } from "../../provider/opencode-go-models.js";
-import { prefetchZenModels } from "../../provider/zen-models.js";
+import {
+  prefetchGoModels,
+  prefetchZenModels,
+} from "../../provider/model-catalogs.js";
 import { isOpenCodeGoProvider } from "../../../packages/opencode-go/src/index.js";
 import { isZenProvider } from "../../../packages/zen/src/index.js";
 import { applyLiveModelSwitch } from "../../session/live-model-switch.js";

@@ -40,3 +40,21 @@ export function scoreLexical(
   if (name.includes(rawQuery)) total += 1;
   return total;
 }
+
+// One shared rank→filter→sort→slice→map cut behind tool_search,
+// search_agents, and skill_search. Per-surface scoring (and the agent
+// description bonus) stays at each call site; only the cut is shared. The
+// sort is score-descending and stable, so tied scores keep catalog order
+// identically on every surface.
+export function rankAndCut<T>(
+  items: readonly T[],
+  scoreItem: (item: T) => number,
+  limit: number,
+): T[] {
+  return items
+    .map((item) => ({ item, score: scoreItem(item) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => entry.item);
+}

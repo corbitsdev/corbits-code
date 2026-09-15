@@ -7,7 +7,7 @@ import { defined } from "../../tests/helpers/defined.js";
 
 import { OAuthProviderScopeError } from "../auth/oauth-scope-check.js";
 import { OPENCODE_GO_MODEL_IDS } from "../../packages/opencode-go/src/index.js";
-import { resetGoModelDiscoveryForTests } from "../provider/opencode-go-models.js";
+import { resetGoModelDiscoveryForTests } from "../provider/model-catalogs.js";
 import {
   loadLocalSettings,
   loadSettings,

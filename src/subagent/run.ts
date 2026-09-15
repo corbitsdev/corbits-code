@@ -230,6 +230,35 @@ export function assertReplySend(
 const MAX_OUTER_ATTEMPTS = 2;
 const OUTER_RETRY_DELAY_MS = 500;
 
+/**
+ * CL-7990 reap deadline for the session-stream drain on teardown. A worker
+ * parked behind a live shell descendant holds `streamPromise` open; awaiting
+ * it unbounded wedges interrupt/close forever. Abandoning the drain after
+ * this deadline settles the session — late stream events just go unsalvaged.
+ * Calibrated to the shell-guard reap scale (2s), not the 30s close deadline:
+ * the drain is salvage bookkeeping, not teardown.
+ */
+const SUBAGENT_STREAM_DRAIN_REAP_MS = 2_000;
+
+function drainStreamWithReapDeadline(
+  drain: Promise<void> | undefined,
+): Promise<void> {
+  if (drain === undefined) return Promise.resolve();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bounded = Promise.race([
+    drain.then(
+      () => undefined,
+      () => undefined,
+    ),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, SUBAGENT_STREAM_DRAIN_REAP_MS);
+    }),
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+  return bounded;
+}
+
 function sleepUnlessAborted(
   ms: number,
   signals: readonly AbortSignal[],
@@ -1393,8 +1422,13 @@ async function runSubAgentInner(
         }
       };
       // Interrupt only fires interruptController — never runController/
-      // close, so it cannot hang teardown on a wedged agent.close.
+      // close, so it cannot hang teardown on a wedged agent.close. Release
+      // parked shell_collect waiters too: the interrupt settles the turn
+      // while the session (and its live shell children) stays alive, so a
+      // worker parked in shell output collection comes back as
+      // still-running instead of wedging the run past every deadline.
       const interrupt = (): void => {
+        backgroundShells.releaseWaiters();
         if (!interruptController.signal.aborted) {
           interruptController.abort(
             new Error("interrupted by interrupt_agent"),
@@ -1593,9 +1627,11 @@ async function runSubAgentInner(
       // deadline salvage path or rethrow as a bare AbortError.
       if (thisTurnInterrupt.signal.aborted && !runController.signal.aborted) {
         interruptedKeepAlive = true;
-        const abortedCycleText = await cycleRecorder.dispose("cancelled", {
-          drain: streamPromise,
-        });
+        // No stream drain here: the session stays alive for followup, so a
+        // stream held open by a live shell descendant would park this
+        // settlement forever. The recorder already snapshotted the buffer at
+        // entry; late events are simply unsalvaged.
+        const abortedCycleText = await cycleRecorder.dispose("cancelled");
         const tail = salvageFindingsText(
           accumulatedProse,
           lastPartialText,
@@ -1620,10 +1656,12 @@ async function runSubAgentInner(
         // own bookkeeping (lastPartialText) catch late tool.start / inference.done
         // events before bare-vs-salvage is decided.
         // Deadline is already known here; a parent cancel is labeled cancelled
-        // even if the outcome below resolves to rethrow.
+        // even if the outcome below resolves to rethrow. The drain is reaped
+        // on a bounded deadline: a stream wedged by a live shell descendant
+        // settles the run instead of parking it past every deadline.
         const abortedCycleText = await cycleRecorder.dispose(
           runController.deadlineHit() ? "deadline" : "cancelled",
-          { drain: streamPromise },
+          { drain: drainStreamWithReapDeadline(streamPromise) },
         );
         // Deadline always salvages (even with zero output). Cancel after any
         // tools or assistant prose salvages so the parent keeps partial work;
@@ -1686,13 +1724,18 @@ async function runSubAgentInner(
     // down.
     if (!persisting) {
       backgroundShells.disposeAll("sub-agent closed");
-      await disposeSubAgentSession({
-        signal: runController.signal,
-        ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
-        agent,
-        ...(streamPromise !== undefined ? { streamPromise } : {}),
-        posixTools,
-      });
+      // Bounded like close_agent: a session teardown wedged by a live shell
+      // descendant fails the run instead of parking it forever.
+      await awaitBoundedTeardown(
+        disposeSubAgentSession({
+          signal: runController.signal,
+          ...(closeOnAbort !== undefined ? { closeOnAbort } : {}),
+          agent,
+          ...(streamPromise !== undefined ? { streamPromise } : {}),
+          posixTools,
+        }),
+        DEFAULT_CLOSE_DEADLINE_MS,
+      );
     }
   }
 }
