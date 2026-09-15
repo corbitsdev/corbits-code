@@ -1,6 +1,6 @@
 import { fromToolRunner, stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
-import type { ToolDefinition } from "@intx/types/runtime";
+import type { ToolCall, ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
 import {
@@ -40,8 +40,8 @@ import {
   EXA_MCP_SERVER_NAME,
   isBuiltinExaMCPServer,
 } from "../mcp/exa.js";
-import { mcpClientTools } from "../mcp/plugin.js";
-import { parseMcpToolName } from "../mcp/tool-name.js";
+import { mcpClientTools, MCP_RECONNECTING_TOOL_ERROR } from "../mcp/plugin.js";
+import { mcpToolName, parseMcpToolName } from "../mcp/tool-name.js";
 import { gateAgentTools } from "../plugins/permission-plugin.js";
 import {
   createDynamicToolRunner,
@@ -129,6 +129,13 @@ export const ASK_OPERATOR_OPTION_MAX_CHARS = 48;
 
 /** Cap on the ask_operator question (UTF-16 code units). */
 export const ASK_OPERATOR_QUESTION_MAX_CHARS = 160;
+
+export function mcpReconnectDelayMs(
+  attempt: number,
+  random: () => number = Math.random,
+): number {
+  return Math.min(30_000, 1000 * 2 ** (attempt - 1) * random());
+}
 
 function rethrowToolsetDisposeFailures(failures: unknown[]): void {
   const first = failures[0];
@@ -288,7 +295,16 @@ export type MCPServerState =
       /** Browser auth was offered but never finished — the auth marker owns it. */
       authPending?: boolean;
     }
-  | { name: string; state: "disconnected" };
+  | { name: string; state: "disconnected" }
+  // Transport died under a live client: tools stay mounted and fail fast
+  // while backoff redials. `attempt` counts redials so the TUI can show it.
+  | {
+      name: string;
+      state: "reconnecting";
+      tools: string[];
+      attempt: number;
+      error: string;
+    };
 
 export interface MCPConnectCallbacks {
   // Headless hosts must not advertise an auth callback they cannot complete.
@@ -327,11 +343,20 @@ export interface AgentToolset {
     name: string,
     callbacks: MCPConnectCallbacks,
   ) => Promise<void>;
-  // True while this name is connected or a connection is in flight — not after
-  // teardown, and not after a failed connect. Persist uses this to block a
+  // True while this name is connected, a connection is in flight, or a
+  // transport-death backoff is redialing — not after teardown, and not after
+  // a failed connect. Persist uses this to block a
   // second add of an active name; failed rows retry through connectMCPServer
   // without a second persist. Still true while disable is in progress.
   hasMCPServer: (name: string) => boolean;
+  // Single-dial manual retry for failed and reconnecting rows. Cancels any
+  // backoff loop first so exactly one dial runs; terminal failures stay down
+  // until this is called.
+  retryMCPServer: (
+    config: MCPServerConfig,
+    callbacks: MCPConnectCallbacks,
+    signal?: AbortSignal,
+  ) => Promise<void>;
   // Bounded wait for in-flight MCP handshakes; resolves to the remaining
   // count. Capped by `timeoutMs` so a hung authorization never hangs the
   // caller — the tool_search bound passes briefly by default.
@@ -938,6 +963,168 @@ export async function createAgentToolset(
     dropServerTools(name);
   };
 
+  // A transport that died under a live client. Tools stay mounted as fail-fast
+  // stubs while backoff redials. One entry per server; a death for a name that
+  // already has one is a duplicate close from the same dead transport.
+  interface McpReconnectTool {
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }
+  interface McpReconnectState {
+    config: MCPServerConfig;
+    callbacks: MCPConnectCallbacks;
+    tools: McpReconnectTool[];
+    attempt: number;
+  }
+  const reconnectingServers = new Map<string, McpReconnectState>();
+
+  const mountReconnectingStubs = (
+    name: string,
+    tools: readonly McpReconnectTool[],
+  ): void => {
+    dropServerTools(name);
+    dynamicRunner.addTools(
+      tools.map((tool): AgentTool => ({
+        kind: "full",
+        definition: {
+          name: mcpToolName(name, tool.name),
+          description: `[${name}] ${tool.description}`,
+          inputSchema: tool.inputSchema,
+        },
+        handler: async (call: ToolCall) => ({
+          callId: call.id,
+          content: MCP_RECONNECTING_TOOL_ERROR,
+          isError: true,
+        }),
+      })),
+    );
+  };
+
+  const dropReconnectState = (name: string, state: McpReconnectState): void => {
+    if (reconnectingServers.get(name) === state)
+      reconnectingServers.delete(name);
+  };
+
+  const reconnectCancelled = (name: string, epoch: number): boolean =>
+    disposed || disabledNames.has(name) || currentEpoch(name) !== epoch;
+
+  const sleepAbortable = (ms: number, signal: AbortSignal): Promise<void> => {
+    if (signal.aborted) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  };
+
+  const reconnectLoop = async (name: string, epoch: number): Promise<void> => {
+    for (;;) {
+      const state = reconnectingServers.get(name);
+      if (state === undefined) return;
+      if (reconnectCancelled(name, epoch)) {
+        dropReconnectState(name, state);
+        return;
+      }
+      state.attempt += 1;
+      const perServer = serverAborts.get(name);
+      const backoffSignal =
+        perServer === undefined
+          ? mcpAbortController.signal
+          : AbortSignal.any([mcpAbortController.signal, perServer.signal]);
+      await sleepAbortable(mcpReconnectDelayMs(state.attempt), backoffSignal);
+      if (
+        reconnectingServers.get(name) !== state ||
+        reconnectCancelled(name, epoch)
+      ) {
+        dropReconnectState(name, state);
+        return;
+      }
+      // Drop the stubs so the redial can mount the live set without a
+      // DuplicateToolError; transient failures re-mount them below.
+      dropServerTools(name);
+      let last: MCPServerState | undefined;
+      await connectOneMCPServer(
+        state.config,
+        {
+          ...state.callbacks,
+          onStatus: (update) => {
+            last = update;
+            state.callbacks.onStatus(update);
+          },
+        },
+        undefined,
+        epoch,
+      );
+      if (
+        reconnectingServers.get(name) !== state ||
+        reconnectCancelled(name, epoch)
+      ) {
+        dropReconnectState(name, state);
+        return;
+      }
+      if (
+        last !== undefined &&
+        last.state === "connected" &&
+        connectedClients.has(name)
+      ) {
+        reconnectingServers.delete(name);
+        return;
+      }
+      // Auth/terminal failures stay down: drop the stubs and stop redialing.
+      if (
+        last !== undefined &&
+        last.state === "failed" &&
+        last.authPending === true
+      ) {
+        dropServerTools(name);
+        permissionGate.unregisterMcpServer(name);
+        reconnectingServers.delete(name);
+        return;
+      }
+      mountReconnectingStubs(name, state.tools);
+    }
+  };
+
+  const handleTransportDeath = (
+    config: MCPServerConfig,
+    callbacks: MCPConnectCallbacks,
+    epoch: number,
+  ): void => {
+    if (disposed || disabledNames.has(config.name)) return;
+    if (currentEpoch(config.name) !== epoch) return;
+    const client = connectedClients.get(config.name);
+    if (client === undefined || reconnectingServers.has(config.name)) return;
+    const tools: McpReconnectTool[] = client.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    }));
+    connectedClients.delete(config.name);
+    void client.close().catch(() => undefined);
+    mountReconnectingStubs(config.name, tools);
+    callbacks.onStatus({
+      name: config.name,
+      state: "reconnecting",
+      tools: tools.map((tool) => tool.name),
+      attempt: 1,
+      error: "transport closed unexpectedly; retrying in the background",
+    });
+    reconnectingServers.set(config.name, {
+      config,
+      callbacks,
+      tools,
+      attempt: 0,
+    });
+    void reconnectLoop(config.name, epoch);
+  };
+
   const connectOneMCPServer = (
     config: MCPServerConfig,
     callbacks: MCPConnectCallbacks,
@@ -1015,6 +1202,8 @@ export async function createAgentToolset(
             });
           },
           signal: connectionSignal,
+          onDisconnect: () =>
+            handleTransportDeath(config, callbacks, ownedEpoch),
         });
       } catch (err) {
         if (staleOrDisabled()) return;
@@ -1198,6 +1387,38 @@ export async function createAgentToolset(
     });
   };
 
+  const publicRetryMCPServer = (
+    config: MCPServerConfig,
+    callbacks: MCPConnectCallbacks,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    if (
+      connectedClients.has(config.name) &&
+      !reconnectingServers.has(config.name)
+    ) {
+      return Promise.resolve();
+    }
+    return enqueueServerOp(config.name, async () => {
+      if (
+        connectedClients.has(config.name) &&
+        !reconnectingServers.has(config.name)
+      ) {
+        return;
+      }
+      // Cancel any backoff loop and stale dial so exactly one dial runs.
+      const epoch = bumpEpoch(config.name);
+      abortServer(config.name);
+      serverAborts.set(config.name, new AbortController());
+      reconnectingServers.delete(config.name);
+      disabledNames.delete(config.name);
+      // Drop the fail-fast stubs so the single dial can mount the live set
+      // without a DuplicateToolError. A failed retry leaves the row failed
+      // with no tools, like a fresh failed connect — no backoff resumes.
+      dropServerTools(config.name);
+      await connectOneMCPServer(config, callbacks, signal, epoch);
+    });
+  };
+
   const connectMCP = async (
     callbacks: MCPConnectCallbacks,
     signal?: AbortSignal,
@@ -1275,8 +1496,11 @@ export async function createAgentToolset(
     shellOutputFeed,
     connectMCPServer: publicConnectMCPServer,
     disconnectMCPServer: publicDisconnectMCPServer,
+    retryMCPServer: publicRetryMCPServer,
     hasMCPServer: (name) =>
-      connectedClients.has(name) || inFlightConnections.has(name),
+      connectedClients.has(name) ||
+      inFlightConnections.has(name) ||
+      reconnectingServers.has(name),
     awaitPendingMcpConnections,
     setMcpServersSource: (source) => {
       mcpServersSource = source;
