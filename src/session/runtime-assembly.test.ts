@@ -23,6 +23,7 @@ import {
   buildMailboxMailMessage,
   buildSubAgentProvider,
   createApprovalPersist,
+  createContinuationGate,
   createLiveSubAgentSources,
   createSessionPruningCompactor,
   loadSeededApprovals,
@@ -535,6 +536,24 @@ describe("buildCompactionContinuationMessage", () => {
     expect(message.headers.messageId.startsWith("compact-continue-")).toBe(
       true,
     );
+  });
+});
+
+describe("createContinuationGate", () => {
+  test("delivers each continuation emission once and ignores a replayed duplicate", () => {
+    const gate = createContinuationGate();
+    expect(gate.shouldDeliver(7)).toBe(true);
+    // A replayed duplicate of the answered emission must not re-deliver:
+    // each delivery costs a billable inference.
+    expect(gate.shouldDeliver(7)).toBe(false);
+    // A distinct emission is still answered.
+    expect(gate.shouldDeliver(8)).toBe(true);
+  });
+
+  test("gates are per-host: a fresh gate answers the same seq", () => {
+    const first = createContinuationGate();
+    expect(first.shouldDeliver(3)).toBe(true);
+    expect(createContinuationGate().shouldDeliver(3)).toBe(true);
   });
 });
 

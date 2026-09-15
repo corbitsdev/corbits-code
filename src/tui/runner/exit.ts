@@ -14,7 +14,10 @@ import { getLogger } from "@intx/log";
 import type { InferenceSource } from "@intx/types/runtime";
 import { consumeStream } from "../../session/stream-consumer.js";
 import { COMPACTION_CONTINUATION_EVENT } from "../../agent/compaction.js";
-import { buildCompactionContinuationMessage } from "../../session/runtime-assembly.js";
+import {
+  buildCompactionContinuationMessage,
+  createContinuationGate,
+} from "../../session/runtime-assembly.js";
 import { getTelemetry } from "../../telemetry/singleton.js";
 import { onTurnBoundary } from "../../agent/reactor-events.js";
 import { setAgentSourceUnlessClosed } from "../agent-source-sync.js";
@@ -273,6 +276,9 @@ export async function createRunLifecycle(
   services.crashGuard.setPartialFlush(() =>
     services.cycleRecorder.dispose("crashed").then(() => undefined),
   );
+  // Consume-once gate for the compaction continuation emit: a replayed
+  // duplicate of an already-answered emission must not re-deliver.
+  const continuationGate = createContinuationGate();
   const streamSink = (
     event: Parameters<typeof services.runSink.sink>[0],
   ): void => {
@@ -303,11 +309,15 @@ export async function createRunLifecycle(
     } else if (event.type === COMPACTION_CONTINUATION_EVENT) {
       // Compaction continuation as a ReactorAction: re-enter the loop with
       // the same message the old requestContinuation closure delivered,
-      // through the serial op queue like every other deliver.
-      const targetAgent = liveAgent(state);
-      state.enqueueAgentDeliver?.(() =>
-        targetAgent.deliver(buildCompactionContinuationMessage()),
-      );
+      // through the serial op queue like every other deliver. Each emission
+      // is answered once: a replayed duplicate of an already-answered
+      // emission is ignored instead of re-delivered.
+      if (continuationGate.shouldDeliver(event.seq)) {
+        const targetAgent = liveAgent(state);
+        state.enqueueAgentDeliver?.(() =>
+          targetAgent.deliver(buildCompactionContinuationMessage()),
+        );
+      }
     }
     services.runSink.sink(eventForSink);
     services.cycleRecorder.handleEvent(event);

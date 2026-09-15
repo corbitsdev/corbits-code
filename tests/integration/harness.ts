@@ -56,6 +56,7 @@ import {
 } from "../../src/session/summarizer.js";
 import {
   buildCompactionContinuationMessage,
+  createContinuationGate,
   createSessionPruningCompactor,
 } from "../../src/session/runtime-assembly.js";
 import { COMPACTION_CONTINUATION_EVENT } from "../../src/agent/compaction.js";
@@ -276,13 +277,19 @@ export async function runUntilDone(
   const events: ReactorEmittedEvent[] = [];
   const stream = session.agent.stream();
   let turnComplete = false;
+  // Consume-once gate for the compaction continuation emit: a replayed
+  // duplicate of an already-answered emission must not re-deliver.
+  const continuationGate = createContinuationGate();
   const collect = (async () => {
     for await (const event of stream) {
       events.push(event);
       if (event.type === COMPACTION_CONTINUATION_EVENT) {
         // Compaction continuation as a ReactorAction: re-enter the loop with
         // the same message the old requestContinuation closure delivered.
-        session.agent.deliver(buildCompactionContinuationMessage());
+        // Each emission is answered once.
+        if (continuationGate.shouldDeliver(event.seq)) {
+          session.agent.deliver(buildCompactionContinuationMessage());
+        }
       }
       if (turnComplete && event.type === "message.run.ended") return;
     }
