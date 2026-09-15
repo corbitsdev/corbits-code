@@ -682,15 +682,26 @@ class ChatDirectorImpl extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
-    const settled = ensureCycleSettlesWithReply(
-      await this.decideInner(event, state, capabilities),
-      capabilities,
-    );
-    const withTools = this.withCurrentTools(settled);
-    if (this.pendingEmits.length === 0) return withTools;
-    const emits = this.pendingEmits;
-    this.pendingEmits = [];
-    return [...(Array.isArray(withTools) ? withTools : [withTools]), ...emits];
+    try {
+      const settled = ensureCycleSettlesWithReply(
+        await this.decideInner(event, state, capabilities),
+        capabilities,
+      );
+      const withTools = this.withCurrentTools(settled);
+      if (this.pendingEmits.length === 0) return withTools;
+      const emits = this.pendingEmits;
+      this.pendingEmits = [];
+      return [
+        ...(Array.isArray(withTools) ? withTools : [withTools]),
+        ...emits,
+      ];
+    } catch (err) {
+      // A failed turn must not leak its queued task/tool notifications into
+      // the next turn — drop them so the next turn starts clean instead of
+      // flushing stale updates.
+      this.pendingEmits = [];
+      throw err;
+    }
   }
 
   private async decideInner(

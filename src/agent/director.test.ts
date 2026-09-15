@@ -5,7 +5,12 @@ import type {
   ReactorInboundEvent,
   ReactorState,
 } from "@intx/types/runtime";
-import { createChatDirector, toolSetDigest } from "./director.js";
+import {
+  CHAT_TASKS_CHANGED_EVENT,
+  createChatDirector,
+  toolSetDigest,
+} from "./director.js";
+import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 
 const mockState: ReactorState = { turns: [] } as unknown as ReactorState;
 
@@ -355,5 +360,71 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     expect((reply as { content: string }).content).not.toContain(
       "unrecoverable inference error",
     );
+  });
+
+  // A turn that throws after queueing task-change notifications must drop the
+  // queue instead of flushing it stale on the next turn.
+  test("a throwing turn drops queued task-change notifications", async () => {
+    const throwingCoordinator = {
+      isActive: () => true,
+      currentStepIsGate: () => true,
+      currentStepId: () => null,
+      directive: () => {
+        throw new Error("tool-listing exploded");
+      },
+      handleToolDone: () => false,
+    } as unknown as WorkflowCoordinator;
+    const director = createChatDirector("system", [], {
+      workflowCoordinator: throwingCoordinator,
+    });
+    const capabilities = makeCapabilities();
+
+    const manageTasksTurn = {
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: [
+          {
+            type: "tool_call",
+            id: "manage-tasks",
+            name: "manage_tasks",
+            arguments: {
+              action: "create",
+              tasks: [{ id: "t1", title: "work", status: "doing" }],
+            },
+          },
+        ],
+      },
+      usage: { input: 0, output: 0 },
+      source: "test",
+    } as unknown as ReactorInboundEvent;
+
+    await expect(
+      director.decide(manageTasksTurn, mockState, capabilities),
+    ).rejects.toThrow("tool-listing exploded");
+
+    director.setWorkflowCoordinator(undefined);
+    const textTurn = {
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        model: "test",
+        timestamp: 0,
+        content: [{ type: "text", text: "all set" }],
+      },
+      usage: { input: 0, output: 0 },
+      source: "test",
+    } as unknown as ReactorInboundEvent;
+    const actions = actionsArray(
+      await director.decide(textTurn, mockState, capabilities),
+    );
+    const stale = actions.filter(
+      (a) =>
+        a.type === "emit" &&
+        (a as { eventType?: string }).eventType === CHAT_TASKS_CHANGED_EVENT,
+    );
+    expect(stale).toEqual([]);
   });
 });

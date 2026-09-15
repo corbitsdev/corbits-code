@@ -21,14 +21,8 @@ import {
 import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type { DirectorId, DirectorPackage } from "../agent/directors/types.js";
-import {
-  CHAT_TASKS_CHANGED_EVENT,
-  CHAT_TOOLS_ACTIVATE_EVENT,
-  ChatTasksChangedDataSchema,
-  ChatToolsActivateDataSchema,
-  submitOutputDefinition,
-} from "../agent/director.js";
-import { type } from "arktype";
+import { submitOutputDefinition } from "../agent/director.js";
+import { handleChatDirectorEvent } from "../agent/chat-event-subscribers.js";
 import {
   shellDefinition,
   updatePlanDefinition,
@@ -976,18 +970,18 @@ export async function runExec(config: Config): Promise<ExecResult> {
       // stdout output today (unlike the TUI's chrome zone) — debug logging
       // is the closest match to how this mode already surfaces other
       // in-session state changes.
-      if (event.type === CHAT_TASKS_CHANGED_EVENT) {
-        const parsed = ChatTasksChangedDataSchema(event.data);
-        if (!(parsed instanceof type.errors)) {
-          logger.debug("tasks updated: {tasks}", {
-            tasks: parsed.tasks.map((t) => `${t.status}:${t.title}`).join(", "),
-          });
-        }
-      } else if (event.type === CHAT_TOOLS_ACTIVATE_EVENT) {
-        const parsed = ChatToolsActivateDataSchema(event.data);
-        if (!(parsed instanceof type.errors))
-          activatedToolNames.activate(parsed.names);
-      }
+      handleChatDirectorEvent(
+        event,
+        {
+          onTasksChanged: (tasks) => {
+            logger.debug("tasks updated: {tasks}", {
+              tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
+            });
+          },
+          onToolsActivate: (names) => activatedToolNames.activate(names),
+        },
+        (message, fields) => logger.debug(message, fields),
+      );
       if (event.type === "inference.start" || event.type === "inference.done") {
         providerFailureObserved = false;
         providerError = undefined;
