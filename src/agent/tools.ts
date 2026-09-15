@@ -110,6 +110,11 @@ import {
   TOOL_SEARCH_PENDING_WAIT_MS,
   toolSearchDefinition,
 } from "./tool-search.js";
+import {
+  lexicalFields,
+  scoreLexical,
+  tokenizeLexical,
+} from "./lexical-rank.js";
 import { createSearchAgentsTool } from "./agent-search.js";
 import { createReadAgentTraceTool } from "../subagent/trace-tool.js";
 import {
@@ -782,6 +787,31 @@ export async function createAgentToolset(
         // search runs.
         awaitPendingConnections: (timeoutMs = TOOL_SEARCH_PENDING_WAIT_MS) =>
           awaitPendingMcpConnections(timeoutMs),
+        // Tier-2 extension predicate: true when a reconnecting server's
+        // retained tools score against the query, so the search waits once
+        // more for the redial to remount them. Reads the reconnect map live
+        // (declared below). Needs-auth servers never populate that map — only
+        // transport-death reconnects do — so this stays false for them and a
+        // hung authorization never earns the extension.
+        hasReconnectingMatch: (query: string): boolean => {
+          const rawQuery = query.toLowerCase().trim();
+          const queryTokens = tokenizeLexical(query);
+          if (queryTokens.length === 0) return false;
+          for (const [serverName, state] of reconnectingServers) {
+            for (const tool of state.tools) {
+              const score = scoreLexical(
+                lexicalFields(
+                  mcpToolName(serverName, tool.name),
+                  `[${serverName}] ${tool.description}`,
+                ),
+                queryTokens,
+                rawQuery,
+              );
+              if (score > 0) return true;
+            }
+          }
+          return false;
+        },
       }),
     );
   }
