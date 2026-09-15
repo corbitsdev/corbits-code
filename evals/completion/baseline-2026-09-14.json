@@ -1,9 +1,9 @@
 {
   "harness": "completion-baseline",
   "version": 1,
-  "startedAt": "2026-09-14T07:30:17.369Z",
-  "finishedAt": "2026-09-14T07:30:19.083Z",
-  "commitSha": "b509ed3edb0db5368eb190528d3beaee8895837b",
+  "startedAt": "2026-09-14T20:11:37.538Z",
+  "finishedAt": "2026-09-14T20:11:41.269Z",
+  "commitSha": "b1bace7e4a6c469050df048d53e7d1dea4b89ab6",
   "provider": "stub-scripted",
   "model": "completion-baseline-v1",
   "repeats": 2,
@@ -25,8 +25,8 @@
       "doomLoopInterventions": 0,
       "thrashInterventions": 0,
       "gateSuspensions": 0,
-      "agentDurationMs": 163,
-      "verifyDurationMs": 149,
+      "agentDurationMs": 567,
+      "verifyDurationMs": 196,
       "verifyExitCode": 0,
       "overBudget": false
     },
@@ -45,8 +45,8 @@
       "doomLoopInterventions": 0,
       "thrashInterventions": 0,
       "gateSuspensions": 0,
-      "agentDurationMs": 62,
-      "verifyDurationMs": 141,
+      "agentDurationMs": 167,
+      "verifyDurationMs": 151,
       "verifyExitCode": 0,
       "overBudget": false
     },
@@ -65,8 +65,8 @@
       "doomLoopInterventions": 0,
       "thrashInterventions": 0,
       "gateSuspensions": 0,
-      "agentDurationMs": 131,
-      "verifyDurationMs": 135,
+      "agentDurationMs": 72,
+      "verifyDurationMs": 188,
       "verifyExitCode": 0,
       "overBudget": false
     },
@@ -85,8 +85,8 @@
       "doomLoopInterventions": 0,
       "thrashInterventions": 0,
       "gateSuspensions": 0,
-      "agentDurationMs": 66,
-      "verifyDurationMs": 127,
+      "agentDurationMs": 68,
+      "verifyDurationMs": 164,
       "verifyExitCode": 0,
       "overBudget": false
     },
@@ -105,8 +105,8 @@
       "doomLoopInterventions": 0,
       "thrashInterventions": 0,
       "gateSuspensions": 0,
-      "agentDurationMs": 30,
-      "verifyDurationMs": 72,
+      "agentDurationMs": 25,
+      "verifyDurationMs": 99,
       "verifyExitCode": 1,
       "overBudget": false
     },
@@ -125,8 +125,8 @@
       "doomLoopInterventions": 0,
       "thrashInterventions": 0,
       "gateSuspensions": 0,
-      "agentDurationMs": 22,
-      "verifyDurationMs": 65,
+      "agentDurationMs": 27,
+      "verifyDurationMs": 86,
       "verifyExitCode": 1,
       "overBudget": false
     },
@@ -145,8 +145,8 @@
       "doomLoopInterventions": 1,
       "thrashInterventions": 0,
       "gateSuspensions": 0,
-      "agentDurationMs": 95,
-      "verifyDurationMs": 16,
+      "agentDurationMs": 318,
+      "verifyDurationMs": 30,
       "verifyExitCode": 2,
       "overBudget": false,
       "error": "reactor error: Doom loop detected: an identical tool batch (read_file) executed 3 times consecutively"
@@ -166,8 +166,8 @@
       "doomLoopInterventions": 1,
       "thrashInterventions": 0,
       "gateSuspensions": 0,
-      "agentDurationMs": 65,
-      "verifyDurationMs": 17,
+      "agentDurationMs": 332,
+      "verifyDurationMs": 52,
       "verifyExitCode": 2,
       "overBudget": false,
       "error": "reactor error: Doom loop detected: an identical tool batch (read_file) executed 3 times consecutively"
@@ -179,10 +179,11 @@
     "completedRuns": 4,
     "completionRate": 0.5,
     "meanTurnsToCompletion": 3,
-    "meanAgentDurationMs": 79.25,
+    "meanAgentDurationMs": 197,
     "totalRetries": 0,
     "totalCompactionEvents": 0,
     "totalDoomLoopInterventions": 2,
-    "totalThrashInterventions": 0
+    "totalThrashInterventions": 0,
+    "totalGateSuspensions": 0
   }
 }

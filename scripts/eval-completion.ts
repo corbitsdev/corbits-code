@@ -7,13 +7,32 @@
  * provider credentials): each task's version-controlled responder script
  * plays the model, the real reactor/director/toolset executes, and the
  * task's verify.sh grades the outcome. Reports completion rate plus the
- * control-layer secondary signals (turns, retries, compaction events,
+ * control-layer secondary signals (turns, failed tool calls, compaction events,
  * doom-loop/thrash interventions, wall clock) as JSON and a human summary.
  *
  * Scripted responders isolate the control layer from model variance on
  * purpose: solve/decline/stall profiles exercise finish, decline, and
  * guard-trip paths deterministically so the 0.4.x re-measure sees the
  * control layer move, not provider noise.
+ *
+ * Re-measuring (canonical):
+ *   bun scripts/eval-completion.ts --repeats 2 --out evals/completion/baseline-<YYYY-MM-DD>.json
+ * Conventions: the task set is frozen — re-measures reuse tasks.json as-is
+ * so runs stay comparable. Never edit tasks.json, per-task
+ * script.json/verify.sh/fixture, or a recorded baseline to hit a target
+ * number; a task-set change needs a version bump plus a new baseline file.
+ * Field honesty: turnsUsed is the persisted assistant-turn count and
+ * turnsEstimated marks the tool-call fallback estimate; failed tool calls
+ * are reported as failed tool calls, never "retries"; durations are wall
+ * clock, aggregated as means in totals and the summary.
+ *
+ * TRUST BOUNDARY: the version-controlled files under evals/completion/tasks/
+ * (tasks.json, per-task script.json, verify.sh, fixture/) are the trusted
+ * grading boundary — edits there are grading changes requiring owner review.
+ * A custom --tasks JSON file is untrusted: its fixture/script/verify
+ * references are confined to evals/completion/ (see resolveTaskRelativePath;
+ * absolute paths and `..` escapes are rejected) before any fixture copy or
+ * grader spawn.
  */
 
 import { cpSync } from "node:fs";
@@ -29,11 +48,14 @@ import {
 } from "../tests/integration/harness.js";
 import {
   CompletionReport,
+  REPORT_VERSION,
+  assertTaskSetContained,
   computeTotals,
   formatSummary,
   isCompletedRun,
   parseResponderScript,
   parseTaskSetFile,
+  resolveTaskRelativePath,
   TaskResult,
   type CompletionTask,
   type RunStatus,
@@ -64,7 +86,7 @@ function printUsage(): void {
   --help            Print this message`);
 }
 
-function parseArgs(argv: string[]): CliOptions {
+export function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
     tasksPath: join(COMPLETION_ROOT, "tasks.json"),
     caseId: "all",
@@ -99,6 +121,11 @@ function parseArgs(argv: string[]): CliOptions {
   if (!Number.isInteger(opts.repeats) || opts.repeats < 1) {
     throw new Error(
       `--repeats must be a positive integer, got ${opts.repeats}`,
+    );
+  }
+  if (!Number.isInteger(opts.timeoutMs) || opts.timeoutMs <= 0) {
+    throw new Error(
+      `--timeout-ms must be a positive integer, got ${opts.timeoutMs}`,
     );
   }
   return opts;
@@ -210,9 +237,9 @@ function deriveSignals(events: TurnResult["events"]) {
   );
   return {
     toolCallCount: toolStarts.length,
+    // Failed tool calls only: the loop never re-issues a failed call, so
+    // this count must not be reported as retries.
     failedToolCalls,
-    // Each failed tool call the loop continues past is a retried attempt.
-    retryCount: failedToolCalls,
     doomLoopInterventions,
     compactionEvents,
     thrashInterventions,
@@ -236,11 +263,15 @@ async function runTask(
   });
   const agentStart = Date.now();
   try {
-    cpSync(resolve(COMPLETION_ROOT, task.fixture), session.cwd, {
-      recursive: true,
-    });
+    cpSync(
+      resolveTaskRelativePath(COMPLETION_ROOT, task.fixture),
+      session.cwd,
+      {
+        recursive: true,
+      },
+    );
     const scriptRaw = await readFile(
-      resolve(COMPLETION_ROOT, task.script),
+      resolveTaskRelativePath(COMPLETION_ROOT, task.script),
       "utf8",
     );
     const script = parseResponderScript(JSON.parse(scriptRaw));
@@ -321,15 +352,23 @@ async function runTask(
     });
 
     const verifyStart = Date.now();
-    const verify = spawnSync("bash", [resolve(COMPLETION_ROOT, task.verify)], {
-      cwd: session.cwd,
-      encoding: "utf8",
-      timeout: 60_000,
-    });
+    const verify = spawnSync(
+      "bash",
+      [resolveTaskRelativePath(COMPLETION_ROOT, task.verify)],
+      {
+        cwd: session.cwd,
+        encoding: "utf8",
+        timeout: 60_000,
+      },
+    );
     const verifyDurationMs = Date.now() - verifyStart;
     const verifyExitCode = verify.status ?? 1;
 
     const persistedTurns = await countAssistantTurns(session.workdir);
+    // The persisted assistant-turn count is the measurement; the
+    // tool-call heuristic below is an estimate used only when turns.jsonl
+    // is missing, and turnsEstimated says which one a row holds.
+    const turnsEstimated = persistedTurns === null;
     const turnsUsed =
       persistedTurns ??
       (signals.toolCallCount > 0 ? signals.toolCallCount + 1 : 1);
@@ -343,9 +382,9 @@ async function runTask(
       completed,
       runStatus,
       turnsUsed,
+      turnsEstimated,
       toolCallCount: signals.toolCallCount,
       failedToolCalls: signals.failedToolCalls,
-      retryCount: signals.retryCount,
       compactionEvents: signals.compactionEvents,
       doomLoopInterventions: signals.doomLoopInterventions,
       thrashInterventions: signals.thrashInterventions,
@@ -371,6 +410,7 @@ async function main(): Promise<void> {
   const taskSet = parseTaskSetFile(
     JSON.parse(await readFile(opts.tasksPath, "utf8")),
   );
+  assertTaskSetContained(taskSet, COMPLETION_ROOT);
   const tasks =
     opts.caseId === "all"
       ? taskSet.tasks
@@ -393,7 +433,7 @@ async function main(): Promise<void> {
 
   const report = CompletionReport.assert({
     harness: "completion-baseline",
-    version: 1,
+    version: REPORT_VERSION,
     startedAt,
     finishedAt: new Date().toISOString(),
     commitSha: commitSha(),
