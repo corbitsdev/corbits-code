@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseArgs, withTimeout } from "./eval-completion.js";
+import { parseArgs, resolveRunStatus, withTimeout } from "./eval-completion.js";
 
 describe("withTimeout", () => {
   test("rejects a hung run after the timeout", async () => {
@@ -27,6 +27,49 @@ describe("withTimeout", () => {
     await expect(
       withTimeout(Promise.reject(new Error("boom")), 1000, "task"),
     ).rejects.toThrow("boom");
+  });
+
+  test("invokes onTimeout when the deadline fires", async () => {
+    const hung = new Promise<never>(() => undefined);
+    let calls = 0;
+    const onTimeout = () => {
+      calls += 1;
+    };
+    const error = await withTimeout(hung, 50, "task", { onTimeout }).catch(
+      (err: unknown) => err,
+    );
+    expect(error).toBeInstanceOf(Error);
+    expect(calls).toBe(1);
+  });
+
+  test("skips onTimeout when the inner promise settles first", async () => {
+    let calls = 0;
+    const onTimeout = () => {
+      calls += 1;
+    };
+    await expect(
+      withTimeout(Promise.resolve("done"), 50, "task", { onTimeout }),
+    ).resolves.toBe("done");
+    const failing = Promise.reject(new Error("boom"));
+    const rejected = withTimeout(failing, 50, "task", { onTimeout });
+    await expect(rejected).rejects.toThrow("boom");
+    expect(calls).toBe(0);
+  });
+});
+
+describe("resolveRunStatus", () => {
+  test("timeout keeps status over a failure signal", () => {
+    const status = resolveRunStatus({ timedOut: true, failed: true });
+    expect(status).toBe("timeout");
+  });
+
+  test("resolves the remaining outcomes", () => {
+    const timeoutOnly = resolveRunStatus({ timedOut: true, failed: false });
+    const failedOnly = resolveRunStatus({ timedOut: false, failed: true });
+    const clean = resolveRunStatus({ timedOut: false, failed: false });
+    expect(timeoutOnly).toBe("timeout");
+    expect(failedOnly).toBe("failed");
+    expect(clean).toBe("completed");
   });
 });
 

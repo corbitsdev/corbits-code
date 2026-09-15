@@ -144,6 +144,7 @@ export async function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
   label: string,
+  opts?: { onTimeout?: () => void },
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -153,16 +154,38 @@ export async function withTimeout<T>(
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error(`${label} timed out after ${ms}ms`)),
-          ms,
-        );
+        timer = setTimeout(() => {
+          // Cancel first so the caller's in-flight work settles instead of
+          // lingering past the deadline; the race rejects below regardless.
+          opts?.onTimeout?.();
+          reject(new Error(`${label} timed out after ${ms}ms`));
+        }, ms);
       }),
     ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
 }
+
+/**
+ * Timeout keeps status over failure signals: a run that timed out did not
+ * fail, it ran out of time — even when the partial stream already carries
+ * a failure event.
+ */
+export function resolveRunStatus(options: {
+  timedOut: boolean;
+  failed: boolean;
+}): RunStatus {
+  if (options.timedOut) return "timeout";
+  if (options.failed) return "failed";
+  return "completed";
+}
+
+// Backstop for the post-timeout quiesce below: the abort plus agent close
+// settle the live paths promptly, so this only bites when the mock pump
+// itself is stuck — and then it keeps a stuck pump from re-hanging the
+// harness at the deadline it just enforced.
+const SETTLE_GRACE_MS = 5_000;
 
 interface PersistedTurn {
   role: string;
@@ -272,30 +295,45 @@ async function runTask(
         if (turnComplete && event.type === "message.run.ended") return;
       }
     })().catch(() => undefined);
+    // Abort the in-flight send when the deadline fires so its promise
+    // settles instead of lingering past the timeout.
+    const controller = new AbortController();
+    const runWork = (async () => {
+      const sendResult = await Promise.all([
+        session.agent
+          .send(task.prompt, { signal: controller.signal })
+          .then((result) => {
+            turnComplete = true;
+            return result;
+          }),
+        session.harness.run({ wallClockBudgetMs: Infinity }),
+        collect,
+      ]).then(([result]) => result);
+      if (sendResult.type !== "reply") {
+        throw new Error(`unexpected send outcome: ${sendResult.type}`);
+      }
+    })();
+    let timedOut = false;
     try {
-      await withTimeout(
-        (async () => {
-          const sendResult = await Promise.all([
-            session.agent.send(task.prompt).then((result) => {
-              turnComplete = true;
-              return result;
-            }),
-            session.harness.run({ wallClockBudgetMs: Infinity }),
-            collect,
-          ]).then(([result]) => result);
-          if (sendResult.type !== "reply") {
-            throw new Error(`unexpected send outcome: ${sendResult.type}`);
-          }
-        })(),
-        timeoutMs,
-        `task ${task.id}`,
-      );
+      await withTimeout(runWork, timeoutMs, `task ${task.id}`, {
+        onTimeout: () => controller.abort(),
+      });
     } catch (err) {
-      runStatus =
-        err instanceof Error && err.message.includes("timed out")
-          ? "timeout"
-          : "failed";
+      timedOut = err instanceof Error && err.message.includes("timed out");
       error = err instanceof Error ? err.message : String(err);
+    }
+    if (timedOut) {
+      // Quiesce before grading: the aborted send settles at once, but the
+      // pump and collector lag behind. Closing the agent aborts the reactor
+      // and terminates the stream so the collector settles, then awaiting
+      // the inner work keeps verify below off partial state.
+      await session.agent.close().catch(() => undefined);
+      await Promise.race([
+        runWork.catch(() => undefined),
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, SETTLE_GRACE_MS);
+        }),
+      ]);
     }
     const agentDurationMs = Date.now() - agentStart;
     const signals = deriveSignals(events);
@@ -308,7 +346,10 @@ async function runTask(
     ) {
       signals.doomLoopInterventions = 1;
     }
-    if (signals.runFailed) runStatus = "failed";
+    runStatus = resolveRunStatus({
+      timedOut,
+      failed: error !== undefined || signals.runFailed,
+    });
 
     const verifyStart = Date.now();
     const verify = spawnSync(
