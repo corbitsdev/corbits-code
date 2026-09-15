@@ -12,7 +12,8 @@ export function codexAuthHeadersForToken(
     originator: CODEX_ORIGINATOR,
     "user-agent": `${commandName} (${CODEX_ORIGINATOR}/${CODEX_CLIENT_VERSION})`,
   };
-  if (token.accountId !== undefined)
-    headers["chatgpt-account-id"] = token.accountId;
+  // An empty account id carries no identity — sending it as a header value
+  // would label the request with a meaningless id. Only a non-empty id rides.
+  if (token.accountId) headers["chatgpt-account-id"] = token.accountId;
   return headers;
 }

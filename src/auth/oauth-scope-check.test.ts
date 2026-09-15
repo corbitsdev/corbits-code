@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { checkOAuthProviderScope } from "./oauth-scope-check.js";
+import { XAI_BASE_URL } from "./xai/constants.js";
 
 const commandName = "test-cli";
 
@@ -119,6 +120,51 @@ describe("checkOAuthProviderScope", () => {
     }
   });
 
+  test("codex: empty account id omits the account header", async () => {
+    stubFetch((_url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.authorization).toBe("Bearer staged-codex-token");
+      expect("chatgpt-account-id" in headers).toBe(false);
+      return new Response(JSON.stringify({ models: ["gpt-5"] }), {
+        status: 200,
+      });
+    });
+    const result = await checkOAuthProviderScope(
+      "codex",
+      { ...codexTokens, accountId: "" },
+      commandName,
+    );
+    expect(result.status).toBe("ok");
+  });
+
+  test("codex: fail-closed on empty access (Bearer probe classifies blocked)", async () => {
+    stubFetch((_url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.authorization).toBe("Bearer ");
+      return new Response("nope", { status: 401 });
+    });
+    const result = await checkOAuthProviderScope(
+      "codex",
+      { ...codexTokens, access: "" },
+      commandName,
+    );
+    expect(result.status).toBe("blocked");
+  });
+
+  test("codex: fail-closed on garbage access (Bearer probe classifies blocked)", async () => {
+    stubFetch((_url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.authorization).toBe("Bearer !!!not-a-token!!!");
+      return new Response("forbidden", { status: 403 });
+    });
+    const result = await checkOAuthProviderScope(
+      "codex",
+      { ...codexTokens, access: "!!!not-a-token!!!" },
+      commandName,
+    );
+    expect(result.status).toBe("blocked");
+  });
+
   test("codex: blocks a definitive 401", async () => {
     stubFetch(() => new Response("nope", { status: 401 }));
     const result = await checkOAuthProviderScope(
@@ -218,6 +264,60 @@ describe("checkOAuthProviderScope", () => {
     stubFetch(() => new Response("forbidden", { status: 403 }));
     const result = await checkOAuthProviderScope("xai", xaiTokens, commandName);
     expect(result.status).toBe("blocked");
+  });
+
+  test("xai: non-JWT token omits the user-id header, keeps authorization", async () => {
+    stubFetch((_url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.authorization).toBe("Bearer not-a-jwt");
+      expect("x-grok-user-id" in headers).toBe(false);
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    });
+    const result = await checkOAuthProviderScope(
+      "xai",
+      { ...xaiTokens, access: "not-a-jwt" },
+      commandName,
+    );
+    expect(result.status).toBe("ok");
+  });
+
+  test("xai: fail-closed on empty access (Bearer probe classifies blocked)", async () => {
+    stubFetch((_url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.authorization).toBe("Bearer ");
+      return new Response("nope", { status: 401 });
+    });
+    const result = await checkOAuthProviderScope(
+      "xai",
+      { ...xaiTokens, access: "" },
+      commandName,
+    );
+    expect(result.status).toBe("blocked");
+  });
+
+  test("xai: fail-closed on garbage access (Bearer probe classifies blocked)", async () => {
+    stubFetch((_url, init) => {
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.authorization).toBe("Bearer !!!not-a-token!!!");
+      return new Response("forbidden", { status: 403 });
+    });
+    const result = await checkOAuthProviderScope(
+      "xai",
+      { ...xaiTokens, access: "!!!not-a-token!!!" },
+      commandName,
+    );
+    expect(result.status).toBe("blocked");
+  });
+
+  test("xai: pins the probe to the fixed models URL", async () => {
+    const seen: string[] = [];
+    stubFetch((url) => {
+      seen.push(url);
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    });
+    const result = await checkOAuthProviderScope("xai", xaiTokens, commandName);
+    expect(result.status).toBe("ok");
+    expect(seen).toEqual([`${XAI_BASE_URL}/models`]);
   });
 
   test("xai: unavailable on a timeout-style abort", async () => {
