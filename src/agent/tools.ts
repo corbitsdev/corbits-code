@@ -1050,6 +1050,18 @@ export async function createAgentToolset(
     });
   };
 
+  // Redials that cannot succeed on their own stop after the attempt that
+  // surfaced them: untrusted local servers (fail closed until trust or the
+  // source changes), misconfigured servers (missing command/url), and a
+  // stdio binary the OS refuses to spawn. Everything else is transient and
+  // keeps the reconnecting row.
+  const isTerminalReconnectError = (error: string): boolean =>
+    error.includes("Not trusted for this project") ||
+    error.includes("requires a command") ||
+    error.includes("requires a url") ||
+    error.includes("ENOENT") ||
+    error.includes("EACCES");
+
   const reconnectLoop = async (name: string, epoch: number): Promise<void> => {
     for (;;) {
       const state = reconnectingServers.get(name);
@@ -1073,7 +1085,8 @@ export async function createAgentToolset(
         return;
       }
       // Drop the stubs so the redial can mount the live set without a
-      // DuplicateToolError; transient failures re-mount them below.
+      // DuplicateToolError; transient outcomes re-mount them below, so the
+      // row never flaps to failed while redials are still due.
       dropServerTools(name);
       let last: MCPServerState | undefined;
       await connectOneMCPServer(
@@ -1082,7 +1095,30 @@ export async function createAgentToolset(
           ...state.callbacks,
           onStatus: (update) => {
             last = update;
-            state.callbacks.onStatus(update);
+            if (update.name !== name) {
+              state.callbacks.onStatus(update);
+              return;
+            }
+            switch (update.state) {
+              case "connecting":
+                return;
+              case "needs-auth":
+                // The pre-dial drop left the row bare while the operator
+                // authorizes; keep the fail-fast stubs mounted meanwhile.
+                mountReconnectingStubs(name, state.tools);
+                state.callbacks.onStatus(update);
+                return;
+              case "failed":
+                if (
+                  update.authPending !== true &&
+                  !isTerminalReconnectError(update.error)
+                )
+                  return;
+                state.callbacks.onStatus(update);
+                return;
+              default:
+                state.callbacks.onStatus(update);
+            }
           },
         },
         undefined,
@@ -1103,17 +1139,32 @@ export async function createAgentToolset(
         reconnectingServers.delete(name);
         return;
       }
-      // Auth/terminal failures stay down: drop the stubs and stop redialing.
+      // Auth and other terminal failures stay down: drop the stubs and stop
+      // redialing. Only a manual retry brings those rows back.
       if (
         last !== undefined &&
+        last.name === name &&
         last.state === "failed" &&
-        last.authPending === true
+        (last.authPending === true || isTerminalReconnectError(last.error))
       ) {
         dropServerTools(name);
         permissionGate.unregisterMcpServer(name);
         reconnectingServers.delete(name);
         return;
       }
+      // Transient failure: keep the row on reconnecting with the live
+      // attempt instead of flashing failed. The emission names the next
+      // redial, which the top of the loop then counts into state.attempt.
+      state.callbacks.onStatus({
+        name,
+        state: "reconnecting",
+        tools: state.tools.map((tool) => tool.name),
+        attempt: state.attempt + 1,
+        error:
+          last !== undefined && last.name === name && last.state === "failed"
+            ? last.error
+            : "transport closed unexpectedly; retrying in the background",
+      });
       mountReconnectingStubs(name, state.tools);
     }
   };
@@ -1293,6 +1344,9 @@ export async function createAgentToolset(
             ? { excludeToolNames: ["web_fetch_exa"] }
             : {}),
         });
+        // A needs-auth pend re-mounted the fail-fast stubs mid-dial; clear
+        // them so the live set mounts without a DuplicateToolError.
+        dropServerTools(config.name);
         dynamicRunner.addTools(gateAgentTools(mcpTools, permissionGate));
         inheritedMcpTools.push(...mcpTools);
         connectedClients.set(config.name, result.client);
