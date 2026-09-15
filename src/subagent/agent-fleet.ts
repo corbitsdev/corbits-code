@@ -250,7 +250,7 @@ class FleetMailbox {
   clear(): void {
     this.records.clear();
     this.lastSurfacedParkedAsks = undefined;
-    this.sessions?.wake();
+    this.sessions.wake();
   }
 
   markProviderFailure(id: string): void {

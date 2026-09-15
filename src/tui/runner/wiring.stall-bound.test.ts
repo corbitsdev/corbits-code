@@ -9,10 +9,12 @@ import {
 } from "../../subagent/fleet-report.js";
 import { createFleetMailbox } from "../../subagent/agent-fleet.js";
 import {
+  ASK_DEADLINE_MS,
   createSubAgentSessionStore,
   type SubAgentSessionStore,
 } from "../../subagent/session-store.js";
-import { createFleetStallPollTick } from "./wiring.js";
+import { STALL_TIMEOUT_MS as PROD_STALL_TIMEOUT_MS } from "../stall-watchdog.js";
+import { cancelWorkersForStop, createFleetStallPollTick } from "./wiring.js";
 
 // CL-8016: a silent primary turn (wake text sent, inference never starts)
 // must not freeze the message queue and parked worker questions forever.
@@ -21,7 +23,6 @@ import { createFleetStallPollTick } from "./wiring.js";
 // re-surface (escalated) or settle exactly once via the ask deadline.
 
 const STALL_TIMEOUT_MS = 1_000;
-const ASK_DEADLINE_MS = 60_000;
 
 interface ParkedWorker {
   sessionId: string;
@@ -266,9 +267,12 @@ describe("stall-bound primary turn (CL-8016)", () => {
         });
         expect(bridge.turn.isProcessing).toBe(true);
 
-        store.teardown("Session closed");
-        mailbox.clear();
-        bridge.clearQueuedDelivery();
+        // Stop through the production path, not the clears by hand.
+        await cancelWorkersForStop({
+          subAgentSessions: store,
+          fleetRecords: mailbox,
+          bridge,
+        });
 
         expect(store.list()).toHaveLength(0);
         for (const worker of workers) {
@@ -284,5 +288,10 @@ describe("stall-bound primary turn (CL-8016)", () => {
         bridge.dispose();
       }
     });
+  });
+
+  test("ask deadline pins the production value and its stall-bound sizing", () => {
+    expect(ASK_DEADLINE_MS).toBe(1_800_000);
+    expect(ASK_DEADLINE_MS).toBe(PROD_STALL_TIMEOUT_MS * 2);
   });
 });

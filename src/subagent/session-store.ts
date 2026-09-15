@@ -686,7 +686,11 @@ export function createSubAgentSessionStore(
     return false;
   };
 
-  const cancelAskInternal = (id: string, reason: string): boolean => {
+  const cancelAskInternal = (
+    id: string,
+    reason: string,
+    silent = false,
+  ): boolean => {
     const pending = pendingAsks.get(id);
     if (pending === undefined) return false;
     pendingAsks.delete(id);
@@ -695,7 +699,7 @@ export function createSubAgentSessionStore(
     } catch {
       // Reject must not throw into settle/interrupt paths.
     }
-    notify();
+    if (!silent) notify();
     return true;
   };
 
@@ -1933,8 +1937,12 @@ export function createSubAgentSessionStore(
         cancelAskInternal(
           id,
           `ask_director question ${pending.questionId} for session ${id} expired without an answer after ${maxAgeMs}ms — reply with send_input before the deadline, or not at all`,
+          true,
         );
       }
+      // One subscriber wake for the batch (none when nothing expired):
+      // per-ask notifies would wake N observers for one poll tick.
+      if (expired.length > 0) notify();
       return expired;
     },
 
