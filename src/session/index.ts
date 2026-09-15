@@ -1,7 +1,6 @@
 import {
   mkdir,
   readdir,
-  readlink,
   rename,
   rm,
   symlink,
@@ -116,10 +115,6 @@ function legacySessionRoots(cwd: string): string[] {
   return [underCwd, join(projectRoot, LEGACY_SESSION_BASE)];
 }
 
-function legacyLatestCandidates(cwd: string): string[] {
-  return legacySessionRoots(cwd).map((base) => join(base, "latest"));
-}
-
 function realpathSafe(path: string): string {
   try {
     return realpathSync(path);
@@ -199,42 +194,6 @@ export async function initSessionDir(
   await symlink(sessionId, linkPath);
 
   return dir;
-}
-
-/**
- * Resolve the latest session directory via the `latest` symlink.
- * Returns the session ID and directory path, or null if no session exists.
- */
-export async function resolveLatestSession(
-  cwd: string,
-  home: string = homedir(),
-): Promise<{ sessionId: string; dir: string; contextDir: string } | null> {
-  try {
-    const linkPath = latestSymlinkPath(cwd, home);
-    const sessionId = await readlink(linkPath);
-    await migrateLegacySessionIfNeeded(cwd, sessionId, home);
-    return {
-      sessionId,
-      dir: sessionDir(cwd, sessionId, home),
-      contextDir: sessionContextDir(cwd, sessionId, home),
-    };
-  } catch {
-    // No canonical latest symlink; try legacy in-repo links.
-    for (const legacyLink of legacyLatestCandidates(cwd)) {
-      try {
-        const sessionId = await readlink(legacyLink);
-        const dir = await migrateLegacySessionIfNeeded(cwd, sessionId, home);
-        return {
-          sessionId,
-          dir,
-          contextDir: sessionContextDir(cwd, sessionId, home),
-        };
-      } catch {
-        // This legacy latest link is missing; try the next candidate.
-      }
-    }
-    return null;
-  }
 }
 
 export interface SessionSummary {
@@ -386,9 +345,4 @@ export async function renameSession(
   await saveState(cwd, sessionId, { ...existing.state, task: trimmed }, home);
 }
 
-export {
-  projectKeyFor,
-  projectSessionsRoot,
-  projectsRoot,
-  projectRootFor,
-} from "./project-key.js";
+export { projectSessionsRoot, projectRootFor } from "./project-key.js";

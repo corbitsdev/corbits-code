@@ -23,10 +23,7 @@ import {
   createLocalSettingsWriter,
 } from "../../mcp/add-server.js";
 import { getProcessAdmissionQueue } from "../../subagent/admission.js";
-import {
-  createSubAgentSessionStore,
-  liveFleetCount,
-} from "../../subagent/index.js";
+import { createSubAgentSessionStore } from "../../subagent/index.js";
 import {
   buildPluginDescriptor,
   createPluginsAdmin,
@@ -81,6 +78,7 @@ import {
   createSessionOperationQueue,
 } from "../delivery-queue.js";
 import { createCorrelationAcceptance } from "../correlation-acceptance.js";
+import { createApprovalDeliverer } from "../approval-delivery.js";
 import {
   createAgentToolset,
   type MCPServerState,
@@ -506,6 +504,13 @@ export async function assembleTUISession(
   const sessionOps = createSessionOperationQueue();
   // No resolveParkedCallId: the vendored reactor exposes no
   // correlationId-to-call lookup, so the history heuristic is the path.
+  // The deliverer bounds the acceptance wait so one stuck delivery fails fast
+  // with diagnostics instead of wedging the sessionOps tail for every later
+  // approval (send_input answers, interrupt_agent releases, ask_operator).
+  const approvalDeliverer = createApprovalDeliverer({
+    deliverToAgent: (message) => liveAgent(state).deliver(message),
+    acceptance: correlationAcceptance,
+  });
   const approvalResume = createApprovalResume({
     getAgent: () => state.currentAgent,
     captureGeneration: deliveryGeneration.capture,
@@ -517,19 +522,7 @@ export async function assembleTUISession(
       return sessionOps.enqueue(async () => {
         if (!stillCurrent()) return;
         if (state.fatalBuildError !== null) throw state.fatalBuildError;
-        const correlationId = message.headers.interchangeCorrelationId;
-        const accepted =
-          correlationId === undefined
-            ? undefined
-            : correlationAcceptance.wait(correlationId);
-        try {
-          liveAgent(state).deliver(message);
-          await accepted;
-        } catch (err) {
-          if (correlationId !== undefined)
-            correlationAcceptance.settle(correlationId);
-          throw err;
-        }
+        await approvalDeliverer.deliver(message);
       });
     },
     gate: permissionGate,
@@ -626,11 +619,14 @@ export async function assembleTUISession(
     inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
     totalTimeoutMs: config.totalTimeoutMs,
     onTasksChange: (tasks) => emitter.emit("tasks", tasks),
-    getLiveFleetCount: () => liveFleetCount(subAgentSessions.list()),
+    // CL-7918 seed for the idle-with-fleet allowance (fleet lanes may appear
+    // mid-session; CL-7972 keeps it live via the fleet-wake publisher);
+    // retry stamping tracks the live source id in-reactor now.
+    // (No requestContinuation: compaction re-entry arrives as the
+    // COMPACTION_CONTINUATION_EVENT reactor emission consumed in the stream
+    // sink instead of a host closure.)
+    allowIdleWithFleet: true,
     getProvider: () => state.config,
-    // Live id so mid-session `/model` updates xAI bare-429 remapping
-    // without rebuilding the agent (aligned with transcript stamp).
-    getProviderId: () => state.config.providerName,
     directorHolder,
     getWorkdir: () => state.workdir,
     getSessionId: () => state.sessionId,

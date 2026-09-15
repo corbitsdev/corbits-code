@@ -434,19 +434,39 @@ export interface ChatDirectorOptions {
   onTasksChange: (tasks: Task[]) => void;
   provider?: { providerName: string; model?: string } | undefined;
   /**
-   * Live catalog provider id for retry stamping. Resolved on each retry
-   * decision so mid-session `/model` switches remapping without rebuilding
-   * the agent. When set, preferred over static `provider.providerName`.
+   * CL-7918 decisions (both former closures removed, no new env key):
+   *
+   * - getProviderId → reactor-supplied. The retry policy needs the *live*
+   *   source id per retry so mid-session /model switches remap retry stamping
+   *   (bare-429 xAI remap). A BaseEnv-derived id goes stale at the first
+   *   switch and only refreshes on rebuild; a static config id can never
+   *   remap. The reactor already learns the live id on every inference
+   *   completion, so it tracks currentSourceId itself (seeded from the session
+   *   providerName) and hands the policy a getter over it.
+   *   Accepted residual gap: retries during the single inference that first
+   *   uses a switched model still stamp the previous id — the director learns
+   *   the new id from that inference's completion event.
+   *
+   * - getLiveFleetCount → seeded config + live narrow setter
+   *   (setAllowIdleWithFleet below). The count is genuinely external (subagent
+   *   lane statuses the reactor never sees — its own tasks only carry
+   *   todo/doing/done/cancelled), so neither BaseEnv-derived nor
+   *   reactor-supplied can reproduce its liveness. Idle-with-fleet itself is
+   *   unchanged (fleet-running TUI sessions allow the terminal wait); the
+   *   fleet-wake publisher drives the setter on count transitions, so a
+   *   drained fleet resumes the open-task nudge.
    */
-  getProviderId?: (() => string | undefined) | undefined;
   /** Explicit retry policy; when set, skips the default Corbits policy. */
   retryPolicy?: RetryPolicy | undefined;
   /**
-   * Live `status === "running"` fleet-lane count. When greater than zero the
-   * director allows a terminal wait/reply with open tasks (idle-with-fleet).
-   * Omitted or 0 keeps the open-task nudge. Exec omits this.
+   * Initial idle-with-fleet allowance (CL-7918 replacement for the former
+   * getLiveFleetCount closure). When true the director allows a terminal
+   * wait/reply with open tasks; when omitted or false it keeps the open-task
+   * nudge. The TUI seeds this (fleet lanes may appear mid-session); exec
+   * omits it. The live fleet-wake publisher then keeps it current through
+   * setAllowIdleWithFleet, so a drained fleet resumes the nudge.
    */
-  getLiveFleetCount?: (() => number) | undefined;
+  allowIdleWithFleet?: boolean | undefined;
 }
 
 // The constructor takes the resolved ModelFamilyPolicy rather than the raw
@@ -455,6 +475,8 @@ type ChatDirectorImplOptions = Omit<ChatDirectorOptions, "provider"> & {
   modelFamilyPolicy?: ModelFamilyPolicy | undefined;
   /** Provider-stamped retry policy (xAI short 429 remapping needs providerId). */
   retryPolicy?: RetryPolicy | undefined;
+  /** Session-construction providerName: seeds currentSourceId pre-completion. */
+  sessionProviderName?: string | undefined;
 };
 
 class ChatDirectorImpl extends DefaultDirector {
@@ -489,7 +511,13 @@ class ChatDirectorImpl extends DefaultDirector {
   private readonly compaction: CompactionGovernor;
   private readonly modelFamilyPolicy: ModelFamilyPolicy;
   private readonly retryPolicy: RetryPolicy;
-  private readonly getLiveFleetCount: (() => number) | undefined;
+  // CL-7918: reactor-supplied live source id for retry stamping (replaces the
+  // former getProviderId closure). Seeded from the session providerName and
+  // refreshed on every inference completion, so mid-session /model switches
+  // remap without rebuilding the agent.
+  private currentSourceId: string | undefined;
+  /** CL-7918 live replacement for the former getLiveFleetCount closure. */
+  private allowIdleWithFleet: boolean;
   // Consecutive assistant turns that contain tool calls and no text. Reset on
   // any turn with text and on every fresh user message — a weak model that
   // spins in place on one thread of tool calls still converges to the
@@ -538,12 +566,26 @@ class ChatDirectorImpl extends DefaultDirector {
       toolDefinitions,
     );
     this.modelFamilyPolicy = familyPolicy;
-    this.retryPolicy = options.retryPolicy ?? createCorbitsRetryPolicy();
-    this.getLiveFleetCount = options.getLiveFleetCount;
+    // CL-7918: the default policy stamps the live source id per retry decision
+    // via a getter over currentSourceId (seeded from the session provider,
+    // refreshed on each inference completion) — no host closure needed. An
+    // explicit policy still skips this entirely.
+    this.currentSourceId = options.sessionProviderName;
+    this.retryPolicy =
+      options.retryPolicy ??
+      createCorbitsRetryPolicy({ providerId: () => this.currentSourceId });
+    this.allowIdleWithFleet = options.allowIdleWithFleet === true;
   }
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
     this.workflowCoordinator = coordinator;
+  }
+
+  // Narrow live setter for the idle-with-fleet allowance (CL-7972): the
+  // fleet-wake publisher drives this on fleet-count transitions, so a drained
+  // fleet resumes the open-task nudge instead of holding the seeded value.
+  setAllowIdleWithFleet(value: boolean): void {
+    this.allowIdleWithFleet = value;
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
@@ -969,6 +1011,16 @@ class ChatDirectorImpl extends DefaultDirector {
     // prefers provider usage when present.
     const turns = state.turns ?? [];
     this.compaction.syncFromTurns(turns);
+    // CL-7918: reactor-supplied live source id (replaces getProviderId). The
+    // completion stamps the source that served it, so a mid-session /model
+    // switch remaps retry stamping from the next completion on; the harness's
+    // lastCycleSource is the call-start snapshot and wins on conflict.
+    if (event.type === "inference.done") {
+      const served = event.source?.sourceId;
+      if (served !== undefined && served !== "") this.currentSourceId = served;
+    }
+    const cycled = state.lastCycleSource?.sourceId;
+    if (cycled !== undefined && cycled !== "") this.currentSourceId = cycled;
     if (onTurnBoundary(event)) {
       this.compaction.noteInferenceDone(event, turns);
     }
@@ -1077,7 +1129,11 @@ class ChatDirectorImpl extends DefaultDirector {
         (a) => a.type === "wait" || a.type === "reply",
       );
       if (hasTerminal) {
-        if ((this.getLiveFleetCount?.() ?? 0) > 0) {
+        // CL-7918 live idle-with-fleet allowance (replaces the former
+        // getLiveFleetCount closure): seeded at construction, then kept
+        // current by the fleet-wake publisher. TUI seeds true (fleet lanes
+        // may appear mid-session); exec omits it and keeps the nudge.
+        if (this.allowIdleWithFleet) {
           return base;
         }
         if (this.idleTerminationNudges < MAX_OPEN_TASK_NUDGES) {
@@ -1112,25 +1168,21 @@ export function createChatDirector(
   toolDefinitions: ToolDefinition[],
   options: ChatDirectorOptions,
 ): ChatDirector {
-  const { provider, getProviderId, retryPolicy, ...rest } = options;
+  const { provider, retryPolicy, ...rest } = options;
   return new ChatDirectorImpl(systemPrompt, toolDefinitions, {
     ...rest,
     // `provider` is raw {providerName, model} input; the constructor wants
     // the resolved ModelFamilyPolicy, not the input it was resolved from.
     modelFamilyPolicy:
       provider !== undefined ? resolveModelFamilyPolicy(provider) : undefined,
+    // CL-7918: seed the reactor-tracked live source id (replaces
+    // getProviderId). The impl refreshes it on every inference completion so
+    // mid-session `/model` switches remap retry stamping.
+    sessionProviderName: provider?.providerName,
     // Stamp provider id onto retry errors so known-xAI short 429s remap.
-    // Prefer an explicit policy, then a live getter (mid-session `/model`),
-    // then the bootstrap providerName.
-    retryPolicy:
-      retryPolicy ??
-      createCorbitsRetryPolicy(
-        getProviderId !== undefined
-          ? { providerId: getProviderId }
-          : provider !== undefined
-            ? { providerId: provider.providerName }
-            : undefined,
-      ),
+    // Prefer an explicit policy; otherwise the impl builds the default policy
+    // over its live source-id tracker.
+    retryPolicy,
   });
 }
 
@@ -1155,6 +1207,7 @@ export function hydrateTasksFromTurns(turns: ConversationTurn[]): Task[] {
 export interface ChatDirector extends ReactorDirector {
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
+  setAllowIdleWithFleet(value: boolean): void;
   getTasks(): Task[];
   restoreTasks(tasks: Task[]): void;
   getContextEstimate(): { tokens: number; isEstimate: boolean };

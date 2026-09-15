@@ -474,7 +474,6 @@
     "src/util/control-char-strip.test.ts": 1,
     "src/util/tool-output-uri.test.ts": 1,
     "tests/helpers/defined.test.ts": 1,
-    "tests/unit/codex-usage.test.ts": 1,
     "tests/unit/context-window.test.ts": 1,
     "tests/unit/director.test.ts": 1,
     "tests/unit/faremeter.test.ts": 1,
@@ -491,7 +490,6 @@
     "tests/unit/tui/theme.test.ts": 1,
     "tests/unit/tui/tool-formatter-web-brand.test.ts": 1,
     "tests/unit/tui/url-links.test.ts": 1,
-    "tests/unit/workflow-kickoff.test.ts": 1,
     "tests/unit/workflows-capabilities.test.ts": 1,
     "src/agent/directors/counsel/package.test.ts": 0,
     "src/inference-abort.test.ts": 0,
@@ -510,7 +508,6 @@
     "tests/unit/mcp-stdio-env.test.ts": 0,
     "tests/unit/provider-protocol-flags.test.ts": 0,
     "tests/unit/run-agent.test.ts": 0,
-    "tests/unit/session/run-sink-exec-status.test.ts": 0,
-    "tests/unit/xai-usage.test.ts": 0
+    "tests/unit/session/run-sink-exec-status.test.ts": 0
   }
 }

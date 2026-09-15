@@ -8,9 +8,10 @@ import type { SkillSummary } from "../extensions/skills.js";
 import { createToolIndex } from "./tool-search.js";
 
 /**
- * The tool, skill, and agent search surfaces each carry their own copy of the
- * lexical ranker. This fixture drives all three with parallel catalogs so a
- * weight change in one copy fails loudly instead of drifting silently.
+ * The three search surfaces share one lexical ranker and one rank-and-cut
+ * pipeline; only per-surface scoring bonuses differ. This fixture drives all
+ * three with parallel catalogs so a weight change in one copy fails loudly
+ * instead of drifting silently.
  */
 const QUERY = "granola";
 

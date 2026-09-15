@@ -134,19 +134,6 @@ export async function classifyTaskBoundary(
 // Context envelope
 // ---------------------------------------------------------------------------
 
-/**
- * Stable keys for context envelope sections. The ordering and keys must not
- * change between turns so prompt caching remains effective.
- */
-export const CONTEXT_ENVELOPE_SECTIONS = [
-  "active-task",
-  "task-summary",
-  "current-plan",
-  "recent-turns",
-  "file-references",
-  "unresolved-errors",
-] as const;
-
 export interface ContextEnvelope {
   /** Label for the current active task, e.g. "Fix login bug" */
   activeTask?: string;

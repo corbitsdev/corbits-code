@@ -474,12 +474,13 @@ export interface ChatAgentWiring {
   totalTimeoutMs?: number | undefined;
   onTasksChange: (tasks: Task[]) => void;
   /**
-   * Live running-lane count for ChatDirector idle-with-fleet. Omitted in exec
-   * (treated as 0).
+   * Seed for the idle-with-fleet allowance for the chat director (CL-7918:
+   * replaces the former getLiveFleetCount closure; CL-7972 keeps it live via
+   * the fleet-wake publisher). Omitted in exec (keeps the open-task nudge);
+   * the TUI seeds it (fleet lanes may appear mid-session).
    */
-  getLiveFleetCount?: () => number;
+  allowIdleWithFleet?: boolean;
   getProvider: () => { providerName: string; model: string };
-  getProviderId?: (() => string | undefined) | undefined;
   /** Pre-created holder so the workflow controller can close over it first. */
   directorHolder?: { instance?: ChatDirector };
   /**
@@ -539,8 +540,11 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           totalTimeoutMs: wiring.totalTimeoutMs,
           onTasksChange: wiring.onTasksChange,
           provider: { ...wiring.getProvider() },
-          getProviderId: wiring.getProviderId,
-          getLiveFleetCount: wiring.getLiveFleetCount,
+          // CL-7918: idle-with-fleet seed replaces the former
+          // getLiveFleetCount closure (CL-7972 keeps it live via the
+          // fleet-wake publisher); the live source id for retry stamping
+          // is reactor-tracked now (no getProviderId).
+          allowIdleWithFleet: wiring.allowIdleWithFleet,
         },
       );
       directorHolder.instance = d;

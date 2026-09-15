@@ -1,8 +1,10 @@
 import { describe, expect, test, afterEach } from "bun:test";
 import {
   findLinks,
+  hitUrlAt,
   isOpenableUrl,
   isUrlOpenClick,
+  linkColumnHits,
   openUrl,
   platformUrlCommand,
   setUrlOpener,
@@ -294,5 +296,55 @@ describe("openUrl", () => {
     });
     openUrl("HTTP://EXAMPLE.COM/x");
     expect(calls).toEqual(["HTTP://EXAMPLE.COM/x"]);
+  });
+});
+
+describe("linkColumnHits/hitUrlAt edges", () => {
+  const one = "https://example.com/x";
+  const hits = linkColumnHits(
+    splitLinkSpans([{ text: `see ${one} ok`, fg: "#fff" }]),
+  );
+
+  test("one line maps to one inclusive-start, exclusive-end range", () => {
+    expect(hits).toEqual([{ url: one, start: 4, end: 25 }]);
+  });
+
+  test.each([
+    ["before the line", -1, null],
+    ["prose", 0, null],
+    ["last prose column", 3, null],
+    ["inclusive start", 4, one],
+    ["mid-link", 14, one],
+    ["inclusive end", 24, one],
+    ["exclusive end", 25, null],
+    ["trailing prose", 26, null],
+    ["past the line end", 100, null],
+  ])("column %s resolves", (_label, column, expected) => {
+    expect(hitUrlAt(hits, column)).toBe(expected);
+  });
+
+  test.each([
+    ["first link tail", 20, "https://one.example"],
+    ["gap between links", 21, null],
+    ["gap prose", 23, null],
+    ["second link head", 24, "http://two.example/c"],
+    ["second link tail", 43, "http://two.example/c"],
+    ["past the second link", 44, null],
+  ])("adjacent links: column %s resolves", (_label, column, expected) => {
+    const adjacent = linkColumnHits(
+      splitLinkSpans([
+        { text: "a https://one.example b http://two.example/c", fg: "#fff" },
+      ]),
+    );
+    expect(adjacent).toHaveLength(2);
+    expect(hitUrlAt(adjacent, column)).toBe(expected);
+  });
+
+  test("a non-openable span url never becomes a hit", () => {
+    expect(
+      linkColumnHits([{ text: "x", fg: "#fff", url: "javascript:alert(1)" }]),
+    ).toEqual([]);
+    expect(linkColumnHits([])).toEqual([]);
+    expect(hitUrlAt([], 0)).toBeNull();
   });
 });

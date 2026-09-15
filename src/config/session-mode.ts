@@ -7,8 +7,6 @@ import type { LocalSettings, Settings } from "./settings.js";
  */
 export type SessionMode = "orchestrator";
 
-export const SESSION_MODES: readonly SessionMode[] = ["orchestrator"];
-
 export function isSessionMode(value: unknown): value is SessionMode {
   return value === "orchestrator";
 }

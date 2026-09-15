@@ -178,10 +178,3 @@ function wrapWide(line: string, w: number): RowRange[] {
 export function wrapLines(line: string, width: number): string[] {
   return wrapRanges(line, width).map((r) => line.slice(r.start, r.end));
 }
-
-export function wrapCount(text: string, width: number): number {
-  const w = Math.max(1, width);
-  return text
-    .split("\n")
-    .reduce((n, line) => n + wrapRanges(line, w).length, 0);
-}

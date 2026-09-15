@@ -100,10 +100,5 @@ export const corbitsDark: Theme = {
   error: ERROR_RED,
 };
 
-/** Every theme that ships. A picker would choose from here. */
-export const THEMES = { [corbitsDark.name]: corbitsDark } as const;
-
 /** Semantic roles. Everything outside this file paints through these. */
 export const UI: Theme = corbitsDark;
-
-export type UIColor = Theme[keyof Theme];

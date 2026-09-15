@@ -5,7 +5,7 @@
 
 export type GoProtocol = "chat-completions" | "responses" | "messages";
 
-export interface GoModel {
+interface GoModel {
   id: string;
   name: string;
   protocol: GoProtocol;

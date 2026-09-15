@@ -16,8 +16,10 @@ import {
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../../auth/xai/constants.js";
 import { codexProviderName } from "../../config/codex-providers.js";
 import { xaiProviderName } from "../../config/xai-providers.js";
-import { selectableGoModelIds } from "../../provider/opencode-go-models.js";
-import { selectableZenModelIds } from "../../provider/zen-models.js";
+import {
+  selectableGoModelIds,
+  selectableZenModelIds,
+} from "../../provider/model-catalogs.js";
 import { isZenProviderId } from "../../../packages/zen/src/index.js";
 import { buildModelsFirstCatalog } from "../model-catalog.js";
 import type { ResidualCatalogEntry } from "../residuals.js";

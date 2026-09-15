@@ -16,7 +16,6 @@ import type {
   FocusState,
   FocusTarget,
   OpenOverlayOpts,
-  ScrollLease,
 } from "./types.js";
 
 const SHELL_ID = "shell";
@@ -56,11 +55,6 @@ export function focusOwner(state: FocusState): FocusTarget {
 /** Current scroll lease owner (wheel + page/line scroll). */
 export function scrollLease(state: FocusState): FocusTarget | null {
   return top(state).scrollOwner;
-}
-
-/** Scroll lease as a struct for callers that prefer an object. */
-export function scrollLeaseOf(state: FocusState): ScrollLease {
-  return { owner: scrollLease(state) };
 }
 
 /**

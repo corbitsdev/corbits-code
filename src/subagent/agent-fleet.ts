@@ -658,61 +658,6 @@ function fleetJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-/** Resolve agent=/intent= to a closed director. */
-export function resolveDirectorDispatch(
-  agentId: string | undefined,
-  intent: TaskIntent | undefined,
-):
-  | {
-      ok: true;
-      directorId: string;
-      systemPromptRole: string;
-      capabilities: ReturnType<typeof packageToCapabilities>;
-      roleDefault: ReturnType<typeof defaultEffortForDirector>;
-      pkg: DirectorPackage;
-    }
-  | { ok: false; error: string } {
-  if (agentId !== undefined && agentId.length > 0) {
-    if (!isDirectorId(agentId)) {
-      return {
-        ok: false,
-        error: `Error: unknown director "${agentId}". spawn_agent only supports closed director ids (call search_agents to discover them) or intent=.`,
-      };
-    }
-    const resolved = resolveDirector({ agentId });
-    if (!resolved.ok)
-      return { ok: false, error: `Error: ${resolved.error} ${resolved.hint}` };
-    const pkg = resolved.package;
-    return {
-      ok: true,
-      directorId: pkg.id,
-      systemPromptRole: formatDirectorSystemPrompt(pkg),
-      capabilities: packageToCapabilities(pkg),
-      roleDefault: defaultEffortForDirector(pkg),
-      pkg,
-    };
-  }
-  if (intent !== undefined) {
-    const resolved = resolveDirector({ intent });
-    if (!resolved.ok)
-      return { ok: false, error: `Error: ${resolved.error} ${resolved.hint}` };
-    const pkg = resolved.package;
-    return {
-      ok: true,
-      directorId: pkg.id,
-      systemPromptRole: formatDirectorSystemPrompt(pkg),
-      capabilities: packageToCapabilities(pkg),
-      roleDefault: defaultEffortForDirector(pkg),
-      pkg,
-    };
-  }
-  return {
-    ok: false,
-    error:
-      "Error: No director selected. Pass spawn_agent(agent=…) for a named director, or spawn_agent(intent=implement|explore|plan|review).",
-  };
-}
-
 interface ResolvedAgentDispatch {
   directorId: string;
   agentLabel: string;

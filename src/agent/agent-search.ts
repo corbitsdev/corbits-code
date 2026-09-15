@@ -5,6 +5,7 @@ import { type } from "arktype";
 import { scrubSecretShapedContent } from "../plugins/tool-result-secret-scrub.js";
 import {
   lexicalFields,
+  rankAndCut,
   scoreLexical,
   tokenizeLexical,
 } from "./lexical-rank.js";
@@ -23,7 +24,8 @@ export interface AgentIndex {
   search(query: string, limit?: number): AgentProfile[];
 }
 
-// Lexical ranker over id, description, and role text — same spirit as tool_search.
+// Shares the lexical ranker with tool/skill search. The description-substring
+// bonus stays here: it is agent-specific, not part of the shared scorer.
 export function createAgentIndex(
   getProfiles: () => readonly AgentProfile[],
 ): AgentIndex {
@@ -45,12 +47,11 @@ export function createAgentIndex(
       const queryTokens = tokenizeLexical(query);
       const profiles = getProfiles();
       if (queryTokens.length === 0) return profiles.slice(0, limit);
-      return profiles
-        .map((p) => ({ profile: p, score: score(p, queryTokens, rawQuery) }))
-        .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit)
-        .map((entry) => entry.profile);
+      return rankAndCut(
+        profiles,
+        (p) => score(p, queryTokens, rawQuery),
+        limit,
+      );
     },
   };
 }

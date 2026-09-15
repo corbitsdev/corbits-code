@@ -119,15 +119,6 @@ export function estimateOverheadTokens(
   return estimateTokensFromChars(chars);
 }
 
-// Mutable running estimate. Mid-cycle callers keep calling `syncFromTurns` so
-// tool results and image-aging stay visible before the next inference.done.
-// Prefix turns are keyed by object identity (===), not content: an append that
-// keeps every prior ref adds only the suffix; a shrink or any prefix identity
-// break fully recomputes. Length + last-turn alone is not enough — aging can
-// replace a middle turn and leave the last ref in place. Callers may push onto
-// the same array, so the cache snapshots refs rather than holding the array.
-export type ContextEstimate = ReturnType<typeof createContextEstimate>;
-
 export function createContextEstimate(overheadTokens = 0) {
   let tokens = overheadTokens;
   let turnCount = 0;

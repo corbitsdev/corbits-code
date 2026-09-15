@@ -32,6 +32,58 @@ by hand.
   (Critic on the diff plus at most one extra lens), loading `/review`
   for quality rules only.
 
+## [0.3.26] - 2026-09-15
+
+### What's Changed
+* Wait briefly for connecting servers before answering an empty tool search by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/996
+* Refuse path-trust migration from corrupt stores by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/995
+* Abandon a parked approval only on its own timeout by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/997
+* fix(provider): keep the Anthropic cache breakpoint off ephemeral turns by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1008
+* Do not let OAuth projections overwrite hand-named provider entries by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1007
+* Share workspace roots with list_dir and delete_file bounds by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1009
+* Route unclaimed popup keys back to the prompt by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1011
+* Enforce exec director tool allowlists through tool_search and promote by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1010
+* Harden path-escape sanitization for nested and alternate path keys by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1005
+* docs(product): remove shipped items from roadmap by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1020
+* fix(hardening): small follow-ups from the 0.3.25 review by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1021
+* Correct PerfTrace export prerequisites and settings secrets guidance by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1013
+* Verify docs/TUI.md against the terminal UI as it behaves by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1016
+* Correct MCP trust fingerprint, store path, and auth UX by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1017
+* Open transcript URLs on modifier click by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/964
+* Correct vendoring doc claims against the vendored tree by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1015
+* Restore Emil critique layer from the CMO original at full fidelity by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/999
+* feat(tests): make the suite runnable under bun test --parallel by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1023
+* Give Muse Spark its own reasoning effort ladder by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/979
+* Verify docs/PLUGINS.md against the plugin loader by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1014
+* feat(tui): brand the startup transcript with a quiet session header by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1022
+* Give Muse Spark tool-discipline rules by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/981
+* Only skip the spill URI sandbox for reader tools by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1006
+* Re-vendor Interchange trees to main HEAD for the director loader by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1025
+* Restore missing Common Patterns in create-issue skill by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/998
+* Hold newly promoted tools off the wire until a cache-safe boundary by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1027
+* Shard the CI test matrix into four time-balanced slices by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1028
+* Resolve transcript link clicks without the removed renderer hit-test by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1033
+* Collapse duplicate provider adapters and model catalogs by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1029
+* Inline TUI and agent micro-modules and merge the delivery queue trio by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1030
+* Rewrite brittle copy-pinned tests as behavior contracts by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1035
+* Unify permission verdict path with a mode-invariant catastrophic deny by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1037
+* Fold small session, chrome, and compaction helpers into owning modules by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1036
+* Correct two stale statements in the vendor patch ledgers by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1039
+* Give the two-attempt watchdog stall test an explicit 10s timeout by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1038
+* Harden transcript link resolution at markup edges by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1043
+* Unify tool, skill, and agent search on one rank-and-cut pipeline by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1045
+* Fold Go and Zen model catalogs into one parameterized module by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1053
+* Split transcript link helpers into focused modules by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1055
+* fix(subagent): queue overlapping steers instead of dropping them by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1063
+* Deliver a stashed steer as a follow-up when the run wins the race by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1066
+* fix(subagent): reap shell children so interrupt and close settle by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1068
+* Fail fast when an approval delivery is never accepted by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1069
+* fix(subagent): land steer and shell critique follow-ups by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1070
+* fix(tui): keep approved hold across retry and prove shell-guard kill by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1071
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.25...v0.3.26
+
 ## [0.3.25] - 2026-09-14
 
 ### What's Changed

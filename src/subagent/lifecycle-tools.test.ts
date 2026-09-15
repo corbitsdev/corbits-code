@@ -950,7 +950,7 @@ describe("send_input", () => {
     expect(sessions.get(missing.id)?.lifecycleStatus).toBe("running");
   });
 
-  test("completion during interrupt keeps the original terminal report", async () => {
+  test("completion during interrupt delivers the stashed steer as a follow-up", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
     const worker = sessions.start({
@@ -978,7 +978,7 @@ describe("send_input", () => {
       message: "late interrupt",
       interrupt: true,
     });
-    expect(result).toEqual({ agent_id: worker.id, status: "completed" });
+    expect(result).toEqual({ agent_id: worker.id, status: "interrupted" });
 
     const collected = await callTool(wait, {
       targets: [worker.id],
@@ -989,10 +989,16 @@ describe("send_input", () => {
       expect.objectContaining({
         agent_id: worker.id,
         status: "done",
-        report: "original report",
+        report: "follow-up report",
       }),
     ]);
-    expect(followupStarted).toBe(false);
+    expect(followupStarted).toBe(true);
+    expect(sessions.get(worker.id)?.entries).toContainEqual(
+      expect.objectContaining({
+        kind: "report",
+        content: expect.stringContaining("original report"),
+      }),
+    );
   });
 
   test("CL-7344: interrupt:true stashes until attachReport; resume stays fail-closed", async () => {

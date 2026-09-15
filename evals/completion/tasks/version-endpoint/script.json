@@ -1,0 +1,24 @@
+{
+  "turns": [
+    {
+      "text": "I will look at the service first.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "service.ts" } }]
+    },
+    {
+      "text": "Adding the /version endpoint.",
+      "toolCalls": [
+        {
+          "name": "edit_file",
+          "args": {
+            "path": "service.ts",
+            "old_string": "  if (method === \"GET\" && path === \"/health\") {\n    return { status: 200, body: { ok: true } };\n  }",
+            "new_string": "  if (method === \"GET\" && path === \"/health\") {\n    return { status: 200, body: { ok: true } };\n  }\n  if (method === \"GET\" && path === \"/version\") {\n    return { status: 200, body: { version: \"1.0.0\" } };\n  }"
+          }
+        }
+      ]
+    },
+    {
+      "text": "Done. Added GET /version returning 1.0.0; /health is untouched."
+    }
+  ]
+}
