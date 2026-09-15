@@ -66,6 +66,10 @@ export interface MCPConnectOptions {
    */
   onAuthorized?: (serverName: string) => void;
   signal?: AbortSignal;
+  // Close-event hook: wired to transport.onclose after connect so the owner
+  // learns the transport died under a live client. Never fired for
+  // intentional teardown — close() disarms it before closing the transport.
+  onDisconnect?: () => void;
 }
 
 function isHttpServer(config: ResolvedMCPServerConfig): boolean {
@@ -539,6 +543,7 @@ async function finishClient(
   authContext?: HTTPAuthContext,
   signal?: AbortSignal,
   closeLifecycle?: () => void,
+  liveTransport?: { onclose?: () => void },
 ): Promise<MCPClient> {
   const result = await withHTTPAuthorizationRecovery(authContext, () =>
     signal === undefined
@@ -583,6 +588,8 @@ async function finishClient(
       return unwrapToolContent(validateMcpContentBlocks(result.content));
     },
     async close() {
+      // Disarm first: the owner's hook reports unintentional death only.
+      if (liveTransport !== undefined) liveTransport.onclose = () => undefined;
       closeLifecycle?.();
       authContext?.callback.close();
       await client.close().catch(() => undefined);
@@ -613,10 +620,14 @@ async function connectStdio(
   if (options.stderr !== undefined) transportOptions.stderr = options.stderr;
   const client = new Client({ name: MCP_CLIENT_NAME, version: "1.0.0" });
   try {
+    const transport = new StdioClientTransport(transportOptions);
     await client.connect(
-      new StdioClientTransport(transportOptions),
+      transport,
       options.signal === undefined ? undefined : { signal: options.signal },
     );
+    // A dead child surfaces here; intentional close() disarms it first.
+    if (options.onDisconnect !== undefined)
+      transport.onclose = options.onDisconnect;
     return {
       ok: true,
       client: await finishClient(
@@ -624,6 +635,8 @@ async function connectStdio(
         config.name,
         undefined,
         options.signal,
+        undefined,
+        transport,
       ),
     };
   } catch (err) {
@@ -717,12 +730,22 @@ async function connectHttp(
       version: "1.0.0",
     });
     client = connectedClient;
+    // The auth-recovery wrapper can dial twice; the last transport wins.
+    let liveTransport: Transport | undefined;
     await withHTTPAuthorizationRecovery(
       authContext,
-      () =>
-        connectedClient.connect(makeTransport(), { signal: lifecycle.signal }),
+      () => {
+        const transport = makeTransport();
+        liveTransport = transport;
+        return connectedClient.connect(transport, {
+          signal: lifecycle.signal,
+        });
+      },
       lifecycle.signal,
     );
+    // A dropped SSE stream surfaces here; intentional close() disarms it.
+    if (options.onDisconnect !== undefined && liveTransport !== undefined)
+      liveTransport.onclose = options.onDisconnect;
     if (authContext !== undefined) {
       authContext.coordinator.probe = () =>
         connectedClient
@@ -737,6 +760,7 @@ async function connectHttp(
         authContext,
         options.signal,
         closeLifecycle,
+        liveTransport,
       ),
     };
   } catch (err) {
