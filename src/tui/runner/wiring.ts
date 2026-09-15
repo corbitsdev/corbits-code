@@ -67,6 +67,7 @@ import { composeSessionHeader } from "../components/session-header.js";
 import { listCommands } from "../commands/registry.js";
 import type { MCPConnectCallbacks } from "../../agent/tools.js";
 import { createRuntimeShutdown } from "./shutdown.js";
+import { ASK_DEADLINE_MS } from "../../subagent/session-store.js";
 import { resumeTranscriptLoadErrorBlock } from "./exit.js";
 import { userInboundMessage } from "./submit.js";
 import {
@@ -93,13 +94,23 @@ const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
  * here bounds the stall to one poll interval. Both halves are no-ops when
  * there is nothing to say: `reportFleet` diffs, `flushMailboxMail` no-ops
  * while processing or when no uncollected terminal waits.
+ *
+ * The CL-8016 stall bound rides the same tick, deadline first: past-deadline
+ * asks settle (so the snapshot the abort reconciles against is fresh), then a
+ * still-silent wake turn aborts and hands over to mail or a re-surface.
  */
 export function createFleetStallPollTick(
   reportFleet: () => void,
   flushMailboxMail: () => void,
+  options?: {
+    abortStalledWakeTurn?: () => boolean;
+    expireStaleAsks?: () => void;
+  },
 ): () => void {
   return () => {
+    options?.expireStaleAsks?.();
     reportFleet();
+    options?.abortStalledWakeTurn?.();
     flushMailboxMail();
   };
 }
@@ -226,6 +237,13 @@ export function wirePostStartup(
     disposeHost: hostOf(state).dispose,
     cancelWorkers: async () => {
       await services.subAgentSessions.cancelAll("Session closed");
+      // Stop teardown (CL-8016): wipe the sessions (leaving tombstones so a
+      // late send_input names the teardown), drop the mailbox lanes that pin
+      // them, and clear the bridge queue so no wake-turn bound outlives the
+      // sessions it was owed to.
+      services.subAgentSessions.teardown("Session closed");
+      services.toolset.fleetRecords?.clear();
+      hostOf(state).bridge.clearQueuedDelivery();
     },
     closeAgent: () => liveAgent(state).close(),
     disposeToolset: () => services.toolset.dispose(),
@@ -346,8 +364,18 @@ export function wirePostStartup(
     }, FLEET_REPORT_SETTLE_MS);
     if (typeof fleetSettle.unref === "function") fleetSettle.unref();
   });
-  const fleetStallPollTick = createFleetStallPollTick(reportFleet, () =>
-    sessionBridge.flushMailboxMail(),
+  const fleetStallPollTick = createFleetStallPollTick(
+    reportFleet,
+    () => sessionBridge.flushMailboxMail(),
+    {
+      // Stall bound (CL-8016): deadline-past asks settle inside the tick
+      // before the abort reconciles, so the abort never re-surfaces a
+      // question the deadline already settled.
+      abortStalledWakeTurn: () => sessionBridge.abortStalledWakeTurn(),
+      expireStaleAsks: () => {
+        services.subAgentSessions.expireStaleAsks(ASK_DEADLINE_MS);
+      },
+    },
   );
   const fleetStallPoll = setInterval(fleetStallPollTick, FLEET_STALL_POLL_MS);
   if (typeof fleetStallPoll.unref === "function") fleetStallPoll.unref();

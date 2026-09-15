@@ -174,14 +174,30 @@ export const ASK_DIRECTOR_WAKE_PREFIX = "ask_director wake";
  * parent, not as the operator being asked — the parent answers via
  * send_input itself and only escalates when it genuinely cannot.
  */
-export function pendingAskWakeText(wake: PendingAskWake): string {
-  return [
+export function pendingAskWakeText(
+  wake: PendingAskWake,
+  options?: { resurface?: number },
+): string {
+  const lines = [
     `${ASK_DIRECTOR_WAKE_PREFIX} — worker ${wake.agentId} (${wake.description}) parked question ${wake.questionId} while this session was not collecting:`,
     "",
     wake.question,
     "",
+  ];
+  // Escalation for a re-surfaced question (CL-8016): the earlier wake turn
+  // stalled past the bound and was aborted without an answer, so say so and
+  // restate the routing — otherwise a second identical wake reads as a
+  // duplicate rather than as proof the first one never landed.
+  if (options?.resurface !== undefined && options.resurface > 0) {
+    lines.push(
+      `Re-surface ${options.resurface}: the earlier wake turn stalled and was aborted without an answer — reconcile against the live question before replying.`,
+      "",
+    );
+  }
+  lines.push(
     `The worker — not the operator — raised this. Answer it with send_input (soft) using target ${wake.sessionId}; do not relay to the operator unless it genuinely needs them.`,
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 type Change =
