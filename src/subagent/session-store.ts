@@ -290,7 +290,7 @@ export interface SubAgentSessionStore {
     },
   ):
     | { ok: true; status: AgentLifecycleStatus }
-    | { ok: false; status: AgentLifecycleStatus };
+    | { ok: false; status: AgentLifecycleStatus; hint?: string };
   /**
    * One pending ask_director per session. `sendInputOne` (soft) resolves it;
    * interrupt/settle/close cancel it. Wait JSON projects this, not lifecycle.
@@ -308,6 +308,16 @@ export interface SubAgentSessionStore {
   cancelAsk(id: string, reason?: string): boolean;
   hasPendingAsk(id: string): boolean;
   peekAsk(id: string): { question: string; questionId: string } | undefined;
+  /**
+   * Ask deadline (CL-8016): reject every pending ask older than `maxAgeMs`
+   * with an explicit timeout error naming its question and session, so a
+   * parked worker whose wake turn stalled can never wait forever. Returns the
+   * expired descriptors; settlement stays exactly-once through the same
+   * delete-then-settle path as `resolveAsk`/`cancelAsk`.
+   */
+  expireStaleAsks(
+    maxAgeMs: number,
+  ): readonly { sessionId: string; questionId: string }[];
   /**
    * Refcount so wait mailboxes can pin an uncollected result. pruneCompleted
    * will not delete a session while its pin count is greater than zero.
@@ -337,9 +347,25 @@ export interface SubAgentSessionStore {
   wake(): void;
   subscribe(listener: () => void): () => void;
   clear(): void;
+  /**
+   * Stop teardown (CL-8016): like `clear`, but leaves a tombstone per known
+   * session so a late `sendInputOne` fails closed naming the teardown instead
+   * of the bare `not_found` a wipe would give. New ids after teardown still
+   * report `not_found`; ids the teardown removed name it via `hint`.
+   */
+  teardown(reason?: string): void;
 }
 
 export const DEFAULT_CANCEL_REASON = "Cancelled by operator";
+
+/**
+ * Ask deadline (CL-8016): a parked `ask_director` question older than this
+ * settles via `expireStaleAsks` with an explicit timeout error, so a worker
+ * whose wake turn stalled can never wait forever. Twice the stall abort
+ * bound, so a re-surfaced wake turn gets a full bound cycle to prove the
+ * parent alive before its questions time out.
+ */
+export const ASK_DEADLINE_MS = 1_800_000;
 
 const DEFAULT_MAX_COMPLETED = 20;
 // CL-7007: sized for fan-out dispatch (dozens of spawn_agent workers), not a
@@ -582,6 +608,10 @@ export function createSubAgentSessionStore(
       questionId: string;
       resolve: (answer: string) => void;
       reject: (reason: unknown) => void;
+      // Registration clock for the ask deadline (CL-8016): an ask parked
+      // longer than the bound settles via `expireStaleAsks` instead of
+      // waiting on a wake turn that may never land.
+      askedAt: number;
     }
   >();
   const listeners = new Set<() => void>();
@@ -1763,9 +1793,22 @@ export function createSubAgentSessionStore(
       },
     ):
       | { ok: true; status: AgentLifecycleStatus }
-      | { ok: false; status: AgentLifecycleStatus } {
+      | { ok: false; status: AgentLifecycleStatus; hint?: string } {
       const session = sessions.get(id);
-      if (session === undefined) return { ok: false, status: "not_found" };
+      if (session === undefined) {
+        // CL-8016: after a stop teardown the id is gone but the teardown is
+        // named — a bare `not_found` would read as "never existed" when the
+        // real story is "existed, then the runtime shut down".
+        const tombstone = evicted.get(id);
+        if (tombstone !== undefined) {
+          return {
+            ok: false,
+            status: tombstone.lifecycleStatus,
+            hint: tombstone.hint,
+          };
+        }
+        return { ok: false, status: "not_found" };
+      }
       if (session.lifecycle.state !== "running") {
         return { ok: false, status: projectLifecycleStatus(session.lifecycle) };
       }
@@ -1851,7 +1894,7 @@ export function createSubAgentSessionStore(
       if (session === undefined) return false;
       if (session.lifecycle.state !== "running") return false;
       if (pendingAsks.has(id)) return false;
-      pendingAsks.set(id, ask);
+      pendingAsks.set(id, { ...ask, askedAt: now() });
       mutate(id, () => undefined);
       return true;
     },
@@ -1877,6 +1920,22 @@ export function createSubAgentSessionStore(
       const pending = pendingAsks.get(id);
       if (pending === undefined) return undefined;
       return { question: pending.question, questionId: pending.questionId };
+    },
+
+    expireStaleAsks(
+      maxAgeMs: number,
+    ): readonly { sessionId: string; questionId: string }[] {
+      const cutoff = now() - maxAgeMs;
+      const expired: { sessionId: string; questionId: string }[] = [];
+      for (const [id, pending] of pendingAsks) {
+        if (pending.askedAt > cutoff) continue;
+        expired.push({ sessionId: id, questionId: pending.questionId });
+        cancelAskInternal(
+          id,
+          `ask_director question ${pending.questionId} for session ${id} expired without an answer after ${maxAgeMs}ms — reply with send_input before the deadline, or not at all`,
+        );
+      }
+      return expired;
     },
 
     interruptOne(
@@ -2170,6 +2229,46 @@ export function createSubAgentSessionStore(
       revisions.clear();
       snapshotCache.clear();
       evicted.clear();
+      notify();
+    },
+
+    teardown(reason = "Session closed"): void {
+      // CL-8016: stop teardown. Cancels the asks with the teardown named
+      // (single-resolve preserved through `cancelAskInternal`), releases the
+      // handles like `clear`, then leaves a tombstone per removed session so
+      // a late `sendInputOne` fails closed naming the teardown instead of a
+      // bare `not_found` that would read as "never existed".
+      for (const id of pendingAsks.keys())
+        cancelAskInternal(id, `ask_director cancelled: ${reason}`);
+      for (const id of closeHandles.keys()) releaseHandles(id);
+      cancelHandles.clear();
+      closeHandles.clear();
+      interruptHandles.clear();
+      followupHandles.clear();
+      deliverHandles.clear();
+      for (const id of stashedFollowups.keys())
+        dropStashedFollowups(id, reason);
+      stashedFollowups.clear();
+      for (const session of sessions.values()) {
+        evicted.set(session.id, {
+          lifecycleStatus: projectLifecycleStatus(session.lifecycle),
+          hint: reason,
+        });
+      }
+      if (evicted.size > MAX_EVICTED_TOMBSTONES) {
+        const overflow = evicted.size - MAX_EVICTED_TOMBSTONES;
+        const keys = evicted.keys();
+        for (let i = 0; i < overflow; i++) {
+          const oldest = keys.next().value;
+          if (oldest === undefined) break;
+          evicted.delete(oldest);
+        }
+      }
+      sessions.clear();
+      pinCounts.clear();
+      runInFlight.clear();
+      revisions.clear();
+      snapshotCache.clear();
       notify();
     },
   };

@@ -239,6 +239,20 @@ class FleetMailbox {
     );
   }
 
+  /**
+   * Stop teardown (CL-8016): drop every mailbox record alongside the store
+   * wipe, so no stale lane outlives the sessions it pins. The records held
+   * `pinHeld` refs into the store's refcounts; the store teardown clears
+   * `pinCounts` wholesale, so dropping the records here keeps both sides in
+   * agreement with nothing left to unpin. Also resets the parked-ask wake
+   * fingerprint so a later session reusing an id re-surfaces cleanly.
+   */
+  clear(): void {
+    this.records.clear();
+    this.lastSurfacedParkedAsks = undefined;
+    this.sessions?.wake();
+  }
+
   markProviderFailure(id: string): void {
     const existing = this.records.get(id);
     if (existing === undefined) return;
