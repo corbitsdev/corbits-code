@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, jest } from "bun:test";
 import type { ToolDefinition } from "@intx/types/runtime";
 import {
   createToolIndex,
@@ -9,6 +9,8 @@ import {
   coreToolNamesForSessionMode,
   CORE_TOOL_NAMES,
   CATALOG_TOOL_NAMES,
+  TOOL_SEARCH_PENDING_WAIT_MS,
+  TOOL_SEARCH_RECONNECT_WAIT_MS,
   type ToolAvailability,
 } from "./tool-search.js";
 
@@ -243,6 +245,15 @@ function call(
   return tool.handler(args, new AbortController().signal);
 }
 
+async function flushMicrotasks(rounds = 100): Promise<void> {
+  for (let i = 0; i < rounds; i++) await Promise.resolve();
+}
+
+async function advanceAndFlush(ms: number): Promise<void> {
+  jest.advanceTimersByTime(ms);
+  await flushMicrotasks();
+}
+
 describe("createToolSearchTool", () => {
   test("promotes matches and lists them back to the model", async () => {
     const promoted: string[] = [];
@@ -367,6 +378,111 @@ describe("createToolSearchTool", () => {
     expect(out).not.toMatch(
       /still connecting|still starting up|retry shortly/i,
     );
+  });
+
+  test("a genuine miss with nothing pending never consults the reconnect predicate", async () => {
+    let matchChecks = 0;
+    const tool = createToolSearchTool({
+      search: () => [],
+      lookup: () => undefined,
+      promote: () => undefined,
+      awaitPendingConnections: async () => 0,
+      hasReconnectingMatch: () => {
+        matchChecks += 1;
+        return true;
+      },
+    });
+    const out = await call(tool, { query: "nonsense" });
+    expect(out).toContain("different keywords");
+    expect(matchChecks).toBe(0);
+  });
+
+  test("a reconnecting match earns one short extension and finds the remounted tool", async () => {
+    jest.useFakeTimers();
+    try {
+      const live: ToolDefinition[] = [];
+      const timeouts: (number | undefined)[] = [];
+      const matchQueries: string[] = [];
+      const promoted: string[] = [];
+      let searches = 0;
+      const tool = createToolSearchTool({
+        search: (query) => {
+          searches += 1;
+          return createToolIndex(() => live).search(query);
+        },
+        lookup: (name) => live.find((def) => def.name === name),
+        promote: (names) => promoted.push(...names),
+        awaitPendingConnections: async (timeoutMs?: number) => {
+          timeouts.push(timeoutMs);
+          await new Promise((resolve) => setTimeout(resolve, timeoutMs ?? 0));
+          return live.length === 0 ? 1 : 0;
+        },
+        hasReconnectingMatch: (query) => {
+          matchQueries.push(query);
+          return true;
+        },
+      });
+      const pending = call(tool, { query: "linear tracker" });
+      await advanceAndFlush(TOOL_SEARCH_PENDING_WAIT_MS);
+      // The redial remounts mid-extension: dropped stubs at tier 1, live set
+      // back before the extension elapses.
+      live.push({
+        name: "mcp__linear__create_issue",
+        description: "Create an issue in the tracker",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      });
+      await advanceAndFlush(TOOL_SEARCH_RECONNECT_WAIT_MS);
+      const out = await pending;
+      expect(out).toContain("mcp__linear__create_issue");
+      expect(promoted).toContain("mcp__linear__create_issue");
+      expect(timeouts).toEqual([
+        TOOL_SEARCH_PENDING_WAIT_MS,
+        TOOL_SEARCH_RECONNECT_WAIT_MS,
+      ]);
+      expect(searches).toBe(3);
+      expect(matchQueries).toEqual(["linear tracker"]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("a needs-auth miss never earns the extension and stays within the tier-1 bound", async () => {
+    jest.useFakeTimers();
+    try {
+      const timeouts: (number | undefined)[] = [];
+      let searches = 0;
+      let matchChecks = 0;
+      const tool = createToolSearchTool({
+        search: () => {
+          searches += 1;
+          return [];
+        },
+        lookup: () => undefined,
+        promote: () => undefined,
+        awaitPendingConnections: async (timeoutMs?: number) => {
+          timeouts.push(timeoutMs);
+          await new Promise((resolve) => setTimeout(resolve, timeoutMs ?? 0));
+          return 1;
+        },
+        // A needs-auth server never populates the reconnect map, so the
+        // toolset predicate stays false for it.
+        hasReconnectingMatch: () => {
+          matchChecks += 1;
+          return false;
+        },
+      });
+      const pending = call(tool, { query: "notion" });
+      await advanceAndFlush(TOOL_SEARCH_PENDING_WAIT_MS);
+      // Far past any extension: no second wait may be outstanding.
+      await advanceAndFlush(10_000);
+      const out = await pending;
+      expect(out).toMatch(/retry.*shortly/i);
+      expect(timeouts).toEqual([TOOL_SEARCH_PENDING_WAIT_MS]);
+      expect(searches).toBe(2);
+      expect(matchChecks).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
