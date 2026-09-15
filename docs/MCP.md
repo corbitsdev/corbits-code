@@ -124,6 +124,33 @@ file for that HTTP endpoint. Built-in Exa is disable-only — Alt+R notifies and
 does not open the confirm. While a local `.corbits/settings.json` `mcpServers`
 list is in effect, these actions edit that local file; add remains blocked.
 
+## Dropped Transports Reconnect in the Background
+
+When a connected server's transport dies unexpectedly, the row goes
+**reconnecting** instead of failed: the redial attempt and the retained tool
+count stay on the row (for example, `acme — reconnecting · attempt 3 · 2
+tools`), and backoff redials behind the scenes with a jittered delay that
+grows per attempt and caps at 30 seconds. While reconnecting, the server's
+tools stay mounted but fail fast — calling one returns "MCP server is
+reconnecting; retry the call once it reports connected." rather than hanging
+or dispatching against a dead transport.
+
+Pressing Enter on a failed or reconnecting row retries now with a single dial
+instead of waiting for backoff, reusing the saved settings row — it never
+adds a second server. A failed retry leaves the row failed with no backoff
+until the next manual retry. Redials that hit an authorization wall or a
+terminal failure stop on their own and drop the tools; only a manual retry
+brings those rows back.
+
+This contrasts with deliberate teardown: **Alt+D** (disable) and **Alt+R**
+(remove) drop the server's tools at once and stop any redial loop, while a
+transport death keeps the tools mounted as fail-fast stubs and keeps
+redialing. A `tool_search` miss waits up to 1 second for in-flight handshakes
+and looks again; when a reconnecting server holds tools that could match the
+query, the search takes one extra 500 ms extension for the redial to remount
+them. Servers still waiting on authorization never earn that extension — they
+settle only when authorization completes out of band.
+
 ## Server Kinds
 
 A server is reached one of two ways:
