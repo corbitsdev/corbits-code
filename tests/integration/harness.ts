@@ -74,6 +74,7 @@ export const INTEGRATION_SOURCE: InferenceSource = {
 const INTEGRATION_SECRET = "integration-test-key";
 
 export interface IntegrationSession {
+  storage: ContextStore;
   harness: Harness;
   cwd: string;
   workdir: string;
@@ -248,7 +249,7 @@ export async function openIntegrationSession(
       ? innerAgent
       : createPrimaryDeliveryAdmission(innerAgent, primaryArchive);
 
-  return { harness, cwd, workdir, agent, toolset };
+  return { harness, cwd, workdir, agent, toolset, storage: storageForAgent };
 }
 
 export async function closeIntegrationSession(

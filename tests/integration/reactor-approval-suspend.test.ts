@@ -6,6 +6,7 @@ import { createPermissionGate } from "../../src/permission/gate.js";
 import { createReactorAuthorize } from "../../src/permission/reactor-authorize.js";
 import {
   createApprovalResume,
+  resolveParkedCallIdFromStore,
   requestFromApprovalSnapshot,
 } from "../../src/session/approval-resume.js";
 import {
@@ -84,6 +85,16 @@ describe("integration — reactor approval suspend/resume", () => {
         expect(result.type).toBe("suspended");
         if (result.type !== "suspended") return;
 
+        const parkedCallId = await resolveParkedCallIdFromStore(
+          session.storage,
+          result.correlationId,
+        );
+        const parkedCalls = (await session.agent.history())
+          .flatMap((historyTurn) => historyTurn.content)
+          .filter((block) => block.type === "tool_call");
+        expect(parkedCalls).toHaveLength(1);
+        expect(parkedCallId).toBe(defined(parkedCalls[0]).id);
+
         // The parked call carried an approver-facing snapshot and parked on a
         // gate keyed by the correlationId (reactor.gate.blocked).
         expect(result.approvalSnapshot?.name).toBe("run_shell");
@@ -112,6 +123,8 @@ describe("integration — reactor approval suspend/resume", () => {
         expect(request?.subject).toBe("curl -sS https://example.com");
         const resume = createApprovalResume({
           getAgent: () => session.agent,
+          resolveParkedCallId: (correlationId) =>
+            resolveParkedCallIdFromStore(session.storage, correlationId),
           gate: ctx.gate,
         });
         const handling = resume.handle(result);
@@ -171,6 +184,8 @@ describe("integration — reactor approval suspend/resume", () => {
 
         const resume = createApprovalResume({
           getAgent: () => session.agent,
+          resolveParkedCallId: (correlationId) =>
+            resolveParkedCallIdFromStore(session.storage, correlationId),
           gate: ctx.gate,
         });
         const handling = resume.handle(result);
@@ -221,6 +236,8 @@ describe("integration — reactor approval suspend/resume", () => {
 
         const resume = createApprovalResume({
           getAgent: () => session.agent,
+          resolveParkedCallId: (correlationId) =>
+            resolveParkedCallIdFromStore(session.storage, correlationId),
           gate: ctx.gate,
         });
         const handling = resume.handle(result);
@@ -334,6 +351,8 @@ describe("integration — reactor approval suspend/resume", () => {
 
         const resume = createApprovalResume({
           getAgent: () => session.agent,
+          resolveParkedCallId: (correlationId) =>
+            resolveParkedCallIdFromStore(session.storage, correlationId),
           gate: ctx.gate,
         });
         const handling = resume.handle(result);

@@ -81,7 +81,11 @@ describe("approval resume late-decision guard", () => {
   test("a decision after the reactor settled the correlation is dropped", async () => {
     const turns = [userTurn()];
     const { agent, gate, delivered } = harness(turns, true);
-    const resume = createApprovalResume({ getAgent: () => agent, gate });
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => agent,
+      gate,
+    });
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(delivered).toEqual([]);
@@ -90,7 +94,11 @@ describe("approval resume late-decision guard", () => {
   test("a live decision is still delivered", async () => {
     const turns = [userTurn()];
     const { agent, gate, delivered } = harness(turns, false);
-    const resume = createApprovalResume({ getAgent: () => agent, gate });
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => agent,
+      gate,
+    });
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(delivered).toHaveLength(1);
@@ -105,13 +113,17 @@ describe("approval resume late-decision guard", () => {
     expect(correlationHeaders(delivered[0]).messageId).toBe("approval-corr-1");
   });
 
-  test("an approval timeout from before the suspension does not suppress delivery", async () => {
+  test("an exact approval timeout already present before lookup suppresses delivery", async () => {
     const turns = [userTurn(), approvalTimedOutTurn()];
     const { agent, gate, delivered } = harness(turns, false);
-    const resume = createApprovalResume({ getAgent: () => agent, gate });
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => agent,
+      gate,
+    });
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
-    expect(delivered).toHaveLength(1);
+    expect(delivered).toHaveLength(0);
   });
 });
 
@@ -125,6 +137,7 @@ describe("approval resume delivery", () => {
     };
     let customResolved = false;
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => agent,
       deliver: async (message) => {
         await Promise.resolve();
@@ -147,6 +160,7 @@ describe("approval resume delivery", () => {
 
   test("undefined agent throws instead of returning true", async () => {
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => undefined,
       gate: {
         resolveSuspended: async () => ({ allow: true }),
@@ -163,6 +177,7 @@ describe("approval resume delivery", () => {
       history: async () => [userTurn()],
     };
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => agent,
       gate: {
         resolveSuspended: async () => ({ allow: true }),
@@ -184,7 +199,11 @@ describe("approval resume delivery", () => {
         return { allow: true };
       },
     } as unknown as PermissionGate;
-    const resume = createApprovalResume({ getAgent: () => agent, gate });
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => agent,
+      gate,
+    });
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(delivered).toHaveLength(1);
@@ -206,6 +225,7 @@ describe("approval resume generation capture", () => {
       history: async () => [userTurn()],
     };
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => agent,
       captureGeneration: generation.capture,
       deliver: (message, stillCurrent) => {
@@ -236,6 +256,7 @@ describe("approval resume generation capture", () => {
       history: async () => [userTurn()],
     };
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => agent,
       captureGeneration: generation.capture,
       deliver: (message, stillCurrent) => {
@@ -271,6 +292,7 @@ describe("approval resume generation capture", () => {
     };
     let current: typeof agentA | typeof agentB = agentA;
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => current,
       captureGeneration: generation.capture,
       deliver: (message, stillCurrent) => {
@@ -325,6 +347,7 @@ describe("approval resume generation capture", () => {
     });
     let finishOverlay: ((outcome: { allow: boolean }) => void) | undefined;
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => agent,
       captureGeneration: generation.capture,
       registerParkedCancel: (cancel) => {
@@ -453,6 +476,7 @@ describe("approval resume persist Allow after interrupt", () => {
     const delivered: unknown[] = [];
     const notices: string[] = [];
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => ({
         deliver: (message: unknown) => delivered.push(message),
         history: async () => [userTurn()],
@@ -488,6 +512,7 @@ describe("approval resume stillCurrent at resolve", () => {
     const generation = createDeliveryGeneration();
     let atResolve: boolean | undefined;
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => ({
         deliver: () => undefined,
         history: async () => [userTurn()],
@@ -563,6 +588,7 @@ describe("approval resume occupancy until correlation", () => {
       history: async () => [userTurn()],
     };
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => agent,
       deliver: (message) =>
         enqueue(async () => {
@@ -627,6 +653,7 @@ describe("approval resume occupancy until correlation", () => {
       history: async () => [userTurn()],
     };
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => agent,
       deliver: (message) =>
         enqueue(async () => {
@@ -697,6 +724,7 @@ describe("approval resume occupancy until correlation", () => {
       reloadIfIdle: () => undefined,
     };
     const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
       getAgent: () => ({
         deliver: () => undefined,
         history: async () => [userTurn()],

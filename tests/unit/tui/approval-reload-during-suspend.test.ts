@@ -117,6 +117,7 @@ describe("pendingReload during resolveSuspended vs deliver enqueue", () => {
     };
     const resume = createApprovalResume({
       getAgent: () => agent,
+      resolveParkedCallId: () => "call-ask",
       deliver: (message) =>
         enqueue(async () => {
           agent.deliver(message);

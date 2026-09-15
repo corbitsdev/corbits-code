@@ -12,7 +12,11 @@
 // a rejected one answers it with an error result.
 
 import type { Agent, SendResult } from "@intx/agent";
-import type { ApprovalSnapshot, InboundMessage } from "@intx/types/runtime";
+import type {
+  ApprovalSnapshot,
+  ContextStore,
+  InboundMessage,
+} from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { getLogger } from "@intx/log";
@@ -68,88 +72,34 @@ export function requestFromApprovalSnapshot(
   return anySecret ? { ...request, scopes: [] } : request;
 }
 
-// The reactor's approval timeout answers the parked call with this exact
-// upstream text (see permission/decline-markers.ts) before removing the
-// correlation, so its presence after the suspension watermark marks the
-// correlation as settled — but only when the result answers this very call.
-// Parallel-parked calls each time out into their own tool result (callId is
-// the original tool-call id, not the minted correlationId), so matching text
-// alone abandons a still-valid sibling decision. The parked call id must come
-// along and match block.callId; without it the text-only scan stays as the
-// fallback so a genuinely late decision is still dropped.
-
-function timeoutResultAfterSuspend(
-  turns: Awaited<ReturnType<Agent["history"]>>,
-  fromIndex: number,
-  parkedCallId: string | undefined,
-): string | undefined {
-  for (const block of turns.slice(fromIndex).flatMap((turn) => turn.content)) {
-    if (
-      block.type === "tool_result" &&
-      (parkedCallId === undefined || block.callId === parkedCallId) &&
-      block.content.some(
-        (part) =>
-          part.type === "text" && part.text === APPROVAL_TIMEOUT_RESULT_TEXT,
-      )
-    ) {
-      return block.callId;
-    }
-  }
-  return undefined;
+export async function resolveParkedCallIdFromStore(
+  storage: Pick<ContextStore, "load">,
+  correlationId: string,
+): Promise<string | undefined> {
+  const { pendingOperations } = await storage.load();
+  const matches = pendingOperations.filter(
+    (operation) =>
+      operation.kind === "approval" &&
+      operation.correlationId === correlationId,
+  );
+  return matches.length === 1 ? matches[0]?.suspendedCall?.id : undefined;
 }
 
-function stableArgs(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableArgs).join(",")}]`;
-  if (typeof value === "object" && value !== null) {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableArgs(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
-// Derive this suspension's parked call id from history: the pre-watermark
-// tool_call matching the snapshot's name and arguments that has no tool
-// result anywhere yet. A parked call is neither run nor answered, so an
-// unanswered match is normally this suspension's own call; a timed-out
-// sibling is answered by its timeout result and drops out of the candidates.
-// Returns undefined unless exactly one candidate matches.
-//
-// Known limitation: identical name+args twins are ambiguous. When this
-// suspension's own timeout fires while an identical twin sits unanswered,
-// the twin is the exact-one survivor, so the settled check misses and the
-// late decision is delivered instead of dropped. The sibling-timeout mirror
-// (identical args, sibling answered) still resolves to the live call and
-// delivers. Telling identical twins apart needs the resolveParkedCallId
-// lookup below; the history heuristic cannot do it.
-function parkedCallIdFromHistory(
+function timeoutResult(
   turns: Awaited<ReturnType<Agent["history"]>>,
-  fromIndex: number,
-  snapshot: ApprovalSnapshot,
-): string | undefined {
-  const answered = new Set<string>();
-  for (const turn of turns) {
-    for (const block of turn.content) {
-      if (block.type === "tool_result") answered.add(block.callId);
-    }
-  }
-  const wanted = stableArgs(snapshot.arguments ?? {});
-  const candidates = new Set<string>();
-  for (const turn of turns.slice(0, fromIndex)) {
-    for (const block of turn.content) {
-      if (
-        block.type === "tool_call" &&
-        block.name === snapshot.name &&
-        stableArgs(block.arguments) === wanted &&
-        !answered.has(block.id)
-      ) {
-        candidates.add(block.id);
-      }
-    }
-  }
-  return candidates.size === 1 ? [...candidates][0] : undefined;
+  parkedCallId: string,
+): boolean {
+  return turns.some((turn) =>
+    turn.content.some(
+      (block) =>
+        block.type === "tool_result" &&
+        block.callId === parkedCallId &&
+        block.content.some(
+          (part) =>
+            part.type === "text" && part.text === APPROVAL_TIMEOUT_RESULT_TEXT,
+        ),
+    ),
+  );
 }
 
 function decisionMessage(
@@ -177,114 +127,74 @@ function decisionMessage(
 }
 
 export function createApprovalResume(args: {
-  // Live agent at history/deliver time. TUI occupancy holds this identity
-  // until the correlated resume is accepted; a generation bump aborts the
-  // gate rather than retargeting a rebuilt agent.
   getAgent: () => Pick<Agent, "deliver" | "history"> | undefined;
-  // TUI session queue. When present, each decision is awaited through this
-  // seam; exec omits it and uses getAgent().deliver.
   deliver?: (
     message: InboundMessage,
     stillCurrent: () => boolean,
   ) => void | Promise<void>;
-  // TUI: capture at handle() start so interrupt, /clear, or /new during the
-  // overlay aborts the gate and drops the decision. Exec omits this.
   captureGeneration?: () => () => boolean;
-  // TUI: operator-visible notice when an overlay decision is dropped after
-  // a generation bump.
   onDropped?: (text: string) => void;
-  // TUI: interrupt/clear bump this to reject the parked call on the old
-  // agent before close/rebuild. Cleared when handle returns.
   registerParkedCancel?: (cancel: (() => void) | undefined) => void;
-  // Pending-operation lookup: map this suspension's correlationId to the
-  // parked tool-call id (PendingOperation.suspendedCall.id). The timeout
-  // result carries the original call id while the suspension carries only
-  // the minted correlationId, so this is what ties them together. Takes
-  // precedence over the history derivation below; absent callers fall back
-  // to it.
-  //
-  // Heuristic-only in production: neither the exec nor the TUI caller wires
-  // this, because the vendored reactor surface ({ start, deliver, abort })
-  // exposes no correlationId-to-call lookup (see
-  // permission/decline-markers.ts), and the suspension snapshot carries
-  // name+arguments without the call id. Wire this if upstream ever exports
-  // the pending-operation lookup; until then the history derivation is the
-  // live path.
-  resolveParkedCallId?: (correlationId: string) => string | undefined;
+  resolveParkedCallId: (
+    correlationId: string,
+  ) => string | undefined | Promise<string | undefined>;
   gate: PermissionGate;
 }): ApprovalResume {
-  const { getAgent, gate } = args;
-
-  const requireAgent = (): Pick<Agent, "deliver" | "history"> => {
-    const agent = getAgent();
-    if (agent === undefined) {
-      throw new Error("approval resume: no live agent");
-    }
-    return agent;
-  };
-
   return {
     handle: async (result) => {
       if (result.type !== "suspended") return false;
-      const stillCurrent = args.captureGeneration?.() ?? (() => true);
-      const parkedAgent = requireAgent();
+      const generationCurrent = args.captureGeneration?.() ?? (() => true);
+      const parkedAgent = args.getAgent();
+      if (parkedAgent === undefined)
+        throw new Error("approval resume: no live agent");
       const { correlationId, approvalSnapshot } = result;
-
       let cancelled = false;
+      let canReject = false;
+      const stillCurrent = (): boolean => !cancelled && generationCurrent();
       const cancelParked = (): void => {
         if (cancelled) return;
         cancelled = true;
-        parkedAgent.deliver(
-          decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE),
-        );
+        if (canReject) {
+          parkedAgent.deliver(
+            decisionMessage(correlationId, "rejected", APPROVAL_DROPPED_NOTICE),
+          );
+        }
       };
-      args.registerParkedCancel?.(cancelParked);
-
       const dropParked = (): void => {
         args.onDropped?.(APPROVAL_DROPPED_NOTICE);
         cancelParked();
       };
-
+      args.registerParkedCancel?.(cancelParked);
       try {
+        // The resolver captures the paired store synchronously before its first await.
+        const parkedCallId = await args.resolveParkedCallId(correlationId);
+        if (!stillCurrent()) {
+          dropParked();
+          return true;
+        }
+        if (parkedCallId === undefined) return true;
+        const initialHistory = await parkedAgent.history();
+        if (!stillCurrent()) {
+          dropParked();
+          return true;
+        }
+        if (timeoutResult(initialHistory, parkedCallId)) return true;
+        canReject = true;
+
         const deliverDecision = async (
           message: InboundMessage,
         ): Promise<void> => {
           if (!stillCurrent()) return;
           if (args.deliver !== undefined) {
             await args.deliver(message, stillCurrent);
-            return;
+          } else {
+            parkedAgent.deliver(message);
           }
-          requireAgent().deliver(message);
         };
-
-        // Turn-count watermark for the settled guard below: a "approval timed
-        // out" tool result appended after this point means the reactor settled
-        // this very correlation before our decision lands.
-        const turnsAtSuspend = (await parkedAgent.history()).length;
-        if (!stillCurrent()) {
-          dropParked();
-          return true;
-        }
-
-        if (approvalSnapshot === undefined) {
-          // A suspension without a snapshot cannot be surfaced; fail closed by
-          // rejecting the parked call so the run does not hang on an invisible
-          // gate.
-          args.registerParkedCancel?.(undefined);
-          await deliverDecision(
-            decisionMessage(
-              correlationId,
-              "rejected",
-              "approval surface unavailable",
-            ),
-          );
-          return true;
-        }
-
-        const request = requestFromApprovalSnapshot(
-          approvalSnapshot,
-          correlationId,
-        );
+        const request =
+          approvalSnapshot === undefined
+            ? null
+            : requestFromApprovalSnapshot(approvalSnapshot, correlationId);
         if (request === null) {
           args.registerParkedCancel?.(undefined);
           await deliverDecision(
@@ -296,38 +206,30 @@ export function createApprovalResume(args: {
           );
           return true;
         }
-
-        const outcome = await gate.resolveSuspended(request, stillCurrent);
+        const outcome = await args.gate.resolveSuspended(request, stillCurrent);
         if (!stillCurrent()) {
           dropParked();
           return true;
         }
         args.registerParkedCancel?.(undefined);
-        const history = await requireAgent().history();
-        const parkedCallId =
-          args.resolveParkedCallId?.(correlationId) ??
-          parkedCallIdFromHistory(history, turnsAtSuspend, approvalSnapshot);
-        const matchedTimeoutCallId = timeoutResultAfterSuspend(
-          history,
-          turnsAtSuspend,
-          parkedCallId,
+        const history = await parkedAgent.history();
+        const timedOut = timeoutResult(history, parkedCallId);
+        if (timedOut) canReject = false;
+        if (!stillCurrent()) {
+          dropParked();
+          return true;
+        }
+        if (timedOut) {
+          logger.warn`late approval decision dropped correlation=${correlationId} timeoutCall=${parkedCallId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
+          return true;
+        }
+        await deliverDecision(
+          decisionMessage(
+            correlationId,
+            outcome?.allow === true ? "approved" : "rejected",
+            outcome?.allow === true ? undefined : outcome?.message,
+          ),
         );
-        if (matchedTimeoutCallId !== undefined) {
-          // The reactor already answered the parked call (its approval timeout
-          // fired while the surface was still up). Delivering now would append
-          // the raw decision JSON as an uncorrelated user turn — drop and log.
-          // The matched call id rides along so a fallback drop (parkedCallId
-          // undefined) can still be attributed to the timeout that caused it.
-          logger.warn`late approval decision dropped correlation=${correlationId} timeoutCall=${matchedTimeoutCallId} outcome=${outcome?.allow === true ? "approved" : "rejected"}`;
-          return true;
-        }
-        if (outcome === undefined || !outcome.allow) {
-          await deliverDecision(
-            decisionMessage(correlationId, "rejected", outcome?.message),
-          );
-          return true;
-        }
-        await deliverDecision(decisionMessage(correlationId, "approved"));
         return true;
       } finally {
         args.registerParkedCancel?.(undefined);

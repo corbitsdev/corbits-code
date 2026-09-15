@@ -110,7 +110,10 @@ import {
   loadSessionChatPrompt,
   skillDirsFromEnabledPlugins,
 } from "../session/runtime-assembly.js";
-import { createApprovalResume } from "../session/approval-resume.js";
+import {
+  createApprovalResume,
+  resolveParkedCallIdFromStore,
+} from "../session/approval-resume.js";
 import { createReactorAuthorize } from "../permission/reactor-authorize.js";
 import {
   assembleChatAgent,
@@ -932,6 +935,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
     agent = currentAgent;
     // Local non-null handle after init (currentAgent stays mutable for compaction deliver).
     const activeAgent = currentAgent;
+    const activeStorage = currentStorage;
+    if (activeStorage === null)
+      throw new Error("approval resume: no context store");
 
     if (agentToolset.connectMCP !== undefined) {
       await agentToolset
@@ -1051,10 +1057,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
       const sendResult = await activeAgent.send(operatorTaskMessage(task));
       // A suspension must not park silently in exec: the approval resume owns
       // the terminal prompt flow and delivers the decision to the reactor.
-      // No resolveParkedCallId: the vendored reactor exposes no
-      // correlationId-to-call lookup, so the history heuristic is the path.
       await createApprovalResume({
         getAgent: () => activeAgent,
+        resolveParkedCallId: (correlationId) =>
+          resolveParkedCallIdFromStore(activeStorage, correlationId),
         gate: permissionGate,
       }).handle(sendResult);
       sendCompleted = true;
