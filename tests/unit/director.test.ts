@@ -144,9 +144,7 @@ const manyTurnsState: ReactorState = {
 };
 
 function makeChatDirector() {
-  return createChatDirector("sys", [], {
-    onTasksChange: () => undefined,
-  });
+  return createChatDirector("sys", [], {});
 }
 
 function hasContinuationEmit(actions: ReactorAction[]): boolean {
@@ -321,7 +319,6 @@ async function runToolOnlyStreak(
 
 test("a grok provider no longer pauses a 10-turn productive tool-only streak", async () => {
   const grokDirector = createChatDirector("sys", [], {
-    onTasksChange: () => undefined,
     provider: { providerName: "xai", model: "grok-4" },
   });
   const grokActions = await runToolOnlyStreak(grokDirector, 10);
@@ -332,7 +329,6 @@ test("a grok provider no longer pauses a 10-turn productive tool-only streak", a
   ).toBe(false);
 
   const defaultDirector = createChatDirector("sys", [], {
-    onTasksChange: () => undefined,
     provider: { providerName: "openai", model: "gpt-4" },
   });
   const defaultActions = await runToolOnlyStreak(defaultDirector, 10);

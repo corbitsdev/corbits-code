@@ -347,7 +347,6 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       // Every rebuild mints a fresh director from the static true seed (fleet
       // lanes may appear mid-session), exactly like the TUI session assembly.
       directorHolder.instance = createChatDirector("base", [], {
-        onTasksChange: () => undefined,
         allowIdleWithFleet: true,
       });
       return agent;

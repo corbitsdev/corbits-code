@@ -64,6 +64,7 @@ import {
   type SnapshotKind,
   type SnapshotStatus,
 } from "./state.js";
+import { handleChatDirectorEvent } from "../../agent/chat-event-subscribers.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -332,6 +333,17 @@ export async function createRunLifecycle(
         );
       }
     }
+    // Chat-director reactor events (replacing the former onTasksChange /
+    // onActivateTools closures): task-list changes repaint the chrome panel,
+    // tool activation opens the call gate for the named tools.
+    handleChatDirectorEvent(
+      event,
+      {
+        onTasksChanged: (tasks) => services.emitter.emit("tasks", tasks),
+        onToolsActivate: (names) => services.activatedToolNames.activate(names),
+      },
+      (message, fields) => tuiLogger.debug(message, fields),
+    );
     services.runSink.sink(eventForSink);
     services.cycleRecorder.handleEvent(event);
     if (onTurnBoundary(event)) {

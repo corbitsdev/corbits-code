@@ -22,6 +22,7 @@ import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type { DirectorId, DirectorPackage } from "../agent/directors/types.js";
 import { submitOutputDefinition } from "../agent/director.js";
+import { handleChatDirectorEvent } from "../agent/chat-event-subscribers.js";
 import {
   shellDefinition,
   updatePlanDefinition,
@@ -844,17 +845,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       systemPrompt,
       getDynamicRunner: () => agentToolset.dynamicRunner,
       computeAdvertised,
-      activateTools: (names) => activatedToolNames.activate(names),
       inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
       totalTimeoutMs: config.totalTimeoutMs,
-      // Exec mode has no live task panel or task stdout output today (unlike
-      // the TUI's chrome zone) — debug logging is the closest match to how
-      // this mode already surfaces other in-session state changes.
-      onTasksChange: (tasks) => {
-        logger.debug("tasks updated: {tasks}", {
-          tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
-        });
-      },
       getProvider: () => config,
       getWorkdir: () => workdir,
       getSessionId: () => sessionId,
@@ -974,6 +966,23 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // keeps the in-flight cycle's text so an errored or aborted turn leaves
     // its partial output in partial.jsonl instead of vanishing.
     const sink = (event: ReactorEmittedEvent): void => {
+      // Chat-director reactor events (replacing the former onTasksChange /
+      // onActivateTools closures). Exec mode has no live task panel or task
+      // stdout output today (unlike the TUI's chrome zone) — debug logging
+      // is the closest match to how this mode already surfaces other
+      // in-session state changes.
+      handleChatDirectorEvent(
+        event,
+        {
+          onTasksChanged: (tasks) => {
+            logger.debug("tasks updated: {tasks}", {
+              tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
+            });
+          },
+          onToolsActivate: (names) => activatedToolNames.activate(names),
+        },
+        (message, fields) => logger.debug(message, fields),
+      );
       if (event.type === "inference.start" || event.type === "inference.done") {
         providerFailureObserved = false;
         providerError = undefined;

@@ -433,8 +433,12 @@ export function wirePostStartup(
       // Restored tasks go to the panel only. They are live state, not something
       // that happened in the conversation, so putting them in scrollback as well
       // renders the same list twice on one screen.
-      if (tasks.length > 0)
+      if (tasks.length > 0) {
+        // The director holds the restored list; the host owns the panel, so
+        // it announces the same list the tasks-changed event would carry.
         services.directorHolder.instance?.restoreTasks(tasks);
+        services.emitter.emit("tasks", tasks);
+      }
       if (blocks.length > 0) services.emitter.emit("history.hydrate", blocks);
     })
     .catch((err: unknown) => {

@@ -31,6 +31,7 @@ import {
   applyManageTasks,
   hasActiveTasks,
   parseManageTasksArgs,
+  TaskSchema,
   type Task,
 } from "./tasks.js";
 import { createCorbitsRetryPolicy } from "./retry-policy.js";
@@ -413,7 +414,7 @@ function isCodeFile(path: string): boolean {
 // Returns null when the call is not manage_tasks or its arguments don't
 // parse, so callers can distinguish "no valid manage_tasks call here" from
 // "a valid call that happened to be a no-op" — the latter still counts as an
-// update for onTasksChange purposes.
+// update for tasks-changed event purposes.
 function applyManageTasksToolCall(
   tasks: Task[],
   block: { name: string; arguments: unknown },
@@ -423,15 +424,27 @@ function applyManageTasksToolCall(
   return taskArgs !== null ? applyManageTasks(tasks, taskArgs) : null;
 }
 
+// Reactor events the chat director emits in place of host closures. Hosts
+// (TUI, exec) subscribe on the agent stream: task-list changes replace the
+// former onTasksChange callback, tool activation replaces onActivateTools.
+// Neither namespace collides with the reactor's reserved prefixes
+// (inference., tool., reactor., fork.).
+export const CHAT_TASKS_CHANGED_EVENT = "custom.chat.tasks.changed";
+export const CHAT_TOOLS_ACTIVATE_EVENT = "custom.chat.tools.activate";
+export const ChatTasksChangedDataSchema = type({
+  tasks: TaskSchema.array(),
+});
+export const ChatToolsActivateDataSchema = type({
+  names: "string[]",
+});
+
 export interface ChatDirectorOptions {
   taskClassifier?:
     | ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>)
     | undefined;
-  onActivateTools?: ((names: string[]) => void) | undefined;
   inactivityTimeoutMs?: number | undefined;
   totalTimeoutMs?: number | undefined;
   workflowCoordinator?: WorkflowCoordinator | undefined;
-  onTasksChange: (tasks: Task[]) => void;
   provider?: { providerName: string; model?: string } | undefined;
   /**
    * CL-7918 decisions (both former closures removed, no new env key):
@@ -486,7 +499,6 @@ class ChatDirectorImpl extends DefaultDirector {
   >();
   private readonly lspTriggerCalls = new Set<string>();
   private readonly askOperatorCalls = new Set<string>();
-  private readonly onActivateTools: ((names: string[]) => void) | undefined;
   private readonly taskClassifier:
     | ((message: string, metadata: SessionMetadata) => Promise<TaskBoundary>)
     | undefined;
@@ -503,7 +515,6 @@ class ChatDirectorImpl extends DefaultDirector {
   private lastInferenceTurnHadContent = false;
   private operatorJustResponded = false;
   private tasks: Task[] = [];
-  private readonly onTasksChange: ((tasks: Task[]) => void) | undefined;
   private turnCount = 0;
   private currentTaskLabel: string | undefined;
   private lastTaskSummary: string | undefined;
@@ -528,6 +539,11 @@ class ChatDirectorImpl extends DefaultDirector {
   private toolOnlyStreak = 0;
   private toolOnlyNudgeFired = false;
   private pendingToolOnlyNudge = false;
+  // Reactor events queued while scanning the current inbound event. Drained
+  // in decide() and appended to whatever the turn returns, so task/tool
+  // notifications ride along with every terminal action list (emit is
+  // composable with all other actions).
+  private pendingEmits: ReactorAction[] = [];
 
   constructor(
     systemPrompt: string,
@@ -555,9 +571,7 @@ class ChatDirectorImpl extends DefaultDirector {
     this.inactivityTimeoutMs = options.inactivityTimeoutMs;
     this.totalTimeoutMs = options.totalTimeoutMs;
     this.taskClassifier = options.taskClassifier;
-    this.onActivateTools = options.onActivateTools;
     this.workflowCoordinator = options.workflowCoordinator;
-    this.onTasksChange = options.onTasksChange;
     // The chat path holds no continuation closure: the governor expresses
     // continuation as an emit action the host answers with a deliver.
     this.compaction = createCompactionGovernor(
@@ -603,10 +617,11 @@ class ChatDirectorImpl extends DefaultDirector {
   // A resumed session's task list lives in the transcript, not in the freshly
   // constructed director. Without this the chrome panel would read an empty
   // list until the model happened to call manage_tasks again, disagreeing
-  // with the task block already painted in the transcript.
+  // with the task block already painted in the transcript. The host emits
+  // the tasks-changed reactor event after calling this (the director cannot
+  // emit outside decide()).
   restoreTasks(tasks: Task[]): void {
     this.tasks = [...tasks];
-    this.onTasksChange?.(this.tasks);
   }
 
   // The status bar's context meter falls back to this when a provider omits
@@ -711,11 +726,26 @@ class ChatDirectorImpl extends DefaultDirector {
     state: ReactorState,
     capabilities: ReactorCapabilities,
   ): Promise<ReactorAction | ReactorAction[]> {
-    const settled = ensureCycleSettlesWithReply(
-      await this.decideInner(event, state, capabilities),
-      capabilities,
-    );
-    return this.withCurrentTools(settled);
+    try {
+      const settled = ensureCycleSettlesWithReply(
+        await this.decideInner(event, state, capabilities),
+        capabilities,
+      );
+      const withTools = this.withCurrentTools(settled);
+      if (this.pendingEmits.length === 0) return withTools;
+      const emits = this.pendingEmits;
+      this.pendingEmits = [];
+      return [
+        ...(Array.isArray(withTools) ? withTools : [withTools]),
+        ...emits,
+      ];
+    } catch (err) {
+      // A failed turn must not leak its queued task/tool notifications into
+      // the next turn — drop them so the next turn starts clean instead of
+      // flushing stale updates.
+      this.pendingEmits = [];
+      throw err;
+    }
   }
 
   private async decideInner(
@@ -927,7 +957,11 @@ class ChatDirectorImpl extends DefaultDirector {
           const next = applyManageTasksToolCall(this.tasks, block);
           if (next !== null) {
             this.tasks = next;
-            this.onTasksChange?.(this.tasks);
+            this.pendingEmits.push(
+              capabilities.emit(CHAT_TASKS_CHANGED_EVENT, {
+                tasks: this.tasks,
+              }),
+            );
           }
         } else if (block.name === "read_file" || block.name === "edit_file") {
           const pathResult = PathArgSchema(block.arguments);
@@ -975,7 +1009,10 @@ class ChatDirectorImpl extends DefaultDirector {
       this.lspTriggerCalls.has(event.result.callId)
     ) {
       this.lspTriggerCalls.delete(event.result.callId);
-      if (!event.result.isError) this.onActivateTools?.(["lsp"]);
+      if (!event.result.isError)
+        this.pendingEmits.push(
+          capabilities.emit(CHAT_TOOLS_ACTIVATE_EVENT, { names: ["lsp"] }),
+        );
     }
 
     if (event.type === "tool.done") {
