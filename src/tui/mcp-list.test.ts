@@ -81,4 +81,30 @@ describe("mergeMcpSurfaceEntries", () => {
       { name: "exa", state: "connected", toolCount: 1, builtin: true },
     ]);
   });
+
+  test("reconnecting keeps the retained tool count and attempt instead of perpetual connecting", () => {
+    expect(
+      mergeMcpSurfaceEntries(
+        [{ name: "linear", type: "http", url: "https://mcp.linear.app/mcp" }],
+        live([
+          {
+            name: "linear",
+            state: "reconnecting",
+            tools: ["a", "b"],
+            attempt: 2,
+            error: "transport closed unexpectedly",
+          },
+        ]),
+      ),
+    ).toEqual([
+      { name: "exa", state: "connecting", builtin: true },
+      {
+        name: "linear",
+        state: "reconnecting",
+        toolCount: 2,
+        attempt: 2,
+        error: "transport closed unexpectedly",
+      },
+    ]);
+  });
 });
