@@ -84,6 +84,7 @@ export function hookNotice(event: LifecycleHookEvent): RuntimeNotice | null {
 export function mcpNotice(state: MCPServerState): RuntimeNotice | null {
   switch (state.state) {
     case "connecting":
+    case "reconnecting":
       return null;
     case "connected": {
       const n = state.tools.length;
@@ -173,7 +174,14 @@ const mcpState = type({ name: "string", state: "'connecting'" })
     error: "string",
     "authPending?": "boolean",
   })
-  .or({ name: "string", state: "'disconnected'" });
+  .or({ name: "string", state: "'disconnected'" })
+  .or({
+    name: "string",
+    state: "'reconnecting'",
+    tools: "string[]",
+    attempt: "number",
+    error: "string",
+  });
 
 export function mcpServerState(raw: unknown): MCPServerState | null {
   const parsed = mcpState(raw);
