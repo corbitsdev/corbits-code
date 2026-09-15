@@ -238,7 +238,20 @@ function createMcpSurface(
           message: `No persisted MCP server named "${name}" to retry.`,
         };
       }
-      connectLateMCPServer(server);
+      // Single-dial manual retry: retryMCPServer cancels any backoff loop
+      // first so exactly one dial runs, then resets backoff state. A failed
+      // retry leaves the row failed with no backoff until the next retry.
+      void services.toolset
+        .retryMCPServer(
+          server,
+          mcpConnectCallbacks,
+          services.mcpConnectController.signal,
+        )
+        .catch((err: unknown) => {
+          tuiLogger.error("MCP retry failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
       return { ok: true, message: `Retrying ${server.name}; connecting now.` };
     },
     setEnabled: async (name: string, enabled: boolean) => {
