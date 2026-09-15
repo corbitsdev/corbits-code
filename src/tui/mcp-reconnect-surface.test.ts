@@ -62,6 +62,7 @@ describe("mcp reconnecting surface", () => {
         notify: (message: string) => notices.push(message),
         mcp: {
           list: () => entries,
+          openAuthURL: () => undefined,
           retryServer: async (name: string) => {
             retried.push(name);
             return { ok: true, message: `Retrying ${name}; connecting now.` };
