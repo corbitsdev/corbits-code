@@ -101,10 +101,6 @@ export const RETAINED_TURN_CONTEXT_LIMIT = 200;
 // recent history in memory.
 export const HOOK_PAYLOAD_TOOL_RESULT_CHARS = 4_000;
 
-export function hooksDirectory(): string {
-  return globalHooksDirectory();
-}
-
 export function localHooksDirectory(cwd: string = process.cwd()): string {
   return join(cwd, SETTINGS_DIR_NAME, "hooks");
 }

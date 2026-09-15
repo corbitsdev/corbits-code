@@ -5,11 +5,7 @@
  * import paths (`../subagent/index.js`, `./subagent.js`, etc.).
  */
 
-export type {
-  SubAgentSession,
-  SubAgentSessionStore,
-  SubAgentTranscriptEntry,
-} from "./session-store.js";
+export type { SubAgentSessionStore } from "./session-store.js";
 export { createSubAgentSessionStore } from "./session-store.js";
 export {
   createFleetWatch,
@@ -19,40 +15,25 @@ export {
   liveFleetCount,
   observeFleet,
   pendingAskSnapshot,
-  pendingAskWakeText,
-  type FleetLane,
-  type FleetObservation,
-  type FleetReportOptions,
-  type FleetWatch,
-  type PendingAskWake,
 } from "./fleet-report.js";
 export { driveOpenTasksAfterFleetDry } from "./fleet-dry-drive.js";
 export {
   driveMailboxMail,
   latchMailboxMailDrive,
-  MAILBOX_MAIL_WAKE_PREFIX,
-  mailboxMailWakeLine,
-  occupancyShouldYieldWait,
 } from "./mailbox-mail-drive.js";
 export {
   EMPTY_THRASH_STATE,
   nextThrashState,
   salvagePathsFromThrash,
-  type ThrashState,
 } from "./thrash.js";
 export {
-  appendActivitySummary,
   buildDispatchBrief,
-  demoteNestedReportHeadings,
   formatSubAgentReport,
   formatTurnTokenNotice,
   hasPlanFindings,
   hasReportEnvelope,
   parseSubAgentReport,
   subAgentToolName,
-  type DispatchBrief,
-  type SubAgentReport,
-  type TaskIntent,
 } from "./report.js";
 export {
   SUBAGENT_DEADLINE_MARGIN_MS,
@@ -65,51 +46,21 @@ export {
   preferCompletedSubAgentReply,
   resolveSubAgentCatchOutcome,
   resolveSubAgentDeadlineMs,
-  type ForcedStopReason,
-  type ForcedStopReportOptions,
-  type SubAgentCatchOutcome,
-  type SubAgentParentHintOptions,
-  type SubAgentStopReason,
-  type ToolLessNarrationSpiral,
 } from "./stop-policy.js";
 
 export { SubAgentDirector } from "./nudge-director.js";
 
 export {
   SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
-  SUBAGENT_SPAWN_DRAIN_MS,
   createSubAgentSpawnRegistryPlugin,
   disposeSubAgentSession,
-  isSubAgentCancelError,
-  type SubAgentSessionDisposeInput,
-  type SubAgentSpawnRegistry,
-  type SubAgentSpawnSnapshot,
 } from "./dispose.js";
 
-export type {
-  NestedDispatchDeps,
-  RunSubAgentParams,
-  RunSubAgentResult,
-  SubAgentProvider,
-  SubAgentSandboxDeps,
-  SubAgentTelemetryRollup,
-} from "./types.js";
+export type { SubAgentProvider } from "./types.js";
 
 export {
-  buildSubAgentPrimarySource,
-  coreSubAgentWebTools,
   createSubAgentRunController,
   runSubAgent,
   shouldRequireEvidence,
   shouldRequirePlanSubstance,
-  type SubAgentRunController,
 } from "./run.js";
-
-export {
-  cleanupSubAgentWorktree,
-  createSubAgentWorktree,
-  WorktreeError,
-  type SubAgentWorktree,
-  type WorktreeCleanupResult,
-  type WorktreeExec,
-} from "./worktree.js";

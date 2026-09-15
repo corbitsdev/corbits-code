@@ -33,12 +33,10 @@ import {
 import { OAUTH_SURFACES } from "../tui/provider/choices.js";
 import {
   resetGoModelDiscoveryForTests,
-  selectableGoModelIds,
-} from "./opencode-go-models.js";
-import {
   resetZenModelDiscoveryForTests,
+  selectableGoModelIds,
   selectableZenModelIds,
-} from "./zen-models.js";
+} from "./model-catalogs.js";
 
 // CL-5691: provider/model identity unification. FIRST_CLASS_PROVIDERS is the
 // canonical static registry; the Codex/xAI live-fetch fallbacks stay separate

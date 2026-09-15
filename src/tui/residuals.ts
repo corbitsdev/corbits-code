@@ -2,8 +2,8 @@
  * Residual list-overlay helpers + observe session types (pure, production).
  * Hosts build rows with {@link residualListFromCatalog} and resolve accept
  * callbacks via {@link residualIdFromSelection}; overlay openers require
- * `items` from the caller that owns the data. Demo/fixture data lives in
- * demo.ts, not here.
+ * `items` from the caller that owns the data. Fixture data lives with the
+ * caller, not here.
  */
 
 import type { StreamRow } from "./stream.js";

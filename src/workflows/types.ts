@@ -3,7 +3,6 @@ export type {
   WorkflowStep,
   WorkflowPlugin,
   CapabilityName,
-  StepType,
 } from "./definition.js";
 
 export type StepStatus = "pending" | "active" | "completed" | "skipped";

@@ -13,7 +13,5 @@ export const ZEN_DEFAULT_BASE_URL = "https://opencode.ai/zen/v1";
 // is the correct base for message-protocol models.
 export const ZEN_BASE_URL = "https://opencode.ai/zen";
 
-export const ZEN_MODELS_PATH = "/models";
-
 export const ZEN_AUTH_HINT =
   "OpenCode Zen pay-as-you-go credits — paste your API key from https://opencode.ai/auth";

@@ -16,46 +16,11 @@ import { clearActiveTurnId } from "./active-turn.js";
 export {
   sanitizeTags,
   isOpaqueId,
-  OPAQUE_ID_RE,
   ALLOWED_TAG_KEYS,
-  type AllowedTagKey,
-  type DecisionKind,
   type PerfTags,
-  type TransportKind,
 } from "./sanitize.js";
 
-export {
-  DEFAULT_OTEL_SERVICE_NAME,
-  OTEL_CONFIG_INVALID,
-  OTEL_ENV,
-  OtelConfigError,
-  isOtelConfigInvalid,
-  otelConfigForDump,
-  parseOtelKeyValueList,
-  requireOtelExportConfig,
-  resolveOtelExportConfig,
-  type DisabledOtelExportConfig,
-  type EnabledOtelExportConfig,
-  type OtelConfigResolution,
-  type OtelExportConfig,
-  type OtelExportConfigDumpView,
-  type OtelSettings,
-} from "./otel-config.js";
-
-export {
-  buildOtlpPayload,
-  flushToOtel,
-  monoToUnixNano,
-  newOtelTraceId,
-  otelSpanId,
-  otlpTracesUrl,
-  tagsToOtlpAttributes,
-  type FlushPerfToOtelOptions,
-  type FlushToOtelOptions,
-  type OtlpExportPayload,
-  type OtlpKeyValue,
-  type OtlpSpan,
-} from "./otel-sink.js";
+export { type FlushPerfToOtelOptions } from "./otel-sink.js";
 
 import type { Settings } from "../config/settings.js";
 import {

@@ -9,9 +9,7 @@ import { REASONING_EFFORTS } from "./profile-types.js";
 
 export type {
   AgentProfile,
-  AgentPlugin,
   CapabilityFilter,
-  CapabilityMode,
   InferenceLeg,
   InferenceSpec,
   ReasoningEffort,

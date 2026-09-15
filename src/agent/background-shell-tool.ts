@@ -79,7 +79,10 @@ export function createShellCollectTool(
 ) {
   return {
     definition: shellCollectDefinition,
-    handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
+    handler: async (
+      rawArgs: Record<string, unknown>,
+      signal?: AbortSignal,
+    ): Promise<string> => {
       const parsed = ShellCollectArgs(rawArgs);
       if (parsed instanceof type.errors) {
         return "Error: shell_collect requires shell_id (string) and action ('collect' | 'cancel').";
@@ -91,7 +94,11 @@ export function createShellCollectTool(
         }
         return JSON.stringify({ shell_id, status: "cancelling" });
       }
-      const snapshot = await registry.collect(shell_id, parsed.wait_ms ?? 0);
+      const snapshot = await registry.collect(
+        shell_id,
+        parsed.wait_ms ?? 0,
+        signal,
+      );
       if (snapshot.state === "running") {
         return JSON.stringify({ shell_id, status: "running" });
       }

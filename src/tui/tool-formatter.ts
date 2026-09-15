@@ -36,19 +36,6 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   ask_operator: "Ask operator",
 };
 
-// run_shell prefixes a failed result with "exit code N\n<output>" (see
-// summarizeToolResult's run_shell case); other tool errors, and shell errors
-// raised outside that envelope (e.g. a rejected permission), carry no such
-// prefix and should render as plain errors instead of a parsed exit summary.
-const SHELL_EXIT_ENVELOPE = /^exit code \d+\n/;
-
-export function isShellExitEnvelope(
-  toolName: string,
-  content: string,
-): boolean {
-  return toolName === "run_shell" && SHELL_EXIT_ENVELOPE.test(content);
-}
-
 // Brand of the active web plugin (e.g. "Exa"), set at startup when a web plugin
 // overrides the built-in provider. Renders web_search/web_fetch as branded
 // actions so it is clear which backend served the call.

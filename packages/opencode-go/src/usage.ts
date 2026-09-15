@@ -7,7 +7,7 @@ export interface GoUsageWindow {
   resetInSec?: number;
 }
 
-export interface GoUsage {
+interface GoUsage {
   rolling5h?: GoUsageWindow;
   weekly?: GoUsageWindow;
   monthly?: GoUsageWindow;

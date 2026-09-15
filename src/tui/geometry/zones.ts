@@ -247,10 +247,6 @@ export const PAINT_ORDER = [
   "prompt",
 ] as const satisfies readonly ZoneId[];
 
-export function zoneDeclaration(id: ZoneId): ZoneDeclaration {
-  return ZONE_REGISTRY[id];
-}
-
 /**
  * Optical breathing room shared by every shell surface.
  *

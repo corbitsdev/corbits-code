@@ -6,6 +6,7 @@ import { type } from "arktype";
 import type { SkillSummary } from "../extensions/skills.js";
 import {
   lexicalFields,
+  rankAndCut,
   scoreLexical,
   tokenizeLexical,
 } from "./lexical-rank.js";
@@ -82,15 +83,11 @@ export function createSkillSearchTool(
       if (queryTokens.length === 0) {
         return `No skills matched "${query}". Try different keywords describing the capability.`;
       }
-      const matches = catalog
-        .map((skill) => ({
-          skill,
-          score: scoreSkill(skill, queryTokens, rawQuery),
-        }))
-        .filter((entry) => entry.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, DEFAULT_LIMIT)
-        .map((entry) => entry.skill);
+      const matches = rankAndCut(
+        catalog,
+        (skill) => scoreSkill(skill, queryTokens, rawQuery),
+        DEFAULT_LIMIT,
+      );
       if (matches.length === 0) {
         return `No skills matched "${query}". Try different keywords describing the capability.`;
       }

@@ -3,7 +3,6 @@ import { type } from "arktype";
 import { requestModelsEndpoint } from "./models-endpoint.js";
 
 export const OLLAMA_PROVIDER_ID = "ollama";
-export const OLLAMA_DEFAULT_ROOT_URL = "http://localhost:11434";
 
 export function isOllamaProviderId(providerId: string): boolean {
   return (

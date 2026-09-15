@@ -78,6 +78,18 @@ export function createCorrelationAcceptance() {
     for (const correlationId of [...holdUntilToolStart]) settle(correlationId);
   };
 
+  /**
+   * Drop a waiter without resolving it. The acceptance deadline path uses
+   * this instead of settle: settling would fulfill the very promise the
+   * deadline race is trying to reject, so the timeout could never fire. The
+   * approved hold survives: the retry re-awaits acceptance for the same
+   * correlation id, and a late tool.start must still settle that waiter
+   * instead of finding an empty hold set and false-timing-out again.
+   */
+  const abandon = (correlationId: string): void => {
+    waiters.delete(correlationId);
+  };
+
   return {
     wait(correlationId: string): Promise<void> {
       const pending = waiters.get(correlationId);
@@ -89,6 +101,7 @@ export function createCorrelationAcceptance() {
       });
     },
     settle,
+    abandon,
     settleAll(): void {
       holdUntilToolStart.clear();
       for (const correlationId of [...waiters.keys()]) settle(correlationId);

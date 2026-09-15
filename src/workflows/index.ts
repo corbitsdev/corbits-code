@@ -32,4 +32,4 @@ export function clearWorkflowRegistryForTests(): void {
   WORKFLOWS.length = 0;
 }
 
-export type { Workflow, WorkflowStep, CapabilityName } from "./types.js";
+export type { Workflow } from "./types.js";

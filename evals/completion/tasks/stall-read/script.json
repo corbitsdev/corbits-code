@@ -1,0 +1,52 @@
+{
+  "turns": [
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    },
+    {
+      "text": "Re-reading to be sure.",
+      "toolCalls": [{ "name": "read_file", "args": { "path": "data.ts" } }]
+    }
+  ]
+}

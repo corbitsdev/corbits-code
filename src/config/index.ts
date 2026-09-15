@@ -57,12 +57,12 @@ import {
 } from "../provider/grok-responses.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
 import { isOllamaProviderId, ollamaOpenAIBaseURL } from "../provider/ollama.js";
-import { selectableGoModelIds } from "../provider/opencode-go-models.js";
+import { selectableGoModelIds } from "../provider/model-catalogs.js";
 import {
   OPENCODE_GO_MESSAGES_PROVIDER,
   ZEN_MESSAGES_PROVIDER,
 } from "../provider/anthropic-session-adapter.js";
-import { selectableZenModelIds } from "../provider/zen-models.js";
+import { selectableZenModelIds } from "../provider/model-catalogs.js";
 import {
   OPENAI_RESPONSES_PROVIDER,
   OPENAI_SESSION_ID_OPTION,

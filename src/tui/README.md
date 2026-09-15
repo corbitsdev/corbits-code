@@ -70,6 +70,4 @@ appendTranscript(shell, "hello");
 // stickyScroll follows bottom until operator scrolls up (FOLLOW / PINNED)
 ```
 
-Interactive demo (TTY): `bun src/tui/demo.ts`
-
 Binding for the shell frame: **core-class** (not Solid) — VNode ScrollBox broke `scrollTop` in the spike; class `ScrollBoxRenderable` is required for sticky/scroll leases.

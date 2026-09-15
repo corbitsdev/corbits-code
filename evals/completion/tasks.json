@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "note": "Frozen task set v1 for CL-7932. Do not modify, add, or remove tasks after the baseline is recorded; later runs must use this exact set to stay comparable. Any change requires a version bump and a new baseline.",
+  "tasks": [
+    {
+      "id": "version-endpoint",
+      "title": "Add GET /version to a two-route service",
+      "profile": "solve",
+      "prompt": "Add GET /version to handleRequest in service.ts. It must return status 200 with body {\"version\":\"1.0.0\"}. Keep the existing /health behavior working.",
+      "fixture": "tasks/version-endpoint/fixture",
+      "script": "tasks/version-endpoint/script.json",
+      "verify": "tasks/version-endpoint/verify.sh",
+      "maxTurns": 8
+    },
+    {
+      "id": "sum-fix",
+      "title": "Fix an off-by-one in a total function",
+      "profile": "solve",
+      "prompt": "Fix total in sum.ts so it returns the exact sum of the input values.",
+      "fixture": "tasks/sum-fix/fixture",
+      "script": "tasks/sum-fix/script.json",
+      "verify": "tasks/sum-fix/verify.sh",
+      "maxTurns": 8
+    },
+    {
+      "id": "decline-refactor",
+      "title": "Decline a migration that does not fit the turn budget",
+      "profile": "decline",
+      "prompt": "Migrate the notes module to a versioned store with migration history.",
+      "fixture": "tasks/decline-refactor/fixture",
+      "script": "tasks/decline-refactor/script.json",
+      "verify": "tasks/decline-refactor/verify.sh",
+      "maxTurns": 5
+    },
+    {
+      "id": "stall-read",
+      "title": "Stall by re-reading the same file instead of acting",
+      "profile": "stall",
+      "prompt": "Report the seed value from data.ts in report.txt.",
+      "fixture": "tasks/stall-read/fixture",
+      "script": "tasks/stall-read/script.json",
+      "verify": "tasks/stall-read/verify.sh",
+      "maxTurns": 10
+    }
+  ]
+}

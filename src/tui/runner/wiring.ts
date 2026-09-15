@@ -14,8 +14,10 @@ import {
 } from "../../config/settings.js";
 import { refreshLiveProviderCatalog } from "../../config/index.js";
 import type { ResolvedProvider } from "../../config/settings.js";
-import { prefetchGoModels } from "../../provider/opencode-go-models.js";
-import { prefetchZenModels } from "../../provider/zen-models.js";
+import {
+  prefetchGoModels,
+  prefetchZenModels,
+} from "../../provider/model-catalogs.js";
 import { isOpenCodeGoProvider } from "../../../packages/opencode-go/src/index.js";
 import { isZenProvider } from "../../../packages/zen/src/index.js";
 import { loadRecentTurns } from "../../session/optimized-context-store.js";
@@ -105,6 +107,10 @@ export function createFleetStallPollTick(
 export function createFleetWakePublisher(
   sessions: RunnerServices["subAgentSessions"],
   emitter: RunnerServices["emitter"],
+  // Live idle-with-fleet flag (CL-7972): fired on fleet-count transitions so
+  // the chat director's seeded allowance tracks the live fleet instead of
+  // holding its construction value. Omitted in tests that only assert events.
+  onFleetCount?: (running: number) => void,
 ) {
   let lastLiveFleet = 0;
   let suspended = false;
@@ -120,6 +126,7 @@ export function createFleetWakePublisher(
     if (fleet !== lastLiveFleet) {
       lastLiveFleet = fleet;
       emitter.emit("event", { type: "fleet", running: fleet });
+      onFleetCount?.(fleet);
     }
     return { previousRunning, running: fleet };
   };
@@ -261,6 +268,11 @@ export function wirePostStartup(
   const fleetWakePublisher = createFleetWakePublisher(
     services.subAgentSessions,
     services.emitter,
+    // Liven the seeded idle-with-fleet allowance (CL-7972): the director
+    // reads the holder live so rebuilds stay tracked, and degrades gracefully
+    // while the director is not yet built.
+    (running) =>
+      services.directorHolder.instance?.setAllowIdleWithFleet(running > 0),
   );
   state.withFleetPublicationSuspended = fleetWakePublisher.withSuspended;
   sessionBridge.setDryOpenTaskDriver(() => {

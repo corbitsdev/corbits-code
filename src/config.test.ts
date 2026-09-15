@@ -43,12 +43,10 @@ import {
 } from "../packages/zen/src/index.js";
 import {
   prefetchGoModels,
-  resetGoModelDiscoveryForTests,
-} from "./provider/opencode-go-models.js";
-import {
   prefetchZenModels,
+  resetGoModelDiscoveryForTests,
   resetZenModelDiscoveryForTests,
-} from "./provider/zen-models.js";
+} from "./provider/model-catalogs.js";
 import {
   generateSessionId,
   initSessionDir,

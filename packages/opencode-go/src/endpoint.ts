@@ -4,7 +4,7 @@ import {
 } from "./constants.js";
 import { type GoProtocol, protocolForGoModel } from "./models.js";
 
-export interface GoEndpoint {
+interface GoEndpoint {
   protocol: GoProtocol;
   /** Base URL for the selected protocol's adapter. */
   baseURL: string;

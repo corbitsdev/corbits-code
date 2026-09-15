@@ -20,8 +20,10 @@ import type {
   discoverOllamaModels as discoverOllamaModelsRequest,
   OllamaDiscoveryState,
 } from "../../provider/ollama.js";
-import type { prefetchGoModels as prefetchGoModelsRequest } from "../../provider/opencode-go-models.js";
-import type { prefetchZenModels as prefetchZenModelsRequest } from "../../provider/zen-models.js";
+import type {
+  prefetchGoModels as prefetchGoModelsRequest,
+  prefetchZenModels as prefetchZenModelsRequest,
+} from "../../provider/model-catalogs.js";
 import type { ResidualCatalogEntry } from "../residuals.js";
 import type { OverlayList } from "../shell/internals.js";
 import type { SetupStep } from "./steps.js";
