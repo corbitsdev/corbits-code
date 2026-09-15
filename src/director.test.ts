@@ -442,6 +442,41 @@ describe("open-task termination guard", () => {
     ).toBe(true);
   });
 
+  test("setAllowIdleWithFleet tracks fleet transitions off the seeded value", async () => {
+    const director = createChatDirector("base", [], {
+      onTasksChange: () => undefined,
+      allowIdleWithFleet: true,
+    });
+    await director.decide(
+      manageTasksEvent("doing"),
+      mockState,
+      mockCapabilities,
+    );
+
+    // Seeded allowance: terminal reply with open tasks, no nudge spent.
+    const seeded = actionsArray(
+      await director.decide(textTurn(), mockState, mockCapabilities),
+    );
+    expect(hasReply(seeded)).toBe(true);
+    expect(hasInfer(seeded)).toBe(false);
+
+    // Drained fleet resumes the open-task nudge.
+    director.setAllowIdleWithFleet(false);
+    const nudged = actionsArray(
+      await director.decide(textTurn(), mockState, mockCapabilities),
+    );
+    expect(hasInfer(nudged)).toBe(true);
+    expect(hasReply(nudged)).toBe(false);
+
+    // Fleet back: terminal allowed again.
+    director.setAllowIdleWithFleet(true);
+    const settled = actionsArray(
+      await director.decide(textTurn(), mockState, mockCapabilities),
+    );
+    expect(hasReply(settled)).toBe(true);
+    expect(hasInfer(settled)).toBe(false);
+  });
+
   test("empty model turn settles with a valid empty reply", async () => {
     // DefaultDirector ends empty responses with bare wait; without a reply,
     // agent.send hangs and the TUI Working spinner sticks forever.

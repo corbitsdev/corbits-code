@@ -59,8 +59,10 @@ export interface WorkflowHostArgs {
   getSessionId: () => string;
   getToolDefinitions: () => ToolDefinition[];
   // The live chat director; the workflow coordinator is attached to it when a
-  // workflow starts. Returns undefined before the director is built.
-  getDirector: () => { setWorkflowCoordinator: SetCoordinator } | undefined;
+  // workflow starts. Returns undefined before the director is built. The seam
+  // is optional so the host degrades gracefully against directors without
+  // workflow support — every attach point presence-checks before calling.
+  getDirector: () => { setWorkflowCoordinator?: SetCoordinator } | undefined;
   // Overrides the state-tree home (defaults to the real user home). Tests
   // pass a sandboxed dir here so persist()/resume() never touch ~/.corbits.
   home?: string;
@@ -84,7 +86,7 @@ export class WorkflowHost {
   // Re-attach the active coordinator to a freshly rebuilt director. Safe to
   // call with no active workflow — it just clears any stale coordinator.
   reattach(): void {
-    this.args.getDirector()?.setWorkflowCoordinator(this.coordinator);
+    this.args.getDirector()?.setWorkflowCoordinator?.(this.coordinator);
   }
 
   // Drop the active workflow and history (e.g. on /clear).
@@ -94,7 +96,7 @@ export class WorkflowHost {
     this.pendingReplace = undefined;
     this.completedWorkflows = [];
     this.lastActiveStatus = undefined;
-    this.args.getDirector()?.setWorkflowCoordinator(undefined);
+    this.args.getDirector()?.setWorkflowCoordinator?.(undefined);
     this.notify();
   }
 
@@ -166,7 +168,7 @@ export class WorkflowHost {
     this.listen(runtime);
     this.runtime = runtime;
     this.coordinator = coordinator;
-    this.args.getDirector()?.setWorkflowCoordinator(coordinator);
+    this.args.getDirector()?.setWorkflowCoordinator?.(coordinator);
     if (restore !== true) {
       runtime.start(workflow);
       this.persist();

@@ -105,6 +105,10 @@ export function createFleetStallPollTick(
 export function createFleetWakePublisher(
   sessions: RunnerServices["subAgentSessions"],
   emitter: RunnerServices["emitter"],
+  // Live idle-with-fleet flag (CL-7972): fired on fleet-count transitions so
+  // the chat director's seeded allowance tracks the live fleet instead of
+  // holding its construction value. Omitted in tests that only assert events.
+  onFleetCount?: (running: number) => void,
 ) {
   let lastLiveFleet = 0;
   let suspended = false;
@@ -120,6 +124,7 @@ export function createFleetWakePublisher(
     if (fleet !== lastLiveFleet) {
       lastLiveFleet = fleet;
       emitter.emit("event", { type: "fleet", running: fleet });
+      onFleetCount?.(fleet);
     }
     return { previousRunning, running: fleet };
   };
@@ -261,6 +266,11 @@ export function wirePostStartup(
   const fleetWakePublisher = createFleetWakePublisher(
     services.subAgentSessions,
     services.emitter,
+    // Liven the seeded idle-with-fleet allowance (CL-7972): the director
+    // reads the holder live so rebuilds stay tracked, and degrades gracefully
+    // while the director is not yet built.
+    (running) =>
+      services.directorHolder.instance?.setAllowIdleWithFleet(running > 0),
   );
   state.withFleetPublicationSuspended = fleetWakePublisher.withSuspended;
   sessionBridge.setDryOpenTaskDriver(() => {

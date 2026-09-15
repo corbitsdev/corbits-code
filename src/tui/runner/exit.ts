@@ -13,6 +13,7 @@ import {
 import { getLogger } from "@intx/log";
 import type { InferenceSource } from "@intx/types/runtime";
 import { consumeStream } from "../../session/stream-consumer.js";
+import { liveFleetCount } from "../../subagent/index.js";
 import { getTelemetry } from "../../telemetry/singleton.js";
 import { onTurnBoundary } from "../../agent/reactor-events.js";
 import { setAgentSourceUnlessClosed } from "../agent-source-sync.js";
@@ -143,6 +144,18 @@ export async function closeAgentForRebuild(
     });
     return false;
   }
+}
+
+// Rebuilt directors seed allowIdleWithFleet=true (fleet lanes may appear
+// mid-session), so a rebuild while drained must re-sync the new director from
+// the live fleet count — otherwise the open-task nudge stays suppressed until
+// the next fleet transition, which never comes for an already-drained fleet.
+function resyncIdleWithFleetFlag(
+  services: Pick<RunnerServices, "directorHolder" | "subAgentSessions">,
+): void {
+  services.directorHolder.instance?.setAllowIdleWithFleet(
+    liveFleetCount(services.subAgentSessions.list()) > 0,
+  );
 }
 
 // Every rebuild site funnels its failure (a lock left held by a failed
@@ -345,6 +358,7 @@ export async function createRunLifecycle(
           throw new AgentContextLockError(state.workdir);
         }
         state.currentAgent = await services.buildAgent();
+        resyncIdleWithFleetFlag(services);
         state.streamPromise = consumeStream(
           liveAgent(state).stream(),
           streamSink,
@@ -547,6 +561,7 @@ export async function createRunLifecycle(
             throw new AgentContextLockError(state.workdir);
           }
           state.currentAgent = await services.buildAgent();
+          resyncIdleWithFleetFlag(services);
           services.cycleRecorder.reset();
           state.streamPromise = consumeStream(
             liveAgent(state).stream(),

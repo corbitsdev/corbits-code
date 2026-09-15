@@ -447,23 +447,24 @@ export interface ChatDirectorOptions {
    *   uses a switched model still stamp the previous id — the director learns
    *   the new id from that inference's completion event.
    *
-   * - getLiveFleetCount → static config (allowIdleWithFleet below). The count
-   *   is genuinely external (subagent lane statuses the reactor never sees —
-   *   its own tasks only carry todo/doing/done/cancelled), so neither
-   *   BaseEnv-derived nor reactor-supplied can reproduce its liveness.
-   *   Idle-with-fleet itself is unchanged (fleet-running TUI sessions allow
-   *   the terminal wait). Accepted loss: a drained fleet no longer resumes
-   *   the open-task nudge — bounded, since the nudge capitulates to terminal
-   *   after its cap anyway.
+   * - getLiveFleetCount → seeded config + live narrow setter
+   *   (setAllowIdleWithFleet below). The count is genuinely external (subagent
+   *   lane statuses the reactor never sees — its own tasks only carry
+   *   todo/doing/done/cancelled), so neither BaseEnv-derived nor
+   *   reactor-supplied can reproduce its liveness. Idle-with-fleet itself is
+   *   unchanged (fleet-running TUI sessions allow the terminal wait); the
+   *   fleet-wake publisher drives the setter on count transitions, so a
+   *   drained fleet resumes the open-task nudge.
    */
   /** Explicit retry policy; when set, skips the default Corbits policy. */
   retryPolicy?: RetryPolicy | undefined;
   /**
-   * Static idle-with-fleet allowance (CL-7918 replacement for the former
+   * Initial idle-with-fleet allowance (CL-7918 replacement for the former
    * getLiveFleetCount closure). When true the director allows a terminal
    * wait/reply with open tasks; when omitted or false it keeps the open-task
-   * nudge. The TUI sets this (fleet lanes may appear mid-session); exec
-   * omits it.
+   * nudge. The TUI seeds this (fleet lanes may appear mid-session); exec
+   * omits it. The live fleet-wake publisher then keeps it current through
+   * setAllowIdleWithFleet, so a drained fleet resumes the nudge.
    */
   allowIdleWithFleet?: boolean | undefined;
 }
@@ -515,8 +516,8 @@ class ChatDirectorImpl extends DefaultDirector {
   // refreshed on every inference completion, so mid-session /model switches
   // remap without rebuilding the agent.
   private currentSourceId: string | undefined;
-  /** CL-7918 static replacement for the former getLiveFleetCount closure. */
-  private readonly allowIdleWithFleet: boolean;
+  /** CL-7918 live replacement for the former getLiveFleetCount closure. */
+  private allowIdleWithFleet: boolean;
   // Consecutive assistant turns that contain tool calls and no text. Reset on
   // any turn with text and on every fresh user message — a weak model that
   // spins in place on one thread of tool calls still converges to the
@@ -576,6 +577,13 @@ class ChatDirectorImpl extends DefaultDirector {
 
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void {
     this.workflowCoordinator = coordinator;
+  }
+
+  // Narrow live setter for the idle-with-fleet allowance (CL-7972): the
+  // fleet-wake publisher drives this on fleet-count transitions, so a drained
+  // fleet resumes the open-task nudge instead of holding the seeded value.
+  setAllowIdleWithFleet(value: boolean): void {
+    this.allowIdleWithFleet = value;
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
@@ -1095,9 +1103,10 @@ class ChatDirectorImpl extends DefaultDirector {
         (a) => a.type === "wait" || a.type === "reply",
       );
       if (hasTerminal) {
-        // CL-7918: static idle-with-fleet allowance (replaces the former
-        // getLiveFleetCount closure). TUI sessions set allowIdleWithFleet;
-        // exec omits it and keeps the nudge.
+        // CL-7918 live idle-with-fleet allowance (replaces the former
+        // getLiveFleetCount closure): seeded at construction, then kept
+        // current by the fleet-wake publisher. TUI seeds true (fleet lanes
+        // may appear mid-session); exec omits it and keeps the nudge.
         if (this.allowIdleWithFleet) {
           return base;
         }
@@ -1172,6 +1181,7 @@ export function hydrateTasksFromTurns(turns: ConversationTurn[]): Task[] {
 export interface ChatDirector extends ReactorDirector {
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
+  setAllowIdleWithFleet(value: boolean): void;
   getTasks(): Task[];
   restoreTasks(tasks: Task[]): void;
   getContextEstimate(): { tokens: number; isEstimate: boolean };

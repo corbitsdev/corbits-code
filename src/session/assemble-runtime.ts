@@ -474,9 +474,10 @@ export interface ChatAgentWiring {
   totalTimeoutMs?: number | undefined;
   onTasksChange: (tasks: Task[]) => void;
   /**
-   * Static idle-with-fleet allowance for the chat director (CL-7918: replaces
-   * the former getLiveFleetCount closure). Omitted in exec (keeps the
-   * open-task nudge); the TUI sets it (fleet lanes may appear mid-session).
+   * Seed for the idle-with-fleet allowance for the chat director (CL-7918:
+   * replaces the former getLiveFleetCount closure; CL-7972 keeps it live via
+   * the fleet-wake publisher). Omitted in exec (keeps the open-task nudge);
+   * the TUI seeds it (fleet lanes may appear mid-session).
    */
   allowIdleWithFleet?: boolean;
   /** Compaction governor re-entry (the reactor emits no event after compact). */
@@ -542,8 +543,9 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           onTasksChange: wiring.onTasksChange,
           requestContinuation: wiring.requestContinuation,
           provider: { ...wiring.getProvider() },
-          // CL-7918: static idle-with-fleet allowance replaces the former
-          // getLiveFleetCount closure; the live source id for retry stamping
+          // CL-7918: idle-with-fleet seed replaces the former
+          // getLiveFleetCount closure (CL-7972 keeps it live via the
+          // fleet-wake publisher); the live source id for retry stamping
           // is reactor-tracked now (no getProviderId).
           allowIdleWithFleet: wiring.allowIdleWithFleet,
         },

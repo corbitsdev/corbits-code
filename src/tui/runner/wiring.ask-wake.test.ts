@@ -68,6 +68,36 @@ test("failed reset releases publication without flushing partially cancelled wor
   }
 });
 
+test("fleet-wake publisher reports fleet-count transitions to the idle-with-fleet follower", () => {
+  const store = createSubAgentSessionStore();
+  const emitter = new EventEmitter();
+  const seen: number[] = [];
+  const publisher = createFleetWakePublisher(store, emitter, (running) => {
+    seen.push(running);
+  });
+  // Steady empty state: no transition, no callback.
+  publisher.publish();
+  expect(seen).toEqual([]);
+  store.start({
+    id: "worker-one",
+    agentId: "builder",
+    description: "worker-one",
+    brief: "build",
+  });
+  // A started lane counts as running: 0 -> 1 transition.
+  publisher.publish();
+  expect(seen).toEqual([1]);
+  store.markRunning("worker-one");
+  publisher.publish();
+  expect(seen).toEqual([1]);
+  // Steady fleet: no repeat callback.
+  publisher.publish();
+  expect(seen).toEqual([1]);
+  store.cancelAll("Session cleared");
+  publisher.publish();
+  expect(seen).toEqual([1, 0]);
+});
+
 for (const phase of ["settled", "prequeued", "deferred"] as const) {
   test(`rotation suppresses old worker snapshots (${phase}), including repeated resets`, async () => {
     await withTestRenderer(

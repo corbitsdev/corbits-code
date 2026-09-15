@@ -5,6 +5,14 @@ import { getLogger } from "@intx/log";
 import type { InferenceSource } from "@intx/types/runtime";
 
 import * as codexSession from "../../auth/codex/session.js";
+import { createChatDirector } from "../../agent/director.js";
+import { createSubAgentSessionStore } from "../../subagent/session-store.js";
+import type {
+  ReactorAction,
+  ReactorCapabilities,
+  ReactorInboundEvent,
+  ReactorState,
+} from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 import { defined } from "../../../tests/helpers/defined.js";
 import {
@@ -257,5 +265,128 @@ describe("agentProxy.send vs /clear", () => {
     } finally {
       hung.spy.mockRestore();
     }
+  });
+});
+
+const rebuildMockState: ReactorState = {} as unknown as ReactorState;
+
+const rebuildMockCapabilities: ReactorCapabilities = {
+  infer: (options) =>
+    ({
+      type: "infer",
+      ...(options !== undefined ? { options } : {}),
+    }) as ReactorAction,
+  executeTools: (calls) => ({ type: "execute_tools", calls }),
+  suspend: (gate) => ({ type: "suspend", gate }),
+  fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
+  emit: (eventType, data) => ({ type: "emit", eventType, data }),
+  reply: (content) => ({ type: "reply", content }),
+  checkpoint: (message = "") => ({ type: "checkpoint", message }),
+  compact: (compactor, reason) => ({ type: "compact", compactor, reason }),
+  wait: () => ({ type: "wait" }),
+  done: () => ({ type: "done" }),
+};
+
+function rebuildManageTasksEvent(): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      model: "test",
+      timestamp: 0,
+      content: [
+        {
+          type: "tool_call",
+          id: "m",
+          name: "manage_tasks",
+          arguments: {
+            action: "create",
+            tasks: [{ id: "t1", title: "work", status: "doing" }],
+          },
+        },
+      ],
+    },
+    usage: { input: 0, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    source: { model: "test-model" },
+  } as unknown as ReactorInboundEvent;
+}
+
+function rebuildTextTurn(): ReactorInboundEvent {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      model: "test",
+      timestamp: 0,
+      content: [{ type: "text", text: "all set" }],
+    },
+    usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    source: { model: "test-model" },
+  } as unknown as ReactorInboundEvent;
+}
+
+describe("rebuild re-syncs idle-with-fleet while drained", () => {
+  test("reload-if-idle and interrupt rebuilds resume the open-task nudge with no fleet transition", async () => {
+    const store = createSubAgentSessionStore();
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const agent = recordingAgent([]);
+    const { state, services } = stubSendLifecycle(agent);
+    services.directorHolder =
+      directorHolder as unknown as RunnerServices["directorHolder"];
+    services.subAgentSessions =
+      store as unknown as RunnerServices["subAgentSessions"];
+    services.workflowHost = {
+      reattach: () => undefined,
+    } as unknown as RunnerServices["workflowHost"];
+    services.cycleRecorder = {
+      dispose: async () => "",
+      reset: () => undefined,
+      handleEvent: () => undefined,
+    } as unknown as RunnerServices["cycleRecorder"];
+    services.buildAgent = (async () => {
+      // Every rebuild mints a fresh director from the static true seed (fleet
+      // lanes may appear mid-session), exactly like the TUI session assembly.
+      directorHolder.instance = createChatDirector("base", [], {
+        onTasksChange: () => undefined,
+        allowIdleWithFleet: true,
+      });
+      return agent;
+    }) as unknown as RunnerServices["buildAgent"];
+    const fleetEvents: unknown[] = [];
+    services.emitter.on("event", (event: { type: string }) => {
+      if (event.type === "fleet") fleetEvents.push(event);
+    });
+    await createRunLifecycle(state, services);
+    const expectOpenTaskNudge = async (): Promise<void> => {
+      const director = defined(
+        directorHolder.instance,
+        "directorHolder.instance",
+      );
+      await director.decide(
+        rebuildManageTasksEvent(),
+        rebuildMockState,
+        rebuildMockCapabilities,
+      );
+      const actions = await director.decide(
+        rebuildTextTurn(),
+        rebuildMockState,
+        rebuildMockCapabilities,
+      );
+      const list = Array.isArray(actions) ? actions : [actions];
+      expect(list.some((action) => action.type === "infer")).toBe(true);
+    };
+    // Drained fleet: the idle reload rebuilds onto the static true seed.
+    state.pendingReload = true;
+    defined(state.reloadIfIdle, "reloadIfIdle")();
+    await services.sessionOps.awaitTail();
+    expect(state.fatalBuildError).toBeNull();
+    await expectOpenTaskNudge();
+    // The interrupt rebuild inherits the same seed.
+    defined(state.interrupt, "interrupt")();
+    await services.sessionOps.awaitTail();
+    expect(state.fatalBuildError).toBeNull();
+    await expectOpenTaskNudge();
+    expect(store.list()).toEqual([]);
+    expect(fleetEvents).toEqual([]);
   });
 });
