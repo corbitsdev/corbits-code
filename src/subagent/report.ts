@@ -215,6 +215,25 @@ export function hasPlanFindings(text: string): boolean {
   });
 }
 
+/**
+ * True when Findings is empty, placeholder-only, or outline/TBD labels
+ * without a body. Wrap-up prose that is not a section label is not a stub.
+ */
+export function isStubPlanFindings(text: string): boolean {
+  if (hasPlanFindings(text)) return false;
+  const findings = parseSubAgentReport(text).findings;
+  if (findings.length === 0) return true;
+  for (const line of findings.split(/\r?\n/)) {
+    if (isPlaceholderPlanLine(line)) continue;
+    const classified = classifyPlanSectionLine(line);
+    if (classified === null) return false;
+    if (classified.rest.length > 0 && !isPlaceholderPlanLine(classified.rest)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Demote ## Summary|Findings|Blockers|Paths lines so nested envelopes stay under Findings. */
 export function demoteNestedReportHeadings(text: string): string {
   // Match parseSubAgentReport: flexible whitespace + case-insensitive section names.

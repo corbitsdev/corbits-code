@@ -240,6 +240,20 @@ describe("sub-agent stop helpers", () => {
     "None.",
   ].join("\n");
 
+  const WRAP_PLAN_ENVELOPE = [
+    "## Summary",
+    "Plan after reading the gate.",
+    "",
+    "## Findings",
+    "Auth lives in gate.ts; wrap the change in one patch.",
+    "",
+    "## Blockers",
+    "None.",
+    "",
+    "## Paths",
+    "src/gate.ts",
+  ].join("\n");
+
   const NUMBERED_TBD_PLAN_FINDINGS = [
     "1. Files / paths",
     "   TBD",
@@ -569,6 +583,38 @@ describe("sub-agent stop helpers", () => {
         toolLessNarrationCycles: 2,
       }),
     ).toBe("incomplete-report-stop");
+  });
+
+  test("evaluateSubAgentStop does not treat wrap-up Findings as stub after real tool work", () => {
+    const thrashState = {
+      totalToolCalls: 1,
+      readCounts: new Map([["src/gate.ts", 1]]),
+      editedPaths: new Set<string>(),
+    };
+    expect(hasPlanFindings(WRAP_PLAN_ENVELOPE)).toBe(false);
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        requirePlanSubstance: true,
+        lastAssistantText: WRAP_PLAN_ENVELOPE,
+        thrashState,
+      }),
+    ).toBe("complete");
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        requirePlanSubstance: true,
+        lastAssistantText: WRAP_PLAN_ENVELOPE,
+      }),
+    ).toBe("incomplete-report");
+    expect(
+      evaluateSubAgentStop({
+        hasToolCalls: false,
+        requirePlanSubstance: true,
+        lastAssistantText: STUB_PLAN_ENVELOPE,
+        thrashState,
+      }),
+    ).toBe("incomplete-report");
   });
 
   test("evaluateSubAgentStop still completes the same stub when requirePlanSubstance is omitted", () => {

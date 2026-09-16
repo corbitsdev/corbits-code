@@ -803,6 +803,63 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     expect(reply.content).toContain("read-1.ts");
   });
 
+  test("incomplete-report-stop fires once then waits on later tool-less turns", async () => {
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      30,
+      frozenNow,
+    );
+    const caps = capabilities();
+    const records: { id: string; class: string }[] = [];
+    director.observeInterventions((event) => {
+      records.push({ id: event.id, class: event.class });
+    });
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+    await director.decide(
+      inferenceDoneText("Still looking at the files..."),
+      state,
+      caps,
+    );
+    const salvage = actions(
+      await director.decide(
+        inferenceDoneText("Still narrating, no envelope."),
+        state,
+        caps,
+      ),
+    );
+    expect(salvage).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-incomplete-report",
+    });
+    expect(
+      records.filter(
+        (event) =>
+          event.id === "incomplete-report-stop" && event.class === "stop",
+      ),
+    ).toHaveLength(1);
+
+    const afterStop = actions(
+      await director.decide(
+        inferenceDoneText("Still narrating after salvage."),
+        state,
+        caps,
+      ),
+    );
+    expect(afterStop).toContainEqual({ type: "wait" });
+    expect(afterStop.some((action) => action.type === "reply")).toBe(false);
+    expect(afterStop.some((action) => action.type === "infer")).toBe(false);
+    expect(
+      records.filter(
+        (event) =>
+          event.id === "incomplete-report-stop" && event.class === "stop",
+      ),
+    ).toHaveLength(1);
+  });
+
   test("tool-using turns reset the tool-less narration count (CL-7788)", async () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = capabilities();
@@ -1004,6 +1061,49 @@ describe("SubAgentDirector plan-substance wiring", () => {
     if (reply === undefined || reply.type !== "reply")
       throw new Error("expected reply action");
     expect(reply.content).toBe(PASS_PLAN_ENVELOPE);
+  });
+
+  test("wrap-up plan Findings after real tools completes instead of stub salvage", async () => {
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      30,
+      frozenNow,
+      false,
+      true,
+    );
+    const caps = capabilities();
+    const wrapPlan = [
+      "## Summary",
+      "Plan after reading the gate.",
+      "",
+      "## Findings",
+      "Auth lives in gate.ts; wrap the change in one patch.",
+      "",
+      "## Blockers",
+      "None.",
+      "",
+      "## Paths",
+      "src/gate.ts",
+    ].join("\n");
+
+    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(toolDone("read-1"), state, caps);
+
+    const result = actions(
+      await director.decide(inferenceDoneText(wrapPlan), state, caps),
+    );
+    expect(result).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-complete",
+    });
+    const reply = result.find((action) => action.type === "reply");
+    expect(reply).toBeDefined();
+    if (reply === undefined || reply.type !== "reply")
+      throw new Error("expected reply action");
+    expect(reply.content).toBe(wrapPlan);
+    expect(reply.content).not.toContain("not an attachable plan");
   });
 });
 

@@ -11,6 +11,7 @@ import {
   formatSubAgentReport,
   hasPlanFindings,
   hasReportEnvelope,
+  isStubPlanFindings,
 } from "./report.js";
 import type { ThrashState } from "./thrash.js";
 
@@ -116,7 +117,8 @@ export function evaluateToolLessNarrationSpiral(
  * is not complete even with all four headings — same incomplete-report
  * nudge then salvage, so a wrap-up envelope cannot fake a real review.
  * When `requirePlanSubstance` is set (counsel / intent=plan), four headings
- * with stub Findings are the same spiral — not a finished plan.
+ * with stub Findings are the same spiral — not a finished plan. After real
+ * tool work, wrap-up Findings that are not placeholder/outline-only complete.
  */
 export function evaluateSubAgentStop(input: {
   hasToolCalls: boolean;
@@ -130,7 +132,8 @@ export function evaluateSubAgentStop(input: {
   /**
    * When true (counsel / intent=plan), a four-heading envelope whose Findings
    * lack files/paths, acceptance criteria, non-goals, risks, and ordered steps
-   * is incomplete-report — not a finished plan.
+   * is incomplete-report — not a finished plan. After real tool work, wrap-up
+   * Findings that are not placeholder or outline-only still complete.
    */
   requirePlanSubstance?: boolean;
   /** Read/search bookkeeping for the evidence gate above. */
@@ -177,7 +180,10 @@ export function evaluateSubAgentStop(input: {
       input.requirePlanSubstance === true &&
       !hasPlanFindings(input.lastAssistantText)
     ) {
-      return spiralStop();
+      const afterTools = (input.thrashState?.totalToolCalls ?? 0) > 0;
+      if (!afterTools || isStubPlanFindings(input.lastAssistantText)) {
+        return spiralStop();
+      }
     }
     return "complete";
   }

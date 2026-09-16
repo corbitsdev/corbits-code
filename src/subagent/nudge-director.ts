@@ -343,6 +343,13 @@ export class SubAgentDirector extends DefaultDirector {
         this.thrashState = nextThrashState(this.thrashState, content);
       }
 
+      // A terminal report (complete or salvage) must not re-enter the
+      // tool-less spiral. Consecutive inference.done turns would otherwise
+      // re-fire incomplete-report-stop. Parent follow-up clears reportReplied.
+      if (this.reportReplied && !hasToolCalls) {
+        return capabilities.wait();
+      }
+
       const stop = evaluateSubAgentStop({
         hasToolCalls,
         thrashState: this.thrashState,
