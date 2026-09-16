@@ -27,6 +27,7 @@ import {
 import { createGateRequestApproval } from "../../src/tui/request-approval.js";
 import { startInterruptRebuild } from "../../src/tui/runner/exit.js";
 import { runWhileAgentBusy } from "../../src/tui/runner/state.js";
+import { createParkedOverlayAbortBinding } from "../../src/tui/runner/parked-overlay-abort.js";
 
 const SUSPENDED: SendResult = {
   type: "suspended",
@@ -756,9 +757,7 @@ describe("approval resume occupancy until correlation", () => {
 
 describe("approval resume overlay on reactor timeout", () => {
   test("auto-abandons the overlay and unsticks occupancy when the parked call times out", async () => {
-    const parkedOverlayAbort = {
-      controller: undefined as AbortController | undefined,
-    };
+    const parkedOverlay = createParkedOverlayAbortBinding();
     const generation = createDeliveryGeneration();
     const turns = [userTurn()];
     let overlay: PermissionGateEvent | undefined;
@@ -786,12 +785,7 @@ describe("approval resume overlay on reactor timeout", () => {
         return true;
       },
       approvalTimeout: () => undefined,
-      identitySignal: () => {
-        const identity = generation.signal();
-        const parked = parkedOverlayAbort.controller?.signal;
-        if (parked === undefined) return identity;
-        return AbortSignal.any([identity, parked]);
-      },
+      identitySignal: () => parkedOverlay.identitySignal(generation.signal()),
     });
     const gate = createPermissionGate({
       approvals: [],
@@ -808,9 +802,7 @@ describe("approval resume overlay on reactor timeout", () => {
         history: async () => turns,
       }),
       captureGeneration: generation.capture,
-      registerOverlayAbort: (controller) => {
-        parkedOverlayAbort.controller = controller;
-      },
+      registerOverlayAbort: parkedOverlay.registerOverlayAbort,
       parkedTimeoutPollMs: 5,
       gate,
     });
