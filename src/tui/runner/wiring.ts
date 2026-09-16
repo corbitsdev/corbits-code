@@ -362,6 +362,7 @@ export function wirePostStartup(
       const storage = state.currentStorage;
       return driveMailboxMail({
         parentProcessing: sessionBridge.turn.isProcessing,
+        isParentProcessing: () => sessionBridge.turn.isProcessing,
         mailbox: services.toolset.fleetRecords,
         lanes: services.subAgentSessions.list(),
         ...(storage !== null

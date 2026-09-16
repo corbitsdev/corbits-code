@@ -101,6 +101,7 @@ import {
   type PendingAskWake,
 } from "../subagent/fleet-report.js";
 import { isPromiseLike } from "../subagent/fleet-dry-drive.js";
+import { mailboxMailDriveClaimed } from "../subagent/mailbox-mail-drive.js";
 
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
@@ -551,6 +552,12 @@ export interface BridgeBag {
    * `attachSessionBridge` so settle and fleet events share one gate.
    */
   flushMailboxMail: (() => void) | null;
+  /**
+   * Mail first, then ask-wake only if occupancy did not claim the slot.
+   * Abort, gate close, idle-with-fleet settle, and true session-idle release
+   * share this guard — so a wake cannot send while a mailbox drive is in flight.
+   */
+  flushOccupancyThenWake: (() => void) | null;
   /**
    * One occupancy shot per dry episode. Reset when a live lane starts. Consumed
    * only when the driver actually sends a continuation — a no-op (no open
@@ -1298,8 +1305,7 @@ function releaseRunToIdle(shell: AppShell, bag: BridgeBag): void {
   shell.session = setRunState(shell.session, "idle");
   bag.awaitingContinuationInference = false;
   drainAtBoundary(shell, bag);
-  bag.flushPendingAskWake?.();
-  bag.flushMailboxMail?.();
+  bag.flushOccupancyThenWake?.();
 }
 
 /**
@@ -1322,9 +1328,10 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     // Hold: the fleet is still live, so the run stays busy. Steers left
     // pending send now — the parent they were steering has stopped, so
     // each one starts its own turn — while follow-ups keep waiting.
+    // Occupancy/mailbox first so a re-surface wake cannot steal that turn;
+    // the trailing wake flush restates only if mail did not start one.
     drainSteersAtBoundary(shell, bag);
-    bag.flushPendingAskWake?.();
-    bag.flushMailboxMail?.();
+    bag.flushOccupancyThenWake?.();
     return;
   }
   if (!bag.droveOpenTasksThisDry) {
@@ -1398,12 +1405,14 @@ function applyInbound(
         bag.askWakeResurface.delete(sessionId);
       }
     }
+    // Occupancy first on the idle-parent subscribe path. An open gate defers
+    // both flushes to gateClosed so a wake cannot send before mail.
     // A fresh snapshot with nothing pending means no wake is owed, but a
     // still-armed silent turn must stay armed until the poll's expire-abort
     // (CL-8060, only when expireStaleAsks expired this tick) or stall abort
     // can interrupt it. Disarming here (expire / send_input) would leave
     // isProcessing hung; send_input emptying pending must not expire-abort.
-    bag.flushPendingAskWake?.();
+    if (bag.turn.blockedGateCount === 0) bag.flushOccupancyThenWake?.();
     return;
   }
 
@@ -1501,6 +1510,7 @@ export function attachSessionBridge(
     turnMarkers: [],
     flushPendingAskWake: null,
     flushMailboxMail: null,
+    flushOccupancyThenWake: null,
     droveOpenTasksThisDry: false,
     awaitingContinuationInference: false,
     dryOpenTaskDriver: undefined,
@@ -1862,9 +1872,21 @@ export function attachSessionBridge(
       enqueuedAt: now(),
     });
   };
+  const flushMailboxMail = (): boolean => {
+    if (bag.disposed || bag.turn.isProcessing) return false;
+    try {
+      if (bag.mailboxMailDriver?.() === true) return true;
+    } catch {
+      // Occupancy miss is retryable on the next idle/subscribe edge.
+    }
+    return mailboxMailDriveClaimed(bag.mailboxMailDriver);
+  };
+  bag.flushMailboxMail = flushMailboxMail;
+
   const flushPendingAskWake = (): void => {
     if (bag.disposed || bag.turn.isProcessing || bag.turn.blockedGateCount > 0)
       return;
+    if (mailboxMailDriveClaimed(bag.mailboxMailDriver)) return;
     const asks = [...bag.pendingAskWake.values()].filter(
       (ask) => bag.deliveredAskWake.get(ask.sessionId) !== ask.questionId,
     );
@@ -1890,15 +1912,11 @@ export function attachSessionBridge(
   };
   bag.flushPendingAskWake = flushPendingAskWake;
 
-  const flushMailboxMail = (): void => {
-    if (bag.disposed || bag.turn.isProcessing) return;
-    try {
-      bag.mailboxMailDriver?.();
-    } catch {
-      // Occupancy miss is retryable on the next idle/subscribe edge.
-    }
+  const flushOccupancyThenWake = (): void => {
+    if (flushMailboxMail() || bag.turn.isProcessing) return;
+    flushPendingAskWake();
   };
-  bag.flushMailboxMail = flushMailboxMail;
+  bag.flushOccupancyThenWake = flushOccupancyThenWake;
 
   /**
    * A stalled armed wake never landed: drop matching deliveredAskWake entries
@@ -1948,8 +1966,7 @@ export function attachSessionBridge(
     bag.askWakeTurnArmed = false;
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
-    flushMailboxMail();
-    if (!bag.turn.isProcessing) flushPendingAskWake();
+    flushOccupancyThenWake();
   };
 
   /**
@@ -2032,8 +2049,7 @@ export function attachSessionBridge(
     if (bag.disposed) return;
     bag.turn = turnStateGateClosed(bag.turn, now());
     paintPhase();
-    flushPendingAskWake();
-    flushMailboxMail();
+    flushOccupancyThenWake();
   };
 
   const tick = (): void => {
@@ -2240,6 +2256,7 @@ export function attachSessionBridge(
       bag.askWakeResurface.clear();
       bag.flushPendingAskWake = null;
       bag.flushMailboxMail = null;
+      bag.flushOccupancyThenWake = null;
       applyCadence(null);
       clearShellBridgeHooks(shell);
       bridges.delete(shell);
