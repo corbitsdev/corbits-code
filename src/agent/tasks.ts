@@ -117,9 +117,20 @@ export const manageTasksDefinition: ToolDefinition = {
 };
 
 // Parse the raw tool arguments. Returns null when invalid so callers can skip.
+// Clone first: arktype's in_progress→doing morph writes onto the input, and
+// reactor snapshots deep-freeze tool_call.arguments before decide() runs.
 export function parseManageTasksArgs(rawArgs: unknown): ManageTasksArgs | null {
-  const result = ManageTasksArgsSchema(rawArgs);
+  const result = ManageTasksArgsSchema(cloneManageTasksInput(rawArgs));
   return result instanceof type.errors ? null : result;
+}
+
+function cloneManageTasksInput(rawArgs: unknown): unknown {
+  if (rawArgs === null || typeof rawArgs !== "object") return rawArgs;
+  try {
+    return JSON.parse(JSON.stringify(rawArgs));
+  } catch {
+    return rawArgs;
+  }
 }
 
 function tasksEqual(a: Task[], b: Task[]): boolean {
@@ -181,7 +192,7 @@ export type ManageTasksRunner = (rawArgs: Record<string, unknown>) => Promise<{
 export function createManageTasksRunner(): ManageTasksRunner {
   let tasks: Task[] = [];
   return async (rawArgs) => {
-    const parsed = ManageTasksArgsSchema(rawArgs);
+    const parsed = ManageTasksArgsSchema(cloneManageTasksInput(rawArgs));
     if (parsed instanceof type.errors) {
       return {
         content: `Error: manage_tasks arguments invalid: ${parsed.summary}`,

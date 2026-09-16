@@ -237,6 +237,23 @@ describe("open-task termination guard", () => {
       },
     ]);
 
+  test("decide does not throw when manage_tasks arguments are frozen", async () => {
+    const director = createChatDirector("base", [], {});
+    const event = manageTasksEvent("todo");
+    const freeze = (value: unknown): void => {
+      if (value === null || typeof value !== "object" || Object.isFrozen(value))
+        return;
+      for (const key of Object.getOwnPropertyNames(value)) {
+        freeze((value as Record<string, unknown>)[key]);
+      }
+      Object.freeze(value);
+    };
+    freeze(event);
+    await expect(
+      director.decide(event, mockState, mockCapabilities),
+    ).resolves.toBeDefined();
+  });
+
   const textTurn = (): ReactorInboundEvent =>
     ({
       type: "inference.done",
