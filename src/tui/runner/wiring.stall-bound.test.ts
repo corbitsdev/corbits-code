@@ -149,7 +149,9 @@ describe("stall-bound primary turn (CL-8016)", () => {
           "stall-abort:awaiting-first-token",
         );
         // ... the hung inference was interrupted before any new deliver ...
-        const interruptAt = port.calls.findIndex((call) => call.op === "interrupt");
+        const interruptAt = port.calls.findIndex(
+          (call) => call.op === "interrupt",
+        );
         expect(interruptAt).toBeGreaterThanOrEqual(0);
         const wakeAfterInterrupt = port.calls
           .slice(interruptAt + 1)
@@ -231,14 +233,18 @@ describe("stall-bound primary turn (CL-8016)", () => {
         // Production abort is the #1095 monitor tick → doInterrupt, not the
         // 5s fleet poll. Occupancy must win that next turn; a re-surface wake
         // must not start processing first.
-        const interruptAt = port.calls.findIndex((call) => call.op === "interrupt");
+        const interruptAt = port.calls.findIndex(
+          (call) => call.op === "interrupt",
+        );
         expect(interruptAt).toBeGreaterThanOrEqual(0);
         expect(
-          port.calls.slice(interruptAt + 1).some(
-            (call) =>
-              call.op === "deliver" &&
-              call.item.text.includes(ASK_DIRECTOR_WAKE_PREFIX),
-          ),
+          port.calls
+            .slice(interruptAt + 1)
+            .some(
+              (call) =>
+                call.op === "deliver" &&
+                call.item.text.includes(ASK_DIRECTOR_WAKE_PREFIX),
+            ),
         ).toBe(false);
         expect(mailDrives).toBe(1);
         expect(wakeDeliveries(port)).toHaveLength(1);

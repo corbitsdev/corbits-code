@@ -168,9 +168,7 @@ describe("runSubAgent ask_director compact-continue wiring", () => {
                   capturedFactory = opts.factory;
                   return real.defineDirector(opts);
                 },
-                stringTool: (
-                  args: Parameters<typeof real.stringTool>[0],
-                ) => {
+                stringTool: (args: Parameters<typeof real.stringTool>[0]) => {
                   const tool = real.stringTool(args);
                   if (args.definition.name === "ask_director") {
                     capturedAskHandler = args.handler;
@@ -236,17 +234,15 @@ describe("runSubAgent ask_director compact-continue wiring", () => {
                       throw new Error("ask_director tool was not mounted");
                     }
 
-                    const director = capturedFactory(
-                      {},
-                      {} as never,
-                      {
-                        systemPrompt: "system",
-                        toolDefinitions: [],
-                        compactorNames: [],
-                      },
-                    );
+                    const director = capturedFactory({}, {} as never, {
+                      systemPrompt: "system",
+                      toolDefinitions: [],
+                      compactorNames: [],
+                    });
                     if (!(director instanceof SubAgentDirector)) {
-                      throw new Error("factory did not return SubAgentDirector");
+                      throw new Error(
+                        "factory did not return SubAgentDirector",
+                      );
                     }
                     if (requestContinuation === undefined) {
                       throw new Error("requestContinuation was not captured");
