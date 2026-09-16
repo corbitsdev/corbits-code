@@ -11,6 +11,7 @@ import {
   STALL_RECOVERY_MESSAGE,
   STALL_TIMEOUT_MS,
 } from "./stall-watchdog.js";
+import { initialTurnState, turnStateFromEvent } from "./turn-state.js";
 
 describe("shouldAbortForStall", () => {
   // Mid-stream hang: tokens already flowed, then everything went silent.
@@ -25,6 +26,7 @@ describe("shouldAbortForStall", () => {
     currentToolName: null,
     activeToolCalls: [],
     callIdByName: {},
+    callNameById: {},
   };
 
   test("aborts a mid-stream hang past the timeout", () => {
@@ -98,6 +100,7 @@ describe("shouldAbortForStall — awaiting-response with a null stream eventuall
     currentToolName: null,
     activeToolCalls: [],
     callIdByName: {},
+    callNameById: {},
   };
 
   test("aborts a run awaiting a response once the stall budget elapses", () => {
@@ -161,6 +164,7 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
     currentToolName: "shell_collect",
     activeToolCalls: ["collect-1"],
     callIdByName: { shell_collect: "collect-1" },
+    callNameById: { "collect-1": "shell_collect" },
   };
 
   test("in-flight collect auto-aborts after the stall budget", () => {
@@ -177,6 +181,7 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
         currentToolName: "wait_agents",
         activeToolCalls: ["wait-1"],
         callIdByName: { wait_agents: "wait-1" },
+        callNameById: { "wait-1": "wait_agents" },
       }),
     ).toBe(true);
   });
@@ -192,6 +197,7 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
       awaitingResponse: false,
       activeToolCalls: ["collect-1"],
       callIdByName: { shell_collect: "collect-1" },
+      callNameById: { "collect-1": "shell_collect" },
     };
     expect(
       shouldAbortForStall({ ...afterSiblingDone, nowMs: STALL_TIMEOUT_MS - 1 }),
@@ -208,6 +214,7 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
         awaitingResponse: false,
         activeToolCalls: ["bash-1"],
         callIdByName: { bash: "bash-1" },
+        callNameById: { "bash-1": "bash" },
       }),
     ).toBe(false);
   });
@@ -231,6 +238,42 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
       shouldAbortForStall({ ...leftover, nowMs: STALL_TIMEOUT_MS - 1 }),
     ).toBe(false);
     expect(shouldAbortForStall(leftover)).toBe(true);
+  });
+
+  test("folded leftover collect after mapping owner done still aborts at the stall budget", () => {
+    const leftover = [
+      { type: "inference.start" },
+      {
+        type: "tool.start",
+        data: { call: { id: "collect-1", name: "shell_collect" } },
+      },
+      {
+        type: "tool.start",
+        data: { call: { id: "collect-2", name: "shell_collect" } },
+      },
+      {
+        type: "tool.done",
+        data: { result: { callId: "collect-2" } },
+      },
+    ].reduce(
+      (state, event, i) => turnStateFromEvent(state, event, i + 1),
+      initialTurnState(0),
+    );
+    expect(leftover.callIdByName).toEqual({});
+    expect(
+      shouldAbortForStall({
+        ...leftover,
+        nowMs: leftover.lastActivityAt + STALL_TIMEOUT_MS - 1,
+        stallTimeoutMs: STALL_TIMEOUT_MS,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAbortForStall({
+        ...leftover,
+        nowMs: leftover.lastActivityAt + STALL_TIMEOUT_MS,
+        stallTimeoutMs: STALL_TIMEOUT_MS,
+      }),
+    ).toBe(true);
   });
 
   test("a leftover ordinary tool tracked per-id is not a stall", () => {
@@ -290,6 +333,7 @@ describe("shouldNoticeStall", () => {
     repeating: false,
     activeToolCalls: [],
     callIdByName: {},
+    callNameById: {},
   };
 
   test("a parallel fan-out with sibling tools still running does not notice", () => {
@@ -375,6 +419,7 @@ describe("the stall level the indicator reads", () => {
     currentToolName: null,
     activeToolCalls: [],
     callIdByName: {},
+    callNameById: {},
     repeating: false,
   };
 

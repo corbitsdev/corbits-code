@@ -208,12 +208,11 @@ arrives (right after submit, after a tool batch resolves, or after compact
 continuation re-entry), and an in-flight poll the per-tool execution
 watchdog leaves unarmed (`shell_collect`, `ask_director`). TUI primary does
 not mount `wait_agents` — mailbox mail is the collect path.
-Concurrent same-name `shell_collect` polls still collide in `callIdByName`
-(one slot per name), so a sibling collect finishing can drop the mapping and
-the remaining poll can lose that stall bound. That residual is in the
-name-keyed tracker, not a hole in the post-tool / post-compact abort; the
-usual single-collect shape stays bounded, including after a sibling
-`tool.done` that clears `currentToolName`.
+Concurrent same-name `shell_collect` polls still share one `callIdByName`
+slot (one id per name); the leftover stays named in the per-id
+`callNameById` map, so a sibling collect finishing does not drop the stall
+bound. The usual single-collect shape stays bounded too, including after a
+sibling `tool.done` that clears `currentToolName`.
 Ordinary in-flight tools stay exempt here — they have their own execution
 budget — and an open operator gate still blocks the clock. The notice
 still arms first at `STALL_NOTICE_MS` and hands over to the abort at the
