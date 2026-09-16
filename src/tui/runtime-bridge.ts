@@ -99,6 +99,7 @@ import {
   pendingAskWakeText,
   type PendingAskWake,
 } from "../subagent/fleet-report.js";
+import { isPromiseLike } from "../subagent/fleet-dry-drive.js";
 
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
@@ -1225,10 +1226,6 @@ function occupancyHold(bag: BridgeBag): boolean {
   return bag.liveFleet > 0 || bag.awaitingContinuationInference;
 }
 
-function isPromiseLike(value: unknown): value is Promise<unknown> {
-  return typeof value === "object" && value !== null && "then" in value;
-}
-
 function releaseRunToIdle(shell: AppShell, bag: BridgeBag): void {
   shell.session = setRunState(shell.session, "idle");
   bag.awaitingContinuationInference = false;
@@ -1272,6 +1269,7 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     if (isPromiseLike(driven)) {
       bag.droveOpenTasksThisDry = true;
       const abortPendingDrive = (): void => {
+        if (bag.disposed) return;
         bag.droveOpenTasksThisDry = false;
         if (shell.session.run !== "busy") return;
         bag.lastSentMessage = "";
