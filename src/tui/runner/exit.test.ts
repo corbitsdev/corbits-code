@@ -6,6 +6,7 @@ import type { InferenceSource } from "@intx/types/runtime";
 
 import * as codexSession from "../../auth/codex/session.js";
 import { createChatDirector } from "../../agent/director.js";
+import * as sessionIndex from "../../session/index.js";
 import { createSubAgentSessionStore } from "../../subagent/session-store.js";
 import type {
   ReactorAction,
@@ -23,6 +24,7 @@ import {
   createRunLifecycle,
   finalizeTUIRun,
   resetSessionForRotation,
+  resyncIdleWithFleetFlag,
 } from "./exit.js";
 import type { RunnerServices, RunnerState } from "./state.js";
 
@@ -201,7 +203,8 @@ function stubSendLifecycle(agent: Agent): {
     sessionOps: createSessionOperationQueue(),
     deliveryGeneration: createDeliveryGeneration(),
     toolset: { setToolPromoter: () => undefined },
-    subAgentSessions: { cancelAll: async () => [] },
+    directorHolder: {},
+    subAgentSessions: { cancelAll: async () => [], list: () => [] },
     activeRunHandle: { task: "", startedAt: 0, model: "" },
   } as unknown as RunnerServices;
   return { state, services };
@@ -326,6 +329,71 @@ function rebuildTextTurn(): ReactorInboundEvent {
 }
 
 describe("rebuild re-syncs idle-with-fleet while drained", () => {
+  test("seed then fleet-0 does not leave idle-with-fleet stuck true", async () => {
+    const store = createSubAgentSessionStore();
+    const director = createChatDirector("base", [], {
+      allowIdleWithFleet: true,
+    });
+    resyncIdleWithFleetFlag({
+      directorHolder: { instance: director },
+      subAgentSessions: store,
+    });
+    await director.decide(
+      rebuildManageTasksEvent(),
+      rebuildMockState,
+      rebuildMockCapabilities,
+    );
+    const actions = await director.decide(
+      rebuildTextTurn(),
+      rebuildMockState,
+      rebuildMockCapabilities,
+    );
+    const list = Array.isArray(actions) ? actions : [actions];
+    expect(list.some((action) => action.type === "infer")).toBe(true);
+  });
+
+  test("first assemble with a drained fleet does not leave idle-with-fleet stuck true", async () => {
+    const store = createSubAgentSessionStore();
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const agent = recordingAgent([]);
+    const { state, services } = stubSendLifecycle(agent);
+    services.directorHolder =
+      directorHolder as unknown as RunnerServices["directorHolder"];
+    services.subAgentSessions =
+      store as unknown as RunnerServices["subAgentSessions"];
+    services.workflowHost = {
+      reattach: () => undefined,
+    } as unknown as RunnerServices["workflowHost"];
+    services.cycleRecorder = {
+      dispose: async () => "",
+      reset: () => undefined,
+      handleEvent: () => undefined,
+    } as unknown as RunnerServices["cycleRecorder"];
+    services.buildAgent = (async () => {
+      directorHolder.instance = createChatDirector("base", [], {
+        allowIdleWithFleet: true,
+      });
+      return agent;
+    }) as unknown as RunnerServices["buildAgent"];
+    await createRunLifecycle(state, services);
+    const director = defined(
+      directorHolder.instance,
+      "directorHolder.instance",
+    );
+    await director.decide(
+      rebuildManageTasksEvent(),
+      rebuildMockState,
+      rebuildMockCapabilities,
+    );
+    const actions = await director.decide(
+      rebuildTextTurn(),
+      rebuildMockState,
+      rebuildMockCapabilities,
+    );
+    const list = Array.isArray(actions) ? actions : [actions];
+    expect(list.some((action) => action.type === "infer")).toBe(true);
+  });
+
   test("reload-if-idle and interrupt rebuilds resume the open-task nudge with no fleet transition", async () => {
     const store = createSubAgentSessionStore();
     const directorHolder: RunnerServices["directorHolder"] = {};
@@ -387,5 +455,85 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     await expectOpenTaskNudge();
     expect(store.list()).toEqual([]);
     expect(fleetEvents).toEqual([]);
+  });
+
+  test("newSession/clear with a drained fleet still nudges open tasks after rotation", async () => {
+    const store = createSubAgentSessionStore();
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const agent = recordingAgent([]);
+    const { state, services } = stubSendLifecycle(agent);
+    services.directorHolder =
+      directorHolder as unknown as RunnerServices["directorHolder"];
+    services.subAgentSessions =
+      store as unknown as RunnerServices["subAgentSessions"];
+    services.workflowHost = {
+      reattach: () => undefined,
+      reset: () => undefined,
+    } as unknown as RunnerServices["workflowHost"];
+    services.cycleRecorder = {
+      dispose: async () => "",
+      reset: () => undefined,
+      handleEvent: () => undefined,
+    } as unknown as RunnerServices["cycleRecorder"];
+    services.buildSessionSources = () => ({
+      sources: [liveSource],
+      defaultSource: liveSource.id,
+      selected: liveSource,
+    });
+    services.permissionGate = {
+      reset: () => undefined,
+    } as unknown as RunnerServices["permissionGate"];
+    services.runSink = {
+      sink: () => undefined,
+      reset: () => undefined,
+    } as unknown as RunnerServices["runSink"];
+    services.sessionCost = {
+      addTurn: () => undefined,
+      reset: () => undefined,
+    } as unknown as RunnerServices["sessionCost"];
+    services.activatedToolNames = {
+      clear: () => undefined,
+      activate: () => false,
+      list: () => [],
+    } as unknown as RunnerServices["activatedToolNames"];
+    services.hostHolder = {} as unknown as RunnerServices["hostHolder"];
+    services.buildAgent = (async () => {
+      directorHolder.instance = createChatDirector("base", [], {
+        allowIdleWithFleet: true,
+      });
+      return agent;
+    }) as unknown as RunnerServices["buildAgent"];
+    const initDir = spyOn(sessionIndex, "initSessionDir").mockImplementation(
+      async () => "/tmp/rotated-session",
+    );
+    const contextDir = spyOn(
+      sessionIndex,
+      "sessionContextDir",
+    ).mockImplementation(() => "/tmp/rotated-session/context");
+    try {
+      await createRunLifecycle(state, services);
+      defined(state.newSession, "newSession")();
+      await services.sessionOps.awaitTail();
+      expect(state.fatalBuildError).toBeNull();
+      const director = defined(
+        directorHolder.instance,
+        "directorHolder.instance",
+      );
+      await director.decide(
+        rebuildManageTasksEvent(),
+        rebuildMockState,
+        rebuildMockCapabilities,
+      );
+      const actions = await director.decide(
+        rebuildTextTurn(),
+        rebuildMockState,
+        rebuildMockCapabilities,
+      );
+      const list = Array.isArray(actions) ? actions : [actions];
+      expect(list.some((action) => action.type === "infer")).toBe(true);
+    } finally {
+      initDir.mockRestore();
+      contextDir.mockRestore();
+    }
   });
 });

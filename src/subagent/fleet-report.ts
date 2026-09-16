@@ -13,17 +13,23 @@
  */
 
 import {
+  agentLaneIsLive,
   agentProgress,
   clockLabel,
   DEFAULT_STALL_MS,
 } from "../tui/agent-progress.js";
-import type { SubAgentSessionStatus } from "./session-store.js";
+import type {
+  AgentLifecycleStatus,
+  SubAgentSessionStatus,
+} from "./session-store.js";
 
 /** The lane fields a report is written from. `SubAgentSession` satisfies it. */
 export interface FleetLane {
   readonly id: string;
   readonly description: string;
   readonly status: SubAgentSessionStatus;
+  /** Same projection the progress strip uses; interrupted leftovers are not live. */
+  readonly lifecycleStatus?: AgentLifecycleStatus;
   readonly startedAt: number;
   readonly lastActivityAt: number;
   readonly currentToolName: string | null;
@@ -117,12 +123,12 @@ function isStalled(lane: FleetLane, nowMs: number, stallMs: number): boolean {
 }
 
 /**
- * Lanes still running — the count the idle-with-fleet hold reads (CL-7057).
- * One definition lives here so the bridge feed and any other liveness reader
- * cannot drift from what the strip and digest call a running lane.
+ * Lanes still live — the count the idle-with-fleet hold reads (CL-7057).
+ * Same rule as the progress strip (`agentLaneIsLive`): interrupted leftovers
+ * keep TUI status "running" but are not occupancy.
  */
 export function liveFleetCount(lanes: readonly FleetLane[]): number {
-  return lanes.filter((lane) => lane.status === "running").length;
+  return lanes.filter((lane) => agentLaneIsLive(lane)).length;
 }
 
 /**
@@ -207,10 +213,10 @@ export function observeFleet(
   let running = 0;
 
   for (const lane of lanes) {
-    if (lane.status === "running") running += 1;
+    if (agentLaneIsLive(lane)) running += 1;
     const before = previous.lanes.get(lane.id);
     const stalled =
-      lane.status === "running" &&
+      agentLaneIsLive(lane) &&
       (before?.stallReported === true || isStalled(lane, nowMs, stallMs));
     marks.set(lane.id, { status: lane.status, stallReported: stalled });
 
@@ -265,9 +271,10 @@ export function observeFleet(
   // only: fail/cancel/stall while work is still running, or one dry-fleet tally.
   // Never per-lane "done — summary" walls.
   if (wentDry) {
+    const summary = idleSummary(lanes);
     return {
       watch,
-      updates: [clip(idleSummary(lanes), MAX_UPDATE_CHARS)],
+      updates: summary.length === 0 ? [] : [clip(summary, MAX_UPDATE_CHARS)],
     };
   }
 
@@ -316,6 +323,10 @@ function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
   let failed = 0;
   let cancelled = 0;
   for (const lane of lanes) {
+    // Occupancy leftovers (still TUI-running, including interrupted leftovers)
+    // are not finished outcomes. Cancelled workers project lifecycleStatus
+    // interrupted too — skip on live/running, not on interrupted alone.
+    if (agentLaneIsLive(lane) || lane.status === "running") continue;
     switch (lane.status) {
       case "done":
         done += 1;
@@ -325,8 +336,6 @@ function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
         break;
       case "cancelled":
         cancelled += 1;
-        break;
-      case "running":
         break;
     }
   }
@@ -346,8 +355,9 @@ function formatOutcomeParts(
 }
 
 function idleSummary(lanes: readonly FleetLane[]): string {
-  return formatOutcomeParts(outcomeCounts(lanes), {
-    includeZeroDone: true,
+  const counts = outcomeCounts(lanes);
+  return formatOutcomeParts(counts, {
+    includeZeroDone: counts.failed > 0 || counts.cancelled > 0,
   }).join(", ");
 }
 
@@ -361,7 +371,7 @@ export function fleetDigest(
   options: FleetReportOptions = {},
 ): string {
   const stallMs = options.stallMs ?? DEFAULT_STALL_MS;
-  const running = lanes.filter((l) => l.status === "running");
+  const running = lanes.filter((l) => agentLaneIsLive(l));
   const parts: string[] = [];
   if (running.length > 0) {
     const named = running

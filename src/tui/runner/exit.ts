@@ -152,11 +152,11 @@ export async function closeAgentForRebuild(
   }
 }
 
-// Rebuilt directors seed allowIdleWithFleet=true (fleet lanes may appear
-// mid-session), so a rebuild while drained must re-sync the new director from
-// the live fleet count — otherwise the open-task nudge stays suppressed until
-// the next fleet transition, which never comes for an already-drained fleet.
-function resyncIdleWithFleetFlag(
+// Directors seed allowIdleWithFleet=true (fleet lanes may appear mid-session),
+// so first assemble, /new /clear, and a rebuild while drained must re-sync
+// from the live fleet count. The publisher only fires the flag on a count
+// change, so a session that never sees 0→1→0 would otherwise keep the seed.
+export function resyncIdleWithFleetFlag(
   services: Pick<RunnerServices, "directorHolder" | "subAgentSessions">,
 ): void {
   services.directorHolder.instance?.setAllowIdleWithFleet(
@@ -366,6 +366,7 @@ export async function createRunLifecycle(
   };
 
   state.currentAgent = await services.buildAgent();
+  resyncIdleWithFleetFlag(services);
   await persistRunSnapshot("running");
   void resolveSessionLabel(
     state.config.cwd,
@@ -708,6 +709,7 @@ export async function createRunLifecycle(
         // its wire starts at the prefix and its run.json does not inherit them.
         services.activatedToolNames.clear();
         state.currentAgent = await services.buildAgent();
+        resyncIdleWithFleetFlag(services);
         services.cycleRecorder.reset();
         state.streamPromise = consumeStream(
           liveAgent(state).stream(),
