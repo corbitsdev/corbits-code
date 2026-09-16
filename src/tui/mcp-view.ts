@@ -401,9 +401,9 @@ interface ResultSummary {
 const TOOL_CARD = /^- ([^\s:]+):?\s*(.*)$/;
 
 /**
- * A capability search answers with one card per tool, each carrying a full JSON
- * input schema. The schema is for the model, never for the transcript, so the
- * row counts the catalogue and the expansion lists names only.
+ * A capability search answers with one card per tool (name and a short
+ * description). Full input schemas ride the next infer's tools array, not
+ * this card; the transcript row counts the catalogue and lists names.
  */
 function toolCatalogueSummary(content: string): ResultSummary | null {
   const cards = content

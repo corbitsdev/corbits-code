@@ -29,6 +29,7 @@ import {
   productMutationPaths,
 } from "../agent/product-mutation-tools.js";
 import { AUTO_ALLOW_READ_TOOLS as READ_ONLY_TOOLS } from "../agent/tool-classification.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
 
 // Read-only tools never need approval as long as they don't touch a restricted
 // path; they cannot change the workspace. `lsp` is included here even though
@@ -91,11 +92,12 @@ export function classifyTool(
   toolName: string,
   mcpTiers?: McpToolPermissionRegistry,
 ): Tier {
-  if (READ_ONLY_TOOLS.has(toolName)) return "allow";
-  if (isMcpToolName(toolName)) {
-    const registered = mcpTiers?.tierFor(toolName);
+  const name = canonicalToolName(toolName);
+  if (READ_ONLY_TOOLS.has(name)) return "allow";
+  if (isMcpToolName(name)) {
+    const registered = mcpTiers?.tierFor(name);
     if (registered !== undefined) return registered;
-    if (isReadOnlyMcpTool(toolName)) return "allow";
+    if (isReadOnlyMcpTool(name)) return "allow";
     return "ask";
   }
   return "ask";
@@ -109,10 +111,12 @@ export function restrictedPathArg(
   call: ToolCall,
   isRestricted: (path: string, isWrite: boolean) => boolean,
 ): string | undefined {
-  if (!PATH_ARG_TOOLS.has(call.name)) return undefined;
-  const path = stringArg(call, pathArgKey(call.name));
+  if (!PATH_ARG_TOOLS.has(canonicalToolName(call.name))) return undefined;
+  const path = stringArg(call, pathArgKey(canonicalToolName(call.name)));
   if (path.length === 0) return undefined;
-  return isRestricted(path, isWriteTool(call.name)) ? path : undefined;
+  return isRestricted(path, isWriteTool(canonicalToolName(call.name)))
+    ? path
+    : undefined;
 }
 
 // Outside-workspace path arguments are fine for pure-listing programs — listing
@@ -256,10 +260,11 @@ export function callTargetsRestricted(
   call: ToolCall,
   isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
-  if (call.name === "run_shell")
+  const name = canonicalToolName(call.name);
+  if (name === "run_shell")
     return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
-  if (call.name === "apply_patch") {
-    return productMutationPaths(call.name, call.arguments).some((path) =>
+  if (name === "apply_patch") {
+    return productMutationPaths(name, call.arguments).some((path) =>
       isRestricted(path, true),
     );
   }
@@ -481,7 +486,7 @@ export function isAutoAllowedShellCall(
   cwd: string = process.cwd(),
   rootsProvider: RootsProvider = NO_ROOTS,
 ): boolean {
-  if (call.name !== "run_shell") return false;
+  if (canonicalToolName(call.name) !== "run_shell") return false;
   return isAutoAllowedShellCommand(
     stringArg(call, "command"),
     cwd,

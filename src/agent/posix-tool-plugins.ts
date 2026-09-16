@@ -114,7 +114,10 @@ export function buildCorePosixToolPlugins(
   return [
     resultTruncationPlugin(truncationOptions),
     toolResultSecretScrubPlugin(),
-    pathEscapePlugin(cwd, rootsProvider, { allowOutside }),
+    pathEscapePlugin(cwd, rootsProvider, {
+      allowOutside,
+      trustedPluginRoots: () => [...permissionGate.getTrustedPluginRoots()],
+    }),
     evidenceArchivePathGuardPlugin(),
     deleteFilePlugin(cwd, { allowOutside, rootsProvider }),
     toolOutputUriPlugin(),

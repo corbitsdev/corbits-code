@@ -16,6 +16,7 @@ import {
   COMPACT_SPACER_TEXT,
   LEGACY_COMPACT_SPACER_TEXT,
 } from "../../src/session/compactor.js";
+import { buildMailboxMailMessage } from "../../src/session/runtime-assembly.js";
 
 const usage: TokenUsage = {
   input: 1,
@@ -252,6 +253,18 @@ function hasInfer(result: ReactorAction | ReactorAction[]): boolean {
   );
 }
 
+function isWorkflowStuckReply(
+  result: ReactorAction | ReactorAction[],
+): boolean {
+  return (Array.isArray(result) ? result : [result]).some(
+    (a) =>
+      a.type === "reply" &&
+      "content" in a &&
+      typeof a.content === "string" &&
+      a.content.includes("workflow appears stuck"),
+  );
+}
+
 function textTurn(text: string): ReactorInboundEvent {
   return {
     type: "inference.done",
@@ -389,6 +402,80 @@ test("open tasks do not defeat the workflow stuck-cutoff after 3 idle turns", as
   expect(actions.some((a) => a.type === "wait" || a.type === "reply")).toBe(
     true,
   );
+});
+
+test("seeded idle-with-fleet with no live helpers still auto-continues a workflow wait", async () => {
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
+  runtime.start(flow);
+  const coordinator = new WorkflowCoordinator(runtime);
+  const director = createChatDirector("BASE", [], {
+    allowIdleWithFleet: true,
+  });
+  director.setWorkflowCoordinator(coordinator);
+  const caps = makeCapabilities();
+
+  const result = await director.decide(
+    textTurn("I reviewed the diff, moving to next step."),
+    state,
+    caps,
+  );
+
+  expect(hasInfer(result)).toBe(true);
+  expect(ephemeralNudgeText(result)).toContain("call submit_output");
+});
+
+test("live fleet plus three text waits does not declare the workflow stuck", async () => {
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
+  runtime.start(flow);
+  const coordinator = new WorkflowCoordinator(runtime);
+  const director = createChatDirector("BASE", [], {
+    allowIdleWithFleet: true,
+  });
+  director.setWorkflowCoordinator(coordinator);
+  director.setAllowIdleWithFleet(true);
+  const caps = makeCapabilities();
+
+  await director.decide(manageTasksTurn("doing"), state, caps);
+  await director.decide(textTurn("text 1"), state, caps);
+  await director.decide(textTurn("text 2"), state, caps);
+  const result = await director.decide(textTurn("text 3"), state, caps);
+
+  expect(isWorkflowStuckReply(result)).toBe(false);
+  expect(hasInfer(result)).toBe(false);
+  const actions = Array.isArray(result) ? result : [result];
+  expect(actions.some((a) => a.type === "wait" || a.type === "reply")).toBe(
+    true,
+  );
+});
+
+test("occupancy inbound resets the workflow idle counter", async () => {
+  const runtime = new WorkflowRuntime(emptyCaps, (n) =>
+    n === "flow" ? flow : undefined,
+  );
+  runtime.start(flow);
+  const coordinator = new WorkflowCoordinator(runtime);
+  const director = createChatDirector("BASE", [], {});
+  director.setWorkflowCoordinator(coordinator);
+  const caps = makeCapabilities();
+
+  await director.decide(textTurn("text 1"), state, caps);
+  await director.decide(textTurn("text 2"), state, caps);
+  await director.decide(
+    {
+      type: "message.received",
+      message: buildMailboxMailMessage("mailbox mail — worker done"),
+    },
+    state,
+    caps,
+  );
+  const result = await director.decide(textTurn("text 3"), state, caps);
+
+  expect(isWorkflowStuckReply(result)).toBe(false);
+  expect(hasInfer(result)).toBe(true);
 });
 
 test("auto-continuation falls back after 3 consecutive text-only turns", async () => {

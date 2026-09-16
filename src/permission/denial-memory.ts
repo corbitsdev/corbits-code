@@ -52,8 +52,14 @@ export function stableRequestId(
   call: ToolCall,
   cwd: string = process.cwd(),
   rootsProvider: RootsProvider = () => [],
+  trustedPluginRoots?: RootsProvider,
 ): string {
-  const identity = normalizePathArguments(call.arguments, cwd, rootsProvider);
+  const identity = normalizePathArguments(
+    call.arguments,
+    cwd,
+    rootsProvider,
+    trustedPluginRoots,
+  );
   return (
     call.name +
     NULL_SEPARATOR +

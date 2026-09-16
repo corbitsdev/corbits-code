@@ -94,9 +94,8 @@ export function createDynamicToolRunner(
       if (resolved === undefined) {
         // The name was promoted (gate-activated) but the registry no longer
         // holds it — the server dropped between search and call. Say so: the
-        // model already has the schema from the tool_search card and only
-        // needs to retry, not re-search. A name never activated keeps the
-        // exact unknown-tool string.
+        // name was already promoted, so retry rather than re-search. A name
+        // never activated keeps the exact unknown-tool string.
         if (isActivated?.(call.name) === true) {
           return {
             callId: call.id,

@@ -1297,8 +1297,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
   });
 
-  // The provider cache is a prefix cache keyed on the tools array; a tool_search
-  // between turns must not reshape it.
+  // A no-match tool_search must not reshape the tools array.
   test("wire tools are byte-identical across a turn that ran tool_search", async () => {
     const director = createChatDirector("base-prompt", [lateTool], {});
 
@@ -1330,17 +1329,16 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(JSON.stringify(after)).toBe(JSON.stringify(before));
   });
 
-  // CL-7868 (direction A): the provider cache is a prefix cache keyed on the
-  // tools array, so a tool_search turn that promotes a genuinely new tool must
-  // not reshape the wire set mid-session. The call gate opens (the model
-  // invokes the tool from the search result's schema) while the advertised
-  // array holds steady; the growth event lands at the next cache-safe
-  // boundary (compaction fold), appended after the untouched fixed prefix.
-  test("a tool_search turn promoting a genuinely new tool leaves the wire byte-identical until the fold commits it", async () => {
+  // Promoted names join the next infer's tools array (not only after compact).
+  test("a tool_search promotion is on the next infer tool list", async () => {
     const linearTool = {
       name: "mcp__linear__list_issues",
       description: "list issues",
-      inputSchema: { type: "object", properties: {}, required: [] },
+      inputSchema: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+      },
     };
     const toolset = await createAgentToolset({
       cwd: process.cwd(),
@@ -1371,48 +1369,47 @@ describe("updateToolDefinitions rewrites infer tools", () => {
       director,
       makeMessageReceivedEvent("hello"),
     );
+    const beforeNames = (before as { name: string }[]).map((t) => t.name);
+    expect(beforeNames).not.toContain("mcp__linear__list_issues");
 
-    // tool_search matched a genuinely new tool: the runner opens the call
-    // gate (activation); the per-turn wire recompute deliberately ignores it.
     expect(advertised.activated.activate(["mcp__linear__list_issues"])).toBe(
       true,
     );
-    director.updateToolDefinitions(
-      advertised.computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
-    );
-
-    // Mid-session the wire is byte-identical — the hot prefix never grows —
-    // while the gate is open so the model can invoke the match from the
-    // result card's schema.
-    const after = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("continue"),
-    );
-    expect(JSON.stringify(after)).toBe(JSON.stringify(before));
-    expect(advertised.isAdvertised("mcp__linear__list_issues")).toBe(true);
-
-    // Cache-safe boundary (compaction fold): the pending promotion commits and
-    // the next turn declares it after the untouched fixed prefix.
     expect(advertised.flushPromotions()).toBe(true);
     director.updateToolDefinitions(
       advertised.computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
     );
-    const folded = await firstInferTools(
+
+    const after = await firstInferTools(
       director,
-      makeMessageReceivedEvent("after fold"),
+      makeMessageReceivedEvent("continue"),
     );
-    const foldedNames = (folded as { name: string }[]).map((t) => t.name);
-    expect(foldedNames).toContain("mcp__linear__list_issues");
-    const beforeNames = (before as { name: string }[])
-      .map((t) => t.name)
-      .filter((n) => n !== "submit_output");
-    const foldedPrefix = foldedNames.filter(
+    const afterTools = after as {
+      name: string;
+      parameters?: unknown;
+      inputSchema?: unknown;
+    }[];
+    const afterNames = afterTools.map((t) => t.name);
+    expect(afterNames).toContain("mcp__linear__list_issues");
+    const promoted = afterTools.find(
+      (t) => t.name === "mcp__linear__list_issues",
+    );
+    expect(promoted).toBeDefined();
+    const schema = promoted?.parameters ?? promoted?.inputSchema;
+    expect(schema).toBeDefined();
+    expect(typeof schema).toBe("object");
+
+    const beforePrefix = beforeNames.filter((n) => n !== "submit_output");
+    const afterPrefix = afterNames.filter(
       (n) => n !== "submit_output" && n !== "mcp__linear__list_issues",
     );
-    expect(foldedPrefix).toEqual(beforeNames);
-    expect(foldedNames.indexOf("mcp__linear__list_issues")).toBe(
-      beforeNames.length,
+    expect(afterPrefix).toEqual(beforePrefix);
+
+    const stable = await firstInferTools(
+      director,
+      makeMessageReceivedEvent("keep going"),
     );
+    expect(JSON.stringify(stable)).toBe(JSON.stringify(after));
 
     await toolset.dispose();
   });
@@ -1433,110 +1430,6 @@ describe("updateToolDefinitions rewrites infer tools", () => {
       | Record<string, unknown>
       | undefined;
     expect(inferToolNames(inferAction)).toContain("submit_output");
-  });
-
-  // End-to-end: tool_search matches an MCP tool; the runner's gate-only promote
-  // wiring (mirrored here via createAdvertisedToolset + updateToolDefinitions)
-  // keeps it off the wire the next turn — the hot prefix stays byte-identical
-  // while the gate lets the model call it from the result card. The fold
-  // commits the pending promotion with the tool's full definition, appended
-  // after the untouched fixed prefix, and the array then holds steady.
-  test("a tool_search match stays off the wire until the fold, then holds stable", async () => {
-    const linearTool = {
-      name: "mcp__linear__list_issues",
-      description: "list issues",
-      inputSchema: { type: "object", properties: {}, required: [] },
-    };
-    const toolset = await createAgentToolset({
-      cwd: process.cwd(),
-      permissionGate: createPermissionGate({
-        approvals: [],
-        interactive: false,
-        skipPermissions: true,
-        reactorGated: false,
-      }),
-      onOperatorGate: async () => ({ kind: "cancel" }),
-    });
-    toolset.dynamicRunner.addTools([
-      { kind: "string", definition: linearTool, handler: async () => "ok" },
-    ]);
-
-    const advertised = createAdvertisedToolset({
-      sessionMode: "orchestrator",
-      toolAvailability: { languageServerAvailable: false },
-      getProvider: () => ({ providerName: "openai", model: "gpt-5" }),
-    });
-    const computeAdvertised = (
-      all: ReturnType<typeof toolset.dynamicRunner.currentDefinitions>,
-    ) => advertised.computeAdvertised(all);
-    const director = createChatDirector(
-      "base-prompt",
-      computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
-      {},
-    );
-
-    // Before discovery: the MCP tool is registered (dispatchable) but not wired.
-    const before = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("hello"),
-    );
-    const beforeNames = (before as { name: string }[]).map((t) => t.name);
-    expect(beforeNames).not.toContain("mcp__linear__list_issues");
-    const beforeJson = JSON.stringify(before);
-
-    // Simulate the runner's gate-only promoter plus its boundary wire push:
-    // the gate opens but the wire recompute is byte-identical until the fold.
-    advertised.activated.activate(["mcp__linear__list_issues"]);
-    director.updateToolDefinitions(
-      computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
-    );
-
-    const gated = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("continue"),
-    );
-    expect((gated as { name: string }[]).map((t) => t.name)).not.toContain(
-      "mcp__linear__list_issues",
-    );
-    expect(JSON.stringify(gated)).toBe(beforeJson);
-
-    // Simulate the compaction fold: commit the pending promotion, push the
-    // refreshed set, and the tool is declared — appended after the fixed
-    // built-in prefix, which survives untouched ahead of it.
-    advertised.flushPromotions();
-    director.updateToolDefinitions(
-      computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
-    );
-
-    const after = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("after fold"),
-    );
-    const afterTools = after as { name: string }[];
-    const afterNames = afterTools.map((t) => t.name);
-    expect(afterNames).toContain("mcp__linear__list_issues");
-    // submit_output rides along separately (see withCurrentTools), appended
-    // after computeAdvertised's result every turn — strip it before comparing
-    // the fixed built-in prefix, which must survive untouched ahead of the
-    // newly appended MCP tool.
-    const beforePrefix = beforeNames.filter((n) => n !== "submit_output");
-    const afterPrefix = afterNames.filter(
-      (n) => n !== "submit_output" && n !== "mcp__linear__list_issues",
-    );
-    expect(afterPrefix).toEqual(beforePrefix);
-    expect(afterNames.indexOf("mcp__linear__list_issues")).toBe(
-      beforePrefix.length,
-    );
-
-    // A further turn with no new discovery stays byte-identical to `after`.
-    const stable = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("keep going"),
-    );
-    expect(JSON.stringify(stable)).toBe(JSON.stringify(after));
-    expect(JSON.stringify(after)).not.toBe(beforeJson);
-
-    await toolset.dispose();
   });
 
   // CL-7919: the taskClassifier host closure is gone, so a plain message
@@ -1784,6 +1677,45 @@ describe("CL-7919 coordinator shape", () => {
     const text = inferEphemeralText(actions.find((a) => a.type === "infer"));
     expect(text).toContain("call submit_output with this step's id now");
     expect(text).not.toContain("42");
+  });
+
+  // An empty step id is the same class of invalid as a non-string: never
+  // interpolate it into the submit_output clause.
+  test("an empty step id falls back to the generic submit_output clause", async () => {
+    const director = createChatDirector("base-prompt", [], {});
+    director.setWorkflowCoordinator({
+      directive: () => "do the thing",
+      isActive: () => true,
+      currentStepIsGate: () => false,
+      currentStepId: () => "",
+      handleToolDone: () => false,
+    } as unknown as WorkflowCoordinator);
+    const actions = actionsArray(
+      await director.decide(
+        {
+          type: "inference.done",
+          turn: {
+            role: "assistant",
+            model: "test",
+            timestamp: 0,
+            content: [{ type: "text", text: "all set" }],
+          },
+          usage: {
+            input: 10,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            thinking: 0,
+          },
+          source: { model: "test-model" },
+        } as unknown as ReactorInboundEvent,
+        mockState,
+        capabilitiesWithInferArgs,
+      ),
+    );
+    const text = inferEphemeralText(actions.find((a) => a.type === "infer"));
+    expect(text).toContain("call submit_output with this step's id now");
+    expect(text).not.toContain('{ "step": "" }');
   });
 
   // An empty directive is absent guidance: no ephemeral turn is appended

@@ -27,6 +27,33 @@ function peekMailbox(
   };
 }
 
+function collectingMailbox(
+  records: Map<string, FleetDryMailboxRecord>,
+): FleetDryMailbox {
+  return {
+    ids: () => [...records.keys()],
+    peek: (id) => records.get(id),
+    take: (id) => {
+      const existing = records.get(id);
+      if (existing === undefined) return undefined;
+      const taken = { ...existing, collected: true };
+      records.set(id, taken);
+      return taken;
+    },
+  };
+}
+
+const ACCEPTED_DELIVERY = { status: "accepted" as const };
+const NOT_DELIVERED_RESULT = {
+  status: "not-delivered" as const,
+  reason: "agent-closed" as const,
+  detail: "agent closed",
+};
+const UNCERTAIN_DELIVERY = {
+  status: "uncertain" as const,
+  detail: "send raced",
+};
+
 function fakeBlobStore() {
   const blobs = new Map<string, { bytes: Uint8Array; contentType: string }>();
   return {
@@ -512,6 +539,7 @@ describe("driveOpenTasksAfterFleetDry", () => {
       send: (prompt) => {
         order.push("send");
         sent.push(prompt);
+        return ACCEPTED_DELIVERY;
       },
     });
     expect(driven).toBe(true);
@@ -539,7 +567,7 @@ describe("driveOpenTasksAfterFleetDry", () => {
       beginSystemContinuation: (prompt) => {
         sent.push(prompt);
       },
-      send: () => undefined,
+      send: () => ACCEPTED_DELIVERY,
     });
     expect(driven).toBe(true);
     const parsed = reportsJSONFromPrompt(sent[0] ?? "");
@@ -624,6 +652,7 @@ describe("driveOpenTasksAfterFleetDry", () => {
       beginSystemContinuation: () => undefined,
       send: (prompt) => {
         sent.push(prompt);
+        return ACCEPTED_DELIVERY;
       },
     });
     expect(driven).toBe(true);
@@ -677,7 +706,7 @@ describe("driveOpenTasksAfterFleetDry", () => {
         return taken;
       },
     };
-    const sendWithAttemptIdentity = async (): Promise<boolean> => {
+    const sendWithAttemptIdentity = async (): Promise<never> => {
       await Promise.resolve();
       throw new Error("agentProxy.send failed");
     };
@@ -690,14 +719,11 @@ describe("driveOpenTasksAfterFleetDry", () => {
       beginSystemContinuation: () => undefined,
       send: () => sendWithAttemptIdentity(),
     });
-    expect(driven).toBe(true);
-    expect(records.get("w1")?.collected).not.toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(driven).toBe(false);
     expect(records.get("w1")?.collected).not.toBe(true);
   });
 
-  test("TUI sendWithAttemptIdentity false after handleSendFailure leaves mailbox uncollected", async () => {
+  test("TUI sendWithAttemptIdentity not-delivered after handleSendFailure leaves mailbox uncollected", async () => {
     const records = new Map<string, FleetDryMailboxRecord>([
       ["w1", { status: "done", report: "ok" }],
     ]);
@@ -712,9 +738,9 @@ describe("driveOpenTasksAfterFleetDry", () => {
         return taken;
       },
     };
-    const sendWithAttemptIdentity = async (): Promise<boolean> => {
+    const sendWithAttemptIdentity = async () => {
       await Promise.resolve();
-      return false;
+      return NOT_DELIVERED_RESULT;
     };
     const driven = await driveOpenTasksAfterFleetDry({
       deferredDryEdge: true,
@@ -725,13 +751,11 @@ describe("driveOpenTasksAfterFleetDry", () => {
       beginSystemContinuation: () => undefined,
       send: () => sendWithAttemptIdentity(),
     });
-    expect(driven).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(driven).toBe(false);
     expect(records.get("w1")?.collected).not.toBe(true);
   });
 
-  test("TUI sendWithAttemptIdentity true takes mailbox after send resolves", async () => {
+  test("TUI sendWithAttemptIdentity accepted takes mailbox after send resolves", async () => {
     const records = new Map<string, FleetDryMailboxRecord>([
       ["w1", { status: "done", report: "ok" }],
     ]);
@@ -746,12 +770,18 @@ describe("driveOpenTasksAfterFleetDry", () => {
         return taken;
       },
     };
-    let resolveSend: ((ok: boolean) => void) | undefined;
-    const sendWithAttemptIdentity = (): Promise<boolean> =>
-      new Promise((resolve) => {
+    let resolveSend: ((result: typeof ACCEPTED_DELIVERY) => void) | undefined;
+    let sendStarted: (() => void) | undefined;
+    const sendSeen = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
+    const sendWithAttemptIdentity = (): Promise<typeof ACCEPTED_DELIVERY> => {
+      sendStarted?.();
+      return new Promise((resolve) => {
         resolveSend = resolve;
       });
-    const driven = await driveOpenTasksAfterFleetDry({
+    };
+    const driven = driveOpenTasksAfterFleetDry({
       deferredDryEdge: true,
       openTasks: [openTask],
       parentProcessing: false,
@@ -760,14 +790,14 @@ describe("driveOpenTasksAfterFleetDry", () => {
       beginSystemContinuation: () => undefined,
       send: () => sendWithAttemptIdentity(),
     });
-    expect(driven).toBe(true);
+    await sendSeen;
     expect(records.get("w1")?.collected).not.toBe(true);
-    resolveSend?.(true);
-    await Promise.resolve();
+    resolveSend?.(ACCEPTED_DELIVERY);
+    expect(await driven).toBe(true);
     expect(records.get("w1")?.collected).toBe(true);
   });
 
-  test("sync send false returns false, calls onSendFailure, and leaves mailbox uncollected", async () => {
+  test("sync send not-delivered returns false, calls onSendFailure, and leaves mailbox uncollected", async () => {
     const records = new Map<string, FleetDryMailboxRecord>([
       ["w1", { status: "done", report: "ok" }],
     ]);
@@ -791,7 +821,7 @@ describe("driveOpenTasksAfterFleetDry", () => {
       mailbox,
       lanes: [],
       beginSystemContinuation: () => undefined,
-      send: () => false,
+      send: () => NOT_DELIVERED_RESULT,
       onSendFailure: () => {
         failures += 1;
       },
@@ -822,24 +852,21 @@ describe("driveOpenTasksAfterFleetDry", () => {
     expect(failures).toBe(1);
   });
 
-  test("TUI send false after handleSendFailure calls onSendFailure", async () => {
+  test("TUI send not-delivered after handleSendFailure calls onSendFailure", async () => {
     let failures = 0;
-    const driven = driveOpenTasksAfterFleetDry({
+    const driven = await driveOpenTasksAfterFleetDry({
       deferredDryEdge: true,
       openTasks: [openTask],
       parentProcessing: false,
       mailbox: undefined,
       lanes: [],
       beginSystemContinuation: () => undefined,
-      send: async () => false,
+      send: async () => NOT_DELIVERED_RESULT,
       onSendFailure: () => {
         failures += 1;
       },
     });
-    expect(failures).toBe(0);
-    expect(await driven).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(driven).toBe(false);
     expect(failures).toBe(1);
   });
 
@@ -860,9 +887,86 @@ describe("driveOpenTasksAfterFleetDry", () => {
         failures += 1;
       },
     });
-    expect(driven).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(driven).toBe(false);
     expect(failures).toBe(1);
+  });
+
+  test("pending send Promise does not resolve as a successful continuation", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    let resolveSend: ((result: typeof ACCEPTED_DELIVERY) => void) | undefined;
+    let sendStarted: (() => void) | undefined;
+    const sendSeen = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
+    const driven = driveOpenTasksAfterFleetDry({
+      previousRunning: 1,
+      running: 0,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox: collectingMailbox(records),
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => {
+        sendStarted?.();
+        return new Promise((resolve) => {
+          resolveSend = resolve;
+        });
+      },
+    });
+    await sendSeen;
+    let settled: boolean | undefined;
+    void Promise.resolve(driven).then((value) => {
+      settled = value;
+    });
+    await Promise.resolve();
+    expect(settled).toBeUndefined();
+    expect(records.get("w1")?.collected).not.toBe(true);
+    resolveSend?.(ACCEPTED_DELIVERY);
+    expect(await driven).toBe(true);
+    expect(settled).toBe(true);
+    expect(records.get("w1")?.collected).toBe(true);
+  });
+
+  test("resolved not-delivered returns idle and leaves the wake waitable", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    let failures = 0;
+    const driven = await driveOpenTasksAfterFleetDry({
+      previousRunning: 1,
+      running: 0,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox: collectingMailbox(records),
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => Promise.resolve(NOT_DELIVERED_RESULT),
+      onSendFailure: () => {
+        failures += 1;
+      },
+    });
+    expect(driven).toBe(false);
+    expect(failures).toBe(1);
+    expect(records.get("w1")?.collected).not.toBe(true);
+  });
+
+  test("resolved uncertain returns idle and leaves the wake waitable", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const driven = await driveOpenTasksAfterFleetDry({
+      previousRunning: 1,
+      running: 0,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox: collectingMailbox(records),
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => Promise.resolve(UNCERTAIN_DELIVERY),
+    });
+    expect(driven).toBe(false);
+    expect(records.get("w1")?.collected).not.toBe(true);
   });
 });

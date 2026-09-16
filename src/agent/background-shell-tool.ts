@@ -2,6 +2,7 @@ import { type } from "arktype";
 import type { ToolDefinition } from "@intx/types/runtime";
 import {
   createBackgroundShellRegistry,
+  MAX_SHELL_COLLECT_WAIT_MS,
   type BackgroundShellExit,
   type BackgroundShellRegistry,
 } from "../shell/background-shell.js";
@@ -41,7 +42,8 @@ export const shellCollectDefinition: ToolDefinition = {
       wait_ms: {
         type: "number",
         description:
-          'For action="collect": milliseconds to wait for completion before returning "running" (default 0, non-blocking).',
+          'For action="collect": milliseconds to wait for completion before returning "running" (default 0, non-blocking, capped at ' +
+          `${MAX_SHELL_COLLECT_WAIT_MS}).`,
       },
     },
     required: ["shell_id", "action"],

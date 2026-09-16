@@ -277,6 +277,17 @@ export async function createRunLifecycle(
 }> {
   const { persistRunSnapshot } = createRunPersistence(state, services);
   state.persistRunSnapshot = persistRunSnapshot;
+  const activateAndCommitWire = (names: string[]): void => {
+    if (!services.activatedToolNames.activate(names)) return;
+    if (services.flushPromotions()) {
+      services.directorHolder.instance?.updateToolDefinitions(
+        services.computeAdvertised(
+          services.toolset.dynamicRunner.currentDefinitions(),
+        ),
+      );
+    }
+    void persistRunSnapshot("running");
+  };
   const stopHeartbeat = startRunHeartbeat({
     shouldTick: () => !services.crashGuard.isFinalized(),
     tick: () => persistRunSnapshot("running"),
@@ -340,7 +351,7 @@ export async function createRunLifecycle(
       event,
       {
         onTasksChanged: (tasks) => services.emitter.emit("tasks", tasks),
-        onToolsActivate: (names) => services.activatedToolNames.activate(names),
+        onToolsActivate: (names) => activateAndCommitWire(names),
       },
       (message, fields) => tuiLogger.debug(message, fields),
     );
@@ -407,18 +418,13 @@ export async function createRunLifecycle(
   state.reloadIfIdle = reloadIfIdle;
 
   // tool_search (and contextual triggers, e.g. the lsp hint) promote tools by
-  // opening the call gate: the model invokes the match from the result card's
-  // schema on the very next turn. The schema itself joins the wire set at the
-  // next cache-safe boundary (compaction fold), never mid-thread — the
-  // serialized tools array heads the provider's cached prefix (CL-7868). No
-  // reload is scheduled: dispatchability comes from the live call gate, not
-  // the rebuilt agent.
+  // opening the call gate and committing schemas onto the next infer's wire.
+  // Holding them off until compaction left MCP/plugin names callable in the
+  // runner but missing from the provider tools array, so the model could not
+  // emit those calls. Cache prefix growth on discovery is the cost of making
+  // promotion actually work.
   const promoteTools = (names: string[]): void => {
-    if (!services.activatedToolNames.activate(names)) return;
-    // Activation is model-visible contract — persist it now so a crash or
-    // restart before the next turn boundary does not strand the transcript's
-    // "these tools are available" record.
-    void persistRunSnapshot("running");
+    activateAndCommitWire(names);
   };
   services.toolset.setToolPromoter(promoteTools);
 
