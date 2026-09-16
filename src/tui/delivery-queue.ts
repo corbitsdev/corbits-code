@@ -104,6 +104,68 @@ export async function runGenerationGuardedDeliver(options: {
   return options.run();
 }
 
+function compactionContinuationIsSuperseded(
+  result: AgentDeliveryResult,
+): boolean {
+  return result.status === "not-delivered" && result.reason === "superseded";
+}
+
+/**
+ * Compact continuation is consume-once at the stream gate. Interrupt rebuild
+ * bumps generation and enqueues a rebuild behind this hop, so a stale hop
+ * must re-queue rather than retry liveAgent in this op. A closed hop still
+ * retries once here.
+ */
+export async function settleCompactionContinuationHop(options: {
+  stillCurrent: () => boolean;
+  deliver: () => Promise<AgentDeliveryResult>;
+  onSuperseded: () => void;
+}): Promise<AgentDeliveryResult> {
+  const first = await runGenerationGuardedDeliver({
+    stillCurrent: options.stillCurrent,
+    onStale: () => ({
+      status: "not-delivered",
+      reason: "superseded",
+      detail: "session identity changed before delivery",
+    }),
+    run: options.deliver,
+  });
+  if (compactionContinuationIsSuperseded(first)) {
+    options.onSuperseded();
+    return first;
+  }
+  if (first.status === "not-delivered" && first.reason === "agent-closed") {
+    return options.deliver();
+  }
+  return first;
+}
+
+/**
+ * Enqueue a compact-continue hop. If interrupt already bumped generation and
+ * queued a rebuild behind this hop, the continue is scheduled again after
+ * that rebuild instead of retrying liveAgent in the same op.
+ */
+export function enqueueCompactionContinuationHop(options: {
+  enqueue: (op: () => Promise<void>) => unknown;
+  captureGeneration: () => () => boolean;
+  deliver: () => Promise<AgentDeliveryResult>;
+  onResult: (result: AgentDeliveryResult) => void;
+}): void {
+  const schedule = (): void => {
+    const stillCurrent = options.captureGeneration();
+    void options.enqueue(async () => {
+      const result = await settleCompactionContinuationHop({
+        stillCurrent,
+        deliver: options.deliver,
+        onSuperseded: schedule,
+      });
+      if (compactionContinuationIsSuperseded(result)) return;
+      options.onResult(result);
+    });
+  };
+  schedule();
+}
+
 /** Operator-facing copy for a settled delivery that did not accept. */
 export function deliveryResultNotice(
   result: Exclude<AgentDeliveryResult, { status: "accepted" }>,

@@ -89,15 +89,30 @@ export function resetAskDirectorTurn(state: AskDirectorState): void {
 }
 
 /**
- * Waiting on the spawning director is work, not silence. A stall ping
- * would otherwise salvage a blocked ask_director as stalled.
+ * Compact continuation shares the stall ping channel. Skipping while
+ * ask_director is parked must not drop the only continue: remember the skip
+ * and flush after the ask releases.
  */
-export function skipStallContinuationWhileAskPending(
-  state: AskDirectorState,
-  deliver: () => void,
-): void {
-  if (state.pending) return;
-  deliver();
+export function createDeferredContinuation(): {
+  request: (state: AskDirectorState, deliver: () => void) => void;
+  flush: (state: AskDirectorState, deliver: () => void) => void;
+} {
+  let deferred = false;
+  return {
+    request(state, deliver) {
+      if (state.pending) {
+        deferred = true;
+        return;
+      }
+      deferred = false;
+      deliver();
+    },
+    flush(state, deliver) {
+      if (!deferred || state.pending) return;
+      deferred = false;
+      deliver();
+    },
+  };
 }
 
 export async function handleAskDirector(args: {

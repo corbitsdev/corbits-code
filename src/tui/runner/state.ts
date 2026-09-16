@@ -257,6 +257,7 @@ export interface RunnerState {
     deliverToLiveAgent: () => void,
     onSettle?: (result: AgentDeliveryResult) => void,
   ) => void;
+  enqueueCompactionContinuation?: (deliverToLiveAgent: () => void) => void;
   reloadIfIdle?: () => void;
   systemNotice?: (text: string) => void;
   currentAttemptIdentity?: () => InferenceAttemptIdentity;

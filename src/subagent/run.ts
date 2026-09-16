@@ -152,9 +152,9 @@ import {
   ASK_DIRECTOR_MAX_BYTES,
   ASK_DIRECTOR_MAX_QUESTIONS,
   createAskDirectorState,
+  createDeferredContinuation,
   handleAskDirector,
   resetAskDirectorTurn,
-  skipStallContinuationWhileAskPending,
 } from "./ask-director.js";
 import {
   abortError,
@@ -625,6 +625,8 @@ async function runSubAgentInner(
   let turnToken = params.tier === "leaf" ? generateSessionId() : undefined;
   const submitResultState = createSubmitResultState();
   const askDirectorState = createAskDirectorState();
+  const compactContinue = createDeferredContinuation();
+  let deliverCompactContinue = (): void => undefined;
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
   // Assigned inside the try once the agent handle exists; before that (or after
   // close) a completion is dropped, matching the continuation contract.
@@ -862,12 +864,16 @@ async function runSubAgentInner(
                 "Record the question under Blockers and finish with the markdown report envelope."
               );
             }
-            return handleAskDirector({
-              question: rawArgs.question,
-              state: askDirectorState,
-              port,
-              signal,
-            });
+            try {
+              return await handleAskDirector({
+                question: rawArgs.question,
+                state: askDirectorState,
+                port,
+                signal,
+              });
+            } finally {
+              compactContinue.flush(askDirectorState, deliverCompactContinue);
+            }
           },
         }),
       ];
@@ -1038,13 +1044,14 @@ async function runSubAgentInner(
       ReturnType<typeof createAgentWithLiveToolDispatch>
     > | null = null;
     const requestContinuation = (): void => {
-      skipStallContinuationWhileAskPending(askDirectorState, () => {
-        try {
-          agentHandle?.deliver(buildCompactionContinuationMessage());
-        } catch {
-          // Agent may be closing; a dropped continuation is harmless.
-        }
-      });
+      compactContinue.request(askDirectorState, deliverCompactContinue);
+    };
+    deliverCompactContinue = (): void => {
+      try {
+        agentHandle?.deliver(buildCompactionContinuationMessage());
+      } catch {
+        // Agent may be closing; a dropped continuation is harmless.
+      }
     };
 
     // modelFamilyPolicy is resolved above at the skill mount so the

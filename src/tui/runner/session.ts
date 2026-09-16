@@ -81,6 +81,7 @@ import {
   createSessionOperationQueue,
   deliverAgentMessage,
   deliveryResultNotice,
+  enqueueCompactionContinuationHop,
   runGenerationGuardedDeliver,
   type AgentDeliveryResult,
 } from "../delivery-queue.js";
@@ -566,6 +567,23 @@ export async function assembleTUISession(
       }
       if (result.status === "accepted") return;
       state.systemNotice?.(deliveryResultNotice(result));
+    });
+  };
+  state.enqueueCompactionContinuation = (
+    deliverToLiveAgent: () => void,
+  ): void => {
+    enqueueCompactionContinuationHop({
+      enqueue: sessionOps.enqueue,
+      captureGeneration: () => deliveryGeneration.capture(),
+      deliver: () =>
+        deliverAgentMessage({
+          getFatalBuildError: () => state.fatalBuildError,
+          deliverToLiveAgent,
+        }),
+      onResult: (result) => {
+        if (result.status === "accepted") return;
+        state.systemNotice?.(deliveryResultNotice(result));
+      },
     });
   };
 
