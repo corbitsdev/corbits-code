@@ -1431,6 +1431,39 @@ describe("createReactor — doom-loop detection", () => {
     expect(events.filter((e) => e.type === "tool.start").length).toBe(3);
   });
 
+  test("collapses echo churn even when cwd and timeout differ", async () => {
+    // Extra fields drop from the no-op marker so they collapse among no-ops,
+    // but the marker has no `arguments` key so it cannot share identity with
+    // a real run_shell call that happens to carry the same cwd/timeout.
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createBatchLoopDirector((turn) =>
+        turn < 8
+          ? [
+              {
+                id: `c${turn}`,
+                name: "run_shell",
+                arguments: {
+                  command: `echo churn-${turn}`,
+                  cwd: `/tmp/cwd-${turn}`,
+                  timeout: 1000 + turn,
+                },
+              },
+            ]
+          : null,
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(getEvent(events, "reactor.error").data.fatal).toBe(true);
+    expect(getEvent(events, "message.run.ended").data.error?.kind).toBe(
+      "doom_loop",
+    );
+    expect(events.filter((e) => e.type === "tool.start").length).toBe(3);
+  });
+
   test("trips on mixed echo/true trivial churn", async () => {
     // Alternating between the two no-op programs with fresh arguments must
     // count as the same loop, not as distinct work.
@@ -1505,6 +1538,85 @@ describe("createReactor — doom-loop detection", () => {
                 id: `c${turn}`,
                 name: "run_shell",
                 arguments: { command: `echo payload-${turn} > out-${turn}.txt` },
+              },
+            ]
+          : null,
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(events.some((e) => e.type === "reactor.error")).toBe(false);
+    expect(getEvent(events, "message.run.ended").data.status).toBe("completed");
+    expect(events.filter((e) => e.type === "tool.start").length).toBe(5);
+  });
+
+  test("does not collapse a real trivial-noop-shell command into echo churn", async () => {
+    // The no-op marker must be disjoint from any legal command string. If it
+    // reused `trivial-noop-shell` as a command, two echo no-ops plus one real
+    // `trivial-noop-shell` would trip the default threshold of 3.
+    const commands = [
+      "echo a",
+      "echo b",
+      "trivial-noop-shell",
+      "echo c",
+      "echo d",
+    ];
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createBatchLoopDirector((turn) => {
+        const command = commands[turn];
+        return command === undefined
+          ? null
+          : [{ id: `c${turn}`, name: "run_shell", arguments: { command } }];
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(events.some((e) => e.type === "reactor.error")).toBe(false);
+    expect(getEvent(events, "message.run.ended").data.status).toBe("completed");
+    expect(events.filter((e) => e.type === "tool.start").length).toBe(5);
+  });
+
+  test("does not collapse relative-path true into trivial churn", async () => {
+    // Exact program tokens only: `./true` is not `true`. Basename matching
+    // would collapse these five payloads and trip at the default threshold.
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createBatchLoopDirector((turn) =>
+        turn < 5
+          ? [
+              {
+                id: `c${turn}`,
+                name: "run_shell",
+                arguments: { command: `./true --fix-${turn}` },
+              },
+            ]
+          : null,
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(events.some((e) => e.type === "reactor.error")).toBe(false);
+    expect(getEvent(events, "message.run.ended").data.status).toBe("completed");
+    expect(events.filter((e) => e.type === "tool.start").length).toBe(5);
+  });
+
+  test("does not collapse relative-path echo into trivial churn", async () => {
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createBatchLoopDirector((turn) =>
+        turn < 5
+          ? [
+              {
+                id: `c${turn}`,
+                name: "run_shell",
+                arguments: { command: `scripts/echo payload-${turn}` },
               },
             ]
           : null,

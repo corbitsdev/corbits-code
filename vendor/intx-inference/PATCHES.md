@@ -429,13 +429,19 @@ doom-loop fatal break in the main loop.
 
 `reactor.ts` — Doom-loop batch signature normalizes trivial `run_shell`
 no-ops. `toolBatchSignature` maps each call through `canonicalCallIdentity`:
-a bare `echo ...` or `true ...` invocation with no shell metacharacters
-(chaining, piping, redirection, substitution, grouping, comments, newlines)
-collapses to one shared identity, so `echo churn-1`, `echo churn-2`, and
-`true whatever` count as the same consecutive loop instead of evading the
-guard via fresh payload strings. Anything that may do real work (`echo hi >
-file`, `npm test`, distinct commands) keeps its exact `(name, arguments)`
-signature and never collapses.
+a bare `echo`/`true` (or `/bin`/`/usr/bin` of those) with no shell
+metacharacters (chaining, piping, redirection, substitution, grouping,
+comments, newlines) collapses to `{ name: "run_shell", trivialNoopShell: true }`,
+so `echo churn-1`, `echo churn-2`, and `true whatever` count as the same
+consecutive loop instead of evading the guard via fresh payload strings.
+The marker is disjoint from any legal `(name, arguments)` pair — it is
+not a fake command string — so a real `trivial-noop-shell` invocation
+cannot trip with echo churn. Relative paths (`./true`, `scripts/echo`)
+are not the closed set and keep their exact signatures. Extra fields
+(`cwd`, `timeout`) drop from the marker and collapse among no-ops only.
+Anything that may do real work (`echo hi > file`, `npm test`, distinct
+commands) keeps its exact `(name, arguments)` signature and never
+collapses.
 
 **Disposition:** Promotion candidate. Guard-evasion fix — upstream's exact
 `(name, arguments)` identity lets a runaway model loop forever on

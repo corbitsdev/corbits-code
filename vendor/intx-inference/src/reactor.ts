@@ -219,6 +219,9 @@ function resolveDoomLoopThreshold(
  * Trivial `run_shell` no-ops (`echo`/`true` with fresh strings) normalize to
  * one shared identity — see `isTrivialNoopShellCommand`. Without that, a
  * runaway model evades the guard by varying a payload that does no work.
+ * The marker is `{ name: "run_shell", trivialNoopShell: true }`, disjoint
+ * from any legal `(name, arguments)` pair, so a real command string cannot
+ * collide with the collapsed identity.
  *
  * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-trivial-shell-churn
  */
@@ -235,24 +238,38 @@ function toolBatchSignature(calls: ToolCall[]): string {
  * Shared signature identity for one tool call. Everything but a trivial
  * `run_shell` no-op keeps its exact `(name, arguments)` pair; a trivial
  * no-op collapses to a constant marker so `echo churn-1`, `echo churn-2`,
- * and `true whatever` all count as the same loop.
+ * and `true whatever` all count as the same loop. Extra fields such as
+ * `cwd`/`timeout` ride the marker (dropped) so they collapse among no-ops
+ * only — they cannot share identity with a real call, which still carries
+ * `arguments`.
  */
 function canonicalCallIdentity(call: ToolCall): unknown {
   if (
     call.name === "run_shell" &&
     isTrivialNoopShellCommand(call.arguments["command"])
   ) {
-    return { name: call.name, arguments: { command: "trivial-noop-shell" } };
+    return { name: "run_shell", trivialNoopShell: true };
   }
   return { name: call.name, arguments: call.arguments };
 }
 
+const TRIVIAL_NOOP_SHELL_PROGRAMS = new Set([
+  "echo",
+  "true",
+  "/bin/echo",
+  "/usr/bin/echo",
+  "/bin/true",
+  "/usr/bin/true",
+]);
+
 /**
  * Whether a `run_shell` command value is a side-effect-free no-op whose
- * arguments are churn, not work: a bare `echo ...` or `true ...` invocation
- * with no chaining, redirection, substitution, or comment operators. Anything
- * with shell metacharacters (`echo hi > file`, `echo a && test`) may do real
- * work, so it keeps its exact signature and never collapses.
+ * arguments are churn, not work: a bare `echo`/`true` (or their `/bin` /
+ * `/usr/bin` paths) with no chaining, redirection, substitution, or comment
+ * operators. Relative paths (`./true`, `scripts/echo`) are not the closed
+ * set — they may be real scripts. Anything with shell metacharacters
+ * (`echo hi > file`, `echo a && test`) may do real work, so it keeps its
+ * exact signature and never collapses.
  */
 function isTrivialNoopShellCommand(command: unknown): boolean {
   if (typeof command !== "string") return false;
@@ -263,8 +280,7 @@ function isTrivialNoopShellCommand(command: unknown): boolean {
   if (/[;&|><`$(){}#\n\r]/.test(trimmed)) return false;
   const firstToken = trimmed.split(/\s+/, 1)[0] ?? "";
   const unquoted = firstToken.replace(/^["']|["']$/g, "");
-  const program = unquoted.split("/").pop() ?? "";
-  return program === "echo" || program === "true";
+  return TRIVIAL_NOOP_SHELL_PROGRAMS.has(unquoted);
 }
 
 /**
