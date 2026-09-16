@@ -22,7 +22,9 @@ export interface ShouldAbortForStallArgs {
   readonly stallTimeoutMs: number;
   readonly isProcessing: boolean;
   readonly streamingType: "text" | "thinking" | "tool" | null;
+  readonly currentToolName: string | null;
   readonly activeToolCalls: readonly string[];
+  readonly callIdByName: Readonly<Record<string, string>>;
 }
 
 /**
@@ -40,8 +42,14 @@ function silentPastThreshold(
   // sub-agent's tool call finishes, even while siblings are still running.
   // Outstanding calls mean the run is not silent, regardless of that flag.
   if (args.awaitingResponse && args.activeToolCalls.length === 0) return true;
-  // Mid-stream hang: model stream stalled after first token. Long in-flight
-  // tool runs do not emit parent stream events; do not abort those.
+  // Execution-watchdog-exempt polls (collect, wait_agents, ask_director) emit
+  // no parent stream events. That must not pin the stall clock forever: they
+  // have no other wall-clock bound, so the stall budget is the backstop.
+  // TUI primary does not mount wait_agents; the name is kept so a stray mount cannot pin the clock.
+  if (isStallBoundedInFlightTool(args) && args.isProcessing) return true;
+  // Mid-stream hang: model stream stalled after first token. Ordinary in-flight
+  // tool runs still do not emit parent stream events; leave those to the
+  // per-tool execution watchdog rather than this silence clock.
   return (
     args.isProcessing &&
     args.streamingType !== null &&
@@ -50,32 +58,41 @@ function silentPastThreshold(
 }
 
 /**
- * Whether the run has gone silent while merely *awaiting* the model's next
- * response — right after submit or the instant a tool batch resolves, before
- * any token of the reply has arrived. `turnStateOnSubmit` and the `tool.done`
- * handler both reset `streamingType` to null exactly when they flip
- * `awaitingResponse` true, so this state can persist for as long as the model
- * takes to start replying: a slow model or a long thinking pass, not
- * necessarily a dead one. There is no signal available here to tell "still
- * coming" from "never coming" apart, so this case is deliberately excluded
- * from auto-abort and left to the notice instead — see `shouldAbortForStall`.
+ * Polls the per-tool execution watchdog leaves unarmed. Without a stall
+ * bound they hold the turn with no other wall-clock limit. A sibling
+ * tool.done clears `currentToolName` / `streamingType` while the poll is
+ * still in `activeToolCalls`, so the bound keys any in-flight stall-bounded
+ * name, not only the last announced tool.
  */
-function awaitingFirstToken(args: ShouldAbortForStallArgs): boolean {
-  return args.awaitingResponse && args.streamingType === null;
+function isStallBoundedToolName(name: string | null | undefined): boolean {
+  return (
+    name === "shell_collect" ||
+    name === "wait_agents" ||
+    name === "ask_director"
+  );
+}
+
+function isStallBoundedInFlightTool(args: ShouldAbortForStallArgs): boolean {
+  if (isStallBoundedToolName(args.currentToolName)) return true;
+  for (const [name, id] of Object.entries(args.callIdByName)) {
+    if (isStallBoundedToolName(name) && args.activeToolCalls.includes(id)) {
+      return true;
+    }
+  }
+  // Name-only announcements track the call under its name until a real id
+  // arrives, so the placeholder itself is the stall-bounded name.
+  return args.activeToolCalls.some(isStallBoundedToolName);
 }
 
 // Pure decision helper: returns true when the run is genuinely stuck and should
 // be aborted. Extracted so the timeout logic is unit-testable without timers.
 //
-// Auto-abort is reserved for a stream that had already started producing
-// tokens and then went dead mid-flight — the one case silence cannot be
-// explained by "still waiting on the model." A long-but-healthy wait for the
-// model to start (right after submit, or right after a tool batch resolves)
-// is exempted here even past the timeout: it still surfaces via the notice
-// (`stallLevel` / `shouldNoticeStall`), but the operator stays in control of
-// whether to give up on it rather than having the turn discarded for them.
+// Silence past `stallTimeoutMs` aborts a live turn, including a wait for the
+// model's next token (right after submit, after a tool batch resolves, or after
+// compact continuation re-entry) and an in-flight poll the per-tool watchdog
+// does not bound. Ordinary tool runs stay exempt here because they have their
+// own execution budget.
 export function shouldAbortForStall(args: ShouldAbortForStallArgs): boolean {
-  if (awaitingFirstToken(args)) return false;
   return silentPastThreshold(args, args.stallTimeoutMs);
 }
 

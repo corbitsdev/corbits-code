@@ -201,13 +201,23 @@ threshold, so a resumed session with already-stale activity shows the settled
 glyph immediately rather than alarming about silence the operator missed, and
 a stall that breaks and re-arms bursts again.
 
-Auto-abort (`shouldAbortForStall`) is reserved for a stream that had already
-started producing tokens and then went dead mid-flight — not for a run that
-is merely _awaiting_ the model's next response (right after submit, or the
-instant a tool batch resolves and `awaitingResponse` flips back to true).
-That wait has no signal to tell "still coming" from "never coming" apart, so
-it is never auto-aborted no matter how long it runs; it still surfaces via
-the notice, keeping the operator in control of whether to give up on it.
+Auto-abort (`shouldAbortForStall`) fires when a live turn has been silent
+past `STALL_TIMEOUT_MS`. That includes a stream that started producing
+tokens and then went dead, a wait for the model's next response that never
+arrives (right after submit, after a tool batch resolves, or after compact
+continuation re-entry), and an in-flight poll the per-tool execution
+watchdog leaves unarmed (`shell_collect`, `ask_director`). TUI primary does
+not mount `wait_agents` — mailbox mail is the collect path.
+Concurrent same-name `shell_collect` polls still collide in `callIdByName`
+(one slot per name), so a sibling collect finishing can drop the mapping and
+the remaining poll can lose that stall bound. That residual is in the
+name-keyed tracker, not a hole in the post-tool / post-compact abort; the
+usual single-collect shape stays bounded, including after a sibling
+`tool.done` that clears `currentToolName`.
+Ordinary in-flight tools stay exempt here — they have their own execution
+budget — and an open operator gate still blocks the clock. The notice
+still arms first at `STALL_NOTICE_MS` and hands over to the abort at the
+budget so the two never speak at once.
 The notice is a live diagnosis, not a sticky banner: it comes down on the
 same paint as the activity that ends the silence, including when the turn
 settles before the next monitor tick.
@@ -638,9 +648,9 @@ Two mid-run gestures, two delivery times (CL-6290):
 - **Enter, mid-run** — soft steer: enqueues kind `"steer"` and delivers at the
   next **parent** `tool.boundary` (the parent tool finishing, not a child) via
   `Agent.deliver` into the live reactor, not a new `send`. A
-  long parent `run_shell` or an awaiting `wait_agents` is parent-busy and holds
-  steers. An in-flight TUI-primary `wait_agents` yields as a timeout when a
-  steer is queued so occupancy can pick it up. A queued steer delivers at the
+  long parent `run_shell` is parent-busy and holds
+  steers. TUI primary does not mount `wait_agents`; occupancy delivers
+  mailbox mail instead. A queued steer delivers at the
   next parent `tool.boundary` so occupancy can pick it up. Pending items list
   in the pending column above the prompt, not the transcript; the transcript
   only ever sees the item that actually delivers, as an ordinary user row
