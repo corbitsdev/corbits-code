@@ -94,6 +94,15 @@ export interface TurnState {
    */
   readonly callIdByName: Readonly<Record<string, string>>;
   /**
+   * Tool name for each in-flight real call id, so two concurrent calls to
+   * the same tool each keep their own record. `callIdByName` holds only one
+   * id per name — the latest registration wins — so when the mapping-owning
+   * sibling resolves first and clears that slot, the leftover earlier call
+   * would otherwise lose its name and (for stall-bounded polls like
+   * `shell_collect`) its stall budget. See `registerActiveCall`.
+   */
+  readonly callNameById: Readonly<Record<string, string>>;
+  /**
    * Tail of the text/thinking output streamed in the current uninterrupted
    * streaming cycle. A tool call ends the cycle and clears it: a model
    * narrating a similar short line before each of several tool calls is
@@ -147,6 +156,7 @@ export function initialTurnState(nowMs: number): TurnState {
     quota: null,
     activeToolCalls: [],
     callIdByName: {},
+    callNameById: {},
     streamText: "",
     repeating: false,
     repeatingSinceTokenCount: null,
@@ -189,6 +199,7 @@ export function turnStateOnSubmit(state: TurnState, nowMs: number): TurnState {
     lastActivityAt: nowMs,
     activeToolCalls: [],
     callIdByName: {},
+    callNameById: {},
     streamText: "",
     repeating: false,
     repeatingSinceTokenCount: null,
@@ -385,6 +396,23 @@ interface CallTracking {
    * the original name-keyed tracking collapsed them identically.
    */
   readonly callIdByName: Readonly<Record<string, string>>;
+  /**
+   * Tool name for each in-flight real call id. Unlike `callIdByName` this
+   * keeps one entry per call, so concurrent same-name siblings do not
+   * overwrite each other — the entry that survives is keyed by the
+   * leftover call's own id, not the shared name.
+   */
+  readonly callNameById: Readonly<Record<string, string>>;
+}
+
+function withoutCallNameById(
+  callNameById: Readonly<Record<string, string>>,
+  id: string,
+): Readonly<Record<string, string>> {
+  if (!(id in callNameById)) return callNameById;
+  return Object.fromEntries(
+    Object.entries(callNameById).filter(([callId]) => callId !== id),
+  );
 }
 
 /**
@@ -396,13 +424,17 @@ function registerActiveCall(
   tracking: CallTracking,
   identity: CallIdentity,
 ): CallTracking {
-  const { activeToolCalls, callIdByName } = tracking;
+  const { activeToolCalls, callIdByName, callNameById } = tracking;
 
   if (identity.id !== undefined) {
     const nextCallIdByName =
       identity.name !== undefined
         ? { ...callIdByName, [identity.name]: identity.id }
         : callIdByName;
+    const nextCallNameById =
+      identity.name !== undefined
+        ? { ...callNameById, [identity.id]: identity.name }
+        : callNameById;
     // A provisional entry may already be tracking this call under its name —
     // promote it onto the real id in place instead of adding a duplicate.
     const withoutPlaceholder =
@@ -412,6 +444,7 @@ function registerActiveCall(
     return {
       activeToolCalls: withActiveCall(withoutPlaceholder, identity.id),
       callIdByName: nextCallIdByName,
+      callNameById: nextCallNameById,
     };
   }
 
@@ -420,12 +453,14 @@ function registerActiveCall(
     return {
       activeToolCalls: withActiveCall(activeToolCalls, id),
       callIdByName,
+      callNameById,
     };
   }
 
   return {
     activeToolCalls: withActiveCall(activeToolCalls, "tool"),
     callIdByName,
+    callNameById,
   };
 }
 
@@ -455,12 +490,14 @@ function unregisterActiveCall(
   tracking: CallTracking,
   identity: CallIdentity,
 ): CallTracking {
-  const { activeToolCalls, callIdByName } = tracking;
+  const { activeToolCalls, callIdByName, callNameById } = tracking;
 
   if (identity.id !== undefined) {
     // Clear the mapping once its call resolves, or a later call reusing the
     // same tool name would resolve straight to this now-finished id instead
     // of tracking its own — reproducing the leak this function exists to fix.
+    // The per-id record clears only the finished call's own entry, so a
+    // concurrent same-name sibling keeps its name (CL-8059).
     const resolvedName =
       identity.name ?? nameForCallId(callIdByName, identity.id);
     const nextCallIdByName =
@@ -470,6 +507,7 @@ function unregisterActiveCall(
     return {
       activeToolCalls: withoutActiveCall(activeToolCalls, identity.id),
       callIdByName: nextCallIdByName,
+      callNameById: withoutCallNameById(callNameById, identity.id),
     };
   }
 
@@ -478,12 +516,14 @@ function unregisterActiveCall(
     return {
       activeToolCalls: withoutActiveCall(activeToolCalls, id),
       callIdByName: withoutCallIdByName(callIdByName, identity.name),
+      callNameById: withoutCallNameById(callNameById, id),
     };
   }
 
   return {
     activeToolCalls: withoutActiveCall(activeToolCalls, "tool"),
     callIdByName,
+    callNameById,
   };
 }
 

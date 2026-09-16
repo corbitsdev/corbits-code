@@ -25,6 +25,12 @@ export interface ShouldAbortForStallArgs {
   readonly currentToolName: string | null;
   readonly activeToolCalls: readonly string[];
   readonly callIdByName: Readonly<Record<string, string>>;
+  /**
+   * Tool name for each in-flight real call id. Optional so callers holding
+   * only the legacy name-keyed record still compile; absent means no
+   * per-id names are known. See `isStallBoundedInFlightTool`.
+   */
+  readonly callNameById?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -62,7 +68,10 @@ function silentPastThreshold(
  * bound they hold the turn with no other wall-clock limit. A sibling
  * tool.done clears `currentToolName` / `streamingType` while the poll is
  * still in `activeToolCalls`, so the bound keys any in-flight stall-bounded
- * name, not only the last announced tool.
+ * name, not only the last announced tool. The name-keyed `callIdByName`
+ * holds one id per tool, so concurrent same-name siblings overwrite each
+ * other there; the per-id `callNameById` covers the leftover when the
+ * mapping-owning sibling resolves first and clears the shared slot.
  */
 function isStallBoundedToolName(name: string | null | undefined): boolean {
   return (
@@ -78,6 +87,13 @@ function isStallBoundedInFlightTool(args: ShouldAbortForStallArgs): boolean {
     if (isStallBoundedToolName(name) && args.activeToolCalls.includes(id)) {
       return true;
     }
+  }
+  // Concurrent same-name siblings share one callIdByName slot, so the
+  // mapping-owning sibling clearing it on tool.done must not release the
+  // leftover earlier call: its own id still maps to the bounded name here.
+  const callNameById = args.callNameById ?? {};
+  for (const id of args.activeToolCalls) {
+    if (isStallBoundedToolName(callNameById[id])) return true;
   }
   // Name-only announcements track the call under its name until a real id
   // arrives, so the placeholder itself is the stall-bounded name.

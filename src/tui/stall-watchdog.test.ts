@@ -211,6 +211,41 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
       }),
     ).toBe(false);
   });
+
+  // Two concurrent collects share one callIdByName slot: the second
+  // registration overwrites the first, so when the mapping-owning sibling
+  // resolves first and clears the slot, the leftover earlier collect is
+  // invisible to the name-keyed check above. The per-id record keeps it
+  // bounded (CL-8059).
+  test("concurrent collects with the mapping owner done first still abort at the stall budget", () => {
+    const leftover = {
+      ...collect,
+      currentToolName: null,
+      streamingType: null,
+      awaitingResponse: false,
+      activeToolCalls: ["collect-1"],
+      callIdByName: {},
+      callNameById: { "collect-1": "shell_collect" },
+    };
+    expect(
+      shouldAbortForStall({ ...leftover, nowMs: STALL_TIMEOUT_MS - 1 }),
+    ).toBe(false);
+    expect(shouldAbortForStall(leftover)).toBe(true);
+  });
+
+  test("a leftover ordinary tool tracked per-id is not a stall", () => {
+    expect(
+      shouldAbortForStall({
+        ...collect,
+        currentToolName: null,
+        streamingType: null,
+        awaitingResponse: false,
+        activeToolCalls: ["bash-1"],
+        callIdByName: {},
+        callNameById: { "bash-1": "bash" },
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("applyStallRecovery", () => {

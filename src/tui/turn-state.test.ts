@@ -155,6 +155,43 @@ describe("turnStateFromEvent", () => {
     expect(bothDone.activeToolCalls).toHaveLength(0);
   });
 
+  test("concurrent same-name collects stay tracked when the mapping owner finishes first", () => {
+    // Regression for CL-8059: two concurrent shell_collect calls share one
+    // callIdByName slot, so the second registration overwrites the first.
+    // When the mapping-owning sibling resolves first and clears that slot,
+    // the leftover earlier collect must keep its own name record.
+    const running = fold([
+      { type: "inference.start" },
+      {
+        type: "tool.start",
+        data: { call: { id: "collect-1", name: "shell_collect" } },
+      },
+      {
+        type: "tool.start",
+        data: { call: { id: "collect-2", name: "shell_collect" } },
+      },
+    ]);
+    expect(running.activeToolCalls).toHaveLength(2);
+
+    const oneDone = turnStateFromEvent(
+      running,
+      { type: "tool.done", data: { result: { callId: "collect-2" } } },
+      200,
+    );
+    expect(oneDone.activeToolCalls).toEqual(["collect-1"]);
+    expect(oneDone.callNameById).toEqual({
+      "collect-1": "shell_collect",
+    });
+
+    const bothDone = turnStateFromEvent(
+      oneDone,
+      { type: "tool.done", data: { result: { callId: "collect-1" } } },
+      201,
+    );
+    expect(bothDone.activeToolCalls).toHaveLength(0);
+    expect(bothDone.callNameById).toEqual({});
+  });
+
   test("tool.done only sets awaitingResponse once every parallel call has finished", () => {
     // Regression for CL-5661: with a fan-out of two outstanding calls, the
     // first tool.done must not claim the turn is idle while the second call
