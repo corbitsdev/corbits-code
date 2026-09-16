@@ -1,17 +1,15 @@
 import { describe, expect, test, afterEach } from "bun:test";
+import { hitUrlAt, linkColumnHits } from "../../../src/tui/url-links.js";
 import {
-  findLinks,
-  hitUrlAt,
   isOpenableUrl,
   isUrlOpenClick,
-  linkColumnHits,
   openUrl,
   platformUrlCommand,
   setUrlOpener,
   resetUrlOpener,
-  splitLinkSpans,
-  splitWrappedLinkSpans,
-} from "../../../src/tui/url-links.js";
+} from "../../../src/tui/link-open.js";
+import { findLinks, splitLinkSpans } from "../../../src/tui/link-spans.js";
+import { splitWrappedLinkSpans } from "../../../src/tui/link-wrap.js";
 
 afterEach(() => {
   resetUrlOpener();

@@ -21,19 +21,29 @@ export interface ToolCallDescriptor {
   isShell: boolean;
 }
 
-const TOOL_DISPLAY_NAMES: Record<string, string> = {
-  read_file: "Read",
-  write_file: "Write",
-  edit_file: "Edit",
-  run_shell: "Shell",
-  search_files: "Search",
-  grep: "Grep",
-  list_dir: "List",
-  web_search: "Web Search",
-  web_fetch: "Web Fetch",
-  manage_tasks: "Manage tasks",
-  submit_output: "Submit",
-  ask_operator: "Ask operator",
+/**
+ * One label table for both tool-name readers: the present-tense display name
+ * and the settled head of a tool lane in past tense (keyed by the raw
+ * identifier, the lane grouping key). Entries that only existed in one map
+ * carry the other reader's old fallback value, so both fallbacks below stay
+ * byte-identical: display-only keys repeat the display string as past tense,
+ * and past-only keys use the title-cased fallback as display.
+ */
+const TOOL_LABELS: Record<string, { display: string; past: string }> = {
+  read_file: { display: "Read", past: "Read" },
+  write_file: { display: "Write", past: "Wrote" },
+  edit_file: { display: "Edit", past: "Edited" },
+  run_shell: { display: "Shell", past: "Ran" },
+  search_files: { display: "Search", past: "Searched" },
+  grep: { display: "Grep", past: "Grepped" },
+  list_dir: { display: "List", past: "Listed" },
+  web_search: { display: "Web Search", past: "Searched" },
+  web_fetch: { display: "Web Fetch", past: "Fetched" },
+  manage_tasks: { display: "Manage tasks", past: "Manage tasks" },
+  submit_output: { display: "Submit", past: "Submitted" },
+  ask_operator: { display: "Ask operator", past: "Asked operator" },
+  delete_file: { display: "Delete File", past: "Deleted" },
+  use_skill: { display: "Use Skill", past: "Loaded skill" },
 };
 
 // Brand of the active web plugin (e.g. "Exa"), set at startup when a web plugin
@@ -46,29 +56,8 @@ export function setActiveWebProviderBrand(brand: string | undefined): void {
     brand !== undefined && brand.length > 0 ? brand : undefined;
 }
 
-/**
- * Settled head of a tool lane: the raw tool name in past tense. Keyed by the
- * raw identifier (the lane grouping key), falling back to the display name
- * for anything unmapped.
- */
-const TOOL_PAST_TENSE: Record<string, string> = {
-  grep: "Grepped",
-  read_file: "Read",
-  write_file: "Wrote",
-  edit_file: "Edited",
-  run_shell: "Ran",
-  list_dir: "Listed",
-  search_files: "Searched",
-  web_search: "Searched",
-  web_fetch: "Fetched",
-  delete_file: "Deleted",
-  submit_output: "Submitted",
-  ask_operator: "Asked operator",
-  use_skill: "Loaded skill",
-};
-
 export function pastTenseToolLabel(toolName: string): string {
-  return TOOL_PAST_TENSE[toolName] ?? humanizeToolName(toolName);
+  return TOOL_LABELS[toolName]?.past ?? humanizeToolName(toolName);
 }
 
 export function humanizeToolName(toolName: string): string {
@@ -76,7 +65,7 @@ export function humanizeToolName(toolName: string): string {
     if (toolName === "web_search") return `${activeWebProviderBrand} Search`;
     if (toolName === "web_fetch") return `${activeWebProviderBrand} Fetch`;
   }
-  const known = TOOL_DISPLAY_NAMES[toolName];
+  const known = TOOL_LABELS[toolName]?.display;
   if (known !== undefined) return known;
   // MCP tools read as "Server: tool name" rather than the raw mcp__ identifier.
   if (isMcpToolName(toolName)) return humanizeMcpTool(toolName);
@@ -247,7 +236,12 @@ function scalarToString(value: unknown): string {
   return Array.isArray(value) ? `[${value.length} items]` : "{…}";
 }
 
-function abbreviate(value: string, max: number): string {
+/**
+ * Collapse a value to a single line and clip it to `max` columns with an
+ * ellipsis. Shared by the result preview and the lane member subjects so the
+ * limit lives at each call site but the collapse-and-clip logic lives once.
+ */
+export function abbreviate(value: string, max: number): string {
   const oneLine = value.replace(/\s+/g, " ").trim();
   return oneLine.length <= max ? oneLine : oneLine.slice(0, max - 1) + "…";
 }

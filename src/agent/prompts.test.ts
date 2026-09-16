@@ -45,6 +45,10 @@ function expectVerificationGuidance(prompt: string): void {
   expect(prompt).not.toMatch(/relevant checks .*when practical/i);
 }
 
+// Module-scope snapshot of the repeated no-arg discipline builder. The block
+// is static text for absent input, so the no-arg calls below share one value.
+const PROMPT_DISCIPLINE_BLOCK = buildPromptDisciplineBlock();
+
 describe("buildPromptDisciplineBlock", () => {
   it("references only tool names that exist in the registration source", () => {
     for (const name of REFERENCED_TOOL_NAMES) {
@@ -53,18 +57,18 @@ describe("buildPromptDisciplineBlock", () => {
   });
 
   it("is tight: roughly 15-25 lines", () => {
-    const lines = buildPromptDisciplineBlock().split("\n");
+    const lines = PROMPT_DISCIPLINE_BLOCK.split("\n");
     expect(lines.length).toBeGreaterThanOrEqual(15);
     expect(lines.length).toBeLessThanOrEqual(30);
   });
 
   it("uses prohibition form, not preference form", () => {
-    const block = buildPromptDisciplineBlock();
+    const block = PROMPT_DISCIPLINE_BLOCK;
     expect(block).not.toMatch(/\bprefer\b/i);
   });
 
   it("contains the load-bearing prohibitions", () => {
-    const block = buildPromptDisciplineBlock();
+    const block = PROMPT_DISCIPLINE_BLOCK;
     // Dedicated tools over shell.
     expect(block).toContain("run_shell");
     expect(block).toContain("cat/head/tail");

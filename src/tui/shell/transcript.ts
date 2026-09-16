@@ -12,14 +12,9 @@ import {
 } from "@opentui/core";
 import { stringWidth } from "../view/height.js";
 import { viewToTableContent, type McpStructuredView } from "../mcp-view.js";
-import {
-  armLinkLine,
-  buildLinkLine,
-  findLinks,
-  paintLinkLine,
-  splitLinkSpans,
-  splitWrappedLinkSpans,
-} from "../url-links.js";
+import { armLinkLine, buildLinkLine, paintLinkLine } from "../url-links.js";
+import { findLinks, splitLinkSpans } from "../link-spans.js";
+import { splitWrappedLinkSpans } from "../link-wrap.js";
 import {
   splitAtSettledHeading,
   withholdIncompleteHeading,

@@ -16,15 +16,9 @@ import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness";
 import { appendStreamRow, replaceStreamRowAt } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
-import {
-  isOpenableUrl,
-  isUnderlined,
-  markdownLinkAt,
-  paintLinkLine,
-  resetUrlOpener,
-  setUrlOpener,
-  splitLinkSpans,
-} from "./url-links";
+import { isUnderlined, markdownLinkAt, paintLinkLine } from "./url-links";
+import { isOpenableUrl, resetUrlOpener, setUrlOpener } from "./link-open";
+import { splitLinkSpans } from "./link-spans";
 import { type StreamRow } from "./stream";
 
 const CALL: StreamRow = {

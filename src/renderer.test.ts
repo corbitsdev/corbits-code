@@ -41,32 +41,38 @@ function event(
   return { type, seq: 0, data } as unknown as ReactorEmittedEvent;
 }
 
+// One render-capture pass composing captureOutput + createRenderer + one
+// render per event. Every render test below funnels through here so the
+// capture/create/render/restore sequence lives in exactly one place.
+function renderCapture(
+  events: readonly ReactorEmittedEvent[],
+  modelId?: string,
+  pricingCache?: PricingCache | null,
+): { stdout: string[]; stderr: string[] } {
+  const cap = captureOutput();
+  const renderer = createRenderer(Date.now(), modelId, pricingCache);
+  for (const e of events) renderer.render(e);
+  cap.restore();
+  return cap;
+}
+
 describe("renderer — status bar", () => {
   test("every event updates the status bar on stderr", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(event("reactor.start"));
-    cap.restore();
+    const cap = renderCapture([event("reactor.start")]);
     expect(cap.stderr.join("")).toContain("interchange");
   });
 
   test("status bar uses \\r not \\n", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(event("reactor.start"));
-    cap.restore();
+    const cap = renderCapture([event("reactor.start")]);
     const bar = cap.stderr.join("");
     expect(bar).toContain("\r");
     expect(bar).not.toMatch(/interchange.*\n/);
   });
 
   test("status bar shows current op in amber for tool_call.start", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.start", { callId: "c1", name: "read_file" }),
-    );
-    cap.restore();
+    ]);
     // amber escape before the op text
     expect(cap.stderr.join("")).toContain("\x1b[38;5;214m");
   });
@@ -74,9 +80,7 @@ describe("renderer — status bar", () => {
 
 describe("renderer — manage_tasks journal block", () => {
   test("manage_tasks tool.done writes nothing to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c1",
         name: "manage_tasks",
@@ -84,29 +88,21 @@ describe("renderer — manage_tasks journal block", () => {
           tasks: [{ id: "1", title: "Add function", status: "in_progress" }],
         },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c1", content: "ok" } }),
-    );
-    cap.restore();
+    ]);
     expect(cap.stdout.join("")).toBe("");
   });
 });
 describe("renderer — write_file journal block", () => {
   test("write_file tool.done writes a write block with line count to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c2",
         name: "write_file",
         arguments: { path: "src/foo.ts", content: "line1\nline2\nline3" },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c2", content: "ok" } }),
-    );
-    cap.restore();
+    ]);
     const out = cap.stdout.join("");
     expect(out).toContain("write");
     expect(out).toContain("src/foo.ts");
@@ -116,9 +112,7 @@ describe("renderer — write_file journal block", () => {
 
 describe("renderer — edit_file journal block", () => {
   test("edit_file tool.done writes an edit block with +/- counts to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c3",
         name: "edit_file",
@@ -128,11 +122,8 @@ describe("renderer — edit_file journal block", () => {
           new_string: "line1\nline2\nline3\nline4",
         },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c3", content: "ok" } }),
-    );
-    cap.restore();
+    ]);
     const out = cap.stdout.join("");
     expect(out).toContain("edit");
     expect(out).toContain("src/bar.ts");
@@ -143,19 +134,14 @@ describe("renderer — edit_file journal block", () => {
 
 describe("renderer — run_shell journal block", () => {
   test("run_shell success writes collapsed block with checkmark to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c4",
         name: "run_shell",
         arguments: { command: "bun test" },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c4", content: "14 passed" } }),
-    );
-    cap.restore();
+    ]);
     const out = cap.stdout.join("");
     expect(out).toContain("shell");
     expect(out).toContain("bun test");
@@ -163,21 +149,16 @@ describe("renderer — run_shell journal block", () => {
   });
 
   test("run_shell failure writes expanded block with cross to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c5",
         name: "run_shell",
         arguments: { command: "bun test" },
       }),
-    );
-    renderer.render(
       event("tool.done", {
         result: { callId: "c5", content: "2 failed", isError: true },
       }),
-    );
-    cap.restore();
+    ]);
     const out = cap.stdout.join("");
     expect(out).toContain("✗");
     expect(out).toContain("2 failed");
@@ -186,19 +167,14 @@ describe("renderer — run_shell journal block", () => {
 
 describe("renderer — submit_output / reactor.done journal block", () => {
   test("submit_output tool.done writes done block with summary in green", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c6",
         name: "submit_output",
         arguments: { summary: "Task complete" },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c6", content: "ok" } }),
-    );
-    cap.restore();
+    ]);
     const out = cap.stdout.join("");
     expect(out).toContain("done");
     expect(out).toContain("Task complete");
@@ -206,19 +182,14 @@ describe("renderer — submit_output / reactor.done journal block", () => {
   });
 
   test("reactor.done writes done block to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(event("reactor.done"));
-    cap.restore();
+    const cap = renderCapture([event("reactor.done")]);
     expect(cap.stdout.join("")).toContain("done");
   });
 });
 
 describe("renderer — error blocks", () => {
   test("inference.error writes an actionable provider diagnostic in red to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.error", {
         error: {
           category: "protocol_mismatch",
@@ -227,8 +198,7 @@ describe("renderer — error blocks", () => {
         },
         partial: {},
       }),
-    );
-    cap.restore();
+    ]);
     const out = cap.stdout.join("");
     expect(out).toContain("error");
     expect(out).toContain("\x1b[31m"); // red
@@ -239,9 +209,7 @@ describe("renderer — error blocks", () => {
   });
 
   test("inference.error surfaces Codex usage_limit_reached with reset ETA", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.error", {
         error: {
           category: "quota_exhausted",
@@ -260,8 +228,7 @@ describe("renderer — error blocks", () => {
         },
         partial: {},
       }),
-    );
-    cap.restore();
+    ]);
     const out = cap.stdout.join("");
     expect(out).toContain("Codex usage limit reached");
     expect(out).toMatch(/Resets in ~/);
@@ -270,12 +237,9 @@ describe("renderer — error blocks", () => {
   });
 
   test("reactor.error writes error block in red to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("reactor.error", { error: "fatal crash", fatal: true }),
-    );
-    cap.restore();
+    ]);
     const out = cap.stdout.join("");
     expect(out).toContain("error");
     expect(out).toContain("fatal crash");
@@ -284,13 +248,11 @@ describe("renderer — error blocks", () => {
 
 describe("renderer — miniDiff truncation", () => {
   test("edit_file with more than 10 lines shows truncation marker", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
     const longContent = Array.from(
       { length: 12 },
       (_, i) => `line ${i + 1}`,
     ).join("\n");
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c-trunc",
         name: "edit_file",
@@ -300,45 +262,34 @@ describe("renderer — miniDiff truncation", () => {
           new_string: longContent,
         },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c-trunc", content: "ok" } }),
-    );
-    cap.restore();
+    ]);
     expect(cap.stdout.join("")).toContain("more");
   });
 });
 
 describe("renderer — formatOp fallback", () => {
   test("unknown tool name is used as-is for op display", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.start", {
         name: "custom_tool",
         callId: "c-custom",
       }),
-    );
-    cap.restore();
+    ]);
     expect(cap.stderr.join("")).toContain("custom_tool");
   });
 });
 
 describe("renderer — inference.done clears op", () => {
   test("inference.done resets currentOp in status bar", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.start", { name: "run_shell", callId: "c-x" }),
-    );
-    renderer.render(
       event("inference.done", {
         turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
         usage: { input: 0, output: 0 },
         source: "test",
       }),
-    );
-    cap.restore();
+    ]);
     // After inference.done the status bar should no longer contain the op name
     const lastStderr = cap.stderr[cap.stderr.length - 1] ?? "";
     expect(lastStderr).not.toContain("running");
@@ -347,10 +298,7 @@ describe("renderer — inference.done clears op", () => {
 
 describe("renderer — inference.usage updates cost display", () => {
   test("inference.usage causes the status bar to update", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    const stderrBefore = cap.stderr.length;
-    renderer.render(
+    const cap = renderCapture([
       event("inference.usage", {
         usage: {
           input: 100,
@@ -360,102 +308,77 @@ describe("renderer — inference.usage updates cost display", () => {
           thinking: 0,
         },
       }),
-    );
-    cap.restore();
-    expect(cap.stderr.length).toBeGreaterThan(stderrBefore);
+    ]);
+    expect(cap.stderr.length).toBeGreaterThan(0);
   });
 });
 
 describe("renderer — tool.start updates op", () => {
   test("tool.start sets op to the tool name", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("tool.start", { call: { name: "run_shell", id: "c-ts" } }),
-    );
-    cap.restore();
+    ]);
     expect(cap.stderr.join("")).toContain("running");
   });
 });
 
 describe("renderer — connector.reply clears op", () => {
   test("connector.reply does not write to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(event("connector.reply", { messageId: "msg-1" }));
-    cap.restore();
+    const cap = renderCapture([
+      event("connector.reply", { messageId: "msg-1" }),
+    ]);
     expect(cap.stdout.join("")).toBe("");
   });
 });
 
 describe("renderer — search_files and grep produce no journal block", () => {
   test("search_files tool.done writes nothing to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c-sf",
         name: "search_files",
         arguments: { pattern: "foo" },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c-sf", content: "results" } }),
-    );
-    cap.restore();
+    ]);
     expect(cap.stdout.join("")).toBe("");
   });
 
   test("grep tool.done writes nothing to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c-grep",
         name: "grep",
         arguments: { pattern: "bar" },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c-grep", content: "matches" } }),
-    );
-    cap.restore();
+    ]);
     expect(cap.stdout.join("")).toBe("");
   });
 });
 
 describe("renderer — read-only tools produce no journal block", () => {
   test("read_file tool.done writes nothing to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c7",
         name: "read_file",
         arguments: { path: "src/foo.ts" },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c7", content: "file content" } }),
-    );
-    cap.restore();
+    ]);
     expect(cap.stdout.join("")).toBe("");
   });
 
   test("list_dir tool.done writes nothing to stdout", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now());
-    renderer.render(
+    const cap = renderCapture([
       event("inference.tool_call.end", {
         callId: "c8",
         name: "list_dir",
         arguments: { path: "src/" },
       }),
-    );
-    renderer.render(
       event("tool.done", { result: { callId: "c8", content: "src/foo.ts" } }),
-    );
-    cap.restore();
+    ]);
     expect(cap.stdout.join("")).toBe("");
   });
 });
@@ -519,15 +442,17 @@ describe("renderer — mixed vs hidden-only session cost", () => {
   }
 
   test("Codex then metered shows the metered portion only, not a live-model recast", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), "glm-5.1", pricingCache);
-    renderer.render(
-      event("inference.done", { usage: CODEX_USAGE, source: CODEX_SOURCE }),
+    const cap = renderCapture(
+      [
+        event("inference.done", { usage: CODEX_USAGE, source: CODEX_SOURCE }),
+        event("inference.done", {
+          usage: METERED_USAGE,
+          source: METERED_SOURCE,
+        }),
+      ],
+      "glm-5.1",
+      pricingCache,
     );
-    renderer.render(
-      event("inference.done", { usage: METERED_USAGE, source: METERED_SOURCE }),
-    );
-    cap.restore();
 
     const meteredOnly = createFaremeter({ modelId: "glm-5.1", pricingCache });
     meteredOnly.addUsage(METERED_USAGE);
@@ -544,12 +469,11 @@ describe("renderer — mixed vs hidden-only session cost", () => {
   });
 
   test("hidden-only Codex still uses subscription copy", () => {
-    const cap = captureOutput();
-    const renderer = createRenderer(Date.now(), "gpt-5.6-luna", pricingCache);
-    renderer.render(
-      event("inference.done", { usage: CODEX_USAGE, source: CODEX_SOURCE }),
+    const cap = renderCapture(
+      [event("inference.done", { usage: CODEX_USAGE, source: CODEX_SOURCE })],
+      "gpt-5.6-luna",
+      pricingCache,
     );
-    cap.restore();
 
     const bar = cap.stderr[cap.stderr.length - 1] ?? "";
     expect(bar).toContain(
