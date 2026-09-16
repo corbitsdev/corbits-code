@@ -11,7 +11,11 @@ import {
   type DirectorId,
   type DirectorPackage,
 } from "./directors/types.js";
-import { buildSubAgentSystemPrompt } from "./prompts.js";
+import { buildChatSystemPrompt, buildSubAgentSystemPrompt } from "./prompts.js";
+import {
+  formatAgentsMdExtension,
+  MAX_AGENTS_MD_BYTES,
+} from "./context-extensions.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { shellCollectDefinition } from "./background-shell-tool.js";
@@ -56,6 +60,14 @@ const DEFAULT_PROVIDER = {
 
 /** Families in the size table: default assembly vs Grok (+finish-bias note). */
 export type PromptSizeFamily = "default" | "grok";
+
+/**
+ * Pinned AGENTS.md body for prefix measurement. Production reads the live
+ * file (capped at MAX_AGENTS_MD_BYTES); the fixture pins a short body so
+ * sizes move only when framing or assembly changes, not when the checkout's
+ * AGENTS.md is edited.
+ */
+export const CANONICAL_AGENTS_MD = "Follow the repository conventions.\n";
 
 /**
  * Pre-filter mount names in run.ts install order: posix base (TOOL_NAMES,
@@ -156,6 +168,19 @@ export function assembleDirectorPrompt(
   );
 }
 
+/**
+ * Skywalker primary infer envelope: the chat system prompt plus the
+ * AGENTS.md extension. Family-agnostic — Grok does not substitute the
+ * trimmed director prompt. Live AGENTS.md is capped at MAX_AGENTS_MD_BYTES;
+ * the fixture uses CANONICAL_AGENTS_MD so the number is checkout-stable.
+ */
+export function assembleSkywalkerInferEnvelope(): string {
+  return buildChatSystemPrompt(
+    [formatAgentsMdExtension(CANONICAL_AGENTS_MD)],
+    CANONICAL_PROMPT_ENV,
+  );
+}
+
 export interface DirectorPromptSize {
   directorId: DirectorId;
   family: PromptSizeFamily;
@@ -173,6 +198,26 @@ export function measureDirectorPrompt(
     family,
     chars: prompt.length,
     bytes: Buffer.byteLength(prompt, "utf8"),
+  };
+}
+
+export interface SkywalkerPrefixSize {
+  inferEnvelopeChars: number;
+  inferEnvelopeBytes: number;
+  trimmedDirectorChars: number;
+  trimmedDirectorBytes: number;
+  agentsMdCap: number;
+}
+
+export function measureSkywalkerPrefix(): SkywalkerPrefixSize {
+  const infer = assembleSkywalkerInferEnvelope();
+  const trimmed = assembleDirectorPrompt("skywalker", "grok");
+  return {
+    inferEnvelopeChars: infer.length,
+    inferEnvelopeBytes: Buffer.byteLength(infer, "utf8"),
+    trimmedDirectorChars: trimmed.length,
+    trimmedDirectorBytes: Buffer.byteLength(trimmed, "utf8"),
+    agentsMdCap: MAX_AGENTS_MD_BYTES,
   };
 }
 
@@ -205,4 +250,14 @@ export function formatPromptSizeTable(rows: DirectorPromptSize[]): string {
     );
   }
   return lines.join("\n");
+}
+
+export function formatSkywalkerPrefixTable(size: SkywalkerPrefixSize): string {
+  return [
+    "| prefix | chars (bytes) |",
+    "| --- | --- |",
+    `| skywalker infer envelope (canonical AGENTS.md) | ${size.inferEnvelopeChars} (${size.inferEnvelopeBytes}) |`,
+    `| skywalker trimmed director (grok) | ${size.trimmedDirectorChars} (${size.trimmedDirectorBytes}) |`,
+    `| live AGENTS.md cap | ${size.agentsMdCap} |`,
+  ].join("\n");
 }

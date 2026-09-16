@@ -348,6 +348,8 @@ The primary session identity is **Skywalker** (`buildChatRole` → `createSkywal
 
 **Overrides.** `loadSystemPromptOverrides` (`src/agent/context-extensions.ts`) resolves a project `SYSTEM.md` (repo root, then `.corbits/`) that **replaces** the static base block, and an `APPEND_SYSTEM.md` that is **appended** as an extension. These compose with `config.systemPromptExtensions` (profile config) and the auto-discovered `AGENTS.md`, all of which attach as appended sections after the base.
 
+**Grok prefix.** The provider cache prefix is the advertised tools array plus the system prompt. Grok does **not** get a trimmed fork of that prefix. `AGENTS.md` (capped at 32,000 bytes, framed as reference) and the full CORE+CATALOG schemas stay on every Grok primary prefix, same as every other family. Family residuals are additive lines only (`buildGrokLeafAntiThrashNote` on leaves); stripping project guidance or core schemas for Grok would be a prompt fork and would force `tool_search` round-trips — the thrash Grok is already sensitive to. The cheaper split already exists: workers use `buildSubAgentSystemPrompt` (trimmed director prompt, no `AGENTS.md`, mounted-tool schemas only). Skywalker's infer envelope is the primary chat prompt, not a spawned skywalker package. Prefix bytes are measured in `src/agent/prompt-sizes.ts` (`assembleSkywalkerInferEnvelope` vs `assembleDirectorPrompt("skywalker", "grok")`). `present` stays off the advertised prefix on every family.
+
 ### State Persistence (`src/session/state.ts`)
 
 - `RunState` — `running` | `done` | `failed`, turns used, task, timestamps, error
