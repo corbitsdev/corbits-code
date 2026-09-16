@@ -317,6 +317,8 @@ while other work is still running, and **one** dry-fleet line when the last
 lane finishes
 (`N done`; failed and cancelled counts appear only
 when non-zero, e.g. `N done, M failed, K cancelled`).
+Interrupted leftovers use the same liveness rule as occupancy: they are
+not a finished outcome, so interrupt-all does not print `0 done`.
 The line does not claim the run is idle — the parent often continues.
 The prompt-box lockup is what names that occupation, not this tally.
 Per-lane `done — summary` walls and live `dispatched` re-announcements
@@ -690,7 +692,8 @@ unchanged.
 
 **Idle-with-fleet** is shipped. After a non-blocking `spawn_agent` dispatch
 the parent turn settles while workers keep running; the runner emits `fleet`
-events carrying the live-lane count and the bridge holds the run busy on it.
+events carrying the live-lane count (interrupted leftovers are not live)
+and the bridge holds the run busy on it.
 During the hold, Enter upgrades to a new primary turn sent immediately —
 there is no parent tool left to steer — while Alt+Enter follow-ups keep
 waiting for true session-idle. A child done or fail while siblings still run

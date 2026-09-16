@@ -98,6 +98,37 @@ test("fleet-wake publisher reports fleet-count transitions to the idle-with-flee
   expect(seen).toEqual([1, 0]);
 });
 
+test("interrupt-all with no running workers publishes live count 0", () => {
+  const store = createSubAgentSessionStore();
+  const emitter = new EventEmitter();
+  const seen: number[] = [];
+  const publisher = createFleetWakePublisher(store, emitter, (running) => {
+    seen.push(running);
+  });
+  store.start({
+    id: "worker-one",
+    agentId: "builder",
+    description: "worker-one",
+    brief: "build",
+  });
+  store.markRunning("worker-one");
+  store.registerInterrupt("worker-one", () => undefined);
+  store.start({
+    id: "worker-two",
+    agentId: "builder",
+    description: "worker-two",
+    brief: "build",
+  });
+  store.markRunning("worker-two");
+  store.registerInterrupt("worker-two", () => undefined);
+  publisher.publish();
+  expect(seen).toEqual([2]);
+  expect(store.interruptOne("worker-one").ok).toBe(true);
+  expect(store.interruptOne("worker-two").ok).toBe(true);
+  publisher.publish();
+  expect(seen).toEqual([2, 0]);
+});
+
 for (const phase of ["settled", "prequeued", "deferred"] as const) {
   test(`rotation suppresses old worker snapshots (${phase}), including repeated resets`, async () => {
     await withTestRenderer(
