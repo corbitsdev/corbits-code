@@ -323,11 +323,10 @@ function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
   let failed = 0;
   let cancelled = 0;
   for (const lane of lanes) {
-    // Same liveness as liveFleetCount: interrupted leftovers are not occupancy
-    // and are not a finished outcome, even if TUI status is still "running".
-    if (agentLaneIsLive(lane) || lane.lifecycleStatus === "interrupted") {
-      continue;
-    }
+    // Occupancy leftovers (still TUI-running, including interrupted leftovers)
+    // are not finished outcomes. Cancelled workers project lifecycleStatus
+    // interrupted too — skip on live/running, not on interrupted alone.
+    if (agentLaneIsLive(lane) || lane.status === "running") continue;
     switch (lane.status) {
       case "done":
         done += 1;
@@ -337,8 +336,6 @@ function outcomeCounts(lanes: readonly FleetLane[]): OutcomeCounts {
         break;
       case "cancelled":
         cancelled += 1;
-        break;
-      case "running":
         break;
     }
   }

@@ -241,14 +241,74 @@ describe("observeFleet", () => {
     const { watch, updates } = observeFleet(
       seeded,
       [
-        lane({ id: "api", lifecycleStatus: "interrupted" }),
-        lane({ id: "docs", lifecycleStatus: "interrupted" }),
+        lane({
+          id: "api",
+          status: "running",
+          lifecycleStatus: "interrupted",
+        }),
+        lane({
+          id: "docs",
+          status: "running",
+          lifecycleStatus: "interrupted",
+        }),
       ],
       T0 + 1000,
     );
     expect(watch.running).toBe(0);
     expect(updates.join(" ")).not.toContain("0 done");
     expect(updates).toEqual([]);
+  });
+
+  test("cancel-all counts cancelled even when lifecycleStatus is interrupted", () => {
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
+    const { watch, updates } = observeFleet(
+      seeded,
+      [
+        lane({
+          id: "api",
+          status: "cancelled",
+          lifecycleStatus: "interrupted",
+        }),
+        lane({
+          id: "docs",
+          status: "cancelled",
+          lifecycleStatus: "interrupted",
+        }),
+      ],
+      T0 + 1000,
+    );
+    expect(watch.running).toBe(0);
+    expect(updates).toEqual(["0 done, 2 cancelled"]);
+  });
+
+  test("a mixed dry fleet counts done and cancelled with interrupted lifecycle", () => {
+    const seeded = observeFleet(
+      createFleetWatch(),
+      [lane({ id: "api" }), lane({ id: "docs" })],
+      T0,
+    ).watch;
+    const { updates } = observeFleet(
+      seeded,
+      [
+        lane({
+          id: "api",
+          status: "done",
+          lifecycleStatus: "completed",
+          report: "ok",
+        }),
+        lane({
+          id: "docs",
+          status: "cancelled",
+          lifecycleStatus: "interrupted",
+        }),
+      ],
+      T0 + 1000,
+    );
+    expect(updates).toEqual(["1 done, 1 cancelled"]);
   });
 
   test("a mixed dry fleet does not count interrupted leftovers as done", () => {
@@ -260,8 +320,17 @@ describe("observeFleet", () => {
     const { updates } = observeFleet(
       seeded,
       [
-        lane({ id: "api", status: "done", report: "ok" }),
-        lane({ id: "docs", lifecycleStatus: "interrupted" }),
+        lane({
+          id: "api",
+          status: "done",
+          lifecycleStatus: "completed",
+          report: "ok",
+        }),
+        lane({
+          id: "docs",
+          status: "running",
+          lifecycleStatus: "interrupted",
+        }),
       ],
       T0 + 1000,
     );
@@ -295,8 +364,16 @@ describe("fleetDigest", () => {
     expect(
       fleetDigest(
         [
-          lane({ id: "api", lifecycleStatus: "interrupted" }),
-          lane({ id: "docs", lifecycleStatus: "interrupted" }),
+          lane({
+            id: "api",
+            status: "running",
+            lifecycleStatus: "interrupted",
+          }),
+          lane({
+            id: "docs",
+            status: "running",
+            lifecycleStatus: "interrupted",
+          }),
         ],
         T0,
       ),
@@ -307,12 +384,60 @@ describe("fleetDigest", () => {
     expect(
       fleetDigest(
         [
-          lane({ id: "api", status: "cancelled" }),
-          lane({ id: "cli", status: "failed" }),
+          lane({
+            id: "api",
+            status: "cancelled",
+            lifecycleStatus: "interrupted",
+          }),
+          lane({
+            id: "cli",
+            status: "failed",
+            lifecycleStatus: "shutdown",
+          }),
         ],
         T0,
       ),
     ).toBe("1 failed · 1 cancelled");
+  });
+
+  test("a cancelled-only fleet names cancelled even when lifecycle is interrupted", () => {
+    expect(
+      fleetDigest(
+        [
+          lane({
+            id: "api",
+            status: "cancelled",
+            lifecycleStatus: "interrupted",
+          }),
+          lane({
+            id: "docs",
+            status: "cancelled",
+            lifecycleStatus: "interrupted",
+          }),
+        ],
+        T0,
+      ),
+    ).toBe("2 cancelled");
+  });
+
+  test("mixed done and cancelled-with-interrupted lifecycle counts both", () => {
+    expect(
+      fleetDigest(
+        [
+          lane({
+            id: "api",
+            status: "done",
+            lifecycleStatus: "completed",
+          }),
+          lane({
+            id: "docs",
+            status: "cancelled",
+            lifecycleStatus: "interrupted",
+          }),
+        ],
+        T0,
+      ),
+    ).toBe("1 done · 1 cancelled");
   });
 });
 
