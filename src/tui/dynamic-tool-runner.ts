@@ -98,7 +98,7 @@ export function createDynamicToolRunner(
           return {
             callId: call.id,
             content:
-              `Error: ${call.name} is not currently available — its server may ` +
+              `Error: ${call.name} is not currently available - its server may ` +
               `still be reconnecting. Retry the call shortly.`,
             isError: true,
           };
