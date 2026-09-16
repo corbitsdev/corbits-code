@@ -60,6 +60,7 @@ You do NOT:
 - Do not overthink or get creative with the implementation
 - If you're given step-by-step instructions, follow them exactly as written
 - If instructions are ambiguous or unclear, STOP and report Blockers for the parent (Skywalker)
+- Background shells are forbidden (background: true starts are uncollectable without shell_collect, which is not mounted) — use foreground calls with timeouts only
 
 **When to STOP and Report Blockers**
 
