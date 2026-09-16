@@ -151,7 +151,17 @@ redialing. A `tool_search` miss waits up to 1 second for in-flight handshakes
 and looks again; when a reconnecting server holds tools that could match the
 query, the search takes one extra 500 ms extension for the redial to remount
 them. Servers still waiting on authorization never earn that extension — they
-settle only when authorization completes out of band.
+settle only when authorization completes out of band. An empty catalog is not
+a definitive miss while any server is still connecting: the result asks the
+model to retry shortly instead of advising different keywords.
+
+`corbits exec` waits for startup MCP connect before workflow resume and the first
+inference so capability-gated workflow steps can see MCP tools. A 1s log fires
+if the handshake is still in progress; remaining dials keep running until they
+settle or the 15s abort fires so a hung server cannot block the run. A rejected
+batch does not clear that abort while a sibling is still connecting. Each
+handshake is aborted independently, so a sibling that already connected is not
+torn down. The TUI still starts MCP in the background without that wait.
 
 ## Server Kinds
 

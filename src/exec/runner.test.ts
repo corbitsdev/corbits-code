@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import { createAdvertisedToolset } from "../session/assemble-runtime.js";
 import {
+  armExecMcpHandshakeAbort,
+  awaitExecMcpConnect,
+  awaitExecMcpThenResume,
+  followExecMcpHandshake,
+} from "./mcp-handshake.js";
+import {
   createExecToolCallGate,
   createExecToolPromoter,
   isExecOverlayToolAllowed,
@@ -209,5 +215,116 @@ describe("exec director allowlist", () => {
   test("skywalker overlay leaves every tool allowed", () => {
     const overlay = resolveExecDirectorOverlay("skywalker");
     expect(isExecOverlayToolAllowed(overlay, OUTSIDE_ALLOW)).toBe(true);
+  });
+});
+
+describe("exec MCP connect bounds", () => {
+  test("a hung handshake wait returns timeout without waiting for connect", async () => {
+    const connecting = new Promise<void>(() => {
+      // Never settles: hung MCP handshake.
+    });
+    const started = Date.now();
+    const outcome = await awaitExecMcpConnect(connecting, 30);
+    expect(outcome).toBe("timeout");
+    expect(Date.now() - started).toBeLessThan(250);
+  });
+
+  test("a settled handshake returns before the wait bound", async () => {
+    const outcome = await awaitExecMcpConnect(Promise.resolve(), 1_000);
+    expect(outcome).toBe("settled");
+  });
+
+  test("handshake abort fires while connect is still in flight", async () => {
+    const handshake = armExecMcpHandshakeAbort(30);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(handshake.signal.aborted).toBe(true);
+  });
+
+  test("disarming after a successful handshake does not abort the live connection", async () => {
+    const handshake = armExecMcpHandshakeAbort(30);
+    handshake.disarm();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(handshake.signal.aborted).toBe(false);
+  });
+
+  test("a rejected batch leaves the abort timer armed while siblings stay in flight", async () => {
+    const handshake = armExecMcpHandshakeAbort(40);
+    const connecting = followExecMcpHandshake(
+      Promise.reject(new Error("onStatus threw")),
+      handshake,
+    ).catch(() => undefined);
+    await connecting;
+    expect(handshake.signal.aborted).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(handshake.signal.aborted).toBe(true);
+  });
+
+  test("a fulfilled batch disarms so the abort cannot tear down the live connection", async () => {
+    const handshake = armExecMcpHandshakeAbort(40);
+    await followExecMcpHandshake(Promise.resolve(), handshake);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(handshake.signal.aborted).toBe(false);
+  });
+
+  test("resume waits for connect to settle even after the short wait times out", async () => {
+    const handshake = armExecMcpHandshakeAbort(500);
+    const events: string[] = [];
+    const connecting = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        events.push("settled");
+        resolve();
+      }, 50);
+    });
+    await awaitExecMcpThenResume(
+      connecting.then(() => handshake.disarm()),
+      async () => {
+        events.push("resume");
+      },
+      { waitMs: 10, abort: handshake.signal },
+    );
+    expect(events).toEqual(["settled", "resume"]);
+    handshake.disarm();
+  });
+
+  test("resume after a logged connect failure does not disarm the abort timer", async () => {
+    const handshake = armExecMcpHandshakeAbort(40);
+    let resumed = false;
+    const connecting = followExecMcpHandshake(
+      Promise.reject(new Error("filterServersForConnect failed")),
+      handshake,
+    ).catch(() => undefined);
+    await awaitExecMcpThenResume(
+      connecting,
+      async () => {
+        resumed = true;
+      },
+      { waitMs: 10, abort: handshake.signal },
+    );
+    expect(resumed).toBe(true);
+    expect(handshake.signal.aborted).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(handshake.signal.aborted).toBe(true);
+  });
+
+  test("a hung connect resumes when the abort fires instead of waiting forever", async () => {
+    const handshake = armExecMcpHandshakeAbort(40);
+    const connecting = followExecMcpHandshake(
+      new Promise<void>(() => {
+        // Never settles: hung sibling handshake that ignores the signal.
+      }),
+      handshake,
+    ).catch(() => undefined);
+    const started = Date.now();
+    let resumed = false;
+    await awaitExecMcpThenResume(
+      connecting,
+      async () => {
+        resumed = true;
+      },
+      { waitMs: 10, abort: handshake.signal },
+    );
+    expect(resumed).toBe(true);
+    expect(handshake.signal.aborted).toBe(true);
+    expect(Date.now() - started).toBeLessThan(250);
   });
 });

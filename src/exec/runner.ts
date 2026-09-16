@@ -45,6 +45,13 @@ import {
 } from "../subagent/index.js";
 import { getProcessAdmissionQueue } from "../subagent/admission.js";
 import { disposeExecRuntime, formatCaughtError } from "./dispose.js";
+import {
+  EXEC_MCP_CONNECT_WAIT_MS,
+  EXEC_MCP_HANDSHAKE_TIMEOUT_MS,
+  armExecMcpHandshakeAbort,
+  awaitExecMcpThenResume,
+  followExecMcpHandshake,
+} from "./mcp-handshake.js";
 import type {
   ContextStore,
   InferenceSource,
@@ -886,29 +893,45 @@ export async function runExec(config: Config): Promise<ExecResult> {
       throw new Error("approval resume: no context store");
 
     if (agentToolset.connectMCP !== undefined) {
-      await agentToolset
-        .connectMCP({
-          interactiveAuth: false,
-          onStatus: (status) => {
-            if (status.state === "connected") {
-              connectedMcp = [
-                ...connectedMcp.filter((s) => s.name !== status.name),
-                { name: status.name, toolCount: status.tools.length },
-              ];
-            }
+      const handshake = armExecMcpHandshakeAbort(EXEC_MCP_HANDSHAKE_TIMEOUT_MS);
+      const connecting = followExecMcpHandshake(
+        agentToolset.connectMCP(
+          {
+            interactiveAuth: false,
+            onStatus: (status) => {
+              if (status.state === "connected") {
+                connectedMcp = [
+                  ...connectedMcp.filter((s) => s.name !== status.name),
+                  { name: status.name, toolCount: status.tools.length },
+                ];
+              }
+            },
+            onToolsChanged: (definitions) =>
+              directorHolder.instance?.updateToolDefinitions(
+                computeAdvertised(definitions),
+              ),
           },
-          onToolsChanged: (definitions) =>
-            directorHolder.instance?.updateToolDefinitions(
-              computeAdvertised(definitions),
-            ),
-        })
-        .catch((err: unknown) => {
-          logger.warn("MCP connect failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          handshake.signal,
+        ),
+        handshake,
+      ).catch((err: unknown) => {
+        logger.warn("MCP connect failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
         });
+      });
+      await awaitExecMcpThenResume(connecting, () => workflowHost.resume(), {
+        waitMs: EXEC_MCP_CONNECT_WAIT_MS,
+        abort: handshake.signal,
+        onWaitTimeout: () => {
+          logger.warn(
+            "MCP handshake still in progress after {waitMs}ms; waiting for settle or abort before resume",
+            { waitMs: EXEC_MCP_CONNECT_WAIT_MS },
+          );
+        },
+      });
+    } else {
+      await workflowHost.resume();
     }
-    await workflowHost.resume();
 
     const textChunks: string[] = [];
     // Consume-once gate for the compaction continuation emit: a replayed
