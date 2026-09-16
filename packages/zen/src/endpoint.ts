@@ -23,12 +23,7 @@ const ENDPOINT_BY_PROTOCOL: Record<ZenProtocol, ZenEndpoint> = {
   },
 };
 
-/** Map hit if and only if this model pins Zen protocol selection. */
-export function zenProtocolForModel(model: string): ZenProtocol {
-  return protocolForZenModel(model);
-}
-
 /** Route a Zen model to its endpoint. Unknown ids stay on chat completions. */
 export function resolveZenEndpoint(model: string): ZenEndpoint {
-  return ENDPOINT_BY_PROTOCOL[zenProtocolForModel(model)];
+  return ENDPOINT_BY_PROTOCOL[protocolForZenModel(model)];
 }
