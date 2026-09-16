@@ -52,6 +52,17 @@ function stubAgent() {
   };
 }
 
+/** Poll until a process carries `token`; fail if it never becomes visible. */
+async function waitUntilPresent(token: string): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < 5_000) {
+    const probe = spawnSync("pgrep", ["-f", token], { encoding: "utf8" });
+    if ((probe.stdout?.trim() ?? "").length > 0) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`tagged child never appeared: ${token}`);
+}
+
 /** Poll until no process carries `token`; fail instead of asserting on a pid. */
 async function waitUntilGone(token: string): Promise<void> {
   const started = Date.now();
@@ -300,13 +311,18 @@ describe("intern persist reaps leftover registry children when collect is unmoun
                 send: async () => {
                   const captured = defined(registry);
                   const started = captured.start({
-                    command: `sleep 600 # ${token}`,
+                    // Token must be argv/process-title, not a shell comment:
+                    // pgrep -f only sees the exec'd sleep, so a comment leak
+                    // would make waitUntilGone succeed even if kill failed.
+                    command: `bash -c 'exec -a ${token} sleep 600'`,
                     cwd,
                   });
                   if ("error" in started) throw new Error(started.error);
                   leftoverId = started.id;
                   expect(captured.runningCount()).toBe(1);
-                  await new Promise((resolve) => setTimeout(resolve, 20));
+                  if (process.platform !== "win32") {
+                    await waitUntilPresent(token);
+                  }
                   return {
                     type: "reply" as const,
                     reply: "done",

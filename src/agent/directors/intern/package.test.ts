@@ -28,13 +28,10 @@ describe("internPackage", () => {
     expect(p).toMatch(/You do NOT:[\s\S]*Debug failures/);
   });
 
-  test("systemPrompt forbids background shells — shell_collect is not mounted", () => {
-    const p = internPackage.systemPrompt;
-    expect(p).toMatch(/Background shells are forbidden/);
-    expect(p).toMatch(/background: true/);
-    expect(p).toMatch(/shell_collect/);
-    expect(p).toMatch(/foreground/);
-    expect(p).toMatch(/timeouts only/);
+  test("fail-closes without shell_collect rather than pinning prompt copy", () => {
+    const allow = internPackage.tools?.allow ?? [];
+    expect(allow).toContain("run_shell");
+    expect(allow).not.toContain("shell_collect");
   });
 
   test("spawn.maySpawn is false", () => {

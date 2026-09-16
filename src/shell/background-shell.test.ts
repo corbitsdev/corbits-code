@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import {
   MAX_COMPLETED_BACKGROUND_SHELLS,
   MAX_RUNNING_BACKGROUND_SHELLS,
+  MAX_SHELL_COLLECT_WAIT_MS,
   createBackgroundShellRegistry,
 } from "./background-shell.js";
 
@@ -22,6 +23,10 @@ async function waitUntilGone(token: string): Promise<void> {
 }
 
 describe("background shell registry", () => {
+  test("default collect wait cap is 300s", () => {
+    expect(MAX_SHELL_COLLECT_WAIT_MS).toBe(300_000);
+  });
+
   test("start returns a handle immediately while the process runs", async () => {
     const registry = createBackgroundShellRegistry();
     const started = registry.start({
