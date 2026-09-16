@@ -259,6 +259,13 @@ function drainStreamWithReapDeadline(
   return bounded;
 }
 
+// Tests inject a short outer-retry delay so provider-failure suites do not
+// pay the production 500ms backoff per retry in wall clock; production never
+// sets the param and keeps the default.
+function outerRetryDelayMs(params: RunSubAgentParams): number {
+  return params.outerRetryDelayMs ?? OUTER_RETRY_DELAY_MS;
+}
+
 function sleepUnlessAborted(
   ms: number,
   signals: readonly AbortSignal[],
@@ -1062,10 +1069,11 @@ async function runSubAgentInner(
           Date.now,
           shouldRequireEvidence(params),
           shouldRequirePlanSubstance(params),
-          createCorbitsRetryPolicy({
-            providerId: params.provider.providerName,
-            admission: params.admission ?? getProcessAdmissionQueue(),
-          }),
+          params.retryPolicy ??
+            createCorbitsRetryPolicy({
+              providerId: params.provider.providerName,
+              admission: params.admission ?? getProcessAdmissionQueue(),
+            }),
           modelFamilyPolicy.toolDisciplineRules,
         );
         director.observeForcedStop((reason) => {
@@ -1576,7 +1584,9 @@ async function runSubAgentInner(
           const backoffMs =
             retryAfterMs !== undefined
               ? Math.min(retryAfterMs, MAX_BLIND_WAIT_MS)
-              : Math.round(OUTER_RETRY_DELAY_MS * (0.8 + Math.random() * 0.4));
+              : Math.round(
+                  outerRetryDelayMs(params) * (0.8 + Math.random() * 0.4),
+                );
           const delayMs = Math.min(backoffMs, outerRemainingMs);
           params.onProgress?.({
             description:

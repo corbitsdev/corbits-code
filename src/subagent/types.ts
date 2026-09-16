@@ -5,7 +5,7 @@
 
 import type { AgentTool } from "@intx/agent";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type { BlobReader } from "@intx/types/runtime";
+import type { BlobReader, RetryPolicy } from "@intx/types/runtime";
 import type { ToolPlugin } from "@intx/tools-posix";
 
 import type { CapabilityFilter, AgentProfile } from "../agent/profiles.js";
@@ -113,6 +113,18 @@ export type RunSubAgentParams = {
   signal?: AbortSignal;
   /** Same process admission queue as spawn. Tests inject; worker 429 freeze uses this. */
   admission?: AdmissionQueue;
+  /**
+   * Override the outer provider-failure backoff. Tests inject a short delay so
+   * retry suites do not pay the production 500ms per retry; production never
+   * sets it and keeps the default.
+   */
+  outerRetryDelayMs?: number;
+  /**
+   * Override the per-attempt retry policy inside a live send. Tests inject a
+   * fast policy so retry suites do not pay the production 500/1000ms backoff;
+   * production never sets it and keeps the default.
+   */
+  retryPolicy?: RetryPolicy;
   onEvent?: (event: ReactorEmittedEvent) => void;
   onProgress?: (info: { description: string; toolName: string }) => void;
   onRunSettled?: (summary: Readonly<SubAgentRunSettlement>) => void;

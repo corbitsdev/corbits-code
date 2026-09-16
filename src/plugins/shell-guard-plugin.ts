@@ -279,8 +279,11 @@ function childStillLive(child: ChildProcess): boolean {
 // Abort SIGKILLs the process group immediately (runGuardedShell onAbort). This
 // window is only a backstop for children still tracked at dispose. Leftovers
 // after it must fail teardown; do not stretch the process-exit 2s deadline.
+// Tests pass a short window so they do not pay the production 2s in wall
+// clock; production never passes it and keeps the default.
 export async function reapLiveChildren(
   liveChildren: Set<ChildProcess>,
+  reapWindowMs: number = SHELL_GUARD_DISPOSE_REAP_MS,
 ): Promise<void> {
   const remaining = [...liveChildren];
   for (const child of remaining) killProcessTree(child);
@@ -288,7 +291,7 @@ export async function reapLiveChildren(
   const closed = Promise.all(remaining.map(waitChildClose));
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timedOut = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), SHELL_GUARD_DISPOSE_REAP_MS);
+    timer = setTimeout(() => resolve("timeout"), reapWindowMs);
   });
   try {
     const winner = await Promise.race([
@@ -299,7 +302,7 @@ export async function reapLiveChildren(
     const stillLive = remaining.filter(childStillLive);
     if (stillLive.length > 0) {
       throw new Error(
-        `${stillLive.length} shell child process${stillLive.length === 1 ? "" : "es"} still live after ${SHELL_GUARD_DISPOSE_REAP_MS}ms reap`,
+        `${stillLive.length} shell child process${stillLive.length === 1 ? "" : "es"} still live after ${reapWindowMs}ms reap`,
       );
     }
   } finally {

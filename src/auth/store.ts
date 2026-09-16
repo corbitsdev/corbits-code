@@ -40,6 +40,12 @@ export interface AuthStoreOptions<TTokens extends BaseTokens> {
   filename: string;
   settingsDirName: string;
   isTokens: (value: unknown) => value is TTokens;
+  /**
+   * Override the credential-lock wait. Tests pass a short window so they do
+   * not pay the production 1s in wall clock; production never sets it and
+   * keeps the default.
+   */
+  lockTimeoutMs?: number;
 }
 
 interface AuthFile<TTokens extends BaseTokens> {
@@ -137,7 +143,7 @@ export function createAuthStore<TTokens extends BaseTokens>(
     const path = authPath(home);
     const lockPath = `${path}.lock`;
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    const deadline = Date.now() + LOCK_TIMEOUT_MS;
+    const deadline = Date.now() + (options.lockTimeoutMs ?? LOCK_TIMEOUT_MS);
     let lock;
 
     while (true) {

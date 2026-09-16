@@ -357,6 +357,9 @@ test("flush gives up after its deadline when a request never settles", async () 
     env: {},
     fetchFn: impl,
     apiKey: "test-key",
+    // The production deadline is 500ms; a short override exercises the same
+    // give-up contract without paying that in wall clock.
+    flushDeadlineMs: 30,
   });
   telemetry.capture("cli_start");
   const start = Date.now();
@@ -511,7 +514,7 @@ test("a partial batch is sent once the batch interval elapses", async () => {
   telemetry.capture("session_end", { turn_count: 1 });
   expect(bodies.length).toBe(0);
 
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  await new Promise((resolve) => setTimeout(resolve, 30));
   expect(bodies.length).toBe(1);
   expect(turnCounts(defined(bodies[0], "telemetry body"))).toEqual([1]);
 });

@@ -9,7 +9,7 @@
 // markCrashed(). Without that fence, a chained "running" rename can clobber
 // the signal's terminal "failed" write — the same race the crash path already
 // fences.
-import { installSignalHandlers } from "../../../src/index.js";
+import { installSignalHandlers } from "../../../src/process-handlers.js";
 import {
   isCrashed,
   setActiveRun,

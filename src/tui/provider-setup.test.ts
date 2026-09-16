@@ -437,7 +437,7 @@ function type(harness: Harness, text: string): void {
 /** ESC needs a disambiguation delay on the mock stdin path. */
 async function pressEscape(harness: Harness): Promise<void> {
   harness.pressKey("Escape");
-  await new Promise((r) => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, 30));
   await harness.renderOnce();
 }
 

@@ -344,6 +344,9 @@ describe("createToolSearchTool", () => {
         new Promise<number>(() => {
           // Never settles: simulates a hung authorization handshake.
         }),
+      // The production bound is 1s; a short override exercises the same
+      // bounded-wait contract without paying that in wall clock.
+      pendingWaitMs: 50,
     });
     const out = await call(tool, { query: "linear" });
     expect(out).toContain("No tools matched");

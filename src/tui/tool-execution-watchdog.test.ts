@@ -19,7 +19,7 @@ import { formatToolExecutionTimeoutMessage } from "../plugins/tool-time-budget.j
 import { DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS } from "../plugins/shell-guard-plugin.js";
 
 /** Short grace for hang-past-grace unit tests (keeps suite under bun default 5s). */
-const TEST_SALVAGE_GRACE_MS = 80;
+const TEST_SALVAGE_GRACE_MS = 50;
 
 const stringTool = (
   name: string,
@@ -149,7 +149,7 @@ describe("tool execution watchdog", () => {
       [
         stringTool("wait_agents", async () => {
           // Slow but progressing: runs well past the 30ms generic budget.
-          await new Promise((r) => setTimeout(r, 120));
+          await new Promise((r) => setTimeout(r, 80));
           return "## Summary\nworker report";
         }),
       ],
@@ -167,7 +167,7 @@ describe("tool execution watchdog", () => {
     const runner = createDynamicToolRunner(
       [
         stringTool("ask_director", async () => {
-          await new Promise((r) => setTimeout(r, 120));
+          await new Promise((r) => setTimeout(r, 80));
           return "src/foo.ts";
         }),
       ],
@@ -322,9 +322,9 @@ describe("tool execution watchdog", () => {
 
   test("withTimeout dispose clears timer without leaving hung state", async () => {
     const parent = new AbortController();
-    const budget = withTimeout(parent.signal, 50);
+    const budget = withTimeout(parent.signal, 30);
     budget.dispose();
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, 60));
     expect(budget.signal.aborted).toBe(false);
   });
 
@@ -367,7 +367,7 @@ describe("tool execution watchdog", () => {
           () => new Promise<string>(() => undefined), // never resolves — wedged server
         ),
       ],
-      { mcpTimeoutMs: 30, salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { mcpTimeoutMs: 20, salvageGraceMs: TEST_SALVAGE_GRACE_MS },
     );
     const result = await runner.run(
       { id: "1", name: "mcp__linear__get_issue", arguments: {} },
@@ -389,7 +389,7 @@ describe("tool execution watchdog", () => {
         ),
         stringTool("mcp__linear__list_issues", async () => "ok"),
       ],
-      { mcpTimeoutMs: 30, salvageGraceMs: TEST_SALVAGE_GRACE_MS },
+      { mcpTimeoutMs: 20, salvageGraceMs: TEST_SALVAGE_GRACE_MS },
     );
     const signal = new AbortController().signal;
     const [hung1, hung2, fast] = await Promise.all([
@@ -526,7 +526,7 @@ describe("tool execution watchdog", () => {
       new AbortController().signal,
       undefined,
       async () => {
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 30));
         return { callId: "unbounded", content: "ok" };
       },
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
@@ -601,12 +601,12 @@ describe("tool execution watchdog", () => {
 
   test("withPauseableTimeout freezes remaining budget while paused", async () => {
     const parent = new AbortController();
-    const budget = withPauseableTimeout(parent.signal, 80);
+    const budget = withPauseableTimeout(parent.signal, 60);
     const token = budget.pause();
-    await new Promise((r) => setTimeout(r, 120));
+    await new Promise((r) => setTimeout(r, 90));
     expect(budget.signal.aborted).toBe(false);
     budget.resume(token);
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 80));
     expect(budget.signal.aborted).toBe(true);
     budget.dispose();
   });
@@ -615,13 +615,13 @@ describe("tool execution watchdog", () => {
     const result = await runWithToolExecutionWatchdog(
       { id: "pause", name: "parked", arguments: {} },
       new AbortController().signal,
-      60,
+      50,
       async () => {
         const budget = getToolApprovalBudget();
         expect(budget).toBeDefined();
         const token = defined(budget).pause();
         // Longer than the budget — would time out if not paused.
-        await new Promise((r) => setTimeout(r, 120));
+        await new Promise((r) => setTimeout(r, 90));
         defined(budget).resume(token);
         return { callId: "pause", content: "approved-late" };
       },
@@ -637,7 +637,7 @@ describe("tool execution watchdog", () => {
     const result = await runWithToolExecutionWatchdog(
       { id: "ui", name: "parked", arguments: {} },
       new AbortController().signal,
-      80,
+      60,
       async () => {
         const budget = getToolApprovalBudget();
         expect(budget).toBeDefined();
@@ -647,10 +647,10 @@ describe("tool execution watchdog", () => {
           setTimeout(() => {
             defined(budget).resume(token);
             resolve();
-          }, 120);
+          }, 90);
         });
-        // After resume, remaining budget (~80ms) should still cover a short run.
-        await new Promise((r) => setTimeout(r, 20));
+        // After resume, remaining budget (~60ms) should still cover a short run.
+        await new Promise((r) => setTimeout(r, 15));
         return { callId: "ui", content: "approved-from-ui" };
       },
       { salvageGraceMs: TEST_SALVAGE_GRACE_MS, waitForApproval: true },
@@ -669,28 +669,28 @@ describe("tool execution watchdog", () => {
     // A gate queued behind an overlay (or emitted with no listener) never
     // resumes the budget; the ceiling bounds how long the clock stays frozen.
     const parent = new AbortController();
-    const budget = withPauseableTimeout(parent.signal, 50, 40);
+    const budget = withPauseableTimeout(parent.signal, 40, 30);
     budget.pause();
-    await new Promise((r) => setTimeout(r, 30));
+    await new Promise((r) => setTimeout(r, 20));
     expect(budget.signal.aborted).toBe(false);
-    // Ceiling fires at 40ms, remaining ~50ms budget then expires on its own.
-    await new Promise((r) => setTimeout(r, 100));
+    // Ceiling fires at 30ms, remaining ~40ms budget then expires on its own.
+    await new Promise((r) => setTimeout(r, 80));
     expect(budget.signal.aborted).toBe(true);
     budget.dispose();
   });
 
   test("resume before the pause ceiling clears the ceiling timer", async () => {
     const parent = new AbortController();
-    const budget = withPauseableTimeout(parent.signal, 100, 30);
+    const budget = withPauseableTimeout(parent.signal, 80, 30);
     const firstToken = budget.pause();
     await new Promise((r) => setTimeout(r, 10));
     budget.resume(firstToken);
     const secondToken = budget.pause();
     // A fresh pause restarts the ceiling; forced resume must not double-fire.
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 40));
     expect(budget.signal.aborted).toBe(false);
     budget.resume(secondToken);
-    await new Promise((r) => setTimeout(r, 130));
+    await new Promise((r) => setTimeout(r, 100));
     expect(budget.signal.aborted).toBe(true);
     budget.dispose();
   });
@@ -702,18 +702,18 @@ describe("tool execution watchdog", () => {
     // or cancel B's own ceiling timer — B should get its own full ceiling
     // window before the budget clock resumes on its account.
     const parent = new AbortController();
-    const budget = withPauseableTimeout(parent.signal, 240, 120);
-    const tokenA = budget.pause(); // prompt A, ceiling armed to fire at ~120ms
-    await new Promise((r) => setTimeout(r, 200)); // past A's ceiling
-    const tokenB = budget.pause(); // prompt B opens at ~200ms, ceiling armed to ~320ms
+    const budget = withPauseableTimeout(parent.signal, 180, 90);
+    const tokenA = budget.pause(); // prompt A, ceiling armed to fire at ~90ms
+    await new Promise((r) => setTimeout(r, 150)); // past A's ceiling
+    const tokenB = budget.pause(); // prompt B opens at ~150ms, ceiling armed to ~240ms
     budget.resume(tokenA); // stale resume from prompt A must be a no-op
     // If the stale resume wrongly unfroze the clock (bug: it also cancels B's
-    // ceiling timer), the budget aborts around 360ms. With the fix, B's own
-    // ceiling doesn't fire until ~320ms, so the budget is still frozen here.
-    await new Promise((r) => setTimeout(r, 200));
+    // ceiling timer), the budget aborts around 270ms. With the fix, B's own
+    // ceiling doesn't fire until ~240ms, so the budget is still frozen here.
+    await new Promise((r) => setTimeout(r, 150));
     expect(budget.signal.aborted).toBe(false);
     // B's ceiling eventually force-resumes it on its own account.
-    await new Promise((r) => setTimeout(r, 90));
+    await new Promise((r) => setTimeout(r, 70));
     expect(budget.signal.aborted).toBe(true);
     budget.resume(tokenB);
     budget.dispose();
@@ -739,7 +739,7 @@ describe("tool execution watchdog", () => {
             expect(budget).toBeDefined();
             const token = defined(budget).pause();
             // Longer than the outer budget — outer must be frozen too.
-            await new Promise((r) => setTimeout(r, 120));
+            await new Promise((r) => setTimeout(r, 90));
             defined(budget).resume(token);
             return { callId: "inner", content: "child-ok" };
           },
@@ -760,7 +760,7 @@ describe("tool execution watchdog", () => {
     const result = await runWithToolExecutionWatchdog(
       { id: "tick", name: "parked", arguments: {} },
       new AbortController().signal,
-      40,
+      30,
       async (signal) => {
         await new Promise<void>((resolve) => {
           if (signal.aborted) {
@@ -777,7 +777,7 @@ describe("tool execution watchdog", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toBe(
-      formatToolExecutionTimeoutMessage("parked", 40),
+      formatToolExecutionTimeoutMessage("parked", 30),
     );
   });
 });

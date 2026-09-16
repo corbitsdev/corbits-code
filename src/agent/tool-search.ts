@@ -291,6 +291,10 @@ export interface ToolSearchDeps {
   // solely via out-of-band authorization, so extending the wait for one can
   // never help and this must stay false for them.
   hasReconnectingMatch?: (query: string) => boolean;
+  // Bounded wait before answering a miss with late-mounting tools, in ms.
+  // Defaults to TOOL_SEARCH_PENDING_WAIT_MS; tests override this so the
+  // bounded-wait contract is exercised without paying the production 1s.
+  pendingWaitMs?: number;
 }
 
 // Brief bound a tool_search miss waits for in-flight MCP handshakes before
@@ -363,7 +367,7 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
         // dependency (hung OAuth) — undefined means the wait itself timed out.
         let stillPending = await racePendingCount(
           deps.awaitPendingConnections,
-          TOOL_SEARCH_PENDING_WAIT_MS,
+          deps.pendingWaitMs ?? TOOL_SEARCH_PENDING_WAIT_MS,
         );
         names = deps.search(query);
         if (
