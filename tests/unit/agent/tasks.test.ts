@@ -200,3 +200,37 @@ test("manage_tasks runner accepts a GLM-shaped create with in_progress", async (
     ],
   });
 });
+
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+  for (const key of Object.getOwnPropertyNames(value)) {
+    deepFreeze((value as Record<string, unknown>)[key]);
+  }
+  return Object.freeze(value);
+}
+
+test("parseManageTasksArgs does not write onto frozen reactor arguments", () => {
+  const frozen = deepFreeze({
+    action: "create",
+    tasks: [{ id: "t1", title: "Inspect", status: "todo" }],
+  });
+  expect(() => parseManageTasksArgs(frozen)).not.toThrow();
+  expect(parseManageTasksArgs(frozen)).toEqual({
+    action: "create",
+    tasks: [{ id: "t1", title: "Inspect", status: "todo" }],
+  });
+  expect(frozen.tasks[0]?.status).toBe("todo");
+});
+
+test("manage_tasks runner accepts frozen GLM in_progress args", async () => {
+  const run = createManageTasksRunner();
+  const frozen = deepFreeze({
+    action: "create",
+    tasks: [{ id: "t1", title: "Inspect", status: "in_progress" }],
+  });
+  const result = await run(frozen);
+  expect(result.isError).toBeUndefined();
+  expect(frozen.tasks[0]?.status).toBe("in_progress");
+});
