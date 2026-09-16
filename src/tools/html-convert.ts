@@ -25,18 +25,25 @@ function stripTagsAndScripts(html: string): string {
     .replace(/<!--[\s\S]*?-->/g, "");
 }
 
+function normalizeWhitespace(
+  text: string,
+  mapLine: (line: string) => string,
+): string {
+  return text
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .split("\n")
+    .map(mapLine)
+    .join("\n")
+    .trim();
+}
+
 export function htmlToText(html: string): string {
   const cleaned = stripTagsAndScripts(html)
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
     .replace(/<[^>]+>/g, "");
-  return decodeEntities(cleaned)
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .join("\n")
-    .trim();
+  return normalizeWhitespace(decodeEntities(cleaned), (line) => line.trim());
 }
 
 // Best-effort structural markdown: headings, bold/italic, links, list items.
@@ -76,11 +83,5 @@ export function htmlToMarkdown(html: string): string {
     .replace(/<\/(p|div|tr|table|ul|ol)>/gi, "\n")
     .replace(/<br\s*\/?>/gi, "\n");
   const text = decodeEntities(working.replace(/<[^>]+>/g, ""));
-  return text
-    .replace(/[ \t]+/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .split("\n")
-    .map((line) => line.replace(/[ \t]+$/g, ""))
-    .join("\n")
-    .trim();
+  return normalizeWhitespace(text, (line) => line.replace(/[ \t]+$/g, ""));
 }

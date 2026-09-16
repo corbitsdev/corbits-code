@@ -155,6 +155,9 @@ export function createBackgroundShellRegistry(
     child.stdout?.on("data", (chunk: Buffer) => collector.append(chunk));
     child.stderr?.on("data", (chunk: Buffer) => collector.append(chunk));
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Clearing an unset timer is a no-op, so one unguarded closure covers
+    // every settle path below.
+    const clearTimer = (): void => clearTimeout(timer);
     // Per-call timeout only — background has no 120s default. Cancel reuses
     // killProcessTree (same path as shell_collect action=cancel).
     if (args.timeoutMs !== undefined && args.timeoutMs > 0) {
@@ -164,11 +167,11 @@ export function createBackgroundShellRegistry(
       }, args.timeoutMs);
     }
     child.on("error", () => {
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimer();
       finish(1, false);
     });
     child.on("exit", (code, sig) => {
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimer();
       if (!running.has(id)) return;
       const exitCode = code ?? (sig !== null ? 128 : 1);
       const settle = (): void => finish(exitCode, false);

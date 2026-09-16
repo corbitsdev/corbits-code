@@ -43,6 +43,37 @@ const WebFetchArgs = type({
 
 type WebFetchFormat = "text" | "markdown" | "html";
 
+type ParsedWebFetchArgs =
+  | { ok: true; url: string; format: WebFetchFormat; timeout: number }
+  | { ok: false; error: string };
+
+function parseWebFetchArgs(
+  rawArgs: Record<string, unknown>,
+): ParsedWebFetchArgs {
+  const parsed = WebFetchArgs(rawArgs);
+  if (parsed instanceof type.errors) {
+    return {
+      ok: false,
+      error:
+        "Error: web_fetch requires a non-empty url (http/https); format and timeout are optional.",
+    };
+  }
+  return {
+    ok: true,
+    url: parsed.url,
+    format: parsed.format ?? "markdown",
+    timeout: parsed.timeout ?? DEFAULT_TIMEOUT_S,
+  };
+}
+
+function truncationSuffix(truncated: boolean): string {
+  return truncated ? `\n\n[content truncated at ${MAX_FETCH_BYTES} bytes]` : "";
+}
+
+function fetchTimeoutMessage(url: string, seconds: number): string {
+  return `Request to ${url} timed out after ${seconds}s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`;
+}
+
 export const webFetchDefinition: ToolDefinition = {
   name: "web_fetch",
   description:
@@ -166,7 +197,7 @@ export async function runWebFetch(
       if (err instanceof Error && err.name === "AbortError") {
         return {
           ok: false,
-          error: `Request to ${currentUrl} timed out after ${clampedSeconds}s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`,
+          error: fetchTimeoutMessage(currentUrl, clampedSeconds),
         };
       }
       return {
@@ -233,18 +264,16 @@ export function createWebFetchTool(options?: WebFetchTimingOptions): AgentTool {
   return stringTool({
     definition: webFetchDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-      const parsed = WebFetchArgs(rawArgs);
-      if (parsed instanceof type.errors) {
-        return "Error: web_fetch requires a non-empty url (http/https); format and timeout are optional.";
-      }
-      const format = parsed.format ?? "markdown";
-      const timeout = parsed.timeout ?? DEFAULT_TIMEOUT_S;
-      const outcome = await runWebFetch(parsed.url, format, timeout, options);
+      const parsed = parseWebFetchArgs(rawArgs);
+      if (!parsed.ok) return parsed.error;
+      const outcome = await runWebFetch(
+        parsed.url,
+        parsed.format,
+        parsed.timeout,
+        options,
+      );
       if (!outcome.ok) return `Error: ${outcome.error}`;
-      const suffix = outcome.truncated
-        ? `\n\n[content truncated at ${MAX_FETCH_BYTES} bytes]`
-        : "";
-      return outcome.content + suffix;
+      return outcome.content + truncationSuffix(outcome.truncated);
     },
   });
 }
@@ -266,13 +295,9 @@ export function createExaMCPWebFetchTool(
       call: ToolCall,
       signal: AbortSignal,
     ): Promise<ToolResult> => {
-      const parsed = WebFetchArgs(call.arguments);
-      if (parsed instanceof type.errors) {
-        return {
-          callId: call.id,
-          content:
-            "Error: web_fetch requires a non-empty url (http/https); format and timeout are optional.",
-        };
+      const parsed = parseWebFetchArgs(call.arguments);
+      if (!parsed.ok) {
+        return { callId: call.id, content: parsed.error };
       }
 
       let url: URL;
@@ -291,17 +316,17 @@ export function createExaMCPWebFetchTool(
         };
       }
 
-      const format = parsed.format ?? "markdown";
-      const timeout = parsed.timeout ?? DEFAULT_TIMEOUT_S;
+      const format = parsed.format;
+      const timeout = parsed.timeout;
       if (format !== "markdown") {
         const outcome = await runWebFetch(parsed.url, format, timeout);
         if (!outcome.ok) {
           return { callId: call.id, content: `Error: ${outcome.error}` };
         }
-        const suffix = outcome.truncated
-          ? `\n\n[content truncated at ${MAX_FETCH_BYTES} bytes]`
-          : "";
-        return { callId: call.id, content: outcome.content + suffix };
+        return {
+          callId: call.id,
+          content: outcome.content + truncationSuffix(outcome.truncated),
+        };
       }
 
       const timeoutSeconds = Math.min(Math.max(timeout, 1), MAX_TIMEOUT_S);
@@ -352,7 +377,10 @@ export function createExaMCPWebFetchTool(
         if (err === timeoutError) {
           return {
             callId: call.id,
-            content: `Error: Request to ${parsed.url} timed out after ${timeoutSeconds}s. Retry with a larger timeout parameter (up to 120s) if the site is slow.`,
+            content: `Error: ${fetchTimeoutMessage(
+              parsed.url,
+              timeoutSeconds,
+            )}`,
           };
         }
         return {
