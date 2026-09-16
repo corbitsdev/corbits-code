@@ -47,9 +47,9 @@ describe("createAdvertisedToolset", () => {
     expect(names).not.toContain("mystery_tool");
   });
 
-  // CL-7868 (direction A): mid-session activation opens the call gate but must
-  // not reshape the wire set, so computeAdvertised ignores it until a
-  // cache-safe boundary commits it via flushPromotions.
+  // Activation opens the call gate but does not reshape the wire set until
+  // flushPromotions commits it (promoters flush on search; this unit stays
+  // the split).
   test("activation alone leaves the wire set untouched until flushPromotions commits it", () => {
     const { activated, computeAdvertised, flushPromotions } =
       createAdvertisedToolset(wiring());

@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import {
   MAX_COMPLETED_BACKGROUND_SHELLS,
   MAX_RUNNING_BACKGROUND_SHELLS,
+  MAX_SHELL_COLLECT_WAIT_MS,
   createBackgroundShellRegistry,
 } from "./background-shell.js";
 
@@ -22,6 +23,10 @@ async function waitUntilGone(token: string): Promise<void> {
 }
 
 describe("background shell registry", () => {
+  test("default collect wait cap is 300s", () => {
+    expect(MAX_SHELL_COLLECT_WAIT_MS).toBe(300_000);
+  });
+
   test("start returns a handle immediately while the process runs", async () => {
     const registry = createBackgroundShellRegistry();
     const started = registry.start({
@@ -243,6 +248,70 @@ describe("background shell registry", () => {
       expect(patient.exit.output).toContain("done");
     } finally {
       registry.disposeAll("test done");
+    }
+  });
+
+  test("collect wait is capped so a huge wait_ms cannot park unbounded", async () => {
+    const registry = createBackgroundShellRegistry({ maxCollectWaitMs: 80 });
+    const started = registry.start({
+      command: "sleep 30",
+      cwd: tmpCwd,
+    });
+    if ("error" in started) throw new Error(started.error);
+    try {
+      const t0 = Date.now();
+      const snapshot = await registry.collect(started.id, 30_000);
+      const elapsed = Date.now() - t0;
+      expect(snapshot.state).toBe("running");
+      expect(elapsed).toBeLessThan(2_000);
+    } finally {
+      registry.disposeAll("test done");
+    }
+  });
+
+  test("non-finite wait_ms is still capped", async () => {
+    const registry = createBackgroundShellRegistry({ maxCollectWaitMs: 80 });
+    const started = registry.start({
+      command: "sleep 30",
+      cwd: tmpCwd,
+    });
+    if ("error" in started) throw new Error(started.error);
+    try {
+      const t0 = Date.now();
+      const snapshot = await registry.collect(
+        started.id,
+        Number.POSITIVE_INFINITY,
+      );
+      const elapsed = Date.now() - t0;
+      expect(snapshot.state).toBe("running");
+      expect(elapsed).toBeLessThan(2_000);
+    } finally {
+      registry.disposeAll("test done");
+    }
+  });
+
+  test("collect completes when the child exits even if stdio stays open", async () => {
+    if (process.platform === "win32") return;
+    const token = `ic_bg_stdio_hold_${randomUUID()}`;
+    const registry = createBackgroundShellRegistry();
+    // Grandchild inherits the piped stdout so Node's 'close' waits on it.
+    // The shell itself exits immediately; collect must not require close.
+    const started = registry.start({
+      command: `bash -c 'exec -a ${token} sleep 600 & exit 0'`,
+      cwd: tmpCwd,
+    });
+    if ("error" in started) throw new Error(started.error);
+    try {
+      const t0 = Date.now();
+      const exited = await registry.collect(started.id, 5_000);
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      expect(exited.state).toBe("completed");
+      if (exited.state !== "completed") return;
+      expect(exited.exit.exitCode).toBe(0);
+    } finally {
+      registry.disposeAll("test done");
+      spawnSync("pkill", ["-f", token]);
+      await waitUntilGone(token);
     }
   });
 });

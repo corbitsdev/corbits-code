@@ -89,12 +89,15 @@ export function formatShellTimeoutNotice(timeoutMs: number): string {
  * Schema `default` is the foreground omit path. Description says omit
  * timeout on background:true so the model does not copy 120000 onto
  * background calls (a copied value becomes a requested timeout and kills
- * the job).
+ * the job). Surfaces that do not mount shell_collect pass
+ * advertiseBackground=false so background is not advertised without a
+ * collect path.
  */
 export function advertiseShellGuardTimeout(
   definition: ToolDefinition,
   defaultMs?: number,
   maxMs?: number,
+  advertiseBackground = true,
 ): ToolDefinition {
   if (definition.name !== "run_shell") return definition;
   const schema = definition.inputSchema;
@@ -120,7 +123,9 @@ export function advertiseShellGuardTimeout(
   ) {
     nextProperties["timeout"] = {
       ...(timeout as Record<string, unknown>),
-      description: `Timeout in milliseconds (foreground default: ${advertisedDefault}; omit on background:true for no timeout)`,
+      description: advertiseBackground
+        ? `Timeout in milliseconds (foreground default: ${advertisedDefault}; omit on background:true for no timeout)`
+        : `Timeout in milliseconds (foreground default: ${advertisedDefault})`,
       default: advertisedDefault,
     };
   }
@@ -131,14 +136,18 @@ export function advertiseShellGuardTimeout(
         "Optional working directory for this call only (does not change the session shell cwd retained across calls)",
     };
   }
-  nextProperties["background"] = {
-    type: "boolean",
-    description:
-      "Set true to run without holding the turn open (prefer this for builds, test suites, and dev servers). " +
-      "Returns a shell_id immediately; the exit status and output are delivered when the process finishes. " +
-      "Use shell_collect to collect or cancel. Omit timeout for no timeout. " +
-      "Does not change the retained shell cwd.",
-  };
+  if (advertiseBackground) {
+    nextProperties["background"] = {
+      type: "boolean",
+      description:
+        "Set true to run without holding the turn open (prefer this for builds, test suites, and dev servers). " +
+        "Returns a shell_id immediately; the exit status and output are delivered when the process finishes. " +
+        "Use shell_collect to collect or cancel. Omit timeout for no timeout. " +
+        "Does not change the retained shell cwd.",
+    };
+  } else {
+    delete nextProperties["background"];
+  }
   return {
     ...definition,
     inputSchema: {

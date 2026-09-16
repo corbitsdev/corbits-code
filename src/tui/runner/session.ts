@@ -119,6 +119,7 @@ import {
   type RunnerState,
   type TUIStart,
 } from "./state.js";
+import { createParkedOverlayAbortBinding } from "./parked-overlay-abort.js";
 
 export async function assembleTUISession(
   state: RunnerState,
@@ -171,6 +172,7 @@ export async function assembleTUISession(
 
   const correlationAcceptance = createCorrelationAcceptance();
   const parkedApprovalCancel = { fn: undefined as (() => void) | undefined };
+  const parkedOverlay = createParkedOverlayAbortBinding();
   const deliveryGeneration = createDeliveryGeneration(() => {
     parkedApprovalCancel.fn?.();
     correlationAcceptance.settleAll();
@@ -185,7 +187,8 @@ export async function assembleTUISession(
     requestApproval: createGateRequestApproval({
       emitGate: (event) => emitter.emit("permission.gate", event),
       approvalTimeout,
-      identitySignal: () => deliveryGeneration.signal(),
+      identitySignal: () =>
+        parkedOverlay.identitySignal(deliveryGeneration.signal()),
     }),
     getActiveProviderModel: () =>
       `${state.config.providerName}:${state.config.model}`,
@@ -462,10 +465,9 @@ export async function assembleTUISession(
   workflowHostHolder.instance = workflowHost;
 
   // Dynamic tool discovery: only the fixed built-in prefix plus
-  // wire-committed activations reach the wire, so the provider cache prefix
-  // holds steady; MCP tools must be promoted here before the model can invoke
-  // them, and their schemas join the wire at a cache-safe boundary (below,
-  // and on compaction folds).
+  // wire-committed activations reach the wire. MCP tools must be promoted
+  // here before the model can invoke them; promoters flush schemas onto the
+  // next infer, and compaction folds catch anything still pending.
   const {
     activated: activatedToolNames,
     computeAdvertised,
@@ -526,6 +528,7 @@ export async function assembleTUISession(
     registerParkedCancel: (cancel) => {
       parkedApprovalCancel.fn = cancel;
     },
+    registerOverlayAbort: parkedOverlay.registerOverlayAbort,
     deliver: (message, stillCurrent) => {
       return sessionOps.enqueue(async () => {
         if (!stillCurrent()) return;
@@ -654,9 +657,8 @@ export async function assembleTUISession(
         telemetry: liveTelemetry,
         // Main-session folds only — exec runner and subagents stay silent.
         onFolded: (info) => {
-          // A fold restarts the provider's cached prefix anyway, so this is
-          // the cache-safe moment to commit mid-session promotions: the next
-          // turn declares the newly callable tools' schemas.
+          // Fold restarts the cached prefix, so catch promotions still
+          // pending. Search already flushed names onto the next infer.
           if (flushPromotions()) {
             directorHolder.instance?.updateToolDefinitions(
               computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
@@ -719,6 +721,7 @@ export async function assembleTUISession(
     workflowHost,
     activatedToolNames,
     computeAdvertised,
+    flushPromotions,
     buildAgent: chatAgent.buildAgent,
     sessionCost,
     sessionOps,

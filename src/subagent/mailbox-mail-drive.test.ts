@@ -30,6 +30,17 @@ function mapMailbox(
   };
 }
 
+const ACCEPTED_DELIVERY = { status: "accepted" as const };
+const NOT_DELIVERED_RESULT = {
+  status: "not-delivered" as const,
+  reason: "agent-closed" as const,
+  detail: "agent closed",
+};
+const UNCERTAIN_DELIVERY = {
+  status: "uncertain" as const,
+  detail: "send raced",
+};
+
 describe("buildMailboxMailPrompt", () => {
   test("prefixes collected JSON and tells the parent not to wait_agents", () => {
     const prompt = buildMailboxMailPrompt([
@@ -67,6 +78,7 @@ describe("driveMailboxMail", () => {
       send: (prompt) => {
         order.push("send");
         sent.push(prompt);
+        return ACCEPTED_DELIVERY;
       },
     });
     expect(driven).toBe(true);
@@ -90,6 +102,7 @@ describe("driveMailboxMail", () => {
       beginSystemContinuation: () => undefined,
       send: (prompt) => {
         sent.push(prompt);
+        return ACCEPTED_DELIVERY;
       },
     });
     expect(driven).toBe(true);
@@ -173,7 +186,7 @@ describe("driveMailboxMail", () => {
     expect(records.get("w1")?.collected).not.toBe(true);
   });
 
-  test("async send false after begin leaves mailbox uncollected", async () => {
+  test("async send not-delivered after begin leaves mailbox uncollected", async () => {
     const records = new Map<string, FleetDryMailboxRecord>([
       ["w1", { status: "done", report: "ok" }],
     ]);
@@ -182,11 +195,9 @@ describe("driveMailboxMail", () => {
       mailbox: mapMailbox(records),
       lanes: [],
       beginSystemContinuation: () => undefined,
-      send: () => Promise.resolve(false),
+      send: () => Promise.resolve(NOT_DELIVERED_RESULT),
     });
-    expect(driven).toBe(true);
-    expect(records.get("w1")?.collected).not.toBe(true);
-    await Promise.resolve();
+    expect(driven).toBe(false);
     expect(records.get("w1")?.collected).not.toBe(true);
   });
 
@@ -194,21 +205,27 @@ describe("driveMailboxMail", () => {
     const records = new Map<string, FleetDryMailboxRecord>([
       ["w1", { status: "done", report: "ok" }],
     ]);
-    let resolveSend: ((ok: boolean) => void) | undefined;
-    const driven = await driveMailboxMail({
+    let resolveSend: ((result: typeof ACCEPTED_DELIVERY) => void) | undefined;
+    let sendStarted: (() => void) | undefined;
+    const sendSeen = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
+    const driven = driveMailboxMail({
       parentProcessing: false,
       mailbox: mapMailbox(records),
       lanes: [],
       beginSystemContinuation: () => undefined,
-      send: () =>
-        new Promise((resolve) => {
+      send: () => {
+        sendStarted?.();
+        return new Promise((resolve) => {
           resolveSend = resolve;
-        }),
+        });
+      },
     });
-    expect(driven).toBe(true);
+    await sendSeen;
     expect(records.get("w1")?.collected).not.toBe(true);
-    resolveSend?.(true);
-    await Promise.resolve();
+    resolveSend?.(ACCEPTED_DELIVERY);
+    expect(await driven).toBe(true);
     expect(records.get("w1")?.collected).toBe(true);
   });
 
@@ -218,20 +235,25 @@ describe("driveMailboxMail", () => {
     ]);
     const mailbox = mapMailbox(records);
     const sends: string[] = [];
-    let resolveSend: ((ok: boolean) => void) | undefined;
-    const driven = await driveMailboxMail({
+    let resolveSend: ((result: typeof ACCEPTED_DELIVERY) => void) | undefined;
+    let sendStarted: (() => void) | undefined;
+    const sendSeen = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
+    const driven = driveMailboxMail({
       parentProcessing: false,
       mailbox,
       lanes: [],
       beginSystemContinuation: () => undefined,
       send: (prompt) => {
         sends.push(prompt);
-        return new Promise<boolean>((resolve) => {
+        sendStarted?.();
+        return new Promise<typeof ACCEPTED_DELIVERY>((resolve) => {
           resolveSend = resolve;
         });
       },
     });
-    expect(driven).toBe(true);
+    await sendSeen;
     expect(sends).toHaveLength(1);
     expect(records.get("w1")?.collected).not.toBe(true);
     expect(
@@ -248,8 +270,8 @@ describe("driveMailboxMail", () => {
       }),
     ).toBe(false);
     expect(sends).toHaveLength(1);
-    resolveSend?.(true);
-    await Promise.resolve();
+    resolveSend?.(ACCEPTED_DELIVERY);
+    expect(await driven).toBe(true);
     expect(records.get("w1")?.collected).toBe(true);
   });
 
@@ -279,6 +301,7 @@ describe("driveMailboxMail", () => {
         beginSystemContinuation: () => undefined,
         send: (prompt) => {
           sends.push(prompt);
+          return ACCEPTED_DELIVERY;
         },
       }),
     ).toBe(true);
@@ -305,6 +328,47 @@ describe("driveMailboxMail", () => {
       }),
     ).toBe(false);
   });
+
+  test("not-delivered send leaves the wake retryable", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    const driven = await driveMailboxMail({
+      parentProcessing: false,
+      mailbox: mapMailbox(records),
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => Promise.resolve(NOT_DELIVERED_RESULT),
+    });
+    expect(driven).toBe(false);
+    expect(records.get("w1")?.collected).not.toBe(true);
+    expect(
+      await driveMailboxMail({
+        parentProcessing: false,
+        mailbox: mapMailbox(records),
+        lanes: [],
+        beginSystemContinuation: () => undefined,
+        send: () => ACCEPTED_DELIVERY,
+      }),
+    ).toBe(true);
+    expect(records.get("w1")?.collected).toBe(true);
+  });
+
+  test("uncertain send leaves the wake retryable", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    expect(
+      await driveMailboxMail({
+        parentProcessing: false,
+        mailbox: mapMailbox(records),
+        lanes: [],
+        beginSystemContinuation: () => undefined,
+        send: () => Promise.resolve(UNCERTAIN_DELIVERY),
+      }),
+    ).toBe(false);
+    expect(records.get("w1")?.collected).not.toBe(true);
+  });
 });
 
 describe("latchMailboxMailDrive", () => {
@@ -326,6 +390,7 @@ describe("latchMailboxMailDrive", () => {
         send: (prompt) => {
           sends.push(prompt);
           resolveSend?.();
+          return ACCEPTED_DELIVERY;
         },
       }),
     );
@@ -368,6 +433,7 @@ describe("latchMailboxMailDrive", () => {
         send: (prompt) => {
           sends.push(prompt);
           sawSend?.();
+          return ACCEPTED_DELIVERY;
         },
       }),
     );

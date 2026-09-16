@@ -476,31 +476,33 @@ describe("stall watchdog", () => {
     });
   });
 
-  // CL-5640: a healthy wait for the model to start its next reply — right
-  // after submit, or right after the last outstanding tool call resolves —
-  // must never be auto-aborted just because the parent stream is quiet. Only
-  // a stream that had already started producing tokens and then went dead
-  // (covered above) earns the abort; this shape gets the notice at most.
-  test("a long-but-healthy wait right after submit is never auto-aborted, only noticed", async () => {
+  // Awaiting the model's next token — right after submit, after the last
+  // outstanding tool call resolves, or after compact continuation re-entry —
+  // still notices at the notice threshold, then auto-aborts at the stall budget
+  // so a reply or continuation that never lands cannot freeze the turn.
+  test("a wait right after submit auto-aborts once the stall budget elapses", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h);
       try {
         t.bridge.submit("build it", "immediate");
         t.port.clear();
 
-        // No delta ever arrives — the model is just slow to start — held
-        // far past the stall timeout.
-        t.advance(20 * 60_000);
+        t.advance(500);
         t.tick();
         expect(t.port.calls).toEqual([]);
         expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE);
+
+        t.advance(1_000);
+        t.tick();
+        expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+        expect(t.shell.statusFlash).toBe(STALL_RECOVERY_MESSAGE);
       } finally {
         t.bridge.dispose();
       }
     });
   });
 
-  test("a long-but-healthy wait right after a tool batch resolves is never auto-aborted", async () => {
+  test("post-tool-batch silence auto-aborts once the stall budget elapses", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h);
       try {
@@ -515,23 +517,55 @@ describe("stall watchdog", () => {
         });
         t.port.clear();
 
-        // The last outstanding call resolved; the model just takes a long
-        // while to start its next reply. Held far past the stall timeout.
-        t.advance(20 * 60_000);
+        t.advance(1_500);
         t.tick();
-        expect(t.port.calls).toEqual([]);
-        expect(t.shell.statusFlash).toBe(STALL_NOTICE_MESSAGE);
+        expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+        expect(t.shell.statusFlash).toBe(STALL_RECOVERY_MESSAGE);
       } finally {
         t.bridge.dispose();
       }
     });
   });
 
-  // CL-5640: live sub-agent progress must keep the parent stream's silence
-  // exempt from abort even though the parent's own `wait_agents` call is the only
-  // thing in `activeToolCalls` — a future change to fleet-lifecycle handling
-  // must not silently drop this exemption.
-  test("live sub-agent progress under an outstanding wait_agents call is never auto-aborted", async () => {
+  test("post-compact continuation silence auto-aborts once the stall budget elapses", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h);
+      try {
+        t.bridge.beginSystemContinuation("continue after compact");
+        t.port.clear();
+
+        t.advance(1_500);
+        t.tick();
+        expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+        expect(t.shell.statusFlash).toBe(STALL_RECOVERY_MESSAGE);
+      } finally {
+        t.bridge.dispose();
+      }
+    });
+  });
+
+  test("in-flight collect auto-aborts once the stall budget elapses", async () => {
+    await withTestRenderer(async (h) => {
+      const t: Harness = await setup(h);
+      try {
+        t.bridge.submit("build it", "immediate");
+        t.bridge.handle({
+          type: "inference.tool_call.end",
+          data: { name: "shell_collect", callId: "c1" },
+        });
+        t.port.clear();
+
+        t.advance(1_500);
+        t.tick();
+        expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+        expect(t.shell.statusFlash).toBe(STALL_RECOVERY_MESSAGE);
+      } finally {
+        t.bridge.dispose();
+      }
+    });
+  });
+
+  test("an outstanding wait_agents call auto-aborts once the stall budget elapses", async () => {
     await withTestRenderer(async (h) => {
       const t: Harness = await setup(h);
       try {
@@ -542,11 +576,10 @@ describe("stall watchdog", () => {
         });
         t.port.clear();
 
-        // The parent stream stays quiet while the sub-agent works — far past
-        // the stall timeout.
-        t.advance(20 * 60_000);
+        t.advance(1_500);
         t.tick();
-        expect(t.port.calls).toEqual([]);
+        expect(t.port.calls).toEqual([{ op: "interrupt" }]);
+        expect(t.shell.statusFlash).toBe(STALL_RECOVERY_MESSAGE);
       } finally {
         t.bridge.dispose();
       }

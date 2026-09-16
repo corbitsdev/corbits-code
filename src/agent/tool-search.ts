@@ -14,9 +14,8 @@ import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 
 // Tools whose full schema is always advertised to the model. Everything else is
 // registered but discovered on demand via tool_search, which promotes matches
-// onto the call gate at once; the full schema joins the wire set at the next
-// cache-safe boundary. Shared by the system prompt and
-// the advertised-set gate so the two never drift.
+// onto the call gate and the next infer's wire set. Shared by the system prompt
+// and the advertised-set gate so the two never drift.
 //
 // `present` is deliberately absent: most sessions never render a view, and at
 // 2,793 chars it is the second-largest schema on the wire. It stays off the
@@ -149,10 +148,11 @@ export const ADVERTISED_TOOL_NAMES: readonly string[] = [
 
 // Project the live tool registry onto the advertised set: the fixed built-in
 // prefix (its order never changes — this is what keeps the provider cache
-// prefix stable) followed by wire-committed tools (MCP or otherwise) in
-// first-commit order. The wire array is byte-stable turn to turn: callers pass
-// only names committed via flushPromotions at a cache-safe boundary, never the
-// live activation list, so a mid-session discovery cannot append here.
+// prefix stable across no-discovery turns) followed by wire-committed tools
+// (MCP or otherwise) in first-commit order. Callers pass names committed via
+// flushPromotions (on promote, and at cache-safe boundaries), never the live
+// activation list before a flush, so a mid-handler discovery cannot append
+// here until the promoter commits it.
 // `activated` is expected to already be deduped/ordered (see
 // `createActivatedToolTracker`), but names are deduped again here defensively
 // so a caller passing raw matches still can't reorder or duplicate an entry.
@@ -217,7 +217,7 @@ export function createActivatedToolTracker(): ActivatedToolTracker {
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are not callable until this search promotes them. Core tools (read_file, run_shell, web_fetch, web_search, spawn_agent, …) are already on the wire — do not tool_search for them. wait_agents is mounted on exec-primary runs only, so it is not on the wire elsewhere and this search cannot promote it there. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get matching tools' names, descriptions, and input schemas. Matched tools are promoted and callable on return — invoke them directly, no separate load step.",
+    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are not on the wire until this search promotes them onto the next inference. Core tools (read_file, run_shell, web_fetch, web_search, spawn_agent, …) are already on the wire — do not tool_search for them. wait_agents is mounted on exec-primary runs only, so it is not on the wire elsewhere and this search cannot promote it there. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get a ranked handful of matching names and short descriptions. Matched tools join the next inference tool list — call them on the next turn, not from this result.",
   inputSchema: {
     type: "object",
     properties: {
@@ -238,6 +238,10 @@ export interface ToolIndex {
 // Rank registered tools against name + description via the shared lexical
 // scorer. Already-advertised tools are always callable so they never rank;
 // the allow list (when set) keeps search from promoting outside it.
+export const TOOL_SEARCH_MAX_RESULTS = 5;
+export const TOOL_SEARCH_SCORE_RATIO = 0.75;
+export const TOOL_SEARCH_DESC_MAX = 160;
+
 export function createToolIndex(
   getDefs: () => readonly ToolDefinition[],
   advertisedNames: readonly string[] = ADVERTISED_TOOL_NAMES,
@@ -257,7 +261,7 @@ export function createToolIndex(
     );
 
   return {
-    search(query: string, limit = 8): string[] {
+    search(query: string, limit = TOOL_SEARCH_MAX_RESULTS): string[] {
       const rawQuery = query.toLowerCase().trim();
       const queryTokens = tokenizeLexical(query);
       if (queryTokens.length === 0) return [];
@@ -268,6 +272,7 @@ export function createToolIndex(
         candidates,
         (def) => score(def, queryTokens, rawQuery),
         limit,
+        TOOL_SEARCH_SCORE_RATIO,
       ).map((def) => def.name);
     },
   };
@@ -276,9 +281,7 @@ export function createToolIndex(
 export interface ToolSearchDeps {
   search: (query: string) => string[];
   lookup: (name: string) => ToolDefinition | undefined;
-  // Promote matches onto the call gate so the model can invoke them this turn
-  // from the result card's schema. Wire declaration follows at the next
-  // cache-safe boundary (compaction fold), never mid-thread.
+  // Promote matches onto the call gate and the next infer's wire set.
   promote: (names: string[]) => void;
   // Resolves to the remaining in-flight MCP handshake count after waiting up
   // to `timeoutMs`. The toolset bounds its own wait; the handler re-races
@@ -311,22 +314,15 @@ export const TOOL_SEARCH_RECONNECT_WAIT_MS = 500;
 
 const ToolSearchArgs = type({ query: "string" });
 
-// Render one discovered tool as name, description, and pretty-printed input
-// schema. The schema is the load-bearing addition: MCP and other unadvertised
-// tools never appear in the wire tools array, so this is the model's only view
-// of their parameter names, types, and required fields.
-function renderToolCard(def: ToolDefinition | undefined, name: string): string {
-  if (def === undefined) return `- ${name}`;
-  const header = `- ${def.name}: ${def.description ?? ""}`;
-  const schema = JSON.stringify(def.inputSchema ?? {}, null, 2);
-  return `${header}\n  input schema:\n${indent(schema, "    ")}`;
+function capDescription(text: string, max = TOOL_SEARCH_DESC_MAX): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= max) return oneLine;
+  return `${oneLine.slice(0, max - 1)}…`;
 }
 
-function indent(text: string, pad: string): string {
-  return text
-    .split("\n")
-    .map((line) => `${pad}${line}`)
-    .join("\n");
+function renderToolCard(def: ToolDefinition | undefined, name: string): string {
+  if (def === undefined) return `- ${name}`;
+  return `- ${def.name}: ${capDescription(def.description ?? "")}`;
 }
 
 // Race the dependency's pending-count wait against a bound, so a
@@ -398,17 +394,14 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
       if (names.length === 0) {
         return `No tools matched "${query}". Try different keywords describing the capability.`;
       }
-      // Matches open on the call gate at once; the full schema joins the wire
-      // declarations at the next cache-safe boundary (compaction fold), never
-      // mid-thread, so the provider's cached prefix stays byte-stable. The
-      // tool result below still carries name, description, AND input schema
-      // so the model can shape arguments and call this same turn, before the
-      // promoted definition is declared on the wire.
+      // Matches open on the call gate and join the next infer's wire set
+      // (promoter flushes at activate). The card is names + capped
+      // descriptions only — full schemas ride the next tools array.
       deps.promote(names);
       const blocks = names.map((name) =>
         renderToolCard(deps.lookup(name), name),
       );
-      return `These tools are available — you can call them now:\n\n${blocks.join("\n\n")}`;
+      return `Promoted onto the next inference tool list. Call them on the next turn:\n\n${blocks.join("\n")}`;
     },
   });
 }

@@ -138,6 +138,7 @@ describe("REVIEW_TOOLS / INTERN_TOOLS", () => {
     expect(INTERN_TOOLS).toContain("run_shell");
     expect(INTERN_TOOLS).toContain("read_file");
     expect(INTERN_TOOLS).toContain("list_dir");
+    expect(INTERN_TOOLS as readonly string[]).not.toContain("shell_collect");
     for (const name of [
       "grep",
       "search_files",

@@ -157,31 +157,14 @@ describe("structured transcript rows", () => {
   });
 });
 
-const SCHEMA = JSON.stringify(
-  {
-    type: "object",
-    properties: { limit: { type: "number", description: "Max results" } },
-  },
-  null,
-  2,
-)
-  .split("\n")
-  .map((line) => `    ${line}`)
-  .join("\n");
-
 const CATALOGUE = [
-  "These tools are available — you can call them now:",
+  "Promoted onto the next inference tool list. Call them on the next turn:",
   "",
   ...[
     "mcp__linear__list_issues",
     "mcp__linear__get_issue",
     "mcp__railway__deploy",
-  ].flatMap((name) => [
-    `- ${name}: does a thing`,
-    "  input schema:",
-    SCHEMA,
-    "",
-  ]),
+  ].map((name) => `- ${name}: does a thing`),
 ].join("\n");
 
 /** Plain text of whatever a row hides behind the expand key. */

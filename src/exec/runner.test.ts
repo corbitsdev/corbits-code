@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import { createAdvertisedToolset } from "../session/assemble-runtime.js";
 import {
@@ -81,7 +82,7 @@ describe("exec director allowlist", () => {
     ).toBe(false);
   });
 
-  test("the promoter gates allow itself and leaves the wire set for the fold", () => {
+  test("the promoter commits allowed names onto the next infer wire", () => {
     const overlay = resolveExecDirectorOverlay("explorer");
     const { activated, computeAdvertised, flushPromotions } =
       createAdvertisedToolset({
@@ -90,9 +91,13 @@ describe("exec director allowlist", () => {
         getProvider: () => ({ providerName: "test", model: "test-model" }),
         builtInPrefix: overlay.advertisedAllow,
       });
+    let committed = 0;
     const promote = createExecToolPromoter({
       activate: (names) => activated.activate(names),
       isAllowed: (name) => isExecOverlayToolAllowed(overlay, name),
+      commitWire: () => {
+        if (flushPromotions()) committed += 1;
+      },
     });
     const registry = [
       {
@@ -101,19 +106,104 @@ describe("exec director allowlist", () => {
         inputSchema: { type: "object", properties: {} },
       },
     ];
-    const before = JSON.stringify(computeAdvertised(registry));
-    // A raw activate caller gets no bypass: outside-allow names never open the
-    // gate, while the allowed match opens it at once.
     promote([OUTSIDE_ALLOW, "read_file"]);
     expect(activated.has(OUTSIDE_ALLOW)).toBe(false);
     expect(activated.has("read_file")).toBe(true);
-    // Gate-only: the wire recompute ignores the fresh activation, so the
-    // provider's cached prefix holds until the fold commits it.
-    expect(JSON.stringify(computeAdvertised(registry))).toBe(before);
-    expect(flushPromotions()).toBe(true);
+    expect(committed).toBe(1);
     expect(computeAdvertised(registry).map((d) => d.name)).toContain(
       "read_file",
     );
+  });
+
+  test("the promoter does not commit a name outside the overlay allow list", () => {
+    const overlay = resolveExecDirectorOverlay("explorer");
+    const { activated, computeAdvertised, flushPromotions } =
+      createAdvertisedToolset({
+        sessionMode: "orchestrator",
+        toolAvailability: { languageServerAvailable: true },
+        getProvider: () => ({ providerName: "test", model: "test-model" }),
+        builtInPrefix: overlay.advertisedAllow,
+      });
+    let committed = 0;
+    const promote = createExecToolPromoter({
+      activate: (names) => activated.activate(names),
+      isAllowed: (name) => isExecOverlayToolAllowed(overlay, name),
+      commitWire: () => {
+        if (flushPromotions()) committed += 1;
+      },
+    });
+    const registry = [
+      {
+        name: OUTSIDE_ALLOW,
+        description: "create an issue",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "lsp",
+        description: "language server",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ];
+    promote([OUTSIDE_ALLOW]);
+    expect(activated.has(OUTSIDE_ALLOW)).toBe(false);
+    expect(committed).toBe(0);
+    expect(computeAdvertised(registry).map((d) => d.name)).not.toContain(
+      OUTSIDE_ALLOW,
+    );
+  });
+
+  test("the promoter still commits lsp when the overlay allows it", () => {
+    const overlay = resolveExecDirectorOverlay("explorer");
+    expect(isExecOverlayToolAllowed(overlay, "lsp")).toBe(true);
+    const { activated, computeAdvertised, flushPromotions } =
+      createAdvertisedToolset({
+        sessionMode: "orchestrator",
+        toolAvailability: { languageServerAvailable: true },
+        getProvider: () => ({ providerName: "test", model: "test-model" }),
+        builtInPrefix: overlay.advertisedAllow,
+      });
+    let committed = 0;
+    const promote = createExecToolPromoter({
+      activate: (names) => activated.activate(names),
+      isAllowed: (name) => isExecOverlayToolAllowed(overlay, name),
+      commitWire: () => {
+        if (flushPromotions()) committed += 1;
+      },
+    });
+    const registry = [
+      {
+        name: "lsp",
+        description: "language server",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: OUTSIDE_ALLOW,
+        description: "create an issue",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ];
+    promote([OUTSIDE_ALLOW, "lsp"]);
+    expect(activated.has(OUTSIDE_ALLOW)).toBe(false);
+    expect(activated.has("lsp")).toBe(true);
+    expect(committed).toBe(1);
+    const names = computeAdvertised(registry).map((d) => d.name);
+    expect(names).toContain("lsp");
+    expect(names).not.toContain(OUTSIDE_ALLOW);
+  });
+
+  test("exec wires commitWire on the overlay-filtered promoter and onToolsActivate uses it", () => {
+    const source = readFileSync(
+      new URL("./runner.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("commitWire: commitPromotedWire");
+    expect(source).toMatch(
+      /createExecToolPromoter\(\{[\s\S]*?isAllowed:\s*\(name\)\s*=>\s*isExecOverlayToolAllowed\(overlay,\s*name\)[\s\S]*?commitWire:\s*commitPromotedWire/,
+    );
+    expect(source).toMatch(
+      /onToolsActivate:\s*\(names\)\s*=>\s*promoteAndCommitWire\(names\)/,
+    );
+    expect(source).toContain("setToolPromoter(promoteAndCommitWire");
   });
 
   test("skywalker overlay leaves every tool allowed", () => {

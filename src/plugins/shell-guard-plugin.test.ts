@@ -610,6 +610,23 @@ describe("advertiseShellGuardTimeout", () => {
       /does not change the retained shell cwd/i,
     );
   });
+
+  test("omits background when collect is not mounted", () => {
+    const rewritten = advertiseShellGuardTimeout(
+      runShellDef(),
+      undefined,
+      undefined,
+      false,
+    );
+    const properties = rewritten.inputSchema["properties"] as Record<
+      string,
+      unknown
+    >;
+    expect(properties["background"]).toBeUndefined();
+    expect(timeoutSchema(rewritten)?.description).not.toMatch(
+      /background:true/,
+    );
+  });
 });
 
 describe("shellGuardPlugin", () => {
