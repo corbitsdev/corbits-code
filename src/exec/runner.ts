@@ -903,6 +903,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // refuses MCP/present/plugin names the result just told the model to
     // invoke. Under a closed overlay the promoter only activates allowed
     // names, so outside-allow tools can never become advertised or callable.
+    const commitPromotedWire = (): void => {
+      if (flushPromotions()) {
+        directorHolder.instance?.updateToolDefinitions(
+          computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
+        );
+      }
+    };
     agentToolset.setToolPromoter(
       createExecToolPromoter({
         activate: (names) => activatedToolNames.activate(names),
@@ -910,13 +917,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
         persist: () => {
           void persist("running");
         },
-        commitWire: () => {
-          if (flushPromotions()) {
-            directorHolder.instance?.updateToolDefinitions(
-              computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
-            );
-          }
-        },
+        commitWire: commitPromotedWire,
       }),
     );
 
@@ -1010,7 +1011,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
               tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
             });
           },
-          onToolsActivate: (names) => activatedToolNames.activate(names),
+          onToolsActivate: (names) => {
+            if (!activatedToolNames.activate(names)) return;
+            commitPromotedWire();
+          },
         },
         (message, fields) => logger.debug(message, fields),
       );
