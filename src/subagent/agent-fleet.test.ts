@@ -21,6 +21,7 @@ import {
   createSendInputTool,
 } from "./lifecycle-tools.js";
 import { createSubAgentSessionStore } from "./session-store.js";
+import { occupancyShouldYieldWait } from "./mailbox-mail-drive.js";
 import { INTENT_DEFAULT_DIRECTOR } from "../agent/directors/registry.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { agentLaneIsLive, fleetProgress } from "../tui/agent-progress.js";
@@ -3789,6 +3790,129 @@ describe("wait_agents occupancy yield (CL-7518)", () => {
     expect(row.question_id).toBeUndefined();
     expect(deps.fleetRecords.peek(id)?.collected).not.toBe(true);
     gate.resolve({ report: "ok" });
+  });
+});
+
+describe("wait_agents timed_out collection (CL-8028)", () => {
+  test("a yield on an already-terminal record still delivers its report and collects it", async () => {
+    const deps = makeDeps(async () => ({ report: "shipped" }));
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+      shouldYieldWait: () => occupancyShouldYieldWait(deps.fleetRecords),
+    });
+    const spawned = await callTool(spawn, {
+      description: "lane",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, id);
+    // The real occupancy predicate trips on the uncollected terminal, so
+    // this wait yields — but it must still hand over the report, never a
+    // bare done that strands the record for resume.
+    expect(occupancyShouldYieldWait(deps.fleetRecords)).toBe(true);
+    const waited = await callTool(wait, { targets: [id], timeout_ms: 5_000 });
+    expect(waited.timed_out).toBe(true);
+    const row = defined((waited.results as Record<string, unknown>[])[0]);
+    expect(row.status).toBe("done");
+    expect(row.report).toBe("shipped");
+    expect(deps.fleetRecords.peek(id)?.collected).toBe(true);
+    // The collected report no longer trips the predicate, so the next wait
+    // proceeds instead of yielding the same way forever.
+    expect(occupancyShouldYieldWait(deps.fleetRecords)).toBe(false);
+  });
+
+  test("a second wait after the yielded wait is not stranded without a report", async () => {
+    const deps = makeDeps(async () => ({ report: "shipped" }));
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+      shouldYieldWait: () => occupancyShouldYieldWait(deps.fleetRecords),
+    });
+    const spawned = await callTool(spawn, {
+      description: "lane",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, id);
+    const first = await callTool(wait, { targets: [id], timeout_ms: 5_000 });
+    expect(first.timed_out).toBe(true);
+    expect(defined((first.results as { report?: string }[])[0]).report).toBe(
+      "shipped",
+    );
+
+    const second = await callTool(wait, { targets: [id], timeout_ms: 5_000 });
+    expect(second.timed_out).toBe(false);
+    const row = defined((second.results as Record<string, unknown>[])[0]);
+    expect(row.status).toBe("done");
+    expect(row.report).toBeUndefined();
+  });
+
+  test("resume_agent is allowed after a timed_out wait that delivered the report", async () => {
+    const sessions = createSubAgentSessionStore();
+    const fleetRecords = createFleetMailbox(sessions);
+    const followupGate = deferred<string>();
+    const worker = sessions.start({
+      description: "retained",
+      agentId: "explorer",
+      brief: "b",
+      retained: true,
+    });
+    sessions.markRunning(worker.id);
+    fleetRecords.register(worker.id);
+    sessions.registerInterrupt(worker.id, () => undefined);
+    sessions.registerFollowup(worker.id, async () => followupGate.promise);
+    sessions.complete(worker.id, "first report");
+    await waitUntilMailboxTerminal(fleetRecords, sessions, worker.id);
+
+    const wait = createWaitAgentsTool({
+      sessions,
+      fleetRecords,
+      shouldYieldWait: () => occupancyShouldYieldWait(fleetRecords),
+    });
+    const resume = createResumeAgentTool({ sessions, fleetRecords });
+
+    const waited = await callTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 5_000,
+    });
+    expect(waited.timed_out).toBe(true);
+    expect(defined((waited.results as { report?: string }[])[0]).report).toBe(
+      "first report",
+    );
+
+    // The collected first turn must not read as "not collected": resume
+    // proceeds to the followup instead of demanding another wait first.
+    if (resume.kind !== "full") throw new Error("expected full tool");
+    const resumed = await resume.handler(
+      {
+        id: "resume-after-yield",
+        name: "resume_agent",
+        arguments: { target: worker.id, message: "go on" },
+      },
+      new AbortController().signal,
+    );
+    expect(resumed.isError).not.toBe(true);
+    expect(String(resumed.content)).toContain("running");
+
+    followupGate.resolve("second report");
+    await waitUntilMailboxTerminal(fleetRecords, sessions, worker.id);
+    // Occupancy still asks to yield on the fresh uncollected terminal, but
+    // the yielded wait hands over the followup report and collects it —
+    // the resumed turn is not stranded the way the first turn was.
+    const done = await callTool(wait, {
+      targets: [worker.id],
+      timeout_ms: 5_000,
+    });
+    expect(done.timed_out).toBe(true);
+    expect(defined((done.results as { report?: string }[])[0]).report).toBe(
+      "second report",
+    );
+    expect(fleetRecords.peek(worker.id)?.collected).toBe(true);
   });
 });
 

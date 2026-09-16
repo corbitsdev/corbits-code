@@ -1694,7 +1694,13 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
 
       // Terminal overlay/session projections are marked collected once
       // delivered here; a running record is only peeked, so it stays waitable.
-      // A yield leaves reports for occupancy (mailbox mail / ask-wake).
+      // A yield leaves live records for occupancy (mailbox mail / ask-wake):
+      // running/queued stay peeked and the awaiting_director question above
+      // stays with the wake path. Terminal records are always taken, even on
+      // a yield or timeout — CL-8028: reporting done with no report while the
+      // record stays uncollected blocks resume_agent ("call wait_agents
+      // first") and the occupancy yield predicate stays true on the
+      // uncollected terminal, so every later wait yields the same way.
       const results = targets.map((id) => {
         const record = deps.fleetRecords.peek(id);
         if (record === undefined) {
@@ -1727,7 +1733,11 @@ export function createWaitAgentsTool(deps: WaitAgentsDeps): AgentTool {
         if (isLiveWaitStatus(record.status)) {
           return { agent_id: id, status: record.status };
         }
-        if (yielded || record.bodyHanded === true) {
+        // CL-8028: a terminal status shown here must be collected. Falling
+        // through to takeAndProjectMailboxRecord even when yielded (see the
+        // note above) so a timed_out wait never reports done without its
+        // report while leaving the record uncollected.
+        if (record.bodyHanded === true) {
           return {
             agent_id: id,
             status: record.status,
