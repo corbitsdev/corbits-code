@@ -462,7 +462,7 @@ export class SubAgentDirector extends DefaultDirector {
         return terminal;
       }
     }
-    if (event.type === "tool.done") {
+    if (event.type === "tool.done" || event.type === "resume.tool_result") {
       this.lastActivityAt = this.now();
       this.stallNudgeAt = undefined;
       this.inFlightToolCallIds.delete(event.result.callId);

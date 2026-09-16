@@ -123,6 +123,13 @@ function toolDone(callId: string, isError = false): ReactorInboundEvent {
   } as unknown as ReactorInboundEvent;
 }
 
+function resumeToolResult(callId: string): ReactorInboundEvent {
+  return {
+    type: "resume.tool_result",
+    result: { callId, content: "denied by approver", isError: true },
+  } as unknown as ReactorInboundEvent;
+}
+
 function messageReceived(content: string): ReactorInboundEvent {
   return {
     type: "message.received",
@@ -1209,6 +1216,33 @@ describe("SubAgentDirector stall nudge grace", () => {
       await director.decide(messageReceived(""), state, caps),
     );
     expect(afterTool).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+  });
+
+  test("resume.tool_result clears in-flight ids so later silence can stall-nudge", async () => {
+    let now = 5_000_000;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      1_000,
+      () => now,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["parked-1"]), state, caps);
+    now += 60_000;
+    expect(
+      actions(await director.decide(messageReceived(""), state, caps)),
+    ).toEqual([{ type: "wait" }]);
+
+    await director.decide(resumeToolResult("parked-1"), state, caps);
+    now += 1_000;
+    expect(
+      actions(await director.decide(messageReceived(""), state, caps)),
+    ).toContainEqual({
       type: "checkpoint",
       message: "subagent-stall-nudge",
     });
