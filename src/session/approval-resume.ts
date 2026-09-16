@@ -105,6 +105,44 @@ function timeoutResult(
   );
 }
 
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
+async function timeoutResultFromHistory(
+  history: () => ReturnType<Agent["history"]>,
+  parkedCallId: string,
+): Promise<boolean> {
+  try {
+    return timeoutResult(await history(), parkedCallId);
+  } catch {
+    return false;
+  }
+}
+
+async function watchParkedTimeout(
+  history: () => ReturnType<Agent["history"]>,
+  parkedCallId: string,
+  signal: AbortSignal,
+  pollMs: number,
+): Promise<boolean> {
+  while (!signal.aborted) {
+    await sleep(pollMs, signal);
+    if (signal.aborted) return false;
+    if (await timeoutResultFromHistory(history, parkedCallId)) return true;
+  }
+  return false;
+}
+
 function decisionMessage(
   correlationId: string,
   outcome: "approved" | "rejected",
@@ -140,6 +178,8 @@ export function createApprovalResume(args: {
   captureGeneration?: () => () => boolean;
   onDropped?: (text: string) => void;
   registerParkedCancel?: (cancel: (() => void) | undefined) => void;
+  registerOverlayAbort?: (controller: AbortController | undefined) => void;
+  parkedTimeoutPollMs?: number;
   resolveParkedCallId: (
     correlationId: string,
   ) => string | undefined | Promise<string | undefined>;
@@ -182,6 +222,7 @@ export function createApprovalResume(args: {
       cancelParked();
     };
     args.registerParkedCancel?.(cancelParked);
+    let overlayAbort: AbortController | undefined;
     try {
       // The resolver captures the paired store synchronously before its first await.
       const parkedCallId = await args.resolveParkedCallId(correlationId);
@@ -225,14 +266,41 @@ export function createApprovalResume(args: {
         );
         return true;
       }
+
+      overlayAbort = new AbortController();
+      args.registerOverlayAbort?.(overlayAbort);
+      const timeoutWatch = watchParkedTimeout(
+        () => parkedAgent.history(),
+        parkedCallId,
+        overlayAbort.signal,
+        args.parkedTimeoutPollMs ?? 250,
+      ).then((timedOut) => {
+        if (
+          timedOut &&
+          overlayAbort !== undefined &&
+          !overlayAbort.signal.aborted
+        ) {
+          overlayAbort.abort(APPROVAL_TIMEOUT_RESULT_TEXT);
+        }
+        return timedOut;
+      });
+
       const outcome = await args.gate.resolveSuspended(request, stillCurrent);
+      if (!overlayAbort.signal.aborted) overlayAbort.abort();
+      const timedOutDuringOverlay =
+        overlayAbort.signal.reason === APPROVAL_TIMEOUT_RESULT_TEXT ||
+        (await timeoutWatch);
       if (!stillCurrent()) {
         dropParked();
         return true;
       }
       args.registerParkedCancel?.(undefined);
-      const history = await parkedAgent.history();
-      const timedOut = timeoutResult(history, parkedCallId);
+      const timedOut =
+        timedOutDuringOverlay ||
+        (await timeoutResultFromHistory(
+          () => parkedAgent.history(),
+          parkedCallId,
+        ));
       if (timedOut) canReject = false;
       if (!stillCurrent()) {
         dropParked();
@@ -251,6 +319,10 @@ export function createApprovalResume(args: {
       );
       return true;
     } finally {
+      if (overlayAbort !== undefined && !overlayAbort.signal.aborted) {
+        overlayAbort.abort();
+      }
+      args.registerOverlayAbort?.(undefined);
       args.registerParkedCancel?.(undefined);
     }
   };

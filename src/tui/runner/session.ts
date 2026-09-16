@@ -119,6 +119,7 @@ import {
   type RunnerState,
   type TUIStart,
 } from "./state.js";
+import { createParkedOverlayAbortBinding } from "./parked-overlay-abort.js";
 
 export async function assembleTUISession(
   state: RunnerState,
@@ -171,6 +172,7 @@ export async function assembleTUISession(
 
   const correlationAcceptance = createCorrelationAcceptance();
   const parkedApprovalCancel = { fn: undefined as (() => void) | undefined };
+  const parkedOverlay = createParkedOverlayAbortBinding();
   const deliveryGeneration = createDeliveryGeneration(() => {
     parkedApprovalCancel.fn?.();
     correlationAcceptance.settleAll();
@@ -185,7 +187,8 @@ export async function assembleTUISession(
     requestApproval: createGateRequestApproval({
       emitGate: (event) => emitter.emit("permission.gate", event),
       approvalTimeout,
-      identitySignal: () => deliveryGeneration.signal(),
+      identitySignal: () =>
+        parkedOverlay.identitySignal(deliveryGeneration.signal()),
     }),
     getActiveProviderModel: () =>
       `${state.config.providerName}:${state.config.model}`,
@@ -526,6 +529,7 @@ export async function assembleTUISession(
     registerParkedCancel: (cancel) => {
       parkedApprovalCancel.fn = cancel;
     },
+    registerOverlayAbort: parkedOverlay.registerOverlayAbort,
     deliver: (message, stillCurrent) => {
       return sessionOps.enqueue(async () => {
         if (!stillCurrent()) return;
