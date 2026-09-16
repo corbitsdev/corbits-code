@@ -81,6 +81,32 @@ function isPromiseLike(value: unknown): value is Promise<unknown> {
   return typeof value === "object" && value !== null && "then" in value;
 }
 
+/** TUI send returns a delivery-result object. Only `accepted` consumes a wake. */
+function occupancySendSucceeded(result: unknown): boolean {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "status" in result &&
+    result.status === "accepted"
+  );
+}
+
+export async function settleOccupancySend(args: {
+  send: () => unknown;
+  onSuccess: () => void;
+  onFailure: () => boolean;
+}): Promise<boolean> {
+  try {
+    const sent = args.send();
+    const result = isPromiseLike(sent) ? await sent : sent;
+    if (!occupancySendSucceeded(result)) return args.onFailure();
+    args.onSuccess();
+    return true;
+  } catch {
+    return args.onFailure();
+  }
+}
+
 /** Session blob-store write; same shape as ContextStore.writeBlob. */
 export type FleetDryBlobWriter = (
   key: string,
@@ -285,23 +311,12 @@ async function driveOpenTasksAfterFleetDrySpill(
   };
   try {
     args.beginSystemContinuation(prompt);
-    const sent = args.send(prompt);
-    if (isPromiseLike(sent)) {
-      void sent.then(
-        (result) => {
-          if (result !== false) takeReports();
-          else args.onSendFailure?.();
-        },
-        () => {
-          args.onSendFailure?.();
-        },
-      );
-      return true;
-    }
-    if (sent === false) return fail();
-    takeReports();
   } catch {
     return fail();
   }
-  return true;
+  return settleOccupancySend({
+    send: () => args.send(prompt),
+    onSuccess: takeReports,
+    onFailure: fail,
+  });
 }

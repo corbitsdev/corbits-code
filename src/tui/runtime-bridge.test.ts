@@ -2178,6 +2178,49 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
     );
   });
 
+  test("pending occupancy Promise is not a continuation; failed send idles", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const port = createRecordingPort();
+        const bridge = attachSessionBridge(shell, port);
+        try {
+          const prompt =
+            "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+          let resolveDrive: ((ok: boolean) => void) | undefined;
+          bridge.setDryOpenTaskDriver(() => {
+            bridge.beginSystemContinuation(prompt);
+            return new Promise((resolve) => {
+              resolveDrive = resolve;
+            });
+          });
+          bridge.submit("dispatch workers", "immediate");
+          bridge.handle({ type: "fleet", running: 1 });
+          settleToollessTurn(bridge);
+          expect(shell.session.run).toBe("busy");
+          bridge.handle({ type: "fleet", running: 0 });
+          expect(shell.session.run).toBe("busy");
+          expect(resolveDrive).toBeDefined();
+          resolveDrive?.(false);
+          await Promise.resolve();
+          expect(shell.session.run).toBe("idle");
+          port.clear();
+          bridge.submit("operator turn", "immediate");
+          expect(shell.session.run).toBe("busy");
+          expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(true);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("occupancy send abort does not swallow a later matching inbound", async () => {
     await withTestRenderer(
       async (h) => {
