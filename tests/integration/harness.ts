@@ -305,22 +305,24 @@ export async function runUntilDone(
 
   const collectTask = collect;
   const sendResult = await Promise.all([
-    session.agent.send({
-      ref: { uid: 1, mailbox: "INBOX" },
-      headers: {
-        from: "user@local",
-        to: ["agent@local"],
-        date: new Date().toISOString(),
-        messageId: `<${crypto.randomUUID()}@local>`,
-        interchangeType: "conversation.message",
-      },
-      flags: [OPERATOR_ORIGINATED_FLAG],
-      content: message,
-      signatureStatus: "missing",
-    }).then((result) => {
-      turnComplete = true;
-      return result;
-    }),
+    session.agent
+      .send({
+        ref: { uid: 1, mailbox: "INBOX" },
+        headers: {
+          from: "user@local",
+          to: ["agent@local"],
+          date: new Date().toISOString(),
+          messageId: `<${crypto.randomUUID()}@local>`,
+          interchangeType: "conversation.message",
+        },
+        flags: [OPERATOR_ORIGINATED_FLAG],
+        content: message,
+        signatureStatus: "missing",
+      })
+      .then((result) => {
+        turnComplete = true;
+        return result;
+      }),
     session.harness.run({ wallClockBudgetMs: Infinity }),
     collectTask,
   ]).then(([result]) => result);

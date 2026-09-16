@@ -2402,7 +2402,8 @@ describe("createPermissionGate", () => {
       name: "web_fetch",
       arguments: args,
     });
-    if (sameTurn.allowed) throw new Error("expected the same-turn retry denied");
+    if (sameTurn.allowed)
+      throw new Error("expected the same-turn retry denied");
     expect(asked).toBe(1);
     gate.clearDenials();
     const later = await gate.evaluate({

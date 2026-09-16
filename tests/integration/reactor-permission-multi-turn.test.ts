@@ -207,9 +207,9 @@ describe("integration — reactor permission + multi-turn", () => {
         );
         expect(asked).toBeGreaterThan(0);
         const askedAfterDeny = asked;
-        expect(
-          denied.events.some((e) => e.type === "reactor.error"),
-        ).toBe(false);
+        expect(denied.events.some((e) => e.type === "reactor.error")).toBe(
+          false,
+        );
 
         session.harness.scenario.replyOnce("anthropic", {
           text: "I'll continue without fetching.",
@@ -235,9 +235,9 @@ describe("integration — reactor permission + multi-turn", () => {
           "Try fetching https://example.com/docs again.",
         );
         expect(asked).toBe(askedAfterDeny + 1);
-        expect(
-          retried.events.some((e) => e.type === "reactor.error"),
-        ).toBe(false);
+        expect(retried.events.some((e) => e.type === "reactor.error")).toBe(
+          false,
+        );
       } finally {
         await closeIntegrationSession(session);
       }
