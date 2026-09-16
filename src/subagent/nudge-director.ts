@@ -177,14 +177,19 @@ export class SubAgentDirector extends DefaultDirector {
   // (directors are pure decide(event, ...) functions — see requestContinuation
   // above), so the run loop periodically pings this same continuation channel
   // and the director only acts on a ping if genuinely nothing happened since
-  // the last one. Precedence: this check sits below the turn-boundary stop
-  // checks above (evaluateSubAgentStop) — those fire from real inference.done
-  // turns and always take priority; stall pings only ever fire on a
-  // continuation message that inference.done/tool.done handling did not
+  // the last one. In-flight tool calls are activity, not silence: a ping can
+  // arrive while execute_tools is still running, so pending call ids are
+  // tracked explicitly. Precedence: this check sits below the turn-boundary
+  // stop checks above (evaluateSubAgentStop) — those fire from real
+  // inference.done turns and always take priority; stall pings only ever fire
+  // on a continuation message that inference.done/tool.done handling did not
   // already consume this cycle.
   private readonly stallTimeoutMs: number | undefined;
   private readonly now: () => number;
   private lastActivityAt: number;
+  // Call ids from the last inference.done that have not yet seen tool.done.
+  // A stall ping mid-execute is not silence.
+  private readonly inFlightToolCallIds = new Set<string>();
   // Wall clock when the first stall nudge was issued. Later empty pings inside
   // stallTimeoutMs of this instant wait without stopping or restarting grace;
   // stop only after the grace elapses with no activity. Cleared on real
@@ -331,6 +336,7 @@ export class SubAgentDirector extends DefaultDirector {
       this.turnsCompleted++;
       const content = event.turn.content as readonly {
         type: string;
+        id?: string;
         name?: string;
         arguments?: unknown;
         text?: string;
@@ -341,6 +347,11 @@ export class SubAgentDirector extends DefaultDirector {
         this.toolLessNarrationCycles = 0;
         this.verbatimToolCallNudgeFired = false;
         this.thrashState = nextThrashState(this.thrashState, content);
+        for (const block of content) {
+          if (block.type === "tool_call" && typeof block.id === "string") {
+            this.inFlightToolCallIds.add(block.id);
+          }
+        }
       }
 
       const stop = evaluateSubAgentStop({
@@ -454,6 +465,7 @@ export class SubAgentDirector extends DefaultDirector {
     if (event.type === "tool.done") {
       this.lastActivityAt = this.now();
       this.stallNudgeAt = undefined;
+      this.inFlightToolCallIds.delete(event.result.callId);
       if (event.result.isError === true) {
         // Failed-tool recovery guidance. Arm once; coalesce consecutive failure
         // audits until applyPendingNudge flushes a single counted record.
@@ -475,11 +487,9 @@ export class SubAgentDirector extends DefaultDirector {
   /**
    * Reacts to the periodic stall-check ping (an empty-content continuation,
    * same channel compaction uses to re-enter an idle reactor) started by the
-   * run loop when stallTimeoutMs is configured. Only ever sees this event
-   * when the reactor is genuinely between cycles — a ping delivered while a
-   * tool call is still executing simply queues until that cycle finishes, so
-   * "no pending harness-tracked work" falls out of when this method can run
-   * at all rather than needing separate bookkeeping.
+   * run loop when stallTimeoutMs is configured. A ping can arrive while a
+   * tool call is still executing; those in-flight calls reset the silence
+   * clock and wait instead of nudging.
    *
    * First silence past the timeout: one continuation nudge, and record
    * stallNudgeAt. Queued pings that arrive inside the stallTimeoutMs grace
@@ -496,6 +506,11 @@ export class SubAgentDirector extends DefaultDirector {
     if (event.type !== "message.received") return null;
     const content = event.message.content;
     if (typeof content !== "string" || content.length > 0) return null;
+    if (this.inFlightToolCallIds.size > 0) {
+      this.lastActivityAt = this.now();
+      this.stallNudgeAt = undefined;
+      return [capabilities.wait()];
+    }
     const elapsed = this.now() - this.lastActivityAt;
     if (elapsed < this.stallTimeoutMs) return null;
 

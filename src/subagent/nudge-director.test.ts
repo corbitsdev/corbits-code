@@ -1184,6 +1184,36 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
 });
 
 describe("SubAgentDirector stall nudge grace", () => {
+  test("long in-flight tool with no assistant text does not stall-nudge", async () => {
+    let now = 4_000_000;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      1_000,
+      () => now,
+    );
+    const caps = capabilities();
+
+    await director.decide(inferenceDone(["slow-1"]), state, caps);
+
+    now += 60_000;
+    const midTool = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(midTool).toEqual([{ type: "wait" }]);
+
+    await director.decide(toolDone("slow-1"), state, caps);
+    now += 1_000;
+    const afterTool = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(afterTool).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+  });
+
   test("two queued empty pings in the same tick nudge then wait, not stop", async () => {
     let now = 3_000_000;
     const director = new SubAgentDirector(
@@ -1269,7 +1299,7 @@ describe("SubAgentDirector stall nudge grace", () => {
     );
     const caps = capabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
+    await director.decide(inferenceDoneText("working"), state, caps);
     now += 1_000;
     const first = actions(
       await director.decide(messageReceived(""), state, caps),
