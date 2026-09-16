@@ -1399,6 +1399,127 @@ describe("createReactor — doom-loop detection", () => {
     expect(getEvent(events, "message.run.ended").data.status).toBe("completed");
   });
 
+  test("trips on trivial run_shell churn with fresh echo strings", async () => {
+    // A runaway model evading the guard by varying a no-op payload: every
+    // turn runs `echo` with a brand-new string, so argument-level identity
+    // never repeats. Each turn is still the same trivial shell no-op, so the
+    // default threshold of 3 must trip.
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createBatchLoopDirector((turn) =>
+        turn < 8
+          ? [
+              {
+                id: `c${turn}`,
+                name: "run_shell",
+                arguments: { command: `echo churn-${turn}` },
+              },
+            ]
+          : null,
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    const error = getEvent(events, "reactor.error");
+    expect(error.data.fatal).toBe(true);
+    expect(error.data.error).toContain("run_shell");
+    expect(getEvent(events, "message.run.ended").data.error?.kind).toBe(
+      "doom_loop",
+    );
+    expect(events.filter((e) => e.type === "tool.start").length).toBe(3);
+  });
+
+  test("trips on mixed echo/true trivial churn", async () => {
+    // Alternating between the two no-op programs with fresh arguments must
+    // count as the same loop, not as distinct work.
+    const commands = [
+      "echo alpha",
+      "true alpha",
+      "echo bravo",
+      "true bravo",
+      "echo charlie",
+      "true charlie",
+      "echo delta",
+      "true delta",
+    ];
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createBatchLoopDirector((turn) => {
+        const command = commands[turn];
+        return command === undefined
+          ? null
+          : [{ id: `c${turn}`, name: "run_shell", arguments: { command } }];
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(getEvent(events, "reactor.error").data.fatal).toBe(true);
+    expect(getEvent(events, "message.run.ended").data.error?.kind).toBe(
+      "doom_loop",
+    );
+    expect(events.filter((e) => e.type === "tool.start").length).toBe(3);
+  });
+
+  test("does not trip on distinct legitimate shell work", async () => {
+    // Different real commands are different turns: a changing command string
+    // here is genuine work, not no-op churn, so five distinct commands must
+    // run to completion.
+    const commands = [
+      "git status",
+      "npm test",
+      "git diff --stat",
+      "npm run build",
+      "git log --oneline -3",
+    ];
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createBatchLoopDirector((turn) => {
+        const command = commands[turn];
+        return command === undefined
+          ? null
+          : [{ id: `c${turn}`, name: "run_shell", arguments: { command } }];
+      }),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(events.some((e) => e.type === "reactor.error")).toBe(false);
+    expect(getEvent(events, "message.run.ended").data.status).toBe("completed");
+    expect(events.filter((e) => e.type === "tool.start").length).toBe(5);
+  });
+
+  test("does not collapse echo with redirection into trivial churn", async () => {
+    // `echo payload > file` writes a file: a side effect, not a no-op. Fresh
+    // redirect targets must keep distinct signatures so real file writes are
+    // never mistaken for churn.
+    const { reactor, events, waitFor } = createTestReactor({
+      director: createBatchLoopDirector((turn) =>
+        turn < 5
+          ? [
+              {
+                id: `c${turn}`,
+                name: "run_shell",
+                arguments: { command: `echo payload-${turn} > out-${turn}.txt` },
+              },
+            ]
+          : null,
+      ),
+    });
+
+    reactor.start();
+    reactor.deliver(makeInboundMessage());
+    await waitFor("reactor.done");
+
+    expect(events.some((e) => e.type === "reactor.error")).toBe(false);
+    expect(getEvent(events, "message.run.ended").data.status).toBe("completed");
+    expect(events.filter((e) => e.type === "tool.start").length).toBe(5);
+  });
+
   test("treats key-reordered arguments as identical", async () => {
     // Same logical arguments, keys emitted in different orders. Canonical
     // serialization must collapse them to one signature, so three such turns

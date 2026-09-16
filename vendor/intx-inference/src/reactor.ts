@@ -215,14 +215,56 @@ function resolveDoomLoopThreshold(
  * differs on every request); sorting makes a parallel batch match regardless
  * of the order the model emitted its calls. Two turns share a signature when
  * they run the same multiset of `(name, arguments)` pairs.
+ *
+ * Trivial `run_shell` no-ops (`echo`/`true` with fresh strings) normalize to
+ * one shared identity — see `isTrivialNoopShellCommand`. Without that, a
+ * runaway model evades the guard by varying a payload that does no work.
+ *
+ * Locally patched — see vendor/intx-inference/PATCHES.md#reactor-ts-doom-loop-trivial-shell-churn
  */
 function toolBatchSignature(calls: ToolCall[]): string {
   return calls
     .map((call) =>
-      canonicalJsonStringify({ name: call.name, arguments: call.arguments }),
+      canonicalJsonStringify(canonicalCallIdentity(call)),
     )
     .sort()
     .join("\n");
+}
+
+/**
+ * Shared signature identity for one tool call. Everything but a trivial
+ * `run_shell` no-op keeps its exact `(name, arguments)` pair; a trivial
+ * no-op collapses to a constant marker so `echo churn-1`, `echo churn-2`,
+ * and `true whatever` all count as the same loop.
+ */
+function canonicalCallIdentity(call: ToolCall): unknown {
+  if (
+    call.name === "run_shell" &&
+    isTrivialNoopShellCommand(call.arguments["command"])
+  ) {
+    return { name: call.name, arguments: { command: "trivial-noop-shell" } };
+  }
+  return { name: call.name, arguments: call.arguments };
+}
+
+/**
+ * Whether a `run_shell` command value is a side-effect-free no-op whose
+ * arguments are churn, not work: a bare `echo ...` or `true ...` invocation
+ * with no chaining, redirection, substitution, or comment operators. Anything
+ * with shell metacharacters (`echo hi > file`, `echo a && test`) may do real
+ * work, so it keeps its exact signature and never collapses.
+ */
+function isTrivialNoopShellCommand(command: unknown): boolean {
+  if (typeof command !== "string") return false;
+  const trimmed = command.trim();
+  if (trimmed.length === 0) return false;
+  // Chaining, piping, redirection, substitution, grouping, comments, and
+  // newlines all mark a command that can do more than print-and-exit.
+  if (/[;&|><`$(){}#\n\r]/.test(trimmed)) return false;
+  const firstToken = trimmed.split(/\s+/, 1)[0] ?? "";
+  const unquoted = firstToken.replace(/^["']|["']$/g, "");
+  const program = unquoted.split("/").pop() ?? "";
+  return program === "echo" || program === "true";
 }
 
 /**
