@@ -94,6 +94,48 @@ describe("call gate", () => {
   });
 });
 
+describe("activated-but-unmounted registry miss", () => {
+  test("a gate-activated name missing from the registry reports reconnecting, not unknown tool", async () => {
+    const runner = createDynamicToolRunner([
+      stringTool("read_file", "core"),
+      stringTool("mcp__acme__do", "blind-result"),
+    ]);
+    const activated = new Set(["mcp__acme__do"]);
+    runner.setCallGate((name) => name === "read_file" || activated.has(name), {
+      isActivated: (name) => activated.has(name),
+    });
+
+    // The tool was promoted (gate open) but its server disconnected before the
+    // call, so removeTools dropped it from the registry mid-window.
+    runner.removeTools(["mcp__acme__do"]);
+    const result = await runner.run(
+      { id: "1", name: "mcp__acme__do", arguments: {} },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("mcp__acme__do");
+    expect(result.content).toContain("reconnecting");
+    expect(result.content).toContain("Retry the call shortly");
+    expect(result.content).not.toBe("unknown tool: mcp__acme__do");
+  });
+
+  test("a never-activated miss keeps the exact unknown tool string", async () => {
+    const runner = createDynamicToolRunner([stringTool("read_file", "core")]);
+    runner.setCallGate((name) => name === "read_file", {
+      isActivated: () => false,
+    });
+
+    const result = await runner.run(
+      { id: "1", name: "mcp__gone__tool", arguments: {} },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("unknown tool: mcp__gone__tool");
+  });
+});
+
 describe("terminal control stripping", () => {
   test("strips escape sequences from any tool's result, including MCP", async () => {
     const payload = "before\x1b]52;c;ZXZpbA==\x07\x1b[31mred\x1b[0m\x07after";

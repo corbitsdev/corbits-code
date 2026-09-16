@@ -498,6 +498,9 @@ export async function assembleTUISession(
   ]);
   toolset.dynamicRunner.setCallGate(
     (name) => unadvertisedCallable.has(name) || isAdvertised(name),
+    // A promoted-but-unmounted name (server dropped between search and call)
+    // reports reconnecting instead of bare unknown-tool at the call gate.
+    { isActivated: (name) => activatedToolNames.has(name) },
   );
 
   // Reload, interrupt, compaction continuation, and proxy deliver share one queue
