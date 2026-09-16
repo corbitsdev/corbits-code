@@ -113,19 +113,14 @@ const MCP_READ_ONLY_TOOL_PREFIXES = [
   "fetch_",
 ] as const;
 
-function mcpToolSegmentMatchesPrefix(
-  segment: string,
-  prefixes: readonly string[],
-): boolean {
-  return prefixes.some((prefix) => segment.startsWith(prefix));
-}
-
 // Name-prefix fallback when a server omits ToolAnnotations on tools/list.
 export function isReadOnlyMcpTool(name: string): boolean {
   const parsed = parseMcpToolName(name);
   if (parsed === null) return false;
   const segment = parsed.tool;
-  if (mcpToolSegmentMatchesPrefix(segment, MCP_MUTATING_TOOL_PREFIXES))
+  if (MCP_MUTATING_TOOL_PREFIXES.some((prefix) => segment.startsWith(prefix)))
     return false;
-  return mcpToolSegmentMatchesPrefix(segment, MCP_READ_ONLY_TOOL_PREFIXES);
+  return MCP_READ_ONLY_TOOL_PREFIXES.some((prefix) =>
+    segment.startsWith(prefix),
+  );
 }

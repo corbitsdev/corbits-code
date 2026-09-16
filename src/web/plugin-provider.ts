@@ -1,6 +1,7 @@
 import type { WebProvider } from "./types.js";
 import { scrubSecrets } from "./secret-scrub.js";
 import type { PluginModule } from "../plugins/loader.js";
+import { collectPluginCandidates } from "../plugins/loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import type { PluginCredentialField } from "../plugins/manifest.js";
 
@@ -18,21 +19,10 @@ export interface WebPluginCandidate {
 export function collectWebPlugins(
   modules: PluginModule[],
 ): WebPluginCandidate[] {
-  const out: WebPluginCandidate[] = [];
-  for (const mod of modules) {
-    if (mod.manifest?.kind !== "web") continue;
-    if (typeof mod.createWebProvider !== "function") continue;
-    out.push({
-      id: mod.manifest.id,
-      name: mod.manifest.name,
-      ...(mod.manifest.description !== undefined
-        ? { description: mod.manifest.description }
-        : {}),
-      credentials: mod.manifest.credentials ?? [],
-      factory: mod.createWebProvider as WebPluginCandidate["factory"],
-    });
-  }
-  return out;
+  return collectPluginCandidates<WebProvider>(modules, {
+    kind: "web",
+    factoryKey: "createWebProvider",
+  });
 }
 
 // Pick the active web plugin: an explicit `web` override wins; otherwise the

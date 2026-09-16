@@ -89,28 +89,40 @@ export function registerCommandPlugins(
   config: Record<string, PluginConfig> | (() => Record<string, PluginConfig>),
 ): string[] {
   const getConfig = typeof config === "function" ? config : () => config;
-  const registered: string[] = [];
-  for (const mod of modules) {
+  return collectEnabledModules(modules, (mod) => {
     const id = mod.manifest?.id;
     if (id === undefined || !registerCommandPluginModule(mod, getConfig))
-      continue;
-    if (isPluginModuleEnabled(mod, getConfig())) registered.push(id);
-  }
-  return registered;
+      return undefined;
+    return isPluginModuleEnabled(mod, getConfig()) ? id : undefined;
+  });
 }
 
 export function registerWorkflowPlugins(
   modules: PluginModule[],
   config: Record<string, PluginConfig>,
 ): string[] {
-  const registered: string[] = [];
-  for (const mod of modules) {
-    if (!isEnabledWorkflowPlugin(mod, config)) continue;
+  return collectEnabledModules(modules, (mod) => {
+    if (!isEnabledWorkflowPlugin(mod, config)) return undefined;
     const workflowPlugin = mod.workflowPlugin;
     const id = mod.manifest?.id;
-    if (workflowPlugin === undefined || id === undefined) continue;
+    if (workflowPlugin === undefined || id === undefined) return undefined;
     registerWorkflowPlugin(workflowPlugin);
-    registered.push(id);
+    return id;
+  });
+}
+
+// Shared register loop: each module is offered to `collect`, which performs
+// that kind's registration side effects and returns the manifest id exactly
+// when the module counts as registered, or undefined to skip it. One pass in
+// module order; per-kind predicates stay at the call sites above.
+function collectEnabledModules(
+  modules: PluginModule[],
+  collect: (mod: PluginModule) => string | undefined,
+): string[] {
+  const registered: string[] = [];
+  for (const mod of modules) {
+    const id = collect(mod);
+    if (id !== undefined) registered.push(id);
   }
   return registered;
 }

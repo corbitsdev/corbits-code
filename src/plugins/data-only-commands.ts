@@ -7,7 +7,7 @@ import {
   type CommandResult,
   type SubcommandDefinition,
 } from "../tui/commands/registry.js";
-import { splitFrontmatter } from "./frontmatter.js";
+import { COMMAND_NAME_PATTERN, splitFrontmatter } from "./frontmatter.js";
 
 // A data-only command plugin declares its slash commands as markdown files, the
 // same convention Claude Code (`.claude/commands/`), OpenCode
@@ -24,8 +24,6 @@ import { splitFrontmatter } from "./frontmatter.js";
 // and `/linear build` from a single `/linear` command. `$ARGUMENTS` in a body is
 // replaced with the args passed to that command level (all args for a flat
 // command; the args after the subcommand for a namespaced one).
-
-const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 interface LoadedBody {
   description: string;

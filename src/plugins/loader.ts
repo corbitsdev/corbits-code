@@ -12,12 +12,14 @@ import { pathIsInsideOrEqual } from "../util/path-contain.js";
 import {
   parsePluginManifest,
   PluginManifestSchema,
+  type PluginCredentialField,
+  type PluginKind,
   type PluginManifest,
 } from "./manifest.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import type { PluginLoadReporter } from "../telemetry/product-events.js";
 import { runtimePluginLoadReporter } from "../telemetry/singleton.js";
-import { loadDataOnlyPlugin } from "./data-only.js";
+import { isENOENT, loadDataOnlyPlugin } from "./data-only.js";
 
 import {
   resolvePluginWarningHandler,
@@ -76,17 +78,44 @@ export interface PluginModule {
   shadowedRepoDefaultEnabled?: boolean;
 }
 
-function isENOENT(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code?: unknown }).code === "ENOENT"
-  );
-}
-
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// Flat candidate behind the tool-plugin and web-provider collectors: both
+// select modules by manifest kind + factory key and project the same shape,
+// so the per-kind entry points stay one-line typed wrappers.
+export interface CollectedPluginCandidate<TFactory> {
+  id: string;
+  name: string;
+  description?: string;
+  credentials: PluginCredentialField[];
+  factory: (options: unknown) => TFactory | Promise<TFactory>;
+}
+
+export function collectPluginCandidates<TFactory>(
+  modules: PluginModule[],
+  opts: {
+    kind: PluginKind;
+    factoryKey: "createToolPlugin" | "createWebProvider";
+  },
+): CollectedPluginCandidate<TFactory>[] {
+  const out: CollectedPluginCandidate<TFactory>[] = [];
+  for (const mod of modules) {
+    if (mod.manifest?.kind !== opts.kind) continue;
+    const factory = mod[opts.factoryKey];
+    if (typeof factory !== "function") continue;
+    out.push({
+      id: mod.manifest.id,
+      name: mod.manifest.name,
+      ...(mod.manifest.description !== undefined
+        ? { description: mod.manifest.description }
+        : {}),
+      credentials: mod.manifest.credentials ?? [],
+      factory: factory as CollectedPluginCandidate<TFactory>["factory"],
+    });
+  }
+  return out;
 }
 
 // Read and validate a manifest.json beside the module. Plugins may declare
@@ -427,23 +456,16 @@ export function expandSkipDiagnosticsHandler(
   return (skip) => diagnostics.warnings.push(formatExpandSkip(skip));
 }
 
-/**
- * `onSkip` when no diagnostics collector is in play: one explicit stderr
- * line, module-private and only reached by an internal caller's own
- * deliberate choice (see `resolveExpandSkip` below) — never `expandPluginPath`
- * falling back to it on its own.
- */
-function stderrExpandSkip(skip: ExpandPluginPathSkip): void {
-  process.stderr.write(`plugins: ${formatExpandSkip(skip)}\n`);
-}
-
 /** Diagnostics when given, else the explicit stderr line — no silent option. */
 function resolveExpandSkip(
   diagnostics?: PluginLoadDiagnostics,
 ): (skip: ExpandPluginPathSkip) => void {
-  return diagnostics !== undefined
-    ? expandSkipDiagnosticsHandler(diagnostics)
-    : stderrExpandSkip;
+  const onWarning = resolvePluginWarningHandler(
+    diagnostics !== undefined
+      ? { diagnostics }
+      : { onWarning: stderrPluginWarning },
+  );
+  return (skip) => onWarning(formatExpandSkip(skip));
 }
 
 /**
@@ -928,11 +950,11 @@ export async function discoverClaudeInstalledPlugins(
     parsed = JSON.parse(raw);
   } catch {
     // Prefer collector when present; else stderrPluginWarning.
-    resolvePluginWarningHandler(
-      opts.diagnostics !== undefined
-        ? { diagnostics: opts.diagnostics }
-        : { onWarning: stderrPluginWarning },
-    )(`failed to parse ${registryPath}`);
+    (opts.diagnostics !== undefined
+      ? resolvePluginWarningHandler({ diagnostics: opts.diagnostics })
+      : resolvePluginWarningHandler({ onWarning: stderrPluginWarning }))(
+      `failed to parse ${registryPath}`,
+    );
     return [];
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
