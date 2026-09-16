@@ -789,6 +789,9 @@ describe("exec tool call gate and promoter", () => {
       persist: () => {
         persistCount += 1;
       },
+      commitWire: () => {
+        flushPromotions();
+      },
     });
     const search = createToolSearchTool({
       search: (query) =>
@@ -817,29 +820,19 @@ describe("exec tool call gate and promoter", () => {
   }
 
   test("tool_search then MCP dispatch with the gate on", async () => {
-    const { runner, search, persistCount, computeAdvertised, flushPromotions } =
+    const { runner, search, persistCount, computeAdvertised } =
       wireExecDiscovery(false);
     const blocked = await dispatch(runner, "mcp__linear__save_issue");
     expect(blocked.isError).toBe(true);
     expect(blocked.content).toContain("tool_search");
 
-    const wireBefore = JSON.stringify(
-      computeAdvertised(runner.currentDefinitions()),
-    );
     if (search.kind !== "string") throw new Error("expected string tool");
     await search.handler({ query: "linear" }, new AbortController().signal);
     expect(persistCount()).toBe(1);
 
-    // Gate-only promotion: the tool dispatches now, but the wire set holds
-    // steady until a cache-safe boundary commits it.
     const allowed = await dispatch(runner, "mcp__linear__save_issue");
     expect(allowed.content).toBe("saved");
     expect(allowed.isError).toBeUndefined();
-    expect(JSON.stringify(computeAdvertised(runner.currentDefinitions()))).toBe(
-      wireBefore,
-    );
-
-    expect(flushPromotions()).toBe(true);
     expect(
       computeAdvertised(runner.currentDefinitions()).map((d) => d.name),
     ).toContain("mcp__linear__save_issue");

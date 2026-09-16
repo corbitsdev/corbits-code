@@ -11,6 +11,7 @@ import {
   CATALOG_TOOL_NAMES,
   TOOL_SEARCH_PENDING_WAIT_MS,
   TOOL_SEARCH_RECONNECT_WAIT_MS,
+  TOOL_SEARCH_DESC_MAX,
   type ToolAvailability,
 } from "./tool-search.js";
 
@@ -55,6 +56,45 @@ const defs: ToolDefinition[] = [
 ];
 
 const index = createToolIndex(() => defs);
+
+function mcpDef(
+  name: string,
+  description: string,
+  extraSchema?: Record<string, unknown>,
+): ToolDefinition {
+  return {
+    name,
+    description,
+    inputSchema: {
+      type: "object",
+      properties: extraSchema ?? {},
+      required: [],
+    },
+  };
+}
+
+const linearCatalog: ToolDefinition[] = [
+  mcpDef("mcp__linear__list_issues", "List issues in Linear"),
+  mcpDef("mcp__linear__get_issue", "Get a Linear issue"),
+  mcpDef("mcp__linear__save_issue", "Save a Linear issue"),
+  mcpDef("mcp__linear__create_issue", "Create a Linear issue"),
+  mcpDef("mcp__linear__delete_issue", "Delete a Linear issue"),
+  mcpDef("mcp__linear__update_issue", "Update a Linear issue"),
+  mcpDef("mcp__linear__archive_issue", "Archive a Linear issue"),
+  mcpDef("mcp__linear__assign_issue", "Assign a Linear issue"),
+  mcpDef("mcp__linear__label_issue", "Label a Linear issue"),
+  mcpDef("mcp__linear__list_comments", "List comments on a Linear issue"),
+  mcpDef("mcp__linear__save_comment", "Save a comment on a Linear issue"),
+  mcpDef("mcp__linear__list_projects", "List Linear projects"),
+  mcpDef("mcp__github__create_issue", "Create a GitHub issue"),
+  mcpDef(
+    "mcp__linear__verbose_issue",
+    `${"A very long Linear issue description. ".repeat(20)}end-marker`,
+    { title: { type: "string" }, teamId: { type: "string" } },
+  ),
+];
+
+const linearIndex = createToolIndex(() => linearCatalog);
 
 describe("createToolIndex", () => {
   test("ranks a name-token match above a description-only match", () => {
@@ -235,6 +275,29 @@ describe("createToolIndex", () => {
     expect(allowed.search("pages")).toContain("present");
     expect(allowed.search("linear")).not.toContain("mcp__linear__create_issue");
   });
+
+  test("ranks a save-issue query above list-issue tools", () => {
+    const ranked = linearIndex.search("linear issue save");
+    expect(ranked[0]).toBe("mcp__linear__save_issue");
+    const listPos = ranked.indexOf("mcp__linear__list_issues");
+    if (listPos !== -1) {
+      expect(ranked.indexOf("mcp__linear__save_issue")).toBeLessThan(listPos);
+    }
+  });
+
+  test("caps a broad linear-issue query to a handful of top matches", () => {
+    const ranked = linearIndex.search("linear issue");
+    expect(ranked.length).toBeGreaterThan(1);
+    expect(ranked.length).toBeLessThanOrEqual(5);
+    expect(ranked.every((name) => name.includes("linear"))).toBe(true);
+  });
+
+  test("a specific save query returns one or two tools, not the whole family", () => {
+    const ranked = linearIndex.search("linear issue save");
+    expect(ranked).toContain("mcp__linear__save_issue");
+    expect(ranked.length).toBeGreaterThanOrEqual(1);
+    expect(ranked.length).toBeLessThanOrEqual(2);
+  });
 });
 
 function call(
@@ -268,21 +331,47 @@ describe("createToolSearchTool", () => {
     expect(out).toContain("layout");
   });
 
-  test("surfaces a matched tool's input schema so the model can shape arguments", async () => {
+  test("returns name and capped description without a full input schema", async () => {
     const tool = createToolSearchTool({
-      search: (q) => index.search(q),
-      lookup: (name) => defs.find((d) => d.name === name),
+      search: (q) => linearIndex.search(q),
+      lookup: (name) => linearCatalog.find((d) => d.name === name),
       promote: () => undefined,
     });
-    const out = await call(tool, { query: "issue tracker" });
-    expect(out).toContain("mcp__linear__create_issue");
-    // Parameter names and the required list must appear — this is the whole
-    // point: MCP tools are never in the wire tools array up front, so their
-    // schema reaches the model through the tool_search result this same turn,
-    // ahead of the promoted definition landing on the next infer call.
-    expect(out).toContain("title");
-    expect(out).toContain("teamId");
-    expect(out).toContain("required");
+    const out = await call(tool, { query: "linear issue" });
+    expect(out).toContain("mcp__linear__");
+    expect(out).not.toMatch(/input schema/i);
+    expect(out).not.toContain("teamId");
+    expect(out).not.toContain("end-marker");
+    const descLines = out
+      .split("\n")
+      .filter((line) => line.startsWith("- mcp__"));
+    expect(descLines.length).toBeGreaterThan(0);
+    for (const line of descLines) {
+      expect(line.length).toBeLessThanOrEqual(200);
+    }
+    expect(out).not.toMatch(/call them now/i);
+    expect(out).toMatch(/next (turn|infer)/i);
+  });
+
+  test("a unique description query hits the long card so the cap is exercised", async () => {
+    const tool = createToolSearchTool({
+      search: (q) => linearIndex.search(q),
+      lookup: (name) => linearCatalog.find((d) => d.name === name),
+      promote: () => undefined,
+    });
+    const ranked = linearIndex.search("end-marker");
+    expect(ranked).toContain("mcp__linear__verbose_issue");
+    const out = await call(tool, { query: "end-marker" });
+    expect(out).toContain("mcp__linear__verbose_issue");
+    expect(out).not.toContain("end-marker");
+    const card = out
+      .split("\n")
+      .find((line) => line.startsWith("- mcp__linear__verbose_issue:"));
+    expect(card).toBeDefined();
+    if (card === undefined) return;
+    const desc = card.slice("- mcp__linear__verbose_issue: ".length);
+    expect(desc.length).toBe(TOOL_SEARCH_DESC_MAX);
+    expect(desc.endsWith("…")).toBe(true);
   });
 
   test("rejects an empty query", async () => {

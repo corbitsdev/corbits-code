@@ -344,13 +344,11 @@ export function createExecToolPromoter(args: {
   activate: (names: readonly string[]) => boolean;
   isAllowed: (name: string) => boolean;
   persist?: () => void;
+  commitWire?: () => void;
 }): (names: string[]) => void {
   return (names) => {
-    // Gate-only, like the TUI promoteTools: activation lets the model invoke
-    // the match from the result card's schema at once, while the schema joins
-    // the wire set at the next cache-safe boundary (compaction fold) so the
-    // provider's cached prefix never grows mid-thread (CL-7868).
     if (!args.activate(names.filter((name) => args.isAllowed(name)))) return;
+    args.commitWire?.();
     args.persist?.();
   };
 }
@@ -813,8 +811,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
           },
           telemetry: liveTelemetry,
           onFolded: () => {
-            // A fold restarts the provider's cached prefix anyway: commit
-            // mid-session promotions so the next turn declares them.
+            // Fold restarts the cached prefix, so catch promotions still
+            // pending. Search already flushed names onto the next infer.
             if (flushPromotions()) {
               directorHolder.instance?.updateToolDefinitions(
                 computeAdvertised(
@@ -835,6 +833,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // refuses MCP/present/plugin names the result just told the model to
     // invoke. Under a closed overlay the promoter only activates allowed
     // names, so outside-allow tools can never become advertised or callable.
+    const commitPromotedWire = (): void => {
+      if (flushPromotions()) {
+        directorHolder.instance?.updateToolDefinitions(
+          computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
+        );
+      }
+    };
     agentToolset.setToolPromoter(
       createExecToolPromoter({
         activate: (names) => activatedToolNames.activate(names),
@@ -842,6 +847,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
         persist: () => {
           void persist("running");
         },
+        commitWire: commitPromotedWire,
       }),
     );
 
@@ -935,7 +941,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
               tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
             });
           },
-          onToolsActivate: (names) => activatedToolNames.activate(names),
+          onToolsActivate: (names) => {
+            if (!activatedToolNames.activate(names)) return;
+            commitPromotedWire();
+          },
         },
         (message, fields) => logger.debug(message, fields),
       );
