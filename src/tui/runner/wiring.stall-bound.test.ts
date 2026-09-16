@@ -148,6 +148,17 @@ describe("stall-bound primary turn (CL-8016)", () => {
         expect(bridge.turnMarkers().map((marker) => marker.path)).toContain(
           "stall-abort:awaiting-first-token",
         );
+        // ... the hung inference was interrupted before any new deliver ...
+        const interruptAt = port.calls.findIndex((call) => call.op === "interrupt");
+        expect(interruptAt).toBeGreaterThanOrEqual(0);
+        const wakeAfterInterrupt = port.calls
+          .slice(interruptAt + 1)
+          .filter(
+            (call): call is Extract<typeof call, { op: "deliver" }> =>
+              call.op === "deliver" &&
+              call.item.text.includes(ASK_DIRECTOR_WAKE_PREFIX),
+          );
+        expect(wakeAfterInterrupt).toHaveLength(0);
         // ... the queued operator message reached the port ...
         expect(
           port.calls.some(
@@ -167,6 +178,72 @@ describe("stall-bound primary turn (CL-8016)", () => {
         const wakes = wakeDeliveries(port);
         expect(wakes).toHaveLength(2);
         expect(wakes[1]).toContain("Re-surface");
+      } finally {
+        bridge.dispose();
+      }
+    });
+  });
+
+  test("stall monitor abort of an armed wake lets occupancy take the next turn", async () => {
+    await withTestRenderer(async (h) => {
+      let nowMs = 4_000_000;
+      let monitorTick: (() => void) | undefined;
+      const store = createSubAgentSessionStore({ now: () => nowMs });
+      parkWorker(store, "a");
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+      });
+      const port = createRecordingPort();
+      const bridge = attachSessionBridge(shell, port, {
+        now: () => nowMs,
+        stallTimeoutMs: STALL_TIMEOUT_MS,
+        schedule: (fn) => {
+          monitorTick = fn;
+          return () => {
+            monitorTick = undefined;
+          };
+        },
+      });
+      try {
+        bridge.handle({
+          type: "agent-ask",
+          asks: pendingAskSnapshot(store.list(), (id) => {
+            const ask = store.peekAsk(id);
+            return ask === undefined ? undefined : ask;
+          }),
+        });
+        expect(bridge.turn.isProcessing).toBe(true);
+        expect(wakeDeliveries(port)).toHaveLength(1);
+
+        let mailDrives = 0;
+        bridge.setMailboxMailDriver(() => {
+          if (mailDrives > 0) return false;
+          mailDrives += 1;
+          bridge.beginSystemContinuation("mailbox occupancy");
+          return true;
+        });
+
+        nowMs += STALL_TIMEOUT_MS + 500;
+        expect(monitorTick).toBeDefined();
+        monitorTick?.();
+
+        // Production abort is the #1095 monitor tick → doInterrupt, not the
+        // 5s fleet poll. Occupancy must win that next turn; a re-surface wake
+        // must not start processing first.
+        const interruptAt = port.calls.findIndex((call) => call.op === "interrupt");
+        expect(interruptAt).toBeGreaterThanOrEqual(0);
+        expect(
+          port.calls.slice(interruptAt + 1).some(
+            (call) =>
+              call.op === "deliver" &&
+              call.item.text.includes(ASK_DIRECTOR_WAKE_PREFIX),
+          ),
+        ).toBe(false);
+        expect(mailDrives).toBe(1);
+        expect(wakeDeliveries(port)).toHaveLength(1);
+        expect(bridge.turn.isProcessing).toBe(true);
+        expect(bridge.turn.status).toBe("running");
       } finally {
         bridge.dispose();
       }
@@ -238,6 +315,9 @@ describe("stall-bound primary turn (CL-8016)", () => {
           expect(store.resolveAsk(worker.sessionId, "late")).toBe(false);
           expect(store.hasPendingAsk(worker.sessionId)).toBe(false);
         }
+        // Expiring the asks must also end the silent wake — disarm without
+        // abort would leave isProcessing hung with nothing left to re-surface.
+        expect(bridge.turn.isProcessing).toBe(false);
       } finally {
         bridge.dispose();
       }

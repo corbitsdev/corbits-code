@@ -311,9 +311,10 @@ export interface SessionBridge {
    * Stall bound for a silent ask-wake primary turn (CL-8016). If a wake was
    * actually sent (`askWakeTurnArmed`) and `shouldAbortForStall` says the
    * turn is silent past the bound (including awaiting-first-token, per
-   * #1095), un-dedupe the delivered wakes and interrupt so the questions
-   * re-surface escalated. Returns true when it aborted. Driven by the fleet
-   * stall poll, which settles deadline-past asks first.
+   * #1095), interrupt the hung inference, un-dedupe the delivered wakes,
+   * and hand the next turn to occupancy (mailbox mail) before any re-surface.
+   * Returns true when it aborted. Driven by the fleet stall poll, which
+   * settles deadline-past asks first, and by the #1095 monitor tick.
    */
   abortStalledWakeTurn: () => boolean;
   /**
@@ -1383,9 +1384,9 @@ function applyInbound(
         bag.askWakeResurface.delete(sessionId);
       }
     }
-    // A fresh snapshot with nothing pending means every parked question
-    // settled or expired: no wake turn is owed, so disarm the bound.
-    if (bag.pendingAskWake.size === 0) bag.askWakeTurnArmed = false;
+    // A fresh snapshot with nothing pending means no wake is owed, but a
+    // still-armed silent turn must stay armed so the stall abort can interrupt
+    // it. Disarming here (expire / send_input) would leave isProcessing hung.
     bag.flushPendingAskWake?.();
     return;
   }
@@ -1900,30 +1901,11 @@ export function attachSessionBridge(
   };
 
   /**
-   * Stall bound for a silent ask-wake primary turn (CL-8016). Only an armed
-   * (wake-sent, never settled) turn can match. Silence uses `shouldAbortForStall`
-   * — the same #1095 bound that already covers awaiting-first-token — then
-   * un-dedupes and interrupts so parked questions re-surface. Mail first so
-   * occupancy can take the next turn; the trailing wake flush restates if
-   * mail did not start one.
+   * Shared abort used by Ctrl+C, the #1095 monitor tick, and the fleet-poll
+   * stall bound. Interrupt the hung inference before any new deliver, then
+   * occupancy/mailbox first so a re-surface wake cannot steal that turn.
    */
-  const abortStalledWakeTurn = (): boolean => {
-    if (bag.disposed || !bag.askWakeTurnArmed) return false;
-    if (!shouldAbortForStall(stallArgsFor(now()))) return false;
-    const layer = turnStallLayer(bag.turn) ?? "mid-stream";
-    unDedupeArmedAskWakes();
-    recordTurnMarker(bag, `stall-abort:${layer}`);
-    bag.askWakeTurnArmed = false;
-    bag.turn = turnStateOnInterrupt(bag.turn, now());
-    paintPhase();
-    drainAtBoundary(shell, bag);
-    flushMailboxMail();
-    flushPendingAskWake();
-    return true;
-  };
-
-  const doInterrupt = (): void => {
-    if (bag.disposed) return;
+  const abortInFlightAndHandoff = (): void => {
     closeOpenRow(shell, bag);
     bag.pendingEchoes.length = 0;
     // The stopped attempt is no longer in flight. Expire the error-recovery
@@ -1942,14 +1924,37 @@ export function attachSessionBridge(
     // turn the operator (or the watchdog) deliberately stopped.
     recordLastSent(null);
     bag.awaitingContinuationInference = false;
-    // Armed wake that dies here (operator stop or #1095 stall abort) never
-    // landed: un-dedupe so flushPendingAskWake restates the questions.
+    // Armed wake that dies here (operator stop or stall abort) never
+    // landed: un-dedupe so flushPendingAskWake can restate the questions
+    // if occupancy does not take the next turn.
     unDedupeArmedAskWakes();
     bag.askWakeTurnArmed = false;
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
-    flushPendingAskWake();
     flushMailboxMail();
+    if (!bag.turn.isProcessing) flushPendingAskWake();
+  };
+
+  /**
+   * Stall bound for a silent ask-wake primary turn (CL-8016). Only an armed
+   * (wake-sent, never settled) turn can match. Silence uses `shouldAbortForStall`
+   * — the same #1095 bound that already covers awaiting-first-token — then
+   * interrupts the hung inference before any new deliver. Mail first so
+   * occupancy can take the next turn; the trailing wake flush restates only
+   * if mail did not start one.
+   */
+  const abortStalledWakeTurn = (): boolean => {
+    if (bag.disposed || !bag.askWakeTurnArmed) return false;
+    if (!shouldAbortForStall(stallArgsFor(now()))) return false;
+    const layer = turnStallLayer(bag.turn) ?? "mid-stream";
+    recordTurnMarker(bag, `stall-abort:${layer}`);
+    abortInFlightAndHandoff();
+    return true;
+  };
+
+  const doInterrupt = (): void => {
+    if (bag.disposed) return;
+    abortInFlightAndHandoff();
   };
   const clearQueuedDelivery = (): void => {
     if (bag.disposed) return;
@@ -2052,7 +2057,10 @@ export function attachSessionBridge(
     if (shouldAbortForStall(stallArgs)) {
       applyStallRecovery(
         {
-          abort: doInterrupt,
+          abort: () => {
+            if (abortStalledWakeTurn()) return;
+            doInterrupt();
+          },
           notify: (message) =>
             setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
         },
