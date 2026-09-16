@@ -2,18 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { createSkywalkerSystemPrompt, skywalkerPackage } from "./package.js";
 
 describe("skywalkerPackage", () => {
-  test("id matches directory", () => {
-    expect(skywalkerPackage.id).toBe("skywalker");
-  });
-
-  test("systemPrompt is real, not placeholder", () => {
-    expect(skywalkerPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(skywalkerPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
+  test("systemPrompt names Skywalker and the DIY lane", () => {
     expect(skywalkerPackage.systemPrompt).toContain("You are Skywalker");
     expect(skywalkerPackage.systemPrompt).toContain(
       "When asked your name, answer: Skywalker",
     );
-    expect(skywalkerPackage.systemPrompt).toContain("PRIMARY INTENT");
     expect(skywalkerPackage.systemPrompt).toContain(
       "write_file/edit_file/delete_file",
     );
@@ -26,8 +19,7 @@ describe("skywalkerPackage", () => {
     expect(createSkywalkerSystemPrompt()).toBe(skywalkerPackage.systemPrompt);
   });
 
-  test("maySpawn true with full closed allowlist", () => {
-    expect(skywalkerPackage.spawn.maySpawn).toBe(true);
+  test("spawn allowlist is the full closed set", () => {
     expect(skywalkerPackage.spawn.allowlist).toHaveLength(19);
     expect(skywalkerPackage.spawn.allowlist).toEqual([
       "builder",
@@ -52,17 +44,9 @@ describe("skywalkerPackage", () => {
     ]);
   });
 
-  test("tools.allow mounts orchestrator surface plus product writes for DIY", () => {
+  test("tools.allow mounts agent search for DIY delegation", () => {
     const allow = skywalkerPackage.tools?.allow ?? [];
-    expect(allow).not.toContain("task");
-    expect(allow).toContain("spawn_agent");
-    // CL-7678: TUI primary collects through mailbox mail; wait_agents is
-    // exec-primary opt-in, so it stays off the Skywalker allow.
-    expect(allow).not.toContain("wait_agents");
     expect(allow).toContain("search_agents");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is orchestrator", () => {

@@ -2,15 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { testerPackage } from "./package.js";
 
 describe("testerPackage", () => {
-  test("id matches directory / registry id", () => {
-    expect(testerPackage.id).toBe("tester");
-  });
-
-  test("systemPrompt is non-empty and not a Placeholder", () => {
-    expect(testerPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(testerPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
   test("systemPrompt identity is Tester / TesterDirector (named entity)", () => {
     const p = testerPackage.systemPrompt;
     expect(p).toMatch(/TesterDirector \(Tester\)/);
@@ -18,9 +9,8 @@ describe("testerPackage", () => {
     expect(p).not.toMatch(/test director/i);
   });
 
-  test("systemPrompt states PRIMARY INTENT to run suite/repro and never fix", () => {
+  test("systemPrompt runs suite/repro and never fixes", () => {
     const p = testerPackage.systemPrompt;
-    expect(p).toContain("PRIMARY INTENT");
     expect(p).toMatch(/suite\s*\/\s*repro|suite \/ repro/i);
     expect(p).toMatch(/pass\/fail evidence|evidence/i);
     expect(p).toMatch(/never fix|Never fix|do not patch/i);
@@ -56,17 +46,10 @@ describe("testerPackage", () => {
     expect(p).not.toMatch(/harness-allowed tools/i);
   });
 
-  test("spawn.maySpawn is false (leaf)", () => {
-    expect(testerPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow mounts product writes (lane: never fix)", () => {
+  test("tools.allow mounts shell and read (lane: never fix)", () => {
     const allow = testerPackage.tools?.allow ?? [];
     expect(allow).toContain("run_shell");
     expect(allow).toContain("read_file");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is test", () => {

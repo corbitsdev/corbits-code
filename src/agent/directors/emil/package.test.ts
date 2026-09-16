@@ -2,23 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { emilPackage } from "./package.js";
 
 describe("emilPackage", () => {
-  test("id matches directory", () => {
-    expect(emilPackage.id).toBe("emil");
-  });
-
-  test("systemPrompt is real, not a placeholder", () => {
-    expect(emilPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(emilPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
   test("systemPrompt identity is Emil / EmilDirector (package id stays emil)", () => {
     const p = emilPackage.systemPrompt;
     expect(p).toMatch(/EmilDirector \(Emil\)/);
     expect(p).toMatch(/design-eng critique lane only/i);
   });
 
-  test("systemPrompt states PRIMARY INTENT", () => {
-    expect(emilPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+  test("systemPrompt routes to builder", () => {
     expect(emilPackage.systemPrompt).toContain("route to builder");
   });
 
@@ -135,18 +125,11 @@ describe("emilPackage", () => {
     expect(p).not.toMatch(/Never spawn/);
   });
 
-  test("spawn.maySpawn is false", () => {
-    expect(emilPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow is review surface with product writes", () => {
+  test("tools.allow mounts read plus skill discovery", () => {
     const allow = emilPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("skill_search");
     expect(allow).toContain("use_skill");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is review", () => {

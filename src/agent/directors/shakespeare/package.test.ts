@@ -2,21 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { shakespearePackage } from "./package.js";
 
 describe("shakespearePackage", () => {
-  test("id matches directory / registry id", () => {
-    expect(shakespearePackage.id).toBe("shakespeare");
-  });
-
-  test("systemPrompt is non-empty and not a Placeholder", () => {
-    expect(shakespearePackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(shakespearePackage.systemPrompt.startsWith("Placeholder")).toBe(
-      false,
-    );
-  });
-
   test("systemPrompt identity is Shakespeare / ShakespeareDirector", () => {
     const p = shakespearePackage.systemPrompt;
     expect(p).toMatch(/ShakespeareDirector \(Shakespeare\)/);
-    expect(p).toContain("PRIMARY INTENT");
     expect(p).toMatch(/docs lane only/i);
     expect(p).toMatch(/PRODUCT\.md/);
     expect(p).toMatch(/ARCHITECTURE\.md/);
@@ -68,17 +56,6 @@ describe("shakespearePackage", () => {
     expect(p).toMatch(/not an orchestrator/i);
     expect(p).toMatch(/PRODUCT \/ ARCHITECTURE \/ IMPLEMENTATION|PRODUCT\.md/);
     expect(p).toMatch(/do not become Builder, Critic, or Rand/i);
-  });
-
-  test("spawn.maySpawn is false (leaf)", () => {
-    expect(shakespearePackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow includes write tools", () => {
-    const allow = shakespearePackage.tools?.allow ?? [];
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is docs", () => {

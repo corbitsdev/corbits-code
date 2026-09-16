@@ -25,6 +25,7 @@ import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
 import { defined } from "../../tests/helpers/defined.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams } from "./types.js";
+import { errorMessage } from "../agent/error-message.js";
 
 const testPermissionGate = createPermissionGate({
   approvals: [],
@@ -313,7 +314,7 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
           (reply) => ({ ok: true as const, reply }),
           (err: unknown) => ({
             ok: false as const,
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
           }),
         );
         return { first, followup };

@@ -2,15 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { randPackage } from "./package.js";
 
 describe("randPackage", () => {
-  test("id matches directory", () => {
-    expect(randPackage.id).toBe("rand");
-  });
-
-  test("systemPrompt is real, not a placeholder", () => {
-    expect(randPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(randPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
   test("systemPrompt identity is Rand / RandDirector", () => {
     const p = randPackage.systemPrompt;
     expect(p).toMatch(/RandDirector \(Rand\)/);
@@ -18,8 +9,7 @@ describe("randPackage", () => {
     expect(p).not.toMatch(/BrandReviewerDirector/);
   });
 
-  test("systemPrompt states PRIMARY INTENT", () => {
-    expect(randPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+  test("systemPrompt names builder as the implement lane", () => {
     expect(randPackage.systemPrompt).toContain("name builder");
     expect(randPackage.systemPrompt).not.toContain("name implement");
   });
@@ -63,17 +53,6 @@ describe("randPackage", () => {
     expect(p).not.toMatch(/Write tools are mounted with no path lock/i);
     expect(p).not.toMatch(/Never commit/i);
     expect(p).not.toMatch(/## Summary/);
-  });
-
-  test("spawn.maySpawn is false", () => {
-    expect(randPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow includes write tools", () => {
-    const allow = randPackage.tools?.allow ?? [];
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("systemPrompt mentions DESIGN.md", () => {

@@ -11,7 +11,6 @@ import { join } from "node:path";
 import type { DirectorFactory } from "@intx/agent";
 import type {
   ReactorAction,
-  ReactorCapabilities,
   ReactorInboundEvent,
   ReactorState,
 } from "@intx/types/runtime";
@@ -22,6 +21,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams } from "./types.js";
 import type { AskDirectorState } from "./ask-director.js";
 import { SubAgentDirector } from "./nudge-director.js";
+import { createTestCapabilities } from "./director-test-harness.js";
 
 const testPermissionGate = createPermissionGate({
   approvals: [],
@@ -66,34 +66,6 @@ function createHangingStubAgent(deliverLog: unknown[]) {
     checkpoints: async () => [],
     readAt: async () => [],
     blobReader: {},
-  };
-}
-
-function capabilities(): ReactorCapabilities {
-  return {
-    infer: (options) =>
-      ({
-        type: "infer",
-        ...(options !== undefined ? { options } : {}),
-      }) as ReactorAction,
-    executeTools: (calls, parallel, addToHistory) =>
-      ({
-        type: "execute_tools",
-        calls,
-        parallel,
-        addToHistory,
-      }) as ReactorAction,
-    suspend: (gate) => ({ type: "suspend", gate }) as ReactorAction,
-    fork: (mode, forkId) => ({ type: "fork", mode, forkId }) as ReactorAction,
-    emit: (eventType, data) =>
-      ({ type: "emit", eventType, data }) as ReactorAction,
-    reply: (content) => ({ type: "reply", content }) as ReactorAction,
-    checkpoint: (message = "") =>
-      ({ type: "checkpoint", message }) as ReactorAction,
-    compact: (compactor, reason) =>
-      ({ type: "compact", compactor, reason }) as ReactorAction,
-    wait: () => ({ type: "wait" }) as ReactorAction,
-    done: () => ({ type: "done" }) as ReactorAction,
   };
 }
 
@@ -263,7 +235,7 @@ describe("runSubAgent ask_director compact-continue wiring", () => {
                       await director.decide(
                         emptyContinuation(),
                         state,
-                        capabilities(),
+                        createTestCapabilities(),
                       ),
                     );
                     expect(parkedPing).toEqual([{ type: "wait" }]);

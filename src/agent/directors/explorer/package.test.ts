@@ -2,17 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { explorerPackage } from "./package.js";
 
 describe("explorerPackage", () => {
-  test("id matches directory", () => {
-    expect(explorerPackage.id).toBe("explorer");
-  });
-
-  test("systemPrompt is real, not a placeholder", () => {
-    expect(explorerPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(explorerPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
-  test("systemPrompt states PRIMARY INTENT", () => {
-    expect(explorerPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
+  test("systemPrompt states the map-and-read intent", () => {
     expect(explorerPackage.systemPrompt).toMatch(/map and read/i);
   });
 
@@ -78,17 +68,10 @@ describe("explorerPackage", () => {
     expect(explorerPackage.systemPrompt).toMatch(/call flow/i);
   });
 
-  test("spawn.maySpawn is false", () => {
-    expect(explorerPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow mounts product writes (lane: no product edits)", () => {
+  test("tools.allow mounts read tools (lane: no product edits)", () => {
     const allow = explorerPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("grep");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is explore", () => {

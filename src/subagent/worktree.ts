@@ -7,6 +7,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { errorMessage } from "../agent/error-message.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -71,7 +72,7 @@ export async function createSubAgentWorktree(
     await exec(["worktree", "add", "--detach", path, "HEAD"], { cwd: repoCwd });
   } catch (err) {
     throw new WorktreeError(
-      `Failed to create sub-agent worktree at "${path}": ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to create sub-agent worktree at "${path}": ${errorMessage(err)}`,
       { cause: err },
     );
   }
@@ -81,7 +82,7 @@ export async function createSubAgentWorktree(
     headAtCreate = stdout.trim();
   } catch (err) {
     throw new WorktreeError(
-      `Failed to record HEAD for sub-agent worktree at "${path}": ${err instanceof Error ? err.message : String(err)}`,
+      `Failed to record HEAD for sub-agent worktree at "${path}": ${errorMessage(err)}`,
       { cause: err },
     );
   }
@@ -194,9 +195,9 @@ export async function cleanupSubAgentWorktree(
     return {
       status: "preserved",
       path,
-      notice: `Sub-agent worktree at ${path} could not be removed automatically: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      notice: `Sub-agent worktree at ${path} could not be removed automatically: ${errorMessage(
+        err,
+      )}`,
     };
   }
   return { status: "removed", path };

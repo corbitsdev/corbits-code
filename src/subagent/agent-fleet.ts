@@ -107,6 +107,7 @@ import {
 
 import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.js";
 import { isResolvedProviderFailureError } from "../inference-error-message.js";
+import { errorMessage } from "../agent/error-message.js";
 import { isSubAgentCancelError } from "./dispose.js";
 import {
   createInterventionLog,
@@ -1206,7 +1207,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           });
         } catch (err: unknown) {
           log.error("spawn_agent worktree cleanup failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
+            error: errorMessage(err),
           });
         }
       };
@@ -1256,7 +1257,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               const message =
                 err instanceof WorktreeError
                   ? err.message
-                  : `sub-agent worktree setup failed: ${err instanceof Error ? err.message : String(err)}`;
+                  : `sub-agent worktree setup failed: ${errorMessage(err)}`;
               log.error("spawn_agent worktree setup failed: {error}", {
                 error: message,
               });
@@ -1510,8 +1511,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
                 return;
               }
               const isProviderFailure = isResolvedProviderFailureError(err);
-              const diagnosticMessage =
-                err instanceof Error ? err.message : String(err);
+              const diagnosticMessage = errorMessage(err);
               const authMessage = formatSubAgentSpawnAuthFailureMessage(
                 description,
                 err,

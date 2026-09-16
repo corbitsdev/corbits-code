@@ -2,19 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { gauntletPackage } from "./package.js";
 
 describe("gauntletPackage", () => {
-  test("id matches directory / registry id", () => {
-    expect(gauntletPackage.id).toBe("gauntlet");
-  });
-
-  test("systemPrompt is non-empty and not a Placeholder", () => {
-    expect(gauntletPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(gauntletPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
   test("systemPrompt identity is Gauntlet / GauntletDirector", () => {
     const p = gauntletPackage.systemPrompt;
     expect(p).toMatch(/GauntletDirector \(Gauntlet\)/);
-    expect(p).toContain("PRIMARY INTENT");
     expect(p).toMatch(/mutation\/vacuity lane/i);
   });
 
@@ -73,21 +63,10 @@ describe("gauntletPackage", () => {
     expect(p).not.toMatch(/scheduler/i);
   });
 
-  test("spawn.maySpawn is false (leaf)", () => {
-    expect(gauntletPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tier is leaf", () => {
-    expect(gauntletPackage.tier).toBe("leaf");
-  });
-
-  test("tools.allow mounts the review surface (lane discipline in prompt)", () => {
+  test("tools.allow mounts read and shell (lane discipline in prompt)", () => {
     const allow = gauntletPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("run_shell");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is test", () => {

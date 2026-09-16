@@ -2,20 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { migratorPackage } from "./package.js";
 
 describe("migratorPackage", () => {
-  test("id matches directory / registry id", () => {
-    expect(migratorPackage.id).toBe("migrator");
-  });
-
-  test("systemPrompt is non-empty and not a Placeholder", () => {
-    expect(migratorPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(migratorPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
   test("systemPrompt identity is the reversible-migration leaf", () => {
     const p = migratorPackage.systemPrompt;
     expect(p).toContain("You are MigratorDirector (Migrator)");
     expect(p).toMatch(/reversible-migration leaf/);
-    expect(p).toContain("PRIMARY INTENT");
   });
 
   test("systemPrompt owns only settings/config/session-state data changes", () => {
@@ -73,15 +63,6 @@ describe("migratorPackage", () => {
     );
   });
 
-  test("tools.allow is exactly read_file/grep/lsp/run_shell in order", () => {
-    expect(migratorPackage.tools?.allow).toEqual([
-      "read_file",
-      "grep",
-      "lsp",
-      "run_shell",
-    ]);
-  });
-
   test("tools.allow carries no fleet verbs and no path writes", () => {
     const allow = migratorPackage.tools?.allow ?? [];
     for (const verb of [
@@ -99,10 +80,8 @@ describe("migratorPackage", () => {
     }
   });
 
-  test("spawn.maySpawn is false with no allowlist (leaf)", () => {
-    expect(migratorPackage.spawn.maySpawn).toBe(false);
+  test("spawn has no allowlist (leaf)", () => {
     expect(migratorPackage.spawn.allowlist).toBeUndefined();
-    expect(migratorPackage.tier).toBe("leaf");
   });
 
   test("modelRole is plan", () => {

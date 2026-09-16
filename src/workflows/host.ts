@@ -2,6 +2,7 @@ import { join } from "node:path";
 import type { ToolDefinition } from "@intx/types/runtime";
 
 import { sessionDir } from "../session/index.js";
+import { errorMessage } from "../agent/error-message.js";
 import {
   CAPABILITIES,
   detectCapabilities,
@@ -136,7 +137,7 @@ export class WorkflowHost {
       runtime.state(),
       this.args.home,
     ).catch((err: unknown) => {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = errorMessage(err);
       warnWorkflowPersistenceFailure(
         join(
           sessionDir(this.args.cwd, sessionId, this.args.home),
