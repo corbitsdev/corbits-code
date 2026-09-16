@@ -9,23 +9,37 @@ import {
 import { createBoundedModelCatalog } from "./bounded-model-catalog.js";
 
 // Bound live /models so a huge or hostile catalog cannot blow process memory.
-export const MAX_GO_CATALOG_BYTES = 256 * 1024;
-export const MAX_GO_CATALOG_MODELS = 1024;
-export const MAX_ZEN_CATALOG_BYTES = 256 * 1024;
-export const MAX_ZEN_CATALOG_MODELS = 1024;
+// One shared bound for both catalogs; the per-catalog names stay as aliases.
+const MAX_CATALOG_BYTES = 256 * 1024;
+const MAX_CATALOG_MODELS = 1024;
+
+export const MAX_GO_CATALOG_BYTES = MAX_CATALOG_BYTES;
+export const MAX_GO_CATALOG_MODELS = MAX_CATALOG_MODELS;
+export const MAX_ZEN_CATALOG_BYTES = MAX_CATALOG_BYTES;
+export const MAX_ZEN_CATALOG_MODELS = MAX_CATALOG_MODELS;
+
+// The two live catalogs differ only in source and label — one row each.
+const MODEL_CATALOG_CONFIGS = {
+  go: {
+    baseURL: OPENCODE_GO_BASE_URL,
+    seedIds: OPENCODE_GO_MODEL_IDS,
+    catalogLabel: "OpenCode Go",
+  },
+  zen: {
+    baseURL: ZEN_DEFAULT_BASE_URL,
+    seedIds: ZEN_MODEL_IDS,
+    catalogLabel: "OpenCode Zen",
+  },
+} as const;
 
 const goCatalog = createBoundedModelCatalog({
-  baseURL: OPENCODE_GO_BASE_URL,
-  seedIds: OPENCODE_GO_MODEL_IDS,
-  catalogLabel: "OpenCode Go",
+  ...MODEL_CATALOG_CONFIGS.go,
   maxBytes: MAX_GO_CATALOG_BYTES,
   maxModels: MAX_GO_CATALOG_MODELS,
 });
 
 const zenCatalog = createBoundedModelCatalog({
-  baseURL: ZEN_DEFAULT_BASE_URL,
-  seedIds: ZEN_MODEL_IDS,
-  catalogLabel: "OpenCode Zen",
+  ...MODEL_CATALOG_CONFIGS.zen,
   maxBytes: MAX_ZEN_CATALOG_BYTES,
   maxModels: MAX_ZEN_CATALOG_MODELS,
 });

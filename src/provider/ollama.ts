@@ -1,6 +1,11 @@
 import { type } from "arktype";
 
-import { requestModelsEndpoint } from "./models-endpoint.js";
+import {
+  endpointErrorMessage,
+  type ModelsEndpointDiscoveryState,
+  ModelsEndpointResponse,
+  requestModelsEndpoint,
+} from "./models-endpoint.js";
 
 export const OLLAMA_PROVIDER_ID = "ollama";
 
@@ -36,15 +41,9 @@ export function ollamaOpenAIBaseURL(rootURL: string): string {
   return `${normalizeOllamaRootURL(rootURL)}/v1`;
 }
 
-const OllamaModelsResponse = type({
-  data: type({ id: "string" }).array(),
-});
+const OllamaModelsResponse = ModelsEndpointResponse;
 
-export type OllamaDiscoveryState =
-  | { readonly status: "models"; readonly models: readonly string[] }
-  | { readonly status: "empty" }
-  | { readonly status: "unavailable"; readonly message: string }
-  | { readonly status: "malformed"; readonly message: string };
+export type OllamaDiscoveryState = ModelsEndpointDiscoveryState;
 
 /** Discover installed Ollama models without leaking transport or parsing failures. */
 export async function discoverOllamaModels(args: {
@@ -58,7 +57,7 @@ export async function discoverOllamaModels(args: {
   } catch (error) {
     return {
       status: "malformed",
-      message: error instanceof Error ? error.message : String(error),
+      message: endpointErrorMessage(error),
     };
   }
 
@@ -72,7 +71,7 @@ export async function discoverOllamaModels(args: {
   } catch (error) {
     return {
       status: "unavailable",
-      message: error instanceof Error ? error.message : String(error),
+      message: endpointErrorMessage(error),
     };
   }
 

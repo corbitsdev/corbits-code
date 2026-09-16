@@ -28,17 +28,23 @@ let contextWindowRegistry: Record<string, number> = {};
 // later models.dev refresh because it lives beside the registry, not in it.
 let contextWindowOverrides: Record<string, number> = {};
 
-export function setModelContextWindows(
-  windows: Record<string, number> | undefined,
-): void {
-  contextWindowRegistry = windows ?? {};
+// Both tables are wholesale-replaced on refresh; one factory keeps the two
+// trivial setters from drifting. `undefined` (no cache yet) means empty.
+function createRegistrySetter(
+  replace: (windows: Record<string, number>) => void,
+): (windows: Record<string, number> | undefined) => void {
+  return (windows) => replace(windows ?? {});
 }
 
-export function setProviderContextWindowOverrides(
-  windows: Record<string, number> | undefined,
-): void {
-  contextWindowOverrides = windows ?? {};
-}
+export const setModelContextWindows = createRegistrySetter((windows) => {
+  contextWindowRegistry = windows;
+});
+
+export const setProviderContextWindowOverrides = createRegistrySetter(
+  (windows) => {
+    contextWindowOverrides = windows;
+  },
+);
 
 export type ProviderContextWindowSource = {
   models: readonly string[];

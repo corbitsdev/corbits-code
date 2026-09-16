@@ -80,26 +80,15 @@ function sameApproval(a: Approval, b: Approval): boolean {
 }
 
 // Equality on every confirmed dimension except cwd: a planted file entry and
-// the gate's minted confirmation of it differ only in cwd.
-function sameGrantModuloCwd(a: Approval, b: Approval): boolean {
-  return (
-    a.tool === b.tool &&
-    a.pattern === b.pattern &&
-    a.providerModel === b.providerModel
-  );
-}
+// the gate's minted confirmation of it differ only in cwd. One implementation;
+// sameGrantModuloCwd keeps its call-site name.
+const sameGrantModuloCwd = sameApproval;
 
 async function readApprovalsField(
   path: string,
   field: string,
 ): Promise<Approval[]> {
-  try {
-    const raw = await readFile(path, "utf-8");
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return parseApprovalList(parsed?.[field]);
-  } catch {
-    return [];
-  }
+  return parseApprovalList((await readObjectFile(path))[field]);
 }
 
 async function readObjectFile(path: string): Promise<Record<string, unknown>> {
