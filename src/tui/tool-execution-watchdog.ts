@@ -116,7 +116,7 @@ export function resolveToolExecutionTimeoutMs(
     call?.name === "spawn_agent" ||
     call?.name === "wait_agents" ||
     call?.name === "ask_director" ||
-    // shell_collect with wait_ms is a bounded poll over a background shell that
+    // shell_collect with wait_ms is a capped poll over a background shell that
     // outlives the turn; aborting the collect would not stop the process.
     call?.name === "shell_collect"
   ) {

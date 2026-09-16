@@ -28,6 +28,15 @@ describe("internPackage", () => {
     expect(p).toMatch(/You do NOT:[\s\S]*Debug failures/);
   });
 
+  test("systemPrompt forbids background shells — shell_collect is not mounted", () => {
+    const p = internPackage.systemPrompt;
+    expect(p).toMatch(/Background shells are forbidden/);
+    expect(p).toMatch(/background: true/);
+    expect(p).toMatch(/shell_collect/);
+    expect(p).toMatch(/foreground/);
+    expect(p).toMatch(/timeouts only/);
+  });
+
   test("spawn.maySpawn is false", () => {
     expect(internPackage.spawn.maySpawn).toBe(false);
   });
@@ -40,6 +49,7 @@ describe("internPackage", () => {
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
     expect(allow).toContain("delete_file");
+    expect(allow).not.toContain("shell_collect");
     for (const name of [
       "grep",
       "search_files",

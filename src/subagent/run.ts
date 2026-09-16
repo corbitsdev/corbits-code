@@ -632,6 +632,10 @@ async function runSubAgentInner(
   const backgroundShells = createBackgroundShellRegistry({
     onExit: (exit) => backgroundExitSink?.(exit),
   });
+  // Intern / migrator (and any surface that filters out shell_collect) must
+  // not spawn background children they cannot collect. The getter is live so
+  // the capability filter below can unwire it before the first tool call.
+  let backgroundCollectMounted = true;
   // Child tools resolve spills against the child's own store first, then
   // the parent's: parent tool-output:// URIs handed in the brief must
   // remain readable after spawn, and the child's own spills stay local.
@@ -658,7 +662,8 @@ async function runSubAgentInner(
         : {}),
       ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
       readFileGuard: { blobReader: sessionBlobReader },
-      getBackgroundShellRegistry: () => backgroundShells,
+      getBackgroundShellRegistry: () =>
+        backgroundCollectMounted ? backgroundShells : undefined,
       getShellOutputFeeds: () => childShellOutputFeed,
       getBlobWriter: () => childBlobWriter,
       getContextDir: () => childContextDir,
@@ -801,6 +806,26 @@ async function runSubAgentInner(
 
     if (params.capabilities !== undefined) {
       tools = applyCapabilityFilter(tools, params.capabilities);
+    }
+    backgroundCollectMounted = tools.some(
+      (tool) => tool.definition.name === "shell_collect",
+    );
+    if (!backgroundCollectMounted) {
+      tools = tools.map((tool) =>
+        tool.definition.name === "run_shell"
+          ? {
+              ...tool,
+              definition: advertiseEditFileLineRange(
+                advertiseShellGuardTimeout(
+                  tool.definition,
+                  shellTimeout?.defaultMs,
+                  shellTimeout?.maxMs,
+                  false,
+                ),
+              ),
+            }
+          : tool,
+      );
     }
 
     // Every sub-agent is an agent: multi-step jobs get their own manage_tasks
@@ -1386,6 +1411,11 @@ async function runSubAgentInner(
     // Aborting the send signal only rejects the promise; the child reactor keeps
     // running until close() (same hard-stop rule as the parent in runner.ts).
     closeOnAbort = (): void => {
+      // Parent abort / deadline / close_agent: unpark shell_collect waiters so
+      // a worker blocked on collect cannot wedge teardown. interrupt_agent is
+      // the keep-alive path (releaseWaiters only, children stay).
+      backgroundShells.releaseWaiters();
+      backgroundShells.disposeAll("parent abort");
       void (async () => {
         try {
           await agent?.close();
@@ -1415,6 +1445,7 @@ async function runSubAgentInner(
       ): Promise<void> => {
         if (!runController.signal.aborted)
           runController.abort(new Error("closed by close_agent"));
+        backgroundShells.disposeAll("closed by close_agent");
         try {
           await awaitBoundedTeardown(
             disposeSubAgentSession({
@@ -1736,8 +1767,10 @@ async function runSubAgentInner(
     // A persisted, cleanly-completed session skips teardown here — it
     // stays open until close_agent (or a later failed/aborted run) tears it
     // down.
-    if (!persisting) {
+    if (!persisting || !backgroundCollectMounted) {
       backgroundShells.disposeAll("sub-agent closed");
+    }
+    if (!persisting) {
       // Bounded like close_agent: a session teardown wedged by a live shell
       // descendant fails the run instead of parking it forever.
       await awaitBoundedTeardown(
