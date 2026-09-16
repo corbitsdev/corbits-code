@@ -92,14 +92,6 @@ export function createDynamicToolRunner(
         byName.has(name),
       );
       if (resolved === undefined) {
-        return {
-          callId: call.id,
-          content: `unknown tool: ${call.name}`,
-          isError: true,
-        };
-      }
-      const found = byName.get(resolved);
-      if (found === undefined) {
         // The name was promoted (gate-activated) but the registry no longer
         // holds it — the server dropped between search and call. Say so: the
         // model already has the schema from the tool_search card and only
@@ -114,6 +106,31 @@ export function createDynamicToolRunner(
             isError: true,
           };
         }
+        // A harness-namespaced call (`default.<stripped>`) misses the registry
+        // under its original name even though the model was shown `<stripped>`:
+        // consult activation with the stripped form too, but keep the original
+        // name in the message so the transcript matches what the model emitted.
+        const dot = call.name.indexOf(".");
+        if (dot > 0) {
+          const stripped = call.name.slice(dot + 1);
+          if (stripped.length > 0 && isActivated?.(stripped) === true) {
+            return {
+              callId: call.id,
+              content:
+                `Error: ${call.name} is not currently available - its server may ` +
+                `still be reconnecting. Retry the call shortly.`,
+              isError: true,
+            };
+          }
+        }
+        return {
+          callId: call.id,
+          content: `unknown tool: ${call.name}`,
+          isError: true,
+        };
+      }
+      const found = byName.get(resolved);
+      if (found === undefined) {
         return {
           callId: call.id,
           content: `unknown tool: ${call.name}`,
