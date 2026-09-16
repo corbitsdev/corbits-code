@@ -497,40 +497,25 @@ describe("background run_shell (shellGuardPlugin)", () => {
 });
 
 describe("advertiseShellGuardTimeout", () => {
-  test("rewrites run_shell timeout description when a settings default is set", () => {
-    const rewritten = advertiseShellGuardTimeout(
-      {
-        name: "run_shell",
-        description: "Execute a shell command",
-        inputSchema: {
-          type: "object",
-          properties: {
-            command: { type: "string" },
-            timeout: {
-              type: "number",
-              description: "Timeout in milliseconds (default: 30000)",
-            },
-          },
-          required: ["command"],
-        },
-      },
-      120_000,
-    );
-    const timeout = (
-      rewritten.inputSchema["properties"] as Record<
-        string,
-        { description: string }
-      >
-    )["timeout"];
-    expect(timeout?.description).toContain("120000");
-    expect(timeout?.description).not.toContain("30000");
-    expect((timeout as { default?: number } | undefined)?.default).toBe(
-      120_000,
-    );
-  });
+  function timeoutSchema(def: {
+    inputSchema: { properties?: unknown };
+  }): { description?: string; default?: number } | undefined {
+    const properties = def.inputSchema["properties"] as
+      | Record<string, { description?: string; default?: number }>
+      | undefined;
+    return properties?.["timeout"];
+  }
 
-  test("advertises default 120000 when settings default is unset", () => {
-    const rewritten = advertiseShellGuardTimeout({
+  function runShellDef(): {
+    name: string;
+    description: string;
+    inputSchema: {
+      type: "object";
+      properties: Record<string, { type: string; description?: string }>;
+      required: string[];
+    };
+  } {
+    return {
       name: "run_shell",
       description: "Execute a shell command",
       inputSchema: {
@@ -544,18 +529,48 @@ describe("advertiseShellGuardTimeout", () => {
         },
         required: ["command"],
       },
-    });
-    const timeout = (
-      rewritten.inputSchema["properties"] as Record<
-        string,
-        { description: string; default?: number }
-      >
-    )["timeout"];
-    expect(timeout?.description).toContain("120000");
+    };
+  }
+
+  test("rewrites run_shell timeout description when a settings default is set", () => {
+    const rewritten = advertiseShellGuardTimeout(runShellDef(), 120_000);
+    const timeout = timeoutSchema(rewritten);
+    expect(timeout?.description).toContain("foreground default: 120000");
+    expect(timeout?.description).toMatch(
+      /omit on background:true for no timeout/,
+    );
+    expect(timeout?.description).not.toContain("30000");
+    expect(timeout?.default).toBe(120_000);
+  });
+
+  test("advertises default 120000 when settings default is unset", () => {
+    const rewritten = advertiseShellGuardTimeout(runShellDef());
+    const timeout = timeoutSchema(rewritten);
+    expect(timeout?.description).toContain("foreground default: 120000");
     expect(timeout?.default).toBe(120_000);
     expect(timeout?.description).not.toContain("30000");
     expect(timeout?.description).not.toContain("15000");
-    expect(timeout?.description).not.toMatch(/no default|omit/i);
+    expect(timeout?.description).toMatch(
+      /omit on background:true for no timeout/,
+    );
+  });
+
+  test("advertised default matches resolver when only maxTimeoutMs is set", () => {
+    const maxMs = 60_000;
+    const resolved = resolveShellTimeoutMs({
+      requested: undefined,
+      background: false,
+      maxMs,
+    });
+    const rewritten = advertiseShellGuardTimeout(
+      runShellDef(),
+      undefined,
+      maxMs,
+    );
+    const timeout = timeoutSchema(rewritten);
+    expect(resolved).toBe(60_000);
+    expect(timeout?.default).toBe(resolved);
+    expect(timeout?.description).toContain(`foreground default: ${resolved}`);
   });
 
   test("leaves other tools unchanged", () => {
@@ -585,6 +600,7 @@ describe("advertiseShellGuardTimeout", () => {
     )["background"];
     expect(background).toBeDefined();
     expect(background?.description).toContain("shell_collect");
+    expect(background?.description).toMatch(/omit timeout/i);
     expect(background?.description).toMatch(
       /does not change the retained shell cwd/i,
     );

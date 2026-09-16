@@ -709,11 +709,15 @@ async function runSubAgentInner(
       : runController.signal;
 
   try {
-    const shellDefaultMs = params.shellTimeout?.defaultMs;
+    const shellTimeout = params.shellTimeout;
     let tools = fromToolRunner(posixTools).map((tool) => ({
       ...tool,
       definition: advertiseEditFileLineRange(
-        advertiseShellGuardTimeout(tool.definition, shellDefaultMs),
+        advertiseShellGuardTimeout(
+          tool.definition,
+          shellTimeout?.defaultMs,
+          shellTimeout?.maxMs,
+        ),
       ),
     }));
 

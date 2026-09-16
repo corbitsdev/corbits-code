@@ -592,7 +592,11 @@ export async function createAgentToolset(
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools).map((tool) => {
       let definition = advertiseEditFileLineRange(
-        advertiseShellGuardTimeout(tool.definition, shellTimeout?.defaultMs),
+        advertiseShellGuardTimeout(
+          tool.definition,
+          shellTimeout?.defaultMs,
+          shellTimeout?.maxMs,
+        ),
       );
       if (getEvidenceArchive !== undefined)
         definition = advertiseArchiveSurface(definition);

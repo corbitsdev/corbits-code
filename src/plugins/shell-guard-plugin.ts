@@ -82,13 +82,19 @@ export function formatShellTimeoutNotice(timeoutMs: number): string {
 
 /**
  * Stock tools-posix still advertises timeout default 30000. Shell-guard's
- * foreground default is 120s (settings.shell.timeoutMs overrides); rewrite the
- * definition the model sees so schema and behavior agree. Corbits Code-only —
- * does not patch interchange.
+ * foreground default is 120s (settings.shell.timeoutMs overrides; maxTimeoutMs
+ * clamps that default path); rewrite the definition the model sees so schema
+ * and behavior agree. Corbits Code-only — does not patch interchange.
+ *
+ * Schema `default` is the foreground omit path. Description says omit
+ * timeout on background:true so the model does not copy 120000 onto
+ * background calls (a copied value becomes a requested timeout and kills
+ * the job).
  */
 export function advertiseShellGuardTimeout(
   definition: ToolDefinition,
   defaultMs?: number,
+  maxMs?: number,
 ): ToolDefinition {
   if (definition.name !== "run_shell") return definition;
   const schema = definition.inputSchema;
@@ -101,9 +107,12 @@ export function advertiseShellGuardTimeout(
   const cwdProp = properties["cwd"];
   const nextProperties = { ...properties };
   const advertisedDefault =
-    defaultMs !== undefined && defaultMs > 0
-      ? defaultMs
-      : DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS;
+    resolveShellTimeoutMs({
+      requested: undefined,
+      background: false,
+      ...(defaultMs !== undefined ? { defaultMs } : {}),
+      ...(maxMs !== undefined ? { maxMs } : {}),
+    }) ?? DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS;
   if (
     timeout !== undefined &&
     typeof timeout === "object" &&
@@ -111,7 +120,7 @@ export function advertiseShellGuardTimeout(
   ) {
     nextProperties["timeout"] = {
       ...(timeout as Record<string, unknown>),
-      description: `Timeout in milliseconds (default: ${advertisedDefault})`,
+      description: `Timeout in milliseconds (foreground default: ${advertisedDefault}; omit on background:true for no timeout)`,
       default: advertisedDefault,
     };
   }
@@ -127,7 +136,8 @@ export function advertiseShellGuardTimeout(
     description:
       "Set true to run without holding the turn open (prefer this for builds, test suites, and dev servers). " +
       "Returns a shell_id immediately; the exit status and output are delivered when the process finishes. " +
-      "Use shell_collect to collect or cancel. Does not change the retained shell cwd.",
+      "Use shell_collect to collect or cancel. Omit timeout for no timeout. " +
+      "Does not change the retained shell cwd.",
   };
   return {
     ...definition,
