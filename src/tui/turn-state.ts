@@ -209,6 +209,28 @@ export function turnStateOnInterrupt(
 }
 
 /**
+ * Which layer a stalled running turn is hung in, for the stall-bound abort
+ * (CL-8016). The turn record cannot distinguish "inference stream never
+ * started" from "provider went quiet mid-stream", but the phase markers do
+ * separate a silent turn from one stuck in tool execution: tool turns keep
+ * `activeToolCalls` (or `streamingType: "tool"`) and are left alone, while a
+ * turn still awaiting its first token — or mid-stream with no tools out — is
+ * the turn-loop/inference layer hanging, and is safe to bound.
+ */
+export function turnStallLayer(
+  state: TurnState,
+): "awaiting-first-token" | "mid-stream" | "tool-execution" | null {
+  if (state.status !== "running") return null;
+  if (state.activeToolCalls.length > 0 || state.streamingType === "tool") {
+    return "tool-execution";
+  }
+  if (state.awaitingResponse && state.streamingType === null) {
+    return "awaiting-first-token";
+  }
+  return "mid-stream";
+}
+
+/**
  * A gate was raised — queued or opened, the turn does not distinguish.
  * The first outstanding gate blocks the turn without ending it; further
  * gates just add to the count so the turn stays blocked until all clear.

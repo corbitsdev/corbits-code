@@ -62,6 +62,7 @@ import {
   turnStateGateClosed,
   turnStateGateOpened,
   turnStateOnInterrupt,
+  turnStallLayer,
   turnStateOnSubmit,
   type TurnState,
 } from "./turn-state.js";
@@ -306,6 +307,22 @@ export interface SessionBridge {
    * Skip when a fleet-dry open-task shot is about to run.
    */
   flushMailboxMail: () => void;
+  /**
+   * Stall bound for a silent ask-wake primary turn (CL-8016). If a wake was
+   * actually sent (`askWakeTurnArmed`) and `shouldAbortForStall` says the
+   * turn is silent past the bound (including awaiting-first-token, per
+   * #1095), interrupt the hung inference, un-dedupe the delivered wakes,
+   * and hand the next turn to occupancy (mailbox mail) before any re-surface.
+   * Returns true when it aborted. Driven by the fleet stall poll, which
+   * settles deadline-past asks first, and by the #1095 monitor tick.
+   */
+  abortStalledWakeTurn: () => boolean;
+  /**
+   * Phase-transition stamps (`TurnMarker`), newest last. Diagnostic-only:
+   * exists so the stall-bound regression test can observe the abort path;
+   * production code never reads it.
+   */
+  turnMarkers: () => readonly TurnMarker[];
 }
 
 const NOOP_PORT: SessionPort = {
@@ -435,6 +452,26 @@ interface TurnThinking {
 /** Blank line between the fragments a turn thought at different moments. */
 const THINKING_FRAGMENT_SEPARATOR = "\n\n";
 
+/**
+ * A turn-phase transition stamp (CL-8016): `infer-start`, `first-token`,
+ * `settle`, or `stall-abort:<layer>`. The stalled layer (inference stream vs
+ * turn-loop vs tool execution) cannot be read off the turn record after the
+ * fact, so the abort stamps `turnStallLayer` at the moment it fires — that is
+ * what names the hung layer instead of a post-mortem guess.
+ */
+export interface TurnMarker {
+  readonly path: string;
+}
+
+const MAX_TURN_MARKERS = 50;
+
+function recordTurnMarker(bag: BridgeBag, path: string): void {
+  bag.turnMarkers.push({ path });
+  if (bag.turnMarkers.length > MAX_TURN_MARKERS) {
+    bag.turnMarkers.splice(0, bag.turnMarkers.length - MAX_TURN_MARKERS);
+  }
+}
+
 export interface BridgeBag {
   port: SessionPort;
   openRow: OpenStreamRow | null;
@@ -473,6 +510,23 @@ export interface BridgeBag {
    */
   pendingAskWake: Map<string, PendingAskWake>;
   deliveredAskWake: Map<string, string>;
+  /**
+   * Stall bound for the ask-wake turn (CL-8016). Armed when an ask-wake send
+   * starts a primary turn; disarmed when any turn settles, an interrupt or
+   * abort ends it, or the queue is cleared — so only a still-silent wake turn
+   * can match the abort predicate, never an operator turn or a later retry.
+   */
+  askWakeTurnArmed: boolean;
+  /**
+   * Per-session abort count feeding the re-surface escalation: each stall
+   * abort bumps the delivered questions, and the next flush restates them
+   * with `Re-surface N` so a repeat wake reads as proof the earlier turn
+   * never landed. Pruned alongside `deliveredAskWake` when the question
+   * changes or settles.
+   */
+  askWakeResurface: Map<string, number>;
+  /** Phase-transition stamps, newest last, capped. See `TurnMarker`. */
+  turnMarkers: TurnMarker[];
   /**
    * Set inside `attachSessionBridge`; the module-scope
    * settle path (`settleRunToIdle`) and `gateClosed` re-enter through it.
@@ -1327,8 +1381,12 @@ function applyInbound(
     for (const [sessionId, questionId] of bag.deliveredAskWake) {
       if (bag.pendingAskWake.get(sessionId)?.questionId !== questionId) {
         bag.deliveredAskWake.delete(sessionId);
+        bag.askWakeResurface.delete(sessionId);
       }
     }
+    // A fresh snapshot with nothing pending means no wake is owed, but a
+    // still-armed silent turn must stay armed so the stall abort can interrupt
+    // it. Disarming here (expire / send_input) would leave isProcessing hung.
     bag.flushPendingAskWake?.();
     return;
   }
@@ -1422,6 +1480,9 @@ export function attachSessionBridge(
     liveFleet: 0,
     pendingAskWake: new Map(),
     deliveredAskWake: new Map(),
+    askWakeTurnArmed: false,
+    askWakeResurface: new Map(),
+    turnMarkers: [],
     flushPendingAskWake: null,
     flushMailboxMail: null,
     droveOpenTasksThisDry: false,
@@ -1610,11 +1671,25 @@ export function attachSessionBridge(
   const handle = (event: BridgeInboundEvent | ReactorLikeEvent): void => {
     if (bag.disposed) return;
     if (event.type === "inference.start") {
+      // Infer-start stamp (CL-8016): separates "inference never started"
+      // from "stream went quiet" when a turn later stalls past the bound.
+      recordTurnMarker(bag, "infer-start");
       bag.awaitingContinuationInference = false;
     }
     const staleContinuationReply =
       event.type === "connector.reply" && bag.awaitingContinuationInference;
+    const tokensBefore = bag.turn.streamTokenCount;
     const settled = staleContinuationReply ? false : noteEvent(event);
+    if (tokensBefore === 0 && bag.turn.streamTokenCount > 0) {
+      recordTurnMarker(bag, "first-token");
+    }
+    if (settled) {
+      // The turn ended by settling: whatever it was (wake or operator), no
+      // bound is owed anymore. A settle-time flush that sends starts a new
+      // turn and re-arms through the flush path below.
+      bag.askWakeTurnArmed = false;
+      recordTurnMarker(bag, "settle");
+    }
     // Reactor-shaped types always map first (avoids tool.done name collision).
     if (PRODUCTION_REACTOR_TYPES.has(event.type)) {
       if (consumePendingEchoEvent(bag, event)) {
@@ -1780,7 +1855,20 @@ export function attachSessionBridge(
     // Outbound delivery can synchronously re-enter through store/stream events.
     for (const ask of asks)
       bag.deliveredAskWake.set(ask.sessionId, ask.questionId);
-    sendInternalText(asks.map((ask) => pendingAskWakeText(ask)).join("\n\n"));
+    sendInternalText(
+      asks
+        .map((ask) => {
+          const resurfaced = bag.askWakeResurface.get(ask.sessionId) ?? 0;
+          return pendingAskWakeText(
+            ask,
+            resurfaced > 0 ? { resurface: resurfaced } : undefined,
+          );
+        })
+        .join("\n\n"),
+    );
+    // The send just started a primary turn for these questions: arm the
+    // stall bound so a silent turn cannot freeze them (or the queue) forever.
+    bag.askWakeTurnArmed = true;
     bag.onAskWakeSent?.(asks);
   };
   bag.flushPendingAskWake = flushPendingAskWake;
@@ -1795,8 +1883,29 @@ export function attachSessionBridge(
   };
   bag.flushMailboxMail = flushMailboxMail;
 
-  const doInterrupt = (): void => {
-    if (bag.disposed) return;
+  /**
+   * A stalled armed wake never landed: drop matching deliveredAskWake entries
+   * and bump the resurface count so the next flush restates the questions
+   * (escalated) instead of skipping them as already delivered.
+   */
+  const unDedupeArmedAskWakes = (): void => {
+    if (!bag.askWakeTurnArmed) return;
+    for (const [sessionId, ask] of bag.pendingAskWake) {
+      if (bag.deliveredAskWake.get(sessionId) !== ask.questionId) continue;
+      bag.deliveredAskWake.delete(sessionId);
+      bag.askWakeResurface.set(
+        sessionId,
+        (bag.askWakeResurface.get(sessionId) ?? 0) + 1,
+      );
+    }
+  };
+
+  /**
+   * Shared abort used by Ctrl+C, the #1095 monitor tick, and the fleet-poll
+   * stall bound. Interrupt the hung inference before any new deliver, then
+   * occupancy/mailbox first so a re-surface wake cannot steal that turn.
+   */
+  const abortInFlightAndHandoff = (): void => {
     closeOpenRow(shell, bag);
     bag.pendingEchoes.length = 0;
     // The stopped attempt is no longer in flight. Expire the error-recovery
@@ -1815,10 +1924,37 @@ export function attachSessionBridge(
     // turn the operator (or the watchdog) deliberately stopped.
     recordLastSent(null);
     bag.awaitingContinuationInference = false;
+    // Armed wake that dies here (operator stop or stall abort) never
+    // landed: un-dedupe so flushPendingAskWake can restate the questions
+    // if occupancy does not take the next turn.
+    unDedupeArmedAskWakes();
+    bag.askWakeTurnArmed = false;
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();
-    flushPendingAskWake();
     flushMailboxMail();
+    if (!bag.turn.isProcessing) flushPendingAskWake();
+  };
+
+  /**
+   * Stall bound for a silent ask-wake primary turn (CL-8016). Only an armed
+   * (wake-sent, never settled) turn can match. Silence uses `shouldAbortForStall`
+   * — the same #1095 bound that already covers awaiting-first-token — then
+   * interrupts the hung inference before any new deliver. Mail first so
+   * occupancy can take the next turn; the trailing wake flush restates only
+   * if mail did not start one.
+   */
+  const abortStalledWakeTurn = (): boolean => {
+    if (bag.disposed || !bag.askWakeTurnArmed) return false;
+    if (!shouldAbortForStall(stallArgsFor(now()))) return false;
+    const layer = turnStallLayer(bag.turn) ?? "mid-stream";
+    recordTurnMarker(bag, `stall-abort:${layer}`);
+    abortInFlightAndHandoff();
+    return true;
+  };
+
+  const doInterrupt = (): void => {
+    if (bag.disposed) return;
+    abortInFlightAndHandoff();
   };
   const clearQueuedDelivery = (): void => {
     if (bag.disposed) return;
@@ -1830,6 +1966,11 @@ export function attachSessionBridge(
     bag.liveFleet = 0;
     bag.pendingAskWake.clear();
     bag.deliveredAskWake.clear();
+    // Stop teardown (CL-8016): with the queue gone no wake turn is owed, so
+    // disarm the bound and drop the escalation counts — a later session
+    // reusing an id re-surfaces cleanly instead of inheriting a stale count.
+    bag.askWakeTurnArmed = false;
+    bag.askWakeResurface.clear();
     bag.droveOpenTasksThisDry = false;
     bag.awaitingContinuationInference = false;
     bag.pendingRowUpdates.clear();
@@ -1916,7 +2057,10 @@ export function attachSessionBridge(
     if (shouldAbortForStall(stallArgs)) {
       applyStallRecovery(
         {
-          abort: doInterrupt,
+          abort: () => {
+            if (abortStalledWakeTurn()) return;
+            doInterrupt();
+          },
           notify: (message) =>
             setStatusFlash(shell, message, { ttlMs: RUNTIME_FLASH_MS }),
         },
@@ -2012,6 +2156,8 @@ export function attachSessionBridge(
     abortSystemContinuation: (opts) => {
       if (bag.disposed) return;
       bag.awaitingContinuationInference = false;
+      // The continuation turn is over without settling: no bound is owed.
+      bag.askWakeTurnArmed = false;
       if (opts?.rearmDry !== false) {
         bag.droveOpenTasksThisDry = false;
       }
@@ -2039,6 +2185,8 @@ export function attachSessionBridge(
     flushMailboxMail: () => {
       flushMailboxMail();
     },
+    abortStalledWakeTurn: () => abortStalledWakeTurn(),
+    turnMarkers: () => bag.turnMarkers,
     dispose: () => {
       flushOpenRow(shell, bag);
       bag.disposed = true;
@@ -2047,6 +2195,8 @@ export function attachSessionBridge(
       bag.pendingPromptRecoveries.length = 0;
       bag.pendingAskWake.clear();
       bag.deliveredAskWake.clear();
+      bag.askWakeTurnArmed = false;
+      bag.askWakeResurface.clear();
       bag.flushPendingAskWake = null;
       bag.flushMailboxMail = null;
       applyCadence(null);
