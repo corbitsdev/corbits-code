@@ -176,6 +176,7 @@ const fakePermissionGate: PermissionGate = {
   isReactorGated: () => false,
   getApprovals: () => [],
   reset: () => undefined,
+  clearDenials: () => undefined,
   getSessionApprovals: () => [],
   removeSessionApproval: () => undefined,
   setSeededApprovals: () => undefined,

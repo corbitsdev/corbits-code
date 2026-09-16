@@ -477,6 +477,11 @@ export interface ChatAgentWiring {
    * the TUI seeds it (fleet lanes may appear mid-session).
    */
   allowIdleWithFleet?: boolean;
+  /**
+   * Bound to PermissionGate.clearDenials so a later user turn re-asks a URL
+   * that was declined this turn. Same-turn reactor retries still short-circuit.
+   */
+  clearDenials?: () => void;
   getProvider: () => { providerName: string; model: string };
   /** Pre-created holder so the workflow controller can close over it first. */
   directorHolder?: { instance?: ChatDirector };
@@ -535,6 +540,8 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           allowIdleWithFleet: wiring.allowIdleWithFleet,
         },
       );
+      if (wiring.clearDenials !== undefined)
+        d.setClearDenials(wiring.clearDenials);
       directorHolder.instance = d;
       return d;
     },

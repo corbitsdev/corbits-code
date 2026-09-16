@@ -436,6 +436,9 @@ export interface PermissionGate {
   getApprovals: () => readonly Approval[];
   // Forget every remembered approval so a fresh session re-prompts from scratch.
   reset: () => void;
+  // Drop cached operator/headless denies so the next user turn re-asks. Same-turn
+  // retries still short-circuit until this runs.
+  clearDenials: () => void;
   // The approvals granted only for this session (not persisted to any store).
   getSessionApprovals: () => readonly Approval[];
   // Drop one approval from the gate's live list and from the session set so the
@@ -633,9 +636,10 @@ export function createPermissionGate(
 
   // Same-turn denial memory: stable fingerprints of headless and
   // operator-declined denies so a retry with a fresh tool_call.id returns the
-  // identical cached reason instead of re-evaluating. Cleared by reset() and
-  // by every state change that can flip a deny to an allow (new grants,
-  // re-seeded approvals, auto/skip toggles, provider-identity switches).
+  // identical cached reason instead of re-evaluating. Cleared on inbound user
+  // turns (clearDenials), by reset(), and by every state change that can flip a
+  // deny to an allow (new grants, re-seeded approvals, auto/skip toggles,
+  // provider-identity switches). Timeouts and aborts are never recorded.
   const denialMemory = new DenialMemory();
 
   // Non-blocking policy decision for one tool call: everything the gate owns —
@@ -1158,6 +1162,7 @@ export function createPermissionGate(
     isReactorGated: () => reactorGated,
     getApprovals: () => approvals,
     reset,
+    clearDenials: () => denialMemory.clear(),
     getSessionApprovals,
     removeSessionApproval,
     setSeededApprovals,

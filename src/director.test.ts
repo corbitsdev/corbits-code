@@ -712,6 +712,51 @@ describe("open-task termination guard", () => {
     ).toBe(true);
     expect(actions.some((a) => a.type === "infer")).toBe(false);
   });
+
+  test("a new user turn after a canned decline infers instead of canned-replying", async () => {
+    const director = createChatDirector("base", [], {});
+    let cleared = 0;
+    director.setClearDenials(() => {
+      cleared++;
+    });
+    const declinedTurn = actionsArray(
+      await director.decide(
+        makeToolErrorEvent("c", declined),
+        mockState,
+        mockCapabilities,
+      ),
+    );
+    expect(
+      declinedTurn.some(
+        (a) =>
+          a.type === "reply" &&
+          "content" in a &&
+          a.content === "Tool call rejected by operator.",
+      ),
+    ).toBe(true);
+    expect(cleared).toBe(0);
+
+    const next = actionsArray(
+      await director.decide(
+        {
+          type: "message.received",
+          message: { role: "user", content: "just talk" },
+        } as unknown as ReactorInboundEvent,
+        mockState,
+        mockCapabilities,
+      ),
+    );
+    expect(
+      next.some(
+        (a) =>
+          a.type === "reply" &&
+          "content" in a &&
+          a.content === "Tool call rejected by operator.",
+      ),
+    ).toBe(false);
+    expect(next.some((a) => a.type === "infer")).toBe(true);
+    expect(cleared).toBe(1);
+  });
 });
 
 describe("chatDirector compaction", () => {

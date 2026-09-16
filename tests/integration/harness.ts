@@ -129,10 +129,17 @@ export async function openIntegrationSession(
   const chatDirectorDef = defineDirector({
     id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
-    factory: (_config, _env, agentCtx) =>
-      createChatDirector(agentCtx.systemPrompt, [...agentCtx.toolDefinitions], {
-        inactivityTimeoutMs: 750_000,
-      }),
+    factory: (_config, _env, agentCtx) => {
+      const d = createChatDirector(
+        agentCtx.systemPrompt,
+        [...agentCtx.toolDefinitions],
+        {
+          inactivityTimeoutMs: 750_000,
+        },
+      );
+      d.setClearDenials(() => opts.permissionGate.clearDenials());
+      return d;
+    },
   });
 
   const toolsFactory = defineTool({

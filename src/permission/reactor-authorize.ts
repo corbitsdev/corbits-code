@@ -107,6 +107,7 @@ export function workerPermissionGate(gate: PermissionGate): PermissionGate {
     isReactorGated: () => true,
     getApprovals: () => gate.getApprovals(),
     reset: () => gate.reset(),
+    clearDenials: () => gate.clearDenials(),
     getSessionApprovals: () => gate.getSessionApprovals(),
     removeSessionApproval: (target) => gate.removeSessionApproval(target),
     setSeededApprovals: (seeded) => gate.setSeededApprovals(seeded),

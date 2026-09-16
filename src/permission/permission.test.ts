@@ -2375,6 +2375,45 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(1);
   });
 
+  // A denied URL is remembered only for same-turn retries. An inbound user
+  // turn (clearDenials) must forget it so the same URL can be re-asked.
+  test("clearDenials drops cached denies so a later turn re-asks the same URL", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+    });
+    const args = { url: "https://example.com/docs", format: "markdown" };
+    const first = await gate.evaluate({
+      id: "call_0",
+      name: "web_fetch",
+      arguments: args,
+    });
+    if (first.allowed) throw new Error("expected the first call declined");
+    expect(asked).toBe(1);
+    const sameTurn = await gate.evaluate({
+      id: "call_1",
+      name: "web_fetch",
+      arguments: args,
+    });
+    if (sameTurn.allowed) throw new Error("expected the same-turn retry denied");
+    expect(asked).toBe(1);
+    gate.clearDenials();
+    const later = await gate.evaluate({
+      id: "call_2",
+      name: "web_fetch",
+      arguments: args,
+    });
+    if (later.allowed) throw new Error("expected the later-turn call declined");
+    expect(asked).toBe(2);
+  });
+
   // CL-8002: a reactor-path timeout is not an operator decision, so
   // resolveSuspended must not cache it — the retry re-asks the operator.
   test("reactor-path timeout is not cached: retry re-asks", async () => {

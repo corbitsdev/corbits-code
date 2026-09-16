@@ -173,4 +173,74 @@ describe("integration — reactor permission + multi-turn", () => {
       }
     },
   );
+
+  test.serial(
+    "denied run_shell does not canned-reply a later prose turn and re-asks the same command",
+    async () => {
+      let asked = 0;
+      const session = await openIntegrationSession({
+        permissionGate: createPermissionGate({
+          approvals: [],
+          interactive: true,
+          skipPermissions: false,
+          reactorGated: false,
+          requestApproval: async () => {
+            asked++;
+            return { allow: false };
+          },
+        }),
+      });
+
+      try {
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [
+            {
+              name: "run_shell",
+              args: { command: "curl https://example.com/docs" },
+            },
+          ],
+        });
+
+        const denied = await runUntilDone(
+          session,
+          "Fetch https://example.com/docs.",
+        );
+        expect(asked).toBeGreaterThan(0);
+        const askedAfterDeny = asked;
+        expect(
+          denied.events.some((e) => e.type === "reactor.error"),
+        ).toBe(false);
+
+        session.harness.scenario.replyOnce("anthropic", {
+          text: "I'll continue without fetching.",
+        });
+        const prose = await runUntilDone(
+          session,
+          "Do not fetch anything. Confirm in prose.",
+        );
+        expect(prose.reply).toContain("I'll continue without fetching.");
+        expect(prose.reply).not.toContain("Tool call rejected by operator.");
+        expect(asked).toBe(askedAfterDeny);
+
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [
+            {
+              name: "run_shell",
+              args: { command: "curl https://example.com/docs" },
+            },
+          ],
+        });
+        const retried = await runUntilDone(
+          session,
+          "Try fetching https://example.com/docs again.",
+        );
+        expect(asked).toBe(askedAfterDeny + 1);
+        expect(
+          retried.events.some((e) => e.type === "reactor.error"),
+        ).toBe(false);
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
 });

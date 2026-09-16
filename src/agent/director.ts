@@ -559,6 +559,9 @@ class ChatDirectorImpl extends DefaultDirector {
   private currentSourceId: string | undefined;
   /** CL-7918 live replacement for the former getLiveFleetCount closure. */
   private allowIdleWithFleet: boolean;
+  // Forget cached permission denies on the next inbound user message. Session
+  // wiring points this at PermissionGate.clearDenials; unset in unit tests.
+  private clearDenials: (() => void) | undefined;
   // Consecutive assistant turns that contain tool calls and no text. Reset on
   // any turn with text and on every fresh user message — a weak model that
   // spins in place on one thread of tool calls still converges to the
@@ -747,6 +750,10 @@ class ChatDirectorImpl extends DefaultDirector {
   // fleet resumes the open-task nudge instead of holding the seeded value.
   setAllowIdleWithFleet(value: boolean): void {
     this.allowIdleWithFleet = value;
+  }
+
+  setClearDenials(clear: (() => void) | undefined): void {
+    this.clearDenials = clear;
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
@@ -1012,6 +1019,7 @@ class ChatDirectorImpl extends DefaultDirector {
       this.toolOnlyStreak = 0;
       this.toolOnlyNudgeFired = false;
       this.pendingToolOnlyNudge = false;
+      this.clearDenials?.();
     }
     if (onTurnBoundary(event)) this.inferenceRecoveries = 0;
 
@@ -1357,6 +1365,7 @@ export interface ChatDirector extends ReactorDirector {
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void;
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
   setAllowIdleWithFleet(value: boolean): void;
+  setClearDenials(clear: (() => void) | undefined): void;
   getTasks(): Task[];
   restoreTasks(tasks: Task[]): void;
   getContextEstimate(): { tokens: number; isEstimate: boolean };

@@ -856,6 +856,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       computeAdvertised,
       inactivityTimeoutMs: config.inactivityTimeoutMs ?? 750_000,
       totalTimeoutMs: config.totalTimeoutMs,
+      clearDenials: () => permissionGate.clearDenials(),
       getProvider: () => config,
       getWorkdir: () => workdir,
       getSessionId: () => sessionId,

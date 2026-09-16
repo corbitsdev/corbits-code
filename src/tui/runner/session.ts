@@ -631,6 +631,7 @@ export async function assembleTUISession(
     // instead of a host closure; no getLiveFleetCount: the publisher drives
     // the allowance through setAllowIdleWithFleet.)
     allowIdleWithFleet: true,
+    clearDenials: () => permissionGate.clearDenials(),
     getProvider: () => state.config,
     directorHolder,
     getWorkdir: () => state.workdir,
