@@ -8,6 +8,7 @@
 import { isLiveWaitStatus } from "./lifecycle.js";
 import {
   collectUncollectedTerminals,
+  settleOccupancySend,
   type CollectedWorkerReport,
   type FleetDryBlobWriter,
   type FleetDryLane,
@@ -59,10 +60,6 @@ function withoutInboundEnvelope(text: string): string {
 export function isPersistedOccupancyWakeText(text: string): boolean {
   const bare = withoutInboundEnvelope(text);
   return isMailboxMailText(bare) || isFleetDryContinuationText(bare);
-}
-
-function isPromiseLike(value: unknown): value is Promise<unknown> {
-  return typeof value === "object" && value !== null && "then" in value;
 }
 
 /**
@@ -157,25 +154,14 @@ async function driveMailboxMailAfterCollect(
   };
   try {
     args.beginSystemContinuation(prompt);
-    const sent = args.send(prompt);
-    if (isPromiseLike(sent)) {
-      void sent.then(
-        (result) => {
-          if (result !== false) takeReports();
-          else fail();
-        },
-        () => {
-          fail();
-        },
-      );
-      return true;
-    }
-    if (sent === false) return fail();
-    takeReports();
   } catch {
     return fail();
   }
-  return true;
+  return settleOccupancySend({
+    send: () => args.send(prompt),
+    onSuccess: takeReports,
+    onFailure: fail,
+  });
 }
 
 /**

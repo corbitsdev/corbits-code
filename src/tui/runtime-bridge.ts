@@ -99,6 +99,7 @@ import {
   pendingAskWakeText,
   type PendingAskWake,
 } from "../subagent/fleet-report.js";
+import { isPromiseLike } from "../subagent/fleet-dry-drive.js";
 
 /** Tool name a sub-agent dispatch call carries — its row gets live progress. */
 const SPAWN_AGENT_TOOL_NAME = "spawn_agent";
@@ -277,9 +278,12 @@ export interface SessionBridge {
   /**
    * Occupancy owner for dry+open continuation. Called once per dry episode
    * from settleRunToIdle when the fleet is dry. Return true if a continuation
-   * was sent (run stays busy).
+   * was sent (run stays busy). A pending send Promise is not a continuation —
+   * settle waits for it and idles on failed/uncertain delivery.
    */
-  setDryOpenTaskDriver: (driver: (() => boolean) | undefined) => void;
+  setDryOpenTaskDriver: (
+    driver: (() => boolean | Promise<boolean>) | undefined,
+  ) => void;
   /**
    * Occupancy owner for per-item mailbox mail. Called from idle-with-fleet
    * settle (like flushPendingAskWake) and from the store-subscribe driver.
@@ -493,7 +497,7 @@ export interface BridgeBag {
    */
   awaitingContinuationInference: boolean;
   /** Occupancy driver: collect+send when settle takes a dry-episode shot. */
-  dryOpenTaskDriver: (() => boolean) | undefined;
+  dryOpenTaskDriver: (() => boolean | Promise<boolean>) | undefined;
   /**
    * Occupancy driver for per-item mailbox mail (worker terminal/fail) while
    * the parent is idle, including idle-with-fleet. Not the fleet-0+open-tasks
@@ -1222,6 +1226,14 @@ function occupancyHold(bag: BridgeBag): boolean {
   return bag.liveFleet > 0 || bag.awaitingContinuationInference;
 }
 
+function releaseRunToIdle(shell: AppShell, bag: BridgeBag): void {
+  shell.session = setRunState(shell.session, "idle");
+  bag.awaitingContinuationInference = false;
+  drainAtBoundary(shell, bag);
+  bag.flushPendingAskWake?.();
+  bag.flushMailboxMail?.();
+}
+
 /**
  * Release the run to idle and drain everything queued — but only at true
  * session-idle. A live fleet holds the run busy after the parent turn settles
@@ -1248,25 +1260,39 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     return;
   }
   if (!bag.droveOpenTasksThisDry) {
-    let driven = false;
+    let driven: boolean | Promise<boolean> = false;
     try {
-      driven = bag.dryOpenTaskDriver?.() === true;
+      driven = bag.dryOpenTaskDriver?.() ?? false;
     } catch {
       driven = false;
     }
+    if (isPromiseLike(driven)) {
+      bag.droveOpenTasksThisDry = true;
+      const abortPendingDrive = (): void => {
+        if (bag.disposed) return;
+        bag.droveOpenTasksThisDry = false;
+        if (shell.session.run !== "busy") return;
+        bag.lastSentMessage = "";
+        flushOpenRow(shell, bag);
+        bag.turnThinking = null;
+        shell.inFlightTool = null;
+        bag.turn = turnStateOnInterrupt(bag.turn, bag.now());
+        releaseRunToIdle(shell, bag);
+      };
+      void driven.then((ok) => {
+        if (ok === true) return;
+        abortPendingDrive();
+      }, abortPendingDrive);
+      return;
+    }
     // Consume only on a real continuation. A false/no-op leaves the latch
     // open so a later missed-edge settle with open tasks can still fire.
-    if (driven) {
+    if (driven === true) {
       bag.droveOpenTasksThisDry = true;
       return;
     }
   }
-  shell.session = setRunState(shell.session, "idle");
-  bag.awaitingContinuationInference = false;
-  // Full drain: soft steers first, then follow-ups (drainOrder).
-  drainAtBoundary(shell, bag);
-  bag.flushPendingAskWake?.();
-  bag.flushMailboxMail?.();
+  releaseRunToIdle(shell, bag);
 }
 
 function applyInbound(
