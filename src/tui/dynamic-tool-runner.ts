@@ -31,8 +31,18 @@ export type DynamicToolRunner = AgentToolRunner & {
    * the current wire (built-in prefix + pinned + activated) with an error
    * pointing at tool_search, instead of silently dispatching. Without a gate
    * every registered tool stays dispatchable — sub-agent runners never set one.
+   *
+   * `options.isActivated` is the promotion side of the gate: a name the model
+   * was already shown (tool_search activated it) that is absent from the
+   * registry — its server disconnected or the snapshot rebuilt under it —
+   * reports "not currently available, server may be reconnecting, retry
+   * shortly" instead of the bare unknown-tool string. Names never activated
+   * keep the exact unknown-tool string.
    */
-  setCallGate(isCallable: (name: string) => boolean): void;
+  setCallGate(
+    isCallable: (name: string) => boolean,
+    options?: { isActivated?: (name: string) => boolean },
+  ): void;
 };
 
 export function createDynamicToolRunner(
@@ -41,6 +51,7 @@ export function createDynamicToolRunner(
 ): DynamicToolRunner {
   const byName = new Map<string, AgentTool>();
   let callGate: ((name: string) => boolean) | undefined;
+  let isActivated: ((name: string) => boolean) | undefined;
 
   const addTools = (tools: AgentTool[]): void => {
     const incoming = new Set<string>();
@@ -69,8 +80,12 @@ export function createDynamicToolRunner(
     addTools,
     removeTools,
     currentDefinitions,
-    setCallGate(isCallable: (name: string) => boolean): void {
+    setCallGate(
+      isCallable: (name: string) => boolean,
+      options?: { isActivated?: (name: string) => boolean },
+    ): void {
       callGate = isCallable;
+      isActivated = options?.isActivated;
     },
     async run(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
       const resolved = resolveRegisteredToolName(call.name, (name) =>
@@ -85,6 +100,20 @@ export function createDynamicToolRunner(
       }
       const found = byName.get(resolved);
       if (found === undefined) {
+        // The name was promoted (gate-activated) but the registry no longer
+        // holds it — the server dropped between search and call. Say so: the
+        // model already has the schema from the tool_search card and only
+        // needs to retry, not re-search. A name never activated keeps the
+        // exact unknown-tool string.
+        if (isActivated?.(call.name) === true) {
+          return {
+            callId: call.id,
+            content:
+              `Error: ${call.name} is not currently available — its server may ` +
+              `still be reconnecting. Retry the call shortly.`,
+            isError: true,
+          };
+        }
         return {
           callId: call.id,
           content: `unknown tool: ${call.name}`,

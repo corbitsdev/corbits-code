@@ -846,6 +846,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
       createExecToolCallGate(isAdvertised, {
         isCodex: isCodexProviderName(config.providerName),
       }),
+      // Same promoted-but-unmounted contract as the TUI gate (see above).
+      { isActivated: (name) => activatedToolNames.has(name) },
     );
 
     const { directorHolder, buildAgent } = assembleChatAgent({
