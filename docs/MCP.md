@@ -92,8 +92,10 @@ global or local `exa` entry disables or overrides it as described above.
 Tools from connected servers are not advertised to the model up front; they are
 registered for dispatch as soon as the server connects (including later in the
 same turn) and surfaced on demand through dynamic tool discovery
-(`tool_search`). Names activated via `tool_search` persist in the session's
-`run.json` and are re-advertised on resume and after rebuilds.
+(`tool_search`). A match is a ranked handful of names plus capped
+descriptions — not full input schemas. Names activated via `tool_search`
+join the next inference tool list (no wait for compact), persist in the
+session's `run.json`, and are re-advertised on resume and after rebuilds.
 
 For integrations a project calls constantly, `pinnedTools` in local
 `.corbits/settings.json` keeps those names on the wire permanently — no

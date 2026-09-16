@@ -45,16 +45,23 @@ export function scoreLexical(
 // search_agents, and skill_search. Per-surface scoring (and the agent
 // description bonus) stays at each call site; only the cut is shared. The
 // sort is score-descending and stable, so tied scores keep catalog order
-// identically on every surface.
+// identically on every surface. `minRatio` (0–1) drops scores below
+// top * minRatio before the limit slice, so a specific query keeps the
+// peak cluster instead of filling the N cap with weak cousins.
 export function rankAndCut<T>(
   items: readonly T[],
   scoreItem: (item: T) => number,
   limit: number,
+  minRatio?: number,
 ): T[] {
-  return items
+  const ranked = items
     .map((item) => ({ item, score: scoreItem(item) }))
     .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => b.score - a.score);
+  const top = ranked[0]?.score ?? 0;
+  const floor = minRatio === undefined || top === 0 ? 0 : top * minRatio;
+  return ranked
+    .filter((entry) => entry.score >= floor)
     .slice(0, limit)
     .map((entry) => entry.item);
 }
