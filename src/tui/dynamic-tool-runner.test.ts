@@ -136,6 +136,40 @@ describe("activated-but-unmounted registry miss", () => {
   });
 });
 
+describe("harness namespace prefix", () => {
+  test("a default.-prefixed call dispatches the registered bare tool", async () => {
+    const runner = createDynamicToolRunner([
+      stringTool("read_file", "core"),
+      stringTool("mcp__acme__do", "blind-result"),
+    ]);
+    const advertised = new Set(["read_file", "mcp__acme__do"]);
+    runner.setCallGate((name) => advertised.has(name));
+
+    const result = await runner.run(
+      { id: "1", name: "default.mcp__acme__do", arguments: {} },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toBe("blind-result");
+  });
+
+  test("a prefixed miss keeps the exact unknown tool string with the original name", async () => {
+    const runner = createDynamicToolRunner([stringTool("read_file", "core")]);
+    runner.setCallGate((name) => name === "read_file", {
+      isActivated: () => false,
+    });
+
+    const result = await runner.run(
+      { id: "1", name: "default.mcp__gone__tool", arguments: {} },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("unknown tool: default.mcp__gone__tool");
+  });
+});
+
 describe("terminal control stripping", () => {
   test("strips escape sequences from any tool's result, including MCP", async () => {
     const payload = "before\x1b]52;c;ZXZpbA==\x07\x1b[31mred\x1b[0m\x07after";

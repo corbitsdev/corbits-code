@@ -87,7 +87,25 @@ export function createDynamicToolRunner(
       isActivated = options?.isActivated;
     },
     async run(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
-      const found = byName.get(call.name);
+      let found = byName.get(call.name);
+      // Harness-namespaced calls (e.g. `default.mcp__linear__list_releases`)
+      // miss the bare/`mcp__` registry keys. On a miss only, strip a single
+      // leading `<segment>.` prefix and retry; use the stripped form solely
+      // when it resolves so names that already hit are never rewritten.
+      let effectiveCall = call;
+      if (found === undefined) {
+        const dot = call.name.indexOf(".");
+        if (dot > 0) {
+          const stripped = call.name.slice(dot + 1);
+          if (stripped.length > 0) {
+            const retry = byName.get(stripped);
+            if (retry !== undefined) {
+              found = retry;
+              effectiveCall = { ...call, name: stripped };
+            }
+          }
+        }
+      }
       if (found === undefined) {
         // The name was promoted (gate-activated) but the registry no longer
         // holds it — the server dropped between search and call. Say so: the
@@ -114,29 +132,33 @@ export function createDynamicToolRunner(
       // or a name the model emitted unaided) must fail loudly with a route back
       // to tool_search — silently dispatching it leaves the transcript claiming
       // a call the next infer's wire does not declare.
-      if (callGate !== undefined && !callGate(call.name)) {
+      if (callGate !== undefined && !callGate(effectiveCall.name)) {
         return {
           callId: call.id,
           content:
-            `Error: ${call.name} is not in the currently advertised tool list. ` +
+            `Error: ${effectiveCall.name} is not in the currently advertised tool list. ` +
             `Call tool_search to activate it, then retry the call.`,
           isError: true,
         };
       }
+      const tool = found;
       const executionTimeoutMs = resolveToolExecutionTimeoutMs(
         watchdogConfig,
-        call,
+        effectiveCall,
       );
       const waitForApproval = resolveWaitForApproval(watchdogConfig);
       const result = await runWithToolExecutionWatchdog(
-        call,
+        effectiveCall,
         signal,
         executionTimeoutMs,
         async (budgetSignal) => {
           try {
-            if (found.kind === "full")
-              return await found.handler(call, budgetSignal);
-            const text = await found.handler(call.arguments, budgetSignal);
+            if (tool.kind === "full")
+              return await tool.handler(effectiveCall, budgetSignal);
+            const text = await tool.handler(
+              effectiveCall.arguments,
+              budgetSignal,
+            );
             return { callId: call.id, content: text };
           } catch (err) {
             return {
