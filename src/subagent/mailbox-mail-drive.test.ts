@@ -132,7 +132,7 @@ describe("driveMailboxMail", () => {
       }),
     ).toBe(false);
     expect(
-      await driveMailboxMail({
+      driveMailboxMail({
         parentProcessing: false,
         mailbox: mapMailbox(new Map()),
         lanes: [],
@@ -315,7 +315,7 @@ describe("driveMailboxMail", () => {
       ["live", { status: "running" }],
     ]);
     expect(
-      await driveMailboxMail({
+      driveMailboxMail({
         parentProcessing: false,
         mailbox: mapMailbox(records),
         lanes: [],
@@ -327,6 +327,28 @@ describe("driveMailboxMail", () => {
         },
       }),
     ).toBe(false);
+  });
+
+  test("does not begin if the parent starts processing during collect", async () => {
+    const records = new Map<string, FleetDryMailboxRecord>([
+      ["w1", { status: "done", report: "ok" }],
+    ]);
+    let processing = false;
+    const driven = driveMailboxMail({
+      parentProcessing: false,
+      isParentProcessing: () => processing,
+      mailbox: mapMailbox(records),
+      lanes: [],
+      beginSystemContinuation: () => {
+        throw new Error("must not begin");
+      },
+      send: () => {
+        throw new Error("must not send");
+      },
+    });
+    processing = true;
+    expect(await driven).toBe(false);
+    expect(records.get("w1")?.collected).not.toBe(true);
   });
 
   test("not-delivered send leaves the wake retryable", async () => {
@@ -395,8 +417,10 @@ describe("latchMailboxMailDrive", () => {
       }),
     );
     expect(driver()).toBe(true);
+    expect(driver.claimed()).toBe(true);
     expect(driver()).toBe(false);
     expect(driver()).toBe(false);
+    expect(driver.claimed()).toBe(true);
     await sent;
     expect(sends).toHaveLength(1);
     expect(sends[0]).toContain(MAILBOX_MAIL_WAKE_PREFIX);
@@ -410,7 +434,26 @@ describe("latchMailboxMailDrive", () => {
     });
     expect(driver()).toBe(false);
     expect(driver()).toBe(false);
+    expect(driver.claimed()).toBe(false);
     expect(calls).toBe(2);
+  });
+
+  test("an empty mailbox does not claim the occupancy slot", () => {
+    const driver = latchMailboxMailDrive(() =>
+      driveMailboxMail({
+        parentProcessing: false,
+        mailbox: mapMailbox(new Map()),
+        lanes: [],
+        beginSystemContinuation: () => {
+          throw new Error("must not begin");
+        },
+        send: () => {
+          throw new Error("must not send");
+        },
+      }),
+    );
+    expect(driver()).toBe(false);
+    expect(driver.claimed()).toBe(false);
   });
 
   test("after the in-flight drive settles, a new terminal can send", async () => {

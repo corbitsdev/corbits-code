@@ -4,6 +4,7 @@ import { createLiveSessionPort } from "./live-session-port";
 import { createAppShell } from "./shell/index";
 import { withTestRenderer } from "./harness";
 import type { PendingAskWake } from "../subagent/fleet-report.js";
+import { latchMailboxMailDrive } from "../subagent/mailbox-mail-drive.js";
 import { classifySubmission, createSubmitHandler } from "./runner/submit.js";
 import {
   createDeliveryGeneration,
@@ -33,7 +34,7 @@ async function withWakeBridge(
   run: (
     bridge: ReturnType<typeof attachSessionBridge>,
     sends: string[],
-  ) => void,
+  ) => void | Promise<void>,
 ) {
   await withTestRenderer(
     async (h) => {
@@ -55,7 +56,7 @@ async function withWakeBridge(
         }),
       );
       try {
-        run(bridge, sends);
+        await run(bridge, sends);
       } finally {
         bridge.dispose();
         shell.dispose();
@@ -63,6 +64,22 @@ async function withWakeBridge(
     },
     { width: 80, height: 24 },
   );
+}
+
+function latchAsyncMailboxMail(
+  bridge: ReturnType<typeof attachSessionBridge>,
+  order: string[],
+  hold: Promise<void>,
+) {
+  return latchMailboxMailDrive(() => {
+    order.push("mail");
+    return (async () => {
+      await hold;
+      order.push("begin");
+      bridge.beginSystemContinuation("mailbox occupancy");
+      return true;
+    })();
+  });
 }
 
 for (const action of [
@@ -482,6 +499,120 @@ describe("agent ask wake delivery", () => {
       bridge.handle({ type: "inference.done", data: {} });
       expect(order).toEqual(["mail"]);
       expect(sends).toEqual([]);
+    });
+  });
+
+  test("async mailbox drive on gate close claims the slot before wake (CL-8061)", async () => {
+    await withWakeBridge(async (bridge, sends) => {
+      const order: string[] = [];
+      let release: () => void = () => undefined;
+      const hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      bridge.setOnAskWakeSent(() => {
+        order.push("wake");
+      });
+      bridge.setMailboxMailDriver(latchAsyncMailboxMail(bridge, order, hold));
+      bridge.gateOpened();
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(sends).toEqual([]);
+      bridge.gateClosed();
+      expect(order).toEqual(["mail"]);
+      expect(sends).toEqual([]);
+      expect(bridge.turn.isProcessing).toBe(false);
+      release();
+      await hold;
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(order).toEqual(["mail", "begin"]);
+      expect(bridge.turn.isProcessing).toBe(true);
+      expect(sends).toEqual([]);
+    });
+  });
+
+  test("async mailbox drive on idle-with-fleet settle claims the slot before wake (CL-8061)", async () => {
+    await withWakeBridge(async (bridge, sends) => {
+      const order: string[] = [];
+      let release: () => void = () => undefined;
+      const hold = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      bridge.setOnAskWakeSent(() => {
+        order.push("wake");
+      });
+      bridge.setMailboxMailDriver(latchAsyncMailboxMail(bridge, order, hold));
+      bridge.handle({ type: "inference.start", data: {} });
+      bridge.handle({ type: "fleet", running: 1 });
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(sends).toEqual([]);
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(order).toEqual(["mail"]);
+      expect(sends).toEqual([]);
+      expect(bridge.turn.isProcessing).toBe(false);
+      release();
+      await hold;
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(order).toEqual(["mail", "begin"]);
+      expect(bridge.turn.isProcessing).toBe(true);
+      expect(sends).toEqual([]);
+    });
+  });
+
+  test("releaseRunToIdle flushes mailbox mail before the ask wake (CL-8061)", async () => {
+    await withWakeBridge((bridge, sends) => {
+      const order: string[] = [];
+      bridge.setOnAskWakeSent(() => {
+        order.push("wake");
+      });
+      bridge.setMailboxMailDriver(() => {
+        order.push("mail");
+        return false;
+      });
+      bridge.handle({ type: "inference.start", data: {} });
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(sends).toEqual([]);
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(order).toEqual(["mail", "wake"]);
+      expect(sends).toHaveLength(1);
+    });
+  });
+
+  test("releaseRunToIdle suppresses the wake when mail takes the turn (CL-8061)", async () => {
+    await withWakeBridge((bridge, sends) => {
+      const order: string[] = [];
+      bridge.setOnAskWakeSent(() => {
+        order.push("wake");
+      });
+      bridge.setMailboxMailDriver(() => {
+        order.push("mail");
+        bridge.beginSystemContinuation("mailbox occupancy");
+        return true;
+      });
+      bridge.handle({ type: "inference.start", data: {} });
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(sends).toEqual([]);
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(order).toEqual(["mail"]);
+      expect(sends).toEqual([]);
+    });
+  });
+
+  test("idle parent subscribe does not flush wake before mailbox mail (CL-8061)", async () => {
+    await withWakeBridge((bridge, sends) => {
+      const order: string[] = [];
+      bridge.setOnAskWakeSent(() => {
+        order.push("wake");
+      });
+      bridge.setMailboxMailDriver(() => {
+        order.push("mail");
+        bridge.beginSystemContinuation("mailbox occupancy");
+        return true;
+      });
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(order).toEqual(["mail"]);
+      expect(sends).toEqual([]);
+      expect(bridge.turn.isProcessing).toBe(true);
     });
   });
 

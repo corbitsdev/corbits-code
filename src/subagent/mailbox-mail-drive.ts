@@ -109,8 +109,32 @@ export function buildMailboxMailPrompt(
   return [mailboxMailWakeLine(), JSON.stringify(reports)].join("\n");
 }
 
+function hasDeliverableMailboxMail(
+  mailbox: FleetDryMailbox | undefined,
+): boolean {
+  if (mailbox === undefined) return false;
+  const delivering = deliveringByMailbox.get(mailbox);
+  for (const id of mailbox.ids()) {
+    if (delivering?.has(id)) continue;
+    const record = mailbox.peek(id);
+    if (record === undefined || record.collected === true) continue;
+    if (isLiveWaitStatus(record.status)) continue;
+    return true;
+  }
+  return false;
+}
+
+function parentIsProcessing(args: {
+  parentProcessing: boolean;
+  isParentProcessing?: () => boolean;
+}): boolean {
+  return args.isParentProcessing?.() ?? args.parentProcessing;
+}
+
 export function driveMailboxMail(args: {
   parentProcessing: boolean;
+  /** Live check after awaited collect; occupancy must not start a turn already claimed. */
+  isParentProcessing?: () => boolean;
   mailbox: FleetDryMailbox | undefined;
   lanes: readonly FleetDryLane[];
   writeBlob?: FleetDryBlobWriter;
@@ -118,7 +142,8 @@ export function driveMailboxMail(args: {
   send: (prompt: string) => unknown;
   onSendFailure?: () => void;
 }): boolean | Promise<boolean> {
-  if (args.parentProcessing) return false;
+  if (parentIsProcessing(args)) return false;
+  if (!hasDeliverableMailboxMail(args.mailbox)) return false;
   return driveMailboxMailAfterCollect(args);
 }
 
@@ -138,6 +163,7 @@ async function driveMailboxMailAfterCollect(
     )
   ).filter((report) => !delivering.has(report.agent_id));
   if (reports.length === 0) return false;
+  if (parentIsProcessing(args)) return false;
   const ids = reports.map((report) => report.agent_id);
   for (const id of ids) delivering.add(id);
   const prompt = buildMailboxMailPrompt(reports);
@@ -169,12 +195,28 @@ async function driveMailboxMailAfterCollect(
  * mail. `driveMailboxMail` does not mark the parent busy until after an
  * awaited collect, so overlapping flushes would each call `send()` and fill
  * the agent's depth-16 queue. Hold one drive until that promise settles.
+ *
+ * `flush()` is true only when this call starts a drive. `claimed()` is true
+ * while that drive owns the slot — ask-wake admission uses it so a wake
+ * cannot send on the same stack, or on a later stack before collect lands.
  */
+export type MailboxMailFlush = (() => boolean) & {
+  readonly claimed: () => boolean;
+};
+
+export function mailboxMailDriveClaimed(
+  flush: (() => boolean) | undefined,
+): boolean {
+  if (flush === undefined) return false;
+  const claimed = (flush as MailboxMailFlush).claimed;
+  return typeof claimed === "function" && claimed() === true;
+}
+
 export function latchMailboxMailDrive(
   drive: () => boolean | Promise<boolean>,
-): () => boolean {
+): MailboxMailFlush {
   let inFlight = false;
-  return () => {
+  const flush = (): boolean => {
     if (inFlight) return false;
     const driven = drive();
     if (driven === false) return false;
@@ -184,4 +226,5 @@ export function latchMailboxMailDrive(
     });
     return true;
   };
+  return Object.assign(flush, { claimed: () => inFlight });
 }
