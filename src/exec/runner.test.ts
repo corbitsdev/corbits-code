@@ -81,39 +81,28 @@ describe("exec director allowlist", () => {
     ).toBe(false);
   });
 
-  test("the promoter gates allow itself and leaves the wire set for the fold", () => {
+  test("the promoter gates allow itself and commits the match onto the wire", () => {
     const overlay = resolveExecDirectorOverlay("explorer");
-    const { activated, computeAdvertised, flushPromotions } =
-      createAdvertisedToolset({
-        sessionMode: "orchestrator",
-        toolAvailability: { languageServerAvailable: true },
-        getProvider: () => ({ providerName: "test", model: "test-model" }),
-        builtInPrefix: overlay.advertisedAllow,
-      });
+    const { activated, flushPromotions } = createAdvertisedToolset({
+      sessionMode: "orchestrator",
+      toolAvailability: { languageServerAvailable: true },
+      getProvider: () => ({ providerName: "test", model: "test-model" }),
+      builtInPrefix: overlay.advertisedAllow,
+    });
+    let committed = 0;
     const promote = createExecToolPromoter({
       activate: (names) => activated.activate(names),
       isAllowed: (name) => isExecOverlayToolAllowed(overlay, name),
-    });
-    const registry = [
-      {
-        name: "read_file",
-        description: "read a file",
-        inputSchema: { type: "object", properties: {} },
+      commitWire: () => {
+        committed += 1;
+        flushPromotions();
       },
-    ];
-    const before = JSON.stringify(computeAdvertised(registry));
-    // A raw activate caller gets no bypass: outside-allow names never open the
-    // gate, while the allowed match opens it at once.
+    });
     promote([OUTSIDE_ALLOW, "read_file"]);
     expect(activated.has(OUTSIDE_ALLOW)).toBe(false);
     expect(activated.has("read_file")).toBe(true);
-    // Gate-only: the wire recompute ignores the fresh activation, so the
-    // provider's cached prefix holds until the fold commits it.
-    expect(JSON.stringify(computeAdvertised(registry))).toBe(before);
-    expect(flushPromotions()).toBe(true);
-    expect(computeAdvertised(registry).map((d) => d.name)).toContain(
-      "read_file",
-    );
+    expect(committed).toBe(1);
+    expect(flushPromotions()).toBe(false);
   });
 
   test("skywalker overlay leaves every tool allowed", () => {
