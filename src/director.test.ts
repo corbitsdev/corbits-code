@@ -740,7 +740,11 @@ describe("open-task termination guard", () => {
       await director.decide(
         {
           type: "message.received",
-          message: { role: "user", content: "just talk" },
+          message: {
+            role: "user",
+            content: "just talk",
+            flags: ["operator-originated"],
+          },
         } as unknown as ReactorInboundEvent,
         mockState,
         mockCapabilities,
@@ -756,6 +760,28 @@ describe("open-task termination guard", () => {
     ).toBe(false);
     expect(next.some((a) => a.type === "infer")).toBe(true);
     expect(cleared).toBe(1);
+  });
+
+  test("mailbox inbound does not clear cached denies", async () => {
+    const director = createChatDirector("base", [], {});
+    let cleared = 0;
+    director.setClearDenials(() => {
+      cleared++;
+    });
+    await director.decide(
+      makeToolErrorEvent("c", declined),
+      mockState,
+      mockCapabilities,
+    );
+    await director.decide(
+      {
+        type: "message.received",
+        message: { role: "user", content: "worker report" },
+      } as unknown as ReactorInboundEvent,
+      mockState,
+      mockCapabilities,
+    );
+    expect(cleared).toBe(0);
   });
 });
 

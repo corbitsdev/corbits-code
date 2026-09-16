@@ -22,6 +22,7 @@ import {
   type CompactionGovernor,
 } from "./compaction.js";
 import { onTurnBoundary } from "./reactor-events.js";
+import { isOperatorOriginated } from "./message-provenance.js";
 import { type } from "arktype";
 import {
   applyManageTasks,
@@ -1019,7 +1020,15 @@ class ChatDirectorImpl extends DefaultDirector {
       this.toolOnlyStreak = 0;
       this.toolOnlyNudgeFired = false;
       this.pendingToolOnlyNudge = false;
-      this.clearDenials?.();
+      // Occupancy mailbox / fleet-dry / bg-shell inbounds are also
+      // message.received; only a human prompt may forget cached denies.
+      const inboundFlags =
+        "flags" in event.message && Array.isArray(event.message.flags)
+          ? event.message.flags.filter(
+              (flag): flag is string => typeof flag === "string",
+            )
+          : undefined;
+      if (isOperatorOriginated(inboundFlags)) this.clearDenials?.();
     }
     if (onTurnBoundary(event)) this.inferenceRecoveries = 0;
 
