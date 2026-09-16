@@ -39,6 +39,33 @@ test("the note offers an on-wire switch before the tool_search fallback", () => 
   expect(note).toMatch(/reply to the operator/i);
 });
 
+test("the note skips tool_search when another remaining tool is on the wire", () => {
+  const note = createDoomLoopCorrectiveNote(() => [
+    "manage_tasks",
+    "tool_search",
+    "read_file",
+  ])(repeat);
+  expect(note).toMatch(/already on the wire instead \(for example read_file\)/);
+  expect(note).not.toMatch(/for example tool_search/);
+});
+
+test("the note uses the fallback when only tool_search remains", () => {
+  const note = createDoomLoopCorrectiveNote(() => [
+    "manage_tasks",
+    "tool_search",
+  ])(repeat);
+  expect(note).not.toMatch(/for example tool_search/);
+  expect(note).toContain("call tool_search to discover a different tool");
+  expect(note).not.toMatch(/already on the wire instead/);
+});
+
+test("the note uses the fallback when every advertised name is looped", () => {
+  const note = createDoomLoopCorrectiveNote(() => ["manage_tasks"])(repeat);
+  expect(note).not.toMatch(/for example /);
+  expect(note).not.toMatch(/already on the wire instead/);
+  expect(note).toContain("call tool_search to discover a different tool");
+});
+
 test("the note reads the wire list lazily per invocation", () => {
   let wire: string[] = ["read_file"];
   const builder = createDoomLoopCorrectiveNote(() => wire);

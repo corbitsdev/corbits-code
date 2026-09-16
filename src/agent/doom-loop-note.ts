@@ -23,9 +23,9 @@ export function createDoomLoopCorrectiveNote(
     // Name one non-looped tool already on the wire as the first escape, so
     // the model switches instead of repeating. tool_search stays a fallback
     // rather than the example — it is named in the fallback sentence.
-    const example =
-      names.find((name) => !looped.has(name) && name !== "tool_search") ??
-      names.find((name) => !looped.has(name));
+    const example = names.find(
+      (name) => !looped.has(name) && name !== "tool_search",
+    );
     const escape =
       example === undefined
         ? `Do not call this batch again — call tool_search to discover a ` +
