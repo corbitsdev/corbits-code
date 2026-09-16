@@ -3914,6 +3914,50 @@ describe("wait_agents timed_out collection (CL-8028)", () => {
     );
     expect(fleetRecords.peek(worker.id)?.collected).toBe(true);
   });
+
+  test("a mixed yield takes the done report and peeks the running sibling", async () => {
+    const liveGate = deferred<RunSubAgentResult>();
+    const deps = makeDeps(async (params) => {
+      if (params.description === "done lane") return { report: "shipped" };
+      return liveGate.promise;
+    });
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+      shouldYieldWait: () => occupancyShouldYieldWait(deps.fleetRecords),
+    });
+    const doneSpawn = await callTool(spawn, {
+      description: "done lane",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const liveSpawn = await callTool(spawn, {
+      description: "live lane",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const doneId = doneSpawn.agent_id as string;
+    const liveId = liveSpawn.agent_id as string;
+    await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, doneId);
+    expect(occupancyShouldYieldWait(deps.fleetRecords)).toBe(true);
+    const waited = await callTool(wait, {
+      targets: [doneId, liveId],
+      timeout_ms: 5_000,
+    });
+    expect(waited.timed_out).toBe(true);
+    const results = waited.results as Record<string, unknown>[];
+    const doneRow = defined(results.find((row) => row.agent_id === doneId));
+    const liveRow = defined(results.find((row) => row.agent_id === liveId));
+    expect(doneRow.status).toBe("done");
+    expect(doneRow.report).toBe("shipped");
+    expect(deps.fleetRecords.peek(doneId)?.collected).toBe(true);
+    expect(liveRow.status).toBe("running");
+    expect(liveRow.report).toBeUndefined();
+    expect(deps.sessions.get(liveId)?.status).toBe("running");
+    expect(deps.fleetRecords.peek(liveId)?.collected).not.toBe(true);
+    liveGate.resolve({ report: "ok" });
+  });
 });
 
 describe("wait_agents tool copy", () => {

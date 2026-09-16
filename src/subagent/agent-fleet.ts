@@ -1559,8 +1559,10 @@ interface WaitAgentsDeps {
   /**
    * Supported but unwired in production: no current mount passes this
    * (TUI does not mount wait_agents; exec mounts without the predicate).
-   * When true, finish the wait as a timeout (workers untouched, no take)
-   * so occupancy can deliver mailbox mail or a queued operator steer.
+   * When true, finish the wait as a timeout so occupancy can deliver
+   * mailbox mail or a queued operator steer. Live and awaiting_director
+   * records stay peeked (workers keep running); terminals are taken
+   * unless already bodyHanded.
    */
   shouldYieldWait?: () => boolean;
 }
@@ -1575,9 +1577,10 @@ function isWaitTerminal(id: string, fleetRecords: FleetMailboxHandle): boolean {
  * elapses, or the optional (currently unwired in production)
  * `shouldYieldWait` predicate is true. Driven by the session
  * store's mailbox (`subscribe`) raced against a timer and the parent tool
- * signal; never polls. Timeout, abort, and yield have no side effects:
- * workers keep running and remain waitable. Overlay writers wake this wait
- * via `sessions.wake()`.
+ * signal; never polls. Timeout, abort, and yield do not interrupt
+ * workers: live and awaiting_director stay peeked; terminals are taken
+ * unless already bodyHanded. Overlay writers wake this wait via
+ * `sessions.wake()`.
  */
 async function waitForTerminal(
   sessions: SubAgentSessionStore,
