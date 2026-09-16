@@ -94,6 +94,93 @@ describe("call gate", () => {
   });
 });
 
+describe("mangled dispatch names", () => {
+  const catalog = "mcp__linear__get_release";
+
+  test("strips a leading default. prefix at call time without advertising it", async () => {
+    const runner = createDynamicToolRunner([stringTool(catalog, "ok")]);
+
+    expect(runner.currentDefinitions().map((d) => d.name)).toEqual([catalog]);
+    expect(runner.currentDefinitions().map((d) => d.name)).not.toContain(
+      `default.${catalog}`,
+    );
+
+    const result = await runner.run(
+      { id: "1", name: `default.${catalog}`, arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.content).toBe("ok");
+    expect(result.isError).toBeUndefined();
+  });
+
+  test("resolves a duplicated name.name suffix when both halves match a known tool", async () => {
+    const runner = createDynamicToolRunner([stringTool(catalog, "ok")]);
+
+    const result = await runner.run(
+      { id: "1", name: `${catalog}.${catalog}`, arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.content).toBe("ok");
+    expect(result.isError).toBeUndefined();
+  });
+
+  test("resolves default. plus a duplicated suffix without advertising either alias", async () => {
+    const runner = createDynamicToolRunner([stringTool(catalog, "ok")]);
+    const advertised = advertisedTools(runner.currentDefinitions()).map(
+      (d) => d.name,
+    );
+    expect(advertised).not.toContain(`default.${catalog}`);
+    expect(advertised).not.toContain(`${catalog}.${catalog}`);
+
+    const result = await runner.run(
+      {
+        id: "1",
+        name: `default.${catalog}.${catalog}`,
+        arguments: {},
+      },
+      new AbortController().signal,
+    );
+    expect(result.content).toBe("ok");
+    expect(result.isError).toBeUndefined();
+  });
+
+  test("bare default stays unknown", async () => {
+    const runner = createDynamicToolRunner([stringTool(catalog, "ok")]);
+
+    const result = await runner.run(
+      { id: "1", name: "default", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("unknown tool: default");
+  });
+
+  test("a prefixed name still honors the call gate on the catalog name", async () => {
+    const runner = createDynamicToolRunner([
+      stringTool("read_file", "core"),
+      stringTool(catalog, "ok"),
+    ]);
+    const advertised = new Set(["read_file"]);
+    runner.setCallGate((name) => advertised.has(name));
+
+    const blocked = await runner.run(
+      { id: "1", name: `default.${catalog}`, arguments: {} },
+      new AbortController().signal,
+    );
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content).toContain(catalog);
+    expect(blocked.content).toContain("tool_search");
+
+    advertised.add(catalog);
+    const result = await runner.run(
+      { id: "2", name: `default.${catalog}`, arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.content).toBe("ok");
+    expect(result.isError).toBeUndefined();
+  });
+});
+
 describe("terminal control stripping", () => {
   test("strips escape sequences from any tool's result, including MCP", async () => {
     const payload = "before\x1b]52;c;ZXZpbA==\x07\x1b[31mred\x1b[0m\x07after";

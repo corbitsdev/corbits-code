@@ -10,6 +10,7 @@ import {
   runWithToolExecutionWatchdog,
   type ToolWatchdogConfig,
 } from "./tool-execution-watchdog.js";
+import { resolveRegisteredToolName } from "./resolve-registered-tool-name.js";
 import { stripTerminalControlSequences } from "../util/control-char-strip.js";
 
 // A tool runner whose set of tools can grow after construction. The static
@@ -72,7 +73,17 @@ export function createDynamicToolRunner(
       callGate = isCallable;
     },
     async run(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
-      const found = byName.get(call.name);
+      const resolved = resolveRegisteredToolName(call.name, (name) =>
+        byName.has(name),
+      );
+      if (resolved === undefined) {
+        return {
+          callId: call.id,
+          content: `unknown tool: ${call.name}`,
+          isError: true,
+        };
+      }
+      const found = byName.get(resolved);
       if (found === undefined) {
         return {
           callId: call.id,
@@ -85,30 +96,35 @@ export function createDynamicToolRunner(
       // or a name the model emitted unaided) must fail loudly with a route back
       // to tool_search — silently dispatching it leaves the transcript claiming
       // a call the next infer's wire does not declare.
-      if (callGate !== undefined && !callGate(call.name)) {
+      if (callGate !== undefined && !callGate(resolved)) {
         return {
           callId: call.id,
           content:
-            `Error: ${call.name} is not in the currently advertised tool list. ` +
+            `Error: ${resolved} is not in the currently advertised tool list. ` +
             `Call tool_search to activate it, then retry the call.`,
           isError: true,
         };
       }
+      const dispatchCall =
+        resolved === call.name ? call : { ...call, name: resolved };
       const executionTimeoutMs = resolveToolExecutionTimeoutMs(
         watchdogConfig,
-        call,
+        dispatchCall,
       );
       const waitForApproval = resolveWaitForApproval(watchdogConfig);
       const result = await runWithToolExecutionWatchdog(
-        call,
+        dispatchCall,
         signal,
         executionTimeoutMs,
         async (budgetSignal) => {
           try {
             if (found.kind === "full")
-              return await found.handler(call, budgetSignal);
-            const text = await found.handler(call.arguments, budgetSignal);
-            return { callId: call.id, content: text };
+              return await found.handler(dispatchCall, budgetSignal);
+            const text = await found.handler(
+              dispatchCall.arguments,
+              budgetSignal,
+            );
+            return { callId: dispatchCall.id, content: text };
           } catch (err) {
             return {
               callId: call.id,
