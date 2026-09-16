@@ -277,6 +277,17 @@ export async function createRunLifecycle(
 }> {
   const { persistRunSnapshot } = createRunPersistence(state, services);
   state.persistRunSnapshot = persistRunSnapshot;
+  const activateAndCommitWire = (names: string[]): void => {
+    if (!services.activatedToolNames.activate(names)) return;
+    if (services.flushPromotions()) {
+      services.directorHolder.instance?.updateToolDefinitions(
+        services.computeAdvertised(
+          services.toolset.dynamicRunner.currentDefinitions(),
+        ),
+      );
+    }
+    void persistRunSnapshot("running");
+  };
   const stopHeartbeat = startRunHeartbeat({
     shouldTick: () => !services.crashGuard.isFinalized(),
     tick: () => persistRunSnapshot("running"),
@@ -340,7 +351,7 @@ export async function createRunLifecycle(
       event,
       {
         onTasksChanged: (tasks) => services.emitter.emit("tasks", tasks),
-        onToolsActivate: (names) => services.activatedToolNames.activate(names),
+        onToolsActivate: (names) => activateAndCommitWire(names),
       },
       (message, fields) => tuiLogger.debug(message, fields),
     );
@@ -412,18 +423,7 @@ export async function createRunLifecycle(
   // could not emit those calls. Cache prefix growth on discovery is the cost
   // of making promotion actually work.
   const promoteTools = (names: string[]): void => {
-    if (!services.activatedToolNames.activate(names)) return;
-    if (services.flushPromotions()) {
-      services.directorHolder.instance?.updateToolDefinitions(
-        services.computeAdvertised(
-          services.toolset.dynamicRunner.currentDefinitions(),
-        ),
-      );
-    }
-    // Activation is model-visible contract — persist it now so a crash or
-    // restart before the next turn boundary does not strand the transcript's
-    // "these tools are available" record.
-    void persistRunSnapshot("running");
+    activateAndCommitWire(names);
   };
   services.toolset.setToolPromoter(promoteTools);
 
