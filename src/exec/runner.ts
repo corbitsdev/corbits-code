@@ -45,6 +45,13 @@ import {
 } from "../subagent/index.js";
 import { getProcessAdmissionQueue } from "../subagent/admission.js";
 import { disposeExecRuntime, formatCaughtError } from "./dispose.js";
+import {
+  EXEC_MCP_CONNECT_WAIT_MS,
+  EXEC_MCP_HANDSHAKE_TIMEOUT_MS,
+  armExecMcpHandshakeAbort,
+  awaitExecMcpThenResume,
+  followExecMcpHandshake,
+} from "./mcp-handshake.js";
 import type {
   ContextStore,
   InferenceSource,
@@ -144,56 +151,6 @@ import { WorkflowHost } from "../workflows/host.js";
 const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 
 const SELECTED_PROVIDER_FAILURE = "SelectedProviderFailure";
-
-// Brief wait before first inference so a fast MCP handshake can land. Hung
-// servers must not block the turn: remaining dials keep running until the
-// handshake abort below, and tool_search treats an empty catalog as in-flight
-// rather than a definitive miss while they are still connecting.
-export const EXEC_MCP_CONNECT_WAIT_MS = 1_000;
-// Cap on the handshake itself. Distinct from the wait: first inference may
-// start while a dial is still in flight, but a server that never answers is
-// aborted instead of occupying the catalog forever.
-export const EXEC_MCP_HANDSHAKE_TIMEOUT_MS = 15_000;
-
-export async function awaitExecMcpConnect(
-  connecting: Promise<void>,
-  timeoutMs: number,
-): Promise<"settled" | "timeout"> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      connecting.then(() => "settled" as const),
-      new Promise<"timeout">((resolve) => {
-        timer = setTimeout(() => resolve("timeout"), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
-// Connect-only abort. The MCP client ties `signal` to the transport lifecycle,
-// so AbortSignal.timeout would kill a handshake that already succeeded. The
-// toolset forwards this signal per server and detaches on settle; abort only
-// reaches handshakes still in flight. Disarm the timer once the batch settles.
-export function armExecMcpHandshakeAbort(timeoutMs: number): {
-  signal: AbortSignal;
-  disarm: () => void;
-} {
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
-  let disarmed = false;
-  return {
-    signal: controller.signal,
-    disarm: () => {
-      if (disarmed) return;
-      disarmed = true;
-      clearTimeout(timer);
-    },
-  };
-}
 
 export async function refreshSelectedProviderCredential<T>(
   refresh: () => Promise<T>,
@@ -931,8 +888,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     if (agentToolset.connectMCP !== undefined) {
       const handshake = armExecMcpHandshakeAbort(EXEC_MCP_HANDSHAKE_TIMEOUT_MS);
-      const connecting = agentToolset
-        .connectMCP(
+      const connecting = followExecMcpHandshake(
+        agentToolset.connectMCP(
           {
             interactiveAuth: false,
             onStatus: (status) => {
@@ -949,25 +906,26 @@ export async function runExec(config: Config): Promise<ExecResult> {
               ),
           },
           handshake.signal,
-        )
-        .catch((err: unknown) => {
-          logger.warn("MCP connect failed: {error}", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        })
-        .finally(() => handshake.disarm());
-      const outcome = await awaitExecMcpConnect(
-        connecting,
-        EXEC_MCP_CONNECT_WAIT_MS,
-      );
-      if (outcome === "timeout") {
-        logger.warn(
-          "MCP handshake still in progress after {waitMs}ms; continuing to first inference",
-          { waitMs: EXEC_MCP_CONNECT_WAIT_MS },
-        );
-      }
+        ),
+        handshake,
+      ).catch((err: unknown) => {
+        logger.warn("MCP connect failed: {error}", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+      await awaitExecMcpThenResume(connecting, () => workflowHost.resume(), {
+        waitMs: EXEC_MCP_CONNECT_WAIT_MS,
+        abort: handshake.signal,
+        onWaitTimeout: () => {
+          logger.warn(
+            "MCP handshake still in progress after {waitMs}ms; waiting for settle or abort before resume",
+            { waitMs: EXEC_MCP_CONNECT_WAIT_MS },
+          );
+        },
+      });
+    } else {
+      await workflowHost.resume();
     }
-    await workflowHost.resume();
 
     const textChunks: string[] = [];
     // Consume-once gate for the compaction continuation emit: a replayed

@@ -18,6 +18,10 @@ import {
   resolveExecDirectorOverlay,
   runExec,
 } from "../../../src/exec/runner.js";
+import {
+  EXEC_MCP_CONNECT_WAIT_MS,
+  EXEC_MCP_HANDSHAKE_TIMEOUT_MS,
+} from "../../../src/exec/mcp-handshake.js";
 import { submitOutputDefinition } from "../../../src/agent/director.js";
 import {
   shellDefinition,
@@ -448,6 +452,193 @@ describe("runExec", () => {
       );
     } finally {
       process.stderr.write = origWrite;
+      if (previous !== null) setActiveRun(previous);
+      else clearActiveRun();
+      rmSync(cwd, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("runExec wires handshake abort and waits for connect before resume", async () => {
+    const previous = getActiveRun();
+    clearActiveRun();
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-exec-mcp-wire-cwd-"));
+    const home = mkdtempSync(join(tmpdir(), "corbits-exec-mcp-wire-home-"));
+    const sessionId = "exec-mcp-wire";
+    const dummySource = {
+      id: "test",
+      provider: "test",
+      model: "test",
+    } as InferenceSource;
+    const events: string[] = [];
+    const armTimeouts: number[] = [];
+    const waitMs: number[] = [];
+    let connectSignal: AbortSignal | undefined;
+    try {
+      await withMockedModuleDuring(
+        import.meta.resolve("../../../src/exec/mcp-handshake.js"),
+        (real: typeof import("../../../src/exec/mcp-handshake.js")) => ({
+          ...real,
+          armExecMcpHandshakeAbort: (ms: number) => {
+            armTimeouts.push(ms);
+            return real.armExecMcpHandshakeAbort(ms);
+          },
+          awaitExecMcpThenResume: (
+            connecting: Promise<void>,
+            resume: () => Promise<void>,
+            options: {
+              waitMs: number;
+              abort: AbortSignal;
+              onWaitTimeout?: () => void;
+            },
+          ) => {
+            waitMs.push(options.waitMs);
+            return real.awaitExecMcpThenResume(
+              connecting,
+              async () => {
+                events.push("resume");
+                await resume();
+              },
+              options,
+            );
+          },
+        }),
+        async () => {
+          await withMockedModuleDuring(
+            import.meta.resolve("node:os"),
+            (real: typeof import("node:os")) => ({
+              ...real,
+              homedir: () => home,
+            }),
+            async () => {
+              await withMockedModuleDuring(
+                import.meta.resolve("../../../src/agent/tools.js"),
+                (real: typeof import("../../../src/agent/tools.js")) => ({
+                  ...real,
+                  createAgentToolset: async (): Promise<AgentToolset> =>
+                    ({
+                      dispose: () => Promise.resolve(),
+                      dynamicRunner: {
+                        setCallGate: () => undefined,
+                        currentDefinitions: () => [],
+                      },
+                      setToolPromoter: () => undefined,
+                      skills: [],
+                      connectMCP: async (
+                        _callbacks: unknown,
+                        signal?: AbortSignal,
+                      ) => {
+                        connectSignal = signal;
+                        events.push("connect-start");
+                        await new Promise((resolve) => setTimeout(resolve, 40));
+                        events.push("connect-end");
+                      },
+                    }) as unknown as AgentToolset,
+                }),
+                async () => {
+                  await withMockedModuleDuring(
+                    import.meta
+                      .resolve("../../../src/session/assemble-runtime.js"),
+                    (
+                      real: typeof import("../../../src/session/assemble-runtime.js"),
+                    ) => ({
+                      ...real,
+                      assembleInferenceBase: async () => ({}),
+                      assembleSessionTrust: async () => ({
+                        projectTrust: {},
+                        pathTrust: {},
+                        pluginModules: [],
+                        diagnostics: { warnings: [] },
+                        isProjectPluginTrusted: () => true,
+                        isRegisteredPathTrusted: () => true,
+                      }),
+                      assembleSessionGate: async () => ({
+                        gate: { clearDenials: () => undefined },
+                        seededApprovals: {},
+                      }),
+                      resolveLiveSessionSources: () => ({
+                        sources: [dummySource],
+                        defaultSource: dummySource.id,
+                        selected: dummySource,
+                      }),
+                      assembleChatAgent: (wiring: {
+                        onBuilt: (agent: unknown, storage: unknown) => void;
+                      }) => ({
+                        directorHolder: {},
+                        buildAgent: async () => {
+                          const agent = {
+                            send: async () => {
+                              events.push("send");
+                              throw new Error("stop-after-mcp");
+                            },
+                            stream: () =>
+                              (async function* empty() {
+                                // No reactor events: send fails immediately.
+                              })(),
+                            close: async () => undefined,
+                            deliver: () => undefined,
+                            blobReader: {},
+                          };
+                          wiring.onBuilt(agent, {});
+                          return agent;
+                        },
+                      }),
+                      assembleSessionLifecycle: async () => ({
+                        hookManager: { dispatchPostRun: async () => undefined },
+                        runSink: {
+                          sink: () => undefined,
+                          getStatus: () => "cancelled",
+                          getRunError: () => undefined,
+                          getTurnCount: () => 0,
+                          getToolCallCount: () => 0,
+                          getTokenUsage: () => ({
+                            input: 0,
+                            output: 0,
+                            cacheRead: 0,
+                            cacheWrite: 0,
+                            thinking: 0,
+                          }),
+                          getTurnCollector: () => null,
+                        },
+                        cycleRecorder: {
+                          handleEvent: () => undefined,
+                          dispose: async () => undefined,
+                        },
+                      }),
+                    }),
+                    async () => {
+                      const { runExec: runExecUnderMock } =
+                        await import("../../../src/exec/runner.js");
+                      const result = await runExecUnderMock({
+                        ...bareConfig("do the thing"),
+                        cwd,
+                        sessionId,
+                        director: "builder",
+                        globalSettingsPath: join(home, "settings.json"),
+                        providers: [],
+                      });
+                      expect(result.status).toBe("failed");
+                      expect(armTimeouts).toEqual([
+                        EXEC_MCP_HANDSHAKE_TIMEOUT_MS,
+                      ]);
+                      expect(waitMs).toEqual([EXEC_MCP_CONNECT_WAIT_MS]);
+                      expect(connectSignal).toBeInstanceOf(AbortSignal);
+                      expect(events.indexOf("connect-end")).toBeGreaterThan(-1);
+                      expect(events.indexOf("resume")).toBeGreaterThan(
+                        events.indexOf("connect-end"),
+                      );
+                      expect(events.indexOf("send")).toBeGreaterThan(
+                        events.indexOf("resume"),
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          );
+        },
+      );
+    } finally {
       if (previous !== null) setActiveRun(previous);
       else clearActiveRun();
       rmSync(cwd, { recursive: true, force: true });

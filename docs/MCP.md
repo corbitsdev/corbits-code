@@ -153,12 +153,13 @@ settle only when authorization completes out of band. An empty catalog is not
 a definitive miss while any server is still connecting: the result asks the
 model to retry shortly instead of advising different keywords.
 
-`corbits exec` waits up to 1 second for startup MCP connect before the first
-inference, then continues the turn while remaining handshakes run. A handshake
-that never answers is aborted after 15 seconds so a hung server cannot block
-the run. Each handshake is aborted independently, so a sibling that already
-connected is not torn down. The TUI still starts MCP in the background without
-that wait.
+`corbits exec` waits for startup MCP connect before workflow resume and the first
+inference so capability-gated workflow steps can see MCP tools. A 1s log fires
+if the handshake is still in progress; remaining dials keep running until they
+settle or the 15s abort fires so a hung server cannot block the run. A rejected
+batch does not clear that abort while a sibling is still connecting. Each
+handshake is aborted independently, so a sibling that already connected is not
+torn down. The TUI still starts MCP in the background without that wait.
 
 ## Server Kinds
 
