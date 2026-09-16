@@ -26,6 +26,7 @@ import {
   type ProviderSettings,
   type Settings,
   toolWatchdogFromSettings,
+  shellTimeoutFromSettings,
   loadGlobalSettingsWriteBase,
   persistSkipPermissionsDefault,
   markLastChangelogVersion,
@@ -1227,6 +1228,25 @@ describe("loaders", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("toolWatchdogFromSettings maps shell timeout overrides", () => {
+    expect(
+      toolWatchdogFromSettings({
+        providers: {},
+        shell: { timeoutMs: 5_000, maxTimeoutMs: 60_000 },
+      }),
+    ).toEqual({ shellDefaultMs: 5_000, shellMaxMs: 60_000 });
+  });
+
+  test("shellTimeoutFromSettings maps timeoutMs as the 120s override only", () => {
+    expect(shellTimeoutFromSettings({ providers: {} })).toBeUndefined();
+    expect(
+      shellTimeoutFromSettings({
+        providers: {},
+        shell: { timeoutMs: 5_000 },
+      }),
+    ).toEqual({ defaultMs: 5_000 });
   });
 
   test("toolWatchdogFromSettings maps waitForApproval alone", () => {

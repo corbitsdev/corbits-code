@@ -80,7 +80,7 @@ export function buildHarnessFacts(
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
     "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one. Only read_file a tool-output:// URI if the truncation notice on that result named one; do not re-read a complete inline result.",
-    "- run_shell has no default timeout; pass timeout for builds, tests, and other long commands. Prefer background:true for builds, test suites, and dev servers: it returns a shell_id at once, the result is delivered when the process finishes (foreground runs hold steers; background runs do not), and shell_collect collects or cancels later. background does not change the retained shell cwd.",
+    "- run_shell defaults to a 120s foreground timeout; pass timeout to override with no ceiling. Prefer background:true for builds, test suites, and dev servers: it returns a shell_id at once, the result is delivered when the process finishes (foreground runs hold steers; background runs do not), and shell_collect collects or cancels later. background does not change the retained shell cwd and has no default timeout.",
     "- Shell find, rg, and grep -r are blocked — they can walk huge trees and OOM the host. Prefer the bounded grep/search_files tools, and do not substitute another unbounded walk (fd, ls -R, scripted os.walk).",
     ...(subAgent
       ? [

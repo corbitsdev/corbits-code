@@ -16,6 +16,7 @@ import {
   withTimeout,
 } from "./tool-execution-watchdog.js";
 import { formatToolExecutionTimeoutMessage } from "../plugins/tool-time-budget.js";
+import { DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS } from "../plugins/shell-guard-plugin.js";
 
 /** Short grace for hang-past-grace unit tests (keeps suite under bun default 5s). */
 const TEST_SALVAGE_GRACE_MS = 80;
@@ -220,30 +221,49 @@ describe("tool execution watchdog", () => {
     expect(ms).toBe(requested + RUN_SHELL_WATCHDOG_SLACK_MS);
   });
 
-  test("omitted run_shell timeout is unbounded (shell-guard also has no default)", () => {
+  test("omitted foreground run_shell timeout arms 120s default plus slack", () => {
     expect(
       resolveToolExecutionTimeoutMs(undefined, {
         id: "1",
         name: "run_shell",
         arguments: {},
       }),
-    ).toBeUndefined();
+    ).toBe(DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS + RUN_SHELL_WATCHDOG_SLACK_MS);
     expect(
       resolveToolExecutionTimeoutMs(undefined, {
         id: "1",
         name: "run_shell",
         arguments: { timeout: 0 },
       }),
-    ).toBeUndefined();
+    ).toBe(DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS + RUN_SHELL_WATCHDOG_SLACK_MS);
   });
 
-  test("omitted run_shell timeout still honors settings default", () => {
+  test("omitted foreground run_shell does not fall through to tools.timeoutMs", () => {
     expect(
       resolveToolExecutionTimeoutMs(
         { defaultMs: 60_000, maxMs: 100_000 },
         { id: "1", name: "run_shell", arguments: {} },
       ),
-    ).toBe(60_000);
+    ).toBe(DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS + RUN_SHELL_WATCHDOG_SLACK_MS);
+  });
+
+  test("omitted foreground run_shell timeout uses shellDefaultMs plus slack", () => {
+    expect(
+      resolveToolExecutionTimeoutMs(
+        { defaultMs: 60_000, maxMs: 100_000, shellDefaultMs: 5_000 },
+        { id: "1", name: "run_shell", arguments: {} },
+      ),
+    ).toBe(5_000 + RUN_SHELL_WATCHDOG_SLACK_MS);
+  });
+
+  test("background run_shell with omitted timeout stays exempt past the 120s default", () => {
+    expect(
+      resolveToolExecutionTimeoutMs(undefined, {
+        id: "1",
+        name: "run_shell",
+        arguments: { command: "sleep 200", background: true },
+      }),
+    ).toBeUndefined();
   });
 
   test("non-shell tools still honor tools.maxTimeoutMs", () => {

@@ -206,7 +206,7 @@ Listings are list-free, dumps are dump-locked: a bounded `ls`/`tree` prints name
 
 #### Background shell mode
 
-`run_shell` accepts `background: true` (shell-guard plugin, after the permission chain — a denied command spawns nothing). The starting call resolves `cwd`/`timeout` as usual, skips the pwd probe, spawns a detached process group via the registry in `src/shell/background-shell.ts`, and returns `{shell_id, status: "running"}` immediately; the retained shell cwd is never mutated by a background run. Limits: 8 running, 8 completed entries (ring; evicted ids collect as not-found — truncated output is spilled to a `tool-output:///bg-shell-<id>` blob named in the completion message). On process exit the host delivers `buildShellBackgroundMessage(exit)` (exit status, timed-out marker, ~2KB output preview, spill URI) through the same continuation channel as compaction — wired in all three loop hosts (TUI, exec, sub-agent). `shell_collect` (`{shell_id, action: "collect"|"cancel", wait_ms?}`, default non-blocking) retrieves status/output or kills the process group; it is ungated by design (cancel only kills the session's own child). Timeout keeps its meaning: expiry kills the group and reports exit code 124 with `timed_out: true`. The tool watchdog exempts background starts and `shell_collect` (same list as `spawn_agent`/`wait_agents`). Toolset dispose calls `disposeAll("session closed")` before the posix teardown, so `/clear`, interrupt, and reload kill every live background process group.
+`run_shell` accepts `background: true` (shell-guard plugin, after the permission chain — a denied command spawns nothing). The starting call resolves `cwd` as usual and applies a per-call `timeout` only when passed (no 120s default on background), skips the pwd probe, spawns a detached process group via the registry in `src/shell/background-shell.ts`, and returns `{shell_id, status: "running"}` immediately; the retained shell cwd is never mutated by a background run. Limits: 8 running, 8 completed entries (ring; evicted ids collect as not-found — truncated output is spilled to a `tool-output:///bg-shell-<id>` blob named in the completion message). On process exit the host delivers `buildShellBackgroundMessage(exit)` (exit status, timed-out marker, ~2KB output preview, spill URI) through the same continuation channel as compaction — wired in all three loop hosts (TUI, exec, sub-agent). `shell_collect` (`{shell_id, action: "collect"|"cancel", wait_ms?}`, default non-blocking) retrieves status/output or kills the process group; it is ungated by design (cancel only kills the session's own child). Timeout keeps its meaning: expiry kills the group and reports exit code 124 with `timed_out: true`. The tool watchdog exempts background starts and `shell_collect` (same list as `spawn_agent`/`wait_agents`/`ask_director`). Toolset dispose calls `disposeAll("session closed")` before the posix teardown, so `/clear`, interrupt, and reload kill every live background process group.
 
 - **Alt+Enter** queues a follow-up (kind `"queue"`) delivered only on **session-idle** — parent-idle **and** no live fleet lanes (`run` goes idle). Session-idle Alt+Enter is a no-op. **Ctrl+C** stops the run.
 
@@ -264,6 +264,18 @@ Provider and model configuration lives in JSON settings files. The global file h
 
   Optional `contextWindow` (positive number, tokens) overrides the models.dev / heuristic window for that provider. It sizes compaction and the status-bar meter only — it never becomes the request's `max_tokens` output budget, which stays at the shared source default on every provider branch (Codex, xAI, Go, Anthropic, Bifrost, OpenAI-compatible). `loadConfig` applies it after `resolveProvider` via `setProviderContextWindowOverrides`, keyed as `<provider>:<model>` for every model on a provider that sets the field, plus the bare model id for the resolved provider so occupancy lookups that only have `source.model` still hit. It takes precedence over models.dev metadata and family heuristics. OAuth-projected Codex/xAI providers still drop the field: the synthetic `ProviderSettings` written by the projection overwrites the settings entry and does not copy `contextWindow`, so a hand-edited value on `codex/...` or `xai/...` is ignored. API-key providers are unaffected.
 
+  Optional `shell` block overrides the 120s foreground `run_shell` default (background has no default):
+
+  ```json
+  "shell": {
+    "timeoutMs": 120000,
+    "maxTimeoutMs": 600000
+  }
+  ```
+
+  - `timeoutMs` — default bound when foreground `run_shell` omits `timeout`. Unset keeps the built-in 120000ms default. A positive per-call `timeout` is the bound with no ceiling.
+  - `maxTimeoutMs` — clamps that default path only; it does not clamp a per-call override.
+
   Optional `tools` block to arm the outer per-tool wall-clock budget (unset leaves the watchdog unarmed):
 
   ```json
@@ -274,7 +286,7 @@ Provider and model configuration lives in JSON settings files. The global file h
   }
   ```
 
-  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. Fleet wait tools are exempt: a dispatched sub-agent is bounded by stall, opt-in `deadlineMs`, and operator cancel, not the generic per-tool budget. Background shell is exempt too: a `run_shell` with `background: true` arms nothing (the process's own timeout bounds it) and `shell_collect` never arms (a bounded poll over a process that outlives the turn).
+  - `timeoutMs` / `maxTimeoutMs` — outer execution watchdog around each tool `run()`. Unset leaves the generic watchdog unarmed; set these to arm it. `maxTimeoutMs` clamps non-shell tools when set and does not cap a longer requested `run_shell`. Foreground `run_shell` always arms at the effective shell timeout (120s default, `settings.shell.timeoutMs` override, or per-call) plus 1000ms slack. Fleet wait tools are exempt: a dispatched sub-agent is bounded by stall, opt-in `deadlineMs`, and operator cancel, not the generic per-tool budget. Background shell is exempt too: a `run_shell` with `background: true` arms nothing (only a per-call timeout bounds the process; there is no 120s default) and `shell_collect` never arms (a bounded poll over a process that outlives the turn).
   - `waitForApproval` (default **true** when unset) — freeze that budget while a permission prompt is open so a late approve still runs the tool. **Settings → Tools** toggles this live for the next tool call and persists it here. When **false**, the budget keeps ticking during the prompt; on expiry the tool is skipped and the modal is auto-dismissed. The freeze is bounded: after **30 minutes** with the prompt still unanswered the budget resumes ticking on its own, so a prompt that never becomes visible (overlay open, UI gone) cannot hang a tool run indefinitely.
 
   Optional `mcp` block bounds MCP tool calls (`mcp__*` names) specifically — unlike `tools.*`, this arms **unconditionally** even with no settings at all, defaulting to **5 minutes**, since a wedged MCP server otherwise hangs a call forever with nothing to bound it (CL-6895):
@@ -305,6 +317,8 @@ All `tools.*` keys live in the global settings file only — there is no per-rep
 | `tools.maxTimeoutMs`    | unset                                      | Cap on the outer budget when set; does not cap a longer requested `run_shell`                                                                          |
 | `tools.waitForApproval` | `true`                                     | Freeze the budget while a permission prompt is open (freeze capped at 30 min); `false` keeps the clock ticking and auto-dismisses the prompt on expiry |
 | `mcp.timeoutMs`         | **300000** (5 min) — armed even when unset | Outer wall-clock budget for `mcp__*` tool calls specifically; capped by `tools.maxTimeoutMs` when set                                                  |
+| `shell.timeoutMs`       | **120000** (2 min) foreground default      | Foreground `run_shell` bound when the call omits `timeout`; background has no default; a per-call `timeout` is the bound with no ceiling               |
+| `shell.maxTimeoutMs`    | unset                                      | Clamps the foreground default path only; does not clamp a per-call `run_shell` timeout                                                                 |
 
 The `waitForApproval` default is resolved once at the watchdog boundary (`resolveWaitForApproval`); toggling **Settings → Tools** updates the live config for the next tool call and persists the value here.
 

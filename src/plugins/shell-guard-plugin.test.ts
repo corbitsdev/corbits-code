@@ -18,6 +18,8 @@ import {
   SHELL_FEED_EMIT_MS,
   advertiseShellGuardTimeout,
   resolveShellTimeoutMs,
+  formatShellTimeoutNotice,
+  DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS,
   reapLiveChildren,
   runGuardedShell,
   shellGuardPlugin,
@@ -203,50 +205,112 @@ describe("runGuardedShell", () => {
 });
 
 describe("resolveShellTimeoutMs", () => {
-  test("omitted timeout with no default is undefined (no timer)", () => {
-    expect(resolveShellTimeoutMs(undefined, undefined)).toBeUndefined();
+  test("omitted foreground timeout is 120s", () => {
     expect(
-      resolveShellTimeoutMs(undefined, undefined, undefined),
-    ).toBeUndefined();
-  });
-
-  test("maxMs alone does not invent a timeout", () => {
-    expect(resolveShellTimeoutMs(undefined, undefined, 100)).toBeUndefined();
-    expect(
-      resolveShellTimeoutMs(undefined, undefined, 600_000),
-    ).toBeUndefined();
-  });
-
-  test("non-positive requested timeout falls back to default when set", () => {
-    expect(resolveShellTimeoutMs(0, 15_000)).toBe(15_000);
-    expect(resolveShellTimeoutMs(-1, 15_000)).toBe(15_000);
-  });
-
-  test("non-positive requested with no default is undefined", () => {
-    expect(resolveShellTimeoutMs(0, undefined)).toBeUndefined();
-    expect(resolveShellTimeoutMs(-1, undefined)).toBeUndefined();
-  });
-
-  test("requested timeout well above 10 minutes is not clamped when maxMs is omitted", () => {
-    expect(resolveShellTimeoutMs(5_400_000, undefined)).toBe(5_400_000);
-    expect(resolveShellTimeoutMs(5_400_000, undefined, undefined)).toBe(
-      5_400_000,
+      resolveShellTimeoutMs({ requested: undefined, background: false }),
+    ).toBe(DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS);
+    expect(resolveShellTimeoutMs({ requested: 0, background: false })).toBe(
+      DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS,
     );
-    expect(resolveShellTimeoutMs(900_000, 15_000)).toBe(900_000);
+    expect(resolveShellTimeoutMs({ requested: -1, background: false })).toBe(
+      DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS,
+    );
   });
 
-  test("configured maxMs still clamps a resolved timeout", () => {
-    expect(resolveShellTimeoutMs(900_000, undefined, 100)).toBe(100);
-    expect(resolveShellTimeoutMs(5_400_000, 15_000, 600_000)).toBe(600_000);
-    expect(resolveShellTimeoutMs(undefined, 15_000, 100)).toBe(100);
+  test("maxMs clamps only the foreground default path", () => {
+    expect(
+      resolveShellTimeoutMs({
+        requested: undefined,
+        background: false,
+        maxMs: 100,
+      }),
+    ).toBe(100);
+    expect(
+      resolveShellTimeoutMs({
+        requested: undefined,
+        background: false,
+        defaultMs: 15_000,
+        maxMs: 100,
+      }),
+    ).toBe(100);
+    expect(
+      resolveShellTimeoutMs({
+        requested: undefined,
+        background: false,
+        defaultMs: 120_000,
+        maxMs: 60_000,
+      }),
+    ).toBe(60_000);
   });
 
-  test("requested below maxMs is unchanged", () => {
-    expect(resolveShellTimeoutMs(1_000, undefined, 600_000)).toBe(1_000);
+  test("per-call timeout is not clamped by maxMs", () => {
+    expect(
+      resolveShellTimeoutMs({
+        requested: 5_000,
+        background: false,
+        maxMs: 100,
+      }),
+    ).toBe(5_000);
+    expect(
+      resolveShellTimeoutMs({
+        requested: 3_600_000,
+        background: false,
+        defaultMs: 120_000,
+        maxMs: 100,
+      }),
+    ).toBe(3_600_000);
+    expect(
+      resolveShellTimeoutMs({
+        requested: 5_400_000,
+        background: false,
+        defaultMs: 15_000,
+        maxMs: 600_000,
+      }),
+    ).toBe(5_400_000);
   });
 
-  test("settings defaultMs applies when request is omitted", () => {
-    expect(resolveShellTimeoutMs(undefined, 90)).toBe(90);
+  test("background omitted timeout is undefined even when defaultMs is 90", () => {
+    expect(
+      resolveShellTimeoutMs({
+        requested: undefined,
+        background: true,
+        defaultMs: 90,
+        maxMs: 50,
+      }),
+    ).toBeUndefined();
+  });
+
+  test("background per-call timeout is the bound with no clamp", () => {
+    expect(
+      resolveShellTimeoutMs({
+        requested: 5_000,
+        background: true,
+        defaultMs: 120_000,
+        maxMs: 100,
+      }),
+    ).toBe(5_000);
+  });
+
+  test("settings defaultMs overrides the 120s foreground default", () => {
+    expect(
+      resolveShellTimeoutMs({
+        requested: undefined,
+        background: false,
+        defaultMs: 90,
+      }),
+    ).toBe(90);
+  });
+});
+
+describe("formatShellTimeoutNotice", () => {
+  test("keeps the terminated marker and nudges background:true", () => {
+    const notice = formatShellTimeoutNotice(120_000);
+    expect(notice).toContain(
+      "[command timed out after 120000ms and was terminated]",
+    );
+    expect(notice).toContain(
+      "Retry with background:true for long-running commands (builds, tests, dev servers); completion arrives as a later-turn system message, and shell_collect collects or cancels.",
+    );
   });
 });
 
@@ -342,6 +406,35 @@ describe("background run_shell (shellGuardPlugin)", () => {
     registry.disposeAll("test done");
   });
 
+  test("background omitted timeout skips the foreground default", async () => {
+    const registry = createBackgroundShellRegistry();
+    const handler = defined(
+      shellGuardPlugin(process.cwd(), { defaultMs: 90 }, undefined, {
+        getBackgroundShellRegistry: () => registry,
+      }).middleware,
+    )(fallback);
+    const result = await handler(
+      {
+        id: "bg-nt",
+        name: "run_shell",
+        arguments: {
+          command: "sleep 0.2; echo survived",
+          background: true,
+        },
+      },
+      neverAbort(),
+    );
+    expect(result.isError).toBeUndefined();
+    const parsed = JSON.parse(String(result.content)) as { shell_id: string };
+    const snapshot = await registry.collect(parsed.shell_id, 5_000);
+    expect(snapshot.state).toBe("completed");
+    if (snapshot.state === "completed") {
+      expect(snapshot.exit.timedOut).toBe(false);
+      expect(snapshot.exit.output).toContain("survived");
+    }
+    registry.disposeAll("test done");
+  });
+
   test("an unwired shell-output feed spawns fine and paints no tail", async () => {
     const handler = defined(
       shellGuardPlugin(process.cwd(), undefined, undefined, {}).middleware,
@@ -431,9 +524,12 @@ describe("advertiseShellGuardTimeout", () => {
     )["timeout"];
     expect(timeout?.description).toContain("120000");
     expect(timeout?.description).not.toContain("30000");
+    expect((timeout as { default?: number } | undefined)?.default).toBe(
+      120_000,
+    );
   });
 
-  test("advertises no default when settings default is unset", () => {
+  test("advertises default 120000 when settings default is unset", () => {
     const rewritten = advertiseShellGuardTimeout({
       name: "run_shell",
       description: "Execute a shell command",
@@ -452,12 +548,14 @@ describe("advertiseShellGuardTimeout", () => {
     const timeout = (
       rewritten.inputSchema["properties"] as Record<
         string,
-        { description: string }
+        { description: string; default?: number }
       >
     )["timeout"];
-    expect(timeout?.description).toMatch(/no default|omit/i);
+    expect(timeout?.description).toContain("120000");
+    expect(timeout?.default).toBe(120_000);
     expect(timeout?.description).not.toContain("30000");
     expect(timeout?.description).not.toContain("15000");
+    expect(timeout?.description).not.toMatch(/no default|omit/i);
   });
 
   test("leaves other tools unchanged", () => {
@@ -542,21 +640,25 @@ describe("shellGuardPlugin", () => {
     expect(result.isError).toBeUndefined();
     expect(result.content).toContain("before");
     expect(result.content).toMatch(/timed out after 120ms and was terminated/);
+    expect(result.content).toContain("background:true");
   });
 
-  test("clamps a per-command timeout override to the configured max", async () => {
+  test("does not clamp a per-command timeout override to the configured max", async () => {
     const handler = defined(
-      shellGuardPlugin(process.cwd(), { maxMs: 100 }).middleware,
+      shellGuardPlugin(process.cwd(), { maxMs: 50 }).middleware,
     )(fallback);
+    const start = Date.now();
     const result = await handler(
       {
         id: "c2b",
         name: "run_shell",
-        arguments: { command: "sleep 60", timeout: 900_000 },
+        arguments: { command: "sleep 0.15; echo ok", timeout: 5_000 },
       },
       neverAbort(),
     );
-    expect(result.content).toMatch(/timed out after 100ms/);
+    expect(result.content).toContain("ok");
+    expect(String(result.content)).not.toMatch(/timed out/);
+    expect(Date.now() - start).toBeGreaterThan(100);
   });
 
   test("applies a configured default timeout when none is passed", async () => {
@@ -570,7 +672,7 @@ describe("shellGuardPlugin", () => {
     expect(result.content).toMatch(/timed out after 90ms/);
   });
 
-  test("omitted timeout with no settings default does not time out", async () => {
+  test("omitted timeout with no settings default still completes a short command", async () => {
     const handler = defined(shellGuardPlugin(process.cwd()).middleware)(
       fallback,
     );
@@ -586,7 +688,7 @@ describe("shellGuardPlugin", () => {
     expect(String(result.content)).not.toMatch(/timed out/);
   });
 
-  test("maxMs alone does not invent a timeout when the model omits timeout", async () => {
+  test("maxMs clamps the foreground default when the model omits timeout", async () => {
     const handler = defined(
       shellGuardPlugin(process.cwd(), { maxMs: 50 }).middleware,
     )(fallback);
@@ -594,12 +696,12 @@ describe("shellGuardPlugin", () => {
       {
         id: "c2e",
         name: "run_shell",
-        arguments: { command: "sleep 0.2; echo ok" },
+        arguments: { command: "sleep 60" },
       },
       neverAbort(),
     );
-    expect(result.content).toContain("ok");
-    expect(String(result.content)).not.toMatch(/timed out/);
+    expect(result.content).toMatch(/timed out after 50ms/);
+    expect(result.content).toContain("background:true");
   });
 
   test("passes non-shell tools through", async () => {

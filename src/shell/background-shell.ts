@@ -138,6 +138,8 @@ export function createBackgroundShellRegistry(
     child.stdout?.on("data", (chunk: Buffer) => collector.append(chunk));
     child.stderr?.on("data", (chunk: Buffer) => collector.append(chunk));
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Per-call timeout only — background has no 120s default. Cancel reuses
+    // killProcessTree (same path as shell_collect action=cancel).
     if (args.timeoutMs !== undefined && args.timeoutMs > 0) {
       timer = setTimeout(() => {
         killProcessTree(child);

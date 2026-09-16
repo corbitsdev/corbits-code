@@ -12,6 +12,7 @@ import {
 export { withTimeout };
 import { isMcpToolName } from "../mcp/tool-name.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
+import { resolveShellTimeoutMs } from "../plugins/shell-guard-plugin.js";
 
 /** Wall-clock budget for a single tool `run()` invocation (outer guard). */
 export interface ToolWatchdogConfig {
@@ -31,6 +32,16 @@ export interface ToolWatchdogConfig {
    * changes the bound, it never leaves it unarmed.
    */
   mcpTimeoutMs?: number;
+  /**
+   * settings.shell.timeoutMs override of the 120s foreground run_shell default.
+   * Does not apply to background starts.
+   */
+  shellDefaultMs?: number;
+  /**
+   * settings.shell.maxTimeoutMs — clamps the foreground default path only;
+   * a per-call run_shell timeout is not capped.
+   */
+  shellMaxMs?: number;
   /**
    * Override the post-abort salvage grace for runs dispatched through a
    * runner built from this config. Production never sets it, keeping the
@@ -76,10 +87,11 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
  * Wall-clock budget for one tool `run()`, or undefined to leave the timer unarmed.
  * Parent cancel and eval `--agent-timeout-ms` still bound the run.
  *
- * Arms only when Settings pass tools.timeoutMs / tools.maxTimeoutMs, or when
- * run_shell passes a positive arguments.timeout (requested + slack so this
- * layer cannot beat shell-guard). A requested run_shell timeout is not clamped
- * to MAX_TOOL_EXECUTION_TIMEOUT_MS or tools.maxTimeoutMs.
+ * Arms only when Settings pass tools.timeoutMs / tools.maxTimeoutMs, when
+ * foreground run_shell has an effective timeout (120s default or per-call,
+ * plus slack so this layer cannot beat shell-guard), or for mcp__* calls.
+ * A requested run_shell timeout is not clamped to MAX_TOOL_EXECUTION_TIMEOUT_MS
+ * or tools.maxTimeoutMs.
  *
  * spawn_agent returns immediately; wait_agents and ask_director are the long
  * blocks. All three are exempt: wait_agents can outlast settings.tools.timeoutMs
@@ -88,6 +100,8 @@ export const MAX_TOOL_APPROVAL_PAUSE_MS = 1_800_000;
  * dispatch that should return at once (or a worker that carries its own bound).
  * ask_director is a long block awaiting the director; aborting it cancels the
  * pending ask so later send_input steers instead of answering.
+ * shell_collect and run_shell background:true stay exempt: start returns at
+ * once and collect is a bounded poll over a process that outlives the turn.
  *
  * mcp__* tool calls are the opposite of exempt: they arm unconditionally (see
  * resolveMcpToolTimeoutMs) even when no Settings are configured, because an
@@ -114,8 +128,16 @@ export function resolveToolExecutionTimeoutMs(
     // abort mid-run. The process's own timeout still bounds it.
     if (call.arguments.background === true) return undefined;
     const requested = requestedRunShellTimeoutMs(call);
-    if (requested !== undefined) {
-      return requested + RUN_SHELL_WATCHDOG_SLACK_MS;
+    const effective = resolveShellTimeoutMs({
+      requested,
+      background: false,
+      ...(config?.shellDefaultMs !== undefined
+        ? { defaultMs: config.shellDefaultMs }
+        : {}),
+      ...(config?.shellMaxMs !== undefined ? { maxMs: config.shellMaxMs } : {}),
+    });
+    if (effective !== undefined) {
+      return effective + RUN_SHELL_WATCHDOG_SLACK_MS;
     }
   }
   if (call !== undefined && isMcpToolName(call.name)) {

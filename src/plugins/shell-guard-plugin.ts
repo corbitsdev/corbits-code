@@ -32,10 +32,14 @@ import {
 export const SHELL_FEED_EMIT_MS = 100;
 
 // We do not patch interchange: this middleware short-circuits run_shell and
-// enforces an optional timeout (no built-in default — match Pi), an
+// enforces a 120s foreground default (per-call timeout overrides with no
+// ceiling; background has no default), an
 // output-byte cap, and process-group kill so open-ended walks cannot OOM the host.
 
 export const MAX_SHELL_OUTPUT_BYTES = 512_000;
+
+/** Foreground run_shell bound when the call omits timeout and settings do not override. */
+export const DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS = 120_000;
 
 export interface ShellTimeoutConfig {
   defaultMs?: number;
@@ -44,30 +48,42 @@ export interface ShellTimeoutConfig {
 }
 
 /**
- * Effective run_shell timeout. Omitting `requested` (or a non-positive value)
- * uses `defaultMs` when set; otherwise returns undefined (no timer). `maxMs`
- * clamps only a resolved timeout — it alone does not invent one. There is no
- * implicit 10-minute ceiling and no built-in 15s/2m default.
+ * Effective run_shell timeout.
+ *
+ * 1. Background: a positive `requested` is the bound with no maxMs clamp;
+ *    omitted → undefined (ignore defaultMs and the 120s built-in).
+ * 2. Foreground: a positive `requested` is the bound with no maxMs clamp.
+ * 3. Else base = defaultMs > 0 ? defaultMs : 120_000; maxMs clamps only this
+ *    default path.
  */
-export function resolveShellTimeoutMs(
-  requested: number | undefined,
-  defaultMs: number | undefined,
-  maxMs?: number,
-): number | undefined {
-  const fromRequest =
-    requested !== undefined && requested > 0 ? requested : undefined;
-  const fromDefault =
-    defaultMs !== undefined && defaultMs > 0 ? defaultMs : undefined;
-  const base = fromRequest ?? fromDefault;
-  if (base === undefined) return undefined;
-  if (maxMs === undefined) return base;
+export function resolveShellTimeoutMs(args: {
+  requested: number | undefined;
+  background: boolean;
+  defaultMs?: number;
+  maxMs?: number;
+}): number | undefined {
+  if (args.requested !== undefined && args.requested > 0) return args.requested;
+  if (args.background) return undefined;
+  const base =
+    args.defaultMs !== undefined && args.defaultMs > 0
+      ? args.defaultMs
+      : DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS;
+  const maxMs = args.maxMs;
+  if (maxMs === undefined || maxMs <= 0) return base;
   return Math.min(base, maxMs);
 }
 
+export function formatShellTimeoutNotice(timeoutMs: number): string {
+  return (
+    `[command timed out after ${timeoutMs}ms and was terminated]\n` +
+    `Retry with background:true for long-running commands (builds, tests, dev servers); completion arrives as a later-turn system message, and shell_collect collects or cancels.`
+  );
+}
+
 /**
- * Stock tools-posix still advertises timeout default 30000. Shell-guard has no
- * built-in default; rewrite the definition the model sees so schema and behavior
- * agree. When settings supply defaultMs, advertise that. Corbits Code-only —
+ * Stock tools-posix still advertises timeout default 30000. Shell-guard's
+ * foreground default is 120s (settings.shell.timeoutMs overrides); rewrite the
+ * definition the model sees so schema and behavior agree. Corbits Code-only —
  * does not patch interchange.
  */
 export function advertiseShellGuardTimeout(
@@ -84,17 +100,19 @@ export function advertiseShellGuardTimeout(
   const timeout = properties["timeout"];
   const cwdProp = properties["cwd"];
   const nextProperties = { ...properties };
+  const advertisedDefault =
+    defaultMs !== undefined && defaultMs > 0
+      ? defaultMs
+      : DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS;
   if (
     timeout !== undefined &&
     typeof timeout === "object" &&
     timeout !== null
   ) {
-    const hasDefault = defaultMs !== undefined && defaultMs > 0;
     nextProperties["timeout"] = {
       ...(timeout as Record<string, unknown>),
-      description: hasDefault
-        ? `Timeout in milliseconds (default: ${defaultMs})`
-        : "Timeout in milliseconds (optional; omit for no default timeout)",
+      description: `Timeout in milliseconds (default: ${advertisedDefault})`,
+      default: advertisedDefault,
     };
   }
   if (cwdProp === undefined) {
@@ -290,7 +308,8 @@ export async function runGuardedShell(
     throw new Error("run_shell refused: shell guard disposed");
   }
 
-  // Arm setTimeout only when a positive timeout was resolved. No built-in default.
+  // Arm setTimeout only when a positive timeout was resolved. The plugin
+  // supplies the 120s foreground default; this primitive does not invent one.
   const timeoutMs =
     args.timeout !== undefined && args.timeout > 0 ? args.timeout : undefined;
   const outputCap = args.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
@@ -477,8 +496,8 @@ export function shellGuardPlugin(
   env?: Record<string, string>,
   options: ShellGuardPluginOptions = {},
 ): ToolPlugin {
-  // No built-in default — only settings.shell.timeoutMs (or a per-call timeout)
-  // arms a timer. maxMs alone does not invent one.
+  // Foreground: 120s built-in default unless settings.shell.timeoutMs overrides.
+  // Background: no default; only a positive per-call timeout arms a timer.
   const defaultMs = timeoutConfig?.defaultMs;
   const maxOutputBytes =
     timeoutConfig?.maxOutputBytes ?? MAX_SHELL_OUTPUT_BYTES;
@@ -554,11 +573,14 @@ export function shellGuardPlugin(
             };
           }
           const requested = optionalNumber(call.arguments.timeout);
-          const effectiveTimeout = resolveShellTimeoutMs(
+          const effectiveTimeout = resolveShellTimeoutMs({
             requested,
-            defaultMs,
-            timeoutConfig?.maxMs,
-          );
+            background: call.arguments.background === true,
+            ...(defaultMs !== undefined ? { defaultMs } : {}),
+            ...(timeoutConfig?.maxMs !== undefined
+              ? { maxMs: timeoutConfig.maxMs }
+              : {}),
+          });
           if (call.arguments.background === true) {
             const registry = options.getBackgroundShellRegistry?.();
             if (registry === undefined) {
@@ -641,7 +663,7 @@ export function shellGuardPlugin(
                 `Capture full output by redirecting to a file in the workspace, then read_file or grep.]`;
             }
             if (timedOut) {
-              content = `${content}${content.length > 0 ? "\n" : ""}[command timed out after ${effectiveTimeout}ms and was terminated]`;
+              content = `${content}${content.length > 0 ? "\n" : ""}${formatShellTimeoutNotice(effectiveTimeout ?? 0)}`;
             }
             return { callId: call.id, content };
           } catch (err) {

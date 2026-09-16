@@ -182,8 +182,8 @@ export interface AgentToolsetArgs {
   // never rediscovers.
   skills?: readonly SkillSummary[];
   // Shell command timeout default/cap, resolved from settings. When omitted the
-  // shell-guard plugin arms no default timeout (per-call timeout or settings
-  // shell.timeoutMs required to bound a command).
+  // shell-guard plugin applies the 120s foreground default (per-call timeout
+  // overrides with no ceiling; background has no default).
   shellTimeout?: ShellTimeoutConfig;
   // Outer per-invocation tool run budget (dynamic runner). When omitted built-in
   // defaults apply.
@@ -509,8 +509,8 @@ export async function createAgentToolset(
   // (which has no manage_tasks handler to forward to).
   const runManageTasks = createManageTasksRunner();
 
-  // Align the advertised run_shell timeout with shell-guard (no built-in default;
-  // advertise settings.shell.timeoutMs when set).
+  // Align the advertised run_shell timeout with shell-guard (120s foreground
+  // default; advertise settings.shell.timeoutMs when set).
   // Orchestrator tools (search / trace / fleet) are assembled once so the fleet
   // verbs share one sessions store — never a private mailbox allocated only for
   // spawn_agent/wait_agents.

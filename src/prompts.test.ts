@@ -66,6 +66,7 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(facts).toContain("Spawn builder");
   expect(facts).not.toContain("not mounted on the primary Skywalker session");
   expect(facts).toContain("blocked");
+  expect(facts).toContain("120s foreground timeout");
   expect(facts).toContain("no default timeout");
   expect(facts).toContain("find, rg, and grep -r");
   expect(facts).toMatch(/OOM the host/);

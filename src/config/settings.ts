@@ -135,11 +135,10 @@ export interface Settings {
   // back to whatever the user's main session is currently using so the agent
   // still runs; "none" treats it as a hard error and the profile fails to load.
   agentModelFallback?: "active" | "none";
-  // Shell command timeouts. `timeoutMs` is the optional default applied when the
-  // model does not pass a per-command timeout (unset = no default timeout, match
-  // Pi). `maxTimeoutMs` clamps a resolved timeout only — it alone does not invent
-  // one. A single command with neither settings default nor a per-call timeout
-  // runs until exit, abort, or the outer tool watchdog (when configured).
+  // Shell command timeouts. `timeoutMs` overrides the 120s foreground
+  // run_shell default when the model omits a per-command timeout. Background
+  // run_shell has no default. `maxTimeoutMs` clamps that default path only —
+  // a positive per-call timeout is the bound with no ceiling.
   shell?: { timeoutMs?: number; maxTimeoutMs?: number };
   // Outer wall-clock budget for each tool `run()` (dynamic runner / agent dispatch).
   //
@@ -280,7 +279,9 @@ export function listFavoriteModels(settings: Settings): ModelRef[] {
 }
 
 // Maps the settings shell block to the shape the shell-guard plugin expects.
-// Returns undefined when unset so the plugin arms no default timeout.
+// Returns undefined when unset so the plugin applies the 120s foreground
+// default itself. timeoutMs overrides that default; maxTimeoutMs clamps the
+// default path only.
 export function shellTimeoutFromSettings(
   settings?: Settings | null,
 ): { defaultMs?: number; maxMs?: number } | undefined {
@@ -302,14 +303,21 @@ export function toolWatchdogFromSettings(settings?: Settings | null):
       maxMs?: number;
       waitForApproval?: boolean;
       mcpTimeoutMs?: number;
+      shellDefaultMs?: number;
+      shellMaxMs?: number;
     }
   | undefined {
   const tools = settings?.tools;
   const mcpTimeoutMs = settings?.mcp?.timeoutMs;
+  const shellDefaultMs = settings?.shell?.timeoutMs;
+  const shellMaxMs = settings?.shell?.maxTimeoutMs;
   const hasTimeout =
     tools?.timeoutMs !== undefined || tools?.maxTimeoutMs !== undefined;
   const hasWait = tools?.waitForApproval !== undefined;
-  if (!hasTimeout && !hasWait && mcpTimeoutMs === undefined) return undefined;
+  const hasShell = shellDefaultMs !== undefined || shellMaxMs !== undefined;
+  if (!hasTimeout && !hasWait && mcpTimeoutMs === undefined && !hasShell) {
+    return undefined;
+  }
   return {
     ...(tools?.timeoutMs !== undefined ? { defaultMs: tools.timeoutMs } : {}),
     ...(tools?.maxTimeoutMs !== undefined ? { maxMs: tools.maxTimeoutMs } : {}),
@@ -317,6 +325,8 @@ export function toolWatchdogFromSettings(settings?: Settings | null):
       ? { waitForApproval: tools.waitForApproval }
       : {}),
     ...(mcpTimeoutMs !== undefined ? { mcpTimeoutMs } : {}),
+    ...(shellDefaultMs !== undefined ? { shellDefaultMs } : {}),
+    ...(shellMaxMs !== undefined ? { shellMaxMs } : {}),
   };
 }
 

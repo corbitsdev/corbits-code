@@ -428,7 +428,7 @@ describe("buildCorePosixToolPlugins", () => {
       });
       const shellGuardIndex = findMiddlewareIndex(
         plugins,
-        "[command timed out after",
+        "formatShellTimeoutNotice",
       );
       const archiveIndex = findMiddlewareIndex(
         plugins,
