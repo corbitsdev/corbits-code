@@ -1679,6 +1679,45 @@ describe("CL-7919 coordinator shape", () => {
     expect(text).not.toContain("42");
   });
 
+  // An empty step id is the same class of invalid as a non-string: never
+  // interpolate it into the submit_output clause.
+  test("an empty step id falls back to the generic submit_output clause", async () => {
+    const director = createChatDirector("base-prompt", [], {});
+    director.setWorkflowCoordinator({
+      directive: () => "do the thing",
+      isActive: () => true,
+      currentStepIsGate: () => false,
+      currentStepId: () => "",
+      handleToolDone: () => false,
+    } as unknown as WorkflowCoordinator);
+    const actions = actionsArray(
+      await director.decide(
+        {
+          type: "inference.done",
+          turn: {
+            role: "assistant",
+            model: "test",
+            timestamp: 0,
+            content: [{ type: "text", text: "all set" }],
+          },
+          usage: {
+            input: 10,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            thinking: 0,
+          },
+          source: { model: "test-model" },
+        } as unknown as ReactorInboundEvent,
+        mockState,
+        capabilitiesWithInferArgs,
+      ),
+    );
+    const text = inferEphemeralText(actions.find((a) => a.type === "infer"));
+    expect(text).toContain("call submit_output with this step's id now");
+    expect(text).not.toContain('{ "step": "" }');
+  });
+
   // An empty directive is absent guidance: no ephemeral turn is appended
   // and the turn resolves as plain inference.
   test("an empty-string directive resolves as plain inference", async () => {
