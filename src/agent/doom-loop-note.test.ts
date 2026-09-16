@@ -24,6 +24,21 @@ test("the note offers both escape hatches and the consequence", () => {
   expect(note).toMatch(/ends this run/i);
 });
 
+test("the note offers an on-wire switch before the tool_search fallback", () => {
+  const note = createDoomLoopCorrectiveNote(() => [
+    "manage_tasks",
+    "read_file",
+    "run_shell",
+  ])(repeat);
+  // First escape names a non-looped tool already on the wire...
+  expect(note).toMatch(/already on the wire instead \(for example read_file\)/);
+  // ...positioned ahead of the tool_search / reply-to-operator fallback.
+  expect(note.indexOf("for example read_file")).toBeLessThan(
+    note.indexOf("tool_search"),
+  );
+  expect(note).toMatch(/reply to the operator/i);
+});
+
 test("the note reads the wire list lazily per invocation", () => {
   let wire: string[] = ["read_file"];
   const builder = createDoomLoopCorrectiveNote(() => wire);
