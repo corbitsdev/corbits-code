@@ -214,8 +214,9 @@ export function resolveExecDirectorOverlay(
 
 /**
  * Single enforcement point for the exec allowlist. Everything the overlay
- * permits — tool_search results, promoter activation, the call gate — flows
- * through here, so a tool outside the allow can never become callable.
+ * permits — tool_search results, promoter activation, onToolsActivate, the
+ * call gate — flows through here, so a tool outside the allow can never
+ * become callable.
  */
 export function isExecOverlayToolAllowed(
   overlay: ExecDirectorOverlay,
@@ -840,16 +841,15 @@ export async function runExec(config: Config): Promise<ExecResult> {
         );
       }
     };
-    agentToolset.setToolPromoter(
-      createExecToolPromoter({
-        activate: (names) => activatedToolNames.activate(names),
-        isAllowed: (name) => isExecOverlayToolAllowed(overlay, name),
-        persist: () => {
-          void persist("running");
-        },
-        commitWire: commitPromotedWire,
-      }),
-    );
+    const promoteAndCommitWire = createExecToolPromoter({
+      activate: (names) => activatedToolNames.activate(names),
+      isAllowed: (name) => isExecOverlayToolAllowed(overlay, name),
+      persist: () => {
+        void persist("running");
+      },
+      commitWire: commitPromotedWire,
+    });
+    agentToolset.setToolPromoter(promoteAndCommitWire);
 
     const workflowHost = new WorkflowHost({
       cwd: config.cwd,
@@ -941,10 +941,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
               tasks: tasks.map((t) => `${t.status}:${t.title}`).join(", "),
             });
           },
-          onToolsActivate: (names) => {
-            if (!activatedToolNames.activate(names)) return;
-            commitPromotedWire();
-          },
+          onToolsActivate: (names) => promoteAndCommitWire(names),
         },
         (message, fields) => logger.debug(message, fields),
       );
