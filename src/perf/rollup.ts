@@ -7,6 +7,7 @@
  */
 
 import type { PerfSpan, SpanName } from "./index.js";
+import { compareSpanStart } from "./index.js";
 
 /** Per-phase aggregate: total wall under that name, count, and percentiles. */
 export interface PhaseSummary {
@@ -58,6 +59,42 @@ export function spanDurationNs(span: PerfSpan): number | undefined {
   if (d <= 0n) return 0;
   // Process-lifetime hrtime deltas stay well inside Number.MAX_SAFE_INTEGER.
   return Number(d);
+}
+
+/**
+ * Exclusive phase category for a span name. The name→bucket mapping lives
+ * here once; the rollup and attribution switches below branch on the category
+ * so bucket assignment cannot drift between the three sites.
+ */
+export type PerfCategory =
+  | "inference"
+  | "tool"
+  | "permissionWait"
+  | "subagent"
+  | "ttft"
+  | "stream"
+  | "transport"
+  | "other";
+
+export function classifyPerfCategory(name: SpanName): PerfCategory {
+  switch (name) {
+    case "inference":
+      return "inference";
+    case "tool":
+      return "tool";
+    case "permission.wait":
+      return "permissionWait";
+    case "subagent":
+      return "subagent";
+    case "inference.ttft":
+      return "ttft";
+    case "inference.stream":
+      return "stream";
+    case "adapter.transport":
+      return "transport";
+    default:
+      return "other";
+  }
 }
 
 function percentileNearestRank(
@@ -170,9 +207,7 @@ export function rollupByTurn(spans: readonly PerfSpan[]): TurnSummary[] {
   const turns = spans
     .filter((s) => s.name === "turn")
     .slice()
-    .sort((a, b) =>
-      a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0,
-    );
+    .sort(compareSpanStart);
 
   return turns.map((turn) => {
     let inferenceNs = 0;
@@ -183,7 +218,7 @@ export function rollupByTurn(spans: readonly PerfSpan[]): TurnSummary[] {
 
     walkDescendants(turn.id, byParent, (child) => {
       const dur = spanDurationNs(child) ?? 0;
-      switch (child.name) {
+      switch (classifyPerfCategory(child.name)) {
         case "inference":
           inferenceNs += dur;
           break;
@@ -191,10 +226,10 @@ export function rollupByTurn(spans: readonly PerfSpan[]): TurnSummary[] {
           toolNs += dur;
           toolCount += 1;
           break;
-        case "inference.ttft":
+        case "ttft":
           ttftNs += dur;
           break;
-        case "inference.stream":
+        case "stream":
           streamNs += dur;
           break;
         default:
@@ -246,7 +281,7 @@ export function sessionTotals(spans: readonly PerfSpan[]): SessionTotals {
   if (turns.length === 0) {
     for (const span of spans) {
       const dur = spanDurationNs(span) ?? 0;
-      switch (span.name) {
+      switch (classifyPerfCategory(span.name)) {
         case "inference":
           totalInferenceNs += dur;
           break;
@@ -254,10 +289,10 @@ export function sessionTotals(spans: readonly PerfSpan[]): SessionTotals {
           totalToolNs += dur;
           totalToolCount += 1;
           break;
-        case "inference.ttft":
+        case "ttft":
           totalTtftNs += dur;
           break;
-        case "inference.stream":
+        case "stream":
           totalStreamNs += dur;
           break;
         default:

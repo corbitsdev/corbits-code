@@ -16,7 +16,8 @@ export function normalizeToolOutputUri(path: string): string {
 
 /** Normalized tool-output URI with a non-empty callId, or undefined when not applicable. */
 export function canonicalToolOutputUri(path: string): string | undefined {
-  if (!isToolOutputLike(path)) return undefined;
+  // No isToolOutputLike gate here: a non-like path normalizes to itself and
+  // fails the prefix check below, so the outer guard would be redundant.
   const normalized = normalizeToolOutputUri(path);
   if (!normalized.startsWith("tool-output:///")) return undefined;
   const callId = normalized.slice("tool-output:///".length);

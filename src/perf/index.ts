@@ -32,6 +32,10 @@ import {
  * Snapshot the process-wide ring and POST to the operator OTLP collector when
  * export is enabled. Zero network when disabled. Never throws.
  * Cadence: call on session/process exit (wired from main).
+ *
+ * Single passthrough: the span source is explicit `spans` first, then a
+ * caller-supplied `getSpans`, then the process-wide snapshot — the same
+ * priority the three-branch version enforced.
  */
 export async function flushPerfToOtel(
   settings?: Settings | null,
@@ -39,15 +43,10 @@ export async function flushPerfToOtel(
   options: FlushPerfToOtelOptions = {},
 ): Promise<void> {
   const { spans, getSpans, ...rest } = options;
-  if (spans !== undefined) {
-    await flushPerfToOtelImpl(settings, env, { ...rest, spans });
-    return;
-  }
-  if (getSpans !== undefined) {
-    await flushPerfToOtelImpl(settings, env, { ...rest, getSpans });
-    return;
-  }
-  await flushPerfToOtelImpl(settings, env, { ...rest, getSpans: snapshot });
+  await flushPerfToOtelImpl(settings, env, {
+    ...rest,
+    getSpans: spans !== undefined ? () => spans : (getSpans ?? snapshot),
+  });
 }
 
 /** Core + adapter phase names. Adapters extend; they do not invent new sinks. */
@@ -76,6 +75,11 @@ export interface PerfSpan {
   startNs: bigint;
   endNs?: bigint;
   tags?: PerfTags;
+}
+
+/** Ascending start-time order for span snapshots (stable, total on ties). */
+export function compareSpanStart(a: PerfSpan, b: PerfSpan): number {
+  return a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0;
 }
 
 export interface StartOptions {
@@ -259,9 +263,7 @@ export function snapshot(): PerfSpan[] {
 
   const open = [...openSpans.values()].map(cloneSpan);
   // Stable order by start time so tests and dumps are deterministic.
-  open.sort((a, b) =>
-    a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0,
-  );
+  open.sort(compareSpanStart);
   return completed.concat(open);
 }
 
