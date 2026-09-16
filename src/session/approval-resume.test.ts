@@ -203,6 +203,40 @@ describe("approval-resume parallel-parked approvals", () => {
     expect(delivered).toHaveLength(0);
   });
 
+  test("history throw after the operator answers still delivers", async () => {
+    const turns = [
+      assistantTurn([
+        { id: "call-A", name: "run_shell", command: "echo alpha" },
+      ]),
+    ];
+    const delivered: InboundMessage[] = [];
+    let historyCalls = 0;
+    const resume = createApprovalResume({
+      getAgent: () =>
+        ({
+          history: async () => {
+            historyCalls += 1;
+            if (historyCalls > 1) throw new Error("history unavailable");
+            return turns;
+          },
+          deliver: (message: InboundMessage) => {
+            delivered.push(message);
+          },
+        }) as Pick<Agent, "deliver" | "history">,
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
+      resolveParkedCallId: () => "call-A",
+    });
+
+    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
+    expect(delivered).toHaveLength(1);
+    const message = delivered[0];
+    if (message === undefined) throw new Error("expected a delivered decision");
+    expect(deliveredCorrelationId(message)).toBe("corr-A");
+    expect(decisionBody(message).outcome).toBe("approved");
+  });
+
   test("pending-operation lookup identifies the parked call without history tool calls", async () => {
     const { resume, delivered } = setup({
       preTurns: [

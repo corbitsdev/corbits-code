@@ -171,6 +171,9 @@ export async function assembleTUISession(
 
   const correlationAcceptance = createCorrelationAcceptance();
   const parkedApprovalCancel = { fn: undefined as (() => void) | undefined };
+  const parkedOverlayAbort = {
+    controller: undefined as AbortController | undefined,
+  };
   const deliveryGeneration = createDeliveryGeneration(() => {
     parkedApprovalCancel.fn?.();
     correlationAcceptance.settleAll();
@@ -185,7 +188,13 @@ export async function assembleTUISession(
     requestApproval: createGateRequestApproval({
       emitGate: (event) => emitter.emit("permission.gate", event),
       approvalTimeout,
-      identitySignal: () => deliveryGeneration.signal(),
+      identitySignal: () => {
+        const identity = deliveryGeneration.signal();
+        const parked = parkedOverlayAbort.controller?.signal;
+        return parked === undefined
+          ? identity
+          : AbortSignal.any([identity, parked]);
+      },
     }),
     getActiveProviderModel: () =>
       `${state.config.providerName}:${state.config.model}`,
@@ -525,6 +534,9 @@ export async function assembleTUISession(
     onDropped: (text) => state.systemNotice?.(text),
     registerParkedCancel: (cancel) => {
       parkedApprovalCancel.fn = cancel;
+    },
+    registerOverlayAbort: (controller) => {
+      parkedOverlayAbort.controller = controller;
     },
     deliver: (message, stillCurrent) => {
       return sessionOps.enqueue(async () => {

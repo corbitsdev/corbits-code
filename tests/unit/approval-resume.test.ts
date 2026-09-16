@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { AgentClosedError, type SendResult } from "@intx/agent";
 import type { ConversationTurn, InboundMessage } from "@intx/types/runtime";
 
+import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../../src/permission/decline-markers.js";
 import {
   createPermissionGate,
   type PermissionGate,
@@ -51,7 +52,7 @@ function approvalTimedOutTurn(): ConversationTurn {
       {
         type: "tool_result",
         callId: "call-ask",
-        content: [{ type: "text", text: "approval timed out" }],
+        content: [{ type: "text", text: APPROVAL_TIMEOUT_RESULT_TEXT }],
       },
     ],
     timestamp: 0,
@@ -749,6 +750,89 @@ describe("approval resume occupancy until correlation", () => {
     expect(state.inFlight).toBe(1);
     generation.bump();
     await running;
+    expect(state.inFlight).toBe(0);
+  });
+});
+
+describe("approval resume overlay on reactor timeout", () => {
+  test("auto-abandons the overlay and unsticks occupancy when the parked call times out", async () => {
+    const parkedOverlayAbort = {
+      controller: undefined as AbortController | undefined,
+    };
+    const generation = createDeliveryGeneration();
+    const turns = [userTurn()];
+    let overlay: PermissionGateEvent | undefined;
+    let overlayReady: (() => void) | undefined;
+    const waitForOverlay = new Promise<void>((resolve) => {
+      overlayReady = resolve;
+    });
+    const requestApproval = createGateRequestApproval({
+      emitGate: (event) => {
+        overlay = event;
+        overlayReady?.();
+        event.signal?.addEventListener(
+          "abort",
+          () => {
+            event.resolve({
+              allow: false,
+              message:
+                typeof event.signal?.reason === "string"
+                  ? event.signal.reason
+                  : "aborted",
+            });
+          },
+          { once: true },
+        );
+        return true;
+      },
+      approvalTimeout: () => undefined,
+      identitySignal: () => {
+        const identity = generation.signal();
+        const parked = parkedOverlayAbort.controller?.signal;
+        if (parked === undefined) return identity;
+        return AbortSignal.any([identity, parked]);
+      },
+    });
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+      requestApproval,
+    });
+    const delivered: unknown[] = [];
+    const resume = createApprovalResume({
+      resolveParkedCallId: () => "call-ask",
+      getAgent: () => ({
+        deliver: (message: unknown) => delivered.push(message),
+        history: async () => turns,
+      }),
+      captureGeneration: generation.capture,
+      registerOverlayAbort: (controller) => {
+        parkedOverlayAbort.controller = controller;
+      },
+      parkedTimeoutPollMs: 5,
+      gate,
+    });
+    const state = {
+      inFlight: 0,
+      pendingReload: false,
+      reloadIfIdle: () => undefined,
+    };
+
+    const running = runWhileAgentBusy(state, async () => {
+      await resume.handle(SUSPENDED);
+    });
+    await waitForOverlay;
+    expect(state.inFlight).toBe(1);
+    expect(overlay?.signal?.aborted).toBe(false);
+
+    turns.push(approvalTimedOutTurn());
+    await running;
+
+    expect(overlay?.signal?.aborted).toBe(true);
+    expect(overlay?.signal?.reason).toBe(APPROVAL_TIMEOUT_RESULT_TEXT);
+    expect(delivered).toEqual([]);
     expect(state.inFlight).toBe(0);
   });
 });
