@@ -1461,6 +1461,7 @@ export function attachSessionBridge(
     stallTimeoutMs,
     isProcessing: bag.turn.isProcessing,
     streamingType: bag.turn.streamingType,
+    currentToolName: bag.turn.currentToolName,
     activeToolCalls: bag.turn.activeToolCalls,
     stallNoticeMs,
     repeating: bag.turn.repeating,
