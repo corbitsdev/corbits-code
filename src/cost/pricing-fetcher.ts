@@ -111,43 +111,106 @@ function* walkModelNodes(
   }
 }
 
+/**
+ * All per-model fields extracted from one models.dev node in a single pass.
+ * The `parseModelsDev*` collectors below share one traversal through
+ * `collectModelsDevFields` and only differ in which field they keep.
+ */
+interface ModelsDevModelFields {
+  pricing: ModelPricing | null;
+  reasoning: boolean | undefined;
+  contextWindow: number | undefined;
+}
+
+function extractModelsDevModelFields(
+  node: Record<string, unknown>,
+): ModelsDevModelFields {
+  // models.dev nests the window under `limit.context`.
+  const limit = isRecord(node.limit) ? node.limit : undefined;
+  const context =
+    limit !== undefined && typeof limit.context === "number"
+      ? limit.context
+      : undefined;
+  return {
+    pricing: parseModelPricing(node),
+    reasoning: typeof node.reasoning === "boolean" ? node.reasoning : undefined,
+    contextWindow:
+      context !== undefined && Number.isFinite(context) && context > 0
+        ? context
+        : undefined,
+  };
+}
+
+function collectModelsDevFields(payload: unknown): {
+  models: Record<string, ModelPricing>;
+  reasoning: Record<string, boolean>;
+  contextWindows: Record<string, number>;
+} {
+  const models: Record<string, ModelPricing> = {};
+  const reasoning: Record<string, boolean> = {};
+  const contextWindows: Record<string, number> = {};
+  for (const [id, node] of walkModelNodes(payload)) {
+    const fields = extractModelsDevModelFields(node);
+    if (fields.pricing !== null) models[id] = fields.pricing;
+    if (fields.reasoning !== undefined) reasoning[id] = fields.reasoning;
+    if (fields.contextWindow !== undefined)
+      contextWindows[id] = fields.contextWindow;
+  }
+  return { models, reasoning, contextWindows };
+}
+
 export function parseModelsDevPricing(
   payload: unknown,
 ): Record<string, ModelPricing> {
-  const models: Record<string, ModelPricing> = {};
-  for (const [id, node] of walkModelNodes(payload)) {
-    const pricing = parseModelPricing(node);
-    if (pricing !== null) models[id] = pricing;
-  }
-  return models;
+  return collectModelsDevFields(payload).models;
 }
 
 export function parseModelsDevReasoning(
   payload: unknown,
 ): Record<string, boolean> {
-  const reasoning: Record<string, boolean> = {};
-  for (const [id, node] of walkModelNodes(payload)) {
-    if (typeof node.reasoning === "boolean") reasoning[id] = node.reasoning;
-  }
-  return reasoning;
+  return collectModelsDevFields(payload).reasoning;
 }
 
 export function parseModelsDevContextWindows(
   payload: unknown,
 ): Record<string, number> {
-  const windows: Record<string, number> = {};
-  for (const [id, node] of walkModelNodes(payload)) {
-    // models.dev nests the window under `limit.context`.
-    const limit = isRecord(node.limit) ? node.limit : undefined;
-    const context =
-      limit !== undefined && typeof limit.context === "number"
-        ? limit.context
-        : undefined;
-    if (context !== undefined && Number.isFinite(context) && context > 0) {
-      windows[id] = context;
-    }
+  return collectModelsDevFields(payload).contextWindows;
+}
+
+function isBooleanValue(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isPositiveFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * Validated string-keyed record reader for cache sections: keeps entries
+ * whose values pass the guard, drops the rest. Shared by the reasoning and
+ * context-window sections of the pricing cache.
+ */
+function collectValidatedRecord<T>(
+  section: unknown,
+  isValid: (value: unknown) => value is T,
+): Record<string, T> {
+  const collected: Record<string, T> = {};
+  if (!isRecord(section)) return collected;
+  for (const [modelId, value] of Object.entries(section)) {
+    if (isValid(value)) collected[modelId] = value;
   }
-  return windows;
+  return collected;
+}
+
+/** Optional per-model metadata: present only when non-empty (older caches omit them). */
+function optionalMetadataFields(
+  reasoning: Record<string, boolean>,
+  contextWindows: Record<string, number>,
+): Pick<PricingCache, "reasoning" | "contextWindows"> {
+  return {
+    ...(Object.keys(reasoning).length > 0 ? { reasoning } : {}),
+    ...(Object.keys(contextWindows).length > 0 ? { contextWindows } : {}),
+  };
 }
 
 export async function readPricingCache(
@@ -163,29 +226,18 @@ export async function readPricingCache(
       if (pricing instanceof type.errors) return null;
       models[modelId] = pricing;
     }
-    const reasoning: Record<string, boolean> = {};
-    if (isRecord(payload) && isRecord(payload.reasoning)) {
-      for (const [modelId, flag] of Object.entries(payload.reasoning)) {
-        if (typeof flag === "boolean") reasoning[modelId] = flag;
-      }
-    }
-    const contextWindows: Record<string, number> = {};
-    if (isRecord(payload) && isRecord(payload.contextWindows)) {
-      for (const [modelId, window] of Object.entries(payload.contextWindows)) {
-        if (
-          typeof window === "number" &&
-          Number.isFinite(window) &&
-          window > 0
-        ) {
-          contextWindows[modelId] = window;
-        }
-      }
-    }
+    const reasoning = collectValidatedRecord(
+      isRecord(payload) ? payload.reasoning : undefined,
+      isBooleanValue,
+    );
+    const contextWindows = collectValidatedRecord(
+      isRecord(payload) ? payload.contextWindows : undefined,
+      isPositiveFiniteNumber,
+    );
     return {
       timestamp: parsed.timestamp,
       models,
-      ...(Object.keys(reasoning).length > 0 ? { reasoning } : {}),
-      ...(Object.keys(contextWindows).length > 0 ? { contextWindows } : {}),
+      ...optionalMetadataFields(reasoning, contextWindows),
     };
   } catch {
     return null;
@@ -219,17 +271,15 @@ export async function fetchPricing(
     throw new Error(`models.dev pricing request failed: ${response.status}`);
   }
   const payload = await response.json();
-  const models = parseModelsDevPricing(payload);
+  const { models, reasoning, contextWindows } =
+    collectModelsDevFields(payload);
   if (Object.keys(models).length === 0) {
     throw new Error("models.dev pricing response did not include model prices");
   }
-  const reasoning = parseModelsDevReasoning(payload);
-  const contextWindows = parseModelsDevContextWindows(payload);
   return {
     timestamp: now(),
     models,
-    ...(Object.keys(reasoning).length > 0 ? { reasoning } : {}),
-    ...(Object.keys(contextWindows).length > 0 ? { contextWindows } : {}),
+    ...optionalMetadataFields(reasoning, contextWindows),
   };
 }
 

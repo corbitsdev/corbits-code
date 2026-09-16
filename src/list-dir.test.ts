@@ -12,6 +12,25 @@ async function fixture(): Promise<string> {
   return dir;
 }
 
+/**
+ * Parameterized outside-workspace setup: a fresh tmp dir containing `file`.
+ * With `linkName`, the outside dir is also symlinked to
+ * `join(dir, linkName)` (the symlink-escape shape).
+ */
+async function outsideFixture(
+  dir: string,
+  options: { file: string; prefix?: string; linkName?: string },
+): Promise<string> {
+  const outside = await mkdtemp(
+    join(tmpdir(), options.prefix ?? "list-dir-outside-"),
+  );
+  await writeFile(join(outside, options.file), "");
+  if (options.linkName !== undefined) {
+    await symlink(outside, join(dir, options.linkName));
+  }
+  return outside;
+}
+
 describe("listDirectory", () => {
   test("lists entries sorted, marking directories with a trailing slash", async () => {
     const dir = await fixture();
@@ -38,9 +57,7 @@ describe("listDirectory", () => {
 
   test("refuses to follow a symlink that resolves outside the workspace", async () => {
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "list-dir-outside-"));
-    await writeFile(join(outside, "secret.txt"), "");
-    await symlink(outside, join(dir, "escape"));
+    await outsideFixture(dir, { file: "secret.txt", linkName: "escape" });
     const out = await listDirectory(dir, "escape");
     expect(out).toContain("outside the workspace");
     expect(out).not.toContain("secret.txt");
@@ -48,8 +65,10 @@ describe("listDirectory", () => {
 
   test("allowOutside lists a path outside the workspace", async () => {
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "list-dir-yolo-"));
-    await writeFile(join(outside, "other.txt"), "");
+    const outside = await outsideFixture(dir, {
+      file: "other.txt",
+      prefix: "list-dir-yolo-",
+    });
     const out = await listDirectory(dir, outside, { allowOutside: true });
     expect(out.split("\n")).toContain("other.txt");
     expect(out).not.toContain("outside the workspace");
@@ -57,17 +76,21 @@ describe("listDirectory", () => {
 
   test("allowOutside follows a symlink that resolves outside the workspace", async () => {
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "list-dir-yolo-link-"));
-    await writeFile(join(outside, "secret.txt"), "");
-    await symlink(outside, join(dir, "escape"));
+    await outsideFixture(dir, {
+      file: "secret.txt",
+      prefix: "list-dir-yolo-link-",
+      linkName: "escape",
+    });
     const out = await listDirectory(dir, "escape", { allowOutside: true });
     expect(out.split("\n")).toContain("secret.txt");
   });
 
   test("allowOutside getter is resolved per call", async () => {
     const dir = await fixture();
-    const outside = await mkdtemp(join(tmpdir(), "list-dir-yolo-getter-"));
-    await writeFile(join(outside, "other.txt"), "");
+    const outside = await outsideFixture(dir, {
+      file: "other.txt",
+      prefix: "list-dir-yolo-getter-",
+    });
     let allow = false;
     const blocked = await listDirectory(dir, outside, {
       allowOutside: () => allow,
@@ -84,8 +107,10 @@ describe("listDirectory", () => {
 
   test("lists a registered sibling worktree root (CL-6729)", async () => {
     const dir = await fixture();
-    const sibling = await mkdtemp(join(tmpdir(), "list-dir-sibling-"));
-    await writeFile(join(sibling, "sibling-file.txt"), "");
+    const sibling = await outsideFixture(dir, {
+      file: "sibling-file.txt",
+      prefix: "list-dir-sibling-",
+    });
     const roots = [await realpath(sibling)];
 
     const out = await listDirectory(dir, sibling, {
@@ -97,8 +122,10 @@ describe("listDirectory", () => {
 
   test("lists a sibling worktree via relative traversal (CL-6729)", async () => {
     const dir = await fixture();
-    const sibling = await mkdtemp(join(tmpdir(), "list-dir-sibling-rel-"));
-    await writeFile(join(sibling, "sibling-file.txt"), "");
+    const sibling = await outsideFixture(dir, {
+      file: "sibling-file.txt",
+      prefix: "list-dir-sibling-rel-",
+    });
     const roots = [await realpath(sibling)];
 
     const out = await listDirectory(dir, join("..", basename(sibling)), {

@@ -90,18 +90,27 @@ export type CostHiddenReason =
   | "free-model"
   | "zero-priced";
 
-function isCodingPlanSession(input: CostVisibilityInput): boolean {
+function isSessionOfType(
+  input: CostVisibilityInput,
+  isProviderName: (name: string) => boolean,
+  isBaseURL: (baseURL: string | undefined) => boolean,
+): boolean {
   if (input.providerName !== undefined) {
-    return isCodingPlanProviderName(input.providerName);
+    return isProviderName(input.providerName);
   }
-  return isCodingPlanBaseURL(input.baseURL);
+  return isBaseURL(input.baseURL);
+}
+
+function isCodingPlanSession(input: CostVisibilityInput): boolean {
+  return isSessionOfType(
+    input,
+    isCodingPlanProviderName,
+    isCodingPlanBaseURL,
+  );
 }
 
 function isChatGPTSubscriptionSession(input: CostVisibilityInput): boolean {
-  if (input.providerName !== undefined) {
-    return isCodexProviderName(input.providerName);
-  }
-  return isChatGPTSubscriptionBaseURL(input.baseURL);
+  return isSessionOfType(input, isCodexProviderName, isChatGPTSubscriptionBaseURL);
 }
 
 // Non-null when the dollar cost should be suppressed: a manual provider
