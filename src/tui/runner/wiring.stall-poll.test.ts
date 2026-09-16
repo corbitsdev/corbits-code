@@ -26,6 +26,68 @@ describe("fleet stall poll tick (CL-7676)", () => {
     expect(order).toEqual(["report", "flush"]);
   });
 
+  test("expire-abort runs before stall-abort and only when expireStaleAsks expired this tick", () => {
+    const order: string[] = [];
+    const expired: { sessionId: string; questionId: string }[] = [];
+    const tick = createFleetStallPollTick(
+      () => {
+        order.push("report");
+      },
+      () => {
+        order.push("flush");
+      },
+      {
+        expireStaleAsks: () => {
+          order.push("expire");
+          return expired;
+        },
+        abortExpiredWakeTurn: (expiredThisTick) => {
+          order.push(`expire-abort:${expiredThisTick}`);
+          return expiredThisTick;
+        },
+        abortStalledWakeTurn: () => {
+          order.push("stall-abort");
+          return false;
+        },
+      },
+    );
+    tick();
+    expect(order).toEqual([
+      "expire",
+      "report",
+      "expire-abort:false",
+      "stall-abort",
+      "flush",
+    ]);
+    order.length = 0;
+    expired.push({ sessionId: "s", questionId: "q" });
+    tick();
+    expect(order).toEqual([
+      "expire",
+      "report",
+      "expire-abort:true",
+      "stall-abort",
+      "flush",
+    ]);
+  });
+
+  test("expireStaleAsks boolean true still expire-aborts after report", () => {
+    const calls: boolean[] = [];
+    const tick = createFleetStallPollTick(
+      () => undefined,
+      () => undefined,
+      {
+        expireStaleAsks: () => true,
+        abortExpiredWakeTurn: (expiredThisTick) => {
+          calls.push(expiredThisTick);
+          return expiredThisTick;
+        },
+      },
+    );
+    tick();
+    expect(calls).toEqual([true]);
+  });
+
   test("missed edge (driver throws once) self-heals on the next poll without duplicates", async () => {
     await withTestRenderer(
       async (h) => {

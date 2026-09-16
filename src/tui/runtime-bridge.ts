@@ -318,17 +318,19 @@ export interface SessionBridge {
    */
   abortStalledWakeTurn: () => boolean;
   /**
-   * Ask-deadline bound for a silent ask-wake primary turn (CL-8060). If a wake
-   * was actually sent (`askWakeTurnArmed`) but the deadline already settled
-   * every pending ask (so `pendingAskWake` is empty after the reconciling
-   * report), the turn has nothing left to surface — interrupt it even when
-   * the stall bound has not tripped (e.g. a late wake still inside its stall
-   * window at the deadline). Same occupancy-first handoff as the stall abort,
+   * Ask-deadline bound for a silent ask-wake primary turn (CL-8060). The poll
+   * must have expired asks this tick (`expiredThisTick`); then, if a wake was
+   * actually sent (`askWakeTurnArmed`) but the deadline already settled every
+   * pending ask (so `pendingAskWake` is empty after the reconciling report),
+   * the turn has nothing left to surface — interrupt it even when the stall
+   * bound has not tripped (e.g. a late wake still inside its stall window at
+   * the deadline). send_input emptying pending is not an expire: the parent
+   * may still be inferring. Same occupancy-first handoff as the stall abort,
    * so mailbox mail still wins the next turn; with nothing pending there is
    * nothing to re-surface. Returns true when it aborted. Driven by the fleet
    * stall poll, after the deadline settle and its reconciling report.
    */
-  abortExpiredWakeTurn: () => boolean;
+  abortExpiredWakeTurn: (expiredThisTick: boolean) => boolean;
   /**
    * Phase-transition stamps (`TurnMarker`), newest last. Diagnostic-only:
    * exists so the stall-bound regression test can observe the abort path;
@@ -1398,8 +1400,9 @@ function applyInbound(
     }
     // A fresh snapshot with nothing pending means no wake is owed, but a
     // still-armed silent turn must stay armed until the poll's expire-abort
-    // (CL-8060) or stall abort can interrupt it. Disarming here (expire /
-    // send_input) would leave isProcessing hung.
+    // (CL-8060, only when expireStaleAsks expired this tick) or stall abort
+    // can interrupt it. Disarming here (expire / send_input) would leave
+    // isProcessing hung; send_input emptying pending must not expire-abort.
     bag.flushPendingAskWake?.();
     return;
   }
@@ -1967,15 +1970,18 @@ export function attachSessionBridge(
 
   /**
    * Ask-deadline bound for a silent ask-wake primary turn (CL-8060). Only an
-   * armed (wake-sent, never settled) turn with nothing left pending can match:
-   * the deadline settle reconciled through `reportFleet` emptied
-   * `pendingAskWake`, so the wake turn is owed to nobody. Unlike the stall
-   * bound there is no silence clock — the questions are gone, so the turn ends
-   * even inside its stall window. Shares `abortInFlightAndHandoff` with the
-   * stall abort, so occupancy (mailbox mail) still wins the next turn and the
-   * trailing wake flush restates nothing.
+   * expire this tick plus an armed (wake-sent, never settled) turn with
+   * nothing left pending can match: expireStaleAsks settled the questions
+   * and the reconciling `reportFleet` emptied `pendingAskWake`, so the wake
+   * turn is owed to nobody. send_input emptying pending is not an expire.
+   * Unlike the stall bound there is no silence clock — the questions expired,
+   * so the turn ends even inside its stall window. Shares
+   * `abortInFlightAndHandoff` with the stall abort, so occupancy (mailbox
+   * mail) still wins the next turn and the trailing wake flush restates
+   * nothing.
    */
-  const abortExpiredWakeTurn = (): boolean => {
+  const abortExpiredWakeTurn = (expiredThisTick: boolean): boolean => {
+    if (!expiredThisTick) return false;
     if (bag.disposed || !bag.askWakeTurnArmed) return false;
     if (!bag.turn.isProcessing) return false;
     if (bag.pendingAskWake.size > 0) return false;
@@ -2218,7 +2224,8 @@ export function attachSessionBridge(
       flushMailboxMail();
     },
     abortStalledWakeTurn: () => abortStalledWakeTurn(),
-    abortExpiredWakeTurn: () => abortExpiredWakeTurn(),
+    abortExpiredWakeTurn: (expiredThisTick) =>
+      abortExpiredWakeTurn(expiredThisTick),
     turnMarkers: () => bag.turnMarkers,
     dispose: () => {
       flushOpenRow(shell, bag);

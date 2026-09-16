@@ -99,10 +99,12 @@ const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
  * asks settle (so the snapshot the abort reconciles against is fresh), then a
  * still-silent wake turn aborts and hands over to mail or a re-surface.
  *
- * The CL-8060 deadline bound rides it too: when the settle empties the pending
- * snapshot, the armed wake turn is owed to nobody, so it aborts even inside
- * its stall window (a late wake has not been silent long enough to trip the
- * stall bound at the deadline). Expire-abort runs before the stall abort; at
+ * The CL-8060 deadline bound rides it too: when expireStaleAsks actually
+ * expired asks this tick and the reconciling snapshot is empty, the armed
+ * wake turn is owed to nobody, so it aborts even inside its stall window
+ * (a late wake has not been silent long enough to trip the stall bound at
+ * the deadline). send_input emptying pending is not an expire — the parent
+ * may still be inferring. Expire-abort runs before the stall abort; at
  * most one fires per tick, and both share the occupancy-first handoff.
  */
 export function createFleetStallPollTick(
@@ -110,14 +112,18 @@ export function createFleetStallPollTick(
   flushMailboxMail: () => void,
   options?: {
     abortStalledWakeTurn?: () => boolean;
-    abortExpiredWakeTurn?: () => boolean;
-    expireStaleAsks?: () => void;
+    abortExpiredWakeTurn?: (expiredThisTick: boolean) => boolean;
+    expireStaleAsks?: () =>
+      | boolean
+      | readonly { sessionId: string; questionId: string }[];
   },
 ): () => void {
   return () => {
-    options?.expireStaleAsks?.();
+    const expired = options?.expireStaleAsks?.();
+    const expiredThisTick =
+      expired === true || (Array.isArray(expired) && expired.length > 0);
     reportFleet();
-    options?.abortExpiredWakeTurn?.();
+    options?.abortExpiredWakeTurn?.(expiredThisTick);
     options?.abortStalledWakeTurn?.();
     flushMailboxMail();
   };
@@ -403,10 +409,10 @@ export function wirePostStartup(
       // before the abort reconciles, so the abort never re-surfaces a
       // question the deadline already settled.
       abortStalledWakeTurn: () => sessionBridge.abortStalledWakeTurn(),
-      abortExpiredWakeTurn: () => sessionBridge.abortExpiredWakeTurn(),
-      expireStaleAsks: () => {
-        services.subAgentSessions.expireStaleAsks(ASK_DEADLINE_MS);
-      },
+      abortExpiredWakeTurn: (expiredThisTick) =>
+        sessionBridge.abortExpiredWakeTurn(expiredThisTick),
+      expireStaleAsks: () =>
+        services.subAgentSessions.expireStaleAsks(ASK_DEADLINE_MS),
     },
   );
   const fleetStallPoll = setInterval(fleetStallPollTick, FLEET_STALL_POLL_MS);
