@@ -24,6 +24,7 @@ export interface ShouldAbortForStallArgs {
   readonly streamingType: "text" | "thinking" | "tool" | null;
   readonly currentToolName: string | null;
   readonly activeToolCalls: readonly string[];
+  readonly callIdByName: Readonly<Record<string, string>>;
 }
 
 /**
@@ -58,16 +59,29 @@ function silentPastThreshold(
 
 /**
  * Polls the per-tool execution watchdog leaves unarmed. Without a stall
- * bound they hold `streamingType === "tool"` with no other wall-clock limit.
+ * bound they hold the turn with no other wall-clock limit. A sibling
+ * tool.done clears `currentToolName` / `streamingType` while the poll is
+ * still in `activeToolCalls`, so the bound keys any in-flight stall-bounded
+ * name, not only the last announced tool.
  */
-function isStallBoundedInFlightTool(args: ShouldAbortForStallArgs): boolean {
-  if (args.streamingType !== "tool") return false;
-  const name = args.currentToolName;
+function isStallBoundedToolName(name: string | null | undefined): boolean {
   return (
     name === "shell_collect" ||
     name === "wait_agents" ||
     name === "ask_director"
   );
+}
+
+function isStallBoundedInFlightTool(args: ShouldAbortForStallArgs): boolean {
+  if (isStallBoundedToolName(args.currentToolName)) return true;
+  for (const [name, id] of Object.entries(args.callIdByName)) {
+    if (isStallBoundedToolName(name) && args.activeToolCalls.includes(id)) {
+      return true;
+    }
+  }
+  // Name-only announcements track the call under its name until a real id
+  // arrives, so the placeholder itself is the stall-bounded name.
+  return args.activeToolCalls.some(isStallBoundedToolName);
 }
 
 // Pure decision helper: returns true when the run is genuinely stuck and should

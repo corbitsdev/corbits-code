@@ -24,6 +24,7 @@ describe("shouldAbortForStall", () => {
     streamingType: "text" as const,
     currentToolName: null,
     activeToolCalls: [],
+    callIdByName: {},
   };
 
   test("aborts a mid-stream hang past the timeout", () => {
@@ -96,6 +97,7 @@ describe("shouldAbortForStall — awaiting-response with a null stream eventuall
     streamingType: null,
     currentToolName: null,
     activeToolCalls: [],
+    callIdByName: {},
   };
 
   test("aborts a run awaiting a response once the stall budget elapses", () => {
@@ -158,6 +160,7 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
     streamingType: "tool" as const,
     currentToolName: "shell_collect",
     activeToolCalls: ["collect-1"],
+    callIdByName: { shell_collect: "collect-1" },
   };
 
   test("in-flight collect auto-aborts after the stall budget", () => {
@@ -173,8 +176,40 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
         ...collect,
         currentToolName: "wait_agents",
         activeToolCalls: ["wait-1"],
+        callIdByName: { wait_agents: "wait-1" },
       }),
     ).toBe(true);
+  });
+
+  // tool.done of a sibling bash clears currentToolName and streamingType
+  // while shell_collect is still in activeToolCalls. Keying only the last
+  // name would leave that poll unbounded forever.
+  test("sibling tool.done while collect is in-flight still aborts at the stall budget", () => {
+    const afterSiblingDone = {
+      ...collect,
+      currentToolName: null,
+      streamingType: null,
+      awaitingResponse: false,
+      activeToolCalls: ["collect-1"],
+      callIdByName: { shell_collect: "collect-1" },
+    };
+    expect(
+      shouldAbortForStall({ ...afterSiblingDone, nowMs: STALL_TIMEOUT_MS - 1 }),
+    ).toBe(false);
+    expect(shouldAbortForStall(afterSiblingDone)).toBe(true);
+  });
+
+  test("a remaining ordinary tool after a sibling done is not a stall", () => {
+    expect(
+      shouldAbortForStall({
+        ...collect,
+        currentToolName: null,
+        streamingType: null,
+        awaitingResponse: false,
+        activeToolCalls: ["bash-1"],
+        callIdByName: { bash: "bash-1" },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -219,6 +254,7 @@ describe("shouldNoticeStall", () => {
     currentToolName: null,
     repeating: false,
     activeToolCalls: [],
+    callIdByName: {},
   };
 
   test("a parallel fan-out with sibling tools still running does not notice", () => {
@@ -303,6 +339,7 @@ describe("the stall level the indicator reads", () => {
     streamingType: null,
     currentToolName: null,
     activeToolCalls: [],
+    callIdByName: {},
     repeating: false,
   };
 
