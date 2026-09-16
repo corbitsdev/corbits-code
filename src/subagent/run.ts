@@ -152,9 +152,9 @@ import {
   ASK_DIRECTOR_MAX_BYTES,
   ASK_DIRECTOR_MAX_QUESTIONS,
   createAskDirectorState,
+  createDeferredContinuation,
   handleAskDirector,
   resetAskDirectorTurn,
-  skipStallContinuationWhileAskPending,
 } from "./ask-director.js";
 import {
   abortError,
@@ -625,6 +625,8 @@ async function runSubAgentInner(
   let turnToken = params.tier === "leaf" ? generateSessionId() : undefined;
   const submitResultState = createSubmitResultState();
   const askDirectorState = createAskDirectorState();
+  const compactContinue = createDeferredContinuation();
+  let deliverCompactContinue = (): void => undefined;
   const spawnRegistry = createSubAgentSpawnRegistryPlugin();
   // Assigned inside the try once the agent handle exists; before that (or after
   // close) a completion is dropped, matching the continuation contract.
@@ -887,12 +889,16 @@ async function runSubAgentInner(
                 "Record the question under Blockers and finish with the markdown report envelope."
               );
             }
-            return handleAskDirector({
-              question: rawArgs.question,
-              state: askDirectorState,
-              port,
-              signal,
-            });
+            try {
+              return await handleAskDirector({
+                question: rawArgs.question,
+                state: askDirectorState,
+                port,
+                signal,
+              });
+            } finally {
+              compactContinue.flush(askDirectorState, deliverCompactContinue);
+            }
           },
         }),
       ];
@@ -1063,13 +1069,14 @@ async function runSubAgentInner(
       ReturnType<typeof createAgentWithLiveToolDispatch>
     > | null = null;
     const requestContinuation = (): void => {
-      skipStallContinuationWhileAskPending(askDirectorState, () => {
-        try {
-          agentHandle?.deliver(buildCompactionContinuationMessage());
-        } catch {
-          // Agent may be closing; a dropped continuation is harmless.
-        }
-      });
+      compactContinue.request(askDirectorState, deliverCompactContinue);
+    };
+    deliverCompactContinue = (): void => {
+      try {
+        agentHandle?.deliver(buildCompactionContinuationMessage());
+      } catch {
+        // Agent may be closing; a dropped continuation is harmless.
+      }
     };
 
     // modelFamilyPolicy is resolved above at the skill mount so the
@@ -1104,6 +1111,7 @@ async function runSubAgentInner(
         director.observeForcedStop((reason) => {
           directorForcedStopReason = reason;
         });
+        director.observeAskPending(() => askDirectorState.pending);
         director.observeInterventions((event) => {
           interventions(event);
         });
@@ -1115,11 +1123,13 @@ async function runSubAgentInner(
     // own (see checkStallPing on SubAgentDirector), so a silent leaf needs an
     // external nudge to even get a decide() call. Ping the same continuation
     // channel compaction uses at the stall interval; the director only acts on
-    // a ping if nothing happened since the last one.
-    stallWatchdog = setInterval(
-      () => requestContinuation(),
-      modelFamilyPolicy.subAgentStallTimeoutMs,
-    );
+    // a ping if nothing happened since the last one. Drop the ping while
+    // ask_director is parked — do not defer it through compactContinue, or the
+    // post-unpark flush would look like a stall-window empty continuation.
+    stallWatchdog = setInterval(() => {
+      if (askDirectorState.pending) return;
+      deliverCompactContinue();
+    }, modelFamilyPolicy.subAgentStallTimeoutMs);
     if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
 
     // Concurrent workers resolve relative permission subjects against this

@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { AgentClosedError } from "@intx/agent";
 import {
+  createDeliveryGeneration,
+  createSessionOperationQueue,
   deliverAgentMessage,
   deliveryResultNotice,
+  enqueueCompactionContinuationHop,
   runGenerationGuardedDeliver,
+  settleCompactionContinuationHop,
 } from "./delivery-queue.js";
+import { startInterruptRebuild } from "./runner/exit.js";
 
 describe("deliverAgentMessage", () => {
   test("reports session-unavailable without calling deliver when rebuild failed", async () => {
@@ -122,6 +127,101 @@ describe("runGenerationGuardedDeliver", () => {
     });
     expect(result).toEqual({ status: "accepted" });
     expect(runs).toBe(1);
+  });
+});
+
+describe("settleCompactionContinuationHop", () => {
+  test("a superseded hop requeues instead of delivering to the outgoing agent", async () => {
+    let generation = 1;
+    const stillCurrent = () => generation === 1;
+    let delivered = 0;
+    let requeued = 0;
+    generation = 2;
+    const result = await settleCompactionContinuationHop({
+      stillCurrent,
+      deliver: async () => {
+        delivered += 1;
+        return { status: "accepted" as const };
+      },
+      onSuperseded: () => {
+        requeued += 1;
+      },
+    });
+    expect(result).toEqual({
+      status: "not-delivered",
+      reason: "superseded",
+      detail: "session identity changed before delivery",
+    });
+    expect(delivered).toBe(0);
+    expect(requeued).toBe(1);
+  });
+
+  test("a closed hop re-issues the continue once", async () => {
+    let attempts = 0;
+    const result = await settleCompactionContinuationHop({
+      stillCurrent: () => true,
+      deliver: async () => {
+        attempts += 1;
+        if (attempts === 1) {
+          return {
+            status: "not-delivered" as const,
+            reason: "agent-closed" as const,
+            detail: "agent is closed",
+          };
+        }
+        return { status: "accepted" as const };
+      },
+      onSuperseded: () => {
+        throw new Error("closed hop must not requeue as superseded");
+      },
+    });
+    expect(result).toEqual({ status: "accepted" });
+    expect(attempts).toBe(2);
+  });
+
+  test("a current hop delivers once and does not re-issue", async () => {
+    let runs = 0;
+    const result = await settleCompactionContinuationHop({
+      stillCurrent: () => true,
+      deliver: async () => {
+        runs += 1;
+        return { status: "accepted" as const };
+      },
+      onSuperseded: () => {
+        throw new Error("current hop must not requeue");
+      },
+    });
+    expect(result).toEqual({ status: "accepted" });
+    expect(runs).toBe(1);
+  });
+
+  test("continuation enqueued then interrupt rebuild queued lands on the replacement agent", async () => {
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const deliveryGeneration = createDeliveryGeneration();
+    let agent = "outgoing";
+    const deliveredTo: string[] = [];
+
+    enqueueCompactionContinuationHop({
+      enqueue,
+      captureGeneration: () => deliveryGeneration.capture(),
+      deliver: async () => {
+        deliveredTo.push(agent);
+        return { status: "accepted" as const };
+      },
+      onResult: () => undefined,
+    });
+
+    startInterruptRebuild({
+      deliveryGeneration,
+      markSendAborted: () => undefined,
+      enqueue,
+      rebuild: async () => {
+        agent = "replacement";
+      },
+    });
+
+    await awaitTail();
+    expect(deliveredTo).toEqual(["replacement"]);
   });
 });
 

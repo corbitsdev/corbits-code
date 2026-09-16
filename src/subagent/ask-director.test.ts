@@ -5,11 +5,11 @@ import {
   ASK_DIRECTOR_MAX_QUESTIONS,
   commitAskDirector,
   createAskDirectorState,
+  createDeferredContinuation,
   evaluateAskDirector,
   handleAskDirector,
   releaseAskDirector,
   resetAskDirectorTurn,
-  skipStallContinuationWhileAskPending,
 } from "./ask-director.js";
 
 describe("evaluateAskDirector", () => {
@@ -207,18 +207,43 @@ describe("evaluateAskDirector", () => {
 describe("requestContinuation stall skip", () => {
   test("is a no-op while askDirectorState.pending", () => {
     const state = createAskDirectorState();
+    const latch = createDeferredContinuation();
     let delivered = 0;
-    skipStallContinuationWhileAskPending(state, () => {
+    const deliver = () => {
       delivered += 1;
-    });
+    };
+    latch.request(state, deliver);
     expect(delivered).toBe(1);
 
     expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(
       true,
     );
-    skipStallContinuationWhileAskPending(state, () => {
+    latch.request(state, deliver);
+    expect(delivered).toBe(1);
+  });
+
+  test("ask-pending skip defers compact continuation until the ask releases", () => {
+    const state = createAskDirectorState();
+    const latch = createDeferredContinuation();
+    let delivered = 0;
+    const deliver = () => {
       delivered += 1;
-    });
+    };
+
+    expect(evaluateAskDirector({ question: "which file?", state }).ok).toBe(
+      true,
+    );
+    latch.request(state, deliver);
+    expect(delivered).toBe(0);
+
+    latch.flush(state, deliver);
+    expect(delivered).toBe(0);
+
+    releaseAskDirector(state);
+    latch.flush(state, deliver);
+    expect(delivered).toBe(1);
+
+    latch.flush(state, deliver);
     expect(delivered).toBe(1);
   });
 });

@@ -336,11 +336,13 @@ export async function createRunLifecycle(
       // the same message the old requestContinuation closure delivered,
       // through the serial op queue like every other deliver. Each emission
       // is answered once: a replayed duplicate of an already-answered
-      // emission is ignored instead of re-delivered.
+      // emission is ignored instead of re-delivered. A hop superseded by
+      // interrupt rebuild (generation bump + rebuild already queued) is
+      // re-queued onto the replacement agent so consume-once cannot land on
+      // the outgoing liveAgent.
       if (continuationGate.shouldDeliver(event.seq)) {
-        const targetAgent = liveAgent(state);
-        state.enqueueAgentDeliver?.(() =>
-          targetAgent.deliver(buildCompactionContinuationMessage()),
+        state.enqueueCompactionContinuation?.(() =>
+          liveAgent(state).deliver(buildCompactionContinuationMessage()),
         );
       }
     }
