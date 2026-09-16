@@ -545,8 +545,8 @@ export function buildSubAgentReportContract(
     'Key file paths you read or changed (one per line). Write "None." if none.',
     "",
     askDirector
-      ? "- This message is the only thing returned to the parent. You cannot reach the operator. If the brief is ambiguous, ask_director before finishing; otherwise make the best-judgment call and note assumptions under Blockers."
-      : "- This message is the only thing returned to the parent. Do not ask the parent questions; you cannot receive answers. Make the best-judgment call, act, and note assumptions under Blockers.",
+      ? "- This message is the only thing returned to the parent. If the brief is ambiguous, ask_director before finishing; otherwise make the best-judgment call and note assumptions under Blockers. Inbound send_input supersedes the brief."
+      : "- This message is the only thing returned to the parent. Make the best-judgment call, act, and note assumptions under Blockers. Inbound send_input supersedes the brief.",
   ].join("\n");
 }
 

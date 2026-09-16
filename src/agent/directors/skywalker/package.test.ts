@@ -156,8 +156,13 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("reply to the operator");
     expect(p).toContain("end the turn");
     expect(p).toContain("mailbox mail");
-    expect(p).toContain("answer them first");
     expect(p).toContain("Enter mid-run");
+  });
+
+  test("systemPrompt does not forbid steering workers when the operator messages mid-run", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).not.toContain("answer them first");
+    expect(p).not.toContain("Do not hold the reply on fleet collection");
   });
 
   test("systemPrompt anti-cascade keeps digs out of fleets", () => {

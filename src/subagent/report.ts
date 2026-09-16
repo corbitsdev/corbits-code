@@ -69,7 +69,7 @@ export function formatTurnTokenNotice(turnToken: string): string {
   return [
     "## Turn token",
     turnToken,
-    `If you call submit_result, pass turn_token="${turnToken}" exactly. A mismatched token means this turn was superseded — do not resubmit under it.`,
+    `If you call submit_result, pass turn_token="${turnToken}" exactly. A mismatched token means this turn was superseded.`,
   ].join("\n");
 }
 

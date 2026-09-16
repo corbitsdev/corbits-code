@@ -53,7 +53,7 @@ export function evaluateSubmitResult(input: SubmitResultInput): {
     return {
       ok: false,
       message:
-        "Error: turn_token does not match this turn — this dispatch was superseded. Do not resubmit.",
+        "Error: turn_token does not match this turn — this dispatch was superseded.",
     };
   }
   if (input.state.corrections >= cap) {

@@ -61,6 +61,7 @@ describe("evaluateSubmitResult", () => {
     });
     expect(outcome.ok).toBe(false);
     expect(outcome.message).toContain("turn_token does not match");
+    expect(outcome.message).not.toMatch(/do not resubmit/i);
     expect(state.corrections).toBe(0);
   });
 

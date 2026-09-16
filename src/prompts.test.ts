@@ -434,6 +434,15 @@ test("when ask_director is in toolNames, the worker prompt mentions ask_director
   expect(prompt).not.toContain("ask_operator");
 });
 
+test("sub-agent report contract does not claim the worker cannot receive answers", () => {
+  const withoutAsk = buildSubAgentReportContract();
+  const withAsk = buildSubAgentReportContract({ askDirector: true });
+  expect(withoutAsk).not.toContain("you cannot receive answers");
+  expect(withoutAsk).not.toContain("Do not ask the parent questions");
+  expect(withAsk).not.toContain("you cannot receive answers");
+  expect(withAsk).not.toContain("You cannot reach the operator");
+});
+
 test("sub-agent report contract treats Success criteria as completion gate", () => {
   const contract = buildSubAgentReportContract();
   expect(contract).toContain("Success criteria");

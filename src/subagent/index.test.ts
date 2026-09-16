@@ -1312,6 +1312,7 @@ describe("submit_result turn token notice", () => {
     expect(formatTurnTokenNotice(token)).toContain(
       "A mismatched token means this turn was superseded",
     );
+    expect(formatTurnTokenNotice(token)).not.toMatch(/do not resubmit/i);
     // Non-leaf dispatches state no token.
     expect(
       buildDispatchBrief({ description: "plain", prompt: "do the thing" }),
