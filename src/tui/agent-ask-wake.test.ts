@@ -405,6 +405,86 @@ describe("agent ask wake delivery", () => {
     });
   });
 
+  test("gate close flushes mailbox mail before the ask wake (CL-8061)", async () => {
+    await withWakeBridge((bridge, sends) => {
+      const order: string[] = [];
+      bridge.setOnAskWakeSent(() => {
+        order.push("wake");
+      });
+      bridge.setMailboxMailDriver(() => {
+        order.push("mail");
+        return false;
+      });
+      bridge.gateOpened();
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(sends).toEqual([]);
+      bridge.gateClosed();
+      expect(order).toEqual(["mail", "wake"]);
+      expect(sends).toHaveLength(1);
+    });
+  });
+
+  test("gate close suppresses the wake when mail takes the turn (CL-8061)", async () => {
+    await withWakeBridge((bridge, sends) => {
+      const order: string[] = [];
+      bridge.setOnAskWakeSent(() => {
+        order.push("wake");
+      });
+      bridge.setMailboxMailDriver(() => {
+        order.push("mail");
+        bridge.beginSystemContinuation("mailbox occupancy");
+        return true;
+      });
+      bridge.gateOpened();
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(sends).toEqual([]);
+      bridge.gateClosed();
+      expect(order).toEqual(["mail"]);
+      expect(sends).toEqual([]);
+    });
+  });
+
+  test("idle-with-fleet settle flushes mailbox mail before the ask wake (CL-8061)", async () => {
+    await withWakeBridge((bridge, sends) => {
+      const order: string[] = [];
+      bridge.setOnAskWakeSent(() => {
+        order.push("wake");
+      });
+      bridge.setMailboxMailDriver(() => {
+        order.push("mail");
+        return false;
+      });
+      bridge.handle({ type: "inference.start", data: {} });
+      bridge.handle({ type: "fleet", running: 1 });
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(sends).toEqual([]);
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(order).toEqual(["mail", "wake"]);
+      expect(sends).toHaveLength(1);
+    });
+  });
+
+  test("idle-with-fleet settle suppresses the wake when mail takes the turn (CL-8061)", async () => {
+    await withWakeBridge((bridge, sends) => {
+      const order: string[] = [];
+      bridge.setOnAskWakeSent(() => {
+        order.push("wake");
+      });
+      bridge.setMailboxMailDriver(() => {
+        order.push("mail");
+        bridge.beginSystemContinuation("mailbox occupancy");
+        return true;
+      });
+      bridge.handle({ type: "inference.start", data: {} });
+      bridge.handle({ type: "fleet", running: 1 });
+      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+      expect(sends).toEqual([]);
+      bridge.handle({ type: "inference.done", data: {} });
+      expect(order).toEqual(["mail"]);
+      expect(sends).toEqual([]);
+    });
+  });
+
   test("clearQueuedDelivery drops stashed wakes and resets delivered identities", async () => {
     await withWakeBridge((bridge, sends) => {
       bridge.handle({ type: "inference.start", data: {} });

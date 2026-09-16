@@ -1322,9 +1322,11 @@ function settleRunToIdle(shell: AppShell, bag: BridgeBag): void {
     // Hold: the fleet is still live, so the run stays busy. Steers left
     // pending send now — the parent they were steering has stopped, so
     // each one starts its own turn — while follow-ups keep waiting.
+    // Occupancy/mailbox first so a re-surface wake cannot steal that turn;
+    // the trailing wake flush restates only if mail did not start one.
     drainSteersAtBoundary(shell, bag);
-    bag.flushPendingAskWake?.();
     bag.flushMailboxMail?.();
+    if (!bag.turn.isProcessing) bag.flushPendingAskWake?.();
     return;
   }
   if (!bag.droveOpenTasksThisDry) {
@@ -2032,8 +2034,10 @@ export function attachSessionBridge(
     if (bag.disposed) return;
     bag.turn = turnStateGateClosed(bag.turn, now());
     paintPhase();
-    flushPendingAskWake();
+    // Occupancy/mailbox first so a re-surface wake cannot steal that turn;
+    // the trailing wake flush restates only if mail did not start one.
     flushMailboxMail();
+    if (!bag.turn.isProcessing) flushPendingAskWake();
   };
 
   const tick = (): void => {
