@@ -118,6 +118,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
   - No workflow controller (`isWorkflowActive` is always false)
   - Non-interactive permission gate by default
   - `ask_operator` is unmounted when stdin/stdout are not TTYs (no cancel stub on the wire); TTY exec still prompts on stdin
+  - MCP connect waits up to 1s before first inference, then proceeds while remaining handshakes continue; hung handshakes abort at 15s independently so a live sibling is not torn down. The TUI still fire-and-forgets connect (no rewrite). `tool_search` does not treat an empty catalog as a definitive miss while servers are still connecting.
 - Entry: `corbits exec "prompt"` (alias `corbits run`); `loadConfig` sets `command: "exec"`
 - Streams assistant text deltas to stdout; lifecycle errors to stderr
 - Shares ChatDirector compaction continuation (`requestContinuation` → content-less deliver after compact) so long runs do not stall post-compact

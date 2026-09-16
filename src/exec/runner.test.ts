@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import { createAdvertisedToolset } from "../session/assemble-runtime.js";
 import {
+  armExecMcpHandshakeAbort,
+  awaitExecMcpConnect,
   createExecToolCallGate,
   createExecToolPromoter,
   isExecOverlayToolAllowed,
@@ -119,5 +121,35 @@ describe("exec director allowlist", () => {
   test("skywalker overlay leaves every tool allowed", () => {
     const overlay = resolveExecDirectorOverlay("skywalker");
     expect(isExecOverlayToolAllowed(overlay, OUTSIDE_ALLOW)).toBe(true);
+  });
+});
+
+describe("exec MCP connect bounds", () => {
+  test("a hung handshake wait returns timeout without waiting for connect", async () => {
+    const connecting = new Promise<void>(() => {
+      // Never settles: hung MCP handshake.
+    });
+    const started = Date.now();
+    const outcome = await awaitExecMcpConnect(connecting, 30);
+    expect(outcome).toBe("timeout");
+    expect(Date.now() - started).toBeLessThan(250);
+  });
+
+  test("a settled handshake returns before the wait bound", async () => {
+    const outcome = await awaitExecMcpConnect(Promise.resolve(), 1_000);
+    expect(outcome).toBe("settled");
+  });
+
+  test("handshake abort fires while connect is still in flight", async () => {
+    const handshake = armExecMcpHandshakeAbort(30);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(handshake.signal.aborted).toBe(true);
+  });
+
+  test("disarming after a successful handshake does not abort the live connection", async () => {
+    const handshake = armExecMcpHandshakeAbort(30);
+    handshake.disarm();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(handshake.signal.aborted).toBe(false);
   });
 });

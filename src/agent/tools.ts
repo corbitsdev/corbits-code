@@ -383,6 +383,33 @@ export interface AgentToolset {
   dispose: () => Promise<void>;
 }
 
+// Connect-only abort fan-out. The MCP client keeps `signal` on the live
+// transport, so a shared parent abort would tear down HTTP that already
+// connected. Forward until this handshake settles, then detach.
+function forwardAbortUntilDisarmed(parent: AbortSignal): {
+  signal: AbortSignal;
+  disarm: () => void;
+} {
+  const controller = new AbortController();
+  if (parent.aborted) {
+    controller.abort(parent.reason);
+    return { signal: controller.signal, disarm: () => undefined };
+  }
+  const onAbort = (): void => {
+    controller.abort(parent.reason);
+  };
+  parent.addEventListener("abort", onAbort, { once: true });
+  let disarmed = false;
+  return {
+    signal: controller.signal,
+    disarm: () => {
+      if (disarmed) return;
+      disarmed = true;
+      parent.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
 export async function createAgentToolset(
   args: AgentToolsetArgs,
 ): Promise<AgentToolset> {
@@ -1227,13 +1254,15 @@ export async function createAgentToolset(
       perServer = new AbortController();
       serverAborts.set(config.name, perServer);
     }
+    const forwarded =
+      signal === undefined ? undefined : forwardAbortUntilDisarmed(signal);
     const connectionSignal =
-      signal === undefined
+      forwarded === undefined
         ? AbortSignal.any([mcpAbortController.signal, perServer.signal])
         : AbortSignal.any([
             mcpAbortController.signal,
             perServer.signal,
-            signal,
+            forwarded.signal,
           ]);
 
     const staleOrDisabled = (): boolean =>
@@ -1382,7 +1411,7 @@ export async function createAgentToolset(
         tools: result.client.tools.map((t) => t.name),
       });
       callbacks.onToolsChanged(dynamicRunner.currentDefinitions());
-    })();
+    })().finally(() => forwarded?.disarm());
     inFlightConnections.set(config.name, run);
     inFlightEpochs.set(config.name, ownedEpoch);
     const clearInFlight = (): void => {

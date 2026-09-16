@@ -27,6 +27,8 @@ let connectFailureError = "redial refused";
 // When true the mock offers an auth URL (interactive needs-auth) before the
 // connectMode branch runs, so a redial can pend on the operator.
 let emitNeedsAuth = false;
+// Names that never settle until the connect AbortSignal fires.
+const hangNames = new Set<string>();
 // Reconnect tests repoint this to simulate a server whose tool set drifted
 // between generations; the default matches the original static payload.
 let connectedTools: MCPTool[] = [
@@ -67,7 +69,7 @@ await withMockedModule(
           error: connectFailureError,
         };
       }
-      if (connectMode === "deferred") {
+      if (connectMode === "deferred" || hangNames.has(config.name)) {
         await new Promise<void>((resolve) => {
           releaseDeferredConnect = resolve;
           const onAbort = (): void => resolve();
@@ -91,16 +93,29 @@ await withMockedModule(
           authPending: true,
         };
       }
+      let closed = false;
+      const close = async () => {
+        if (closed) return;
+        closed = true;
+        closedClients.push(config.name);
+        closedGenerations.push(generation);
+      };
+      // HTTP keeps `signal` on the live transport; abort after connect must
+      // tear the client down the way Streamable HTTP does.
+      if (options.signal !== undefined) {
+        const tearDown = (): void => {
+          void close();
+        };
+        if (options.signal.aborted) tearDown();
+        else options.signal.addEventListener("abort", tearDown, { once: true });
+      }
       return {
         ok: true as const,
         client: {
           serverName: config.name,
           tools: connectedTools,
           call: async () => "ok",
-          close: async () => {
-            closedClients.push(config.name);
-            closedGenerations.push(generation);
-          },
+          close,
         },
       };
     },
@@ -179,6 +194,7 @@ beforeEach(() => {
   failNextConnects = 0;
   connectFailureError = "redial refused";
   emitNeedsAuth = false;
+  hangNames.clear();
   connectedTools = [{ name: "list", description: "List", inputSchema: {} }];
 });
 
@@ -899,6 +915,88 @@ describe("unintentional disconnect and automatic reconnect", () => {
     } finally {
       releaseDeferredConnect?.();
       jest.useRealTimers();
+      await toolset.dispose();
+    }
+  });
+});
+
+describe("MCP handshake bounds", () => {
+  test("a hung connect fails within the handshake abort bound", async () => {
+    connectMode = "deferred";
+    const toolset = await makeToolset();
+    const states: MCPServerState[] = [];
+    try {
+      const started = Date.now();
+      await toolset.connectMCPServer(
+        acme,
+        callbacks(states),
+        AbortSignal.timeout(50),
+      );
+      expect(Date.now() - started).toBeLessThan(500);
+      expect(states.some((s) => s.state === "failed")).toBe(true);
+    } finally {
+      releaseDeferredConnect?.();
+      await toolset.dispose();
+    }
+  });
+
+  test("a hung sibling does not abort a server that already connected", async () => {
+    hangNames.add("lin");
+    const toolset = await createAgentToolset({
+      cwd: tempCwd(),
+      permissionGate: permissionGate(),
+      onOperatorGate: async () => ({ kind: "cancel" }),
+      mcpServers: [acme, lin],
+    });
+    const states: MCPServerState[] = [];
+    try {
+      const started = Date.now();
+      await toolset.connectMCP(callbacks(states), AbortSignal.timeout(50));
+      expect(Date.now() - started).toBeLessThan(500);
+      expect(toolset.hasMCPServer("acme")).toBe(true);
+      expect(
+        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
+      ).toContain("mcp__acme__list");
+      expect(closedClients).not.toContain("acme");
+      expect(
+        states.some((s) => s.name === "acme" && s.state === "connected"),
+      ).toBe(true);
+      expect(states.some((s) => s.name === "lin" && s.state === "failed")).toBe(
+        true,
+      );
+      expect(toolset.hasMCPServer("lin")).toBe(false);
+    } finally {
+      await toolset.dispose();
+    }
+  });
+
+  test("tool_search retries while a handshake is still in flight", async () => {
+    connectMode = "deferred";
+    const toolset = await makeToolset();
+    const states: MCPServerState[] = [];
+    try {
+      const connecting = toolset.connectMCPServer(acme, callbacks(states));
+      await waitForConnectStart();
+      const remaining = await toolset.awaitPendingMcpConnections(20);
+      expect(remaining).toBe(1);
+
+      const search = toolset.dynamicRunner.run(
+        { id: "s1", name: "tool_search", arguments: { query: "acme list" } },
+        AbortSignal.timeout(5000),
+      );
+      // Production miss-wait is 1s; do not fake timers here — waitForConnectStart
+      // and the abort-bound hung-connect test use real clocks.
+      const result = await search;
+      expect(typeof result.content).toBe("string");
+      expect(result.content).toMatch(/still connecting|starting up/i);
+      expect(result.content).toMatch(/retry.*shortly/i);
+      expect(result.content).not.toMatch(/different keywords/i);
+      expect(result.content).not.toContain("mcp__acme__list");
+
+      releaseDeferredConnect?.();
+      await connecting;
+    } finally {
+      releaseDeferredConnect?.();
       await toolset.dispose();
     }
   });

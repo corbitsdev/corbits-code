@@ -145,6 +145,56 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 
 const SELECTED_PROVIDER_FAILURE = "SelectedProviderFailure";
 
+// Brief wait before first inference so a fast MCP handshake can land. Hung
+// servers must not block the turn: remaining dials keep running until the
+// handshake abort below, and tool_search treats an empty catalog as in-flight
+// rather than a definitive miss while they are still connecting.
+export const EXEC_MCP_CONNECT_WAIT_MS = 1_000;
+// Cap on the handshake itself. Distinct from the wait: first inference may
+// start while a dial is still in flight, but a server that never answers is
+// aborted instead of occupying the catalog forever.
+export const EXEC_MCP_HANDSHAKE_TIMEOUT_MS = 15_000;
+
+export async function awaitExecMcpConnect(
+  connecting: Promise<void>,
+  timeoutMs: number,
+): Promise<"settled" | "timeout"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      connecting.then(() => "settled" as const),
+      new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => resolve("timeout"), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+// Connect-only abort. The MCP client ties `signal` to the transport lifecycle,
+// so AbortSignal.timeout would kill a handshake that already succeeded. The
+// toolset forwards this signal per server and detaches on settle; abort only
+// reaches handshakes still in flight. Disarm the timer once the batch settles.
+export function armExecMcpHandshakeAbort(timeoutMs: number): {
+  signal: AbortSignal;
+  disarm: () => void;
+} {
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+  let disarmed = false;
+  return {
+    signal: controller.signal,
+    disarm: () => {
+      if (disarmed) return;
+      disarmed = true;
+      clearTimeout(timer);
+    },
+  };
+}
+
 export async function refreshSelectedProviderCredential<T>(
   refresh: () => Promise<T>,
 ): Promise<T> {
@@ -880,27 +930,42 @@ export async function runExec(config: Config): Promise<ExecResult> {
       throw new Error("approval resume: no context store");
 
     if (agentToolset.connectMCP !== undefined) {
-      await agentToolset
-        .connectMCP({
-          interactiveAuth: false,
-          onStatus: (status) => {
-            if (status.state === "connected") {
-              connectedMcp = [
-                ...connectedMcp.filter((s) => s.name !== status.name),
-                { name: status.name, toolCount: status.tools.length },
-              ];
-            }
+      const handshake = armExecMcpHandshakeAbort(EXEC_MCP_HANDSHAKE_TIMEOUT_MS);
+      const connecting = agentToolset
+        .connectMCP(
+          {
+            interactiveAuth: false,
+            onStatus: (status) => {
+              if (status.state === "connected") {
+                connectedMcp = [
+                  ...connectedMcp.filter((s) => s.name !== status.name),
+                  { name: status.name, toolCount: status.tools.length },
+                ];
+              }
+            },
+            onToolsChanged: (definitions) =>
+              directorHolder.instance?.updateToolDefinitions(
+                computeAdvertised(definitions),
+              ),
           },
-          onToolsChanged: (definitions) =>
-            directorHolder.instance?.updateToolDefinitions(
-              computeAdvertised(definitions),
-            ),
-        })
+          handshake.signal,
+        )
         .catch((err: unknown) => {
           logger.warn("MCP connect failed: {error}", {
             error: err instanceof Error ? err.message : String(err),
           });
-        });
+        })
+        .finally(() => handshake.disarm());
+      const outcome = await awaitExecMcpConnect(
+        connecting,
+        EXEC_MCP_CONNECT_WAIT_MS,
+      );
+      if (outcome === "timeout") {
+        logger.warn(
+          "MCP handshake still in progress after {waitMs}ms; continuing to first inference",
+          { waitMs: EXEC_MCP_CONNECT_WAIT_MS },
+        );
+      }
     }
     await workflowHost.resume();
 
