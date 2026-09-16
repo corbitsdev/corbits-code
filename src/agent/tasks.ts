@@ -7,6 +7,12 @@ import type { ToolDefinition } from "@intx/types/runtime";
 export const TaskStatusSchema = type("'todo' | 'doing' | 'done' | 'cancelled'");
 export type TaskStatus = typeof TaskStatusSchema.infer;
 
+// GLM (and other Claude-shaped) payloads send in_progress; map it at the
+// boundary so stored tasks stay on the todo/doing/done/cancelled enum.
+const TaskStatusInput = type(
+  "'todo' | 'doing' | 'done' | 'cancelled' | 'in_progress'",
+).pipe((s): TaskStatus => (s === "in_progress" ? "doing" : s));
+
 export const TaskSchema = type({
   id: "string>0",
   title: "string>0",
@@ -27,12 +33,12 @@ const ManageTasksArgsSchema = type({
   "tasks?": type({
     id: "string>0",
     title: "string>0",
-    "status?": TaskStatusSchema,
+    "status?": TaskStatusInput,
   }).array(),
   "updates?": type({
     id: "string>0",
     "title?": "string>0",
-    "status?": TaskStatusSchema,
+    "status?": TaskStatusInput,
   }).array(),
 });
 
@@ -175,10 +181,10 @@ export type ManageTasksRunner = (rawArgs: Record<string, unknown>) => Promise<{
 export function createManageTasksRunner(): ManageTasksRunner {
   let tasks: Task[] = [];
   return async (rawArgs) => {
-    const parsed = parseManageTasksArgs(rawArgs);
-    if (parsed === null) {
+    const parsed = ManageTasksArgsSchema(rawArgs);
+    if (parsed instanceof type.errors) {
       return {
-        content: "Error: manage_tasks requires action ('create' or 'update').",
+        content: `Error: manage_tasks arguments invalid: ${parsed.summary}`,
         isError: true,
       };
     }

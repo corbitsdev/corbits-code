@@ -3,6 +3,7 @@ import {
   applyManageTasks,
   createManageTasksRunner,
   hasActiveTasks,
+  parseManageTasksArgs,
   type Task,
 } from "../../../src/agent/tasks.js";
 
@@ -157,4 +158,45 @@ test("manage_tasks runner rejects invalid args", async () => {
   const run = createManageTasksRunner();
   const result = await run({});
   expect(result.isError).toBe(true);
+  expect(result.content).toMatch(/action/i);
+});
+
+test("manage_tasks runner names invalid status, not missing action", async () => {
+  const run = createManageTasksRunner();
+  const result = await run({
+    action: "create",
+    tasks: [{ id: "t1", title: "Inspect", status: "bogus" }],
+  });
+  expect(result.isError).toBe(true);
+  expect(result.content).toMatch(/status/i);
+  expect(result.content).not.toMatch(/requires action/i);
+});
+
+test("manage_tasks runner accepts a GLM-shaped create with in_progress", async () => {
+  const run = createManageTasksRunner();
+  const glmPayload = {
+    action: "create",
+    tasks: [
+      { id: "t1", title: "Inspect branch", status: "in_progress" },
+      { id: "t2", title: "Write failing test", status: "todo" },
+    ],
+  };
+  const result = await run(glmPayload);
+  expect(result.isError).toBeUndefined();
+  expect(result.content).toBe("Tasks updated.");
+  expect(
+    (
+      await run({
+        action: "update",
+        updates: [{ id: "t1", status: "doing" }],
+      })
+    ).content,
+  ).toBe("No change: t1 already doing.");
+  expect(parseManageTasksArgs(glmPayload)).toEqual({
+    action: "create",
+    tasks: [
+      { id: "t1", title: "Inspect branch", status: "doing" },
+      { id: "t2", title: "Write failing test", status: "todo" },
+    ],
+  });
 });
