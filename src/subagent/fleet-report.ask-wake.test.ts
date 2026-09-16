@@ -84,4 +84,20 @@ describe("pendingAskWakeText", () => {
     expect(text).toContain("using target a1");
     expect(text.toLowerCase()).toContain("worker");
   });
+
+  test("a re-surface count restates that the earlier wake stalled", () => {
+    const text = pendingAskWakeText(
+      {
+        sessionId: "a1",
+        agentId: "builder",
+        description: "Build the thing",
+        question: "Which port?",
+        questionId: "q1",
+      },
+      { resurface: 1 },
+    );
+    expect(text).toContain("Re-surface 1");
+    expect(text).toContain("stalled");
+    expect(text).toContain("send_input");
+  });
 });

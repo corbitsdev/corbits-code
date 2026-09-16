@@ -49,7 +49,6 @@ import {
   repetitionRecoveryMessage,
   isStalledForDisplay,
   shouldAbortForStall,
-  shouldAbortForStalledWakeTurn,
   stallLevel,
   STALL_NOTICE_MESSAGE,
   STALL_NOTICE_MS,
@@ -309,12 +308,11 @@ export interface SessionBridge {
    */
   flushMailboxMail: () => void;
   /**
-   * Stall bound for a silent ask-wake primary turn (CL-8016). Ends the turn
-   * through the same path as an operator stop when it is still silent past
-   * the stall threshold, then hands queued mail over and re-surfaces the
-   * still-pending questions (escalated) so neither the queue nor the parked
-   * asks freeze. Returns true when it aborted. Never touches tool-execution
-   * or gated turns; those are someone else's turn shape. Driven by the fleet
+   * Stall bound for a silent ask-wake primary turn (CL-8016). If a wake was
+   * actually sent (`askWakeTurnArmed`) and `shouldAbortForStall` says the
+   * turn is silent past the bound (including awaiting-first-token, per
+   * #1095), un-dedupe the delivered wakes and interrupt so the questions
+   * re-surface escalated. Returns true when it aborted. Driven by the fleet
    * stall poll, which settles deadline-past asks first.
    */
   abortStalledWakeTurn: () => boolean;
@@ -1885,26 +1883,12 @@ export function attachSessionBridge(
   bag.flushMailboxMail = flushMailboxMail;
 
   /**
-   * Stall bound for a silent ask-wake primary turn (CL-8016). Only an armed
-   * (wake-sent, never settled) turn can match: the predicate bounds silence
-   * past the threshold while tool-execution and gated turns stay excluded.
-   * The layer is stamped before the interrupt so the marker names the hung
-   * layer instead of the post-abort idle. The turn ends through the same
-   * path as an operator stop — interrupt the record, hand the queued mail
-   * over, then let occupancy drive mail or re-surface the still-pending
-   * questions (escalated) — so neither the queue nor the parked asks freeze.
+   * A stalled armed wake never landed: drop matching deliveredAskWake entries
+   * and bump the resurface count so the next flush restates the questions
+   * (escalated) instead of skipping them as already delivered.
    */
-  const abortStalledWakeTurn = (): boolean => {
-    if (bag.disposed || !bag.askWakeTurnArmed) return false;
-    if (!shouldAbortForStalledWakeTurn(stallArgsFor(now()))) return false;
-    const layer = turnStallLayer(bag.turn) ?? "mid-stream";
-    // The aborted turn never landed its wakes: release the still-pending
-    // questions from delivery dedupe so the trailing flush restates them
-    // (escalated via the count), and bump the count so the restatement reads
-    // as proof the earlier turn stalled rather than as a duplicate. Settled
-    // or replaced questions are untouched — only a pending question whose
-    // delivered id matches can re-surface, so each abort yields at most one
-    // restatement per live question.
+  const unDedupeArmedAskWakes = (): void => {
+    if (!bag.askWakeTurnArmed) return;
     for (const [sessionId, ask] of bag.pendingAskWake) {
       if (bag.deliveredAskWake.get(sessionId) !== ask.questionId) continue;
       bag.deliveredAskWake.delete(sessionId);
@@ -1913,6 +1897,21 @@ export function attachSessionBridge(
         (bag.askWakeResurface.get(sessionId) ?? 0) + 1,
       );
     }
+  };
+
+  /**
+   * Stall bound for a silent ask-wake primary turn (CL-8016). Only an armed
+   * (wake-sent, never settled) turn can match. Silence uses `shouldAbortForStall`
+   * — the same #1095 bound that already covers awaiting-first-token — then
+   * un-dedupes and interrupts so parked questions re-surface. Mail first so
+   * occupancy can take the next turn; the trailing wake flush restates if
+   * mail did not start one.
+   */
+  const abortStalledWakeTurn = (): boolean => {
+    if (bag.disposed || !bag.askWakeTurnArmed) return false;
+    if (!shouldAbortForStall(stallArgsFor(now()))) return false;
+    const layer = turnStallLayer(bag.turn) ?? "mid-stream";
+    unDedupeArmedAskWakes();
     recordTurnMarker(bag, `stall-abort:${layer}`);
     bag.askWakeTurnArmed = false;
     bag.turn = turnStateOnInterrupt(bag.turn, now());
@@ -1943,8 +1942,9 @@ export function attachSessionBridge(
     // turn the operator (or the watchdog) deliberately stopped.
     recordLastSent(null);
     bag.awaitingContinuationInference = false;
-    // An operator stop ends the turn the same way a settle does: no bound
-    // is owed anymore, whatever the turn was started for.
+    // Armed wake that dies here (operator stop or #1095 stall abort) never
+    // landed: un-dedupe so flushPendingAskWake restates the questions.
+    unDedupeArmedAskWakes();
     bag.askWakeTurnArmed = false;
     bag.turn = turnStateOnInterrupt(bag.turn, now());
     paintPhase();

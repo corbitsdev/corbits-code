@@ -96,29 +96,6 @@ export function shouldAbortForStall(args: ShouldAbortForStallArgs): boolean {
   return silentPastThreshold(args, args.stallTimeoutMs);
 }
 
-/**
- * Whether a silent primary turn started for parked `ask_director` questions
- * (CL-8016) is past the bound and should be aborted so the queue and the
- * questions unfreeze. Unlike `shouldAbortForStall` this deliberately includes
- * the awaiting-first-token state: a wake turn is machine-generated text the
- * parent never typed, so no operator intent is discarded by bounding it —
- * the abort re-surfaces the still-pending questions (escalated) or lets the
- * ask deadline settle them. Tool-execution turns are still excluded: an
- * `ask_director` wake turn never starts tools, so tools out means this is not
- * the wake turn stalling. Blocked turns are excluded via `status`.
- */
-export function shouldAbortForStalledWakeTurn(
-  args: ShouldAbortForStallArgs,
-): boolean {
-  if (args.status !== "running") return false;
-  if (args.nowMs - args.lastActivityAt < args.stallTimeoutMs) return false;
-  // Tool execution is someone else's turn shape, not a stalled wake turn.
-  if (args.activeToolCalls.length > 0 || args.streamingType === "tool") {
-    return false;
-  }
-  return args.isProcessing;
-}
-
 export type ShouldNoticeStallArgs = ShouldAbortForStallArgs & {
   readonly stallNoticeMs: number;
   /** Whether the repetition guard currently sees a looping tail. */
