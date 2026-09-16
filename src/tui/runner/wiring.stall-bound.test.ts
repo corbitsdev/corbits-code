@@ -137,9 +137,7 @@ describe("stall-bound primary turn (CL-8016)", () => {
           () => bridge.flushMailboxMail(),
           {
             abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
-            expireStaleAsks: () => {
-              store.expireStaleAsks(ASK_DEADLINE_MS);
-            },
+            expireStaleAsks: () => store.expireStaleAsks(ASK_DEADLINE_MS),
           },
         );
         tick();
@@ -292,9 +290,7 @@ describe("stall-bound primary turn (CL-8016)", () => {
           () => bridge.flushMailboxMail(),
           {
             abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
-            expireStaleAsks: () => {
-              store.expireStaleAsks(ASK_DEADLINE_MS);
-            },
+            expireStaleAsks: () => store.expireStaleAsks(ASK_DEADLINE_MS),
           },
         );
 
@@ -324,6 +320,154 @@ describe("stall-bound primary turn (CL-8016)", () => {
         // Expiring the asks must also end the silent wake — disarm without
         // abort would leave isProcessing hung with nothing left to re-surface.
         expect(bridge.turn.isProcessing).toBe(false);
+      } finally {
+        bridge.dispose();
+      }
+    });
+  });
+
+  test("late wake expiring at the deadline ends the silent turn without the stall bound (CL-8060)", async () => {
+    await withTestRenderer(async (h) => {
+      let nowMs = 5_000_000;
+      const store = createSubAgentSessionStore({ now: () => nowMs });
+      const worker = parkWorker(store, "late");
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+      });
+      const port = createRecordingPort();
+      const bridge = attachSessionBridge(shell, port, {
+        now: () => nowMs,
+        stallTimeoutMs: STALL_TIMEOUT_MS,
+        schedule: () => () => undefined,
+      });
+      try {
+        const askedAt = nowMs;
+        // The wake lands late: just inside the ask deadline, so the silent
+        // turn is still inside its stall window when the deadline hits.
+        nowMs = askedAt + ASK_DEADLINE_MS - 500;
+        bridge.handle({
+          type: "agent-ask",
+          asks: pendingAskSnapshot(store.list(), (id) => {
+            const ask = store.peekAsk(id);
+            return ask === undefined ? undefined : ask;
+          }),
+        });
+        expect(bridge.turn.isProcessing).toBe(true);
+        expect(wakeDeliveries(port)).toHaveLength(1);
+
+        const reportFleet = (): void => {
+          bridge.handle({
+            type: "agent-ask",
+            asks: pendingAskSnapshot(store.list(), (id) => {
+              const ask = store.peekAsk(id);
+              return ask === undefined ? undefined : ask;
+            }),
+          });
+        };
+        const tick = createFleetStallPollTick(
+          reportFleet,
+          () => bridge.flushMailboxMail(),
+          {
+            abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
+            abortExpiredWakeTurn: (expiredThisTick) =>
+              bridge.abortExpiredWakeTurn(expiredThisTick),
+            expireStaleAsks: () => store.expireStaleAsks(ASK_DEADLINE_MS),
+          },
+        );
+
+        // Past the ask deadline but still inside the wake turn's stall window:
+        // the deadline settles the question and the silent turn must end idle
+        // without waiting for the stall bound.
+        nowMs = askedAt + ASK_DEADLINE_MS + 1;
+        tick();
+
+        expect(worker.resolved).toHaveLength(0);
+        expect(worker.rejected).toHaveLength(1);
+        expect(String(worker.rejected[0])).toContain(worker.questionId);
+        expect(bridge.turn.isProcessing).toBe(false);
+        const paths = bridge.turnMarkers().map((marker) => marker.path);
+        expect(paths).toContain("expire-abort");
+        expect(paths.some((path) => path.startsWith("stall-abort"))).toBe(
+          false,
+        );
+        // Nothing left to re-surface: the expired wake does not send again.
+        expect(wakeDeliveries(port)).toHaveLength(1);
+        expect(bridge.abortStalledWakeTurn()).toBe(false);
+        expect(bridge.abortExpiredWakeTurn(true)).toBe(false);
+      } finally {
+        bridge.dispose();
+      }
+    });
+  });
+
+  test("send_input resolving the last ask on a live wake turn does not expire-abort", async () => {
+    await withTestRenderer(async (h) => {
+      let nowMs = 6_000_000;
+      const store = createSubAgentSessionStore({ now: () => nowMs });
+      const worker = parkWorker(store, "live");
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+      });
+      const port = createRecordingPort();
+      const bridge = attachSessionBridge(shell, port, {
+        now: () => nowMs,
+        stallTimeoutMs: STALL_TIMEOUT_MS,
+        schedule: () => () => undefined,
+      });
+      try {
+        bridge.handle({
+          type: "agent-ask",
+          asks: pendingAskSnapshot(store.list(), (id) => {
+            const ask = store.peekAsk(id);
+            return ask === undefined ? undefined : ask;
+          }),
+        });
+        expect(bridge.turn.isProcessing).toBe(true);
+        expect(wakeDeliveries(port)).toHaveLength(1);
+
+        // Parent is inferring the wake when send_input answers the last ask.
+        bridge.handle({ type: "inference.start", data: {} });
+        expect(store.sendInputOne(worker.sessionId, "the answer")).toEqual({
+          ok: true,
+          status: "running",
+        });
+        expect(worker.resolved).toEqual(["the answer"]);
+        expect(store.hasPendingAsk(worker.sessionId)).toBe(false);
+
+        const reportFleet = (): void => {
+          bridge.handle({
+            type: "agent-ask",
+            asks: pendingAskSnapshot(store.list(), (id) => {
+              const ask = store.peekAsk(id);
+              return ask === undefined ? undefined : ask;
+            }),
+          });
+        };
+        // Subscribe-time report empties pendingAskWake while inference is live.
+        reportFleet();
+        const tick = createFleetStallPollTick(
+          reportFleet,
+          () => bridge.flushMailboxMail(),
+          {
+            abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
+            abortExpiredWakeTurn: (expiredThisTick) =>
+              bridge.abortExpiredWakeTurn(expiredThisTick),
+            expireStaleAsks: () => store.expireStaleAsks(ASK_DEADLINE_MS),
+          },
+        );
+
+        tick();
+
+        expect(bridge.turn.isProcessing).toBe(true);
+        const paths = bridge.turnMarkers().map((marker) => marker.path);
+        expect(paths).toContain("infer-start");
+        expect(paths).not.toContain("expire-abort");
+        expect(paths.some((path) => path.startsWith("stall-abort"))).toBe(
+          false,
+        );
+        expect(wakeDeliveries(port)).toHaveLength(1);
       } finally {
         bridge.dispose();
       }

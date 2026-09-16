@@ -318,6 +318,20 @@ export interface SessionBridge {
    */
   abortStalledWakeTurn: () => boolean;
   /**
+   * Ask-deadline bound for a silent ask-wake primary turn (CL-8060). The poll
+   * must have expired asks this tick (`expiredThisTick`); then, if a wake was
+   * actually sent (`askWakeTurnArmed`) but the deadline already settled every
+   * pending ask (so `pendingAskWake` is empty after the reconciling report),
+   * the turn has nothing left to surface — interrupt it even when the stall
+   * bound has not tripped (e.g. a late wake still inside its stall window at
+   * the deadline). send_input emptying pending is not an expire: the parent
+   * may still be inferring. Same occupancy-first handoff as the stall abort,
+   * so mailbox mail still wins the next turn; with nothing pending there is
+   * nothing to re-surface. Returns true when it aborted. Driven by the fleet
+   * stall poll, after the deadline settle and its reconciling report.
+   */
+  abortExpiredWakeTurn: (expiredThisTick: boolean) => boolean;
+  /**
    * Phase-transition stamps (`TurnMarker`), newest last. Diagnostic-only:
    * exists so the stall-bound regression test can observe the abort path;
    * production code never reads it.
@@ -453,8 +467,8 @@ interface TurnThinking {
 const THINKING_FRAGMENT_SEPARATOR = "\n\n";
 
 /**
- * A turn-phase transition stamp (CL-8016): `infer-start`, `first-token`,
- * `settle`, or `stall-abort:<layer>`. The stalled layer (inference stream vs
+ * A turn-phase transition stamp (CL-8016, CL-8060): `infer-start`, `first-token`,
+ * `settle`, `stall-abort:<layer>`, or `expire-abort`. The stalled layer (inference stream vs
  * turn-loop vs tool execution) cannot be read off the turn record after the
  * fact, so the abort stamps `turnStallLayer` at the moment it fires — that is
  * what names the hung layer instead of a post-mortem guess.
@@ -1385,8 +1399,10 @@ function applyInbound(
       }
     }
     // A fresh snapshot with nothing pending means no wake is owed, but a
-    // still-armed silent turn must stay armed so the stall abort can interrupt
-    // it. Disarming here (expire / send_input) would leave isProcessing hung.
+    // still-armed silent turn must stay armed until the poll's expire-abort
+    // (CL-8060, only when expireStaleAsks expired this tick) or stall abort
+    // can interrupt it. Disarming here (expire / send_input) would leave
+    // isProcessing hung; send_input emptying pending must not expire-abort.
     bag.flushPendingAskWake?.();
     return;
   }
@@ -1953,6 +1969,28 @@ export function attachSessionBridge(
     return true;
   };
 
+  /**
+   * Ask-deadline bound for a silent ask-wake primary turn (CL-8060). Only an
+   * expire this tick plus an armed (wake-sent, never settled) turn with
+   * nothing left pending can match: expireStaleAsks settled the questions
+   * and the reconciling `reportFleet` emptied `pendingAskWake`, so the wake
+   * turn is owed to nobody. send_input emptying pending is not an expire.
+   * Unlike the stall bound there is no silence clock — the questions expired,
+   * so the turn ends even inside its stall window. Shares
+   * `abortInFlightAndHandoff` with the stall abort, so occupancy (mailbox
+   * mail) still wins the next turn and the trailing wake flush restates
+   * nothing.
+   */
+  const abortExpiredWakeTurn = (expiredThisTick: boolean): boolean => {
+    if (!expiredThisTick) return false;
+    if (bag.disposed || !bag.askWakeTurnArmed) return false;
+    if (!bag.turn.isProcessing) return false;
+    if (bag.pendingAskWake.size > 0) return false;
+    recordTurnMarker(bag, "expire-abort");
+    abortInFlightAndHandoff();
+    return true;
+  };
+
   const doInterrupt = (): void => {
     if (bag.disposed) return;
     abortInFlightAndHandoff();
@@ -2187,6 +2225,8 @@ export function attachSessionBridge(
       flushMailboxMail();
     },
     abortStalledWakeTurn: () => abortStalledWakeTurn(),
+    abortExpiredWakeTurn: (expiredThisTick) =>
+      abortExpiredWakeTurn(expiredThisTick),
     turnMarkers: () => bag.turnMarkers,
     dispose: () => {
       flushOpenRow(shell, bag);
