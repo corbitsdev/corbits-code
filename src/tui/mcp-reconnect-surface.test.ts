@@ -49,7 +49,11 @@ async function withShell(
 
 describe("mcp reconnecting surface", () => {
   test("the row label shows the attempt and the retained tool count", () => {
-    expect(mcpRowLabel(entries[0]!)).toBe(
+    const entry = entries[0];
+    if (!entry) {
+      throw new Error("expected reconnecting entry");
+    }
+    expect(mcpRowLabel(entry)).toBe(
       "acme — reconnecting · attempt 3 · 2 tools",
     );
   });
