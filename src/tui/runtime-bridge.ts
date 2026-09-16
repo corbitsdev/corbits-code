@@ -1551,6 +1551,7 @@ export function attachSessionBridge(
     currentToolName: bag.turn.currentToolName,
     activeToolCalls: bag.turn.activeToolCalls,
     callIdByName: bag.turn.callIdByName,
+    callNameById: bag.turn.callNameById,
     stallNoticeMs,
     repeating: bag.turn.repeating,
   });
