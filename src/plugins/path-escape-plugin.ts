@@ -3,7 +3,11 @@ import type { ToolPlugin } from "@intx/tools-posix";
 import { isToolOutputLike } from "../util/tool-output-uri.js";
 import { isArchiveLike } from "../session/compaction-archive.js";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
-import type { RootsProvider } from "../permission/worktree-roots.js";
+import {
+  realpathOr,
+  type RootsProvider,
+} from "../permission/worktree-roots.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
 
 export interface PathEscapeOptions {
   // When true (yolo / --dangerously-skip-permissions), paths outside the
@@ -12,6 +16,10 @@ export interface PathEscapeOptions {
   // A getter is resolved per call so `/yolo` mid-session takes effect without
   // rebuilding the plugin stack.
   allowOutside?: boolean | (() => boolean);
+  // Trusted plugin directories. Reads under these roots are not path-escape
+  // denies (grants can still apply). Writes and deletes stay denied — plugin
+  // trust is not write consent.
+  trustedPluginRoots?: RootsProvider;
 }
 
 function resolveAllowOutside(
@@ -19,6 +27,30 @@ function resolveAllowOutside(
 ): boolean {
   if (typeof value === "function") return value();
   return value === true;
+}
+
+const PLUGIN_READ_TOOLS = new Set([
+  "read_file",
+  "grep",
+  "search_files",
+  "list_dir",
+]);
+
+function rootsForEscape(
+  toolName: string,
+  rootsProvider: RootsProvider,
+  trustedPluginRoots?: RootsProvider,
+): RootsProvider {
+  if (
+    trustedPluginRoots === undefined ||
+    !PLUGIN_READ_TOOLS.has(canonicalToolName(toolName))
+  ) {
+    return rootsProvider;
+  }
+  return (refresh?: boolean) => [
+    ...rootsProvider(refresh),
+    ...trustedPluginRoots(refresh).map(realpathOr),
+  ];
 }
 
 export function pathEscapePlugin(
@@ -36,6 +68,7 @@ export function pathEscapePlugin(
           rootsProvider,
           resolveAllowOutside(options.allowOutside),
           call.name,
+          options.trustedPluginRoots,
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -52,15 +85,23 @@ function escapeArgs(
   rootsProvider: RootsProvider,
   allowOutside: boolean,
   toolName: string,
+  trustedPluginRoots?: RootsProvider,
 ): Record<string, unknown> {
   if (!allowOutside) {
-    const reason = pathEscapeBlockReason(args, cwd, rootsProvider, toolName);
+    const reason = pathEscapeBlockReason(
+      args,
+      cwd,
+      rootsProvider,
+      toolName,
+      trustedPluginRoots,
+    );
     if (reason !== undefined) throw new Error(reason);
   }
+  const combined = rootsForEscape(toolName, rootsProvider, trustedPluginRoots);
   return escapeValue(
     args,
     cwd,
-    rootsProvider,
+    combined,
     allowOutside,
     undefined,
     toolName,
@@ -191,8 +232,15 @@ export function pathEscapeBlockReason(
   cwd: string,
   rootsProvider: RootsProvider = () => [],
   toolName: string,
+  trustedPluginRoots?: RootsProvider,
 ): string | undefined {
-  return blockReasonFor(args, cwd, rootsProvider, undefined, toolName);
+  return blockReasonFor(
+    args,
+    cwd,
+    rootsForEscape(toolName, rootsProvider, trustedPluginRoots),
+    undefined,
+    toolName,
+  );
 }
 
 // Deep-walk identity for the permission gate's authorize/execution cache.
@@ -206,8 +254,13 @@ export function normalizePathArguments(
   args: Record<string, unknown>,
   cwd: string,
   rootsProvider: RootsProvider = () => [],
+  trustedPluginRoots?: RootsProvider,
 ): Record<string, unknown> {
-  return normalizeValue(args, cwd, rootsProvider) as Record<string, unknown>;
+  return normalizeValue(
+    args,
+    cwd,
+    rootsForEscape("read_file", rootsProvider, trustedPluginRoots),
+  ) as Record<string, unknown>;
 }
 
 function normalizeValue(

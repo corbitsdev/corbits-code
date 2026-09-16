@@ -13,6 +13,7 @@ import type { PermissionGate } from "../permission/gate.js";
 import {
   APPROVAL_DROPPED_NOTICE,
   createApprovalResume,
+  requestFromApprovalSnapshot,
   resolveParkedCallIdFromStore,
 } from "./approval-resume.js";
 import { createSessionOperationQueue } from "../tui/delivery-queue.js";
@@ -106,6 +107,35 @@ function deliveredCorrelationId(message: InboundMessage): string {
     throw new Error("expected an interchange correlation id");
   return correlationId;
 }
+
+function fileSnapshot(name: string): ApprovalSnapshot {
+  return {
+    name,
+    description: "write a file",
+    inputSchema: {},
+    arguments: { path: "src/a.ts", content: "x" },
+  };
+}
+
+describe("requestFromApprovalSnapshot aliased file tools", () => {
+  test("parked default.write_file resume is file-scoped like write_file", () => {
+    const write = requestFromApprovalSnapshot(
+      fileSnapshot("write_file"),
+      "corr-write",
+    );
+    const aliased = requestFromApprovalSnapshot(
+      fileSnapshot("default.write_file"),
+      "corr-alias",
+    );
+    expect(write?.tool).toBe("write_file");
+    expect(write?.scopes.map((scope) => scope.id)).toEqual(["exact", "dir"]);
+    expect(write?.scopes.map((scope) => scope.pattern)).toEqual([
+      "src/a.ts",
+      "src/*",
+    ]);
+    expect(aliased).toEqual(write);
+  });
+});
 
 describe("approval decision intent headers", () => {
   for (const allow of [true, false]) {
@@ -201,6 +231,40 @@ describe("approval-resume parallel-parked approvals", () => {
 
     expect(handled).toBe(true);
     expect(delivered).toHaveLength(0);
+  });
+
+  test("history throw after the operator answers still delivers", async () => {
+    const turns = [
+      assistantTurn([
+        { id: "call-A", name: "run_shell", command: "echo alpha" },
+      ]),
+    ];
+    const delivered: InboundMessage[] = [];
+    let historyCalls = 0;
+    const resume = createApprovalResume({
+      getAgent: () =>
+        ({
+          history: async () => {
+            historyCalls += 1;
+            if (historyCalls > 1) throw new Error("history unavailable");
+            return turns;
+          },
+          deliver: (message: InboundMessage) => {
+            delivered.push(message);
+          },
+        }) as Pick<Agent, "deliver" | "history">,
+      gate: {
+        resolveSuspended: async () => ({ allow: true }),
+      } as unknown as PermissionGate,
+      resolveParkedCallId: () => "call-A",
+    });
+
+    expect(await resume.handle(suspension("corr-A", "echo alpha"))).toBe(true);
+    expect(delivered).toHaveLength(1);
+    const message = delivered[0];
+    if (message === undefined) throw new Error("expected a delivered decision");
+    expect(deliveredCorrelationId(message)).toBe("corr-A");
+    expect(decisionBody(message).outcome).toBe("approved");
   });
 
   test("pending-operation lookup identifies the parked call without history tool calls", async () => {

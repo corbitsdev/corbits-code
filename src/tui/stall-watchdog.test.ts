@@ -13,9 +13,7 @@ import {
 } from "./stall-watchdog.js";
 
 describe("shouldAbortForStall", () => {
-  // Mid-stream hang: tokens already flowed, then everything went silent —
-  // the one shape auto-abort is willing to act on. The generic guards
-  // (status, threshold, exemptions) are exercised against this base.
+  // Mid-stream hang: tokens already flowed, then everything went silent.
   const base = {
     status: "running" as const,
     awaitingResponse: false,
@@ -24,7 +22,9 @@ describe("shouldAbortForStall", () => {
     stallTimeoutMs: STALL_TIMEOUT_MS,
     isProcessing: true,
     streamingType: "text" as const,
+    currentToolName: null,
     activeToolCalls: [],
+    callIdByName: {},
   };
 
   test("aborts a mid-stream hang past the timeout", () => {
@@ -70,17 +70,23 @@ describe("shouldAbortForStall", () => {
   });
 
   test("long tool runs are not stalls", () => {
-    expect(shouldAbortForStall({ ...base, streamingType: "tool" })).toBe(false);
+    expect(
+      shouldAbortForStall({
+        ...base,
+        streamingType: "tool",
+        currentToolName: "bash",
+      }),
+    ).toBe(false);
   });
 });
 
-// The other shape silence can take: awaiting the model's next response, with
-// no tokens yet — set right after submit and again the instant the last
-// outstanding tool call resolves (`turnStateOnSubmit`, the `tool.done`
-// handler). A slow model produces exactly this state for as long as it takes
-// to reply, so it is never auto-aborted, however long the silence — only the
-// notice may surface. This is the regression coverage for CL-5640.
-describe("shouldAbortForStall — awaiting the model's next token is never auto-aborted", () => {
+// Awaiting the model's next response with no tokens yet — set right after
+// submit, after the last tool call resolves, and after compact continuation
+// re-entry (`turnStateOnSubmit`, `tool.done`, `beginSystemContinuation`).
+// Cadence still ticks and the notice still arms at STALL_NOTICE_MS; past
+// STALL_TIMEOUT_MS this shape auto-aborts so a continuation that never lands
+// cannot freeze the turn.
+describe("shouldAbortForStall — awaiting-response with a null stream eventually aborts", () => {
   const awaiting = {
     status: "running" as const,
     awaitingResponse: true,
@@ -89,23 +95,34 @@ describe("shouldAbortForStall — awaiting the model's next token is never auto-
     stallTimeoutMs: STALL_TIMEOUT_MS,
     isProcessing: true,
     streamingType: null,
+    currentToolName: null,
     activeToolCalls: [],
+    callIdByName: {},
   };
 
-  test("does not abort a run merely awaiting a response, however long", () => {
-    expect(shouldAbortForStall(awaiting)).toBe(false);
+  test("aborts a run awaiting a response once the stall budget elapses", () => {
+    expect(
+      shouldAbortForStall({ ...awaiting, nowMs: STALL_TIMEOUT_MS - 1 }),
+    ).toBe(false);
+    expect(shouldAbortForStall(awaiting)).toBe(true);
     expect(
       shouldAbortForStall({ ...awaiting, nowMs: STALL_TIMEOUT_MS * 10 }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   // Mirrors the tool.done handler: the last outstanding call just resolved,
-  // awaitingResponse flips true and streamingType resets to null, then the
-  // model itself takes a long-but-healthy while to start its next reply.
-  test("healthy post-tool-batch wait never auto-aborts", () => {
+  // awaitingResponse flips true and streamingType resets to null, then nothing
+  // else arrives.
+  test("post-tool-batch silence auto-aborts after the stall budget", () => {
     expect(shouldAbortForStall({ ...awaiting, activeToolCalls: [] })).toBe(
-      false,
+      true,
     );
+  });
+
+  // Same turn shape as compact continuation: beginSystemContinuation calls
+  // turnStateOnSubmit, which is awaitingResponse + null streamingType.
+  test("post-compact continuation silence auto-aborts after the stall budget", () => {
+    expect(shouldAbortForStall(awaiting)).toBe(true);
   });
 
   test("a parallel fan-out with sibling tools still running is not a stall", () => {
@@ -129,6 +146,70 @@ describe("shouldAbortForStall — awaiting the model's next token is never auto-
     expect(shouldAbortForStall(gateOnly)).toBe(false);
     expect(shouldAbortForStall(toolCallOnly)).toBe(false);
     expect(shouldAbortForStall(both)).toBe(false);
+  });
+});
+
+describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin forever", () => {
+  const collect = {
+    status: "running" as const,
+    awaitingResponse: false,
+    lastActivityAt: 0,
+    nowMs: STALL_TIMEOUT_MS,
+    stallTimeoutMs: STALL_TIMEOUT_MS,
+    isProcessing: true,
+    streamingType: "tool" as const,
+    currentToolName: "shell_collect",
+    activeToolCalls: ["collect-1"],
+    callIdByName: { shell_collect: "collect-1" },
+  };
+
+  test("in-flight collect auto-aborts after the stall budget", () => {
+    expect(
+      shouldAbortForStall({ ...collect, nowMs: STALL_TIMEOUT_MS - 1 }),
+    ).toBe(false);
+    expect(shouldAbortForStall(collect)).toBe(true);
+  });
+
+  test("wait_agents is bounded by the same stall budget", () => {
+    expect(
+      shouldAbortForStall({
+        ...collect,
+        currentToolName: "wait_agents",
+        activeToolCalls: ["wait-1"],
+        callIdByName: { wait_agents: "wait-1" },
+      }),
+    ).toBe(true);
+  });
+
+  // tool.done of a sibling bash clears currentToolName and streamingType
+  // while shell_collect is still in activeToolCalls. Keying only the last
+  // name would leave that poll unbounded forever.
+  test("sibling tool.done while collect is in-flight still aborts at the stall budget", () => {
+    const afterSiblingDone = {
+      ...collect,
+      currentToolName: null,
+      streamingType: null,
+      awaitingResponse: false,
+      activeToolCalls: ["collect-1"],
+      callIdByName: { shell_collect: "collect-1" },
+    };
+    expect(
+      shouldAbortForStall({ ...afterSiblingDone, nowMs: STALL_TIMEOUT_MS - 1 }),
+    ).toBe(false);
+    expect(shouldAbortForStall(afterSiblingDone)).toBe(true);
+  });
+
+  test("a remaining ordinary tool after a sibling done is not a stall", () => {
+    expect(
+      shouldAbortForStall({
+        ...collect,
+        currentToolName: null,
+        streamingType: null,
+        awaitingResponse: false,
+        activeToolCalls: ["bash-1"],
+        callIdByName: { bash: "bash-1" },
+      }),
+    ).toBe(false);
   });
 });
 
@@ -170,8 +251,10 @@ describe("shouldNoticeStall", () => {
     stallNoticeMs: STALL_NOTICE_MS,
     isProcessing: true,
     streamingType: null,
+    currentToolName: null,
     repeating: false,
     activeToolCalls: [],
+    callIdByName: {},
   };
 
   test("a parallel fan-out with sibling tools still running does not notice", () => {
@@ -207,15 +290,12 @@ describe("shouldNoticeStall", () => {
     );
   });
 
-  test("a healthy wait for the model's next token keeps noticing rather than handing over to an abort", () => {
-    // Unlike the mid-stream case above, this shape never reaches "abort" —
-    // see the shouldAbortForStall describe block above — so the notice keeps
-    // surfacing indefinitely instead of going silent once the old timeout
-    // would have fired.
-    expect(shouldNoticeStall({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe(true);
-    expect(shouldNoticeStall({ ...base, nowMs: STALL_TIMEOUT_MS * 10 })).toBe(
+  test("an awaiting-response wait hands over to abort at the stall budget", () => {
+    expect(shouldNoticeStall({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe(false);
+    expect(shouldAbortForStall({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe(
       true,
     );
+    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe("abort");
   });
 
   test("a long tool run is not stuck", () => {
@@ -224,8 +304,26 @@ describe("shouldNoticeStall", () => {
         ...base,
         awaitingResponse: false,
         streamingType: "tool",
+        currentToolName: "bash",
       }),
     ).toBe(false);
+  });
+
+  test("in-flight collect notices, then aborts at the stall budget", () => {
+    const collect = {
+      ...base,
+      awaitingResponse: false,
+      streamingType: "tool" as const,
+      currentToolName: "shell_collect",
+      activeToolCalls: ["collect-1"],
+    };
+    expect(shouldNoticeStall(collect)).toBe(true);
+    expect(shouldNoticeStall({ ...collect, nowMs: STALL_TIMEOUT_MS })).toBe(
+      false,
+    );
+    expect(shouldAbortForStall({ ...collect, nowMs: STALL_TIMEOUT_MS })).toBe(
+      true,
+    );
   });
 });
 
@@ -239,7 +337,9 @@ describe("the stall level the indicator reads", () => {
     stallNoticeMs: STALL_NOTICE_MS,
     isProcessing: true,
     streamingType: null,
+    currentToolName: null,
     activeToolCalls: [],
+    callIdByName: {},
     repeating: false,
   };
 
@@ -256,16 +356,10 @@ describe("the stall level the indicator reads", () => {
     expect(stallLevel({ ...midStream, nowMs: STALL_TIMEOUT_MS })).toBe("abort");
   });
 
-  // Awaiting the model's next token (right after submit, or right after a
-  // tool batch resolves) never escalates to "abort" — see
-  // shouldAbortForStall's dedicated describe block — so this shape stays at
-  // "notice" indefinitely instead of handing over.
-  test("a healthy wait for the model's next token stays at notice, never abort", () => {
+  test("an awaiting-response wait notices, then aborts at the stall budget", () => {
     expect(stallLevel({ ...base, nowMs: STALL_NOTICE_MS })).toBe("notice");
-    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe("notice");
-    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS * 10 })).toBe(
-      "notice",
-    );
+    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS })).toBe("abort");
+    expect(stallLevel({ ...base, nowMs: STALL_TIMEOUT_MS * 10 })).toBe("abort");
   });
 
   test("the indicator keeps reading stalled across the abort threshold", () => {

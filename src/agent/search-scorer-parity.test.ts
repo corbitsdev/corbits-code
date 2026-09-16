@@ -65,12 +65,18 @@ async function skillOrder(query: string): Promise<string[]> {
 describe("search scorer parity", () => {
   test("tool, skill, and agent search rank one catalog the same way", async () => {
     const expected = ["granola-notes", "mygranolahoard", "notebook"];
-    expect(createToolIndex(() => tools, []).search(QUERY)).toEqual(expected);
-    expect(await skillOrder(QUERY)).toEqual(expected);
-    expect(
-      createAgentIndex(() => agents)
-        .search(QUERY)
-        .map((profile) => profile.id),
-    ).toEqual(expected);
+    const skillHits = await skillOrder(QUERY);
+    const agentHits = createAgentIndex(() => agents)
+      .search(QUERY)
+      .map((profile) => profile.id);
+    expect(skillHits).toEqual(expected);
+    expect(agentHits).toEqual(expected);
+    // tool_search uses the same ranker, then keeps only the peak cluster
+    // so a specific query does not fill the N cap with weak cousins.
+    const toolHits = createToolIndex(() => tools, []).search(QUERY);
+    expect(toolHits[0]).toBe(expected[0]);
+    expect(expected.slice(0, toolHits.length)).toEqual(toolHits);
+    expect(toolHits.length).toBeGreaterThan(0);
+    expect(toolHits.length).toBeLessThanOrEqual(expected.length);
   });
 });

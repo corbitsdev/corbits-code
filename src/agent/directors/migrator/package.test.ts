@@ -90,6 +90,7 @@ describe("migratorPackage", () => {
       "list_agents",
       "search_agents",
       "wait_agents",
+      "shell_collect",
     ] as const) {
       expect(allow).not.toContain(verb);
     }

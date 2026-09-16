@@ -28,6 +28,12 @@ describe("internPackage", () => {
     expect(p).toMatch(/You do NOT:[\s\S]*Debug failures/);
   });
 
+  test("fail-closes without shell_collect rather than pinning prompt copy", () => {
+    const allow = internPackage.tools?.allow ?? [];
+    expect(allow).toContain("run_shell");
+    expect(allow).not.toContain("shell_collect");
+  });
+
   test("spawn.maySpawn is false", () => {
     expect(internPackage.spawn.maySpawn).toBe(false);
   });
@@ -40,6 +46,7 @@ describe("internPackage", () => {
     expect(allow).toContain("write_file");
     expect(allow).toContain("edit_file");
     expect(allow).toContain("delete_file");
+    expect(allow).not.toContain("shell_collect");
     for (const name of [
       "grep",
       "search_files",

@@ -1,12 +1,28 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DIRECTOR_REGISTRY } from "./directors/registry.js";
 import { DIRECTOR_IDS, type DirectorId } from "./directors/types.js";
 import {
+  assembleDirectorPrompt,
   canonicalToolNamesForDirector,
   directorPromptSizeTable,
   formatPromptSizeTable,
+  formatSkywalkerPrefixTable,
+  assembleSkywalkerInferEnvelope,
+  measureSkywalkerPrefix,
   type PromptSizeFamily,
 } from "./prompt-sizes.js";
+import {
+  advertisedToolNamesForSessionMode,
+  CATALOG_TOOL_NAMES,
+  CORE_TOOL_NAMES,
+} from "./tool-search.js";
+import { MAX_AGENTS_MD_BYTES } from "./context-extensions.js";
+import { loadSessionChatPrompt } from "../session/runtime-assembly.js";
+import { createAdvertisedToolset } from "../session/assemble-runtime.js";
+import { resolveExecDirectorOverlay } from "../exec/runner.js";
 
 /**
  * Prompt size budget (CL-7664). Numeric asserts only — copy edits must not
@@ -205,6 +221,108 @@ describe("director prompt size budget", () => {
       expect(table).toContain(
         `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${grok?.chars} (${grok?.bytes}) |`,
       );
+    }
+  });
+});
+
+describe("skywalker grok prefix (infer envelope vs trimmed director)", () => {
+  test("keeps AGENTS.md and core tools on the infer envelope", () => {
+    const prompt = assembleSkywalkerInferEnvelope();
+    expect(prompt).toContain("## Project guidance (AGENTS.md, reference)");
+    expect(prompt).toContain("Follow the repository conventions.");
+    for (const name of CORE_TOOL_NAMES) {
+      if (name === "wait_agents") continue;
+      expect(prompt, name).toContain(`- ${name}:`);
+    }
+  });
+
+  test("does not substitute the trimmed director prompt on grok", () => {
+    const size = measureSkywalkerPrefix();
+    expect(size.agentsMdCap).toBe(MAX_AGENTS_MD_BYTES);
+    expect(size.inferEnvelopeChars).toBeGreaterThan(5000);
+    expect(size.trimmedDirectorChars).toBeGreaterThan(5000);
+    expect(size.inferEnvelopeBytes).toBeGreaterThanOrEqual(
+      size.inferEnvelopeChars,
+    );
+    expect(size.inferEnvelopeChars).not.toBe(size.trimmedDirectorChars);
+    const infer = assembleSkywalkerInferEnvelope();
+    expect(infer).not.toContain("Finish bias (xAI / Grok worker):");
+  });
+
+  test("formatSkywalkerPrefixTable reports both prefixes and the AGENTS.md cap", () => {
+    const size = measureSkywalkerPrefix();
+    const table = formatSkywalkerPrefixTable(size);
+    expect(table).toContain(
+      `| skywalker infer envelope (canonical AGENTS.md) | ${size.inferEnvelopeChars} (${size.inferEnvelopeBytes}) |`,
+    );
+    expect(table).toContain(
+      `| skywalker trimmed director (grok) | ${size.trimmedDirectorChars} (${size.trimmedDirectorBytes}) |`,
+    );
+    expect(table).toContain(`| live AGENTS.md cap | ${size.agentsMdCap} |`);
+  });
+
+  // Production pin: a Grok fork at the runner that swapped loadSessionChatPrompt
+  // or advertisedToolNamesForSessionMode for the trimmed director would fail here,
+  // not only the fixture size inequality above.
+  test("grok primary uses loadSessionChatPrompt and CORE+CATALOG, not the trimmed director", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "grok-primary-prefix-"));
+    try {
+      const agentsBody = "GROK_PRIMARY_KEEPS_AGENTS_MD\n";
+      await writeFile(join(cwd, "AGENTS.md"), agentsBody);
+      const availability = {
+        languageServerAvailable: true,
+        operatorAvailable: true,
+        waitAgentsMounted: true,
+      } as const;
+
+      const { systemPrompt } = await loadSessionChatPrompt({
+        cwd,
+        skillDirs: [],
+        sessionMode: "orchestrator",
+        toolAvailability: availability,
+        skills: [],
+      });
+      expect(systemPrompt).toContain(
+        "## Project guidance (AGENTS.md, reference)",
+      );
+      expect(systemPrompt).toContain(agentsBody.trim());
+      for (const name of CORE_TOOL_NAMES) {
+        expect(systemPrompt, name).toContain(`- ${name}:`);
+      }
+
+      const trimmed = assembleDirectorPrompt("skywalker", "grok");
+      expect(trimmed).not.toContain(
+        "## Project guidance (AGENTS.md, reference)",
+      );
+      expect(trimmed).not.toContain(agentsBody.trim());
+
+      const advertised = advertisedToolNamesForSessionMode(
+        "orchestrator",
+        availability,
+      );
+      expect(advertised).toEqual([...CORE_TOOL_NAMES, ...CATALOG_TOOL_NAMES]);
+      const trimmedTools = canonicalToolNamesForDirector(
+        DIRECTOR_REGISTRY.skywalker,
+        "grok",
+      );
+      expect(trimmedTools).not.toContain("list_dir");
+      expect(trimmedTools).not.toContain("tool_search");
+      expect(trimmedTools).not.toContain("skill_search");
+
+      const overlay = resolveExecDirectorOverlay("skywalker");
+      expect(overlay.systemPrompt).toBeUndefined();
+      expect(overlay.advertisedAllow).toBeUndefined();
+      const { isAdvertised } = createAdvertisedToolset({
+        sessionMode: "orchestrator",
+        toolAvailability: availability,
+        getProvider: () => ({ providerName: "xai/default", model: "grok-4.6" }),
+        builtInPrefix: overlay.advertisedAllow,
+      });
+      for (const name of advertised) {
+        expect(isAdvertised(name), name).toBe(true);
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
     }
   });
 });

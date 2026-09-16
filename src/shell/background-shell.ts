@@ -14,6 +14,10 @@ import {
 
 export const MAX_RUNNING_BACKGROUND_SHELLS = 8;
 export const MAX_COMPLETED_BACKGROUND_SHELLS = 8;
+export const MAX_SHELL_COLLECT_WAIT_MS = 300_000;
+// Prefer close so trailing stdio is captured, but never require it: a grandchild
+// holding the pipe must not park collect after the child has already exited.
+const STDIO_DRAIN_MS = 100;
 
 /**
  * Signals the whole process group. With detached:true the shell is the group
@@ -75,10 +79,23 @@ export interface BackgroundShellRegistry {
   runningCount: () => number;
 }
 
+function resolveCollectWaitMs(waitMs: number, maxMs: number): number {
+  if (typeof waitMs !== "number" || Number.isNaN(waitMs) || waitMs <= 0) {
+    return 0;
+  }
+  if (!Number.isFinite(waitMs)) return maxMs;
+  return Math.min(waitMs, maxMs);
+}
+
 export function createBackgroundShellRegistry(
-  options: { onExit?: (exit: BackgroundShellExit) => void } = {},
+  options: {
+    onExit?: (exit: BackgroundShellExit) => void;
+    maxCollectWaitMs?: number;
+  } = {},
 ): BackgroundShellRegistry {
   const { onExit } = options;
+  const maxCollectWaitMs =
+    options.maxCollectWaitMs ?? MAX_SHELL_COLLECT_WAIT_MS;
   const running = new Map<string, ChildProcess>();
   const completed = new Map<string, BackgroundShellExit>();
   const exitWaiters = new Map<string, Set<() => void>>();
@@ -150,10 +167,16 @@ export function createBackgroundShellRegistry(
       if (timer !== undefined) clearTimeout(timer);
       finish(1, false);
     });
-    child.on("close", (code, sig) => {
+    child.on("exit", (code, sig) => {
       if (timer !== undefined) clearTimeout(timer);
       if (!running.has(id)) return;
-      finish(code ?? (sig !== null ? 128 : 1), false);
+      const exitCode = code ?? (sig !== null ? 128 : 1);
+      const settle = (): void => finish(exitCode, false);
+      const grace = setTimeout(settle, STDIO_DRAIN_MS);
+      child.once("close", () => {
+        clearTimeout(grace);
+        settle();
+      });
     });
     return { id };
   };
@@ -166,7 +189,8 @@ export function createBackgroundShellRegistry(
     const done = completed.get(id);
     if (done !== undefined) return { state: "completed", exit: done };
     if (!running.has(id)) return { state: "not-found" };
-    if (waitMs > 0) {
+    const budget = resolveCollectWaitMs(waitMs, maxCollectWaitMs);
+    if (budget > 0) {
       // An already-aborted collect releases immediately as still-running:
       // interrupt must not park the session on a live descendant, and must
       // not kill it either — the child belongs to the still-alive session.
@@ -185,7 +209,7 @@ export function createBackgroundShellRegistry(
           forget();
           signal?.removeEventListener("abort", onAbort);
           resolve();
-        }, waitMs);
+        }, budget);
         const onAbort = (): void => {
           clearTimeout(timer);
           forget();
