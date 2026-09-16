@@ -415,13 +415,11 @@ export function createExecToolPromoter(args: {
   activate: (names: readonly string[]) => boolean;
   isAllowed: (name: string) => boolean;
   persist?: () => void;
+  commitWire?: () => void;
 }): (names: string[]) => void {
   return (names) => {
-    // Gate-only, like the TUI promoteTools: activation lets the model invoke
-    // the match from the result card's schema at once, while the schema joins
-    // the wire set at the next cache-safe boundary (compaction fold) so the
-    // provider's cached prefix never grows mid-thread (CL-7868).
     if (!args.activate(names.filter((name) => args.isAllowed(name)))) return;
+    args.commitWire?.();
     args.persist?.();
   };
 }
@@ -911,6 +909,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
         isAllowed: (name) => isExecOverlayToolAllowed(overlay, name),
         persist: () => {
           void persist("running");
+        },
+        commitWire: () => {
+          if (flushPromotions()) {
+            directorHolder.instance?.updateToolDefinitions(
+              computeAdvertised(agentToolset.dynamicRunner.currentDefinitions()),
+            );
+          }
         },
       }),
     );

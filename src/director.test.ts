@@ -1242,13 +1242,10 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(JSON.stringify(after)).toBe(JSON.stringify(before));
   });
 
-  // CL-7868 (direction A): the provider cache is a prefix cache keyed on the
-  // tools array, so a tool_search turn that promotes a genuinely new tool must
-  // not reshape the wire set mid-session. The call gate opens (the model
-  // invokes the tool from the search result's schema) while the advertised
-  // array holds steady; the growth event lands at the next cache-safe
-  // boundary (compaction fold), appended after the untouched fixed prefix.
-  test("a tool_search turn promoting a genuinely new tool leaves the wire byte-identical until the fold commits it", async () => {
+  // Promotion must open the call gate and commit the schema onto the next
+  // infer tools array. Holding growth until compaction left MCP names
+  // dispatchable in the runner but missing from the provider tools list.
+  test("a tool_search turn promoting a genuinely new tool commits it onto the next infer wire", async () => {
     const linearTool = {
       name: "mcp__linear__list_issues",
       description: "list issues",
@@ -1289,42 +1286,26 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(advertised.activated.activate(["mcp__linear__list_issues"])).toBe(
       true,
     );
-    director.updateToolDefinitions(
-      advertised.computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
-    );
-
-    // Mid-session the wire is byte-identical — the hot prefix never grows —
-    // while the gate is open so the model can invoke the match from the
-    // result card's schema.
-    const after = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("continue"),
-    );
-    expect(JSON.stringify(after)).toBe(JSON.stringify(before));
-    expect(advertised.isAdvertised("mcp__linear__list_issues")).toBe(true);
-
-    // Cache-safe boundary (compaction fold): the pending promotion commits and
-    // the next turn declares it after the untouched fixed prefix.
     expect(advertised.flushPromotions()).toBe(true);
     director.updateToolDefinitions(
       advertised.computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
     );
-    const folded = await firstInferTools(
+
+    const after = await firstInferTools(
       director,
-      makeMessageReceivedEvent("after fold"),
+      makeMessageReceivedEvent("continue"),
     );
-    const foldedNames = (folded as { name: string }[]).map((t) => t.name);
-    expect(foldedNames).toContain("mcp__linear__list_issues");
+    expect(JSON.stringify(after)).not.toBe(JSON.stringify(before));
+    expect(advertised.isAdvertised("mcp__linear__list_issues")).toBe(true);
+    const afterNames = (after as { name: string }[]).map((t) => t.name);
+    expect(afterNames).toContain("mcp__linear__list_issues");
     const beforeNames = (before as { name: string }[])
       .map((t) => t.name)
       .filter((n) => n !== "submit_output");
-    const foldedPrefix = foldedNames.filter(
+    const afterPrefix = afterNames.filter(
       (n) => n !== "submit_output" && n !== "mcp__linear__list_issues",
     );
-    expect(foldedPrefix).toEqual(beforeNames);
-    expect(foldedNames.indexOf("mcp__linear__list_issues")).toBe(
-      beforeNames.length,
-    );
+    expect(afterPrefix).toEqual(beforeNames);
 
     await toolset.dispose();
   });
@@ -1347,13 +1328,9 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     expect(inferToolNames(inferAction)).toContain("submit_output");
   });
 
-  // End-to-end: tool_search matches an MCP tool; the runner's gate-only promote
-  // wiring (mirrored here via createAdvertisedToolset + updateToolDefinitions)
-  // keeps it off the wire the next turn — the hot prefix stays byte-identical
-  // while the gate lets the model call it from the result card. The fold
-  // commits the pending promotion with the tool's full definition, appended
-  // after the untouched fixed prefix, and the array then holds steady.
-  test("a tool_search match stays off the wire until the fold, then holds stable", async () => {
+  // tool_search + flush + updateToolDefinitions puts the match on the next
+  // infer wire; a further turn with no new discovery stays byte-identical.
+  test("a tool_search match is on the next infer wire and then holds stable", async () => {
     const linearTool = {
       name: "mcp__linear__list_issues",
       description: "list issues",
@@ -1399,22 +1376,6 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     // Simulate the runner's gate-only promoter plus its boundary wire push:
     // the gate opens but the wire recompute is byte-identical until the fold.
     advertised.activated.activate(["mcp__linear__list_issues"]);
-    director.updateToolDefinitions(
-      computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
-    );
-
-    const gated = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("continue"),
-    );
-    expect((gated as { name: string }[]).map((t) => t.name)).not.toContain(
-      "mcp__linear__list_issues",
-    );
-    expect(JSON.stringify(gated)).toBe(beforeJson);
-
-    // Simulate the compaction fold: commit the pending promotion, push the
-    // refreshed set, and the tool is declared — appended after the fixed
-    // built-in prefix, which survives untouched ahead of it.
     advertised.flushPromotions();
     director.updateToolDefinitions(
       computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
@@ -1422,15 +1383,12 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
     const after = await firstInferTools(
       director,
-      makeMessageReceivedEvent("after fold"),
+      makeMessageReceivedEvent("continue"),
     );
     const afterTools = after as { name: string }[];
     const afterNames = afterTools.map((t) => t.name);
     expect(afterNames).toContain("mcp__linear__list_issues");
-    // submit_output rides along separately (see withCurrentTools), appended
-    // after computeAdvertised's result every turn — strip it before comparing
-    // the fixed built-in prefix, which must survive untouched ahead of the
-    // newly appended MCP tool.
+    expect(JSON.stringify(after)).not.toBe(beforeJson);
     const beforePrefix = beforeNames.filter((n) => n !== "submit_output");
     const afterPrefix = afterNames.filter(
       (n) => n !== "submit_output" && n !== "mcp__linear__list_issues",
@@ -1440,13 +1398,11 @@ describe("updateToolDefinitions rewrites infer tools", () => {
       beforePrefix.length,
     );
 
-    // A further turn with no new discovery stays byte-identical to `after`.
     const stable = await firstInferTools(
       director,
       makeMessageReceivedEvent("keep going"),
     );
     expect(JSON.stringify(stable)).toBe(JSON.stringify(after));
-    expect(JSON.stringify(after)).not.toBe(beforeJson);
 
     await toolset.dispose();
   });

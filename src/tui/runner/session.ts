@@ -718,6 +718,7 @@ export async function assembleTUISession(
     workflowHost,
     activatedToolNames,
     computeAdvertised,
+    flushPromotions,
     buildAgent: chatAgent.buildAgent,
     sessionCost,
     sessionOps,
