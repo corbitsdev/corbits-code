@@ -330,6 +330,82 @@ describe("stall-bound primary turn (CL-8016)", () => {
     });
   });
 
+  test("late wake expiring at the deadline ends the silent turn without the stall bound (CL-8060)", async () => {
+    await withTestRenderer(async (h) => {
+      let nowMs = 5_000_000;
+      const store = createSubAgentSessionStore({ now: () => nowMs });
+      const worker = parkWorker(store, "late");
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+      });
+      const port = createRecordingPort();
+      const bridge = attachSessionBridge(shell, port, {
+        now: () => nowMs,
+        stallTimeoutMs: STALL_TIMEOUT_MS,
+        schedule: () => () => undefined,
+      });
+      try {
+        const askedAt = nowMs;
+        // The wake lands late: just inside the ask deadline, so the silent
+        // turn is still inside its stall window when the deadline hits.
+        nowMs = askedAt + ASK_DEADLINE_MS - 500;
+        bridge.handle({
+          type: "agent-ask",
+          asks: pendingAskSnapshot(store.list(), (id) => {
+            const ask = store.peekAsk(id);
+            return ask === undefined ? undefined : ask;
+          }),
+        });
+        expect(bridge.turn.isProcessing).toBe(true);
+        expect(wakeDeliveries(port)).toHaveLength(1);
+
+        const reportFleet = (): void => {
+          bridge.handle({
+            type: "agent-ask",
+            asks: pendingAskSnapshot(store.list(), (id) => {
+              const ask = store.peekAsk(id);
+              return ask === undefined ? undefined : ask;
+            }),
+          });
+        };
+        const tick = createFleetStallPollTick(
+          reportFleet,
+          () => bridge.flushMailboxMail(),
+          {
+            abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
+            abortExpiredWakeTurn: () => bridge.abortExpiredWakeTurn(),
+            expireStaleAsks: () => {
+              store.expireStaleAsks(ASK_DEADLINE_MS);
+            },
+          },
+        );
+
+        // Past the ask deadline but still inside the wake turn's stall window:
+        // the deadline settles the question and the silent turn must end idle
+        // without waiting for the stall bound.
+        nowMs = askedAt + ASK_DEADLINE_MS + 1;
+        tick();
+
+        expect(worker.resolved).toHaveLength(0);
+        expect(worker.rejected).toHaveLength(1);
+        expect(String(worker.rejected[0])).toContain(worker.questionId);
+        expect(bridge.turn.isProcessing).toBe(false);
+        const paths = bridge.turnMarkers().map((marker) => marker.path);
+        expect(paths).toContain("expire-abort");
+        expect(paths.some((path) => path.startsWith("stall-abort"))).toBe(
+          false,
+        );
+        // Nothing left to re-surface: the expired wake does not send again.
+        expect(wakeDeliveries(port)).toHaveLength(1);
+        expect(bridge.abortStalledWakeTurn()).toBe(false);
+        expect(bridge.abortExpiredWakeTurn()).toBe(false);
+      } finally {
+        bridge.dispose();
+      }
+    });
+  });
+
   test("stop clears the store and mailbox; late send_input names the teardown", async () => {
     await withTestRenderer(async (h) => {
       let nowMs = 3_000_000;
