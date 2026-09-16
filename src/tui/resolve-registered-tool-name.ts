@@ -23,10 +23,8 @@ function undoubledKnownName(
   requested: string,
   isKnown: (name: string) => boolean,
 ): string | undefined {
-  const sep = requested.indexOf(".");
-  if (sep <= 0) return undefined;
-  const left = requested.slice(0, sep);
-  const right = requested.slice(sep + 1);
-  if (left.length === 0 || left !== right || !isKnown(left)) return undefined;
-  return left;
+  if (requested.length < 3 || requested.length % 2 === 0) return undefined;
+  const name = requested.slice(0, (requested.length - 1) / 2);
+  if (requested !== `${name}.${name}` || !isKnown(name)) return undefined;
+  return name;
 }

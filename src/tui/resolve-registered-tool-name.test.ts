@@ -51,4 +51,12 @@ describe("resolveRegisteredToolName", () => {
   test("equal halves that are not a known tool stay unknown", () => {
     expect(resolveRegisteredToolName("ghost.ghost", isKnown)).toBeUndefined();
   });
+
+  test("resolves a doubled catalog name that itself contains a dot", () => {
+    const dotted = "mcp__foo.bar__baz";
+    const isDottedKnown = (name: string) => name === dotted;
+    expect(
+      resolveRegisteredToolName(`${dotted}.${dotted}`, isDottedKnown),
+    ).toBe(dotted);
+  });
 });

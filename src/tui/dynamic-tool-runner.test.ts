@@ -126,11 +126,10 @@ describe("mangled dispatch names", () => {
 
   test("resolves default. plus a duplicated suffix without advertising either alias", async () => {
     const runner = createDynamicToolRunner([stringTool(catalog, "ok")]);
-    const advertised = advertisedTools(runner.currentDefinitions()).map(
-      (d) => d.name,
-    );
-    expect(advertised).not.toContain(`default.${catalog}`);
-    expect(advertised).not.toContain(`${catalog}.${catalog}`);
+    const names = runner.currentDefinitions().map((d) => d.name);
+    expect(names).toEqual([catalog]);
+    expect(names).not.toContain(`default.${catalog}`);
+    expect(names).not.toContain(`${catalog}.${catalog}`);
 
     const result = await runner.run(
       {
