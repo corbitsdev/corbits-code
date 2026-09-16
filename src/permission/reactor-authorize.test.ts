@@ -185,6 +185,24 @@ test("leaf worker control-plane tools allow with empty parent approvals", async 
       ).effect,
     ).toBe("allow");
     expect(
+      (
+        await authorize(
+          "tool:default.submit_result",
+          "invoke",
+          namedCall("default.submit_result"),
+        )
+      ).effect,
+    ).toBe("allow");
+    expect(
+      (
+        await authorize(
+          "tool:default.ask_director",
+          "invoke",
+          namedCall("default.ask_director"),
+        )
+      ).effect,
+    ).toBe("allow");
+    expect(
       (await authorize("tool:wait_agents", "invoke", namedCall("wait_agents")))
         .effect,
     ).toBe("allow");

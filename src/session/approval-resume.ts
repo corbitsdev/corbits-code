@@ -22,6 +22,7 @@ import { type } from "arktype";
 import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
 import { buildRequests } from "../permission/classify.js";
@@ -49,7 +50,9 @@ export interface ApprovalResume {
   handle: (result: SendResult) => Promise<boolean>;
 }
 
-// Rebuild the operator-facing request from the persisted snapshot. Scopes come
+// Rebuild the operator-facing request from the persisted snapshot. The parked
+// name is canonicalized first so resume matches live decide() (file scopes for
+// write_file, not a generic tool grant for default.write_file). Scopes come
 // from buildRequests (the same decomposition the middleware path shows), with
 // the secret-path rule re-applied: secret shell never offers a persistent
 // scope, because future secret-path shell always re-asks.
@@ -61,7 +64,7 @@ export function requestFromApprovalSnapshot(
   if (parsed instanceof type.errors) return null;
   const call = {
     id: correlationId,
-    name: parsed.name,
+    name: canonicalToolName(parsed.name),
     arguments: parsed.arguments ?? {},
   };
   const [request] = buildRequests(call);

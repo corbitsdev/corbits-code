@@ -1,5 +1,6 @@
 import { evaluateGrants, type GrantRule } from "@intx/authz";
 
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import type { Approval } from "./types.js";
 import { matchesPattern } from "./matcher.js";
 import { realpathOr } from "./worktree-roots.js";
@@ -23,7 +24,7 @@ export function approvalToGrantRule(
     origin: "invoker",
     // resource = subject pattern (command or path); action = tool name.
     resource: approval.pattern,
-    action: approval.tool,
+    action: canonicalToolName(approval.tool),
     conditions: null,
     expiresAt: null,
   };
@@ -81,7 +82,7 @@ export function grantScopeMatches(
   workspace: GrantWorkspace,
 ): boolean {
   return (
-    approval.tool === tool &&
+    canonicalToolName(approval.tool) === canonicalToolName(tool) &&
     (approval.providerModel === undefined ||
       approval.providerModel === activeProviderModel) &&
     cwdMatchesGrant(approval.cwd, requestCwd, workspace)
@@ -115,8 +116,9 @@ export async function approvalCoversSubject(
     requestCwd,
     workspace,
   } = input;
+  const action = canonicalToolName(tool);
   const scoped = approvals.filter((a) =>
-    grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace),
+    grantScopeMatches(a, action, activeProviderModel, requestCwd, workspace),
   );
   if (scoped.length === 0) return false;
 
@@ -134,7 +136,7 @@ export async function approvalCoversSubject(
     .map((a, i) => approvalToGrantRule(a, i));
   if (grants.length === 0) return false;
 
-  const decision = await evaluateGrants(grants, subject, tool);
+  const decision = await evaluateGrants(grants, subject, action);
   return decision.effect === "allow";
 }
 

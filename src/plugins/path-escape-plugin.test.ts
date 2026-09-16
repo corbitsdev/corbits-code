@@ -535,4 +535,77 @@ describe("pathEscapePlugin", () => {
       expect(archive.content).toMatch(/archive/);
     });
   });
+
+  test("read of a trusted plugin root is not a path-escape deny", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-escape-plugin-cwd-"));
+    const pluginDir = await mkdtemp(
+      join(tmpdir(), "corbits-escape-plugin-root-"),
+    );
+    const target = join(pluginDir, "skill.md");
+    await writeFile(target, "body");
+    try {
+      const plugin = pathEscapePlugin(cwd, () => [], {
+        trustedPluginRoots: () => [pluginDir],
+      });
+      const next = async (call: ToolCall): Promise<ToolResult> => ({
+        callId: call.id,
+        content: JSON.stringify(call.arguments),
+      });
+      const handler = plugin.middleware ? plugin.middleware(next) : next;
+      const result = await handler(
+        makeCall("read_file", { path: target }),
+        new AbortController().signal,
+      );
+      expect(result.isError).not.toBe(true);
+      const args = JSON.parse(String(result.content)) as { path: string };
+      expect(args.path).toBe(realpathSync(target));
+      expect(
+        pathEscapeBlockReason(
+          { path: target },
+          cwd,
+          () => [],
+          "read_file",
+          () => [pluginDir],
+        ),
+      ).toBeUndefined();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(pluginDir, { recursive: true, force: true });
+    }
+  });
+
+  test("write of a trusted plugin root stays a path-escape deny", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-escape-plugin-w-cwd-"));
+    const pluginDir = await mkdtemp(
+      join(tmpdir(), "corbits-escape-plugin-w-root-"),
+    );
+    const target = join(pluginDir, "skill.md");
+    await writeFile(target, "body");
+    try {
+      const plugin = pathEscapePlugin(cwd, () => [], {
+        trustedPluginRoots: () => [pluginDir],
+      });
+      const handler = plugin.middleware
+        ? plugin.middleware(nextHandler)
+        : nextHandler;
+      const result = await handler(
+        makeCall("write_file", { path: target, content: "x" }),
+        new AbortController().signal,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/escapes working directory/);
+      expect(
+        pathEscapeBlockReason(
+          { path: target, content: "x" },
+          cwd,
+          () => [],
+          "write_file",
+          () => [pluginDir],
+        ),
+      ).toMatch(/escapes working directory/);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(pluginDir, { recursive: true, force: true });
+    }
+  });
 });

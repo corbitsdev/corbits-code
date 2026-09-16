@@ -393,6 +393,33 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
     ).toBe(true);
   });
 
+  test("a grant for read_file covers default.read_file", async () => {
+    expect(
+      await evaluateApprovals({
+        tool: "default.read_file",
+        subject: "src/a.ts",
+        approvals: [{ tool: "read_file", pattern: "src/*" }],
+        workspace: noWorkspace,
+      }),
+    ).toBe(true);
+  });
+
+  test("a grant for an MCP tool covers the default. prefixed name", async () => {
+    expect(
+      await evaluateApprovals({
+        tool: "default.mcp__linear__save_issue",
+        subject: "mcp__linear__save_issue",
+        approvals: [
+          {
+            tool: "mcp__linear__save_issue",
+            pattern: "mcp__linear__save_issue",
+          },
+        ],
+        workspace: noWorkspace,
+      }),
+    ).toBe(true);
+  });
+
   test("allows exact-escaped grants without treating * as a wildcard", async () => {
     expect(
       await evaluateApprovals({
@@ -557,6 +584,29 @@ describe("classifyTool", () => {
     ]);
     expect(classifyTool("mcp__acme__run_job", registry)).toBe("allow");
     expect(classifyTool("mcp__acme__list_items", registry)).toBe("ask");
+  });
+
+  test("default. prefix and doubled catalog names classify like dispatch names", () => {
+    expect(classifyTool("default.read_file")).toBe("allow");
+    expect(classifyTool("read_file.read_file")).toBe("allow");
+    expect(classifyTool("default.mcp__linear__list_teams")).toBe("allow");
+    expect(classifyTool("default.mcp__linear__save_issue")).toBe("ask");
+    expect(
+      classifyTool("mcp__linear__save_issue.mcp__linear__save_issue"),
+    ).toBe("ask");
+  });
+
+  test("registered MCP annotations apply after stripping default.", () => {
+    const registry = createMcpToolPermissionRegistry();
+    registerMcpClientTools(registry, "acme", [
+      { name: "run_job", annotations: { readOnlyHint: true } },
+      {
+        name: "list_items",
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      },
+    ]);
+    expect(classifyTool("default.mcp__acme__run_job", registry)).toBe("allow");
+    expect(classifyTool("default.mcp__acme__list_items", registry)).toBe("ask");
   });
 });
 
@@ -1068,6 +1118,63 @@ describe("gate denies path tools path-escape will reject", () => {
     expect((await gate.evaluate(call)).allowed).toBe(true);
     expect(asked).toBe(0);
   });
+
+  test("a granted read of a trusted plugin path is not a hard escape deny", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-plugin-grant-in-"));
+    const pluginDir = mkdtempSync(join(tmpdir(), "corbits-plugin-grant-root-"));
+    const target = join(pluginDir, "skill.md");
+    writeFileSync(target, "body");
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "read_file", pattern: target }],
+      cwd,
+      trustedPluginRoots: () => [pluginDir],
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+    });
+    const authorized = await gate.authorizeCall({
+      id: "c",
+      name: "read_file",
+      arguments: { path: target },
+    });
+    expect(authorized.effect).toBe("allow");
+    expect(asked).toBe(0);
+  });
+
+  test("a write of a trusted plugin path stays a hard escape deny", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-plugin-write-in-"));
+    const pluginDir = mkdtempSync(join(tmpdir(), "corbits-plugin-write-root-"));
+    const target = join(pluginDir, "skill.md");
+    writeFileSync(target, "body");
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "write_file", pattern: target }],
+      cwd,
+      trustedPluginRoots: () => [pluginDir],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+    });
+    const authorized = await gate.authorizeCall({
+      id: "c",
+      name: "write_file",
+      arguments: { path: target, content: "x" },
+    });
+    expect(authorized.effect).toBe("deny");
+    if (authorized.effect === "deny") {
+      expect(authorized.reason).toMatch(/escapes working directory/);
+    }
+    expect(asked).toBe(0);
+  });
 });
 
 describe("gate cache identity matches the plugin rewrite for nested paths", () => {
@@ -1106,6 +1213,33 @@ describe("gate cache identity matches the plugin rewrite for nested paths", () =
         options: { path: join(cwd, "notes.txt") },
         content: "x",
       },
+    });
+    expect(executed.effect).toBe("ask");
+  });
+
+  test("authorize default.write_file matches execution write_file without re-decide", async () => {
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), "corbits-alias-id-")));
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      requestApproval: async () => ({ allow: false }),
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+    });
+    const authorized = await gate.authorizeCall({
+      id: "c",
+      name: "default.write_file",
+      arguments: { path: "notes.txt", content: "x" },
+    });
+    expect(authorized.effect).toBe("ask");
+    gate.setSeededApprovals([
+      { tool: "write_file", pattern: join(cwd, "notes.txt") },
+    ]);
+    const executed = await gate.executionVerdict({
+      id: "c",
+      name: "write_file",
+      arguments: { path: join(cwd, "notes.txt"), content: "x" },
     });
     expect(executed.effect).toBe("ask");
   });
@@ -2373,6 +2507,118 @@ describe("createPermissionGate", () => {
       throw new Error("expected the second retry denied");
     expect(retryAgain.reason).toBe(retry.reason);
     expect(asked).toBe(1);
+  });
+
+  test("aliased-name decline is cached: default. prefix retry denies without re-asking", async () => {
+    const args = { url: "https://example.com/docs", format: "markdown" };
+    let asked = 0;
+    const middleware = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+    });
+    const first = await middleware.evaluate({
+      id: "call_0",
+      name: "default.web_fetch",
+      arguments: args,
+    });
+    if (first.allowed) throw new Error("expected the aliased call declined");
+    expect(asked).toBe(1);
+    const aliasedRetry = await middleware.evaluate({
+      id: "call_1",
+      name: "default.web_fetch",
+      arguments: args,
+    });
+    if (aliasedRetry.allowed)
+      throw new Error("expected the aliased retry denied from denial memory");
+    expect(asked).toBe(1);
+    expect(aliasedRetry.reason).toBe(first.reason);
+    const catalogRetry = await middleware.evaluate({
+      id: "call_2",
+      name: "web_fetch",
+      arguments: args,
+    });
+    if (catalogRetry.allowed)
+      throw new Error("expected the catalog retry denied from denial memory");
+    expect(asked).toBe(1);
+    expect(catalogRetry.reason).toBe(first.reason);
+
+    let reactorAsked = 0;
+    const reactor = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: true,
+      requestApproval: async () => {
+        reactorAsked++;
+        return { allow: false };
+      },
+    });
+    const suspended = await reactor.authorizeCall({
+      id: "call_0",
+      name: "default.web_fetch",
+      arguments: args,
+    });
+    if (suspended.effect !== "ask")
+      throw new Error("expected the aliased call to suspend for approval");
+    const outcome = await reactor.resolveSuspended(suspended.request);
+    expect(outcome?.allow).toBe(false);
+    expect(reactorAsked).toBe(1);
+    const retry = await reactor.authorizeCall({
+      id: "call_1",
+      name: "default.web_fetch",
+      arguments: args,
+    });
+    if (retry.effect !== "deny")
+      throw new Error(
+        "expected the aliased reactor retry denied from denial memory",
+      );
+    expect(reactorAsked).toBe(1);
+    expect(retry.reason).toBe(first.reason);
+  });
+
+  test("trusted-plugin-root decline is cached across default. and catalog names", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "corbits-plugin-deny-in-"));
+    const pluginDir = mkdtempSync(join(tmpdir(), "corbits-plugin-deny-root-"));
+    const target = join(pluginDir, "skill.md");
+    writeFileSync(target, "body");
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      trustedPluginRoots: () => [pluginDir],
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+    });
+    const first = await gate.evaluate({
+      id: "call_0",
+      name: "default.read_file",
+      arguments: { path: target },
+    });
+    if (first.allowed)
+      throw new Error("expected the trusted plugin read declined");
+    expect(asked).toBe(1);
+    const retry = await gate.evaluate({
+      id: "call_1",
+      name: "read_file",
+      arguments: { path: target },
+    });
+    if (retry.allowed)
+      throw new Error(
+        "expected the plugin-root retry denied from denial memory",
+      );
+    expect(asked).toBe(1);
+    expect(retry.reason).toBe(first.reason);
   });
 
   // A denied URL is remembered only for same-turn retries. An inbound user
