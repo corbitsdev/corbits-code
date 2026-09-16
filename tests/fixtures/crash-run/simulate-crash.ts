@@ -5,45 +5,23 @@
 // uncaughtException rather than a synchronous throw the caller could catch.
 import { installCrashHandlers } from "../../../src/process-handlers.js";
 import {
-  setActiveRun,
   setTestWriteGate,
   syncRunStateHandle,
 } from "../../../src/session/active-run.js";
 import { sessionDir } from "../../../src/session/index.js";
 import { finalizeRunState, saveState } from "../../../src/session/state.js";
 import { clearsActiveRun } from "../../../src/tui/runner/exit.js";
-
-const cwd = process.cwd();
-const sessionId = process.env["CRASH_TEST_SESSION_ID"];
-if (sessionId === undefined) {
-  throw new Error("CRASH_TEST_SESSION_ID must be set");
-}
-
-const startedAt = Date.now();
-const task = "simulated crash task";
-const model = "test-provider:test-model";
-
-await saveState(cwd, sessionId, {
-  status: "running",
-  turnsUsed: 3,
-  task,
-  startedAt,
-  model,
-});
+import { initCrashFixture } from "./init-fixture.js";
 
 // A single handle object, mutated in place on rotation below rather than
 // replaced — matching runner.ts's activeRunHandle, so a rotation that (on
 // buggy code) clears the module-level slot behind this object is not
 // papered over by re-registering a fresh handle afterward.
-const activeRunHandle = {
-  sessionId,
-  cwd,
-  task,
-  startedAt,
-  turnsUsed: 3,
-  model,
-};
-setActiveRun(activeRunHandle);
+const { cwd, sessionId, startedAt, task, model, activeRunHandle } =
+  await initCrashFixture({
+    envVar: "CRASH_TEST_SESSION_ID",
+    task: "simulated crash task",
+  });
 installCrashHandlers();
 
 // Optional: mimic a session rotation (/clear, /new) before the crash. Routes

@@ -1,5 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
@@ -49,7 +47,11 @@ import { loadState, type RunState } from "../../../src/session/state.js";
 import type { AgentToolset } from "../../../src/agent/tools.js";
 import { createSubAgentSessionStore } from "../../../src/subagent/session-store.js";
 import { defined } from "../../helpers/defined.js";
-import { withMockedModuleDuring } from "../../helpers/mock-module.js";
+import {
+  withMockedHomedir,
+  withMockedModuleDuring,
+} from "../../helpers/mock-module.js";
+import { createTempDirs } from "../../helpers/temporary-dirs.js";
 
 function bareConfig(task: string): Config {
   // Minimal unconfigured-shaped object is not enough — runExec only needs
@@ -179,59 +181,58 @@ describe("runExec", () => {
   test("bootstrap throw after running write leaves terminal run.json and no active run", async () => {
     const previous = getActiveRun();
     clearActiveRun();
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-exec-boot-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-exec-boot-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-exec-boot-cwd-",
+      "corbits-exec-boot-home-",
+    );
     const sessionId = "exec-bootstrap-fail";
     try {
-      await withMockedModuleDuring(
-        import.meta.resolve("node:os"),
-        (real: typeof import("node:os")) => ({ ...real, homedir: () => home }),
-        async () => {
-          await withMockedModuleDuring(
-            import.meta.resolve("../../../src/session/assemble-runtime.js"),
-            (
-              real: typeof import("../../../src/session/assemble-runtime.js"),
-            ) => ({
-              ...real,
-              assembleInferenceBase: () =>
-                Promise.reject(new Error("bootstrap failed")),
-            }),
-            async () => {
-              const { runExec: runExecUnderMock } =
-                await import("../../../src/exec/runner.js");
-              const result = await runExecUnderMock({
-                ...bareConfig("do the thing"),
-                cwd,
-                sessionId,
-              });
-              expect(result.exitCode).toBe(1);
-              expect(result.status).toBe("failed");
-              const persisted = await loadState(cwd, sessionId, home);
-              expect(persisted.kind).toBe("ok");
-              if (persisted.kind !== "ok") return;
-              expect(persisted.state.status).toBe("failed");
-              expect(persisted.state.status).not.toBe("running");
-              expect(persisted.state.finishedAt).toBeGreaterThan(0);
-              expect(persisted.state.task).toBe("do the thing");
-              expect(persisted.state.error).toBe("bootstrap failed");
-              expect(getActiveRun()).toBeNull();
-            },
-          );
-        },
-      );
+      await withMockedHomedir(home, async () => {
+        await withMockedModuleDuring(
+          import.meta.resolve("../../../src/session/assemble-runtime.js"),
+          (
+            real: typeof import("../../../src/session/assemble-runtime.js"),
+          ) => ({
+            ...real,
+            assembleInferenceBase: () =>
+              Promise.reject(new Error("bootstrap failed")),
+          }),
+          async () => {
+            const { runExec: runExecUnderMock } =
+              await import("../../../src/exec/runner.js");
+            const result = await runExecUnderMock({
+              ...bareConfig("do the thing"),
+              cwd,
+              sessionId,
+            });
+            expect(result.exitCode).toBe(1);
+            expect(result.status).toBe("failed");
+            const persisted = await loadState(cwd, sessionId, home);
+            expect(persisted.kind).toBe("ok");
+            if (persisted.kind !== "ok") return;
+            expect(persisted.state.status).toBe("failed");
+            expect(persisted.state.status).not.toBe("running");
+            expect(persisted.state.finishedAt).toBeGreaterThan(0);
+            expect(persisted.state.task).toBe("do the thing");
+            expect(persisted.state.error).toBe("bootstrap failed");
+            expect(getActiveRun()).toBeNull();
+          },
+        );
+      });
     } finally {
       if (previous !== null) setActiveRun(previous);
       else clearActiveRun();
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   });
 
   test("an in-flight persist(running) overlapping a terminal persist does not resurrect the handle", async () => {
     const previous = getActiveRun();
     clearActiveRun();
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-exec-resurrect-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-exec-resurrect-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-exec-resurrect-cwd-",
+      "corbits-exec-resurrect-home-",
+    );
     const sessionId = "exec-running-overlap";
     const held = Promise.withResolvers<undefined>();
     let runningSaves = 0;
@@ -242,129 +243,121 @@ describe("runExec", () => {
       model: "test",
     } as InferenceSource;
     try {
-      await withMockedModuleDuring(
-        import.meta.resolve("node:os"),
-        (real: typeof import("node:os")) => ({ ...real, homedir: () => home }),
-        async () => {
-          await withMockedModuleDuring(
-            import.meta.resolve("../../../src/session/state.js"),
-            (real: typeof import("../../../src/session/state.js")) => ({
-              ...real,
-              saveState: (
-                saveCwd: string,
-                saveSessionId: string,
-                snapshot: RunState,
-                saveHome?: string,
-              ) => {
-                if (snapshot.status === "running") {
-                  runningSaves += 1;
-                  if (runningSaves === 1) {
-                    return real.saveState(
-                      saveCwd,
-                      saveSessionId,
-                      snapshot,
-                      saveHome,
-                    );
-                  }
-                  const issued = real.saveState(
+      await withMockedHomedir(home, async () => {
+        await withMockedModuleDuring(
+          import.meta.resolve("../../../src/session/state.js"),
+          (real: typeof import("../../../src/session/state.js")) => ({
+            ...real,
+            saveState: (
+              saveCwd: string,
+              saveSessionId: string,
+              snapshot: RunState,
+              saveHome?: string,
+            ) => {
+              if (snapshot.status === "running") {
+                runningSaves += 1;
+                if (runningSaves === 1) {
+                  return real.saveState(
                     saveCwd,
                     saveSessionId,
                     snapshot,
                     saveHome,
                   );
-                  heldRunningSave = issued.then(() => held.promise);
-                  return heldRunningSave;
                 }
-                return real.saveState(
+                const issued = real.saveState(
                   saveCwd,
                   saveSessionId,
                   snapshot,
                   saveHome,
                 );
-              },
-            }),
-            async () => {
-              await withMockedModuleDuring(
-                import.meta.resolve("../../../src/agent/tools.js"),
-                (real: typeof import("../../../src/agent/tools.js")) => ({
-                  ...real,
-                  createAgentToolset: async (): Promise<AgentToolset> =>
-                    ({
-                      dispose: () => Promise.resolve(),
-                      dynamicRunner: { setCallGate: () => undefined },
-                      setToolPromoter: () => undefined,
-                    }) as unknown as AgentToolset,
-                }),
-                async () => {
-                  await withMockedModuleDuring(
-                    import.meta
-                      .resolve("../../../src/session/assemble-runtime.js"),
-                    (
-                      real: typeof import("../../../src/session/assemble-runtime.js"),
-                    ) => ({
-                      ...real,
-                      resolveLiveSessionSources: () => ({
-                        sources: [dummySource],
-                        defaultSource: dummySource.id,
-                        selected: dummySource,
-                      }),
-                      assembleChatAgent: () => ({
-                        directorHolder: {},
-                        buildAgent: async () => {
-                          throw new Error("buildAgent should not run");
-                        },
-                      }),
-                      assembleSessionLifecycle: async (wiring: {
-                        onTurnBoundarySnapshot: () => void;
-                      }) => {
-                        wiring.onTurnBoundarySnapshot();
-                        throw new Error("overlap-terminal");
+                heldRunningSave = issued.then(() => held.promise);
+                return heldRunningSave;
+              }
+              return real.saveState(saveCwd, saveSessionId, snapshot, saveHome);
+            },
+          }),
+          async () => {
+            await withMockedModuleDuring(
+              import.meta.resolve("../../../src/agent/tools.js"),
+              (real: typeof import("../../../src/agent/tools.js")) => ({
+                ...real,
+                createAgentToolset: async (): Promise<AgentToolset> =>
+                  ({
+                    dispose: () => Promise.resolve(),
+                    dynamicRunner: { setCallGate: () => undefined },
+                    setToolPromoter: () => undefined,
+                  }) as unknown as AgentToolset,
+              }),
+              async () => {
+                await withMockedModuleDuring(
+                  import.meta
+                    .resolve("../../../src/session/assemble-runtime.js"),
+                  (
+                    real: typeof import("../../../src/session/assemble-runtime.js"),
+                  ) => ({
+                    ...real,
+                    resolveLiveSessionSources: () => ({
+                      sources: [dummySource],
+                      defaultSource: dummySource.id,
+                      selected: dummySource,
+                    }),
+                    assembleChatAgent: () => ({
+                      directorHolder: {},
+                      buildAgent: async () => {
+                        throw new Error("buildAgent should not run");
                       },
                     }),
-                    async () => {
-                      const { runExec: runExecUnderMock } =
-                        await import("../../../src/exec/runner.js");
-                      const result = await runExecUnderMock({
-                        ...bareConfig("do the thing"),
-                        cwd,
-                        sessionId,
-                        director: "builder",
-                        globalSettingsPath: join(home, "settings.json"),
-                        providers: [],
-                      });
-                      expect(result.status).toBe("failed");
-                      expect(heldRunningSave).toBeDefined();
-                      held.resolve(undefined);
-                      await heldRunningSave;
-                      await Promise.resolve();
-                      await Promise.resolve();
-                      expect(getActiveRun()).toBeNull();
-                      const persisted = await loadState(cwd, sessionId, home);
-                      expect(persisted.kind).toBe("ok");
-                      if (persisted.kind !== "ok") return;
-                      expect(persisted.state.status).toBe("failed");
-                      expect(persisted.state.status).not.toBe("running");
+                    assembleSessionLifecycle: async (wiring: {
+                      onTurnBoundarySnapshot: () => void;
+                    }) => {
+                      wiring.onTurnBoundarySnapshot();
+                      throw new Error("overlap-terminal");
                     },
-                  );
-                },
-              );
-            },
-          );
-        },
-      );
+                  }),
+                  async () => {
+                    const { runExec: runExecUnderMock } =
+                      await import("../../../src/exec/runner.js");
+                    const result = await runExecUnderMock({
+                      ...bareConfig("do the thing"),
+                      cwd,
+                      sessionId,
+                      director: "builder",
+                      globalSettingsPath: join(home, "settings.json"),
+                      providers: [],
+                    });
+                    expect(result.status).toBe("failed");
+                    expect(heldRunningSave).toBeDefined();
+                    held.resolve(undefined);
+                    await heldRunningSave;
+                    await Promise.resolve();
+                    await Promise.resolve();
+                    expect(getActiveRun()).toBeNull();
+                    const persisted = await loadState(cwd, sessionId, home);
+                    expect(persisted.kind).toBe("ok");
+                    if (persisted.kind !== "ok") return;
+                    expect(persisted.state.status).toBe("failed");
+                    expect(persisted.state.status).not.toBe("running");
+                  },
+                );
+              },
+            );
+          },
+        );
+      });
     } finally {
       if (previous !== null) setActiveRun(previous);
       else clearActiveRun();
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   });
 
   test("dispose failure after toolset exists is once-only and forces a nonzero exit", async () => {
     const previous = getActiveRun();
     clearActiveRun();
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-exec-dispose-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-exec-dispose-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-exec-dispose-cwd-",
+      "corbits-exec-dispose-home-",
+    );
     const sessionId = "exec-dispose-fail";
     let disposeCalls = 0;
     const dummySource = {
@@ -384,86 +377,83 @@ describe("runExec", () => {
       return origWrite(chunk as never, ...(rest as never[]));
     }) as typeof process.stderr.write;
     try {
-      await withMockedModuleDuring(
-        import.meta.resolve("node:os"),
-        (real: typeof import("node:os")) => ({ ...real, homedir: () => home }),
-        async () => {
-          await withMockedModuleDuring(
-            import.meta.resolve("../../../src/agent/tools.js"),
-            (real: typeof import("../../../src/agent/tools.js")) => ({
-              ...real,
-              createAgentToolset: async (): Promise<AgentToolset> =>
-                ({
-                  dispose: () => {
-                    disposeCalls += 1;
-                    return Promise.reject(new Error("plugin dispose failed"));
-                  },
-                }) as AgentToolset,
-            }),
-            async () => {
-              await withMockedModuleDuring(
-                import.meta.resolve("../../../src/session/assemble-runtime.js"),
-                (
-                  real: typeof import("../../../src/session/assemble-runtime.js"),
-                ) => ({
-                  ...real,
-                  resolveLiveSessionSources: () => ({
-                    sources: [dummySource],
-                    defaultSource: dummySource.id,
-                    selected: dummySource,
-                  }),
-                  assembleChatAgent: () => ({
-                    directorHolder: {},
-                    buildAgent: async () => {
-                      throw new Error("buildAgent should not run");
-                    },
-                  }),
-                  assembleSessionLifecycle: async () => {
-                    expect(getActiveDisposeHost()).not.toBeNull();
-                    throw new Error("stop-after-toolset");
+      await withMockedHomedir(home, async () => {
+        await withMockedModuleDuring(
+          import.meta.resolve("../../../src/agent/tools.js"),
+          (real: typeof import("../../../src/agent/tools.js")) => ({
+            ...real,
+            createAgentToolset: async (): Promise<AgentToolset> =>
+              ({
+                dispose: () => {
+                  disposeCalls += 1;
+                  return Promise.reject(new Error("plugin dispose failed"));
+                },
+              }) as AgentToolset,
+          }),
+          async () => {
+            await withMockedModuleDuring(
+              import.meta.resolve("../../../src/session/assemble-runtime.js"),
+              (
+                real: typeof import("../../../src/session/assemble-runtime.js"),
+              ) => ({
+                ...real,
+                resolveLiveSessionSources: () => ({
+                  sources: [dummySource],
+                  defaultSource: dummySource.id,
+                  selected: dummySource,
+                }),
+                assembleChatAgent: () => ({
+                  directorHolder: {},
+                  buildAgent: async () => {
+                    throw new Error("buildAgent should not run");
                   },
                 }),
-                async () => {
-                  const { runExec: runExecUnderMock } =
-                    await import("../../../src/exec/runner.js");
-                  const result = await runExecUnderMock({
-                    ...bareConfig("do the thing"),
-                    cwd,
-                    sessionId,
-                    director: "builder",
-                    globalSettingsPath: join(home, "settings.json"),
-                    providers: [],
-                  });
-                  expect(result.exitCode).toBe(1);
-                  expect(result.status).toBe("failed");
-                  expect(result.error).toMatch(
-                    /plugin dispose failed|runtime dispose failed/i,
-                  );
-                  expect(stderrChunks.join("")).toMatch(
-                    /runtime dispose failed/i,
-                  );
-                  expect(disposeCalls).toBe(1);
-                  expect(getActiveDisposeHost()).toBeNull();
+                assembleSessionLifecycle: async () => {
+                  expect(getActiveDisposeHost()).not.toBeNull();
+                  throw new Error("stop-after-toolset");
                 },
-              );
-            },
-          );
-        },
-      );
+              }),
+              async () => {
+                const { runExec: runExecUnderMock } =
+                  await import("../../../src/exec/runner.js");
+                const result = await runExecUnderMock({
+                  ...bareConfig("do the thing"),
+                  cwd,
+                  sessionId,
+                  director: "builder",
+                  globalSettingsPath: join(home, "settings.json"),
+                  providers: [],
+                });
+                expect(result.exitCode).toBe(1);
+                expect(result.status).toBe("failed");
+                expect(result.error).toMatch(
+                  /plugin dispose failed|runtime dispose failed/i,
+                );
+                expect(stderrChunks.join("")).toMatch(
+                  /runtime dispose failed/i,
+                );
+                expect(disposeCalls).toBe(1);
+                expect(getActiveDisposeHost()).toBeNull();
+              },
+            );
+          },
+        );
+      });
     } finally {
       process.stderr.write = origWrite;
       if (previous !== null) setActiveRun(previous);
       else clearActiveRun();
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   });
 
   test("runExec wires handshake abort and waits for connect before resume", async () => {
     const previous = getActiveRun();
     clearActiveRun();
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-exec-mcp-wire-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-exec-mcp-wire-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-exec-mcp-wire-cwd-",
+      "corbits-exec-mcp-wire-home-",
+    );
     const sessionId = "exec-mcp-wire";
     const dummySource = {
       id: "test",
@@ -504,145 +494,137 @@ describe("runExec", () => {
           },
         }),
         async () => {
-          await withMockedModuleDuring(
-            import.meta.resolve("node:os"),
-            (real: typeof import("node:os")) => ({
-              ...real,
-              homedir: () => home,
-            }),
-            async () => {
-              await withMockedModuleDuring(
-                import.meta.resolve("../../../src/agent/tools.js"),
-                (real: typeof import("../../../src/agent/tools.js")) => ({
-                  ...real,
-                  createAgentToolset: async (): Promise<AgentToolset> =>
-                    ({
-                      dispose: () => Promise.resolve(),
-                      dynamicRunner: {
-                        setCallGate: () => undefined,
-                        currentDefinitions: () => [],
-                      },
-                      setToolPromoter: () => undefined,
-                      skills: [],
-                      connectMCP: async (
-                        _callbacks: unknown,
-                        signal?: AbortSignal,
-                      ) => {
-                        connectSignal = signal;
-                        events.push("connect-start");
-                        await new Promise((resolve) => setTimeout(resolve, 40));
-                        events.push("connect-end");
-                      },
-                    }) as unknown as AgentToolset,
-                }),
-                async () => {
-                  await withMockedModuleDuring(
-                    import.meta
-                      .resolve("../../../src/session/assemble-runtime.js"),
-                    (
-                      real: typeof import("../../../src/session/assemble-runtime.js"),
-                    ) => ({
-                      ...real,
-                      assembleInferenceBase: async () => ({}),
-                      assembleSessionTrust: async () => ({
-                        projectTrust: {},
-                        pathTrust: {},
-                        pluginModules: [],
-                        diagnostics: { warnings: [] },
-                        isProjectPluginTrusted: () => true,
-                        isRegisteredPathTrusted: () => true,
-                      }),
-                      assembleSessionGate: async () => ({
-                        gate: { clearDenials: () => undefined },
-                        seededApprovals: {},
-                      }),
-                      resolveLiveSessionSources: () => ({
-                        sources: [dummySource],
-                        defaultSource: dummySource.id,
-                        selected: dummySource,
-                      }),
-                      assembleChatAgent: (wiring: {
-                        onBuilt: (agent: unknown, storage: unknown) => void;
-                      }) => ({
-                        directorHolder: {},
-                        buildAgent: async () => {
-                          const agent = {
-                            send: async () => {
-                              events.push("send");
-                              throw new Error("stop-after-mcp");
-                            },
-                            stream: () =>
-                              (async function* empty() {
-                                // No reactor events: send fails immediately.
-                              })(),
-                            close: async () => undefined,
-                            deliver: () => undefined,
-                            blobReader: {},
-                          };
-                          wiring.onBuilt(agent, {});
-                          return agent;
-                        },
-                      }),
-                      assembleSessionLifecycle: async () => ({
-                        hookManager: { dispatchPostRun: async () => undefined },
-                        runSink: {
-                          sink: () => undefined,
-                          getStatus: () => "cancelled",
-                          getRunError: () => undefined,
-                          getTurnCount: () => 0,
-                          getToolCallCount: () => 0,
-                          getTokenUsage: () => ({
-                            input: 0,
-                            output: 0,
-                            cacheRead: 0,
-                            cacheWrite: 0,
-                            thinking: 0,
-                          }),
-                          getTurnCollector: () => null,
-                        },
-                        cycleRecorder: {
-                          handleEvent: () => undefined,
-                          dispose: async () => undefined,
-                        },
-                      }),
-                    }),
-                    async () => {
-                      const { runExec: runExecUnderMock } =
-                        await import("../../../src/exec/runner.js");
-                      const result = await runExecUnderMock({
-                        ...bareConfig("do the thing"),
-                        cwd,
-                        sessionId,
-                        director: "builder",
-                        globalSettingsPath: join(home, "settings.json"),
-                        providers: [],
-                      });
-                      expect(result.status).toBe("failed");
-                      expect(armTimeouts).toEqual([
-                        EXEC_MCP_HANDSHAKE_TIMEOUT_MS,
-                      ]);
-                      expect(waitMs).toEqual([EXEC_MCP_CONNECT_WAIT_MS]);
-                      expect(connectSignal).toBeInstanceOf(AbortSignal);
-                      expect(events.indexOf("connect-end")).toBeGreaterThan(-1);
-                      expect(events.indexOf("resume")).toBeGreaterThan(
-                        events.indexOf("connect-end"),
-                      );
-                      expect(events.indexOf("send")).toBeGreaterThan(
-                        events.indexOf("resume"),
-                      );
+          await withMockedHomedir(home, async () => {
+            await withMockedModuleDuring(
+              import.meta.resolve("../../../src/agent/tools.js"),
+              (real: typeof import("../../../src/agent/tools.js")) => ({
+                ...real,
+                createAgentToolset: async (): Promise<AgentToolset> =>
+                  ({
+                    dispose: () => Promise.resolve(),
+                    dynamicRunner: {
+                      setCallGate: () => undefined,
+                      currentDefinitions: () => [],
                     },
-                  );
-                },
-              );
-            },
-          );
+                    setToolPromoter: () => undefined,
+                    skills: [],
+                    connectMCP: async (
+                      _callbacks: unknown,
+                      signal?: AbortSignal,
+                    ) => {
+                      connectSignal = signal;
+                      events.push("connect-start");
+                      await new Promise((resolve) => setTimeout(resolve, 40));
+                      events.push("connect-end");
+                    },
+                  }) as unknown as AgentToolset,
+              }),
+              async () => {
+                await withMockedModuleDuring(
+                  import.meta
+                    .resolve("../../../src/session/assemble-runtime.js"),
+                  (
+                    real: typeof import("../../../src/session/assemble-runtime.js"),
+                  ) => ({
+                    ...real,
+                    assembleInferenceBase: async () => ({}),
+                    assembleSessionTrust: async () => ({
+                      projectTrust: {},
+                      pathTrust: {},
+                      pluginModules: [],
+                      diagnostics: { warnings: [] },
+                      isProjectPluginTrusted: () => true,
+                      isRegisteredPathTrusted: () => true,
+                    }),
+                    assembleSessionGate: async () => ({
+                      gate: { clearDenials: () => undefined },
+                      seededApprovals: {},
+                    }),
+                    resolveLiveSessionSources: () => ({
+                      sources: [dummySource],
+                      defaultSource: dummySource.id,
+                      selected: dummySource,
+                    }),
+                    assembleChatAgent: (wiring: {
+                      onBuilt: (agent: unknown, storage: unknown) => void;
+                    }) => ({
+                      directorHolder: {},
+                      buildAgent: async () => {
+                        const agent = {
+                          send: async () => {
+                            events.push("send");
+                            throw new Error("stop-after-mcp");
+                          },
+                          stream: () =>
+                            (async function* empty() {
+                              // No reactor events: send fails immediately.
+                            })(),
+                          close: async () => undefined,
+                          deliver: () => undefined,
+                          blobReader: {},
+                        };
+                        wiring.onBuilt(agent, {});
+                        return agent;
+                      },
+                    }),
+                    assembleSessionLifecycle: async () => ({
+                      hookManager: { dispatchPostRun: async () => undefined },
+                      runSink: {
+                        sink: () => undefined,
+                        getStatus: () => "cancelled",
+                        getRunError: () => undefined,
+                        getTurnCount: () => 0,
+                        getToolCallCount: () => 0,
+                        getTokenUsage: () => ({
+                          input: 0,
+                          output: 0,
+                          cacheRead: 0,
+                          cacheWrite: 0,
+                          thinking: 0,
+                        }),
+                        getTurnCollector: () => null,
+                      },
+                      cycleRecorder: {
+                        handleEvent: () => undefined,
+                        dispose: async () => undefined,
+                      },
+                    }),
+                  }),
+                  async () => {
+                    const { runExec: runExecUnderMock } =
+                      await import("../../../src/exec/runner.js");
+                    const result = await runExecUnderMock({
+                      ...bareConfig("do the thing"),
+                      cwd,
+                      sessionId,
+                      director: "builder",
+                      globalSettingsPath: join(home, "settings.json"),
+                      providers: [],
+                    });
+                    expect(result.status).toBe("failed");
+                    expect(armTimeouts).toEqual([
+                      EXEC_MCP_HANDSHAKE_TIMEOUT_MS,
+                    ]);
+                    expect(waitMs).toEqual([EXEC_MCP_CONNECT_WAIT_MS]);
+                    expect(connectSignal).toBeInstanceOf(AbortSignal);
+                    expect(events.indexOf("connect-end")).toBeGreaterThan(-1);
+                    expect(events.indexOf("resume")).toBeGreaterThan(
+                      events.indexOf("connect-end"),
+                    );
+                    expect(events.indexOf("send")).toBeGreaterThan(
+                      events.indexOf("resume"),
+                    );
+                  },
+                );
+              },
+            );
+          });
         },
       );
     } finally {
       if (previous !== null) setActiveRun(previous);
       else clearActiveRun();
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   });
 });

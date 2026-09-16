@@ -13,37 +13,15 @@
 //
 // Run: bun run scripts/approval-forensics.ts
 
-import { readdirSync, lstatSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+import { findAll } from "./find-all.js";
 import {
   APPROVAL_LOG_FILE,
   type ApprovalRecord,
 } from "../src/permission/approval-log.js";
-
-// lstat, and skip symlinks: session dirs carry a `latest` symlink to a real
-// session, and following it double-counts every record in that session.
-function findAll(dir: string, name: string, out: string[]): void {
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const path = join(dir, entry);
-    let info: ReturnType<typeof lstatSync>;
-    try {
-      info = lstatSync(path);
-    } catch {
-      continue;
-    }
-    if (info.isSymbolicLink()) continue;
-    if (info.isDirectory()) findAll(path, name, out);
-    else if (entry === name) out.push(path);
-  }
-}
 
 function percentile(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) return 0;

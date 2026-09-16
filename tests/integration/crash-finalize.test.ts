@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
 import { generateSessionId, sessionDir } from "../../src/session/index.js";
 import type { RunState } from "../../src/session/state.js";
+import { createTempDirs } from "../helpers/temporary-dirs.js";
 
 const FIXTURE = join(
   import.meta.dirname,
@@ -18,8 +18,10 @@ const RUN_END_FIXTURE = join(
 
 describe("integration — crash finalizes run.json", () => {
   test("uncaughtException writes status: crashed with finishedAt, racing in-flight snapshot writes", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-crash-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-crash-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-crash-cwd-",
+      "corbits-crash-home-",
+    );
     const sessionId = generateSessionId();
 
     try {
@@ -55,14 +57,15 @@ describe("integration — crash finalizes run.json", () => {
       expect(state.model).toBe("test-provider:test-model");
       expect(state.turnsUsed).toBe(3);
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   }, 15_000);
 
   test("a crash after session rotation still writes crashed for the new session", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-crash-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-crash-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-crash-cwd-",
+      "corbits-crash-home-",
+    );
     const sessionId = generateSessionId();
     const rotatedSessionId = generateSessionId();
 
@@ -112,14 +115,15 @@ describe("integration — crash finalizes run.json", () => {
       expect(rotatedState.error).toContain("simulated crash");
       expect(rotatedState.turnsUsed).toBe(0);
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   }, 15_000);
 
   test("an unrelated crash while the run-end write is in flight does not report crashed", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-crash-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-crash-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-crash-cwd-",
+      "corbits-crash-home-",
+    );
     const sessionId = generateSessionId();
 
     try {
@@ -154,8 +158,7 @@ describe("integration — crash finalizes run.json", () => {
       const state = JSON.parse(raw) as RunState;
       expect(state.status).not.toBe("crashed");
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   }, 15_000);
 });

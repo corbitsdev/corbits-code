@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { EventEmitter } from "node:events";
 
 import { describe, expect, test } from "bun:test";
@@ -13,6 +10,7 @@ import {
   loadState,
   type RunState,
 } from "../../../src/session/state.js";
+import { createTempDirs } from "../../helpers/temporary-dirs.js";
 
 // End-to-end coverage for the run.json turn-boundary snapshot fix (CL-5534):
 // createRunSink, saveState, and loadState run for real against a temp
@@ -53,8 +51,10 @@ function baseState(overrides: Partial<RunState>, turnsUsed: number): RunState {
 
 describe("run.json turn-boundary snapshots — end to end", () => {
   test("turnsUsed increments and is readable off disk after every turn, and status settles to done", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-run-state-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-run-state-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-run-state-cwd-",
+      "corbits-run-state-home-",
+    );
     const sessionId = generateSessionId();
     try {
       const writes: Promise<void>[] = [];
@@ -106,14 +106,15 @@ describe("run.json turn-boundary snapshots — end to end", () => {
         state: { status: "done", turnsUsed: 4 },
       });
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   });
 
   test("20 rapid back-to-back turns with no settling delay serialize without dropping a write", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-run-state-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-run-state-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-run-state-cwd-",
+      "corbits-run-state-home-",
+    );
     const sessionId = generateSessionId();
     try {
       const writes: Promise<void>[] = [];
@@ -148,14 +149,15 @@ describe("run.json turn-boundary snapshots — end to end", () => {
       });
       expect(runSink.getTurnCount()).toBe(20);
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   });
 
   test("a late in-flight running write racing a done write never resurrects status to running", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "corbits-run-state-cwd-"));
-    const home = mkdtempSync(join(tmpdir(), "corbits-run-state-home-"));
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-run-state-cwd-",
+      "corbits-run-state-home-",
+    );
     const sessionId = generateSessionId();
     try {
       let runningWrite: Promise<void> | undefined;
@@ -198,8 +200,7 @@ describe("run.json turn-boundary snapshots — end to end", () => {
         state: { status: "done" },
       });
     } finally {
-      rmSync(cwd, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
+      cleanup();
     }
   });
 });

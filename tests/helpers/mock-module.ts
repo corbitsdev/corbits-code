@@ -70,3 +70,19 @@ export async function withMockedModuleDuring<T extends object, R>(
     mock.module(modulePath, () => real);
   }
 }
+
+/**
+ * Mocks `os.homedir()` to return `home` for the duration of `run`, built on
+ * `withMockedModuleDuring` so the restore semantics stay in one place. Use
+ * this instead of hand-rolling the `node:os` spread at each call site.
+ */
+export async function withMockedHomedir<R>(
+  home: string,
+  run: () => Promise<R>,
+): Promise<R> {
+  return withMockedModuleDuring(
+    import.meta.resolve("node:os"),
+    (real: typeof import("node:os")) => ({ ...real, homedir: () => home }),
+    run,
+  );
+}

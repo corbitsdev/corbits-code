@@ -13,9 +13,11 @@
 // Does not print or retain any turn content — only aggregate counts — so it
 // is safe to run without pulling trace data into an LLM context window.
 
-import { readdirSync, statSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+
+import { findAll } from "./find-all.js";
 
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -45,26 +47,6 @@ function fingerprintToolCalls(
   if (parts.length === 0) return null;
   parts.sort();
   return parts.join("|");
-}
-
-function findAll(dir: string, name: string, out: string[]): void {
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const path = join(dir, entry);
-    let info: ReturnType<typeof statSync>;
-    try {
-      info = statSync(path);
-    } catch {
-      continue;
-    }
-    if (info.isDirectory()) findAll(path, name, out);
-    else if (entry === name) out.push(path);
-  }
 }
 
 function periodicSuffixLength(seq: readonly string[], period: number): number {

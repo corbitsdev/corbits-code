@@ -1,29 +1,16 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
 import { generateSessionId } from "../../src/session/index.js";
 import type { RunState } from "../../src/session/state.js";
+import { spawnSignalFixture } from "./signal-helpers.js";
 
 const FIXTURE = join(
   import.meta.dirname,
   "../fixtures/crash-run/simulate-signal.ts",
 );
-
-async function readLine(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (!buffer.includes("\n")) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-  }
-  reader.releaseLock();
-  return buffer;
-}
 
 describe("integration — signal finalizes run.json", () => {
   test.each([
@@ -33,23 +20,15 @@ describe("integration — signal finalizes run.json", () => {
   ] as const)(
     "%s writes status: failed and exits with %i",
     async (signal, expectedExitCode) => {
-      const cwd = mkdtempSync(join(tmpdir(), "corbits-signal-cwd-"));
-      const home = mkdtempSync(join(tmpdir(), "corbits-signal-home-"));
       const sessionId = generateSessionId();
+      const { proc, output, cleanup } = await spawnSignalFixture({
+        fixture: FIXTURE,
+        cwdPrefix: "corbits-signal-cwd-",
+        homePrefix: "corbits-signal-home-",
+        sessionId,
+      });
 
       try {
-        const proc = Bun.spawn(["bun", "run", FIXTURE], {
-          cwd,
-          env: {
-            ...process.env,
-            HOME: home,
-            SIGNAL_TEST_SESSION_ID: sessionId,
-          },
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-
-        const output = await readLine(proc.stdout);
         const [runDir] = output.split("\n");
         if (runDir === undefined || runDir.length === 0) {
           throw new Error(
@@ -76,8 +55,7 @@ describe("integration — signal finalizes run.json", () => {
         expect(state.task).toBe("simulated signal task");
         expect(state.turnsUsed).toBe(3);
       } finally {
-        rmSync(cwd, { recursive: true, force: true });
-        rmSync(home, { recursive: true, force: true });
+        cleanup();
       }
     },
     15_000,
