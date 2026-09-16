@@ -560,6 +560,8 @@ class ChatDirectorImpl extends DefaultDirector {
   private currentSourceId: string | undefined;
   /** CL-7918 live replacement for the former getLiveFleetCount closure. */
   private allowIdleWithFleet: boolean;
+  /** Publisher occupancy; the TUI `allowIdleWithFleet` seed is not a live count. */
+  private liveHelperCount = 0;
   // Forget cached permission denies on the next inbound user message. Session
   // wiring points this at PermissionGate.clearDenials; unset in unit tests.
   private clearDenials: (() => void) | undefined;
@@ -714,7 +716,7 @@ class ChatDirectorImpl extends DefaultDirector {
     try {
       const stepId = this.workflowCoordinator?.currentStepId() ?? null;
       if (stepId === null) return null;
-      if (typeof stepId !== "string") {
+      if (typeof stepId !== "string" || stepId.length === 0) {
         logger.warn`workflow-coordinator-step-id-not-string`;
         return null;
       }
@@ -751,6 +753,7 @@ class ChatDirectorImpl extends DefaultDirector {
   // fleet resumes the open-task nudge instead of holding the seeded value.
   setAllowIdleWithFleet(value: boolean): void {
     this.allowIdleWithFleet = value;
+    this.liveHelperCount = value ? 1 : 0;
   }
 
   setClearDenials(clear: (() => void) | undefined): void {
@@ -1015,6 +1018,7 @@ class ChatDirectorImpl extends DefaultDirector {
     if (event.type === "message.received") {
       this.idleTerminationNudges = 0;
       this.declinedTerminationNudges = 0;
+      this.workflowIdleTurns = 0;
       this.inferenceRecoveries = 0;
       this.spacerEchoNudges = 0;
       this.toolOnlyStreak = 0;
@@ -1255,33 +1259,36 @@ class ChatDirectorImpl extends DefaultDirector {
           this.operatorJustResponded = false;
           return baseActions;
         }
-        if (this.workflowIdleTurns >= 3) {
-          if (hasActiveTasks(this.tasks))
-            this.logTerminationWithOpenTasks("workflow-idle-stall");
-          return [
-            capabilities.reply(
-              "The workflow appears stuck on this step. Send a message to continue or advance manually.",
-            ),
-          ];
+        // Occupancy is live helper count, not the TUI seed.
+        if (this.liveHelperCount === 0) {
+          if (this.workflowIdleTurns >= 3) {
+            if (hasActiveTasks(this.tasks))
+              this.logTerminationWithOpenTasks("workflow-idle-stall");
+            return [
+              capabilities.reply(
+                "The workflow appears stuck on this step. Send a message to continue or advance manually.",
+              ),
+            ];
+          }
+          const stepId = this.coordinatorCurrentStepId(onTurnBoundary(event));
+          const stepClause =
+            stepId !== null
+              ? `call submit_output with { "step": "${stepId}" } now`
+              : "call submit_output with this step's id now";
+          const nudge =
+            `\n\nYou have not yet completed this workflow step. ` +
+            `If this step is complete, ${stepClause}. ` +
+            `Otherwise continue working with tools.`;
+          const passThrough = baseActions.filter(
+            (
+              a,
+            ): a is Exclude<
+              ReactorAction,
+              { type: "wait" } | { type: "reply" }
+            > => a.type !== "wait" && a.type !== "reply",
+          );
+          return [...passThrough, inferWithNudge(capabilities, nudge)];
         }
-        const stepId = this.coordinatorCurrentStepId(onTurnBoundary(event));
-        const stepClause =
-          stepId !== null
-            ? `call submit_output with { "step": "${stepId}" } now`
-            : "call submit_output with this step's id now";
-        const nudge =
-          `\n\nYou have not yet completed this workflow step. ` +
-          `If this step is complete, ${stepClause}. ` +
-          `Otherwise continue working with tools.`;
-        const passThrough = baseActions.filter(
-          (
-            a,
-          ): a is Exclude<
-            ReactorAction,
-            { type: "wait" } | { type: "reply" }
-          > => a.type !== "wait" && a.type !== "reply",
-        );
-        return [...passThrough, inferWithNudge(capabilities, nudge)];
       }
     }
 
