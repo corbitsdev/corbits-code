@@ -176,8 +176,7 @@ Discovered modules still require `settings.plugins[id].enabled` before agents or
 tools wire into the session. `search_agents` labels those profiles with
 `[source: claude]`. Default results are id, description, and spawn metadata;
 pass `include_body=true` to include the loaded system prompt / body so the
-parent never needs `read_file` on `~/.claude/plugins/...` (path-escape still
-blocks those roots for path tools; writes/deletes outside cwd stay denied). JS
+parent never needs `read_file` on `~/.claude/plugins/...` for profile bodies (`include_body=true`). Writes/deletes outside cwd stay denied. Reads of trusted user plugin dirs (`~/.corbits/plugins`) can be granted — path-escape does not hard-deny those reads before grants; writes remain denied. JS
 Claude plugins (if any) stay on explicit `pluginPaths`.
 
 `settings.workflowPlugins` / `settings.agentPlugins` (specifier arrays) are

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { resolveRegisteredToolName } from "./resolve-registered-tool-name.js";
+import {
+  canonicalToolName,
+  resolveRegisteredToolName,
+} from "./resolve-registered-tool-name.js";
 
 const catalog = "mcp__linear__get_release";
 const known = new Set([catalog, "read_file"]);
@@ -58,5 +61,24 @@ describe("resolveRegisteredToolName", () => {
     expect(
       resolveRegisteredToolName(`${dotted}.${dotted}`, isDottedKnown),
     ).toBe(dotted);
+  });
+});
+
+describe("canonicalToolName", () => {
+  test("strips default. and undoubles catalog names without a live catalog", () => {
+    expect(canonicalToolName("read_file")).toBe("read_file");
+    expect(canonicalToolName("default.read_file")).toBe("read_file");
+    expect(canonicalToolName("read_file.read_file")).toBe("read_file");
+    expect(canonicalToolName(`default.${catalog}`)).toBe(catalog);
+    expect(canonicalToolName(`${catalog}.${catalog}`)).toBe(catalog);
+    expect(canonicalToolName(`default.${catalog}.${catalog}`)).toBe(catalog);
+  });
+
+  test("leaves unequal halves and empty prefixes alone", () => {
+    expect(canonicalToolName("default")).toBe("default");
+    expect(canonicalToolName("default.")).toBe("default.");
+    expect(canonicalToolName(`${catalog}.read_file`)).toBe(
+      `${catalog}.read_file`,
+    );
   });
 });

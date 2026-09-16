@@ -47,6 +47,7 @@ import { OPERATOR_DECLINED_PREFIX } from "./decline-markers.js";
 import { DenialMemory, stableRequestId } from "./denial-memory.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import { PRODUCT_MUTATION_TOOLS } from "../agent/product-mutation-tools.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
 
 import {
   createMcpToolPermissionRegistry,
@@ -368,6 +369,11 @@ export interface PermissionGateOptions {
   // already knows about — so a worktree created mid-session is picked up
   // without a restart.
   rootsProvider?: RootsProvider;
+  // Directories of trusted (fully loaded) plugins. Reads under these roots are
+  // not path-escape hard-denies — they stay restricted and can be granted.
+  // Writes and deletes remain path-escape denies; plugin trust is not write
+  // consent.
+  trustedPluginRoots?: RootsProvider;
   // Tiers learned from connected MCP servers (tools/list annotations). Tests may
   // inject a shared registry; production gates create one when omitted.
   mcpTiers?: McpToolPermissionRegistry;
@@ -470,6 +476,10 @@ export interface PermissionGate {
   setProviderIdentity: (providerName: string, model: string) => void;
   registerMcpClient: (client: MCPClient) => void;
   unregisterMcpServer: (serverName: string) => void;
+  // Live trusted plugin directories for path-escape's read exception. The
+  // posix plugin stack reads this so authorize-time and execution-time
+  // containment share one list.
+  getTrustedPluginRoots: () => readonly string[];
 }
 
 // True when splitChainedCommand can be trusted to yield only real segments for
@@ -489,8 +499,16 @@ function identityArguments(
   args: ToolCall["arguments"],
   cwd: string,
   rootsProvider: RootsProvider,
+  trustedPluginRoots?: RootsProvider,
 ): string {
-  return JSON.stringify(normalizePathArguments(args, cwd, rootsProvider));
+  return JSON.stringify(
+    normalizePathArguments(args, cwd, rootsProvider, trustedPluginRoots),
+  );
+}
+
+function withCanonicalToolName(call: ToolCall): ToolCall {
+  const name = canonicalToolName(call.name);
+  return name === call.name ? call : { ...call, name };
 }
 
 export function createPermissionGate(
@@ -505,6 +523,7 @@ export function createPermissionGate(
   const resolvedCwd = cwd ?? process.cwd();
   const rootsProvider =
     options.rootsProvider ?? createWorktreeRootsProvider(resolvedCwd);
+  const trustedPluginRoots = options.trustedPluginRoots ?? (() => []);
   const pathRestriction = createPathRestriction(resolvedCwd, rootsProvider);
   const isRestricted = pathRestriction.isRestricted;
   // This gate's project boundary for grant matching (see cwdMatchesGrant):
@@ -642,6 +661,14 @@ export function createPermissionGate(
   // provider-identity switches). Timeouts and aborts are never recorded.
   const denialMemory = new DenialMemory();
 
+  const denialFingerprint = (call: ToolCall, cwd: string): string =>
+    stableRequestId(
+      withCanonicalToolName(call),
+      cwd,
+      rootsProvider,
+      trustedPluginRoots,
+    );
+
   // Non-blocking policy decision for one tool call: everything the gate owns —
   // tier pre-filter, auto rules, pre-grant guards, grants, headless denial —
   // resolved WITHOUT waiting on an operator. `ask` carries the fully-built
@@ -659,7 +686,8 @@ export function createPermissionGate(
         segmentCount: number;
       };
 
-  const decide = async (call: ToolCall): Promise<GateDecision> => {
+  const decide = async (rawCall: ToolCall): Promise<GateDecision> => {
+    const call = withCanonicalToolName(rawCall);
     // Catastrophic shell commands are hard-denied here, at the top of the
     // single verdict path every entry (evaluate, authorizeCall,
     // executionVerdict) flows through — this is the owning enforcement point
@@ -692,7 +720,7 @@ export function createPermissionGate(
     // deny below: the decision is the same deny either way, but the reason
     // text is the originally recorded one, not a freshly computed escape
     // reason.
-    const stableId = stableRequestId(call, effectiveCwd, rootsProvider);
+    const stableId = denialFingerprint(call, effectiveCwd);
     const cachedDenial = denialMemory.isDenied(stableId);
     if (cachedDenial !== undefined)
       return { kind: "deny", reason: cachedDenial };
@@ -711,6 +739,7 @@ export function createPermissionGate(
       effectiveCwd,
       escapeRoots,
       call.name,
+      trustedPluginRoots,
     );
     if (escapeReason !== undefined) {
       return { kind: "deny", reason: escapeReason };
@@ -1003,11 +1032,7 @@ export function createPermissionGate(
         classifyOutcome(outcome) === "deny"
       ) {
         denialMemory.record(
-          stableRequestId(
-            call,
-            getSubAgentIdentity()?.cwd ?? resolvedCwd,
-            rootsProvider,
-          ),
+          denialFingerprint(call, getSubAgentIdentity()?.cwd ?? resolvedCwd),
           reason,
         );
       }
@@ -1037,8 +1062,13 @@ export function createPermissionGate(
     const verdict = mapAuthorizeVerdict(await decide(call));
     const identityCwd = getSubAgentIdentity()?.cwd ?? resolvedCwd;
     authorizedByCallId.set(call.id, {
-      name: call.name,
-      arguments: identityArguments(call.arguments, identityCwd, rootsProvider),
+      name: canonicalToolName(call.name),
+      arguments: identityArguments(
+        call.arguments,
+        identityCwd,
+        rootsProvider,
+        trustedPluginRoots,
+      ),
       verdict,
     });
     return verdict;
@@ -1051,9 +1081,14 @@ export function createPermissionGate(
     const identityCwd = getSubAgentIdentity()?.cwd ?? resolvedCwd;
     if (
       cached !== undefined &&
-      cached.name === call.name &&
+      cached.name === canonicalToolName(call.name) &&
       cached.arguments ===
-        identityArguments(call.arguments, identityCwd, rootsProvider)
+        identityArguments(
+          call.arguments,
+          identityCwd,
+          rootsProvider,
+          trustedPluginRoots,
+        )
     ) {
       authorizedByCallId.delete(call.id);
       return cached.verdict;
@@ -1096,10 +1131,9 @@ export function createPermissionGate(
         classifyOutcome(outcome) === "deny"
       ) {
         denialMemory.record(
-          stableRequestId(
+          denialFingerprint(
             { id: "", name: request.tool, arguments: request.arguments ?? {} },
             request.cwd ?? getSubAgentIdentity()?.cwd ?? resolvedCwd,
-            rootsProvider,
           ),
           declineReason(request, outcome),
         );
@@ -1185,5 +1219,6 @@ export function createPermissionGate(
     },
     registerMcpClient,
     unregisterMcpServer,
+    getTrustedPluginRoots: () => trustedPluginRoots(),
   };
 }

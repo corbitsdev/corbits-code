@@ -187,6 +187,7 @@ const fakePermissionGate: PermissionGate = {
   setProviderIdentity: () => undefined,
   registerMcpClient: mock(() => undefined),
   unregisterMcpServer: mock(() => undefined),
+  getTrustedPluginRoots: () => [],
 };
 
 const callOperator = async (

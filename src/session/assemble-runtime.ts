@@ -91,6 +91,7 @@ import {
 } from "../permission/gate.js";
 import type { Approval, RequestApproval } from "../permission/types.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
+import { userPluginsRoot } from "../plugins/uninstall.js";
 import { createApprovalLog } from "../permission/approval-log.js";
 import { sessionDir } from "./index.js";
 import type { Telemetry } from "../telemetry/index.js";
@@ -283,6 +284,7 @@ export async function assembleSessionGate(
     telemetry: args.telemetry,
     cwd: args.cwd,
     rootsProvider: createWorktreeRootsProvider(args.cwd),
+    trustedPluginRoots: () => [userPluginsRoot()],
     providerName: args.providerName,
     model: args.model,
     requestApproval: args.requestApproval,

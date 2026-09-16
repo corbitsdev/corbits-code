@@ -21,6 +21,7 @@ import type { AuthzCallResult } from "@intx/inference";
 import { WORKER_CANNOT_COMPLETE_APPROVAL } from "./decline-markers.js";
 import type { AuthorizeVerdict, GateVerdict, PermissionGate } from "./gate.js";
 import type { PermissionRequest } from "./types.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import {
   FLEET_VERBS,
   ORCHESTRATOR_ONLY_FLEET_VERBS,
@@ -41,6 +42,10 @@ const WORKER_CONTROL_PLANE_TOOLS = new Set([
       name !== "spawn_agent" && !ORCHESTRATOR_ONLY_FLEET_VERBS.has(name),
   ),
 ]);
+
+function isWorkerControlPlaneTool(name: string): boolean {
+  return WORKER_CONTROL_PLANE_TOOLS.has(canonicalToolName(name));
+}
 
 export function workerUnresolvedAskReason(request: PermissionRequest): string {
   return `${request.action} (${request.subject}) requires a parent permission grant; ${WORKER_CANNOT_COMPLETE_APPROVAL}`;
@@ -70,7 +75,7 @@ async function authorizeWorkerCall(
   gate: PermissionGate,
   call: ToolCallType,
 ): Promise<{ effect: "allow" } | { effect: "deny"; reason: string }> {
-  if (WORKER_CONTROL_PLANE_TOOLS.has(call.name)) return { effect: "allow" };
+  if (isWorkerControlPlaneTool(call.name)) return { effect: "allow" };
   const verdict = await gate.authorizeCall(call);
   if (verdict.effect !== "ask") return verdict;
   return { effect: "deny", reason: workerUnresolvedAskReason(verdict.request) };
@@ -89,7 +94,7 @@ async function executionVerdictWorkerCall(
   gate: PermissionGate,
   call: ToolCallType,
 ): Promise<AuthorizeVerdict> {
-  if (WORKER_CONTROL_PLANE_TOOLS.has(call.name)) return { effect: "allow" };
+  if (isWorkerControlPlaneTool(call.name)) return { effect: "allow" };
   const verdict = await gate.executionVerdict(call);
   if (verdict.effect !== "ask") return verdict;
   return { effect: "deny", reason: workerUnresolvedAskReason(verdict.request) };
@@ -119,6 +124,7 @@ export function workerPermissionGate(gate: PermissionGate): PermissionGate {
       gate.setProviderIdentity(providerName, model),
     registerMcpClient: (client) => gate.registerMcpClient(client),
     unregisterMcpServer: (serverName) => gate.unregisterMcpServer(serverName),
+    getTrustedPluginRoots: () => gate.getTrustedPluginRoots(),
   };
 }
 
