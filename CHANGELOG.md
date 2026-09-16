@@ -32,6 +32,37 @@ by hand.
   (Critic on the diff plus at most one extra lens), loading `/review`
   for quality rules only.
 
+## [0.3.27] - 2026-09-16
+
+### What's Changed
+* fix(director): harden coordinator seam with fallback and validation by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1050
+* chore(deadcode): purge dead exports and guard the count by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1034
+* refactor(auth): trim dead usage formatters and demo by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1031
+* feat(evals): add completion-rate baseline harness by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1032
+* refactor(director): resolve provider and fleet state without host closures by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1044
+* refactor(director): surface task and tool changes as reactor events by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1042
+* refactor(chat): express compaction continuation as reactor action by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1041
+* refactor(director): make workflow coordination host-owned, drop inert classifier by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1040
+* fix(approval): exact parked-call identity, typed discard, and retry re-use by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1077
+* fix(approval): settle retried approvals with denial memory by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1078
+* fix(prompts): let grants govern outside-workspace plugin reads by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1079
+* fix(agent): surface real manage_tasks parse errors by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1084
+* fix(prompts): let mid-run operator text steer running workers by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1085
+* fix(tui): resolve default. and doubled names at tool dispatch by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1086
+* fix(subagent): treat in-flight tools as stall activity by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1089
+* feat(shell): default 120s foreground run_shell timeout by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1087
+* fix(subagent): stop incomplete-report salvage once by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1088
+* fix(permission): forget cached denies on a new user turn by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1090
+* fix(tui): report reconnecting instead of unknown tool for promoted-but-unmounted calls by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1082
+* Detect disconnected MCP servers and automatically reconnect them by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1081
+* Improve tests by @Gustav-Simonsson in https://github.com/corbitsdev/corbits-code/pull/1067
+* fix(agent): clone manage_tasks args before arktype morph by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1091
+
+### New Contributors
+* @Gustav-Simonsson made their first contribution in https://github.com/corbitsdev/corbits-code/pull/1067
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.26...v0.3.27
+
 ## [0.3.26] - 2026-09-15
 
 ### What's Changed
