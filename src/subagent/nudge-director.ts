@@ -171,6 +171,12 @@ export class SubAgentDirector extends DefaultDirector {
   // (resume_agent / send_input).
   private reportReplied = false;
 
+  // Live getter from run.ts over askDirectorState.pending. Empty stall pings
+  // and compact-continue hops must wait while the ask is parked — same idea as
+  // ChatDirector's unsolicited-empty wait. Optional: tests and non-leaf runs
+  // leave it unset.
+  private isAskPending: () => boolean = () => false;
+
   // Stall management: a leaf that goes quiet (e.g. parked on a long-running
   // background command with nothing else to do) produces no inbound events
   // for the director to react to. The reactor has no proactive "idle" event
@@ -213,6 +219,11 @@ export class SubAgentDirector extends DefaultDirector {
   /** Route this leaf's forced-stop reason to the caller as a typed value. */
   observeForcedStop(callback: (reason: ForcedStopReason) => void): void {
     this.onForcedStop = callback;
+  }
+
+  /** Live ask_director park flag so empty continuations wait instead of inferring. */
+  observeAskPending(isPending: () => boolean): void {
+    this.isAskPending = isPending;
   }
 
   /** Run state every intervention record carries, for judging it afterwards. */
@@ -282,6 +293,15 @@ export class SubAgentDirector extends DefaultDirector {
     if (isNonEmptyParentMessage(event)) {
       this.reportReplied = false;
       this.verbatimToolCallNudgeFired = false;
+    }
+
+    // Parked ask_director is waiting on the parent, not silent. Wait before
+    // compact resume / stall-nudge so a long park cannot burn a billable
+    // infer, and so an outstanding compact continue is not consumed.
+    if (isEmptyContinuation(event) && this.isAskPending()) {
+      this.lastActivityAt = this.now();
+      this.stallNudgeAt = undefined;
+      return capabilities.wait();
     }
 
     const afterCompact = this.compaction.resumeAfterCompact(event);

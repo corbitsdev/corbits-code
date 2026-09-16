@@ -1458,6 +1458,105 @@ describe("SubAgentDirector stall nudge grace", () => {
   });
 });
 
+describe("SubAgentDirector ask_director park wait-guard", () => {
+  test("empty stall ping during a parked ask waits instead of inferring", async () => {
+    let now = 6_000_000;
+    let parked = true;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      1_000,
+      () => now,
+    );
+    director.observeAskPending(() => parked);
+    const caps = capabilities();
+
+    await director.decide(inferenceDoneText("which file?"), state, caps);
+    now += 60_000;
+    const parkedPing = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(parkedPing).toEqual([{ type: "wait" }]);
+    expect(parkedPing.some((action) => action.type === "infer")).toBe(false);
+    expect(parkedPing.some((action) => action.type === "checkpoint")).toBe(
+      false,
+    );
+  });
+
+  test("compact continue skipped during park still resumes infer after unpark", async () => {
+    let parked = false;
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      30,
+      frozenNow,
+    );
+    director.observeAskPending(() => parked);
+    const caps = capabilities();
+
+    const compact = actions(
+      await director.decide(overflowError(), state, caps),
+    );
+    expect(compact).toEqual([
+      {
+        type: "compact",
+        compactor: "pruning-compactor",
+        reason: "context-overflow",
+      },
+    ]);
+    expect(continuations).toBe(1);
+
+    parked = true;
+    const duringPark = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(duringPark).toEqual([{ type: "wait" }]);
+    expect(duringPark.some((action) => action.type === "infer")).toBe(false);
+
+    parked = false;
+    const afterUnpark = inferAction(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(afterUnpark.type).toBe("infer");
+  });
+
+  test("unparked silence past the stall window still stall-nudges", async () => {
+    let now = 7_000_000;
+    let parked = true;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      1_000,
+      () => now,
+    );
+    director.observeAskPending(() => parked);
+    const caps = capabilities();
+
+    await director.decide(inferenceDoneText("which file?"), state, caps);
+    now += 60_000;
+    expect(
+      actions(await director.decide(messageReceived(""), state, caps)),
+    ).toEqual([{ type: "wait" }]);
+
+    parked = false;
+    now += 1_000;
+    const afterUnpark = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(afterUnpark).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+    expect(afterUnpark.some((action) => action.type === "infer")).toBe(true);
+  });
+});
+
 function stubAdmission(
   notes: { provider: string; until: number }[],
 ): AdmissionQueue {

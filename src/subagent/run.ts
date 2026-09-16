@@ -1086,6 +1086,7 @@ async function runSubAgentInner(
         director.observeForcedStop((reason) => {
           directorForcedStopReason = reason;
         });
+        director.observeAskPending(() => askDirectorState.pending);
         director.observeInterventions((event) => {
           interventions(event);
         });
@@ -1097,11 +1098,13 @@ async function runSubAgentInner(
     // own (see checkStallPing on SubAgentDirector), so a silent leaf needs an
     // external nudge to even get a decide() call. Ping the same continuation
     // channel compaction uses at the stall interval; the director only acts on
-    // a ping if nothing happened since the last one.
-    stallWatchdog = setInterval(
-      () => requestContinuation(),
-      modelFamilyPolicy.subAgentStallTimeoutMs,
-    );
+    // a ping if nothing happened since the last one. Drop the ping while
+    // ask_director is parked — do not defer it through compactContinue, or the
+    // post-unpark flush would look like a stall-window empty continuation.
+    stallWatchdog = setInterval(() => {
+      if (askDirectorState.pending) return;
+      deliverCompactContinue();
+    }, modelFamilyPolicy.subAgentStallTimeoutMs);
     if (typeof stallWatchdog.unref === "function") stallWatchdog.unref();
 
     // Concurrent workers resolve relative permission subjects against this
