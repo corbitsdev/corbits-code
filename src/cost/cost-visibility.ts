@@ -102,15 +102,15 @@ function isSessionOfType(
 }
 
 function isCodingPlanSession(input: CostVisibilityInput): boolean {
-  return isSessionOfType(
-    input,
-    isCodingPlanProviderName,
-    isCodingPlanBaseURL,
-  );
+  return isSessionOfType(input, isCodingPlanProviderName, isCodingPlanBaseURL);
 }
 
 function isChatGPTSubscriptionSession(input: CostVisibilityInput): boolean {
-  return isSessionOfType(input, isCodexProviderName, isChatGPTSubscriptionBaseURL);
+  return isSessionOfType(
+    input,
+    isCodexProviderName,
+    isChatGPTSubscriptionBaseURL,
+  );
 }
 
 // Non-null when the dollar cost should be suppressed: a manual provider

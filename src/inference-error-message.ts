@@ -124,9 +124,10 @@ function terminalProviderFailureLabel(
     preferred,
     TERMINAL_PROVIDER_LABEL_MAX_CHARS,
   );
-  return (
-    sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown"
-  ).replace(/\s+Provider$/i, "");
+  return (sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown").replace(
+    /\s+Provider$/i,
+    "",
+  );
 }
 
 export function terminalProviderFailureMessage(

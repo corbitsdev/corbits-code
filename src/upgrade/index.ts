@@ -10,7 +10,11 @@
 import { basename } from "node:path";
 import { existsSync } from "node:fs";
 
-import { compareVersions, entryVersion, parseVersionString } from "../changelog/index.js";
+import {
+  compareVersions,
+  entryVersion,
+  parseVersionString,
+} from "../changelog/index.js";
 import { COMMAND_NAME, PRODUCT_NAME } from "../branding.js";
 import pkg from "../../package.json" with { type: "json" };
 

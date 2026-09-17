@@ -271,8 +271,7 @@ export async function fetchPricing(
     throw new Error(`models.dev pricing request failed: ${response.status}`);
   }
   const payload = await response.json();
-  const { models, reasoning, contextWindows } =
-    collectModelsDevFields(payload);
+  const { models, reasoning, contextWindows } = collectModelsDevFields(payload);
   if (Object.keys(models).length === 0) {
     throw new Error("models.dev pricing response did not include model prices");
   }
