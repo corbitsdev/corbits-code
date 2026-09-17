@@ -2,27 +2,11 @@ import { describe, expect, it } from "bun:test";
 import type { TokenUsage } from "@intx/types/runtime";
 
 import { createFaremeter, formatCost } from "./faremeter.js";
-import type { PricingCache } from "./pricing-fetcher.js";
+import { testPricingCache as pricingCache } from "./pricing-test-fixture.js";
 import {
   billingIdentityFromSource,
   createSessionCostAccumulator,
 } from "./session-cost.js";
-
-const pricingCache: PricingCache = {
-  timestamp: 0,
-  models: {
-    "glm-5.1": {
-      inputPricePerToken: 0.000002,
-      outputPricePerToken: 0.00001,
-      cacheReadPricePerToken: 0,
-    },
-    "gpt-5.6-luna": {
-      inputPricePerToken: 0.000001,
-      outputPricePerToken: 0.000008,
-      cacheReadPricePerToken: 0,
-    },
-  },
-};
 
 const usage = (input: number, output: number): TokenUsage => ({
   input,

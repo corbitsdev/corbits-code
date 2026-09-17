@@ -8,28 +8,7 @@ import {
   isCodingPlanProviderName,
   isFreeModelId,
 } from "./cost-visibility.js";
-import type { PricingCache } from "./pricing-fetcher.js";
-
-const pricingCache: PricingCache = {
-  timestamp: 0,
-  models: {
-    "glm-5.1": {
-      inputPricePerToken: 0.000002,
-      outputPricePerToken: 0.00001,
-      cacheReadPricePerToken: 0,
-    },
-    "free-model": {
-      inputPricePerToken: 0,
-      outputPricePerToken: 0,
-      cacheReadPricePerToken: 0,
-    },
-    "gpt-5.6-luna": {
-      inputPricePerToken: 0.000001,
-      outputPricePerToken: 0.000008,
-      cacheReadPricePerToken: 0,
-    },
-  },
-};
+import { testPricingCache as pricingCache } from "./pricing-test-fixture.js";
 
 describe("isFreeModelId", () => {
   it("matches :free and -free suffixes case-insensitively", () => {

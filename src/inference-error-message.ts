@@ -6,10 +6,7 @@
  * happened and whether they can do anything about it.
  */
 
-import {
-  formatCodexUsageLimitMessage,
-  parseCodexUsageLimitError,
-} from "./auth/codex/usage-limit-error.js";
+import { formatCodexUsageLimitMessage } from "./auth/codex/usage-limit-error.js";
 import {
   codexProfileFromProviderName,
   isCodexProviderName,
@@ -21,6 +18,7 @@ import {
   isCodexShortRateLimitInferenceError,
   isGatewayOverloadInferenceError,
   isXaiShortRateLimitInferenceError,
+  parseCodexUsageLimitFromError,
   RATE_LIMIT_USER_MESSAGE,
   type InferenceErrorLike,
 } from "./inference-gateway-error.js";
@@ -78,14 +76,6 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
     return undefined;
   }
 
-  const candidates: unknown[] = [];
-  if (error.raw !== undefined) candidates.push(error.raw);
-  if (
-    typeof error.message === "string" &&
-    error.message.trim().startsWith("{")
-  ) {
-    candidates.push(error.message);
-  }
   // Already-normalized path: message is our formatted line.
   if (
     typeof error.message === "string" &&
@@ -95,18 +85,16 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
     return error.message;
   }
 
-  for (const candidate of candidates) {
-    const parsed = parseCodexUsageLimitError(candidate);
-    if (parsed === undefined) continue;
-    const profile =
-      error.providerId !== undefined
-        ? codexProfileFromProviderName(error.providerId)
-        : undefined;
-    return formatCodexUsageLimitMessage(parsed, {
-      ...(profile !== undefined ? { profile } : {}),
-    });
-  }
-  return undefined;
+  // Candidate-list-plus-parse scan shared with the gateway-error module.
+  const parsed = parseCodexUsageLimitFromError(error);
+  if (parsed === undefined) return undefined;
+  const profile =
+    error.providerId !== undefined
+      ? codexProfileFromProviderName(error.providerId)
+      : undefined;
+  return formatCodexUsageLimitMessage(parsed, {
+    ...(profile !== undefined ? { profile } : {}),
+  });
 }
 
 const TERMINAL_DIAGNOSTIC_MAX_CHARS = 240;
@@ -126,9 +114,9 @@ function terminalProviderFailureCategory(error: InferenceErrorLike): string {
   return /^[a-z][a-z0-9_]*$/i.test(category) ? category : "unknown";
 }
 
-export function terminalProviderFailureMessage(
+/** Sanitize the display label: trim, scrub, clamp, drop a trailing "Provider". */
+function terminalProviderFailureLabel(
   providerId: string,
-  error: InferenceErrorLike,
   displayLabel?: string,
 ): string {
   const preferred = displayLabel?.trim() || providerId;
@@ -136,9 +124,18 @@ export function terminalProviderFailureMessage(
     preferred,
     TERMINAL_PROVIDER_LABEL_MAX_CHARS,
   );
-  const label = (
-    sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown"
-  ).replace(/\s+Provider$/i, "");
+  return (sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown").replace(
+    /\s+Provider$/i,
+    "",
+  );
+}
+
+export function terminalProviderFailureMessage(
+  providerId: string,
+  error: InferenceErrorLike,
+  displayLabel?: string,
+): string {
+  const label = terminalProviderFailureLabel(providerId, displayLabel);
   const category = terminalProviderFailureCategory(error);
   const message = safeDisplayText(
     error.message ?? "",
@@ -181,14 +178,7 @@ function terminalProviderFailureSummary(
   error: InferenceErrorLike,
   displayLabel?: string,
 ): string {
-  const preferred = displayLabel?.trim() || providerId;
-  const sanitizedLabel = safeDisplayText(
-    preferred,
-    TERMINAL_PROVIDER_LABEL_MAX_CHARS,
-  );
-  const label = (
-    sanitizedLabel.length > 0 ? sanitizedLabel : "Unknown"
-  ).replace(/\s+Provider$/i, "");
+  const label = terminalProviderFailureLabel(providerId, displayLabel);
   const category = terminalProviderFailureCategory(error);
   return `${label} Provider failed (${category}). ${terminalProviderFailureGuidance(error, category)}`;
 }

@@ -121,6 +121,19 @@ export interface StartupChangelogResult {
 }
 
 /**
+ * Hard-cut a string to a UTF-8 byte budget without splitting a code point:
+ * encode, truncate, decode, then strip a trailing replacement char (a cut
+ * multi-byte sequence) and trailing whitespace.
+ */
+function cutUtf8ToByteBudget(text: string, budget: number): string {
+  return Buffer.from(text, "utf8")
+    .subarray(0, budget)
+    .toString("utf8")
+    .replace(/\uFFFD$/, "")
+    .trimEnd();
+}
+
+/**
  * Bound automatic startup markdown: newest-first, at most `maxEntries` sections,
  * hard cap `maxBytes` with a trailing hint when truncated.
  */
@@ -156,10 +169,7 @@ export function formatStartupChangelog(
     if (kept.length === 0) {
       // Single section larger than the budget: hard-cut the body so the
       // watermark path never dumps unbounded markdown into the banner.
-      const raw = Buffer.from(piece, "utf8")
-        .subarray(0, bodyBudget)
-        .toString("utf8");
-      kept.push(raw.replace(/\uFFFD$/, "").trimEnd() + "…");
+      kept.push(`${cutUtf8ToByteBudget(piece, bodyBudget)}…`);
     }
     truncated = true;
     break;
@@ -172,10 +182,7 @@ export function formatStartupChangelog(
   }
   // Final hard cap if hint + body still overshoots (pathological tiny maxBytes).
   if (Buffer.byteLength(markdown, "utf8") > maxBytes) {
-    const cut = Buffer.from(markdown, "utf8")
-      .subarray(0, maxBytes)
-      .toString("utf8");
-    markdown = cut.replace(/\uFFFD$/, "").trimEnd();
+    markdown = cutUtf8ToByteBudget(markdown, maxBytes);
     truncated = true;
   }
   return {

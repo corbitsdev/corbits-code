@@ -10,7 +10,11 @@
 import { basename } from "node:path";
 import { existsSync } from "node:fs";
 
-import { compareVersions, parseVersionString } from "../changelog/index.js";
+import {
+  compareVersions,
+  entryVersion,
+  parseVersionString,
+} from "../changelog/index.js";
 import { COMMAND_NAME, PRODUCT_NAME } from "../branding.js";
 import pkg from "../../package.json" with { type: "json" };
 
@@ -73,7 +77,7 @@ export interface UpgradeCheckOptions {
 function normalizeVersion(raw: string): string | null {
   const parsed = parseVersionString(raw);
   if (parsed === null) return null;
-  return `${parsed.major}.${parsed.minor}.${parsed.patch}`;
+  return entryVersion(parsed);
 }
 
 /**

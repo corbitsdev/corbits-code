@@ -14,6 +14,7 @@ import {
   defaultPricingCachePath,
   type PricingCache,
 } from "./cost/pricing-fetcher.js";
+import { testPricingCache } from "./cost/pricing-test-fixture.js";
 
 // ---------------------------------------------------------------------------
 // defaultPricingCachePath
@@ -60,45 +61,63 @@ describe("parseModelsDevReasoning", () => {
 // parseModelsDevPricing
 // ---------------------------------------------------------------------------
 
+/** Flat models.dev entry with default per-million costs; overrides win. */
+function pricingPayload(
+  fields: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    input_cost_per_million: 10,
+    output_cost_per_million: 20,
+    ...fields,
+  };
+}
+
 describe("parseModelsDevPricing", () => {
-  test("extracts model pricing from a flat object with id field", () => {
-    const payload = {
-      id: "gpt-4",
-      input_cost_per_million: 30,
-      output_cost_per_million: 60,
-      cache_read_cost_per_million: 3,
-    };
-    const result = parseModelsDevPricing(payload);
-    expect(result["gpt-4"]).toEqual({
-      inputPricePerToken: 30 / 1_000_000,
-      outputPricePerToken: 60 / 1_000_000,
-      cacheReadPricePerToken: 3 / 1_000_000,
+  for (const { name, payload, modelId, expected } of [
+    {
+      name: "extracts model pricing from a flat object with id field",
+      payload: pricingPayload({
+        id: "gpt-4",
+        input_cost_per_million: 30,
+        output_cost_per_million: 60,
+        cache_read_cost_per_million: 3,
+      }),
+      modelId: "gpt-4",
+      expected: {
+        inputPricePerToken: 30 / 1_000_000,
+        outputPricePerToken: 60 / 1_000_000,
+        cacheReadPricePerToken: 3 / 1_000_000,
+      },
+    },
+    {
+      name: "extracts model pricing using model field when id is absent",
+      payload: pricingPayload({
+        model: "claude-3",
+        input_cost_per_million: 15,
+        output_cost_per_million: 75,
+      }),
+      modelId: "claude-3",
+      expected: {
+        inputPricePerToken: 15 / 1_000_000,
+        outputPricePerToken: 75 / 1_000_000,
+        cacheReadPricePerToken: 0,
+      },
+    },
+    {
+      name: "defaults cacheReadPricePerToken to 0 when field is absent",
+      payload: pricingPayload({ id: "model-x" }),
+      modelId: "model-x",
+      expected: {
+        inputPricePerToken: 10 / 1_000_000,
+        outputPricePerToken: 20 / 1_000_000,
+        cacheReadPricePerToken: 0,
+      },
+    },
+  ]) {
+    test(name, () => {
+      expect(parseModelsDevPricing(payload)[modelId]).toEqual(expected);
     });
-  });
-
-  test("extracts model pricing using model field when id is absent", () => {
-    const payload = {
-      model: "claude-3",
-      input_cost_per_million: 15,
-      output_cost_per_million: 75,
-    };
-    const result = parseModelsDevPricing(payload);
-    expect(result["claude-3"]).toMatchObject({
-      inputPricePerToken: 15 / 1_000_000,
-      outputPricePerToken: 75 / 1_000_000,
-      cacheReadPricePerToken: 0,
-    });
-  });
-
-  test("defaults cacheReadPricePerToken to 0 when field is absent", () => {
-    const payload = {
-      id: "model-x",
-      input_cost_per_million: 10,
-      output_cost_per_million: 20,
-    };
-    const result = parseModelsDevPricing(payload);
-    expect(defined(result["model-x"]).cacheReadPricePerToken).toBe(0);
-  });
+  }
 
   test("recurses into nested objects", () => {
     const payload = {
@@ -156,16 +175,8 @@ describe("parseModelsDevPricing", () => {
 // ---------------------------------------------------------------------------
 
 describe("lookupModelPricing", () => {
-  const cache: PricingCache = {
-    timestamp: 0,
-    models: {
-      "gpt-4": {
-        inputPricePerToken: 0.00003,
-        outputPricePerToken: 0.00006,
-        cacheReadPricePerToken: 0,
-      },
-    },
-  };
+  // Shared cost fixture (covers gpt-4 at the same prices).
+  const cache: PricingCache = testPricingCache;
 
   test("returns pricing for a known model", () => {
     expect(lookupModelPricing(cache, "gpt-4")).toEqual(

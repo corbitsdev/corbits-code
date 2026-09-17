@@ -83,6 +83,19 @@ function stringFromRaw(raw: unknown): string {
   }
 }
 
+/**
+ * Marker-list check over the joined, lowercased parts: true when any marker
+ * is a substring of the combined text. Shared by the gateway-overload, xAI
+ * quota, and xAI capacity detectors.
+ */
+function combinedTextIncludesMarker(
+  parts: string[],
+  markers: readonly string[],
+): boolean {
+  const combined = parts.join("\n").toLowerCase();
+  return markers.some((marker) => combined.includes(marker));
+}
+
 /** True when the payload looks like an HTML error page rather than API JSON/SSE. */
 export function looksLikeHtmlGatewayBody(text: string): boolean {
   const trimmed = text.trimStart().slice(0, 512).toLowerCase();
@@ -97,9 +110,7 @@ export function looksLikeHtmlGatewayBody(text: string): boolean {
 function textSuggestsGatewayOverload(...parts: string[]): boolean {
   const combined = parts.join("\n").toLowerCase();
   if (combined.includes("503")) return true;
-  return GATEWAY_OVERLOAD_TEXT_MARKERS.some((marker) =>
-    combined.includes(marker),
-  );
+  return combinedTextIncludesMarker(parts, GATEWAY_OVERLOAD_TEXT_MARKERS);
 }
 
 function hasGatewayOverloadStatus(error: InferenceErrorLike): boolean {
@@ -234,8 +245,7 @@ function isKnownXaiProviderId(providerId: string | undefined): boolean {
 }
 
 function textHasXaiQuotaMarkers(...parts: string[]): boolean {
-  const combined = parts.join("\n").toLowerCase();
-  return XAI_QUOTA_BODY_MARKERS.some((marker) => combined.includes(marker));
+  return combinedTextIncludesMarker(parts, XAI_QUOTA_BODY_MARKERS);
 }
 
 /**
@@ -287,8 +297,7 @@ function isXaiCapacityExactPhrase(part: string): boolean {
 }
 
 function textSuggestsXaiCapacity(...parts: string[]): boolean {
-  const combined = parts.join("\n").toLowerCase();
-  if (XAI_CAPACITY_TEXT_MARKERS.some((marker) => combined.includes(marker))) {
+  if (combinedTextIncludesMarker(parts, XAI_CAPACITY_TEXT_MARKERS)) {
     return true;
   }
   return parts.some(isXaiCapacityExactPhrase);
@@ -321,6 +330,29 @@ export function normalizeXaiCapacityError(
 }
 
 /**
+ * Shared short-rate-limit predicate behind the twin provider checks: a known
+ * provider's HTTP 429 whose category is quota_exhausted (or already remapped
+ * retryable) and whose body carries no usage-limit markers. Provider identity
+ * and the usage-limit veto differ per provider; check order is fixed.
+ */
+function isShortRateLimitInferenceError(
+  error: InferenceErrorLike,
+  isKnownProvider: (providerId: string | undefined) => boolean,
+  isUsageLimit: (error: InferenceErrorLike) => boolean,
+): boolean {
+  if (!isKnownProvider(error.providerId)) return false;
+  if (error.statusCode !== 429) return false;
+  if (error.category !== "quota_exhausted" && error.category !== "retryable")
+    return false;
+  if (isUsageLimit(error)) return false;
+  return true;
+}
+
+function hasXaiQuotaMarkers(error: InferenceErrorLike): boolean {
+  return textHasXaiQuotaMarkers(error.message ?? "", stringFromRaw(error.raw));
+}
+
+/**
  * True when a known-xAI HTTP 429 looks like a short rate limit rather than a
  * usage/quota window. Used by both retry normalization and transcript copy —
  * FRIENDLY_BY_CATEGORY would otherwise paint every quota_exhausted 429 as
@@ -331,13 +363,38 @@ export function normalizeXaiCapacityError(
 export function isXaiShortRateLimitInferenceError(
   error: InferenceErrorLike,
 ): boolean {
-  if (!isKnownXaiProviderId(error.providerId)) return false;
-  if (error.statusCode !== 429) return false;
-  if (error.category !== "quota_exhausted" && error.category !== "retryable")
-    return false;
-  if (textHasXaiQuotaMarkers(error.message ?? "", stringFromRaw(error.raw)))
-    return false;
-  return true;
+  return isShortRateLimitInferenceError(
+    error,
+    isKnownXaiProviderId,
+    hasXaiQuotaMarkers,
+  );
+}
+
+/**
+ * Shared early-return chain and return skeleton behind the twin rate-limit
+ * normalizers: non-429s, non-quota categories, unknown providers, and bodies
+ * with usage-limit markers pass through untouched; a bare (or marker-free)
+ * 429 becomes retryable with scrubbed rate-limit copy.
+ */
+function normalizeProviderRateLimitError(
+  error: InferenceErrorWithGoContext,
+  isKnownProvider: (providerId: string | undefined) => boolean,
+  isUsageLimit: (error: InferenceErrorLike) => boolean,
+): InferenceError {
+  if (error.statusCode !== 429) return error;
+  if (error.category !== "quota_exhausted") return error;
+  if (!isKnownProvider(error.providerId)) return error;
+  if (isUsageLimit(error)) return error;
+
+  return {
+    category: "retryable",
+    message: RATE_LIMIT_USER_MESSAGE,
+    statusCode: 429,
+    ...(error.raw !== undefined ? { raw: error.raw } : {}),
+    ...(error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
+  };
 }
 
 /**
@@ -352,24 +409,14 @@ export function isXaiShortRateLimitInferenceError(
 export function normalizeXaiRateLimitError(
   error: InferenceErrorWithGoContext,
 ): InferenceError {
-  if (error.statusCode !== 429) return error;
-  if (error.category !== "quota_exhausted") return error;
-  if (!isKnownXaiProviderId(error.providerId)) return error;
-  if (textHasXaiQuotaMarkers(error.message ?? "", stringFromRaw(error.raw)))
-    return error;
-
-  return {
-    category: "retryable",
-    message: RATE_LIMIT_USER_MESSAGE,
-    statusCode: 429,
-    ...(error.raw !== undefined ? { raw: error.raw } : {}),
-    ...(error.retryAfterMs !== undefined
-      ? { retryAfterMs: error.retryAfterMs }
-      : {}),
-  };
+  return normalizeProviderRateLimitError(
+    error,
+    isKnownXaiProviderId,
+    hasXaiQuotaMarkers,
+  );
 }
 
-function parseCodexUsageLimitFromError(
+export function parseCodexUsageLimitFromError(
   error: InferenceErrorLike,
 ): ReturnType<typeof parseCodexUsageLimitError> {
   const candidates: unknown[] = [];
@@ -392,6 +439,10 @@ function isKnownCodexProviderId(providerId: string | undefined): boolean {
   return providerId !== undefined && isCodexProviderName(providerId);
 }
 
+function hasCodexUsageLimit(error: InferenceErrorLike): boolean {
+  return parseCodexUsageLimitFromError(error) !== undefined;
+}
+
 /**
  * True when a known-Codex HTTP 429 looks like a short rate limit rather than a
  * `usage_limit_reached` window. Used by both retry normalization and transcript
@@ -404,12 +455,11 @@ function isKnownCodexProviderId(providerId: string | undefined): boolean {
 export function isCodexShortRateLimitInferenceError(
   error: InferenceErrorLike,
 ): boolean {
-  if (!isKnownCodexProviderId(error.providerId)) return false;
-  if (error.statusCode !== 429) return false;
-  if (error.category !== "quota_exhausted" && error.category !== "retryable")
-    return false;
-  if (parseCodexUsageLimitFromError(error) !== undefined) return false;
-  return true;
+  return isShortRateLimitInferenceError(
+    error,
+    isKnownCodexProviderId,
+    hasCodexUsageLimit,
+  );
 }
 
 /**
@@ -423,20 +473,11 @@ export function isCodexShortRateLimitInferenceError(
 export function normalizeCodexRateLimitError(
   error: InferenceErrorWithGoContext,
 ): InferenceError {
-  if (error.statusCode !== 429) return error;
-  if (error.category !== "quota_exhausted") return error;
-  if (!isKnownCodexProviderId(error.providerId)) return error;
-  if (parseCodexUsageLimitFromError(error) !== undefined) return error;
-
-  return {
-    category: "retryable",
-    message: RATE_LIMIT_USER_MESSAGE,
-    statusCode: 429,
-    ...(error.raw !== undefined ? { raw: error.raw } : {}),
-    ...(error.retryAfterMs !== undefined
-      ? { retryAfterMs: error.retryAfterMs }
-      : {}),
-  };
+  return normalizeProviderRateLimitError(
+    error,
+    isKnownCodexProviderId,
+    hasCodexUsageLimit,
+  );
 }
 
 /**
