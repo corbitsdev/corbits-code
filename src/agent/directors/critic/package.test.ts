@@ -122,4 +122,43 @@ describe("criticPackage", () => {
     expect(criticPackage.outOfLane).toContain("DESIGN.md");
     expect(criticPackage.outOfLane).toContain("pedantic fun without evidence");
   });
+
+  test("systemPrompt has Session Initialization block before PRIMARY INTENT", () => {
+    const p = criticPackage.systemPrompt;
+    expect(p).toContain("Session Initialization");
+    expect(p).toContain("Load the style skill with use_skill");
+    expect(p).toContain("Load the philosophy skill with use_skill");
+    expect(p).toContain(
+      "Do not do anything else before you have done all steps above. Skills are active constraints, not background documentation.",
+    );
+    expect(p.indexOf("Session Initialization")).toBeLessThan(
+      p.indexOf("PRIMARY INTENT"),
+    );
+  });
+
+  test("systemPrompt labels VERIFIED/HIGH/MEDIUM and refuses LOW findings", () => {
+    const p = criticPackage.systemPrompt;
+    expect(p).toContain(
+      "Confidence level: VERIFIED (proven by tests), HIGH (strong evidence but not testable), MEDIUM (plausible but uncertain)",
+    );
+    expect(p).toContain("Do not report LOW confidence findings");
+    expect(p).toContain("Do not report speculative concerns");
+    expect(p).toMatch(/never conflated/);
+  });
+
+  test("systemPrompt discards low-confidence noise directly", () => {
+    const p = criticPackage.systemPrompt;
+    expect(p).toContain(
+      "Only report issues you have verified or have high confidence in. Do not waste time with unverified speculation. Discard low-confidence findings",
+    );
+  });
+
+  test("systemPrompt hunts keepers and routes to testsmith/builder without committing", () => {
+    const p = criticPackage.systemPrompt;
+    expect(p).toContain(
+      "Actively look for opportunities to recommend tests for permanent inclusion",
+    );
+    expect(p).toContain("route keepers to testsmith/builder");
+    expect(p).toContain("never commit them from here");
+  });
 });
