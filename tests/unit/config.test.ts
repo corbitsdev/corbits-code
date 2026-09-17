@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { loadConfig } from "../../src/config/index.js";
 import { resetPricingMetadataRefreshForTests } from "../../src/cost/pricing-metadata.js";
 import { setProviderContextWindowOverrides } from "../../src/provider/context-window.js";
-import { withMockedModuleDuring } from "../helpers/mock-module.js";
+import { withMockedHomedir } from "../helpers/mock-module.js";
 
 afterEach(() => {
   setProviderContextWindowOverrides(undefined);
@@ -423,24 +423,17 @@ test("aliased-home restart preserves a non-default OAuth model", async () => {
       }),
     );
 
-    await withMockedModuleDuring(
-      import.meta.resolve("node:os"),
-      (real: typeof import("node:os")) => ({
-        ...real,
-        homedir: () => fakeHome,
-      }),
-      async () => {
-        const { impl } = offlineFetch();
-        const config = await loadConfig(["--cwd", fakeHome, "do something"], {
-          pricing: { fetchImpl: impl },
-        });
-        expect(config.configured).toBe(true);
-        if (config.configured) {
-          expect(config.providerName).toBe("xai/synthetic");
-          expect(config.model).toBe(selectedModel);
-        }
-      },
-    );
+    await withMockedHomedir(fakeHome, async () => {
+      const { impl } = offlineFetch();
+      const config = await loadConfig(["--cwd", fakeHome, "do something"], {
+        pricing: { fetchImpl: impl },
+      });
+      expect(config.configured).toBe(true);
+      if (config.configured) {
+        expect(config.providerName).toBe("xai/synthetic");
+        expect(config.model).toBe(selectedModel);
+      }
+    });
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
   }
@@ -470,26 +463,17 @@ test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", as
     });
     await writeFile(settingsPath, original);
 
-    await withMockedModuleDuring(
-      import.meta.resolve("node:os"),
-      (real: typeof import("node:os")) => ({
-        ...real,
-        homedir: () => fakeHome,
-      }),
-      async () => {
-        const { impl } = offlineFetch();
-        const config = await loadConfig(["--cwd", fakeHome, "do something"], {
-          pricing: { fetchImpl: impl },
-        });
-        expect(config.configured).toBe(true);
-        if (config.configured) {
-          expect(config.providerName).toBe("openai");
-          expect(config.providers.some((p) => p.name === "xai/gone")).toBe(
-            false,
-          );
-        }
-      },
-    );
+    await withMockedHomedir(fakeHome, async () => {
+      const { impl } = offlineFetch();
+      const config = await loadConfig(["--cwd", fakeHome, "do something"], {
+        pricing: { fetchImpl: impl },
+      });
+      expect(config.configured).toBe(true);
+      if (config.configured) {
+        expect(config.providerName).toBe("openai");
+        expect(config.providers.some((p) => p.name === "xai/gone")).toBe(false);
+      }
+    });
     expect(await readFile(settingsPath, "utf8")).toBe(original);
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
@@ -536,28 +520,21 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
     // parameter — so the only way to point it at a synthetic auth store
     // without touching the real one is to stub node:os for the duration of
     // this call.
-    await withMockedModuleDuring(
-      import.meta.resolve("node:os"),
-      (real: typeof import("node:os")) => ({
-        ...real,
-        homedir: () => fakeHome,
-      }),
-      async () => {
-        const { impl } = offlineFetch();
-        const config = await loadConfig(
-          ["exec", "--cwd", cwd, "--provider", "xai/synthetic", "do something"],
-          { pricing: { fetchImpl: impl } },
-        );
+    await withMockedHomedir(fakeHome, async () => {
+      const { impl } = offlineFetch();
+      const config = await loadConfig(
+        ["exec", "--cwd", cwd, "--provider", "xai/synthetic", "do something"],
+        { pricing: { fetchImpl: impl } },
+      );
 
-        expect(config.configured).toBe(true);
-        if (config.configured) {
-          expect(config.providerName).toBe("xai/synthetic");
-          expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(
-            true,
-          );
-        }
-      },
-    );
+      expect(config.configured).toBe(true);
+      if (config.configured) {
+        expect(config.providerName).toBe("xai/synthetic");
+        expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(
+          true,
+        );
+      }
+    });
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
     await rm(cwd, { recursive: true, force: true });
@@ -600,38 +577,31 @@ test("--config composes with OAuth profile auth instead of suppressing it", asyn
     const configPath = join(cwd, "settings-override.json");
     await writeFile(configPath, JSON.stringify({ providers: {} }));
 
-    await withMockedModuleDuring(
-      import.meta.resolve("node:os"),
-      (real: typeof import("node:os")) => ({
-        ...real,
-        homedir: () => fakeHome,
-      }),
-      async () => {
-        const { impl } = offlineFetch();
-        const config = await loadConfig(
-          [
-            "exec",
-            "--cwd",
-            cwd,
-            "--config",
-            configPath,
-            "--provider",
-            "xai/synthetic",
-            "do something",
-          ],
-          { pricing: { fetchImpl: impl } },
-        );
+    await withMockedHomedir(fakeHome, async () => {
+      const { impl } = offlineFetch();
+      const config = await loadConfig(
+        [
+          "exec",
+          "--cwd",
+          cwd,
+          "--config",
+          configPath,
+          "--provider",
+          "xai/synthetic",
+          "do something",
+        ],
+        { pricing: { fetchImpl: impl } },
+      );
 
-        expect(config.configured).toBe(true);
-        if (config.configured) {
-          expect(config.providerName).toBe("xai/synthetic");
-          expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(
-            true,
-          );
-          expect(config.globalSettingsPath).toBe(configPath);
-        }
-      },
-    );
+      expect(config.configured).toBe(true);
+      if (config.configured) {
+        expect(config.providerName).toBe("xai/synthetic");
+        expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(
+          true,
+        );
+        expect(config.globalSettingsPath).toBe(configPath);
+      }
+    });
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
     await rm(cwd, { recursive: true, force: true });

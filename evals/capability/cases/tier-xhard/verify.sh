@@ -3,32 +3,14 @@
 # grades production shape, which functional tests cannot see -- the Encore
 # "green != ready" lesson (CL-6930). Target pass rate 0-25%: an agent that stops
 # at green fails every check below.
-set -euo pipefail
+# shellcheck source=../verify-common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../verify-common.sh"
 
 TEST_SHA="bd97182202b283a721f2972f1fba79e2b552a95a64f1639d077022aa95a157d5"
 
-[[ -f package.json ]] || { echo "FAIL: package.json missing in workdir"; exit 1; }
-[[ -f tests/notify.test.ts ]] || { echo "FAIL: tests/notify.test.ts is gone"; exit 1; }
+check_contract "tests/notify.test.ts"
 
-actual_sha=$(shasum -a 256 tests/notify.test.ts | cut -d' ' -f1)
-if [[ "$actual_sha" != "$TEST_SHA" ]]; then
-  # A stale TEST_SHA is indistinguishable from an agent edit above, so check
-  # the fixture's own hash at setup before blaming the agent: the workdir is
-  # a git repo committed before the run, so HEAD holds the pristine file.
-  setup_sha=$(git show "HEAD:tests/notify.test.ts" 2>/dev/null | shasum -a 256 | cut -d' ' -f1 || true)
-  if [[ -n "$setup_sha" && "$actual_sha" == "$setup_sha" ]]; then
-    echo "FAIL: tests/notify.test.ts is unchanged from the fixture at setup ($setup_sha) but does not match TEST_SHA ($TEST_SHA): the case's locked hash is stale (broken case), not an agent edit"
-    exit 1
-  fi
-  echo "FAIL: tests/notify.test.ts was modified (contract file must be byte-unchanged)"
-  exit 1
-fi
-
-if ! bun test >/tmp/tier-xhard-test.log 2>&1; then
-  cat /tmp/tier-xhard-test.log
-  echo "FAIL: functional suite regressed"
-  exit 1
-fi
+run_visible_suite "/tmp/tier-xhard-test.log" "FAIL: functional suite regressed"
 
 # --- rubric 1: versioned migrations, not inline schema ----------------------
 shopt -s nullglob

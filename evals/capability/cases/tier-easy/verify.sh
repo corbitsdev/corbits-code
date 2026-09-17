@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # easy tier: floor tripwire. Saturation here is intentional -- this exists to
 # catch gross breakage of the product path, not to discriminate between models.
-set -euo pipefail
+# shellcheck source=../verify-common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../verify-common.sh"
 
 [[ -f package.json ]] || { echo "FAIL: package.json missing in workdir"; exit 1; }
 
@@ -28,7 +29,7 @@ if (health?.status !== 200 || health.body?.ok !== true) {
 console.log("ok: routes verified");
 '
 
-bun test >/tmp/tier-easy-test.log 2>&1 || { cat /tmp/tier-easy-test.log; echo "FAIL: bun test failed"; exit 1; }
+run_visible_suite "/tmp/tier-easy-test.log" "FAIL: bun test failed"
 # A test must actually exercise the route, not merely mention the word.
 found=0
 for f in tests/*.ts; do

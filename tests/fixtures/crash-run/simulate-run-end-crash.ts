@@ -4,32 +4,15 @@
 // rather than simulate-crash.ts's scenario of a crash escaping before any
 // terminal write is issued at all.
 import { installCrashHandlers } from "../../../src/process-handlers.js";
-import {
-  setActiveRun,
-  setTestWriteGate,
-} from "../../../src/session/active-run.js";
+import { setTestWriteGate } from "../../../src/session/active-run.js";
 import { sessionDir } from "../../../src/session/index.js";
-import { finalizeRunState, saveState } from "../../../src/session/state.js";
+import { finalizeRunState } from "../../../src/session/state.js";
+import { initCrashFixture } from "./init-fixture.js";
 
-const cwd = process.cwd();
-const sessionId = process.env["RUN_END_TEST_SESSION_ID"];
-if (sessionId === undefined) {
-  throw new Error("RUN_END_TEST_SESSION_ID must be set");
-}
-
-const startedAt = Date.now();
-const task = "simulated run-end task";
-const model = "test-provider:test-model";
-
-await saveState(cwd, sessionId, {
-  status: "running",
-  turnsUsed: 3,
-  task,
-  startedAt,
-  model,
+const { cwd, sessionId, startedAt, task, model } = await initCrashFixture({
+  envVar: "RUN_END_TEST_SESSION_ID",
+  task: "simulated run-end task",
 });
-
-setActiveRun({ sessionId, cwd, task, startedAt, turnsUsed: 3, model });
 installCrashHandlers();
 
 process.stdout.write(`${sessionDir(cwd, sessionId)}\n`);

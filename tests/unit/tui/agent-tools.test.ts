@@ -44,18 +44,6 @@ const mockPosixTools = {
 // restore, so none of these mocks can outlive this file (Bun runs every test
 // file in one process, and an un-restored mock.module silently replaces the
 // real module for every file that runs after this one).
-await withMockedModule(import.meta.resolve("@intx/tools-posix"), () => ({
-  createPosixTools: () => mockPosixTools,
-  TOOL_NAMES,
-}));
-
-await withMockedModule(
-  import.meta.resolve("../../../src/agent/posix-tool-plugins.js"),
-  () => ({
-    buildCorePosixToolPlugins: () => [],
-  }),
-);
-
 const mockConnectMCPServer = mock(
   async (
     config: { name: string },
@@ -67,100 +55,117 @@ const mockConnectMCPServer = mock(
   }),
 );
 
-await withMockedModule(
-  import.meta.resolve("../../../src/mcp/client.js"),
-  (real: typeof import("../../../src/mcp/client.js")) => ({
-    ...real,
-    connectMCPServer: mockConnectMCPServer,
-  }),
-);
+interface ModuleStub {
+  path: string;
+  impl: (real: never) => object;
+}
 
-await withMockedModule(
-  import.meta.resolve("../../../src/mcp/plugin.js"),
-  () => ({
-    mcpClientTools: () => [],
-    mcpClientToAgentTools: () => [],
-  }),
-);
+// The sequential stub registrations, table-driven: one entry per mocked
+// module, installed in order through withMockedModule.
+const MODULE_STUBS: readonly ModuleStub[] = [
+  {
+    path: import.meta.resolve("@intx/tools-posix"),
+    impl: () => ({
+      createPosixTools: () => mockPosixTools,
+      TOOL_NAMES,
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/agent/posix-tool-plugins.js"),
+    impl: () => ({
+      buildCorePosixToolPlugins: () => [],
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/mcp/client.js"),
+    impl: (real: typeof import("../../../src/mcp/client.js")) => ({
+      ...real,
+      connectMCPServer: mockConnectMCPServer,
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/mcp/plugin.js"),
+    impl: () => ({
+      mcpClientTools: () => [],
+      mcpClientToAgentTools: () => [],
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/plugins/path-escape-plugin.js"),
+    impl: () => ({
+      pathEscapePlugin: () => ({}),
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/plugins/verify-plugin.js"),
+    impl: () => ({
+      verifyPlugin: () => ({}),
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/plugins/permission-plugin.js"),
+    impl: () => ({
+      permissionPlugin: () => ({}),
+      gateAgentTools: (tools: unknown) => tools,
+      gateToolCall: async (
+        _gate: unknown,
+        call: ToolCall,
+        signal: AbortSignal,
+        next: (call: ToolCall, signal: AbortSignal) => Promise<unknown>,
+      ) => next(call, signal),
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/plugins/secret-guard-plugin.js"),
+    impl: () => ({
+      secretGuardPlugin: () => ({}),
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/plugins/shell-guard-plugin.js"),
+    impl: () => ({
+      shellGuardPlugin: () => ({}),
+      advertiseShellGuardTimeout: (defs: ToolDefinition[]) => defs,
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/plugins/read-file-guard-plugin.js"),
+    impl: () => ({
+      readFileGuardPlugin: () => ({}),
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/plugins/edit-file-line-range.js"),
+    impl: () => ({
+      advertiseEditFileLineRange: (defs: ToolDefinition[]) => defs,
+    }),
+  },
+  {
+    path: import.meta.resolve("../../../src/agent/director.js"),
+    impl: () => ({
+      askOperatorDefinition: {
+        name: "ask_operator",
+        description: "Ask operator",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      } as ToolDefinition,
+      presentDefinition: {
+        name: "present",
+        description: "Present structured output",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      } as ToolDefinition,
+      submitOutputDefinition: {
+        name: "submit_output",
+        description: "Submit output",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      } as ToolDefinition,
+      createChatDirector: mock(() => ({})),
+    }),
+  },
+];
 
-await withMockedModule(
-  import.meta.resolve("../../../src/plugins/path-escape-plugin.js"),
-  () => ({
-    pathEscapePlugin: () => ({}),
-  }),
-);
-
-await withMockedModule(
-  import.meta.resolve("../../../src/plugins/verify-plugin.js"),
-  () => ({
-    verifyPlugin: () => ({}),
-  }),
-);
-
-await withMockedModule(
-  import.meta.resolve("../../../src/plugins/permission-plugin.js"),
-  () => ({
-    permissionPlugin: () => ({}),
-    gateAgentTools: (tools: unknown) => tools,
-    gateToolCall: async (
-      _gate: unknown,
-      call: ToolCall,
-      signal: AbortSignal,
-      next: (call: ToolCall, signal: AbortSignal) => Promise<unknown>,
-    ) => next(call, signal),
-  }),
-);
-
-await withMockedModule(
-  import.meta.resolve("../../../src/plugins/secret-guard-plugin.js"),
-  () => ({
-    secretGuardPlugin: () => ({}),
-  }),
-);
-
-await withMockedModule(
-  import.meta.resolve("../../../src/plugins/shell-guard-plugin.js"),
-  () => ({
-    shellGuardPlugin: () => ({}),
-    advertiseShellGuardTimeout: (defs: ToolDefinition[]) => defs,
-  }),
-);
-
-await withMockedModule(
-  import.meta.resolve("../../../src/plugins/read-file-guard-plugin.js"),
-  () => ({
-    readFileGuardPlugin: () => ({}),
-  }),
-);
-
-await withMockedModule(
-  import.meta.resolve("../../../src/plugins/edit-file-line-range.js"),
-  () => ({
-    advertiseEditFileLineRange: (defs: ToolDefinition[]) => defs,
-  }),
-);
-
-await withMockedModule(
-  import.meta.resolve("../../../src/agent/director.js"),
-  () => ({
-    askOperatorDefinition: {
-      name: "ask_operator",
-      description: "Ask operator",
-      inputSchema: { type: "object", properties: {}, required: [] },
-    } as ToolDefinition,
-    presentDefinition: {
-      name: "present",
-      description: "Present structured output",
-      inputSchema: { type: "object", properties: {}, required: [] },
-    } as ToolDefinition,
-    submitOutputDefinition: {
-      name: "submit_output",
-      description: "Submit output",
-      inputSchema: { type: "object", properties: {}, required: [] },
-    } as ToolDefinition,
-    createChatDirector: mock(() => ({})),
-  }),
-);
+for (const stub of MODULE_STUBS) {
+  await withMockedModule(stub.path, stub.impl);
+}
 
 const {
   createAgentToolset,

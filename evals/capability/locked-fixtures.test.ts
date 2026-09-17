@@ -13,6 +13,10 @@ function parseLockedContract(
 ): { sha: string; path: string } | null {
   const sha = verifySrc.match(/^TEST_SHA="([0-9a-f]{64})"$/m)?.[1];
   if (sha === undefined) return null;
+  // Shared-helper shape: check_contract "<path>" (the existence guard and
+  // the shasum comparison live in cases/verify-common.sh).
+  const shared = verifySrc.match(/^check_contract "(\S+)"$/m)?.[1];
+  if (shared !== undefined) return { sha, path: shared };
   const hashed = verifySrc.match(/shasum -a 256 (\S+)/)?.[1];
   const guarded = [...verifySrc.matchAll(/\[\[ -f (\S+) \]\]/g)].map(
     (m) => m[1],
