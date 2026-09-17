@@ -214,7 +214,12 @@ for (const phase of ["settled", "prequeued", "deferred"] as const) {
             resetting = true;
             resetSessionForRotation(
               { withFleetPublicationSuspended: publisher.withSuspended },
-              { deliveryGeneration, emitter, subAgentSessions: store },
+              {
+                deliveryGeneration,
+                emitter,
+                subAgentSessions: store,
+                sessionOps: queue,
+              },
             );
             resetting = false;
             expect(scheduled).toHaveLength(beforeScheduled);

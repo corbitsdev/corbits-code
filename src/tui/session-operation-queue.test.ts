@@ -1,6 +1,32 @@
 import { test, expect } from "bun:test";
 import { createSessionOperationQueue } from "./delivery-queue.js";
 
+async function expectSettlesSoon(
+  promise: Promise<unknown>,
+  label: string,
+  ms = 250,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} did not settle within ${ms}ms`)),
+          ms,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 test("serial operation queue executes operations in order without interleaving", async () => {
   const log: string[] = [];
   const { enqueue, awaitTail } = createSessionOperationQueue();
@@ -19,8 +45,7 @@ test("serial operation queue executes operations in order without interleaving",
     log.push("B:end");
   });
 
-  await Promise.resolve();
-  await Promise.resolve();
+  await flushMicrotasks();
   expect(log).toEqual(["A:start"]);
 
   resolveA();
@@ -77,4 +102,95 @@ test("a failed delivery does not block a rotation queued behind it", async () =>
 
   await awaitTail();
   expect(log).toEqual(["deliver:start", "rotate"]);
+});
+
+test("abortInFlight unblocks a hung preemptible op so the next serial op can run", async () => {
+  const log: string[] = [];
+  const { enqueue, enqueuePreemptible, abortInFlight, awaitTail } =
+    createSessionOperationQueue();
+
+  enqueuePreemptible(async () => {
+    log.push("preempt:start");
+    await new Promise<void>(() => undefined);
+  });
+  enqueue(async () => {
+    log.push("serial");
+  });
+
+  await flushMicrotasks();
+  expect(log).toEqual(["preempt:start"]);
+
+  abortInFlight();
+  await expectSettlesSoon(awaitTail(), "awaitTail after abortInFlight");
+  expect(log).toEqual(["preempt:start", "serial"]);
+});
+
+test("abortInFlight does not abort a serial op", async () => {
+  const log: string[] = [];
+  let resolveSerial: () => void = () => undefined;
+  const gate = new Promise<void>((r) => (resolveSerial = r));
+  const { enqueue, abortInFlight, awaitTail } = createSessionOperationQueue();
+
+  enqueue(async () => {
+    log.push("serial:start");
+    await gate;
+    log.push("serial:end");
+  });
+  enqueue(async () => {
+    log.push("next");
+  });
+
+  await flushMicrotasks();
+  abortInFlight();
+  await flushMicrotasks();
+  expect(log).toEqual(["serial:start"]);
+
+  resolveSerial();
+  await awaitTail();
+  expect(log).toEqual(["serial:start", "serial:end", "next"]);
+});
+
+test("abandoned preemptible op resolving later does not run the next op twice", async () => {
+  const log: string[] = [];
+  let resolveHung: () => void = () => undefined;
+  const hung = new Promise<void>((r) => (resolveHung = r));
+  const { enqueue, enqueuePreemptible, abortInFlight, awaitTail } =
+    createSessionOperationQueue();
+
+  enqueuePreemptible(async () => {
+    log.push("preempt:start");
+    await hung;
+    log.push("preempt:end");
+  });
+  enqueue(async () => {
+    log.push("serial");
+  });
+
+  await flushMicrotasks();
+  abortInFlight();
+  await expectSettlesSoon(awaitTail(), "awaitTail after abortInFlight");
+  expect(log).toEqual(["preempt:start", "serial"]);
+
+  resolveHung();
+  await flushMicrotasks();
+  await awaitTail();
+  expect(log.filter((entry) => entry === "serial")).toHaveLength(1);
+  expect(log).toEqual(["preempt:start", "serial", "preempt:end"]);
+});
+
+test("a failed preemptible op does not block the tail", async () => {
+  const log: string[] = [];
+  const { enqueue, enqueuePreemptible, awaitTail } =
+    createSessionOperationQueue();
+
+  enqueuePreemptible(async () => {
+    log.push("preempt");
+    throw new Error("deliver failed");
+  });
+  enqueue(async () => {
+    log.push("serial");
+  });
+
+  await awaitTail();
+  expect(log).toEqual(["preempt", "serial"]);
 });

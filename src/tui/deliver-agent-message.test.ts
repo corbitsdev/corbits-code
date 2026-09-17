@@ -195,14 +195,16 @@ describe("settleCompactionContinuationHop", () => {
     expect(runs).toBe(1);
   });
 
-  test("continuation enqueued then interrupt rebuild queued lands on the replacement agent", async () => {
-    const { enqueue, awaitTail } = createSessionOperationQueue();
+  test("continuation enqueued then interrupt rebuild queued does not auto-deliver to the replacement agent", async () => {
+    const { enqueue, enqueuePreemptible, abortInFlight, awaitTail } =
+      createSessionOperationQueue();
     const deliveryGeneration = createDeliveryGeneration();
     let agent = "outgoing";
     const deliveredTo: string[] = [];
+    const order: string[] = [];
 
     enqueueCompactionContinuationHop({
-      enqueue,
+      enqueue: enqueuePreemptible,
       captureGeneration: () => deliveryGeneration.capture(),
       deliver: async () => {
         deliveredTo.push(agent);
@@ -212,16 +214,184 @@ describe("settleCompactionContinuationHop", () => {
     });
 
     startInterruptRebuild({
-      deliveryGeneration,
+      deliveryGeneration: {
+        bump: () => {
+          order.push("bump");
+          deliveryGeneration.bump();
+        },
+      },
       markSendAborted: () => undefined,
-      enqueue,
+      abortInFlight: () => {
+        order.push("abortInFlight");
+        abortInFlight();
+      },
+      enqueue: (op) => {
+        order.push("enqueue");
+        return enqueue(op);
+      },
       rebuild: async () => {
         agent = "replacement";
       },
     });
 
+    expect(order[0]).toBe("bump");
+    expect(order.indexOf("abortInFlight")).toBeGreaterThan(
+      order.indexOf("bump"),
+    );
+    expect(order.indexOf("enqueue")).toBeGreaterThan(
+      order.indexOf("abortInFlight"),
+    );
+
     await awaitTail();
-    expect(deliveredTo).toEqual(["replacement"]);
+    expect(deliveredTo).not.toContain("outgoing");
+    expect(deliveredTo).not.toContain("replacement");
+  });
+
+  test("hung hop then startInterruptRebuild runs rebuild without delivering to the outgoing agent", async () => {
+    const { enqueue, enqueuePreemptible, abortInFlight, awaitTail } =
+      createSessionOperationQueue();
+    const deliveryGeneration = createDeliveryGeneration();
+    let hopStarted = false;
+    let rebuilt = false;
+    const deliveredTo: string[] = [];
+
+    enqueueCompactionContinuationHop({
+      enqueue: enqueuePreemptible,
+      captureGeneration: () => deliveryGeneration.capture(),
+      deliver: async () => {
+        hopStarted = true;
+        await new Promise<void>(() => undefined);
+        deliveredTo.push("outgoing");
+        return { status: "accepted" as const };
+      },
+      onResult: () => undefined,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hopStarted).toBe(true);
+
+    startInterruptRebuild({
+      deliveryGeneration,
+      markSendAborted: () => undefined,
+      abortInFlight,
+      enqueue,
+      rebuild: async () => {
+        rebuilt = true;
+      },
+    });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        awaitTail(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error("rebuild did not run; hung hop parked the tail"),
+              ),
+            250,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+    expect(rebuilt).toBe(true);
+    expect(deliveredTo).toEqual([]);
+  });
+
+  test("stall-abort of a hung continuation does not requeue onto the replacement agent", async () => {
+    const { enqueue, enqueuePreemptible, abortInFlight, awaitTail } =
+      createSessionOperationQueue();
+    const deliveryGeneration = createDeliveryGeneration();
+    let settleDeliver:
+      | ((result: {
+          status: "not-delivered";
+          reason: "agent-closed";
+          detail: string;
+        }) => void)
+      | undefined;
+    let deliverCalls = 0;
+    let hopStarted = false;
+    let rebuilt = false;
+
+    enqueueCompactionContinuationHop({
+      enqueue: enqueuePreemptible,
+      captureGeneration: () => deliveryGeneration.capture(),
+      deliver: async () => {
+        deliverCalls += 1;
+        hopStarted = true;
+        return await new Promise((resolve) => {
+          settleDeliver = resolve;
+        });
+      },
+      onResult: () => undefined,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hopStarted).toBe(true);
+
+    deliveryGeneration.bump();
+    abortInFlight();
+    enqueue(async () => {
+      rebuilt = true;
+    });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        awaitTail(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("stall abort left the tail parked")),
+            250,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+
+    expect(rebuilt).toBe(true);
+    settleDeliver?.({
+      status: "not-delivered",
+      reason: "agent-closed",
+      detail: "agent is closed",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(deliverCalls).toBe(1);
+  });
+
+  test("two distinct continuation seqs both enqueue", async () => {
+    const { enqueuePreemptible, awaitTail } = createSessionOperationQueue();
+    const deliveryGeneration = createDeliveryGeneration();
+    const delivered: number[] = [];
+
+    enqueueCompactionContinuationHop({
+      enqueue: enqueuePreemptible,
+      captureGeneration: () => deliveryGeneration.capture(),
+      deliver: async () => {
+        delivered.push(1);
+        return { status: "accepted" as const };
+      },
+      onResult: () => undefined,
+    });
+    enqueueCompactionContinuationHop({
+      enqueue: enqueuePreemptible,
+      captureGeneration: () => deliveryGeneration.capture(),
+      deliver: async () => {
+        delivered.push(2);
+        return { status: "accepted" as const };
+      },
+      onResult: () => undefined,
+    });
+
+    await awaitTail();
+    expect(delivered).toEqual([1, 2]);
   });
 });
 

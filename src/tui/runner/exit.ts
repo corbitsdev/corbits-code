@@ -72,12 +72,13 @@ export function resetSessionForRotation(
   state: Pick<RunnerState, "withFleetPublicationSuspended">,
   services: Pick<
     RunnerServices,
-    "deliveryGeneration" | "emitter" | "subAgentSessions"
+    "deliveryGeneration" | "emitter" | "subAgentSessions" | "sessionOps"
   >,
 ): Promise<string[]> {
   let cancelledWorkers: Promise<string[]> = Promise.resolve([]);
   const reset = (): void => {
     services.deliveryGeneration.bump();
+    services.sessionOps.abortInFlight();
     cancelFeedbackCapture();
     services.emitter.emit("session.clear");
     cancelledWorkers = services.subAgentSessions.cancelAll("Session cleared");
@@ -178,18 +179,22 @@ export function agentRebuildFailure(err: unknown): Error {
 }
 
 /**
- * Hard-stop interrupt: bump delivery generation, then enqueue the agent rebuild.
- * The bump aborts the outstanding permission gate (overlay dismissed, no grant)
- * before enqueue so a later accept cannot mint into the rebuilt identity.
+ * Hard-stop interrupt: bump delivery generation, abort a preemptible
+ * continuation hop, then enqueue the agent rebuild. The bump aborts the
+ * outstanding permission gate (overlay dismissed, no grant) before enqueue
+ * so a later accept cannot mint into the rebuilt identity. Aborting the hop
+ * must happen before enqueue so rebuild does not wait forever on deliver().
  */
 export function startInterruptRebuild(args: {
   deliveryGeneration: { bump: () => void };
   markSendAborted: () => void;
+  abortInFlight: () => void;
   enqueue: (op: () => Promise<void>) => unknown;
   rebuild: () => Promise<void>;
 }): void {
   args.deliveryGeneration.bump();
   args.markSendAborted();
+  args.abortInFlight();
   void args.enqueue(args.rebuild);
 }
 
@@ -336,10 +341,9 @@ export async function createRunLifecycle(
       // the same message the old requestContinuation closure delivered,
       // through the serial op queue like every other deliver. Each emission
       // is answered once: a replayed duplicate of an already-answered
-      // emission is ignored instead of re-delivered. A hop superseded by
-      // interrupt rebuild (generation bump + rebuild already queued) is
-      // re-queued onto the replacement agent so consume-once cannot land on
-      // the outgoing liveAgent.
+      // emission is ignored instead of re-delivered. Interrupt/stall-abort
+      // drops a superseded hop rather than re-queueing it onto the
+      // replacement agent.
       if (continuationGate.shouldDeliver(event.seq)) {
         state.enqueueCompactionContinuation?.(() =>
           liveAgent(state).deliver(buildCompactionContinuationMessage()),
@@ -576,6 +580,9 @@ export async function createRunLifecycle(
       deliveryGeneration: services.deliveryGeneration,
       markSendAborted: () => {
         state.sendAborted = true;
+      },
+      abortInFlight: () => {
+        services.sessionOps.abortInFlight();
       },
       enqueue: enqueueOp,
       rebuild: async () => {

@@ -576,7 +576,7 @@ export async function assembleTUISession(
     deliverToLiveAgent: () => void,
   ): void => {
     enqueueCompactionContinuationHop({
-      enqueue: sessionOps.enqueue,
+      enqueue: sessionOps.enqueuePreemptible,
       captureGeneration: () => deliveryGeneration.capture(),
       deliver: () =>
         deliverAgentMessage({

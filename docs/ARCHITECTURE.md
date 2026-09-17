@@ -109,7 +109,7 @@ In TUI chat mode there is no completion gate — the session stays open across t
   rather than forwarding to a successor. `/clear` and `/new` bump a
   delivery generation and call `SessionBridge.clearQueuedDelivery()` so queued
   input and deferred recoveries from the previous session cannot enter the new one.
-- **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail, ensuring in-flight work completes before the agent is torn down.
+- **Session rotation** — Uses a serial session-operation queue (`createSessionOperationQueue`, not a boolean flag) so rotation, compaction continuation, and `agentProxy.deliver` never race a concurrent rebuild. Each operation chains onto the tail; continuation hops are preemptible so interrupt and rotation abort a hung deliver instead of waiting forever, while serial rebuild/reload/rotation still finish `close()` before the next op.
 
 ### Exec Runner (`src/exec/runner.ts`)
 

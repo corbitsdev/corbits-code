@@ -112,9 +112,9 @@ function compactionContinuationIsSuperseded(
 
 /**
  * Compact continuation is consume-once at the stream gate. Interrupt rebuild
- * bumps generation and enqueues a rebuild behind this hop, so a stale hop
- * must re-queue rather than retry liveAgent in this op. A closed hop still
- * retries once here.
+ * bumps generation and aborts an in-flight hop so a hung deliver cannot park
+ * the serial tail. An interrupt-stale or abort-abandoned hop is fail-closed:
+ * it must not re-queue onto the replacement agent.
  */
 export async function settleCompactionContinuationHop(options: {
   stillCurrent: () => boolean;
@@ -134,6 +134,13 @@ export async function settleCompactionContinuationHop(options: {
     options.onSuperseded();
     return first;
   }
+  if (!options.stillCurrent()) {
+    return {
+      status: "not-delivered",
+      reason: "superseded",
+      detail: "session identity changed before delivery",
+    };
+  }
   if (first.status === "not-delivered" && first.reason === "agent-closed") {
     return options.deliver();
   }
@@ -141,9 +148,8 @@ export async function settleCompactionContinuationHop(options: {
 }
 
 /**
- * Enqueue a compact-continue hop. If interrupt already bumped generation and
- * queued a rebuild behind this hop, the continue is scheduled again after
- * that rebuild instead of retrying liveAgent in the same op.
+ * Enqueue a compact-continue hop on the preemptible lane. Interrupt and stall
+ * abort drop the hop instead of re-queueing it onto a replacement agent.
  */
 export function enqueueCompactionContinuationHop(options: {
   enqueue: (op: () => Promise<void>) => unknown;
@@ -151,19 +157,15 @@ export function enqueueCompactionContinuationHop(options: {
   deliver: () => Promise<AgentDeliveryResult>;
   onResult: (result: AgentDeliveryResult) => void;
 }): void {
-  const schedule = (): void => {
-    const stillCurrent = options.captureGeneration();
-    void options.enqueue(async () => {
-      const result = await settleCompactionContinuationHop({
-        stillCurrent,
-        deliver: options.deliver,
-        onSuperseded: schedule,
-      });
-      if (compactionContinuationIsSuperseded(result)) return;
-      options.onResult(result);
+  const stillCurrent = options.captureGeneration();
+  void options.enqueue(async () => {
+    const result = await settleCompactionContinuationHop({
+      stillCurrent,
+      deliver: options.deliver,
+      onSuperseded: () => undefined,
     });
-  };
-  schedule();
+    options.onResult(result);
+  });
 }
 
 /** Operator-facing copy for a settled delivery that did not accept. */
@@ -408,24 +410,97 @@ export function drainSteersOnly(state: SessionQueueState): {
 
 // Serial promise chain for session-scoped operations (reload, interrupt, deliver).
 // Each task runs after the previous one settles; failures do not block the tail.
+// Continuation hops enqueue as preemptible so interrupt/stall-abort can settle
+// the wrapper without waiting forever on Agent.deliver. Rebuild/reload/rotation
+// stay serial so close() can finish.
 
 export interface SessionOperationQueue {
   /** Enqueue an async operation; returns a promise for this operation's settlement. */
   enqueue: (op: () => Promise<void>) => Promise<void>;
+  /**
+   * Same tail as `enqueue`, marked preemptible. `abortInFlight` races the
+   * current op against a captured abort signal so a hung continuation cannot
+   * park rebuild, send, or quit.
+   */
+  enqueuePreemptible: (op: () => Promise<void>) => Promise<void>;
+  /**
+   * Abort the in-flight op only when it is preemptible, then mint a fresh
+   * controller so a rebuild enqueued after this call is not cancelled.
+   */
+  abortInFlight: () => void;
   /** Await the tail of the queue (all prior operations finished or failed). */
   awaitTail: () => Promise<void>;
 }
 
+type SessionOpKind = "serial" | "preemptible";
+
+function whenAborted(signal: AbortSignal): {
+  promise: Promise<void>;
+  dispose: () => void;
+} {
+  let onAbort: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    onAbort = () => resolve();
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return {
+    promise,
+    dispose: () => {
+      if (onAbort !== undefined) signal.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
 export function createSessionOperationQueue(): SessionOperationQueue {
   let tail: Promise<void> = Promise.resolve();
+  let abortController = new AbortController();
+  let currentKind: SessionOpKind | null = null;
 
-  const enqueue = (op: () => Promise<void>): Promise<void> => {
-    tail = tail.then(op, op);
+  const enqueueKind = (
+    kind: SessionOpKind,
+    op: () => Promise<void>,
+  ): Promise<void> => {
+    const execute = async (): Promise<void> => {
+      currentKind = kind;
+      try {
+        if (kind !== "preemptible") {
+          await op();
+          return;
+        }
+        const signal = abortController.signal;
+        const abort = whenAborted(signal);
+        const running = op();
+        try {
+          const outcome = await Promise.race([
+            running.then(() => "ran" as const),
+            abort.promise.then(() => "aborted" as const),
+          ]);
+          if (outcome === "aborted") {
+            void running.catch(() => undefined);
+          }
+        } finally {
+          abort.dispose();
+        }
+      } finally {
+        currentKind = null;
+      }
+    };
+    tail = tail.then(execute, execute);
     return tail;
   };
 
   return {
-    enqueue,
+    enqueue: (op) => enqueueKind("serial", op),
+    enqueuePreemptible: (op) => enqueueKind("preemptible", op),
+    abortInFlight: () => {
+      if (currentKind !== "preemptible") return;
+      abortController.abort();
+      abortController = new AbortController();
+    },
     awaitTail: () => tail.catch(() => undefined),
   };
 }

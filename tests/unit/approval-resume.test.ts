@@ -373,6 +373,7 @@ describe("approval resume generation capture", () => {
       markSendAborted: () => {
         events.push("abort");
       },
+      abortInFlight: () => undefined,
       enqueue: (op) => {
         events.push("enqueue");
         return enqueue(op);

@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { type Agent } from "@intx/agent";
+import { AgentClosedError, type Agent } from "@intx/agent";
 import { getLogger } from "@intx/log";
 import type { InferenceSource } from "@intx/types/runtime";
 
@@ -268,6 +268,73 @@ describe("agentProxy.send vs /clear", () => {
     } finally {
       hung.spy.mockRestore();
     }
+  });
+
+  test("interrupt of a hung continuation unblocks send awaitTail and resend reaches the live agent", async () => {
+    const sends: string[] = [];
+    const agent = recordingAgent(sends);
+    const { state, services } = stubSendLifecycle(agent);
+    state.initialCodexProfile = undefined;
+    services.workflowHost = {
+      reattach: () => undefined,
+    } as unknown as RunnerServices["workflowHost"];
+    services.cycleRecorder = {
+      dispose: async () => "",
+      reset: () => undefined,
+      handleEvent: () => undefined,
+    } as unknown as RunnerServices["cycleRecorder"];
+    services.buildAgent = (async () =>
+      agent) as unknown as RunnerServices["buildAgent"];
+    services.directorHolder = {} as unknown as RunnerServices["directorHolder"];
+    services.subAgentSessions = {
+      cancelAll: async () => [],
+      list: () => [],
+    } as unknown as RunnerServices["subAgentSessions"];
+
+    const { agentProxy } = await createRunLifecycle(state, services);
+    let hopStarted = false;
+    services.sessionOps.enqueuePreemptible(async () => {
+      hopStarted = true;
+      await new Promise<void>(() => undefined);
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hopStarted).toBe(true);
+
+    const pending = agentProxy.send("blocked by hung hop");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    defined(state.interrupt, "interrupt")();
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        pending.then(
+          () => {
+            throw new Error("send should reject after interrupt");
+          },
+          (err: unknown) => {
+            expect(err).toBeInstanceOf(AgentClosedError);
+          },
+        ),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error("send awaitTail did not settle after interrupt"),
+              ),
+            250,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+
+    await services.sessionOps.awaitTail();
+    await agentProxy.send("after rebuild");
+    expect(sends).toEqual(["after rebuild"]);
   });
 });
 

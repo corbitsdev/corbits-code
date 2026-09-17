@@ -328,6 +328,9 @@ test("interrupt bumps delivery generation before enqueueing rebuild", () => {
     markSendAborted: () => {
       order.push("abort");
     },
+    abortInFlight: () => {
+      order.push("abortInFlight");
+    },
     enqueue: (op) => {
       order.push("enqueue");
       return op();
@@ -337,5 +340,8 @@ test("interrupt bumps delivery generation before enqueueing rebuild", () => {
     },
   });
   expect(order[0]).toBe("bump");
-  expect(order.indexOf("enqueue")).toBeGreaterThan(0);
+  expect(order.indexOf("abortInFlight")).toBeGreaterThan(order.indexOf("bump"));
+  expect(order.indexOf("enqueue")).toBeGreaterThan(
+    order.indexOf("abortInFlight"),
+  );
 });
