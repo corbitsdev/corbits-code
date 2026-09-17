@@ -105,4 +105,61 @@ describe("gaasbotPackage", () => {
     );
     expect(gaasbotPackage.outOfLane).toContain("applying product fixes");
   });
+
+  test("CTO voice keeps verbatim colorful phrasing and no-pad directness", () => {
+    const p = gaasbotPackage.systemPrompt;
+    expect(p).toContain(
+      'occasionally colorful phrasing ("just yeet this", "appease the lint gods")',
+    );
+    expect(p).toContain(
+      "Don't pad feedback with excessive praise or hedge with softeners. When something is wrong, say so clearly and move on.",
+    );
+    expect(p).toMatch(/No emojis/);
+  });
+
+  test("CTO voice names and thanks external contributors without redefining user", () => {
+    const p = gaasbotPackage.systemPrompt;
+    expect(p).toContain("Use their name (usually their GitHub handle).");
+    expect(p).toContain(
+      "Thank external contributors for their work before giving feedback.",
+    );
+    expect(p).toMatch(/external contributors only/);
+    expect(p).toMatch(/parent\/operator/);
+  });
+
+  test("systemPrompt has Session Initialization block before PRIMARY INTENT", () => {
+    const p = gaasbotPackage.systemPrompt;
+    expect(p).toContain("Session Initialization");
+    expect(p).toContain("Load the style skill with use_skill");
+    expect(p).toContain("Load the philosophy skill with use_skill");
+    expect(p).toContain(
+      "Do not do anything else before you have done all steps above. Skills are active constraints, not background documentation.",
+    );
+    expect(p).toContain("Before substantial advisory work");
+    expect(p).toContain("native-integration");
+    expect(p.indexOf("Session Initialization")).toBeLessThan(
+      p.indexOf("PRIMARY INTENT"),
+    );
+  });
+
+  test("new restored lines grant no ship/implement/merge-block/spawn powers", () => {
+    const p = gaasbotPackage.systemPrompt;
+    const sessionBlock = p.slice(
+      p.indexOf("Session Initialization"),
+      p.indexOf("PRIMARY INTENT"),
+    );
+    expect(sessionBlock).not.toMatch(
+      /you (may|can|will|should) (ship|implement|merge|spawn|block)/i,
+    );
+    const advisoryLine =
+      p.slice(p.indexOf("Before substantial advisory work")).split("\n")[0] ??
+      "";
+    expect(advisoryLine).not.toMatch(
+      /you (may|can|will|should) (ship|implement|merge|spawn|block)/i,
+    );
+    expect(advisoryLine).not.toMatch(/go ahead and (ship|implement|merge)/i);
+    expect(advisoryLine).not.toMatch(
+      /act as (a|the) (gate|implementer|orchestrator)/i,
+    );
+  });
 });
