@@ -32,6 +32,32 @@ by hand.
   (Critic on the diff plus at most one extra lens), loading `/review`
   for quality rules only.
 
+## [0.3.28] - 2026-09-17
+
+### What's Changed
+* docs(prompts): keep AGENTS.md and core schemas on grok prefixes by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1094
+* fix(permission): authorize aliased tool names and grant trusted plugin reads by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1103
+* fix(shell): bound collect wait and fail closed without collect by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1100
+* Abort stall after post-tool and post-compact silence by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1095
+* fix(tui): auto-abandon resume overlay on reactor approval timeout by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1099
+* fix(agent): put tool_search promotions on the next infer by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1098
+* fix(tui): wait for occupancy send to settle before continuing by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1101
+* fix(director): honor idle-with-fleet on the workflow idle rail by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1093
+* fix(tui): keep occupancy and idle-with-fleet on live lanes by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1097
+* fix(tui): re-issue compact continuation after a superseded hop by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1102
+* fix(exec): time out hung MCP connect before first inference by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1096
+* fix(tui): bound the primary turn so a silent stall can't freeze it by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1080
+* fix(ci): format stall-bound and compact-continue tests by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1104
+* fix(agent): point doom-loop warning at an on-wire switch first by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1107
+* fix(tui): keep leftover same-name collect under the stall budget by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1108
+* fix(subagent): collect terminal wait results even when the wait yields by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1110
+* fix(tui): end the silent wake turn when the ask deadline settles it by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1106
+* fix(inference): collapse trivial shell churn in doom-loop signature by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1109
+* fix(tui): flush mailbox mail before ask wake on settle and gate close by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1105
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.27...v0.3.28
+
 ## [0.3.27] - 2026-09-16
 
 ### What's Changed
