@@ -28,13 +28,14 @@ check_contract() {
 }
 
 # run_visible_suite <log-file> <fail-message>: fail (after printing the log)
-# unless `bun test` passes in the workdir.
+# unless `bun test` passes in the workdir. Callers pass a full `FAIL: ...`
+# line; this helper prints it as-is.
 run_visible_suite() {
   local log="$1"
   local fail_message="$2"
   if ! bun test >"$log" 2>&1; then
     cat "$log"
-    echo "FAIL: $fail_message"
+    echo "$fail_message"
     exit 1
   fi
 }
