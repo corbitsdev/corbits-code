@@ -86,12 +86,22 @@ export interface ToolCallAggregates {
   subagent_call_count: number;
 }
 
-export function aggregateToolCalls(
-  ctx: Pick<TurnContext, "toolCalls" | "toolResults">,
+type ToolResultsByCallId = ReadonlyMap<
+  string,
+  TurnContext["toolResults"][number]
+>;
+
+/** Tool results keyed by call id, built once per turn and shared read-only. */
+function resultsByCallId(
+  ctx: Pick<TurnContext, "toolResults">,
+): ToolResultsByCallId {
+  return new Map(ctx.toolResults.map((result) => [result.callId, result]));
+}
+
+function aggregateToolCallsWithResults(
+  ctx: Pick<TurnContext, "toolCalls">,
+  byCallId: ToolResultsByCallId,
 ): ToolCallAggregates {
-  const resultsByCallId = new Map(
-    ctx.toolResults.map((result) => [result.callId, result]),
-  );
   let tool_call_count = 0;
   let tool_error_count = 0;
   let subagent_call_count = 0;
@@ -102,11 +112,17 @@ export function aggregateToolCalls(
     } else {
       tool_call_count += 1;
     }
-    if (resultsByCallId.get(call.id)?.isError === true) {
+    if (byCallId.get(call.id)?.isError === true) {
       tool_error_count += 1;
     }
   }
   return { tool_call_count, tool_error_count, subagent_call_count };
+}
+
+export function aggregateToolCalls(
+  ctx: Pick<TurnContext, "toolCalls" | "toolResults">,
+): ToolCallAggregates {
+  return aggregateToolCallsWithResults(ctx, resultsByCallId(ctx));
 }
 
 function shouldSampleSuccessfulGeneration(
@@ -143,7 +159,8 @@ export function emitAiObservability(
     return;
   }
 
-  const aggregates = aggregateToolCalls(ctx);
+  const byCallId = resultsByCallId(ctx);
+  const aggregates = aggregateToolCallsWithResults(ctx, byCallId);
 
   telemetry.capture("$ai_generation", {
     $ai_trace_id: traceId,
@@ -166,12 +183,8 @@ export function emitAiObservability(
 
   if (!aiSpansEnabled(env)) return;
 
-  const resultsByCallId = new Map(
-    ctx.toolResults.map((result) => [result.callId, result]),
-  );
-
   for (const call of ctx.toolCalls) {
-    const result = resultsByCallId.get(call.id);
+    const result = byCallId.get(call.id);
     telemetry.capture("$ai_span", {
       $ai_trace_id: traceId,
       // The provider's own opaque call id, which is what makes it safe to

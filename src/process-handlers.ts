@@ -1,4 +1,8 @@
-import { writeCrashReport, type CrashKind } from "./crash/report.js";
+import {
+  describeError,
+  writeCrashReport,
+  type CrashKind,
+} from "./crash/report.js";
 import { getActiveRun, markCrashed } from "./session/active-run.js";
 import { getActiveDisposeHost } from "./session/active-host.js";
 import { saveCrashState } from "./session/state.js";
@@ -81,9 +85,7 @@ export async function handleFatal(
   const teardown = awaitActiveDisposeHost("during fatal handling");
   markCrashed();
   await teardown;
-  process.stderr.write(
-    `${kind}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
-  );
+  process.stderr.write(`${kind}: ${describeError(error)}\n`);
   const file = await writeCrashReport(kind, error);
   if (file !== null) {
     process.stderr.write(`crash report written to ${file}\n`);
@@ -103,6 +105,40 @@ export async function handleFatal(
   process.exit(1);
 }
 
+// Shared finalize path for the two fatal terminations below: a crash is an
+// uncaught error escaping the runtime, while a signal is a clean,
+// externally-requested termination (operator, shell, orchestrator) — so the
+// run is recorded "crashed" with the error message versus "failed"
+// (interrupted) with `terminated by <signal>`, and no crash report is written
+// for a signal. Parameterized by status string and message; the save-then-log
+// await ordering here must stay exactly as written.
+async function finalizeActiveRun(
+  status: "crashed" | "failed",
+  error: string,
+  context: string,
+): Promise<void> {
+  const run = getActiveRun();
+  if (run === null) return;
+  try {
+    await saveCrashState(run.cwd, run.sessionId, {
+      status,
+      turnsUsed: run.turnsUsed,
+      task: run.task,
+      startedAt: run.startedAt,
+      finishedAt: Date.now(),
+      error,
+      ...(run.model !== undefined ? { model: run.model } : {}),
+      ...(run.activatedTools !== undefined
+        ? { activatedTools: run.activatedTools }
+        : {}),
+    });
+  } catch (saveErr: unknown) {
+    process.stderr.write(
+      `failed to finalize run state after ${context}: ${saveErr instanceof Error ? saveErr.message : String(saveErr)}\n`,
+    );
+  }
+}
+
 // A crash reaching here escaped without ever hitting runTUI's own try/catch
 // (e.g. a throw inside a fire-and-forget `void` call), so run.json was never
 // closed out. getActiveRun surfaces the in-flight session set by the in-flight
@@ -116,27 +152,8 @@ export async function handleFatal(
 // that never settles (possibly the very write that triggered this crash)
 // would block process.exit indefinitely, defeating this handler's one job.
 async function finalizeActiveRunOnCrash(error: unknown): Promise<void> {
-  const run = getActiveRun();
-  if (run === null) return;
   const message = error instanceof Error ? error.message : String(error);
-  try {
-    await saveCrashState(run.cwd, run.sessionId, {
-      status: "crashed",
-      turnsUsed: run.turnsUsed,
-      task: run.task,
-      startedAt: run.startedAt,
-      finishedAt: Date.now(),
-      error: message,
-      ...(run.model !== undefined ? { model: run.model } : {}),
-      ...(run.activatedTools !== undefined
-        ? { activatedTools: run.activatedTools }
-        : {}),
-    });
-  } catch (saveErr: unknown) {
-    process.stderr.write(
-      `failed to finalize run state after crash: ${saveErr instanceof Error ? saveErr.message : String(saveErr)}\n`,
-    );
-  }
+  return finalizeActiveRun("crashed", message, "crash");
 }
 
 // OpenTUI installs a process-global uncaughtException/unhandledRejection
@@ -168,26 +185,7 @@ export function installCrashHandlers(options?: ProcessHandlerOptions): void {
 async function finalizeActiveRunOnSignal(
   signal: NodeJS.Signals,
 ): Promise<void> {
-  const run = getActiveRun();
-  if (run === null) return;
-  try {
-    await saveCrashState(run.cwd, run.sessionId, {
-      status: "failed",
-      turnsUsed: run.turnsUsed,
-      task: run.task,
-      startedAt: run.startedAt,
-      finishedAt: Date.now(),
-      error: `terminated by ${signal}`,
-      ...(run.model !== undefined ? { model: run.model } : {}),
-      ...(run.activatedTools !== undefined
-        ? { activatedTools: run.activatedTools }
-        : {}),
-    });
-  } catch (saveErr: unknown) {
-    process.stderr.write(
-      `failed to finalize run state after ${signal}: ${saveErr instanceof Error ? saveErr.message : String(saveErr)}\n`,
-    );
-  }
+  return finalizeActiveRun("failed", `terminated by ${signal}`, signal);
 }
 
 const SIGNAL_EXIT_NUMBER: Record<"SIGINT" | "SIGTERM" | "SIGHUP", number> = {

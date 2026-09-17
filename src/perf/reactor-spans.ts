@@ -93,17 +93,20 @@ function toolCallCount(event: ReactorEmittedEvent): number {
   return n;
 }
 
-function callIdFromToolStart(event: ReactorEmittedEvent): string | undefined {
-  if (event.type !== "tool.start") return undefined;
-  const data = event.data as { call?: { id?: unknown } };
-  const id = data.call?.id;
-  return typeof id === "string" && id.length > 0 ? id : undefined;
-}
-
-function callIdFromToolDone(event: ReactorEmittedEvent): string | undefined {
-  if (event.type !== "tool.done") return undefined;
-  const data = event.data as { result?: { callId?: unknown } };
-  const id = data.result?.callId;
+/**
+ * Call id for a tool event: `call.id` on tool.start, `result.callId` on
+ * tool.done. The per-type payload shapes stay distinct — only the shared
+ * non-empty-string guard is written once.
+ */
+function callIdFromToolEvent(event: ReactorEmittedEvent): string | undefined {
+  if (event.type !== "tool.start" && event.type !== "tool.done") {
+    return undefined;
+  }
+  const data = event.data as {
+    call?: { id?: unknown };
+    result?: { callId?: unknown };
+  };
+  const id = event.type === "tool.start" ? data.call?.id : data.result?.callId;
   return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
@@ -249,7 +252,7 @@ export function createPerfReactorObserver(): PerfReactorObserver {
     if (type === "tool.start") {
       const turnId = state.turnId;
       if (turnId === null) return;
-      const callId = callIdFromToolStart(event);
+      const callId = callIdFromToolEvent(event);
       if (callId === undefined) return;
       if (state.openTools.has(callId)) return;
       const spanId = start("tool", {
@@ -261,7 +264,7 @@ export function createPerfReactorObserver(): PerfReactorObserver {
     }
 
     if (type === "tool.done") {
-      const callId = callIdFromToolDone(event);
+      const callId = callIdFromToolEvent(event);
       if (callId !== undefined) {
         const openId = state.openTools.get(callId);
         if (openId !== undefined) {

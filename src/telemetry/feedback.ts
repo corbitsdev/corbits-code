@@ -154,9 +154,32 @@ export function feedbackResultMessage(
 // ── Pending multi-turn capture (bare `/feedback` then next Enter) ──────────
 
 let feedbackCapturePending = false;
-let lastTurnTraceId: string | undefined;
+
+/**
+ * Tiny cell for a turn trace id: remembers the id, ignoring blank writes.
+ * Both the last-completed-turn and in-flight-turn ids share this
+ * guard-plus-cell shape, so it lives here once.
+ */
+function createTraceCell(): {
+  note: (traceId: string) => void;
+  get: () => string | undefined;
+  clear: () => void;
+} {
+  let value: string | undefined;
+  return {
+    note: (traceId: string): void => {
+      if (traceId.length > 0) value = traceId;
+    },
+    get: (): string | undefined => value,
+    clear: (): void => {
+      value = undefined;
+    },
+  };
+}
+
+const lastTurnTraceIdCell = createTraceCell();
 /** In-flight primary turn — set at inference.start, cleared when the turn settles. */
-let currentTurnTraceId: string | undefined;
+const currentTurnTraceIdCell = createTraceCell();
 
 /** Arm after bare `/feedback` so the next non-command submit is treated as feedback. */
 export function armFeedbackCapture(): void {
@@ -181,11 +204,11 @@ export function cancelFeedbackCapture(): void {
 
 /** Remember the most recent AI turn trace for linking feedback. */
 export function noteLastTurnTraceId(traceId: string): void {
-  if (traceId.length > 0) lastTurnTraceId = traceId;
+  lastTurnTraceIdCell.note(traceId);
 }
 
 export function getLastTurnTraceId(): string | undefined {
-  return lastTurnTraceId;
+  return lastTurnTraceIdCell.get();
 }
 
 /**
@@ -194,20 +217,20 @@ export function getLastTurnTraceId(): string | undefined {
  * previous completed turn).
  */
 export function noteCurrentTurnTraceId(traceId: string): void {
-  if (traceId.length > 0) currentTurnTraceId = traceId;
+  currentTurnTraceIdCell.note(traceId);
 }
 
 export function getCurrentTurnTraceId(): string | undefined {
-  return currentTurnTraceId;
+  return currentTurnTraceIdCell.get();
 }
 
 export function clearCurrentTurnTraceId(): void {
-  currentTurnTraceId = undefined;
+  currentTurnTraceIdCell.clear();
 }
 
 /** Test helper — reset module state between cases. */
 export function resetFeedbackStateForTests(): void {
   feedbackCapturePending = false;
-  lastTurnTraceId = undefined;
-  currentTurnTraceId = undefined;
+  lastTurnTraceIdCell.clear();
+  currentTurnTraceIdCell.clear();
 }

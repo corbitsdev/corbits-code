@@ -95,7 +95,7 @@ function trimOrEmpty(value: string | undefined): string {
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
+  return typeof value === "string" && trimOrEmpty(value).length > 0;
 }
 
 /**
@@ -249,8 +249,7 @@ export function resolveOtelExportConfig(
   if (endpointRaw.length === 0) {
     const settingsHeaders =
       otel?.headers !== undefined && Object.keys(otel.headers).length > 0;
-    const envHeadersSet =
-      envHeadersRaw !== undefined && trimOrEmpty(envHeadersRaw).length > 0;
+    const envHeadersSet = isNonEmptyString(envHeadersRaw);
     if (settingsHeaders || envHeadersSet) {
       return {
         ok: false,

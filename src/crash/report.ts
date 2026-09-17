@@ -41,7 +41,7 @@ export function crashReportDir(home: string = homedir()): string {
   return join(primedSessionsRoot ?? fallbackSessionsRoot(home), "errors");
 }
 
-function describeError(error: unknown): string {
+export function describeError(error: unknown): string {
   return error instanceof Error
     ? (error.stack ?? error.message)
     : String(error);

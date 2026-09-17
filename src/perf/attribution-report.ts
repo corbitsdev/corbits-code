@@ -14,9 +14,15 @@
  */
 
 import type { PerfSpan, SpanName } from "./index.js";
+import { compareSpanStart } from "./index.js";
 import type { DumpSpan, PerfDump } from "./dump.js";
 import { DUMP_VERSION } from "./dump.js";
-import { childrenOf, spanDurationNs, walkDescendants } from "./rollup.js";
+import {
+  childrenOf,
+  classifyPerfCategory,
+  spanDurationNs,
+  walkDescendants,
+} from "./rollup.js";
 
 /** Exclusive wall-time buckets used for session / turn share %. */
 export const ATTRIBUTION_CATEGORIES = [
@@ -221,7 +227,7 @@ function accumulate(
   skipExclusiveNs: boolean,
 ): void {
   const dur = spanDurationNs(span) ?? 0;
-  switch (span.name as SpanName) {
+  switch (classifyPerfCategory(span.name)) {
     case "inference":
       if (!skipExclusiveNs) bucket.inferenceNs += dur;
       break;
@@ -229,20 +235,20 @@ function accumulate(
       if (!skipExclusiveNs) bucket.toolNs += dur;
       bucket.toolCount += 1;
       break;
-    case "permission.wait":
+    case "permissionWait":
       if (!skipExclusiveNs) bucket.permissionWaitNs += dur;
       break;
     case "subagent":
       if (!skipExclusiveNs) bucket.subagentNs += dur;
       bucket.subagentCount += 1;
       break;
-    case "inference.ttft":
+    case "ttft":
       bucket.ttftNs += dur;
       break;
-    case "inference.stream":
+    case "stream":
       bucket.streamNs += dur;
       break;
-    case "adapter.transport":
+    case "transport":
       bucket.transportNs += dur;
       break;
     default:
@@ -373,9 +379,7 @@ export function attributionFromSpans(
   const turnSpans = spans
     .filter((s) => s.name === "turn")
     .slice()
-    .sort((a, b) =>
-      a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0,
-    );
+    .sort(compareSpanStart);
 
   const turns: TurnAttribution[] = turnSpans.map((turn) => {
     const bucket = emptyBucket();
