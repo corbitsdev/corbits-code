@@ -1,4 +1,8 @@
-import { describeError, writeCrashReport, type CrashKind } from "./crash/report.js";
+import {
+  describeError,
+  writeCrashReport,
+  type CrashKind,
+} from "./crash/report.js";
 import { getActiveRun, markCrashed } from "./session/active-run.js";
 import { getActiveDisposeHost } from "./session/active-host.js";
 import { saveCrashState } from "./session/state.js";

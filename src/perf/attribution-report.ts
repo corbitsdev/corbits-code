@@ -17,7 +17,12 @@ import type { PerfSpan, SpanName } from "./index.js";
 import { compareSpanStart } from "./index.js";
 import type { DumpSpan, PerfDump } from "./dump.js";
 import { DUMP_VERSION } from "./dump.js";
-import { childrenOf, classifyPerfCategory, spanDurationNs, walkDescendants } from "./rollup.js";
+import {
+  childrenOf,
+  classifyPerfCategory,
+  spanDurationNs,
+  walkDescendants,
+} from "./rollup.js";
 
 /** Exclusive wall-time buckets used for session / turn share %. */
 export const ATTRIBUTION_CATEGORIES = [

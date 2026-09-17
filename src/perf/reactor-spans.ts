@@ -106,8 +106,7 @@ function callIdFromToolEvent(event: ReactorEmittedEvent): string | undefined {
     call?: { id?: unknown };
     result?: { callId?: unknown };
   };
-  const id =
-    event.type === "tool.start" ? data.call?.id : data.result?.callId;
+  const id = event.type === "tool.start" ? data.call?.id : data.result?.callId;
   return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
