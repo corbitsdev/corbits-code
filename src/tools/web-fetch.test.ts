@@ -12,6 +12,9 @@ import {
 
 let server: Server;
 let baseUrl: string;
+// Shared by every tool invocation below: none of these tests abort, so one
+// never-aborted signal covers the whole file.
+const neverAbortedSignal = new AbortController().signal;
 let handler: (
   req: import("node:http").IncomingMessage,
   res: import("node:http").ServerResponse,
@@ -194,7 +197,7 @@ describe("createExaMCPWebFetchTool", () => {
         name: "web_fetch",
         arguments: { url: "https://example.com", timeout: 1 },
       },
-      new AbortController().signal,
+      neverAbortedSignal,
     );
 
     expect(result).toEqual({
@@ -214,11 +217,8 @@ describe("createExaMCPWebFetchTool", () => {
       arguments: { url: "ftp://example.com/file" },
     };
 
-    const nativeResult = await nativeRunner.run(
-      call,
-      new AbortController().signal,
-    );
-    const exaResult = await exaRunner.run(call, new AbortController().signal);
+    const nativeResult = await nativeRunner.run(call, neverAbortedSignal);
+    const exaResult = await exaRunner.run(call, neverAbortedSignal);
 
     expect(nativeResult).toEqual({
       callId: "protocol-call",
@@ -249,8 +249,8 @@ describe("createExaMCPWebFetchTool", () => {
     };
 
     const [nativeResult, exaResult] = await Promise.all([
-      nativeRunner.run(call, new AbortController().signal),
-      exaRunner.run(call, new AbortController().signal),
+      nativeRunner.run(call, neverAbortedSignal),
+      exaRunner.run(call, neverAbortedSignal),
     ]);
 
     expect(nativeResult).toEqual({
@@ -273,7 +273,7 @@ describe("createExaMCPWebFetchTool", () => {
           name: "web_fetch",
           arguments: { url: `${baseUrl}/`, format },
         },
-        new AbortController().signal,
+        neverAbortedSignal,
       );
       if (typeof result === "string")
         throw new Error("expected a full tool result");

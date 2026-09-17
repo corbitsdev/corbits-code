@@ -916,7 +916,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
         handshake,
       ).catch((err: unknown) => {
         logger.warn("MCP connect failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
+          error: formatCaughtError(err),
         });
       });
       await awaitExecMcpThenResume(connecting, () => workflowHost.resume(), {

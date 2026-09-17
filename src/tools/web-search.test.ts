@@ -44,6 +44,10 @@ const { createPermissionGate } = await import("../permission/gate.js");
 
 const BUILTIN_EXA_MCP = createExaMCPServerConfig();
 
+// Shared by every tool invocation below: none of these tests abort, so one
+// never-aborted signal covers the whole file.
+const neverAbortedSignal = new AbortController().signal;
+
 async function connectConfiguredMCP(
   mcpServers?: ResolvedMCPServerConfig[],
 ): Promise<void> {
@@ -123,7 +127,7 @@ describe("createWebSearchTool", () => {
     if (tool.kind !== "string") throw new Error("expected a string tool");
     const result = await tool.handler(
       { query: "corbits code" },
-      new AbortController().signal,
+      neverAbortedSignal,
     );
     expect(result).toBe("mock result");
     expect(connectConfigs[0]?.url).toBe(EXA_MCP_URL);
@@ -148,7 +152,7 @@ describe("createWebSearchTool", () => {
         livecrawl: "preferred",
         contextMaxCharacters: 500,
       },
-      new AbortController().signal,
+      neverAbortedSignal,
     );
     expect(calls[0]?.args).toEqual({
       query: "q",
@@ -163,7 +167,7 @@ describe("createWebSearchTool", () => {
     process.env.CORBITS_WEB_SEARCH_PROVIDER = "parallel";
     const tool = createWebSearchTool();
     if (tool.kind !== "string") throw new Error("expected a string tool");
-    await tool.handler({ query: "corbits code" }, new AbortController().signal);
+    await tool.handler({ query: "corbits code" }, neverAbortedSignal);
     expect(connectConfigs[0]?.url).toBe(PARALLEL_MCP_URL);
     expect(calls[0]?.toolName).toBe("web_search");
   });
@@ -171,10 +175,7 @@ describe("createWebSearchTool", () => {
   test("rejects an empty query before ever connecting", async () => {
     const tool = createWebSearchTool();
     if (tool.kind !== "string") throw new Error("expected a string tool");
-    const result = await tool.handler(
-      { query: "" },
-      new AbortController().signal,
-    );
+    const result = await tool.handler({ query: "" }, neverAbortedSignal);
     expect(result).toContain("Error");
     expect(connectConfigs.length).toBe(0);
   });
