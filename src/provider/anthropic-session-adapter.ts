@@ -32,16 +32,9 @@ export function createSessionHeaderAnthropicAdapter(
   return { ...base, buildRequest };
 }
 
-export function createZenAnthropicAdapter(
-  source: AdapterSource,
-  quirks?: unknown,
-): ProviderAdapter {
-  return createSessionHeaderAnthropicAdapter(source, quirks);
-}
+// Both providers share the session-header wrapper above; keep both export
+// names for the adapter registration table.
+export const createZenAnthropicAdapter = createSessionHeaderAnthropicAdapter;
 
-export function createOpenCodeGoAnthropicAdapter(
-  source: AdapterSource,
-  quirks?: unknown,
-): ProviderAdapter {
-  return createSessionHeaderAnthropicAdapter(source, quirks);
-}
+export const createOpenCodeGoAnthropicAdapter =
+  createSessionHeaderAnthropicAdapter;

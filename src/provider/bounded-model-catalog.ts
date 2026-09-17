@@ -1,20 +1,15 @@
 import { type } from "arktype";
 
-import { requestModelsEndpoint } from "./models-endpoint.js";
+import {
+  endpointErrorMessage,
+  type ModelsEndpointDiscoveryState,
+  ModelsEndpointResponse,
+  requestModelsEndpoint,
+} from "./models-endpoint.js";
 
-const CatalogModelsResponse = type({
-  data: type({ id: "string" }).array(),
-});
+const CatalogModelsResponse = ModelsEndpointResponse;
 
-export type CatalogDiscoveryState =
-  | { readonly status: "models"; readonly models: readonly string[] }
-  | { readonly status: "empty" }
-  | { readonly status: "unavailable"; readonly message: string }
-  | { readonly status: "malformed"; readonly message: string };
-
-function catalogErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export type CatalogDiscoveryState = ModelsEndpointDiscoveryState;
 
 function declaredCatalogBytes(response: Response): number | undefined {
   const raw = response.headers.get("content-length");
@@ -70,7 +65,7 @@ async function readBoundedCatalogText(
     }
     return { ok: true, text: new TextDecoder().decode(buffer) };
   } catch (error) {
-    return { ok: false, message: catalogErrorMessage(error) };
+    return { ok: false, message: endpointErrorMessage(error) };
   }
 }
 
@@ -116,7 +111,7 @@ export function createBoundedModelCatalog(args: {
       const value: unknown = JSON.parse(text.text);
       return { ok: true, value };
     } catch (error) {
-      return { ok: false, message: catalogErrorMessage(error) };
+      return { ok: false, message: endpointErrorMessage(error) };
     }
   }
 
@@ -134,7 +129,7 @@ export function createBoundedModelCatalog(args: {
     } catch (error) {
       return {
         status: "unavailable",
-        message: catalogErrorMessage(error),
+        message: endpointErrorMessage(error),
       };
     }
 

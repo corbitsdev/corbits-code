@@ -61,17 +61,13 @@ const UNKNOWN_MODEL_EFFORTS: readonly ReasoningEffort[] = [
   "high",
 ];
 
-// Muse Spark (Responses protocol) accepts minimal through high. Not `none` —
+// Muse Spark (Responses protocol) accepts minimal through high — the same
+// ladder as DEFAULT_EFFORTS above. Not `none` —
 // the gateway rejects it with HTTP 400 on `reasoning.effort`. Measured on
 // muse-spark-1.3-contributor and muse-spark-1.2-contributor via the Go
 // endpoint and muse-spark-1.3-contributor-free via Zen: `minimal` returns 200
 // and `none` returns 400 on all three. See CL-7867.
-const MUSE_SPARK_EFFORTS: readonly ReasoningEffort[] = [
-  "minimal",
-  "low",
-  "medium",
-  "high",
-];
+const MUSE_SPARK_EFFORTS: readonly ReasoningEffort[] = DEFAULT_EFFORTS;
 
 // Matched by prefix, not by an id list. The family ships under five ids across
 // two catalogs — `muse-spark-1.3-contributor` / `-1.2-contributor` in
@@ -85,13 +81,9 @@ function isMuseSparkModel(model: string): boolean {
   return /^muse-spark/i.test(model.trim());
 }
 
-// grok-4.6 accepts xhigh; grok-4.5 and composer stay on the unknown-model subset.
-const GROK_46_EFFORTS: readonly ReasoningEffort[] = [
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-];
+// grok-4.6 accepts xhigh — the same ladder as CODEX_EFFORTS above;
+// grok-4.5 and composer stay on the unknown-model subset.
+const GROK_46_EFFORTS: readonly ReasoningEffort[] = CODEX_EFFORTS;
 const GROK_46_MODELS: readonly string[] = ["grok-4.6"];
 
 // GPT-6 Astra accepts low through max on both the OpenAI API and Codex surfaces.
