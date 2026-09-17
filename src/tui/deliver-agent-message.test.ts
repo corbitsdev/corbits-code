@@ -131,7 +131,7 @@ describe("runGenerationGuardedDeliver", () => {
 });
 
 describe("settleCompactionContinuationHop", () => {
-  test("a superseded hop requeues instead of delivering to the outgoing agent", async () => {
+  test("a superseded hop does not deliver to the outgoing agent", async () => {
     let generation = 1;
     const stillCurrent = () => generation === 1;
     let delivered = 0;
@@ -193,6 +193,45 @@ describe("settleCompactionContinuationHop", () => {
     });
     expect(result).toEqual({ status: "accepted" });
     expect(runs).toBe(1);
+  });
+
+  test("an accepted hop stays accepted if generation flips after deliver", async () => {
+    let generation = 1;
+    const result = await settleCompactionContinuationHop({
+      stillCurrent: () => generation === 1,
+      deliver: async () => {
+        generation = 2;
+        return { status: "accepted" as const };
+      },
+      onSuperseded: () => {
+        throw new Error("accepted hop must not be relabeled superseded");
+      },
+    });
+    expect(result).toEqual({ status: "accepted" });
+  });
+
+  test("a closed hop that goes stale does not retry deliver", async () => {
+    let generation = 1;
+    let attempts = 0;
+    const result = await settleCompactionContinuationHop({
+      stillCurrent: () => generation === 1,
+      deliver: async () => {
+        attempts += 1;
+        generation = 2;
+        return {
+          status: "not-delivered" as const,
+          reason: "agent-closed" as const,
+          detail: "agent is closed",
+        };
+      },
+      onSuperseded: () => undefined,
+    });
+    expect(result).toEqual({
+      status: "not-delivered",
+      reason: "superseded",
+      detail: "session identity changed before delivery",
+    });
+    expect(attempts).toBe(1);
   });
 
   test("continuation enqueued then interrupt rebuild queued does not auto-deliver to the replacement agent", async () => {
@@ -392,6 +431,34 @@ describe("settleCompactionContinuationHop", () => {
 
     await awaitTail();
     expect(delivered).toEqual([1, 2]);
+  });
+
+  test("an interrupt-stale hop does not report not-delivered", async () => {
+    const { enqueue, enqueuePreemptible, abortInFlight, awaitTail } =
+      createSessionOperationQueue();
+    const deliveryGeneration = createDeliveryGeneration();
+    const notices: string[] = [];
+
+    enqueueCompactionContinuationHop({
+      enqueue: enqueuePreemptible,
+      captureGeneration: () => deliveryGeneration.capture(),
+      deliver: async () => ({ status: "accepted" as const }),
+      onResult: (result) => {
+        if (result.status === "accepted") return;
+        notices.push(result.detail);
+      },
+    });
+
+    startInterruptRebuild({
+      deliveryGeneration,
+      markSendAborted: () => undefined,
+      abortInFlight,
+      enqueue,
+      rebuild: async () => undefined,
+    });
+
+    await awaitTail();
+    expect(notices).toEqual([]);
   });
 });
 

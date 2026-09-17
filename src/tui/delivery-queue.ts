@@ -84,9 +84,9 @@ export async function deliverAgentMessage(
 
 /**
  * Settles a deliver that was enqueued on the serial operation queue against
- * the shoot generation captured at enqueue time. The queue is FIFO with no
- * preemption, so a deliver queued ahead of a reload still executes after the
- * reload has replaced the agent — the generation must be re-checked when the
+ * the shoot generation captured at enqueue time. Serial ops stay FIFO with
+ * no preemption; continuation hops are preemptible, so a hung compact-continue
+ * cannot park interrupt. Either way the generation must be re-checked when the
  * queued closure runs, not just when it enqueues. A stale deliver takes the
  * `onStale` path (the caller reports `not-delivered`); a current deliver runs
  * the real settle. This is what closes the reload-vs-async-deliver race: a
@@ -134,14 +134,14 @@ export async function settleCompactionContinuationHop(options: {
     options.onSuperseded();
     return first;
   }
-  if (!options.stillCurrent()) {
-    return {
-      status: "not-delivered",
-      reason: "superseded",
-      detail: "session identity changed before delivery",
-    };
-  }
   if (first.status === "not-delivered" && first.reason === "agent-closed") {
+    if (!options.stillCurrent()) {
+      return {
+        status: "not-delivered",
+        reason: "superseded",
+        detail: "session identity changed before delivery",
+      };
+    }
     return options.deliver();
   }
   return first;
@@ -164,6 +164,8 @@ export function enqueueCompactionContinuationHop(options: {
       deliver: options.deliver,
       onSuperseded: () => undefined,
     });
+    if (!stillCurrent()) return;
+    if (compactionContinuationIsSuperseded(result)) return;
     options.onResult(result);
   });
 }
@@ -420,7 +422,8 @@ export interface SessionOperationQueue {
   /**
    * Same tail as `enqueue`, marked preemptible. `abortInFlight` races the
    * current op against a captured abort signal so a hung continuation cannot
-   * park rebuild, send, or quit.
+   * park rebuild or send. Quit still starts shutdown first, then awaits the
+   * tail — it does not call `abortInFlight`.
    */
   enqueuePreemptible: (op: () => Promise<void>) => Promise<void>;
   /**
