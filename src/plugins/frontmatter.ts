@@ -9,6 +9,11 @@ export interface ParsedMarkdown {
   body: string;
 }
 
+// Slash-command names are kebab-case identifiers. Data-only command files and
+// skill commands validate the same shape, so the pattern lives here once —
+// both modules already import this file for splitFrontmatter.
+export const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
 // Strip a leading `---\n...\n---` YAML block. Returns { frontmatter, body }.
 // No frontmatter block -> empty-object frontmatter (an agent/command can
 // legitimately have none). A present-but-malformed block -> null frontmatter

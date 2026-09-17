@@ -7,7 +7,7 @@ import type { PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import { isPluginModuleEnabled } from "./register.js";
 import {
-  pluginWarningSink,
+  resolvePluginWarningHandler,
   type PluginLoadDiagnostics,
 } from "./diagnostics.js";
 import { type } from "arktype";
@@ -27,8 +27,9 @@ function resolveAgentProfileWarningHandler(
 ): (msg: string) => void {
   if (typeof opts === "function") return opts;
   if (opts.diagnostics !== undefined)
-    return pluginWarningSink(opts.diagnostics);
-  if (opts.onWarning !== undefined) return opts.onWarning;
+    return resolvePluginWarningHandler({ diagnostics: opts.diagnostics });
+  if (opts.onWarning !== undefined)
+    return resolvePluginWarningHandler({ onWarning: opts.onWarning });
   return () => undefined;
 }
 

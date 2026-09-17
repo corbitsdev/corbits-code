@@ -26,7 +26,7 @@ export interface DataOnlyPlugin {
   commandPlugin?: CommandPlugin;
 }
 
-function isENOENT(err: unknown): boolean {
+export function isENOENT(err: unknown): boolean {
   return (
     typeof err === "object" &&
     err !== null &&

@@ -1,5 +1,5 @@
 import type { ToolPlugin } from "@intx/tools-posix";
-import type { PluginModule } from "./loader.js";
+import { collectPluginCandidates, type PluginModule } from "./loader.js";
 import type { PluginConfig } from "../config/settings.js";
 import type { PluginCredentialField } from "./manifest.js";
 import { scrubSecrets } from "../web/secret-scrub.js";
@@ -22,21 +22,10 @@ export interface ToolPluginCandidate {
 export function collectToolPlugins(
   modules: PluginModule[],
 ): ToolPluginCandidate[] {
-  const out: ToolPluginCandidate[] = [];
-  for (const mod of modules) {
-    if (mod.manifest?.kind !== "tool") continue;
-    if (typeof mod.createToolPlugin !== "function") continue;
-    out.push({
-      id: mod.manifest.id,
-      name: mod.manifest.name,
-      ...(mod.manifest.description !== undefined
-        ? { description: mod.manifest.description }
-        : {}),
-      credentials: mod.manifest.credentials ?? [],
-      factory: mod.createToolPlugin as ToolPluginCandidate["factory"],
-    });
-  }
-  return out;
+  return collectPluginCandidates<ToolPlugin>(modules, {
+    kind: "tool",
+    factoryKey: "createToolPlugin",
+  });
 }
 
 // A tool plugin adds in-process agent capabilities, so it is wired in only when

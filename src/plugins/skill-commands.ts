@@ -5,7 +5,7 @@ import {
   type CommandDefinition,
   type CommandResult,
 } from "../tui/commands/registry.js";
-import { splitFrontmatter } from "./frontmatter.js";
+import { COMMAND_NAME_PATTERN, splitFrontmatter } from "./frontmatter.js";
 
 // Slash is the operator action surface: `/<skill-name> [args]` sends the skill
 // body (plus args) to the agent. Convention/internal skills opt out with
@@ -14,8 +14,6 @@ import { splitFrontmatter } from "./frontmatter.js";
 // `disable-model-invocation` does not affect slash emission — that flag only
 // skips the skill from `discoverSkills` lazy listing. Explicit `use_skill` /
 // `resolveSkillBody` still loads the body by name.
-
-const COMMAND_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 // `$ARGUMENTS` (Claude Code convention) interpolates inline when the author used
 // it; otherwise args append after the body so the skill instructions run against
