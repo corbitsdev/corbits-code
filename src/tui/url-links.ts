@@ -28,18 +28,6 @@ import {
 } from "./link-spans.js";
 import { UI } from "./theme.js";
 
-/** Moved siblings, re-exported so existing url-links importers keep working. */
-export {
-  isOpenableUrl,
-  isUrlOpenClick,
-  openUrl,
-  platformUrlCommand,
-  resetUrlOpener,
-  setUrlOpener,
-} from "./link-open.js";
-export { findLinks, splitLinkSpans, type LinkSpan } from "./link-spans.js";
-export { splitWrappedLinkSpans } from "./link-wrap.js";
-
 /** Native chunks for one span: link spans carry OSC-8 metadata. */
 export function linkSpanChunks(
   span: LinkSpan,

@@ -20,6 +20,7 @@ import {
   type ToolResultRowInput,
 } from "./mcp-view.js";
 import { extractMcpRecords } from "./mcp-result-format.js";
+import { abbreviate } from "./tool-formatter.js";
 import type { StreamRow, StyledBodyLine } from "./stream.js";
 import { UI } from "./theme.js";
 
@@ -79,13 +80,6 @@ const LANE_MEMBER_KEYS = [
 
 const LANE_MEMBER_SUBJECT_MAX = 48;
 
-function clipMemberSubject(value: string): string {
-  const oneLine = value.replace(/\s+/g, " ").trim();
-  return oneLine.length <= LANE_MEMBER_SUBJECT_MAX
-    ? oneLine
-    : `${oneLine.slice(0, LANE_MEMBER_SUBJECT_MAX - 1)}…`;
-}
-
 function memberArgs(raw: string): Record<string, unknown> | null {
   let parsed: unknown;
   try {
@@ -110,13 +104,13 @@ function laneMemberLabel(row: StreamRow): string {
     if (recorded.length > 0) return recorded;
   }
   const summary = row.summary?.trim() ?? "";
-  if (summary.length > 0) return clipMemberSubject(summary);
+  if (summary.length > 0) return abbreviate(summary, LANE_MEMBER_SUBJECT_MAX);
   const args = memberArgs(row.text);
   if (args !== null) {
     for (const key of LANE_MEMBER_KEYS) {
       const value = args[key];
       if (typeof value === "string" && value.trim().length > 0) {
-        return clipMemberSubject(value);
+        return abbreviate(value, LANE_MEMBER_SUBJECT_MAX);
       }
       if (typeof value === "number" || typeof value === "boolean") {
         return String(value);
@@ -125,7 +119,8 @@ function laneMemberLabel(row: StreamRow): string {
     const first = Object.values(args).find(
       (value) => typeof value === "string" && value.trim().length > 0,
     );
-    if (typeof first === "string") return clipMemberSubject(first);
+    if (typeof first === "string")
+      return abbreviate(first, LANE_MEMBER_SUBJECT_MAX);
   }
   return row.verb ?? row.meta ?? row.toolName ?? "";
 }

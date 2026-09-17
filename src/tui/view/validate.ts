@@ -51,6 +51,26 @@ interface Counter {
   nodes: number;
 }
 
+// Shared child-list validator: validates an array of child values into nodes,
+// preserving node-path error strings (`<array-path>[<index>]`). The array
+// itself must fail with "expected an array" at its own path, so grid rows keep
+// their distinct "expected an array of nodes" check outside this helper.
+function validateChildren(
+  values: unknown,
+  path: string,
+  depth: number,
+  counter: Counter,
+): { ok: true; nodes: ViewNode[] } | { ok: false; error: string } {
+  if (!Array.isArray(values)) return fail(path, "expected an array");
+  const nodes: ViewNode[] = [];
+  for (let i = 0; i < values.length; i++) {
+    const child = validateNode(values[i], `${path}[${i}]`, depth + 1, counter);
+    if (!child.ok) return child;
+    nodes.push(child.node);
+  }
+  return { ok: true, nodes };
+}
+
 function validateNode(
   value: unknown,
   path: string,
@@ -88,19 +108,14 @@ function validateNode(
 
     case "stack":
     case "row": {
-      if (!Array.isArray(value.children))
-        return fail(`${path}.children`, "expected an array");
-      const children: ViewNode[] = [];
-      for (let i = 0; i < value.children.length; i++) {
-        const child = validateNode(
-          value.children[i],
-          `${path}.children[${i}]`,
-          depth + 1,
-          counter,
-        );
-        if (!child.ok) return child;
-        children.push(child.node);
-      }
+      const kids = validateChildren(
+        value.children,
+        `${path}.children`,
+        depth,
+        counter,
+      );
+      if (!kids.ok) return kids;
+      const children = kids.nodes;
       const g = value.gap;
       const gap = g === 0 || g === 1 ? (g as 0 | 1) : undefined;
       return {
@@ -114,19 +129,14 @@ function validateNode(
     }
 
     case "box": {
-      if (!Array.isArray(value.children))
-        return fail(`${path}.children`, "expected an array");
-      const children: ViewNode[] = [];
-      for (let i = 0; i < value.children.length; i++) {
-        const child = validateNode(
-          value.children[i],
-          `${path}.children[${i}]`,
-          depth + 1,
-          counter,
-        );
-        if (!child.ok) return child;
-        children.push(child.node);
-      }
+      const kids = validateChildren(
+        value.children,
+        `${path}.children`,
+        depth,
+        counter,
+      );
+      if (!kids.ok) return kids;
+      const children = kids.nodes;
       const border = value.border === true ? true : undefined;
       const p = value.padding;
       const padding = p === 0 || p === 1 ? (p as 0 | 1) : undefined;
@@ -149,12 +159,9 @@ function validateNode(
         const r = value.rows[i];
         const at = `${path}.rows[${i}]`;
         if (!Array.isArray(r)) return fail(at, "expected an array of nodes");
-        const row: ViewNode[] = [];
-        for (let j = 0; j < r.length; j++) {
-          const cell = validateNode(r[j], `${at}[${j}]`, depth + 1, counter);
-          if (!cell.ok) return cell;
-          row.push(cell.node);
-        }
+        const cells = validateChildren(r, at, depth, counter);
+        if (!cells.ok) return cells;
+        const row = cells.nodes;
         rows.push(row);
       }
       let columns: { align?: "left" | "right" | "center" }[] | undefined;

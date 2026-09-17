@@ -23,27 +23,37 @@ import {
 
 const minimalToolDefinitions = [manageTasksDefinition, submitOutputDefinition];
 
+// Module-scope snapshots of the repeated no-arg prompt builders. Each builder
+// is deterministic for absent input (the only per-call variance is the
+// current-date/cwd context line, which no assertion pins exactly), so the
+// no-arg calls below share one value instead of rebuilding it each time.
+// Arg-taking variants keep calling the builders directly.
+const CHAT_SYSTEM_PROMPT = buildChatSystemPrompt();
+const CHAT_ROLE = buildChatRole();
+const HARNESS_FACTS = buildHarnessFacts();
+const GUIDELINES = buildGuidelines();
+const REPORT_CONTRACT = buildSubAgentReportContract();
+const SUBAGENT_SYSTEM_PROMPT = buildSubAgentSystemPrompt();
+
 test("buildChatSystemPrompt wires into createChatDirector without error", () => {
-  const prompt = buildChatSystemPrompt();
   expect(() =>
-    createChatDirector(prompt, minimalToolDefinitions, {}),
+    createChatDirector(CHAT_SYSTEM_PROMPT, minimalToolDefinitions, {}),
   ).not.toThrow();
 });
 
 test("chat prompt orders base, then tools, then context", () => {
-  const prompt = buildChatSystemPrompt();
-  expect(prompt.indexOf(buildChatRole())).toBe(0);
-  expect(prompt.indexOf(buildChatRole())).toBeLessThan(
-    prompt.indexOf(buildHarnessFacts()),
+  expect(CHAT_SYSTEM_PROMPT.indexOf(CHAT_ROLE)).toBe(0);
+  expect(CHAT_SYSTEM_PROMPT.indexOf(CHAT_ROLE)).toBeLessThan(
+    CHAT_SYSTEM_PROMPT.indexOf(HARNESS_FACTS),
   );
-  expect(prompt.indexOf(buildHarnessFacts())).toBeLessThan(
-    prompt.indexOf(buildGuidelines()),
+  expect(CHAT_SYSTEM_PROMPT.indexOf(HARNESS_FACTS)).toBeLessThan(
+    CHAT_SYSTEM_PROMPT.indexOf(GUIDELINES),
   );
-  expect(prompt.indexOf(buildGuidelines())).toBeLessThan(
-    prompt.indexOf("Tools:"),
+  expect(CHAT_SYSTEM_PROMPT.indexOf(GUIDELINES)).toBeLessThan(
+    CHAT_SYSTEM_PROMPT.indexOf("Tools:"),
   );
-  expect(prompt.indexOf("Tools:")).toBeLessThan(
-    prompt.indexOf("Active context:"),
+  expect(CHAT_SYSTEM_PROMPT.indexOf("Tools:")).toBeLessThan(
+    CHAT_SYSTEM_PROMPT.indexOf("Active context:"),
   );
 });
 
@@ -56,45 +66,47 @@ test("agent identity is Skywalker orchestrator", () => {
   expect(orchestrator).toContain("Delegate");
   expect(orchestrator).toContain("Match operator tone");
   // Mode arg is ignored — product is orchestrator-only (CL-5814).
-  expect(buildChatRole()).toContain("You are Skywalker");
+  expect(CHAT_ROLE).toContain("You are Skywalker");
 });
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
-  const facts = buildHarnessFacts();
-  expect(facts).toContain("write_file/edit_file");
-  expect(facts).toContain("tiny/single-file/one-route");
-  expect(facts).toContain("Spawn builder");
-  expect(facts).not.toContain("not mounted on the primary Skywalker session");
-  expect(facts).toContain("blocked");
-  expect(facts).toContain("120s foreground timeout");
-  expect(facts).toContain("no default timeout");
-  expect(facts).toContain("find, rg, and grep -r");
-  expect(facts).toMatch(/OOM the host/);
-  expect(facts).toMatch(/Prefer the bounded grep\/search_files tools/);
-  expect(facts).toMatch(
+  expect(HARNESS_FACTS).toContain("write_file/edit_file");
+  expect(HARNESS_FACTS).toContain("tiny/single-file/one-route");
+  expect(HARNESS_FACTS).toContain("Spawn builder");
+  expect(HARNESS_FACTS).not.toContain(
+    "not mounted on the primary Skywalker session",
+  );
+  expect(HARNESS_FACTS).toContain("blocked");
+  expect(HARNESS_FACTS).toContain("120s foreground timeout");
+  expect(HARNESS_FACTS).toContain("no default timeout");
+  expect(HARNESS_FACTS).toContain("find, rg, and grep -r");
+  expect(HARNESS_FACTS).toMatch(/OOM the host/);
+  expect(HARNESS_FACTS).toMatch(/Prefer the bounded grep\/search_files tools/);
+  expect(HARNESS_FACTS).toMatch(
     /not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/,
   );
-  expect(facts).not.toMatch(/Use grep, search_files, and list_dir\.$/m);
-  expect(facts).toContain("operator approval");
-  expect(facts).toContain("tool_search");
-  expect(facts).toContain("plugins or integrations");
-  expect(facts).toContain("slash-command steps");
-  expect(facts).toContain(".corbits/MEMORY.md");
-  expect(facts).toContain("Attached images are native multimodal input");
-  expect(facts).toContain("parent tool.boundary");
-  expect(facts).toContain("session-idle");
-  expect(facts).not.toContain("Tool results already render richly");
+  expect(HARNESS_FACTS).not.toMatch(/Use grep, search_files, and list_dir\.$/m);
+  expect(HARNESS_FACTS).toContain("operator approval");
+  expect(HARNESS_FACTS).toContain("tool_search");
+  expect(HARNESS_FACTS).toContain("plugins or integrations");
+  expect(HARNESS_FACTS).toContain("slash-command steps");
+  expect(HARNESS_FACTS).toContain(".corbits/MEMORY.md");
+  expect(HARNESS_FACTS).toContain(
+    "Attached images are native multimodal input",
+  );
+  expect(HARNESS_FACTS).toContain("parent tool.boundary");
+  expect(HARNESS_FACTS).toContain("session-idle");
+  expect(HARNESS_FACTS).not.toContain("Tool results already render richly");
 });
 
 test("harness facts gate tool-output URI reads on a named truncation notice", () => {
-  const facts = buildHarnessFacts();
-  expect(facts).toContain("read_file");
-  expect(facts).toMatch(/filesystem path/i);
-  expect(facts).toMatch(/tool-output:\/\//);
-  expect(facts).toContain("truncation notice on that result named one");
-  expect(facts).toContain("do not re-read a complete inline result");
-  expect(facts).not.toMatch(/prefer the URI/i);
-  expect(facts).not.toMatch(/re-reading huge blobs/i);
+  expect(HARNESS_FACTS).toContain("read_file");
+  expect(HARNESS_FACTS).toMatch(/filesystem path/i);
+  expect(HARNESS_FACTS).toMatch(/tool-output:\/\//);
+  expect(HARNESS_FACTS).toContain("truncation notice on that result named one");
+  expect(HARNESS_FACTS).toContain("do not re-read a complete inline result");
+  expect(HARNESS_FACTS).not.toMatch(/prefer the URI/i);
+  expect(HARNESS_FACTS).not.toMatch(/re-reading huge blobs/i);
 });
 
 test("read_file catalog summary gates tool-output URI reads on truncation", () => {
@@ -107,13 +119,12 @@ test("read_file catalog summary gates tool-output URI reads on truncation", () =
 });
 
 test("harness facts name skill_search as a resident catalog tool", () => {
-  const facts = buildHarnessFacts();
-  expect(facts).toMatch(
+  expect(HARNESS_FACTS).toMatch(
     /advertised catalog \(including skill_search\) are resident/,
   );
-  expect(facts).not.toContain("Only the core tools below are loaded");
+  expect(HARNESS_FACTS).not.toContain("Only the core tools below are loaded");
   // skill_search is catalog-advertised and excluded from tool_search results.
-  expect(facts).not.toMatch(/only the core tools[\s\S]*tool_search/i);
+  expect(HARNESS_FACTS).not.toMatch(/only the core tools[\s\S]*tool_search/i);
 });
 
 test("leaf harness facts advertise product write tools", () => {
@@ -136,20 +147,19 @@ test("leaf harness facts state no-budget report completion behavior", () => {
 });
 
 test("guidelines cover response style, tool choice, ask vs proceed, and scope", () => {
-  const guidelines = buildGuidelines();
-  expect(guidelines).toContain("Response style:");
-  expect(guidelines).toContain("Tool choice:");
-  expect(guidelines).toContain("Ask vs proceed:");
-  expect(guidelines).toContain("Scope and conventions:");
-  expect(guidelines).toContain("grep or search_files");
-  expect(guidelines).toContain("ask_operator only when permission blocks you");
-  expect(guidelines).toContain("skill_search when choosing");
-  expect(guidelines).toContain(
+  expect(GUIDELINES).toContain("Response style:");
+  expect(GUIDELINES).toContain("Tool choice:");
+  expect(GUIDELINES).toContain("Ask vs proceed:");
+  expect(GUIDELINES).toContain("Scope and conventions:");
+  expect(GUIDELINES).toContain("grep or search_files");
+  expect(GUIDELINES).toContain("ask_operator only when permission blocks you");
+  expect(GUIDELINES).toContain("skill_search when choosing");
+  expect(GUIDELINES).toContain(
     "use_skill style and philosophy when starting repo work",
   );
-  expect(guidelines).toContain("DIY tiny/single-file/one-route");
-  expect(guidelines).toContain("never shell-write (echo/heredoc/sed/rm)");
-  expect(guidelines).not.toContain("not mounted on Skywalker");
+  expect(GUIDELINES).toContain("DIY tiny/single-file/one-route");
+  expect(GUIDELINES).toContain("never shell-write (echo/heredoc/sed/rm)");
+  expect(GUIDELINES).not.toContain("not mounted on Skywalker");
   expect(buildGuidelines({ subAgent: true })).not.toContain(
     "use_skill style and philosophy when starting repo work",
   );
@@ -176,7 +186,6 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
 });
 
 test("primary chat prompt classifies fail-path successor vs interrupt resume vs operator-cancel wait", () => {
-  const prompt = buildChatSystemPrompt();
   const guidelines = buildGuidelines({ sessionMode: "orchestrator" });
   expect(guidelines).toContain("MAY spawn one successor with a changed brief");
   expect(guidelines).toContain("wait for the operator");
@@ -186,28 +195,26 @@ test("primary chat prompt classifies fail-path successor vs interrupt resume vs 
   expect(guidelines).toContain("still-live worker");
   expect(guidelines).not.toContain("interrupted-incomplete");
   expect(guidelines).not.toContain("start the next worker");
-  expect(prompt).toContain("MAY `spawn_agent` **one** successor");
-  expect(prompt).toContain("wait for the operator");
-  expect(prompt).toContain(
+  expect(CHAT_SYSTEM_PROMPT).toContain("MAY `spawn_agent` **one** successor");
+  expect(CHAT_SYSTEM_PROMPT).toContain("wait for the operator");
+  expect(CHAT_SYSTEM_PROMPT).toContain(
     "Identical re-dispatch of the same brief stays refused",
   );
-  expect(prompt).not.toContain("Then start the next worker");
-  expect(prompt).not.toContain("if the job still needs doing");
+  expect(CHAT_SYSTEM_PROMPT).not.toContain("Then start the next worker");
+  expect(CHAT_SYSTEM_PROMPT).not.toContain("if the job still needs doing");
 });
 
 test("primary guidelines advise against early-stop from compaction token fear", () => {
-  const guidelines = buildGuidelines();
-  expect(guidelines).toContain("compacted automatically");
-  expect(guidelines).toContain("do not stop tasks early due to token fear");
-  expect(guidelines).toContain("manage_tasks and worker reports");
+  expect(GUIDELINES).toContain("compacted automatically");
+  expect(GUIDELINES).toContain("do not stop tasks early due to token fear");
+  expect(GUIDELINES).toContain("manage_tasks and worker reports");
   // Leaf guidelines omit primary orchestration compaction guidance.
   expect(buildGuidelines({ subAgent: true })).not.toContain("token fear");
 });
 
 test("chat system prompt satisfies system prompt quality markers", () => {
-  const prompt = buildChatSystemPrompt();
   for (const marker of CHAT_PROMPT_QUALITY_MARKERS) {
-    expect(prompt).toContain(marker);
+    expect(CHAT_SYSTEM_PROMPT).toContain(marker);
   }
 });
 
@@ -238,12 +245,11 @@ test("default session lists split fleet tools and search_agents", () => {
 });
 
 test("chat prompt advertises core tools but never enumerates MCP integrations", () => {
-  const prompt = buildChatSystemPrompt();
-  expect(prompt).toContain("read_file");
-  expect(prompt).toContain("tool_search");
-  expect(prompt).not.toContain("mcp__");
+  expect(CHAT_SYSTEM_PROMPT).toContain("read_file");
+  expect(CHAT_SYSTEM_PROMPT).toContain("tool_search");
+  expect(CHAT_SYSTEM_PROMPT).not.toContain("mcp__");
   // No static catalog dump — discovery is via tool_search, not a listed catalog.
-  expect(prompt).not.toContain("Discoverable tools");
+  expect(CHAT_SYSTEM_PROMPT).not.toContain("Discoverable tools");
 });
 
 test("lists skill names without descriptions and points at skill_search then use_skill", () => {
@@ -274,14 +280,14 @@ test("buildSkillsSection for a synthetic 10-name roster stays under a few hundre
 });
 
 test("omits the skills section when no skills are available", () => {
-  expect(buildChatSystemPrompt()).not.toContain("Skills (");
+  expect(CHAT_SYSTEM_PROMPT).not.toContain("Skills (");
 });
 
 test("a SYSTEM.md base override replaces the static base but keeps tools and context", () => {
   const override = "You are a custom agent with project-specific rules.";
   const prompt = buildChatSystemPrompt(undefined, undefined, override);
   expect(prompt).toContain(override);
-  expect(prompt).not.toContain(buildChatRole());
+  expect(prompt).not.toContain(CHAT_ROLE);
   expect(prompt).toContain("## Session mode");
   expect(prompt).toContain("Orchestration:");
   // Tools and context still attach.
@@ -304,8 +310,8 @@ test("SYSTEM.md override still appends orchestrator harness rules", () => {
 
 test("an empty base override falls back to the default base", () => {
   const prompt = buildChatSystemPrompt(undefined, undefined, "   ");
-  expect(prompt).toContain(buildChatRole());
-  expect(prompt).toContain(buildHarnessFacts());
+  expect(prompt).toContain(CHAT_ROLE);
+  expect(prompt).toContain(HARNESS_FACTS);
 });
 
 test("extensions are appended after the base, tools, and context", () => {
@@ -326,9 +332,8 @@ test("buildActiveContext includes the current date in DD/MM/YYYY and the memory 
 });
 
 test("without an env, the chat prompt ends with the static active context", () => {
-  const prompt = buildChatSystemPrompt();
-  expect(prompt.trim()).toMatch(/\.corbits\/MEMORY\.md/);
-  expect(prompt).toMatch(
+  expect(CHAT_SYSTEM_PROMPT.trim()).toMatch(/\.corbits\/MEMORY\.md/);
+  expect(CHAT_SYSTEM_PROMPT).toMatch(
     /Current Date: \d{2}\/\d{2}\/\d{4} \(prompt cache survives for <=24hr\)/,
   );
 });
@@ -436,21 +441,19 @@ test("when ask_director is in toolNames, the worker prompt mentions ask_director
 });
 
 test("sub-agent report contract does not claim the worker cannot receive answers", () => {
-  const withoutAsk = buildSubAgentReportContract();
   const withAsk = buildSubAgentReportContract({ askDirector: true });
-  expect(withoutAsk).not.toContain("you cannot receive answers");
-  expect(withoutAsk).not.toContain("Do not ask the parent questions");
+  expect(REPORT_CONTRACT).not.toContain("you cannot receive answers");
+  expect(REPORT_CONTRACT).not.toContain("Do not ask the parent questions");
   expect(withAsk).not.toContain("you cannot receive answers");
   expect(withAsk).not.toContain("You cannot reach the operator");
 });
 
 test("sub-agent report contract treats Success criteria as completion gate", () => {
-  const contract = buildSubAgentReportContract();
-  expect(contract).toContain("Success criteria");
-  expect(contract).toContain("done-definition");
-  expect(contract).toContain("stop calling tools");
-  expect(contract).toContain("Do not");
-  expect(contract).toContain("Intent / Do not");
+  expect(REPORT_CONTRACT).toContain("Success criteria");
+  expect(REPORT_CONTRACT).toContain("done-definition");
+  expect(REPORT_CONTRACT).toContain("stop calling tools");
+  expect(REPORT_CONTRACT).toContain("Do not");
+  expect(REPORT_CONTRACT).toContain("Intent / Do not");
 });
 
 // Pins the only real report-envelope mechanism (buildSubAgentReportContract's
@@ -458,9 +461,7 @@ test("sub-agent report contract treats Success criteria as completion gate", () 
 // since director packages no longer declare their own requiredSections
 // (CL-6969: that field was inert and enforced nothing).
 test("sub-agent report contract's headings satisfy hasReportEnvelope", () => {
-  const contract = buildSubAgentReportContract();
-  const headingsOnly = contract
-    .split("\n")
+  const headingsOnly = REPORT_CONTRACT.split("\n")
     .filter((line) => line.startsWith("## "))
     .join("\n");
   expect(hasReportEnvelope(headingsOnly)).toBe(true);
@@ -468,16 +469,13 @@ test("sub-agent report contract's headings satisfy hasReportEnvelope", () => {
 });
 
 test("sub-agent prompt does not advertise tool_search (it gets the full toolset)", () => {
-  const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).not.toContain("tool_search");
-  expect(prompt).toContain("your full toolset");
+  expect(SUBAGENT_SYSTEM_PROMPT).not.toContain("tool_search");
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain("your full toolset");
 });
 
 test("worker prompt does not advertise archive:///; primary chat prompt does", () => {
-  const worker = buildSubAgentSystemPrompt();
-  expect(worker).not.toContain("archive:///");
-  const primary = buildChatSystemPrompt();
-  expect(primary).toContain("archive:///");
+  expect(SUBAGENT_SYSTEM_PROMPT).not.toContain("archive:///");
+  expect(CHAT_SYSTEM_PROMPT).toContain("archive:///");
   expect(
     buildAvailableTools(["read_file", "grep", "search_files"]),
   ).not.toContain("archive:///");
@@ -510,11 +508,10 @@ test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-
 // concrete report instead of spawning further agents. This is the rule that
 // stops a fan-out of sub-agents each fanning out further.
 test("default sub-agent prompt forbids recursion", () => {
-  const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain(
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain(
     "Only the primary Corbits Code session (or a built-in orchestrator director) may call `spawn_agent`",
   );
-  expect(prompt).toContain("You are a worker");
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain("You are a worker");
 });
 
 // Built-in orchestrator directors are the documented exception to the
@@ -538,18 +535,18 @@ test("orchestrator sub-agent prompt grants the spawn_agent recursion exception",
 });
 
 test("sub-agent prompt requires structured report envelope and stick-to-brief", () => {
-  const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).toContain("## Summary");
-  expect(prompt).toContain("## Findings");
-  expect(prompt).toContain("## Blockers");
-  expect(prompt).toContain("## Paths");
-  expect(prompt).toContain("Stick to the dispatch brief");
-  expect(prompt).toContain("manage_tasks checklist");
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain("## Summary");
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain("## Findings");
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain("## Blockers");
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain("## Paths");
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain("Stick to the dispatch brief");
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain("manage_tasks checklist");
 });
 
 test("default sub-agent prompt omits Grok anti-thrash residual", () => {
-  const prompt = buildSubAgentSystemPrompt();
-  expect(prompt).not.toContain("Finish bias (xAI / Grok worker)");
+  expect(SUBAGENT_SYSTEM_PROMPT).not.toContain(
+    "Finish bias (xAI / Grok worker)",
+  );
 });
 
 test("grokAntiThrash opts appends tiny finish-bias note before appendix", () => {
