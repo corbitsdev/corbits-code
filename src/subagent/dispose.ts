@@ -175,21 +175,15 @@ export async function disposeSubAgentSession(
   } catch (err: unknown) {
     posixError = err;
   }
-  try {
-    await awaitCloseWithoutHidingLeftover(
-      input.agent?.close() ?? Promise.resolve(),
-      posixError,
-    );
-  } catch {
-    // ignore
-  }
-  try {
-    await awaitCloseWithoutHidingLeftover(
-      input.streamPromise ?? Promise.resolve(),
-      posixError,
-    );
-  } catch {
-    // ignore
+  for (const teardown of [
+    input.agent?.close() ?? Promise.resolve(),
+    input.streamPromise ?? Promise.resolve(),
+  ]) {
+    try {
+      await awaitCloseWithoutHidingLeftover(teardown, posixError);
+    } catch {
+      // ignore
+    }
   }
   if (posixError !== undefined) throw posixError;
 }

@@ -7,15 +7,19 @@ import {
 } from "./identity.js";
 import { DIRECTOR_REGISTRY } from "./registry.js";
 
+const SKILL_LIST_BY_DIRECTOR = {
+  builder: "style, philosophy, native-runtime, idiot-proof, ponytail",
+  counsel: "style, philosophy, native-integration",
+  skywalker: "style, philosophy, native-integration, interview",
+} as const;
+
 describe("formatDirectorSystemPrompt", () => {
   test("prefixes agent id, model role, and optional skills", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     expect(text.startsWith("Identity: agent id `builder`")).toBe(true);
     expect(text).toContain('spawn_agent(agent="builder")');
     expect(text).toContain("Model role: implement.");
-    expect(text).toContain(
-      "style, philosophy, native-runtime, idiot-proof, ponytail",
-    );
+    expect(text).toContain(SKILL_LIST_BY_DIRECTOR.builder);
     expect(text).toContain(DIRECTOR_REGISTRY.builder.systemPrompt);
   });
 
@@ -28,7 +32,7 @@ describe("formatDirectorSystemPrompt", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     expect(text).not.toContain("# Baked skill guidance");
     expect(text).toContain(
-      "Optional skills (names for awareness; load brief-named skills straight through use_skill, skill_search for discovery when mounted): style, philosophy, native-runtime, idiot-proof, ponytail.",
+      `Optional skills (names for awareness; load brief-named skills straight through use_skill, skill_search for discovery when mounted): ${SKILL_LIST_BY_DIRECTOR.builder}.`,
     );
     expect(text).toContain(WORKER_SKILL_SCOPING);
     expect(text).toContain(
@@ -77,23 +81,18 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).not.toContain("use_skill is not mounted on workers");
     expect(text).not.toMatch(/guidance is baked/i);
     expect(text).toContain("use_skill is primary-mounted");
-    expect(text).toContain("style, philosophy, native-integration, interview");
+    expect(text).toContain(SKILL_LIST_BY_DIRECTOR.skywalker);
   });
 
   test("counsel lists skill names with the scoping rule and no bodies (CL-6803)", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.counsel);
-    expect(DIRECTOR_REGISTRY.counsel.optionalSkills).toEqual([
-      "style",
-      "philosophy",
-      "native-integration",
-    ]);
     expect(text).not.toContain("# Baked skill guidance");
     expect(text).not.toContain("### interview");
     // interview recipe centers on ask_operator batches; counsel must not embed it
     expect(text).not.toMatch(
       /multiple-choice questions in batches via `ask_operator`/,
     );
-    expect(text).toContain("style, philosophy");
+    expect(text).toContain(SKILL_LIST_BY_DIRECTOR.counsel);
     expect(text).toContain(WORKER_SKILL_SCOPING);
   });
 });

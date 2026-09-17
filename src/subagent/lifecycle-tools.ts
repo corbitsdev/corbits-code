@@ -14,6 +14,7 @@ import { type } from "arktype";
 import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
 
 import { DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
+import { errorMessage } from "../agent/error-message.js";
 import type { FleetMailboxHandle } from "./agent-fleet.js";
 import {
   DEFAULT_MAX_ENTRY_CHARS,
@@ -284,10 +285,7 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
           deps.sessions.complete(target, reply);
         },
         onFail: (err) => {
-          deps.sessions.fail(
-            target,
-            err instanceof Error ? err.message : String(err),
-          );
+          deps.sessions.fail(target, errorMessage(err));
         },
       });
       if (!outcome.ok) {

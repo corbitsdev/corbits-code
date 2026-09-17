@@ -32,6 +32,7 @@ import {
 } from "../plugins/secret-guard-plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
 import type { CodexReadRawFile } from "./codex-tool-proxies.js";
+import { errorMessage } from "./error-message.js";
 
 /** `path` is workspace-relative (apply_patch's parser rejects absolute paths). */
 export function createCodexReadRawFile(
@@ -96,7 +97,7 @@ export function createCodexReadRawFile(
           return { content: `path is a directory: ${path}`, isError: true };
       }
       return {
-        content: err instanceof Error ? err.message : String(err),
+        content: errorMessage(err),
         isError: true,
       };
     }

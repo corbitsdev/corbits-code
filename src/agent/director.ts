@@ -23,6 +23,7 @@ import {
 } from "./compaction.js";
 import { onTurnBoundary } from "./reactor-events.js";
 import { isOperatorOriginated } from "./message-provenance.js";
+import { errorMessage } from "./error-message.js";
 import { type } from "arktype";
 import {
   applyManageTasks,
@@ -656,79 +657,89 @@ class ChatDirectorImpl extends DefaultDirector {
   // is the exception: its sole call site runs mid-turn (tool.done, never the
   // turn boundary), so it always degrades to plain inference on a
   // coordinator throw and takes no rethrow parameter.
-  private coordinatorIsActive(rethrowCoordinatorError: boolean): boolean {
+  //
+  // The four rethrow-capable consults below share one guard: on a coordinator
+  // throw, either rethrow (noting it so the turn drops queued notifications)
+  // or log under the consult's label and resolve the consult's fallback.
+  private withCoordinatorGuard<T>(
+    label: string,
+    fallback: T,
+    rethrowCoordinatorError: boolean,
+    consult: () => T,
+  ): T {
     try {
-      return this.workflowCoordinator?.isActive() === true;
+      return consult();
     } catch (err) {
       if (rethrowCoordinatorError) {
         this.coordinatorRethrowNoted = true;
         throw err;
       }
-      logger.warn`workflow-coordinator-isActive-threw error=${err instanceof Error ? err.message : String(err)}`;
-      return false;
+      logger.warn`${label} error=${errorMessage(err)}`;
+      return fallback;
     }
+  }
+
+  private coordinatorIsActive(rethrowCoordinatorError: boolean): boolean {
+    return this.withCoordinatorGuard(
+      "workflow-coordinator-isActive-threw",
+      false,
+      rethrowCoordinatorError,
+      () => this.workflowCoordinator?.isActive() === true,
+    );
   }
 
   private coordinatorDirective(
     rethrowCoordinatorError: boolean,
   ): string | null {
-    try {
-      const directive = this.workflowCoordinator?.directive() ?? null;
-      if (directive === null) return null;
-      if (typeof directive !== "string") {
-        logger.warn`workflow-coordinator-directive-not-string`;
-        return null;
-      }
-      if (directive.length === 0) return null;
-      if (directive.length > MAX_WORKFLOW_DIRECTIVE_CHARS) {
-        logger.warn`workflow-coordinator-directive-truncated chars=${String(directive.length)} max=${String(MAX_WORKFLOW_DIRECTIVE_CHARS)}`;
-        return `${directive.slice(0, MAX_WORKFLOW_DIRECTIVE_CHARS)}\n…[truncated]`;
-      }
-      return directive;
-    } catch (err) {
-      if (rethrowCoordinatorError) {
-        this.coordinatorRethrowNoted = true;
-        throw err;
-      }
-      logger.warn`workflow-coordinator-directive-threw error=${err instanceof Error ? err.message : String(err)}`;
-      return null;
-    }
+    return this.withCoordinatorGuard<string | null>(
+      "workflow-coordinator-directive-threw",
+      null,
+      rethrowCoordinatorError,
+      () => {
+        const directive = this.workflowCoordinator?.directive() ?? null;
+        if (directive === null) return null;
+        if (typeof directive !== "string") {
+          logger.warn`workflow-coordinator-directive-not-string`;
+          return null;
+        }
+        if (directive.length === 0) return null;
+        if (directive.length > MAX_WORKFLOW_DIRECTIVE_CHARS) {
+          logger.warn`workflow-coordinator-directive-truncated chars=${String(directive.length)} max=${String(MAX_WORKFLOW_DIRECTIVE_CHARS)}`;
+          return `${directive.slice(0, MAX_WORKFLOW_DIRECTIVE_CHARS)}\n…[truncated]`;
+        }
+        return directive;
+      },
+    );
   }
 
   private coordinatorCurrentStepIsGate(
     rethrowCoordinatorError: boolean,
   ): boolean {
-    try {
-      return this.workflowCoordinator?.currentStepIsGate() === true;
-    } catch (err) {
-      if (rethrowCoordinatorError) {
-        this.coordinatorRethrowNoted = true;
-        throw err;
-      }
-      logger.warn`workflow-coordinator-gate-threw error=${err instanceof Error ? err.message : String(err)}`;
-      return false;
-    }
+    return this.withCoordinatorGuard(
+      "workflow-coordinator-gate-threw",
+      false,
+      rethrowCoordinatorError,
+      () => this.workflowCoordinator?.currentStepIsGate() === true,
+    );
   }
 
   private coordinatorCurrentStepId(
     rethrowCoordinatorError: boolean,
   ): string | null {
-    try {
-      const stepId = this.workflowCoordinator?.currentStepId() ?? null;
-      if (stepId === null) return null;
-      if (typeof stepId !== "string" || stepId.length === 0) {
-        logger.warn`workflow-coordinator-step-id-not-string`;
-        return null;
-      }
-      return stepId;
-    } catch (err) {
-      if (rethrowCoordinatorError) {
-        this.coordinatorRethrowNoted = true;
-        throw err;
-      }
-      logger.warn`workflow-coordinator-step-id-threw error=${err instanceof Error ? err.message : String(err)}`;
-      return null;
-    }
+    return this.withCoordinatorGuard<string | null>(
+      "workflow-coordinator-step-id-threw",
+      null,
+      rethrowCoordinatorError,
+      () => {
+        const stepId = this.workflowCoordinator?.currentStepId() ?? null;
+        if (stepId === null) return null;
+        if (typeof stepId !== "string" || stepId.length === 0) {
+          logger.warn`workflow-coordinator-step-id-not-string`;
+          return null;
+        }
+        return stepId;
+      },
+    );
   }
 
   private coordinatorHandleToolDone(
@@ -743,7 +754,7 @@ class ChatDirectorImpl extends DefaultDirector {
     } catch (err) {
       // Mid-turn only (tool.done): a throwing coordinator degrades to plain
       // inference rather than failing the turn.
-      logger.warn`workflow-coordinator-handleToolDone-threw error=${err instanceof Error ? err.message : String(err)}`;
+      logger.warn`workflow-coordinator-handleToolDone-threw error=${errorMessage(err)}`;
       return false;
     }
   }

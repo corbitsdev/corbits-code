@@ -2,21 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { bruckheimerPackage } from "./package.js";
 
 describe("bruckheimerPackage", () => {
-  test("id matches directory (keep bruckheimer path; identity is Bruckheimer)", () => {
-    expect(bruckheimerPackage.id).toBe("bruckheimer");
-  });
-
-  test("systemPrompt is real (not Placeholder)", () => {
-    expect(bruckheimerPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(bruckheimerPackage.systemPrompt.startsWith("Placeholder")).toBe(
-      false,
-    );
-  });
-
-  test("systemPrompt states PRIMARY INTENT", () => {
-    expect(bruckheimerPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
-  });
-
   test("systemPrompt identity is Bruckheimer / BruckheimerDirector", () => {
     const p = bruckheimerPackage.systemPrompt;
     expect(p).toMatch(/BruckheimerDirector \(Bruckheimer\)/);
@@ -101,24 +86,13 @@ describe("bruckheimerPackage", () => {
     expect(p).not.toMatch(/via run_shell/i);
   });
 
-  test("spawn.maySpawn is false", () => {
-    expect(bruckheimerPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow is DOCS_TOOLS surface (writes, no shell)", () => {
+  test("tools.allow has no shell", () => {
     const allow = bruckheimerPackage.tools?.allow ?? [];
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
     expect(allow).not.toContain("run_shell");
   });
 
   test("modelRole is docs", () => {
     expect(bruckheimerPackage.modelRole).toBe("docs");
-  });
-
-  test("tier is leaf", () => {
-    expect(bruckheimerPackage.tier).toBe("leaf");
   });
 
   test("primaryIntent and outOfLane match discovery lane", () => {

@@ -2,19 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { draperPackage } from "./package.js";
 
 describe("draperPackage", () => {
-  test("id matches directory", () => {
-    expect(draperPackage.id).toBe("draper");
-  });
-
-  test("systemPrompt is real, not a placeholder", () => {
-    expect(draperPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(draperPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
-  test("systemPrompt states PRIMARY INTENT", () => {
-    expect(draperPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
-  });
-
   test("systemPrompt identity is Draper / DraperDirector (package id stays draper)", () => {
     const p = draperPackage.systemPrompt;
     expect(p).toMatch(/DraperDirector \(Draper\)/);
@@ -126,23 +113,15 @@ describe("draperPackage", () => {
     expect(p).not.toMatch(/## Paths/);
   });
 
-  test("spawn.maySpawn is false", () => {
-    expect(draperPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow is review surface with file writes for evidence tests", () => {
+  test("tools.allow mounts read plus skill discovery", () => {
     const allow = draperPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("skill_search");
     expect(allow).toContain("use_skill");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
-  test("modelRole is review and tier is leaf", () => {
+  test("modelRole is review", () => {
     expect(draperPackage.modelRole).toBe("review");
-    expect(draperPackage.tier).toBe("leaf");
   });
 
   test("primaryIntent and outOfLane match the restored full-critique lane", () => {

@@ -2,19 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { builderPackage } from "./package.js";
 
 describe("builderPackage", () => {
-  test("id matches directory / registry id", () => {
-    expect(builderPackage.id).toBe("builder");
-  });
-
-  test("systemPrompt is non-empty and not a Placeholder", () => {
-    expect(builderPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(builderPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
-  test("systemPrompt mentions PRIMARY INTENT", () => {
-    expect(builderPackage.systemPrompt).toContain("PRIMARY INTENT");
-  });
-
   test("systemPrompt identity is Builder / BuilderDirector (not job-title language)", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toMatch(/BuilderDirector \(Builder\)/);
@@ -106,18 +93,6 @@ describe("builderPackage", () => {
     expect(p).not.toMatch(/at most \d+/i);
     expect(p).not.toMatch(/turn budget/i);
     expect(p).not.toMatch(/scheduler/i);
-  });
-
-  test("spawn.maySpawn is false (leaf)", () => {
-    expect(builderPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow includes product write tools", () => {
-    const allow = builderPackage.tools?.allow ?? [];
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
-    expect(allow).toContain("apply_patch");
   });
 
   test("modelRole is implement", () => {

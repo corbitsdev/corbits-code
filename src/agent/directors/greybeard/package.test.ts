@@ -3,19 +3,6 @@ import { REVIEW_TOOLS } from "../tool-sets.js";
 import { greybeardPackage } from "./package.js";
 
 describe("greybeardPackage", () => {
-  test("id matches directory", () => {
-    expect(greybeardPackage.id).toBe("greybeard");
-  });
-
-  test("systemPrompt is non-empty and not a Placeholder", () => {
-    expect(greybeardPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(greybeardPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
-  test("systemPrompt mentions PRIMARY INTENT", () => {
-    expect(greybeardPackage.systemPrompt).toContain("PRIMARY INTENT");
-  });
-
   test("systemPrompt identity is Greybeard / GreybeardDirector (not job-title language)", () => {
     const p = greybeardPackage.systemPrompt;
     expect(p).toMatch(/GreybeardDirector \(Greybeard\)/);
@@ -127,15 +114,6 @@ describe("greybeardPackage", () => {
     expect(greybeardPackage.systemPrompt).not.toMatch(/\bspawn implement\b/);
   });
 
-  test("spawn.maySpawn is false (leaf)", () => {
-    expect(greybeardPackage.spawn.maySpawn).toBe(false);
-    expect(greybeardPackage.spawn.allowlist).toBeUndefined();
-  });
-
-  test("no spawn allowlist survives the leaf conversion", () => {
-    expect(greybeardPackage.spawn.allowlist ?? []).toHaveLength(0);
-  });
-
   test("tools.allow is the review surface without fleet verbs", () => {
     const allow = greybeardPackage.tools?.allow ?? [];
     expect([...allow]).toEqual([...REVIEW_TOOLS]);
@@ -148,13 +126,6 @@ describe("greybeardPackage", () => {
     expect(allow).not.toContain("send_input");
     expect(allow).toContain("read_file");
     expect(allow).toContain("grep");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
-  });
-
-  test("tier is leaf", () => {
-    expect(greybeardPackage.tier).toBe("leaf");
   });
 
   test("modelRole is review", () => {

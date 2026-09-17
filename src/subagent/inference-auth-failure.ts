@@ -1,5 +1,6 @@
 import { CodexAuthError } from "../auth/codex/session.js";
 import { XaiAuthError } from "../auth/xai/session.js";
+import { errorMessage } from "../agent/error-message.js";
 
 export type SubAgentAuthFailureKind = "codex" | "xai";
 
@@ -22,7 +23,7 @@ export function formatSubAgentSpawnAuthFailureMessage(
     err instanceof CodexAuthError || err instanceof XaiAuthError
       ? err.profile
       : "default";
-  const detail = err instanceof Error ? err.message : String(err);
+  const detail = errorMessage(err);
   const detailSentence = detail.endsWith(".") ? detail : `${detail}.`;
   const providerLabel = kind === "codex" ? "Codex" : "xAI";
   // No "Error:" prefix — SessionStore.fail and tool-result surfaces add their own.

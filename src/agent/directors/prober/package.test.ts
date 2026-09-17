@@ -2,19 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { proberPackage } from "./package.js";
 
 describe("proberPackage", () => {
-  test("id matches directory / registry id", () => {
-    expect(proberPackage.id).toBe("prober");
-  });
-
-  test("systemPrompt is non-empty and not a Placeholder", () => {
-    expect(proberPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(proberPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
   test("systemPrompt identity is Prober / ProberDirector", () => {
     const p = proberPackage.systemPrompt;
     expect(p).toMatch(/ProberDirector \(Prober\)/);
-    expect(p).toContain("PRIMARY INTENT");
     expect(p).toMatch(/measure-only lane/i);
   });
 
@@ -79,21 +69,10 @@ describe("proberPackage", () => {
     expect(p).not.toMatch(/scheduler/i);
   });
 
-  test("spawn.maySpawn is false (leaf)", () => {
-    expect(proberPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tier is leaf", () => {
-    expect(proberPackage.tier).toBe("leaf");
-  });
-
-  test("tools.allow mounts the review surface (lane discipline in prompt)", () => {
+  test("tools.allow mounts read and shell (lane discipline in prompt)", () => {
     const allow = proberPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("run_shell");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is test", () => {

@@ -9,6 +9,7 @@ import { AgentClosedError } from "@intx/agent";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { awaitBoundedTeardown, DEFAULT_CLOSE_DEADLINE_MS } from "./dispose.js";
+import { errorMessage } from "../agent/error-message.js";
 import {
   isAlreadyClosed,
   isLiveStrip,
@@ -31,7 +32,7 @@ async function invokeCloseBounded(
     await awaitBoundedTeardown(close(deadlineMs), deadlineMs);
   } catch (err: unknown) {
     log.warn("session close raced deadline: {error}", {
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
     throw err;
   }
@@ -810,7 +811,7 @@ export function createSubAgentSessionStore(
       closeHandles.delete(id);
       void close(DEFAULT_CLOSE_DEADLINE_MS).catch((err: unknown) => {
         log.warn("session close during handle release failed: {error}", {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       });
     }
@@ -1098,7 +1099,7 @@ export function createSubAgentSessionStore(
       }
       log.error("followup turn failed for {id}: {error}", {
         id,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
       launchNextStashedFollowup(id);
       return;
@@ -1124,7 +1125,7 @@ export function createSubAgentSessionStore(
     endFollowupTurn(id, failLifecycle);
     log.error("followup turn failed for {id}: {error}", {
       id,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     });
   };
   const queueFollowupTurn = (

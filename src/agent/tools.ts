@@ -122,6 +122,7 @@ import {
   type CodexRunTool,
 } from "./codex-tool-proxies.js";
 import { createCodexReadRawFile } from "./codex-read-raw-file.js";
+import { errorMessage } from "./error-message.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
 const AskOperatorArgs = type({
@@ -1317,7 +1318,7 @@ export async function createAgentToolset(
         });
       } catch (err) {
         if (staleOrDisabled()) return;
-        const error = err instanceof Error ? err.message : String(err);
+        const error = errorMessage(err);
         if (isBuiltinExaMCPServer(config)) {
           resolveBuiltinExaConnection?.({
             ok: false,
@@ -1387,7 +1388,7 @@ export async function createAgentToolset(
         permissionGate.unregisterMcpServer(config.name);
         await result.client.close().catch(() => undefined);
         if (staleOrDisabled()) return;
-        const error = err instanceof Error ? err.message : String(err);
+        const error = errorMessage(err);
         if (isBuiltinExaMCPServer(config)) {
           resolveBuiltinExaConnection?.({
             ok: false,

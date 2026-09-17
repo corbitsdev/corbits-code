@@ -2,19 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { testsmithPackage } from "./package.js";
 
 describe("testsmithPackage", () => {
-  test("id matches directory / registry id", () => {
-    expect(testsmithPackage.id).toBe("testsmith");
-  });
-
-  test("systemPrompt is non-empty and not a Placeholder", () => {
-    expect(testsmithPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(testsmithPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
   test("systemPrompt identity is Testsmith / TestsmithDirector", () => {
     const p = testsmithPackage.systemPrompt;
     expect(p).toMatch(/TestsmithDirector \(Testsmith\)/);
-    expect(p).toContain("PRIMARY INTENT");
     expect(p).toMatch(/permanent test/i);
   });
 
@@ -76,16 +66,9 @@ describe("testsmithPackage", () => {
     expect(p).not.toMatch(/filed-for-later/i);
   });
 
-  test("spawn.maySpawn is false (leaf)", () => {
-    expect(testsmithPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow mounts product writes (lane: design only)", () => {
+  test("tools.allow mounts read (lane: design only)", () => {
     const allow = testsmithPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is test", () => {

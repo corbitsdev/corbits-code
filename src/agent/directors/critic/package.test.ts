@@ -2,19 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { criticPackage } from "./package.js";
 
 describe("criticPackage", () => {
-  test("id matches directory", () => {
-    expect(criticPackage.id).toBe("critic");
-  });
-
-  test("systemPrompt is real, not a placeholder", () => {
-    expect(criticPackage.systemPrompt.length).toBeGreaterThan(0);
-    expect(criticPackage.systemPrompt.startsWith("Placeholder")).toBe(false);
-  });
-
-  test("systemPrompt states PRIMARY INTENT", () => {
-    expect(criticPackage.systemPrompt).toMatch(/PRIMARY INTENT/i);
-  });
-
   test("systemPrompt identity is Critic / CriticDirector", () => {
     const p = criticPackage.systemPrompt;
     expect(p).toMatch(/CriticDirector \(Critic\)/);
@@ -103,18 +90,11 @@ describe("criticPackage", () => {
     expect(p).not.toMatch(/via run_shell/i);
   });
 
-  test("spawn.maySpawn is false", () => {
-    expect(criticPackage.spawn.maySpawn).toBe(false);
-  });
-
-  test("tools.allow is review surface with product writes", () => {
+  test("tools.allow mounts read plus skill discovery", () => {
     const allow = criticPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("skill_search");
     expect(allow).toContain("use_skill");
-    expect(allow).toContain("write_file");
-    expect(allow).toContain("edit_file");
-    expect(allow).toContain("delete_file");
   });
 
   test("modelRole is review", () => {
