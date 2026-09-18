@@ -688,6 +688,10 @@ export async function assembleTUISession(
           summarize: compactionSummarize,
           summaryContext,
           telemetry: liveTelemetry,
+          // The outer abort race discards this run's output — a fold that
+          // still completes underneath must not report telemetry or side
+          // effects for work that never landed.
+          isAborted: () => compactionLifecycle.getSignal().aborted,
           // Main-session folds only — exec runner and subagents stay silent.
           onFolded: (info) => {
             // Fold restarts the cached prefix, so catch promotions still
