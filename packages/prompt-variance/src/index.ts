@@ -1,8 +1,5 @@
 export { assemble, type AssembledPromptVariance } from "./assemble.js";
-export {
-  applyRowOverride,
-  resolvePromptVariance,
-} from "./resolve.js";
+export { applyRowOverride, resolvePromptVariance } from "./resolve.js";
 export {
   defaultRow,
   FAMILY_IDS,
