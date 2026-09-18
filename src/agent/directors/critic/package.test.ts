@@ -149,7 +149,7 @@ describe("criticPackage", () => {
   test("systemPrompt discards low-confidence noise directly", () => {
     const p = criticPackage.systemPrompt;
     expect(p).toContain(
-      "Only report issues you have verified or have high confidence in. Do not waste time with unverified speculation. Discard low-confidence findings",
+      "Only report VERIFIED, HIGH, or MEDIUM findings. Do not waste time with unverified speculation. Discard low-confidence findings",
     );
   });
 
