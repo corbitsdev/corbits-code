@@ -69,7 +69,10 @@ import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
-import { shouldApplyGrokAntiThrash } from "./provider-family.js";
+import {
+  detectModelFamily,
+  shouldApplyGrokAntiThrash,
+} from "./provider-family.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
 import {
@@ -1055,6 +1058,13 @@ async function runSubAgentInner(
           model: params.provider.model,
           orchestrator: params.orchestrator === true,
         }),
+        // GPT narrate-before-tools residual (CL-8310): primary and leaf alike,
+        // so unlike the grok finish-bias there is no orchestrator carve-out.
+        gptNarrateBeforeTools:
+          detectModelFamily({
+            providerName: params.provider.providerName,
+            model: params.provider.model,
+          }) === "gpt",
       },
     );
 

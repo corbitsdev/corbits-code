@@ -455,6 +455,10 @@ export function buildChatSystemPrompt(
   sessionMode: SessionMode = "orchestrator",
   toolAvailability: ToolAvailability = DEFAULT_TOOL_AVAILABILITY,
   guidelineConfig?: GuidelineConfig,
+  opts: {
+    /** When true, append the tiny GPT narrate-before-tools note (CL-8310). */
+    gptNarrateBeforeTools?: boolean;
+  } = {},
 ): string {
   const sections = [
     baseSection(
@@ -472,6 +476,9 @@ export function buildChatSystemPrompt(
   sections.push(contextSection(env));
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
+  }
+  if (opts.gptNarrateBeforeTools === true) {
+    sections.push(buildGptNarrateBeforeToolsNote());
   }
   return joinSections(sections);
 }
@@ -521,6 +528,19 @@ export function buildGrokLeafAntiThrashNote(): string {
   ].join("\n");
 }
 
+// Tiny residual for GPT workers (CL-8310): GPT-5.5/5.6-luna runs showed 6–13
+// silent tool-only turns. Shared thrash harness + spawn contracts do the
+// structural work; this is only a narrate-before-tools nudge. Deliberately
+// not manage_tasks ceremony — that is CL-7769, not this text.
+export function buildGptNarrateBeforeToolsNote(): string {
+  return [
+    "Narrate before tools (GPT worker):",
+    "- Before each tool call, write one short line saying what you are doing and why.",
+    "- Never make back-to-back tool calls with no narration between them.",
+    "- When the dispatch brief's done-definition is met, write the report envelope instead of making another tool call.",
+  ].join("\n");
+}
+
 export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
@@ -530,6 +550,8 @@ export function buildSubAgentSystemPrompt(
     toolNames?: readonly string[];
     /** When true, append the tiny Grok/xAI finish-bias note (provider residual). */
     grokAntiThrash?: boolean;
+    /** When true, append the tiny GPT narrate-before-tools note (CL-8310). */
+    gptNarrateBeforeTools?: boolean;
   } = {},
 ): string {
   const toolListForPrompt =
@@ -555,6 +577,9 @@ export function buildSubAgentSystemPrompt(
   }
   if (opts.grokAntiThrash === true) {
     sections.push(buildGrokLeafAntiThrashNote());
+  }
+  if (opts.gptNarrateBeforeTools === true) {
+    sections.push(buildGptNarrateBeforeToolsNote());
   }
   return joinSections(sections);
 }
