@@ -7,6 +7,10 @@ import {
   type ToolAvailability,
 } from "./tool-search.js";
 import { createSkywalkerSystemPrompt } from "./directors/skywalker/package.js";
+import {
+  buildWorkerContract,
+  buildWorkerToolNames,
+} from "./worker-contract.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
 // (tests, ad-hoc prompt previews) — except wait_agents, which is mount-gated:
@@ -15,7 +19,7 @@ import { createSkywalkerSystemPrompt } from "./directors/skywalker/package.js";
 const DEFAULT_TOOL_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: true,
 };
-import { PRODUCT_NAME, SETTINGS_DIR_NAME } from "../branding.js";
+import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Fallback tool list for worker prompts when the caller does not pass the
 // installed set. Matches the worker install (posix + manage_tasks + ask_director).
@@ -472,52 +476,6 @@ export function buildChatSystemPrompt(
   return joinSections(sections);
 }
 
-// Notes appended to every worker's system prompt so corbitsdev-format
-// agent definitions translate cleanly to Corbits Code: `spawn_agent` is the
-// spawn surface, tool names are Corbits Code-native, and the upstream
-// `mode: primary` distinction collapses.
-//
-// Vocabulary: an *agent* is a runtime entity; a *task* is a checklist item
-// owned via manage_tasks; a *fleet agent* / worker is a short-lived spawned
-// specialist. Do not conflate spawn with checklist.
-//
-// `orchestrator` flips the recursion rule: by default a worker must NOT
-// call `spawn_agent` (no recursion past depth 1). A built-in orchestrator
-// director is the documented exception — its purpose IS to fan work out to
-// other agents — so the appendix grants permission and links the syntax.
-export function buildSubAgentAppendix(
-  opts: { orchestrator?: boolean; toolNames?: readonly string[] } = {},
-): string {
-  // Workers must not be told both "you may spawn" and "do not spawn".
-  // Orchestrators get the spawn instruction; everyone else gets the no-recursion
-  // rule only.
-  const askDirector = opts.toolNames?.includes("ask_director") === true;
-  // wait_agents is mounted on exec-primary runs only; nested orchestrators
-  // get the live toolNames from runSubAgent, so the mount flag doubles as
-  // the collection-path copy switch with no call-site changes.
-  const waitAgentsMounted = opts.toolNames?.includes("wait_agents") === true;
-  const recursionRule =
-    opts.orchestrator === true
-      ? '- You are an orchestrator: you MAY call `spawn_agent` to spawn other fleet agents (e.g. spawn_agent(agent="greybeard", description="Review approach", prompt="...")). This is an explicit exception to the no-recursion rule that applies to workers — use it to delegate specialist work, then ' +
-        (waitAgentsMounted
-          ? "synthesize their reports into your own after `wait_agents`."
-          : "reply and idle — their reports arrive as mailbox mail; do not poll.") +
-        " `spawn_agent` spawns an agent; it is not a checklist item (use manage_tasks for your own checklist)."
-      : `- Only the primary ${PRODUCT_NAME} session (or a built-in orchestrator director) may call \`spawn_agent\` to spawn fleet agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`;
-  return [
-    `## ${PRODUCT_NAME} notes`,
-    "",
-    recursionRule,
-    `- Tools use ${PRODUCT_NAME} names: read_file, write_file, edit_file, run_shell, search_files, grep, list_dir, lsp, manage_tasks${askDirector ? ", ask_director" : ""}.`,
-    ...(askDirector
-      ? [
-          "- If the brief is genuinely ambiguous, ask_director. You cannot reach the operator; the spawning director answers with send_input.",
-        ]
-      : []),
-    "- Upstream `mode: primary` is not encoded — every profile here is a spawnable fleet-agent definition.",
-  ].join("\n");
-}
-
 // Final-reply envelope the parent can parse. Free-form prose is allowed inside
 // each field; the headings are the structure. When the brief carries Success
 // criteria / Do not, those are the completion gate and scope fence.
@@ -579,23 +537,17 @@ export function buildSubAgentSystemPrompt(
       ? opts.toolNames
       : defaultChatTools;
   const askDirector = toolListForPrompt.includes("ask_director");
+  const orchestrator = opts.orchestrator === true;
+  // Lean worker assembly (CL-8212): [contract, tool-names-only, env,
+  // director body, grok note]. No guidelines, no tool catalog, no appendix —
+  // the contract owns identity, escalation, and the report envelope.
   const base =
     baseOverride !== undefined && baseOverride.trim().length > 0
       ? baseOverride.trim()
-      : joinSections([
-          `You are a fleet agent — a worker dispatched by ${PRODUCT_NAME} to carry out one self-contained job autonomously. You have the full file, search, and shell toolset under the same permission policy as the parent session (saved grants and auto mode when eligible; operator approval otherwise). Finish the job and report back. Your manage_tasks checklist (if you use it) is yours alone; it is not shared with the parent.`,
-          buildHarnessFacts({
-            dynamicTools: false,
-            subAgent: true,
-            askDirector,
-          }),
-          buildGuidelines({ subAgent: true, askDirector }),
-          buildPromptDisciplineBlock({ subAgent: true }),
-          buildSubAgentReportContract({ askDirector }),
-        ]);
+      : buildWorkerContract({ askDirector, orchestrator });
   const sections = [
     base,
-    buildAvailableTools(toolListForPrompt),
+    buildWorkerToolNames(toolListForPrompt),
     contextSection(env),
   ];
   if (extensions !== undefined && extensions.length > 0) {
@@ -604,10 +556,5 @@ export function buildSubAgentSystemPrompt(
   if (opts.grokAntiThrash === true) {
     sections.push(buildGrokLeafAntiThrashNote());
   }
-  // Always-last: the Corbits Code translation notes apply to every dispatched
-  // agent, regardless of whether its definition came from a JS plugin or a
-  // corbitsdev-format markdown file. The orchestrator flag rewrites the
-  // recursion rule for profiles whose purpose is to dispatch other agents.
-  sections.push(buildSubAgentAppendix(opts));
   return joinSections(sections);
 }

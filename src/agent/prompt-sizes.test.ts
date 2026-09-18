@@ -39,36 +39,37 @@ const PROMPT_SIZE_BASELINE: Record<
   DirectorId,
   { chars: number; bytes: number }
 > = {
-  // Post-953 shared prompts.ts growth; re-measured on rebase.
-  skywalker: { chars: 25243, bytes: 25393 },
-  builder: { chars: 47698, bytes: 47856 },
-  explorer: { chars: 12197, bytes: 12259 },
-  counsel: { chars: 50746, bytes: 50918 },
-  intern: { chars: 14612, bytes: 14664 },
-  // Post-953 shared prompts.ts growth; re-measured on rebase.
-  critic: { chars: 52916, bytes: 53096 },
-  greybeard: { chars: 51786, bytes: 51972 },
-  neckbeard: { chars: 70211, bytes: 70401 },
-  bruckheimer: { chars: 21296, bytes: 21394 },
+  // CL-8212: lean worker assembly [contract, tool-names-only, env, director
+  // body, grok note] — no tool-catalog or appendix on the worker path.
+  // Re-measured from the canonical fixture; grok family is the max for leaves.
+  skywalker: { chars: 16494, bytes: 16604 },
+  builder: { chars: 10344, bytes: 10382 },
+  explorer: { chars: 4897, bytes: 4921 },
+  counsel: { chars: 4816, bytes: 4834 },
+  intern: { chars: 8148, bytes: 8176 },
+  critic: { chars: 6488, bytes: 6516 },
+  greybeard: { chars: 5921, bytes: 5951 },
+  neckbeard: { chars: 24256, bytes: 24290 },
+  bruckheimer: { chars: 14160, bytes: 14220 },
   // CL-7809: includes the deliberate CL-7663 voice restore (PR #932).
-  gaasbot: { chars: 52782, bytes: 52970 },
+  gaasbot: { chars: 6852, bytes: 6886 },
   // CL-7800: deliberate CMO full-fidelity restore; re-measured on rebase.
-  draper: { chars: 16403, bytes: 16489 },
+  draper: { chars: 9103, bytes: 9151 },
   // CL-7801: deliberate full-fidelity CMO restore; grok family is the max.
-  emil: { chars: 22770, bytes: 22922 },
-  rand: { chars: 13021, bytes: 13089 },
-  shakespeare: { chars: 52774, bytes: 52956 },
-  testsmith: { chars: 14088, bytes: 14166 },
-  tester: { chars: 11975, bytes: 12033 },
+  emil: { chars: 15470, bytes: 15584 },
+  rand: { chars: 5885, bytes: 5915 },
+  shakespeare: { chars: 7008, bytes: 7036 },
+  testsmith: { chars: 6788, bytes: 6828 },
+  tester: { chars: 4675, bytes: 4695 },
   // CL-7658: grok family is the max; re-measured on rebase.
-  gauntlet: { chars: 13835, bytes: 13897 },
+  gauntlet: { chars: 6535, bytes: 6559 },
   // CL-7656: grok family is the max; re-measured on rebase.
-  prober: { chars: 13586, bytes: 13656 },
+  prober: { chars: 6286, bytes: 6318 },
   // CL-7671 scope-honesty sentences; grok family is the max.
-  migrator: { chars: 11221, bytes: 11277 },
+  migrator: { chars: 4449, bytes: 4469 },
   // CL-7657: grok family is the max; baseline + allowance covers it, so
   // main's tighter default-based budget needs no override.
-  warden: { chars: 51926, bytes: 52102 },
+  warden: { chars: 5487, bytes: 5511 },
 };
 
 /**
@@ -145,7 +146,10 @@ describe("director prompt size budget", () => {
 
   test("every assembled prompt is a real prompt, not an empty assembly", () => {
     for (const row of rows) {
-      expect(row.chars).toBeGreaterThan(5000);
+      // CL-8212: lean workers legitimately assemble under 5000 chars (the
+      // contract plus a short director body); the floor still catches an
+      // empty assembly well below any real prompt.
+      expect(row.chars).toBeGreaterThan(3000);
       expect(row.bytes).toBeGreaterThanOrEqual(row.chars);
     }
   });
