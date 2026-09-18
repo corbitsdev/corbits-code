@@ -123,10 +123,10 @@ function budgetMessage(
 describe("director prompt size budget", () => {
   const rows = directorPromptSizeTable();
 
-  test("covers every director in both families", () => {
-    expect(rows.length).toBe(DIRECTOR_IDS.length * 2);
+  test("covers every director in all three variance families", () => {
+    expect(rows.length).toBe(DIRECTOR_IDS.length * 3);
     for (const directorId of DIRECTOR_IDS) {
-      for (const family of ["default", "grok"] as const) {
+      for (const family of ["default", "muse", "grok"] as const) {
         expect(
           rows.some((r) => r.directorId === directorId && r.family === family),
         ).toBe(true);
@@ -170,6 +170,21 @@ describe("director prompt size budget", () => {
       } else {
         expect(grok?.chars ?? 0).toBeGreaterThan(base?.chars ?? 0);
       }
+    }
+  });
+
+  test("muse family appends the shipped tool-discipline rules", () => {
+    for (const directorId of DIRECTOR_IDS) {
+      const base = rows.find(
+        (r) => r.directorId === directorId && r.family === "default",
+      );
+      const muse = rows.find(
+        (r) => r.directorId === directorId && r.family === "muse",
+      );
+      expect(muse?.chars ?? 0).toBeGreaterThan(base?.chars ?? 0);
+      expect(assembleDirectorPrompt(directorId, "muse")).toContain(
+        "Tool discipline:",
+      );
     }
   });
 
