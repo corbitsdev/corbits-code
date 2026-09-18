@@ -5,86 +5,102 @@ describe("draperPackage", () => {
   test("systemPrompt identity is Draper / DraperDirector (package id stays draper)", () => {
     const p = draperPackage.systemPrompt;
     expect(p).toMatch(/DraperDirector \(Draper\)/);
-    expect(p).toMatch(/full critique lane/i);
+    expect(p).toMatch(/brand critique router/i);
     expect(p).not.toMatch(/Brand Reviewer/);
     expect(p).not.toMatch(/brand-reviewer/);
   });
 
-  test("systemPrompt covers any artifact — visual, written, interactive", () => {
+  test("systemPrompt routes the three upstream layers, never audits from memory", () => {
     const p = draperPackage.systemPrompt;
-    expect(p).toMatch(/visual, written, or interactive/i);
-    expect(p).toMatch(/CBS \(Corbits Brand System\)/i);
-    expect(p).toMatch(/You find\. You never fix/i);
+    expect(p).toMatch(/brand-identity is the visual layer/i);
+    expect(p).toMatch(/brand-review is the copy\/messaging layer/i);
+    expect(p).toMatch(/interface craft routes to Emil/i);
+    expect(p).toMatch(/Do not recreate the old full-reference brand audit/i);
+    expect(p).toMatch(/Load the relevant skills only/i);
   });
 
-  test("systemPrompt carries all five restored lenses", () => {
+  test("systemPrompt carries the visual-identity lens", () => {
     const p = draperPackage.systemPrompt;
     expect(p).toMatch(/Visual identity/i);
-    expect(p).toMatch(/Written identity/i);
-    expect(p).toMatch(/Messaging integrity/i);
-    expect(p).toMatch(/Interactive quality/i);
-    expect(p).toMatch(/Brand coherence/i);
+    expect(p).toMatch(
+      /load brand-identity when the artifact has a visual layer/i,
+    );
+    expect(p).toMatch(/logo misuse/i);
     expect(p).toMatch(/No lens → speculation/i);
   });
 
-  test("systemPrompt restores the written-identity copy gates", () => {
+  test("systemPrompt carries the brand-review lens", () => {
     const p = draperPackage.systemPrompt;
-    expect(p).toMatch(/hype language/i);
-    expect(p).toMatch(/supercharge/);
-    expect(p).toMatch(/anthropomorphiz/i);
-    expect(p).toMatch(/Faremeter is independent/i);
-    expect(p).toMatch(/voice blending/i);
-    expect(p).toMatch(/Oxford commas?/i);
-    expect(p).toMatch(/passive voice/i);
+    expect(p).toMatch(/Brand review/i);
+    expect(p).toMatch(/load brand-review when the artifact includes copy/i);
+    expect(p).toMatch(/Generic AI\/startup language/i);
+    expect(p).toMatch(/unsupported claims/i);
+    expect(p).toMatch(/anthropomorphize behavior/i);
   });
 
-  test("systemPrompt restores the messaging-integrity gates", () => {
+  test("systemPrompt routes interface craft to Emil", () => {
     const p = draperPackage.systemPrompt;
-    expect(p).toMatch(/five pillars/i);
-    expect(p).toMatch(/dogfooding/);
-    expect(p).toMatch(/elevator pitch/i);
-    expect(p).toMatch(/one-liners/i);
-    expect(p).toMatch(/features instead of outcomes/i);
-    expect(p).toMatch(/Interchange is the product/i);
+    expect(p).toMatch(/Interface craft/i);
+    expect(p).toMatch(/suggest Emil parallel review/i);
+    expect(p).toMatch(/decorative animation without purpose/i);
+    expect(p).toMatch(/look branded but feel careless/i);
   });
 
-  test("systemPrompt keeps the interactive and coherence gates", () => {
+  test("systemPrompt has zero hardcoded Faremeter/Corbits gates", () => {
     const p = draperPackage.systemPrompt;
-    expect(p).toMatch(/0\.97/);
-    expect(p).toMatch(/30-80ms/);
-    expect(p).toMatch(/40px/);
-    expect(p).toMatch(/Canvas Cream/i);
-    expect(p).toMatch(/inverts instead of adapts/i);
+    expect(p).not.toMatch(/Faremeter/);
+    expect(p).not.toMatch(/Canvas Cream/);
+    expect(p).not.toMatch(/Oxford commas?/i);
+    expect(p).not.toMatch(/five pillars/i);
+    expect(p).not.toMatch(/dogfooding/i);
+    expect(p).not.toMatch(/Interchange/);
+    expect(p).not.toMatch(/CBS/);
+    expect(p).not.toMatch(/Messaging integrity/);
+    expect(p).not.toMatch(/Interactive quality/);
+    expect(p).not.toMatch(/Brand coherence/);
+    expect(p).not.toMatch(/hype language/i);
+    expect(p).not.toMatch(/supercharge/);
+    expect(p).not.toMatch(/elevator pitch/i);
+    expect(p).not.toMatch(/one-liners/i);
+    expect(p).not.toMatch(/0\.97/);
+    expect(p).not.toMatch(/passive voice/i);
   });
 
-  test("systemPrompt gates never-create / never-suggest / never-modify", () => {
+  test("systemPrompt evaluates against the repo DESIGN.md; creation routes to rand", () => {
     const p = draperPackage.systemPrompt;
+    expect(p).toMatch(/repo's own DESIGN\.md/);
+    expect(p).toMatch(/DESIGN\.md is the artifact's design contract/i);
+    expect(p).toMatch(/do not create it yourself/i);
+    expect(p).toMatch(/route creation to rand/i);
+    expect(p).toMatch(/never silent writes/i);
+    expect(p).toMatch(/stated minimal default/i);
+    expect(p).toMatch(/cap those findings at MEDIUM/i);
+  });
+
+  test("systemPrompt keeps the upstream verdict scale and findings-first order", () => {
+    const p = draperPackage.systemPrompt;
+    expect(p).toMatch(/Approved with notes/);
+    expect(p).toMatch(/Changes requested/);
+    expect(p).toMatch(/\bReject\b/);
+    expect(p).toMatch(
+      /Findings come before praise unless the artifact is approved/i,
+    );
+    expect(p).toMatch(/Why it matters/);
+    expect(p).toMatch(/Fix direction or reviewer follow-up/);
+    expect(p).toMatch(/suggested parallel review/i);
+  });
+
+  test("systemPrompt gates never-fix / never-create / never-publish", () => {
+    const p = draperPackage.systemPrompt;
+    expect(p).toMatch(/You find\. You never fix/i);
+    expect(p).toMatch(/Do not ship fixes/i);
     expect(p).toMatch(/Do not create content/i);
-    expect(p).toMatch(/suggest specific wording/i);
-    expect(p).toMatch(/Do not .* redesign/i);
+    expect(p).toMatch(/redesign artifacts/i);
     expect(p).toMatch(/modify production code or assets/i);
     expect(p).toMatch(/improvise brand values/i);
     expect(p).toContain("Builder (fixes)");
     expect(p).toContain("Rand (DESIGN.md ownership)");
-    expect(p).toContain("Emil (design-engineering laws)");
-  });
-
-  test("systemPrompt keeps verdict scale and confidence discipline", () => {
-    const p = draperPackage.systemPrompt;
-    expect(p).toMatch(
-      /COMPLIANT \/ MINOR DEVIATIONS \/ MAJOR DEVIATIONS \/ NON-COMPLIANT/,
-    );
-    expect(p).toMatch(/VERIFIED.*HIGH.*MEDIUM/);
-    expect(p).toMatch(/Discard LOW/i);
-    expect(p).toMatch(/expected value, and the actual value/i);
-    expect(p).toMatch(/Cross-domain issues/i);
-  });
-
-  test("systemPrompt keeps evidence-test workflow with cleanup rule", () => {
-    const p = draperPackage.systemPrompt;
-    expect(p).toMatch(/Evidence tests/i);
-    expect(p).toMatch(/Clean up temporary checks/i);
-    expect(p).toMatch(/permanent/);
+    expect(p).toContain("Emil (interface-craft depth)");
   });
 
   test("systemPrompt stays brief-scoped, no invented brand values", () => {
@@ -93,6 +109,15 @@ describe("draperPackage", () => {
     expect(p).toMatch(/success_criteria/i);
     expect(p).toMatch(/Do not wander/i);
     expect(p).toMatch(/if the reference does not specify it, say so/i);
+  });
+
+  test("systemPrompt defers to the scaffold envelope, no re-specified headings", () => {
+    const p = draperPackage.systemPrompt;
+    expect(p).toMatch(/scaffold owns the envelope shape/i);
+    expect(p).not.toMatch(/## Summary/);
+    expect(p).not.toMatch(/## Findings/);
+    expect(p).not.toMatch(/## Blockers/);
+    expect(p).not.toMatch(/## Paths/);
   });
 
   test("systemPrompt has no tool-schema restatement or fake caps", () => {
@@ -113,19 +138,27 @@ describe("draperPackage", () => {
     expect(p).not.toMatch(/## Paths/);
   });
 
-  test("tools.allow mounts read plus skill discovery", () => {
+  test("tools.allow is read-only: no product writes", () => {
     const allow = draperPackage.tools?.allow ?? [];
     expect(allow).toContain("read_file");
     expect(allow).toContain("skill_search");
     expect(allow).toContain("use_skill");
+    expect(allow).not.toContain("write_file");
+    expect(allow).not.toContain("edit_file");
+    expect(allow).not.toContain("delete_file");
+  });
+
+  test("optionalSkills declares the two router skills", () => {
+    expect(draperPackage.optionalSkills).toContain("brand-identity");
+    expect(draperPackage.optionalSkills).toContain("brand-review");
   });
 
   test("modelRole is review", () => {
     expect(draperPackage.modelRole).toBe("review");
   });
 
-  test("primaryIntent and outOfLane match the restored full-critique lane", () => {
-    expect(draperPackage.primaryIntent).toMatch(/Brand and design critique/i);
+  test("primaryIntent and outOfLane match the router lane", () => {
+    expect(draperPackage.primaryIntent).toMatch(/Brand critique router/i);
     expect(draperPackage.primaryIntent).toMatch(/never fix/i);
     expect(draperPackage.outOfLane).toContain("shipping product code");
     expect(draperPackage.outOfLane).toContain(
@@ -135,6 +168,6 @@ describe("draperPackage", () => {
     expect(draperPackage.outOfLane).toContain(
       "modifying production code or assets",
     );
-    expect(draperPackage.outOfLane).not.toContain("marketing copy pipeline");
+    expect(draperPackage.outOfLane).toContain("publishing content");
   });
 });

@@ -53,10 +53,12 @@ const PROMPT_SIZE_BASELINE: Record<
   bruckheimer: { chars: 14160, bytes: 14220 },
   // CL-7809: includes the deliberate CL-7663 voice restore (PR #932).
   gaasbot: { chars: 6852, bytes: 6886 },
-  // CL-7800: deliberate CMO full-fidelity restore; re-measured on rebase.
-  draper: { chars: 9103, bytes: 9151 },
-  // CL-7801: deliberate full-fidelity CMO restore; grok family is the max.
-  emil: { chars: 15470, bytes: 15584 },
+  // CL-8231: upstream router rewrite (skill-routed lenses, no hardcoded
+  // Faremeter gates); re-measured from the canonical fixture.
+  draper: { chars: 7726, bytes: 7766 },
+  // CL-8234: upstream narrowed rewrite (eight principles + seven-law lens set,
+  // tokens-only, fix direction); re-measured from the canonical fixture.
+  emil: { chars: 8572, bytes: 8632 },
   rand: { chars: 5885, bytes: 5915 },
   shakespeare: { chars: 7008, bytes: 7036 },
   testsmith: { chars: 6788, bytes: 6828 },
