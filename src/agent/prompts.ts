@@ -19,6 +19,11 @@ import {
 const DEFAULT_TOOL_AVAILABILITY: ToolAvailability = {
   languageServerAvailable: true,
 };
+import {
+  assemble,
+  grokRow,
+  type PromptVarianceRow,
+} from "../../packages/prompt-variance/src/index.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 
 // Fallback tool list for worker prompts when the caller does not pass the
@@ -511,14 +516,10 @@ export function buildSubAgentReportContract(
 // Tiny residual for Grok/xAI workers: mining showed higher tools-only thrash
 // than Codex on the same harness. Shared thrash harness + spawn contracts do
 // the structural work; this is only a finish-bias nudge, not a full rewrite.
+// Single-sourced from the versioned prompt-variance package (CL-8269) so the
+// shipped text and the size table cannot drift apart.
 export function buildGrokLeafAntiThrashNote(): string {
-  return [
-    "Finish bias (xAI / Grok worker):",
-    "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
-    "- If the next call would only re-open paths you already read, write the report instead.",
-    "- When the dispatch brief's done-definition is met, write the report envelope instead of making one more search or micro-edit.",
-    "- Route file and web work through the dedicated tools, never run_shell — mining showed grok reaching for shell first when a typed tool already covered the job.",
-  ].join("\n");
+  return grokRow.residual;
 }
 
 export function buildSubAgentSystemPrompt(
@@ -530,6 +531,12 @@ export function buildSubAgentSystemPrompt(
     toolNames?: readonly string[];
     /** When true, append the tiny Grok/xAI finish-bias note (provider residual). */
     grokAntiThrash?: boolean;
+    /**
+     * Family variance row applied through the prompt-variance package
+     * (CL-8269). Wins over the legacy grokAntiThrash boolean when both
+     * are present; an empty residual leaves the sections unchanged.
+     */
+    variance?: PromptVarianceRow;
   } = {},
 ): string {
   const toolListForPrompt =
@@ -553,8 +560,8 @@ export function buildSubAgentSystemPrompt(
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
   }
-  if (opts.grokAntiThrash === true) {
-    sections.push(buildGrokLeafAntiThrashNote());
-  }
-  return joinSections(sections);
+  const variance =
+    opts.variance ?? (opts.grokAntiThrash === true ? grokRow : undefined);
+  if (variance === undefined) return joinSections(sections);
+  return assemble(sections, variance, toolListForPrompt).systemPrompt;
 }

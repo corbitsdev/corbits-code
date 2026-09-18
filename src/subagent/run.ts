@@ -69,7 +69,7 @@ import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 
 import { buildSubAgentSystemPrompt } from "../agent/prompts.js";
-import { shouldApplyGrokAntiThrash } from "./provider-family.js";
+import { resolvePromptVariance } from "../../packages/prompt-variance/src/index.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 import { createCorbitsRetryPolicy } from "../agent/retry-policy.js";
 import {
@@ -1043,6 +1043,11 @@ async function runSubAgentInner(
         ? [params.systemPromptRole]
         : undefined;
     const toolNames = tools.map((t) => t.definition.name);
+    // CL-8269: family variance resolves through the versioned
+    // prompt-variance package instead of a hand-concatenated boolean.
+    // Only the grok row renders here: muse tool-discipline rules are
+    // appended by the director constructors from the family policy, so
+    // resolving the muse row as well would print them twice.
     const systemPrompt = buildSubAgentSystemPrompt(
       extensions,
       environment,
@@ -1050,10 +1055,10 @@ async function runSubAgentInner(
       {
         orchestrator: params.orchestrator === true,
         toolNames,
-        grokAntiThrash: shouldApplyGrokAntiThrash({
-          providerName: params.provider.providerName,
-          model: params.provider.model,
+        variance: resolvePromptVariance({
+          family: modelFamilyPolicy.family === "grok" ? "grok" : "default",
           orchestrator: params.orchestrator === true,
+          model: params.provider.model,
         }),
       },
     );
