@@ -109,6 +109,34 @@ const MUSE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolDisciplineRules: MUSE_TOOL_DISCIPLINE_RULES,
 };
 
+// Single grok prompt residual (CL-8296): the finish-bias bullets plus the
+// three ceremony lines from the CL-7768 design (no git, no pre-plan, verify
+// once), merged into one block with no line twice. The don't re-read idea
+// appears exactly once (the "re-open paths" bullet) — it is not repeated.
+// Grok-only: detectModelFamily has no glm family, so per the <30min rule no
+// GLM row ships here. The text lives here once; buildGrokLeafAntiThrashNote
+// (prompts.ts) returns it verbatim, so the prompt carries exactly one grok
+// residual and the sibling CL-8297 hook resolves to the same block.
+const GROK_PROMPT_RESIDUAL = [
+  "Finish bias (xAI / Grok worker):",
+  "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
+  "- If the next call would only re-open paths you already read, write the report instead.",
+  "- When the dispatch brief's done-definition is met, write the report envelope instead of making one more search or micro-edit.",
+  "- Route file and web work through the dedicated tools, never run_shell — mining showed grok reaching for shell first when a typed tool already covered the job.",
+  "- Never run git add, git commit, git stash, or any other state-changing git command unless the user asks.",
+  "- Do not narrate a plan before acting on a small task; act, then report.",
+  "- Verify with the test command once at the end, not after every edit.",
+].join("\n");
+
+/**
+ * Minimal per-family prompt residual hook. The sibling CL-8297 owns the
+ * canonical hook; this local copy keeps the branch self-contained so tests
+ * pass standalone — the two reconcile when CL-8297 lands.
+ */
+export function promptResidual(family: ModelFamily): string {
+  return family === "grok" ? GROK_PROMPT_RESIDUAL : "";
+}
+
 export function resolveModelFamilyPolicy(input: {
   providerName: string;
   model?: string;
