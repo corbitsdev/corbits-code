@@ -48,9 +48,9 @@ describe("grok ceremony merge (CL-8296)", () => {
       orchestrator: false,
       grokAntiThrash: true,
     });
-    expect(
-      countOccurrences(prompt, "Finish bias (xAI / Grok worker):"),
-    ).toBe(1);
+    expect(countOccurrences(prompt, "Finish bias (xAI / Grok worker):")).toBe(
+      1,
+    );
     for (const line of CEREMONY_LINES) {
       expect(countOccurrences(prompt, line)).toBe(1);
     }
