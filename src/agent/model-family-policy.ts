@@ -109,6 +109,15 @@ const MUSE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolDisciplineRules: MUSE_TOOL_DISCIPLINE_RULES,
 };
 
+// GPT (Codex / gpt-*) detection ships now so callers can branch on family,
+// but thresholds are provisional: we have no eval characterization yet for
+// how GPT behaves under tool-only stretches or background-run stalls. Ship
+// the permissive default rather than guessing at a tightened number; the
+// narrate-before-tools residual is prompt-level (see prompts.ts), not a
+// threshold. Served cells (astra/sol/terra/…) are never named here — CL-8265
+// characterizes them later.
+const GPT_POLICY: Omit<ModelFamilyPolicy, "family"> = { ...DEFAULT_POLICY };
+
 export function resolveModelFamilyPolicy(input: {
   providerName: string;
   model?: string;
@@ -136,6 +145,8 @@ export function resolveModelFamilyPolicy(input: {
       };
     case "muse":
       return { family, ...MUSE_POLICY };
+    case "gpt":
+      return { family, ...GPT_POLICY };
     default:
       return { family: "default", ...DEFAULT_POLICY };
   }

@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   detectModelFamily,
+  isGptProvider,
   isKimiLeafProvider,
   isXaiGrokLeafProvider,
   shouldApplyGrokAntiThrash,
 } from "./provider-family.js";
+import { CODEX_DEFAULT_MODELS } from "../auth/codex/constants.js";
 
 describe("isXaiGrokLeafProvider", () => {
   test("matches xai/ OAuth provider names", () => {
@@ -137,5 +139,64 @@ describe("detectModelFamily", () => {
         model: "claude-sonnet-4",
       }),
     ).toBe("default");
+  });
+});
+
+describe("isGptProvider (CL-8310)", () => {
+  test("matches codex OAuth provider names", () => {
+    expect(isGptProvider({ providerName: "codex/default" })).toBe(true);
+    expect(isGptProvider({ providerName: "codex/work" })).toBe(true);
+  });
+
+  test("matches codex adapter ids and bare codex names", () => {
+    expect(isGptProvider({ providerName: "codex-responses" })).toBe(true);
+    expect(isGptProvider({ providerName: "codex" })).toBe(true);
+  });
+
+  test("matches gpt-* model ids on any provider", () => {
+    expect(isGptProvider({ providerName: "openai", model: "gpt-5.5" })).toBe(
+      true,
+    );
+    expect(
+      isGptProvider({ providerName: "opencode-go", model: "gpt-5.1" }),
+    ).toBe(true);
+    expect(
+      isGptProvider({ providerName: "openai-compat", model: "gpt-5.6-luna" }),
+    ).toBe(true);
+  });
+
+  test("covers every in-tree codex catalog model without naming cells", () => {
+    // No terra/sol/astra special-casing: every served codex id resolves via
+    // the generic codex-provider / gpt-* match, so future cells ride along.
+    for (const model of CODEX_DEFAULT_MODELS) {
+      expect(isGptProvider({ providerName: "codex/default", model })).toBe(
+        true,
+      );
+      expect(detectModelFamily({ providerName: "codex/default", model })).toBe(
+        "gpt",
+      );
+    }
+  });
+
+  test("rejects grok, kimi, muse, and claude", () => {
+    expect(
+      isGptProvider({ providerName: "xai/default", model: "grok-4.6" }),
+    ).toBe(false);
+    expect(isGptProvider({ providerName: "moonshot", model: "kimi-k2" })).toBe(
+      false,
+    );
+    expect(
+      isGptProvider({
+        providerName: "opencode-go",
+        model: "muse-spark-1.3-contributor",
+      }),
+    ).toBe(false);
+    expect(
+      isGptProvider({
+        providerName: "anthropic",
+        model: "claude-sonnet-4",
+      }),
+    ).toBe(false);
+    expect(isGptProvider({ providerName: "anthropic" })).toBe(false);
   });
 });

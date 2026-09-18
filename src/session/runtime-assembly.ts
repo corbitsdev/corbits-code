@@ -15,6 +15,7 @@ import type { Compactor } from "@intx/types/runtime";
 
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import type { GuidelineSubBlockId } from "../agent/prompts.js";
+import { detectModelFamily } from "../subagent/provider-family.js";
 import type { ToolAvailability } from "../agent/tool-search.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import {
@@ -293,6 +294,10 @@ export interface SessionChatPromptArgs {
   // Guideline sub-block ids to drop (see GUIDELINE_SUB_BLOCK_IDS).
   // Omitted = full guidelines.
   promptSectionOmit?: readonly GuidelineSubBlockId[];
+  // Active session provider/model, for family residuals on the primary
+  // prompt (CL-8310: GPT narrate-before-tools). Omitted = no family residual.
+  providerName?: string;
+  model?: string;
   // Session-start snapshot from createAgentToolset. When provided, skip
   // rediscovery so the prompt listing and skill_search share one catalog.
   skills?: readonly SkillSummary[];
@@ -320,6 +325,15 @@ export async function loadSessionChatPrompt(
     ...(args.systemPromptExtensions ?? []),
     ...overrides.append,
   ];
+  // GPT narrate-before-tools residual (CL-8310): the primary prompt carries it
+  // exactly when the active session resolves to the gpt family. Grok/claude
+  // primaries resolve elsewhere and stay untouched.
+  const gptNarrateBeforeTools =
+    args.providerName !== undefined &&
+    detectModelFamily({
+      providerName: args.providerName,
+      ...(args.model !== undefined ? { model: args.model } : {}),
+    }) === "gpt";
   return {
     systemPrompt: buildChatSystemPrompt(
       extensions.length > 0 ? extensions : undefined,
@@ -331,6 +345,7 @@ export async function loadSessionChatPrompt(
       args.promptSectionOmit !== undefined
         ? { omit: args.promptSectionOmit }
         : undefined,
+      { gptNarrateBeforeTools },
     ),
     skills,
   };
