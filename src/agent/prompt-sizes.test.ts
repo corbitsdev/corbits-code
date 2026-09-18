@@ -27,7 +27,7 @@ import { resolveExecDirectorOverlay } from "../exec/runner.js";
 /**
  * Prompt size budget (CL-7664). Numeric asserts only — copy edits must not
  * fail this test. Baselines are a checked-in snapshot of the max measured
- * sizes across both families from the canonical fixture in
+ * sizes across all three families from the canonical fixture in
  * src/agent/prompt-sizes.ts; budgets add a +2000 char / +3000 byte allowance
  * (ceiling to 100) in code below. Bytes get the larger headroom because
  * multibyte copy can shift them faster. Adding a director is a type error
@@ -196,7 +196,7 @@ describe("director prompt size budget", () => {
 
   test("tool names match the production mount: no dupes, no phantoms", () => {
     for (const directorId of DIRECTOR_IDS) {
-      for (const family of ["default", "grok"] as const) {
+      for (const family of ["default", "muse", "grok"] as const) {
         const names = canonicalToolNamesForDirector(
           DIRECTOR_REGISTRY[directorId],
           family,
@@ -204,7 +204,7 @@ describe("director prompt size budget", () => {
         expect(new Set(names).size, `${directorId} [${family}]`).toBe(
           names.length,
         );
-        // Neither fixture family is Codex, so the Codex proxies
+        // No fixture family is Codex, so the Codex proxies
         // (createCodexToolProxies returns [] when !isCodex) must be absent,
         // as must list_dir, which no subagent mount installs.
         for (const phantom of [
@@ -230,17 +230,20 @@ describe("director prompt size budget", () => {
   test("formatPromptSizeTable renders one row per director", () => {
     const table = formatPromptSizeTable(rows);
     expect(table).toContain(
-      "| director | default chars (bytes) | grok chars (bytes) |",
+      "| director | default chars (bytes) | muse chars (bytes) | grok chars (bytes) |",
     );
     for (const directorId of DIRECTOR_IDS) {
       const base = rows.find(
         (r) => r.directorId === directorId && r.family === "default",
       );
+      const muse = rows.find(
+        (r) => r.directorId === directorId && r.family === "muse",
+      );
       const grok = rows.find(
         (r) => r.directorId === directorId && r.family === "grok",
       );
       expect(table).toContain(
-        `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${grok?.chars} (${grok?.bytes}) |`,
+        `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${muse?.chars} (${muse?.bytes}) | ${grok?.chars} (${grok?.bytes}) |`,
       );
     }
   });
