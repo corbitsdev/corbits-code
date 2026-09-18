@@ -464,8 +464,11 @@ export function createModelSummarizer(
     // when a hook is wired; provider retries replay the call as-is.
     const retried = new Set<SummarizerFailureClass>();
     for (;;) {
+      // Hoisted out of the try so the catch can tell whether this attempt's
+      // own signal was aborted: the lifecycle mints a fresh signal on reset,
+      // so re-reading getSignal() here could miss an abort that already fired.
+      const signal = options.getSignal?.() ?? new AbortController().signal;
       try {
-        const signal = options.getSignal?.() ?? new AbortController().signal;
         const text = await complete(promptTurns, options.getSource(), signal);
         if (text.length === 0) {
           logger.warn("compaction summary call returned empty text");
@@ -504,6 +507,15 @@ export function createModelSummarizer(
         logger.warn("compaction summary call failed: {error}", {
           error: err.message,
         });
+        // A lifecycle abort (interrupt/rotation mid-compact) is operator
+        // intent, not a summarizer failure: the wrapCompactor race already
+        // returns its no-op fold and the lifecycle emits its own
+        // "interrupted" notice, so a second failure-framed notice plus a
+        // summarizer_failure telemetry event would be noise — and the
+        // "failed" framing actively misleads. Stay silent here and just
+        // rethrow so the race resolves as an abort. Aborts observed while
+        // this attempt's signal is live-but-unaborted keep the notice.
+        if (failureClass === "aborted" && signal.aborted) throw err;
         const source = options.getSource();
         telemetry.capture("summarizer_failure", {
           provider: source.provider,

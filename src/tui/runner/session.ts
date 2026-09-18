@@ -73,6 +73,10 @@ import {
   createModelSummarizer,
   type SummaryContext,
 } from "../../session/summarizer.js";
+import {
+  createCompactionEventNotices,
+  createCompactionLifecycle,
+} from "../../session/compaction-lifecycle.js";
 import { ensureFreshInferenceSource } from "../../subagent/refresh-inference-source.js";
 import { setAgentSourceUnlessClosed } from "../agent-source-sync.js";
 import { createSessionCostAccumulator } from "../../cost/session-cost.js";
@@ -597,8 +601,18 @@ export async function assembleTUISession(
   // keeps prior context rather than substituting a stats stub. Workflow state
   // is read at compaction time so a pass mid-/build or mid-/plan still names
   // the active step. The archive, when mounted, supplies the unclipped excerpt.
+  // CL-8220: abort-aware compaction lifecycle. The summary call is the only
+  // unbounded await in the compact path, so the lifecycle aborts it on
+  // interrupt/rotation (via getSignal below) and bounds apply itself, so the
+  // vendored reactor always returns to dequeue. Reset per agent build so a
+  // prior abort never pre-aborts the replacement agent's compacts.
+  const compactionLifecycle = createCompactionLifecycle(
+    createCompactionEventNotices((text) => state.systemNotice?.(text)),
+  );
+  state.compactionLifecycle = compactionLifecycle;
   const compactionSummarize = createModelSummarizer({
     getSource: () => state.liveSource,
+    getSignal: () => compactionLifecycle.getSignal(),
     deps: start.inferenceDeps,
     getArchive: () => evidenceArchiveHolder.current,
     timeoutMs: config.summarizerTimeoutMs,
@@ -669,25 +683,31 @@ export async function assembleTUISession(
         ? state.liveDefaultSource
         : state.liveSource.id,
     getCompactor: () =>
-      createSessionPruningCompactor({
-        summarize: compactionSummarize,
-        summaryContext,
-        telemetry: liveTelemetry,
-        // Main-session folds only — exec runner and subagents stay silent.
-        onFolded: (info) => {
-          // Fold restarts the cached prefix, so catch promotions still
-          // pending. Search already flushed names onto the next infer.
-          if (flushPromotions()) {
-            directorHolder.instance?.updateToolDefinitions(
-              computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
-            );
-          }
-          emitter.emit("compaction", info);
-        },
-      }),
+      compactionLifecycle.wrapCompactor(
+        createSessionPruningCompactor({
+          summarize: compactionSummarize,
+          summaryContext,
+          telemetry: liveTelemetry,
+          // Main-session folds only — exec runner and subagents stay silent.
+          onFolded: (info) => {
+            // Fold restarts the cached prefix, so catch promotions still
+            // pending. Search already flushed names onto the next infer.
+            if (flushPromotions()) {
+              directorHolder.instance?.updateToolDefinitions(
+                computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
+              );
+            }
+            emitter.emit("compaction", info);
+          },
+        }),
+      ),
     onBuilt: (agent, storage) => {
       state.currentAgent = agent;
       state.currentStorage = storage;
+      // The replacement agent compacts on a fresh signal: an interrupt or
+      // rotation that aborted the outgoing agent's compact must not
+      // pre-abort this one's (CL-8220).
+      compactionLifecycle.reset();
     },
     evidenceArchiveHolder,
   });

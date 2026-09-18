@@ -33,6 +33,7 @@ import type { ScopedApproval } from "../../permission/admin.js";
 import type { ConnectedMcpServer, RunState } from "../../session/state.js";
 import type { PendingImageAttachment } from "../image-attachments.js";
 import type { AgentDeliveryResult } from "../delivery-queue.js";
+import type { CompactionLifecycle } from "../../session/compaction-lifecycle.js";
 import type { SubmitOutcome } from "./submit.js";
 import type { mountRunnerHost } from "./host.js";
 import { EventEmitter } from "node:events";
@@ -263,6 +264,10 @@ export interface RunnerState {
     onSettle?: (result: AgentDeliveryResult) => void,
   ) => void;
   enqueueCompactionContinuation?: (deliverToLiveAgent: () => void) => void;
+  // CL-8220: abort-aware compaction lifecycle, created by the TUI session
+  // assembly (session.ts) and read by the interrupt/rotation paths (exit.ts).
+  // Optional because tests build partial states without session assembly.
+  compactionLifecycle?: CompactionLifecycle;
   reloadIfIdle?: () => void;
   systemNotice?: (text: string) => void;
   currentAttemptIdentity?: () => InferenceAttemptIdentity;
