@@ -779,6 +779,56 @@ describe("loadConfig", () => {
     }
   });
 
+  test("--resume <id> reopens a known session by id", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const sessionId = generateSessionId();
+      await initSessionDir(cwd, sessionId, home);
+      await saveState(
+        cwd,
+        sessionId,
+        {
+          status: "done",
+          turnsUsed: 2,
+          task: "ship resume",
+          startedAt: Date.now() - 1_000,
+          finishedAt: Date.now(),
+        },
+        home,
+      );
+      // The exact argv form the exit hint prints (`Run corbits --resume <id>`).
+      const config = await loadConfig(["--resume", sessionId, "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      });
+      assertConfigured(config);
+      expect(config.command).toBe("tui");
+      expect(config.resumeMode).toBe("id");
+      expect(config.sessionId).toBe(sessionId);
+      expect(config.skipInitialTask).toBe(true);
+      expect(config.task).toBe("ship resume");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("--resume with a non-session-id token errors instead of leaking into task text", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      await expect(
+        loadConfig(["--resume", "not-a-session", "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow("'not-a-session' is not a session id");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
   test("plain corbits always creates fresh state even when a previous session exists", async () => {
     const cwd = await emptyCwd();
     const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));

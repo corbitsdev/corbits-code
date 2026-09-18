@@ -16,6 +16,8 @@ import type {
 } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 import { defined } from "../../../tests/helpers/defined.js";
+import { withMockedHomedir } from "../../../tests/helpers/mock-module.js";
+import { createTempDirs } from "../../../tests/helpers/temporary-dirs.js";
 import {
   createDeliveryGeneration,
   createSessionOperationQueue,
@@ -193,6 +195,44 @@ describe("finalizeTUIRun quit order", () => {
       defined(settleTail, "settleTail")(new Error("stop"));
     }
     await expect(done).rejects.toThrow("stop");
+  });
+});
+
+describe("finalizeTUIRun resume hint", () => {
+  test("prints the resume command with the exited session id", async () => {
+    const dirs = createTempDirs(
+      "corbits-resume-hint-cwd-",
+      "corbits-resume-hint-home-",
+    );
+    const sessionId = "123e4567-e89b-12d3-a456-426614174000";
+    const { state, services } = stubQuit({
+      awaitTail: async () => undefined,
+      shutdownRuntime: async () => undefined,
+    });
+    state.sessionId = sessionId;
+    (
+      services as unknown as { activatedToolNames: { list: () => string[] } }
+    ).activatedToolNames = { list: () => [] };
+    (state.config as { cwd: string }).cwd = dirs.cwd;
+    const writes: string[] = [];
+    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    try {
+      const code = await withMockedHomedir(dirs.home, () =>
+        finalizeTUIRun(state, services),
+      );
+      expect(code).toBe(0);
+    } finally {
+      stdoutSpy.mockRestore();
+      dirs.cleanup();
+    }
+    expect(
+      writes.some((w) => w === `Run corbits --resume ${sessionId}\n`),
+    ).toBe(true);
   });
 });
 

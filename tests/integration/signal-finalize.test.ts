@@ -41,6 +41,22 @@ describe("integration — signal finalizes run.json", () => {
 
         expect(exitCode).toBe(expectedExitCode);
 
+        // The interrupted session must name itself so the operator can
+        // resume exactly the session they just left. The first stdout chunk
+        // was already consumed to learn the run dir, so drain the remainder
+        // with a fresh reader (Response wrapping rejects disturbed streams).
+        const reader = proc.stdout.getReader();
+        const decoder = new TextDecoder();
+        let rest = "";
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          rest += decoder.decode(value, { stream: true });
+        }
+        rest += decoder.decode();
+        reader.releaseLock();
+        expect(rest).toContain(`Run corbits --resume ${sessionId}`);
+
         // The fixture parks two unawaited straggler "running" snapshot writes
         // behind setTestWriteGate and releases them only after markCrashed()
         // flips. Without that fence on the signal path, one of those renames
