@@ -215,9 +215,9 @@ describe("isGptProvider (CL-8310)", () => {
   });
 
   test("matches gpt-* model ids on any provider", () => {
-    expect(
-      isGptProvider({ providerName: "openai", model: "gpt-5.5" }),
-    ).toBe(true);
+    expect(isGptProvider({ providerName: "openai", model: "gpt-5.5" })).toBe(
+      true,
+    );
     expect(
       isGptProvider({ providerName: "opencode-go", model: "gpt-5.1" }),
     ).toBe(true);
