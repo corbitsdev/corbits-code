@@ -102,4 +102,35 @@ describe("resolveModelFamilyPolicy", () => {
     expect(muse.toolDisciplineRules).toContain("Never re-read a file");
     expect(base.toolDisciplineRules).toBeUndefined();
   });
+
+  test("claude leaves carry the XML task_guidance residual; orchestrators do not", () => {
+    const leaf = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-sonnet-4",
+      orchestrator: false,
+    });
+    expect(leaf.family).toBe("claude");
+    expect(leaf.promptResidual).toContain("<task_guidance>");
+    expect(leaf.promptResidual).toContain("</task_guidance>");
+    const orchestrator = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-sonnet-4",
+      orchestrator: true,
+    });
+    expect(orchestrator.promptResidual).toBeUndefined();
+  });
+
+  test("grok and gpt rows carry no promptResidual", () => {
+    for (const input of [
+      { providerName: "xai/default", model: "grok-4.6" },
+      { providerName: "openai", model: "gpt-4.1" },
+      { providerName: "codex", model: "gpt-5.1" },
+    ] as const) {
+      const policy = resolveModelFamilyPolicy({
+        ...input,
+        orchestrator: false,
+      });
+      expect(policy.promptResidual).toBeUndefined();
+    }
+  });
 });
