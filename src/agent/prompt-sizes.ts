@@ -17,6 +17,7 @@ import {
   MAX_AGENTS_MD_BYTES,
 } from "./context-extensions.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
+import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { shellCollectDefinition } from "./background-shell-tool.js";
 import {
@@ -35,7 +36,9 @@ import { webSearchDefinition } from "../tools/web-search.js";
  * Assembles each director prompt exactly as src/subagent/run.ts does:
  * extensions=[director systemPromptRole] + environment + tools +
  * appendix, with the Grok finish-bias note gated by
- * shouldApplyGrokAntiThrash (leaves on Grok-family providers only).
+ * shouldApplyGrokAntiThrash (leaves on Grok-family providers only) and the
+ * family promptResidual (CL-8297 tool budget, grok leaves only) resolved
+ * from the model family policy.
  *
  * The env and provider inputs are pinned here so sizes never drift with the
  * machine, date, or checkout — only real prompt changes move the numbers.
@@ -156,6 +159,7 @@ export function assembleDirectorPrompt(
   const pkg = DIRECTOR_REGISTRY[directorId];
   const orchestrator = pkg.spawn.maySpawn;
   const provider = family === "grok" ? GROK_PROVIDER : DEFAULT_PROVIDER;
+  const policy = resolveModelFamilyPolicy({ ...provider, orchestrator });
   return buildSubAgentSystemPrompt(
     [formatDirectorSystemPrompt(pkg)],
     CANONICAL_PROMPT_ENV,
@@ -164,6 +168,7 @@ export function assembleDirectorPrompt(
       orchestrator,
       toolNames: canonicalToolNamesForDirector(pkg, family),
       grokAntiThrash: shouldApplyGrokAntiThrash({ ...provider, orchestrator }),
+      promptResidual: policy.promptResidual,
     },
   );
 }
