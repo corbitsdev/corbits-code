@@ -370,3 +370,29 @@ describe("grok finish-bias residual gating (extends existing provider-family tes
     expect(prompt.toLowerCase()).not.toContain("kimi");
   });
 });
+
+describe("promptResidual assembly (CL-8297)", () => {
+  const TOOL_BUDGET =
+    "Tool budget:\n" +
+    "- Batch independent tool calls into a single turn.\n" +
+    "- Never re-issue a tool call whose result you already have.\n" +
+    "- When the next call would only repeat prior work, write the report instead.";
+
+  it("appends promptResidual exactly once at the tail for a grok leaf", () => {
+    const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      grokAntiThrash: true,
+      promptResidual: TOOL_BUDGET,
+    });
+    expect(countOccurrences(prompt, TOOL_BUDGET)).toBe(1);
+    expect(prompt.trimEnd().endsWith(TOOL_BUDGET)).toBe(true);
+  });
+
+  it("omits the tool budget when promptResidual is unset", () => {
+    const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      grokAntiThrash: true,
+    });
+    expect(prompt).not.toContain("Tool budget:");
+  });
+});
