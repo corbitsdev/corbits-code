@@ -798,7 +798,7 @@ describe("loadConfig", () => {
         },
         home,
       );
-      // The exact argv form the exit hint prints (`Run corbits --resume <id>`).
+      // The exact argv form the exit hint prints (`corbits resume <id>`).
       const config = await loadConfig(["--resume", sessionId, "--cwd", cwd], {
         globalSettingsPath: globalPath,
         home,

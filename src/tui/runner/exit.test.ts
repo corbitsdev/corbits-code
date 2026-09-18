@@ -230,9 +230,9 @@ describe("finalizeTUIRun resume hint", () => {
       stdoutSpy.mockRestore();
       dirs.cleanup();
     }
-    expect(
-      writes.some((w) => w === `Run corbits --resume ${sessionId}\n`),
-    ).toBe(true);
+    expect(writes.some((w) => w === `Run corbits resume ${sessionId}\n`)).toBe(
+      true,
+    );
   });
 });
 

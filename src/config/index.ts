@@ -889,7 +889,8 @@ export async function loadConfig(
         throw new Error("cannot combine a session id with --resume");
       }
       // Optional session id: `corbits --resume <uuid>` reopens that session
-      // directly (the form the exit hint prints); bare `--resume` opens the
+      // directly (an alias for the `corbits resume <uuid>` form the exit
+      // hint prints); bare `--resume` opens the
       // picker. A non-flag token that is not a session id errors exactly like
       // the `resume` verb path instead of leaking into task text.
       const next = args[i + 1];

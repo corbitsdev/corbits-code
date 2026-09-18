@@ -55,7 +55,7 @@ describe("integration — signal finalizes run.json", () => {
         }
         rest += decoder.decode();
         reader.releaseLock();
-        expect(rest).toContain(`Run corbits --resume ${sessionId}`);
+        expect(rest).toContain(`Run corbits resume ${sessionId}`);
 
         // The fixture parks two unawaited straggler "running" snapshot writes
         // behind setTestWriteGate and releases them only after markCrashed()
