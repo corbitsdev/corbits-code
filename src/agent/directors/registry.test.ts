@@ -158,8 +158,6 @@ describe("director registry", () => {
       "critic",
       "greybeard",
       "neckbeard",
-      "draper",
-      "emil",
       "explorer",
       "counsel",
       "testsmith",
@@ -179,6 +177,18 @@ describe("director registry", () => {
       expect(allow).toContain("write_file");
       expect(allow).toContain("edit_file");
       expect(allow).toContain("delete_file");
+    }
+  });
+
+  test("draper and emil are read-only critique leaves (CL-8231 / CL-8234)", () => {
+    for (const id of ["draper", "emil"] as const) {
+      const allow = DIRECTOR_REGISTRY[id].tools?.allow ?? [];
+      expect(allow).toContain("read_file");
+      expect(allow).toContain("skill_search");
+      expect(allow).toContain("use_skill");
+      expect(allow).not.toContain("write_file");
+      expect(allow).not.toContain("edit_file");
+      expect(allow).not.toContain("delete_file");
     }
   });
 
