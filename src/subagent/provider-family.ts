@@ -50,11 +50,7 @@ export function isGptProvider(input: {
   model?: string;
 }): boolean {
   const name = input.providerName.toLowerCase();
-  if (
-    isCodexProviderName(name) ||
-    name === "codex" ||
-    name.includes("codex")
-  )
+  if (isCodexProviderName(name) || name === "codex" || name.includes("codex"))
     return true;
   if (input.model !== undefined && /^gpt-/i.test(input.model.trim()))
     return true;

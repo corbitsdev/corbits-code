@@ -424,14 +424,24 @@ describe("gpt narrate-before-tools residual (CL-8310)", () => {
   });
 
   it("is absent on grok and claude prompts", () => {
-    const grokLeaf = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
-      orchestrator: false,
-      grokAntiThrash: true,
-    });
-    const claudeLeaf = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
-      orchestrator: false,
-      grokAntiThrash: false,
-    });
+    const grokLeaf = buildSubAgentSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      {
+        orchestrator: false,
+        grokAntiThrash: true,
+      },
+    );
+    const claudeLeaf = buildSubAgentSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      {
+        orchestrator: false,
+        grokAntiThrash: false,
+      },
+    );
     const claudePrimary = buildChatSystemPrompt(
       undefined,
       undefined,
