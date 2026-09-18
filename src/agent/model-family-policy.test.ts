@@ -131,4 +131,46 @@ describe("resolveModelFamilyPolicy", () => {
       expect(base.promptResidual).toBeUndefined();
     });
   });
+
+  test("claude leaves carry the XML task_guidance residual; orchestrators do not", () => {
+    const leaf = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-sonnet-4",
+      orchestrator: false,
+    });
+    expect(leaf.family).toBe("claude");
+    expect(leaf.promptResidual).toContain("<task_guidance>");
+    expect(leaf.promptResidual).toContain("</task_guidance>");
+    const orchestrator = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-sonnet-4",
+      orchestrator: true,
+    });
+    expect(orchestrator.promptResidual).toBeUndefined();
+  });
+
+  // The gpt family row has NOT landed yet (#1135): openai/gpt-4.1 and
+  // codex/gpt-5.1 are default-family probes here, asserting they resolve to
+  // the default family with no residual. Grok keeps its CL-8297 tool-budget
+  // residual — the "no residual" claim below is default-family-only.
+  test("gpt probes resolve to default with no residual; grok keeps its tool budget", () => {
+    for (const input of [
+      { providerName: "openai", model: "gpt-4.1" },
+      { providerName: "codex", model: "gpt-5.1" },
+    ] as const) {
+      const policy = resolveModelFamilyPolicy({
+        ...input,
+        orchestrator: false,
+      });
+      expect(policy.family).toBe("default");
+      expect(policy.promptResidual).toBeUndefined();
+    }
+    const grok = resolveModelFamilyPolicy({
+      providerName: "xai/default",
+      model: "grok-4.6",
+      orchestrator: false,
+    });
+    expect(grok.family).toBe("grok");
+    expect(grok.promptResidual).toContain("Tool budget:");
+  });
 });
