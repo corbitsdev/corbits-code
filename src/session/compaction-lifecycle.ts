@@ -88,6 +88,13 @@ export function createCompactionLifecycle(
 ): CompactionLifecycle {
   let controller = new AbortController();
   let compacting = false;
+  // Settle generation: every started compact and every reset mints a new
+  // generation, and a settle only clears the flag / emits the end event when
+  // its generation is still current. Without this, a stale settle (an aborted
+  // compact whose loser promise resolves after abort + reset + a newer
+  // compact started) would clear the newer compact's in-flight flag and emit
+  // a duplicate end event for a compact that is already over.
+  let generation = 0;
 
   return {
     getSignal: () => controller.signal,
@@ -98,6 +105,7 @@ export function createCompactionLifecycle(
     reset: (): void => {
       controller = new AbortController();
       compacting = false;
+      generation += 1;
     },
     wrapCompactor: (inner: Compactor): Compactor => ({
       name: inner.name,
@@ -108,6 +116,8 @@ export function createCompactionLifecycle(
         // compact): skip the inner run entirely, without lifecycle events —
         // the interrupting path already told the operator what happened.
         if (signal.aborted) return abortedResult(inner, turns);
+        generation += 1;
+        const settledGeneration = generation;
         compacting = true;
         events.onCompactionStart?.();
         let aborted = false;
@@ -139,8 +149,13 @@ export function createCompactionLifecycle(
               signal.removeEventListener("abort", onAbort);
           }
         } finally {
-          compacting = false;
-          events.onCompactionEnd?.({ aborted });
+          // A stale settle (abort + reset + a newer compact started while
+          // this one was still in flight) must not clear the newer compact's
+          // flag or emit an end event for a compact that is already over.
+          if (settledGeneration === generation) {
+            compacting = false;
+            events.onCompactionEnd?.({ aborted });
+          }
         }
       },
     }),

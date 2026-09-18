@@ -139,6 +139,61 @@ describe("finalizeTUIRun quit order", () => {
     }
     await expect(pending).rejects.toThrow("stop");
   });
+
+  test("aborts the in-flight compact before runtime shutdown so quit cannot stall", async () => {
+    const order: string[] = [];
+    let settleTail: ((err: Error) => void) | undefined;
+    const hungTail = new Promise<void>((_, reject) => {
+      settleTail = reject;
+    });
+    const lifecycle = createCompactionLifecycle();
+    const wrapped = lifecycle.wrapCompactor({
+      name: "hang",
+      version: "0",
+      apply: () =>
+        new Promise<never>(() => {
+          // Never settles on purpose: the quit abort must win the race.
+        }),
+    });
+    const pending = wrapped.apply([], {} as never);
+    expect(lifecycle.isCompacting()).toBe(true);
+    const { state, services } = stubQuit({
+      awaitTail: async () => {
+        order.push("tail");
+        await hungTail;
+      },
+      shutdownRuntime: async () => {
+        order.push("shutdown");
+        // Shutdown drains the compact: with the abort first this resolves
+        // promptly instead of stalling quit behind the hung summary call.
+        await pending;
+        order.push("shutdown-settled");
+      },
+    });
+    state.compactionLifecycle = {
+      abortCompaction: (reason: string) => {
+        order.push(`abort:${reason}`);
+        lifecycle.abortCompaction(reason);
+      },
+    } as unknown as NonNullable<RunnerState["compactionLifecycle"]>;
+
+    const done = finalizeTUIRun(state, services);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(order).toEqual([
+        "abort:quit",
+        "shutdown",
+        "shutdown-settled",
+        "tail",
+      ]);
+      const result = await pending;
+      expect(result.record.reason).toBe(COMPACTION_ABORTED_REASON);
+      expect(lifecycle.isCompacting()).toBe(false);
+    } finally {
+      defined(settleTail, "settleTail")(new Error("stop"));
+    }
+    await expect(done).rejects.toThrow("stop");
+  });
 });
 
 const liveSource: InferenceSource = {
@@ -466,6 +521,217 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       codexRefresh.mockRestore();
     }
     expect(sends).toContain("after interrupt");
+  });
+
+  test("rotation during an in-flight compaction aborts the compact and rotates so the next send works", async () => {
+    const store = createSubAgentSessionStore();
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const sends: string[] = [];
+    const agent = recordingAgent(sends);
+    const { state, services } = stubSendLifecycle(agent);
+    services.directorHolder =
+      directorHolder as unknown as RunnerServices["directorHolder"];
+    services.subAgentSessions =
+      store as unknown as RunnerServices["subAgentSessions"];
+    services.workflowHost = {
+      reattach: () => undefined,
+      reset: () => undefined,
+    } as unknown as RunnerServices["workflowHost"];
+    services.cycleRecorder = {
+      dispose: async () => "",
+      reset: () => undefined,
+      handleEvent: () => undefined,
+    } as unknown as RunnerServices["cycleRecorder"];
+    services.buildSessionSources = () => ({
+      sources: [liveSource],
+      defaultSource: liveSource.id,
+      selected: liveSource,
+    });
+    services.permissionGate = {
+      reset: () => undefined,
+    } as unknown as RunnerServices["permissionGate"];
+    services.runSink = {
+      sink: () => undefined,
+      reset: () => undefined,
+    } as unknown as RunnerServices["runSink"];
+    services.sessionCost = {
+      addTurn: () => undefined,
+      reset: () => undefined,
+    } as unknown as RunnerServices["sessionCost"];
+    services.activatedToolNames = {
+      clear: () => undefined,
+      activate: () => false,
+      list: () => [],
+    } as unknown as RunnerServices["activatedToolNames"];
+    services.hostHolder = {} as unknown as RunnerServices["hostHolder"];
+    services.buildAgent = (async () => {
+      directorHolder.instance = createChatDirector("base", [], {
+        allowIdleWithFleet: true,
+      });
+      return agent;
+    }) as unknown as RunnerServices["buildAgent"];
+    const initDir = spyOn(sessionIndex, "initSessionDir").mockImplementation(
+      async () => "/tmp/rotated-session",
+    );
+    const contextDir = spyOn(
+      sessionIndex,
+      "sessionContextDir",
+    ).mockImplementation(() => "/tmp/rotated-session/context");
+    try {
+      await createRunLifecycle(state, services);
+      // A fold is mid-flight on the reactor when the operator rotates: the
+      // wrapped compact hangs on its summary call.
+      const lifecycle = createCompactionLifecycle();
+      state.compactionLifecycle = lifecycle;
+      const wrapped = lifecycle.wrapCompactor({
+        name: "hang",
+        version: "0",
+        apply: () =>
+          new Promise<never>(() => {
+            // Never settles on purpose: the rotation gate must win the race.
+          }),
+      });
+      const pending = wrapped.apply([], {} as never);
+      expect(lifecycle.isCompacting()).toBe(true);
+      // The rotation aborts the compact first instead of parking behind the
+      // hung summary call, then rebuilds onto the fresh session as usual.
+      defined(state.newSession, "newSession")();
+      const aborted = await pending;
+      expect(aborted.record.reason).toBe(COMPACTION_ABORTED_REASON);
+      expect(lifecycle.isCompacting()).toBe(false);
+      await services.sessionOps.awaitTail();
+      expect(state.fatalBuildError).toBeNull();
+      // The rotated session accepts the resend — no hop was dropped.
+      const codexRefresh = spyOn(
+        codexSession,
+        "getValidCodexToken",
+      ).mockResolvedValue({ access: "fresh-token" });
+      try {
+        await defined(state.agentProxy, "agentProxy").send("after rotation");
+      } finally {
+        codexRefresh.mockRestore();
+      }
+      expect(sends).toContain("after rotation");
+    } finally {
+      initDir.mockRestore();
+      contextDir.mockRestore();
+    }
+  });
+
+  test("a failed interrupt rebuild un-poisons the lifecycle so later compacts run", async () => {
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const agent = recordingAgent([]);
+    const { state, services } = stubSendLifecycle(agent);
+    services.directorHolder =
+      directorHolder as unknown as RunnerServices["directorHolder"];
+    services.subAgentSessions = {
+      cancelAll: async () => [],
+      list: () => [],
+    } as unknown as RunnerServices["subAgentSessions"];
+    services.workflowHost = {
+      reattach: () => undefined,
+    } as unknown as RunnerServices["workflowHost"];
+    services.cycleRecorder = {
+      dispose: async () => "",
+      reset: () => undefined,
+      handleEvent: () => undefined,
+    } as unknown as RunnerServices["cycleRecorder"];
+    services.buildAgent = (async () => {
+      directorHolder.instance = createChatDirector("base", [], {
+        allowIdleWithFleet: true,
+      });
+      return agent;
+    }) as unknown as RunnerServices["buildAgent"];
+    await createRunLifecycle(state, services);
+    const lifecycle = createCompactionLifecycle();
+    state.compactionLifecycle = lifecycle;
+    // The replacement agent fails to build: the rebuild never reaches
+    // onBuilt/reset, so the catch's poison guard must un-poison instead.
+    services.buildAgent = (async () => {
+      throw new Error("build blew up");
+    }) as unknown as RunnerServices["buildAgent"];
+    const hanging = lifecycle.wrapCompactor({
+      name: "hang",
+      version: "0",
+      apply: () =>
+        new Promise<never>(() => {
+          // Never settles on purpose: the interrupt gate must win the race.
+        }),
+    });
+    const pending = hanging.apply([], {} as never);
+    expect(lifecycle.isCompacting()).toBe(true);
+    defined(state.interrupt, "interrupt")();
+    const aborted = await pending;
+    expect(aborted.record.reason).toBe(COMPACTION_ABORTED_REASON);
+    await services.sessionOps.awaitTail();
+    // The failure still surfaces…
+    expect(state.fatalBuildError).not.toBeNull();
+    // …but the lifecycle is usable: the signal is fresh and the next compact
+    // runs its inner run instead of silently no-op.
+    expect(lifecycle.getSignal().aborted).toBe(false);
+    let innerCalls = 0;
+    const live = lifecycle.wrapCompactor({
+      name: "live",
+      version: "0",
+      apply: async (input) => {
+        innerCalls += 1;
+        return {
+          output: input,
+          record: {
+            strategy: "live",
+            version: "0",
+            parameters: {},
+            reason: "folded",
+            decisions: { summarizedTurnCount: 1 },
+          },
+        };
+      },
+    });
+    const result = await live.apply([], {} as never);
+    expect(innerCalls).toBe(1);
+    expect(result.record.reason).toBe("folded");
+  });
+
+  test("a failed reload-if-idle rebuild un-poisons the lifecycle", async () => {
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const agent = recordingAgent([]);
+    const { state, services } = stubSendLifecycle(agent);
+    services.directorHolder =
+      directorHolder as unknown as RunnerServices["directorHolder"];
+    services.subAgentSessions = {
+      cancelAll: async () => [],
+      list: () => [],
+    } as unknown as RunnerServices["subAgentSessions"];
+    services.workflowHost = {
+      reattach: () => undefined,
+    } as unknown as RunnerServices["workflowHost"];
+    services.cycleRecorder = {
+      dispose: async () => "",
+      reset: () => undefined,
+      handleEvent: () => undefined,
+    } as unknown as RunnerServices["cycleRecorder"];
+    services.buildAgent = (async () => {
+      directorHolder.instance = createChatDirector("base", [], {
+        allowIdleWithFleet: true,
+      });
+      return agent;
+    }) as unknown as RunnerServices["buildAgent"];
+    await createRunLifecycle(state, services);
+    const lifecycle = createCompactionLifecycle();
+    state.compactionLifecycle = lifecycle;
+    // Poisoned by an earlier abort whose rebuild never landed…
+    lifecycle.abortCompaction("operator interrupt");
+    expect(lifecycle.getSignal().aborted).toBe(true);
+    services.buildAgent = (async () => {
+      throw new Error("build blew up");
+    }) as unknown as RunnerServices["buildAgent"];
+    state.pendingReload = true;
+    defined(state.reloadIfIdle, "reloadIfIdle")();
+    await services.sessionOps.awaitTail();
+    // …the failure surfaces, but the catch's poison guard mints a fresh
+    // signal so later compacts work instead of silently no-op.
+    expect(state.fatalBuildError).not.toBeNull();
+    expect(lifecycle.getSignal().aborted).toBe(false);
   });
 
   test("reload-if-idle and interrupt rebuilds resume the open-task nudge with no fleet transition", async () => {

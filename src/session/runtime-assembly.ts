@@ -57,6 +57,7 @@ import {
 } from "./compactor.js";
 import type { SummaryContext } from "./summarizer.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
+import { COMPACTION_ABORTED_REASON } from "./compaction-lifecycle.js";
 
 // ---------------------------------------------------------------------------
 // 1. Sub-agent provider literal
@@ -380,6 +381,13 @@ export interface SessionPruningCompactorArgs {
   telemetry?: Telemetry;
   /** Fires only when turns were actually folded away — not on no-ops. */
   onFolded?: (info: { turnsBefore: number; turnsAfter: number }) => void;
+  /**
+   * True when the lifecycle has discarded (or will discard) the in-flight
+   * compact — e.g. bound to the session compaction lifecycle's signal. A
+   * fold the outer abort race threw away must report nothing: no telemetry,
+   * no onFolded side effects for work that never landed.
+   */
+  isAborted?: () => boolean;
 }
 
 /** Shared pruning-compactor defaults for the main session agent. */
@@ -399,6 +407,16 @@ export function createSessionPruningCompactor(
       const turnsBefore = turns.length;
       const startedAt = Date.now();
       const result = await compactor.apply(turns, ctx);
+      // A discarded compact reports nothing. When the lifecycle abort wins
+      // the outer race, this inner run may still complete with a genuine
+      // fold — but the reactor threw that output away, so emitting telemetry
+      // or onFolded would describe work that never landed (phantom fold).
+      if (
+        args.isAborted?.() === true ||
+        result.record.reason === COMPACTION_ABORTED_REASON
+      ) {
+        return result;
+      }
       // summarizedTurnCount is only set on the branch that actually folded
       // turns away. The other branch is a no-op (or image aging alone), and
       // reporting it as compaction would drag the duration and turn-count

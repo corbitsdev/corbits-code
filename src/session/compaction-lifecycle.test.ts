@@ -361,4 +361,52 @@ describe("createCompactionLifecycle", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]?.aborted).toBe(true);
   });
+
+  test("a stale settle cannot clear a newer compact's flag or emit its end", async () => {
+    const ends: string[] = [];
+    const lifecycle = createCompactionLifecycle({
+      onCompactionStart: () => ends.push("start"),
+      onCompactionEnd: (info) => ends.push(`end:${info.aborted}`),
+    });
+    let releaseStale!: (result: StrategyResult<ConversationTurn[]>) => void;
+    let releaseCurrent!: (result: StrategyResult<ConversationTurn[]>) => void;
+    let calls = 0;
+    const inner: Compactor = {
+      name: "inner",
+      version: "0",
+      apply: () => {
+        calls += 1;
+        if (calls === 1) {
+          return new Promise<StrategyResult<ConversationTurn[]>>((resolve) => {
+            releaseStale = resolve;
+          });
+        }
+        return new Promise<StrategyResult<ConversationTurn[]>>((resolve) => {
+          releaseCurrent = resolve;
+        });
+      },
+    };
+    const wrapped = lifecycle.wrapCompactor(inner);
+    const input = turns(8);
+    const stale = wrapped.apply(input, ctx);
+    expect(lifecycle.isCompacting()).toBe(true);
+    // A rebuild lands mid-compact: the replacement agent gets a fresh signal
+    // while the old compact is still in flight.
+    lifecycle.reset();
+    expect(lifecycle.isCompacting()).toBe(false);
+    const current = wrapped.apply(input, ctx);
+    expect(lifecycle.isCompacting()).toBe(true);
+    // The stale compact settles late: the flag stays up for the newer compact
+    // and no end event fires for the already-reset generation.
+    releaseStale(okResult(input));
+    await stale;
+    expect(lifecycle.isCompacting()).toBe(true);
+    expect(ends).toEqual(["start", "start"]);
+    // The newer compact still settles normally.
+    releaseCurrent(okResult(input));
+    const settled = await current;
+    expect(settled.record.reason).toBe("folded");
+    expect(lifecycle.isCompacting()).toBe(false);
+    expect(ends).toEqual(["start", "start", "end:false"]);
+  });
 });

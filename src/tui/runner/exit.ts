@@ -414,6 +414,10 @@ export async function createRunLifecycle(
       } catch (err) {
         recordRunError(state, err);
         state.fatalBuildError = agentRebuildFailure(err);
+        // A failed rebuild never reaches onBuilt/reset: un-poison the
+        // lifecycle here so later compacts work instead of silently no-op
+        // (same guard as the interrupt and rotation rebuilds).
+        state.compactionLifecycle?.reset();
       }
     });
   };
@@ -770,6 +774,10 @@ export async function finalizeTUIRun(
   // delay abort/reap. Persistence, hooks, and telemetry stay after stop.
   // Toolset dispose lives inside shutdownRuntime so quit, crash, and signals
   // share one owner.
+  // Quit must not park behind a hung summary call: abort the compact first
+  // (no notice — quitting needs no commentary) so the in-flight apply race
+  // resolves before shutdown and the tail can drain promptly.
+  state.compactionLifecycle?.abortCompaction("quit");
   let teardownFailed = false;
   try {
     await state.shutdownRuntime?.();
@@ -779,9 +787,6 @@ export async function finalizeTUIRun(
       error: err instanceof Error ? err.message : String(err),
     });
   }
-  // Quit must not park behind a hung summary call: abort the compact first
-  // (no notice — quitting needs no commentary), then await the tail.
-  state.compactionLifecycle?.abortCompaction("quit");
   await services.sessionOps.awaitTail();
 
   state.stopFleetReporting?.();

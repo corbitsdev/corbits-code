@@ -31,6 +31,7 @@ import {
 } from "./runtime-assembly.js";
 import type { SubAgentSourcesConfig } from "./runtime-assembly.js";
 import type { Settings } from "../config/settings.js";
+import type { Telemetry } from "../telemetry/index.js";
 import { generateSessionId, initSessionDir, sessionDir } from "./index.js";
 import type { PluginModule } from "../plugins/loader.js";
 
@@ -521,6 +522,53 @@ describe("createSessionPruningCompactor", () => {
     }));
     await noop.apply(few as never, { state: {} as never, trigger: "test" });
     expect(silent).toEqual([]);
+  });
+
+  test("a discarded fold emits no telemetry and no onFolded", async () => {
+    const captured: { event: string }[] = [];
+    const folds: { turnsBefore: number; turnsAfter: number }[] = [];
+    const telemetry: Telemetry = {
+      enabled: true,
+      installationId: "test",
+      capture: (event) => {
+        captured.push({ event });
+      },
+      captureIntentional: () => false,
+      flush: async () => undefined,
+      discard: () => undefined,
+    };
+    // Bound to the lifecycle signal in production: true once the outer abort
+    // race has discarded (or will discard) this run's output.
+    let aborted = false;
+    const compactor = createSessionPruningCompactor({
+      summarize: async () => "summary",
+      telemetry,
+      onFolded: (info) => folds.push(info),
+      isAborted: () => aborted,
+    });
+    const now = Date.now();
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: [{ type: "text", text: `t${i}` }],
+      timestamp: now,
+    }));
+    // A live fold still reports…
+    const folded = await compactor.apply(many as never, {
+      state: {} as never,
+      trigger: "test",
+    });
+    expect(folds).toHaveLength(1);
+    expect(captured.map((entry) => entry.event)).toEqual(["compaction"]);
+    // …but a fold the lifecycle discarded reports nothing, while the output
+    // itself still passes through untouched (fold semantics unchanged).
+    aborted = true;
+    const discarded = await compactor.apply(many as never, {
+      state: {} as never,
+      trigger: "test",
+    });
+    expect(discarded.output).toEqual(folded.output);
+    expect(folds).toHaveLength(1);
+    expect(captured.map((entry) => entry.event)).toEqual(["compaction"]);
   });
 });
 
