@@ -447,6 +447,8 @@ export async function assembleTUISession(
     sessionMode: liveSessionMode,
     toolAvailability,
     skills: toolset.skills,
+    providerName: config.providerName,
+    model: config.model,
   });
 
   const directorHolder: { instance?: ReturnType<typeof createChatDirector> } =

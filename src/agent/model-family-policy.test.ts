@@ -125,9 +125,8 @@ describe("resolveModelFamilyPolicy", () => {
       });
       expect(orchestrator.promptResidual).toBeUndefined();
       // Default-family probe: anthropic/claude-sonnet-4 hits the claude row
-      // now, and openai/gpt-5.6 will hit the gpt row once it lands (#1135),
-      // so an unrecognized provider is the probe that still resolves to the
-      // default family.
+      // and openai/gpt-5.6 hits the gpt row (#1135), so an unrecognized
+      // provider is the probe that still resolves to the default family.
       const base = resolveModelFamilyPolicy({
         providerName: "unknown-provider",
         model: "unknown-model",
@@ -155,21 +154,22 @@ describe("resolveModelFamilyPolicy", () => {
     expect(orchestrator.promptResidual).toBeUndefined();
   });
 
-  // The gpt family row has NOT landed yet (#1135): openai/gpt-5.6 and
-  // codex/gpt-5.1 are default-family probes here, asserting they resolve to
-  // the default family with no residual. Grok keeps its CL-8297 tool-budget
+  // The gpt family row has landed (#1135): openai/gpt-5.6 and codex/gpt-5.1
+  // resolve to the gpt family with the narrate-before-tools residual, leaf
+  // and orchestrator alike (no carve-out). Grok keeps its CL-8297 tool-budget
   // residual — the "no residual" claim below is default-family-only.
-  test("gpt probes resolve to default with no residual; grok keeps its tool budget", () => {
+  test("gpt probes resolve to gpt with the narrate residual; grok keeps its tool budget", () => {
     for (const input of [
       { providerName: "openai", model: "gpt-5.6" },
       { providerName: "codex", model: "gpt-5.1" },
     ] as const) {
-      const policy = resolveModelFamilyPolicy({
-        ...input,
-        orchestrator: false,
-      });
-      expect(policy.family).toBe("default");
-      expect(policy.promptResidual).toBeUndefined();
+      for (const orchestrator of [false, true]) {
+        const policy = resolveModelFamilyPolicy({ ...input, orchestrator });
+        expect(policy.family).toBe("gpt");
+        expect(policy.promptResidual).toContain(
+          "Narrate before tools (GPT worker):",
+        );
+      }
     }
     const grok = resolveModelFamilyPolicy({
       providerName: "xai/default",

@@ -373,7 +373,6 @@ describe("grok finish-bias residual gating (extends existing provider-family tes
   });
 });
 
-<<<<<<< HEAD
 describe("promptResidual assembly (CL-8297)", () => {
   const TOOL_BUDGET =
     "Tool budget:\n" +
@@ -468,7 +467,7 @@ describe("gpt narrate-before-tools residual (CL-8310)", () => {
   it("appears exactly once on a gpt leaf prompt", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
-      gptNarrateBeforeTools: true,
+      promptResidual: buildGptNarrateBeforeToolsNote(),
     });
     const note = buildGptNarrateBeforeToolsNote();
     expect(countOccurrences(prompt, note)).toBe(1);
@@ -484,7 +483,7 @@ describe("gpt narrate-before-tools residual (CL-8310)", () => {
       "orchestrator",
       undefined,
       undefined,
-      { gptNarrateBeforeTools: true },
+      { promptResidual: buildGptNarrateBeforeToolsNote() },
     );
     const note = buildGptNarrateBeforeToolsNote();
     expect(countOccurrences(prompt, note)).toBe(1);
