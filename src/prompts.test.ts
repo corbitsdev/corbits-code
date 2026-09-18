@@ -395,7 +395,7 @@ test("buildAvailableTools lists exactly the tools it is given", () => {
   expect(listed).not.toContain("tool_search");
 });
 
-test("sub-agent prompt carries the report-back contract and harness facts", () => {
+test("sub-agent prompt is the lean worker assembly: contract, names, env", () => {
   // Context interpolates cwd. A worktree path containing "ask_operator" would
   // poison this check even when the prompt does not advertise the tool.
   const prompt = buildSubAgentSystemPrompt(undefined, {
@@ -410,9 +410,18 @@ test("sub-agent prompt carries the report-back contract and harness facts", () =
   expect(prompt).toContain("Reporting back:");
   expect(prompt).toContain("only thing returned to the parent");
   expect(prompt).toContain("ask_director");
-  expect(prompt).toContain("Change files with write_file/edit_file");
-  expect(prompt).toContain("remove files with delete_file");
-  expect(prompt).toContain("parent session's permission gate");
+  expect(prompt).toContain("Tools (names only):");
+  // Lean worker: no harness-facts prose, no catalog summaries, no appendix,
+  // no idle/poll/mailbox copy — the contract owns identity and escalation.
+  expect(prompt).not.toContain("Change files with write_file/edit_file");
+  expect(prompt).not.toContain("parent session's permission gate");
+  expect(prompt).not.toContain("your full toolset");
+  expect(prompt).not.toContain("## Corbits Code notes");
+  expect(prompt).not.toContain("Harness facts:");
+  expect(prompt).not.toContain("Guidelines:");
+  expect(prompt).not.toContain("Prompt discipline:");
+  expect(prompt).not.toContain("mailbox");
+  expect(prompt).not.toContain("do not poll");
   expect(prompt).not.toContain("without asking for approval");
   expect(prompt).not.toContain("ask_operator");
   expect(prompt).not.toContain("you cannot ask the parent mid-run");
@@ -468,9 +477,9 @@ test("sub-agent report contract's headings satisfy hasReportEnvelope", () => {
   expect(hasPlanFindings(headingsOnly)).toBe(false);
 });
 
-test("sub-agent prompt does not advertise tool_search (it gets the full toolset)", () => {
+test("sub-agent prompt does not advertise tool_search (it gets names only)", () => {
   expect(SUBAGENT_SYSTEM_PROMPT).not.toContain("tool_search");
-  expect(SUBAGENT_SYSTEM_PROMPT).toContain("your full toolset");
+  expect(SUBAGENT_SYSTEM_PROMPT).toContain("Tools (names only):");
 });
 
 test("worker prompt does not advertise archive:///; primary chat prompt does", () => {
@@ -486,21 +495,18 @@ test("worker prompt does not advertise archive:///; primary chat prompt does", (
   ).toContain("archive:///");
 });
 
-// Pins the appendix-last invariant for JS-plugin agents: regardless of how the
-// systemPromptRole is sourced (data-only markdown vs. a JS plugin's
-// `agentPlugin.agents[i].systemPromptRole`), `buildSubAgentSystemPrompt` is
-// the single point that appends the Corbits Code translation notes — so a
-// JS-plugin-only path that bypasses the data-only loader still gets them.
-test("sub-agent prompt always appends Corbits Code notes, even with a JS-plugin-style systemPromptRole", () => {
+// The lean worker assembly (CL-8212) is [contract, tool-names-only, env,
+// director body, grok note]: no Corbits Code appendix. The director voice
+// still lands verbatim after the harness sections, whether it came from a
+// data-only markdown file or a JS plugin's `agentPlugin.agents[i].systemPromptRole`.
+test("sub-agent prompt carries the director voice after the harness sections, with no appendix", () => {
   const role = "You are a JS-plugin scout. Map the call graph and report.";
   const prompt = buildSubAgentSystemPrompt([role]);
   expect(prompt).toContain(role);
-  expect(prompt).toContain("## Corbits Code notes");
-  // Workers get the no-recursion rule, not the spawn syntax.
-  expect(prompt).toContain("You are a worker");
-  // Agent voice leads; translation notes are the last section.
-  expect(prompt.indexOf(role)).toBeLessThan(
-    prompt.indexOf("## Corbits Code notes"),
+  expect(prompt).not.toContain("## Corbits Code notes");
+  // Director body leads nothing; harness sections come first.
+  expect(prompt.indexOf("Tools (names only):")).toBeLessThan(
+    prompt.indexOf(role),
   );
 });
 
@@ -549,7 +555,7 @@ test("default sub-agent prompt omits Grok anti-thrash residual", () => {
   );
 });
 
-test("grokAntiThrash opts appends tiny finish-bias note before appendix", () => {
+test("grokAntiThrash opts appends tiny finish-bias note as the last section", () => {
   const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
     grokAntiThrash: true,
   });
@@ -562,8 +568,6 @@ test("grokAntiThrash opts appends tiny finish-bias note before appendix", () => 
   );
   expect(prompt).not.toContain("Leave the last turn");
   expect(prompt).not.toContain("spend the budget");
-  // Appendix still last.
-  expect(prompt.indexOf("Finish bias (xAI / Grok worker)")).toBeLessThan(
-    prompt.indexOf("## Corbits Code notes"),
-  );
+  // No appendix anymore: the grok note closes the prompt.
+  expect(prompt.trimEnd().endsWith(note)).toBe(true);
 });

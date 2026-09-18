@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   MODEL_ROLE_DEFAULT_EFFORT,
-  WORKER_SKILL_SCOPING,
   defaultEffortForDirector,
   formatDirectorSystemPrompt,
 } from "./identity.js";
+import { buildWorkerContract } from "../worker-contract.js";
 import { DIRECTOR_REGISTRY } from "./registry.js";
 
 const SKILL_LIST_BY_DIRECTOR = {
@@ -28,26 +28,28 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain("Optional skills: none by default");
   });
 
-  test("worker lists skill names with the scoping rule and no bodies", () => {
+  test("worker lists skill names with no bodies and no scoping rule (contract owns it)", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     expect(text).not.toContain("# Baked skill guidance");
     expect(text).toContain(
       `Optional skills (names for awareness; load brief-named skills straight through use_skill, skill_search for discovery when mounted): ${SKILL_LIST_BY_DIRECTOR.builder}.`,
     );
-    expect(text).toContain(WORKER_SKILL_SCOPING);
-    expect(text).toContain(
+    // The skill-escalation rule lives in the worker contract (CL-8212), not
+    // in every director body.
+    expect(text).not.toContain("search only when the brief names a skill");
+    expect(text).not.toContain("load only the skills the task needs");
+    expect(buildWorkerContract({ askDirector: true })).toContain(
       "Skills are available; search only when the brief names a skill or the task is outside your lane. For a small, bounded edit, do not search skills.",
     );
-    expect(text).toContain(
-      "Load a brief-named skill straight through use_skill",
-    );
-    expect(text).toContain("load only the skills the task needs");
   });
 
   test("worker guidance never mandates skill_search (deny-safe for grok/kimi leaves)", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.builder);
     expect(text).not.toContain("Call skill_search for descriptions");
-    expect(text).toContain("only when choosing among skills and it is mounted");
+    // The deny-safe discovery clause lives in the worker contract.
+    expect(buildWorkerContract({ askDirector: true })).toContain(
+      "only when choosing among skills and it is mounted",
+    );
   });
 
   test("skywalker does not bake Ponytail", () => {
@@ -63,7 +65,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).not.toContain("# Baked skill guidance");
   });
 
-  test("lists names with the scoping rule even when no bodies would resolve", () => {
+  test("lists names with no scoping rule even when no bodies would resolve", () => {
     const text = formatDirectorSystemPrompt({
       ...DIRECTOR_REGISTRY.builder,
       optionalSkills: ["does-not-exist-xyz"],
@@ -72,7 +74,8 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain(
       "Optional skills (names for awareness; load brief-named skills straight through use_skill, skill_search for discovery when mounted): does-not-exist-xyz.",
     );
-    expect(text).toContain(WORKER_SKILL_SCOPING);
+    // The scoping rule lives in the worker contract (CL-8212).
+    expect(text).not.toContain("search only when the brief names a skill");
   });
 
   test("skywalker does not bake skills or claim use_skill unmounted", () => {
@@ -84,7 +87,7 @@ describe("formatDirectorSystemPrompt", () => {
     expect(text).toContain(SKILL_LIST_BY_DIRECTOR.skywalker);
   });
 
-  test("counsel lists skill names with the scoping rule and no bodies (CL-6803)", () => {
+  test("counsel lists skill names with no scoping rule and no bodies (CL-6803)", () => {
     const text = formatDirectorSystemPrompt(DIRECTOR_REGISTRY.counsel);
     expect(text).not.toContain("# Baked skill guidance");
     expect(text).not.toContain("### interview");
@@ -93,7 +96,8 @@ describe("formatDirectorSystemPrompt", () => {
       /multiple-choice questions in batches via `ask_operator`/,
     );
     expect(text).toContain(SKILL_LIST_BY_DIRECTOR.counsel);
-    expect(text).toContain(WORKER_SKILL_SCOPING);
+    // The scoping rule lives in the worker contract (CL-8212).
+    expect(text).not.toContain("search only when the brief names a skill");
   });
 });
 

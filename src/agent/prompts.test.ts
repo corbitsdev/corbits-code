@@ -97,7 +97,7 @@ describe("buildPromptDisciplineBlock", () => {
   });
 });
 
-describe("shared discipline block appears exactly once per built prompt", () => {
+describe("shared discipline block appears exactly once per primary prompt, never in worker prompts", () => {
   it("appears exactly once in the orchestrator chat prompt", () => {
     const prompt = buildChatSystemPrompt(
       undefined,
@@ -109,28 +109,29 @@ describe("shared discipline block appears exactly once per built prompt", () => 
     expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
   });
 
-  it("appears exactly once in a worker prompt (default family)", () => {
+  // Lean workers (CL-8212) carry the contract instead of the shared blocks.
+  it("is absent from a worker prompt (default family)", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
       grokAntiThrash: false,
     });
-    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
+    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(0);
   });
 
-  it("appears exactly once in a grok worker prompt", () => {
+  it("is absent from a grok worker prompt", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
       grokAntiThrash: true,
     });
-    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
+    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(0);
   });
 
-  it("appears exactly once in an orchestrator sub-agent prompt", () => {
+  it("is absent from an orchestrator sub-agent prompt", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: true,
       grokAntiThrash: false,
     });
-    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(1);
+    expect(countOccurrences(prompt, "Prompt discipline:")).toBe(0);
   });
 });
 
@@ -303,12 +304,17 @@ describe("wait_agents mount-gated prompt copy (CL-7678)", () => {
 });
 
 describe("shared verification guidance", () => {
-  it("requires evidence-carrying verification in worker prompts", () => {
+  it("lean worker prompts carry the report envelope, not the full verification guidance", () => {
     const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
       orchestrator: false,
       grokAntiThrash: false,
     });
-    expectVerificationGuidance(prompt);
+    // The envelope still demands evidence in Findings; the multi-line
+    // typecheck/test/full-gate guidance stays on the primary prompt.
+    expect(prompt).toContain("## Findings");
+    expect(prompt).not.toMatch(
+      /defined typecheck command.*relevant tests.*defined full verification command/is,
+    );
   });
 
   it("requires evidence-carrying verification in orchestrator chat prompts", () => {
