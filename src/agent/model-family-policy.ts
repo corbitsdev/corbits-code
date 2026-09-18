@@ -40,10 +40,10 @@ export interface ModelFamilyPolicy {
   toolDisciplineRules?: string;
   /**
    * Provider-family residual appended once to the assembled leaf system
-   * prompt (CL-8297). Generic tool-budget text today (grok only); the
-   * ceremony / Claude / GPT seams stay unfilled in sibling lanes. Withheld
-   * from orchestrators and appended at the tail so it cannot disturb the
-   * cached prompt prefix. Undefined for families that need none.
+   * prompt (CL-8297). Tool-budget text for grok, the XML task_guidance block
+   * for claude; the GPT seam stays unfilled until its lane lands (#1135).
+   * Withheld from orchestrators and appended at the tail so it cannot
+   * disturb the cached prompt prefix. Undefined for families that need none.
    */
   promptResidual?: string | undefined;
 }
@@ -66,6 +66,7 @@ const GROK_WRAP_UP_NUDGE_TEXT =
 // sits comfortably above the observed healthy ceiling; the nudge is a
 // check-in, not a stop, so erring high costs nothing. Tightened only for
 // families with observed runaway tool-only behavior (see grok below).
+/** Default policy: permissive, no finish bias, no prompt residual. */
 const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolOnlyTurnNudgeAt: 25,
   wrapUpNudgeText: DEFAULT_WRAP_UP_NUDGE_TEXT,
@@ -149,6 +150,23 @@ export const GROK_PROMPT_RESIDUAL = [
   "- Do not narrate a plan before acting on a small task; act, then report.",
   "- Verify with the test command once at the end, not after every edit.",
 ].join("\n");
+// Claude (Anthropic) ships one XML residual, not prose: a prose residual did
+// nothing, but a single <task_guidance> block cut Sonnet tokens. The block is
+// the whole residual — never a full-prompt XML renderer. The text lives here
+// (policy owns data); buildClaudeTaskGuidanceNote (prompts.ts) returns it
+// verbatim so the prompt carries exactly one copy.
+export const CLAUDE_TASK_GUIDANCE_NOTE = [
+  "<task_guidance>",
+  "- Follow the dispatch brief exactly; its Success criteria are the done-definition.",
+  "- When the done-definition is met, stop calling tools and write the structured report envelope.",
+  "- Batch independent tool calls into a single turn; never re-read a file you already read this session.",
+  "</task_guidance>",
+].join("\n");
+
+const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
+  ...DEFAULT_POLICY,
+  promptResidual: CLAUDE_TASK_GUIDANCE_NOTE,
+};
 
 export function resolveModelFamilyPolicy(input: {
   providerName: string;
@@ -178,6 +196,13 @@ export function resolveModelFamilyPolicy(input: {
       };
     case "muse":
       return { family, ...MUSE_POLICY };
+    case "claude":
+      // Like the grok finish-bias residual, the task_guidance block only makes
+      // sense on leaf workers — orchestrators dispatch rather than doing the
+      // work directly, so they resolve to the permissive default (no residual).
+      return orchestrator
+        ? { family, ...DEFAULT_POLICY }
+        : { family, ...CLAUDE_POLICY };
     default:
       return { family: "default", ...DEFAULT_POLICY };
   }

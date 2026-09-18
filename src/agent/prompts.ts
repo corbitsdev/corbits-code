@@ -11,7 +11,10 @@ import {
   buildWorkerContract,
   buildWorkerToolNames,
 } from "./worker-contract.js";
-import { GROK_PROMPT_RESIDUAL } from "./model-family-policy.js";
+import {
+  CLAUDE_TASK_GUIDANCE_NOTE,
+  GROK_PROMPT_RESIDUAL,
+} from "./model-family-policy.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
 // (tests, ad-hoc prompt previews) — except wait_agents, which is mount-gated:
@@ -520,6 +523,16 @@ export function buildGrokLeafAntiThrashNote(): string {
   return GROK_PROMPT_RESIDUAL;
 }
 
+// Single XML residual for Claude-family workers: a prose residual did
+// nothing, but one <task_guidance> block cut Sonnet tokens. One block only —
+// never a full-prompt XML renderer, never applied outside the claude family.
+// Single source of truth is the CLAUDE_TASK_GUIDANCE_NOTE block in
+// model-family-policy.ts (policy owns data); this returns that block verbatim
+// so the prompt carries one claude residual with no line twice.
+export function buildClaudeTaskGuidanceNote(): string {
+  return CLAUDE_TASK_GUIDANCE_NOTE;
+}
+
 export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
@@ -564,4 +577,5 @@ export function buildSubAgentSystemPrompt(
     sections.push(opts.promptResidual);
   }
   return joinSections(sections);
+}
 }
