@@ -178,4 +178,24 @@ describe("resolveModelFamilyPolicy", () => {
     expect(grok.family).toBe("grok");
     expect(grok.promptResidual).toContain("Tool budget:");
   });
+  test("gpt resolves its own family on permissive default thresholds (CL-8310)", () => {
+    const gpt = resolveModelFamilyPolicy({
+      providerName: "codex/default",
+      model: "gpt-5.5",
+    });
+    const base = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-sonnet-4",
+    });
+    expect(gpt.family).toBe("gpt");
+    // No eval characterization for gpt tool-only stretches yet: ship the
+    // permissive default, no finish-bias, no discipline rules. The
+    // narrate-before-tools residual is prompt-level (see prompts.ts), not a
+    // threshold.
+    expect(gpt.toolOnlyTurnNudgeAt).toBe(base.toolOnlyTurnNudgeAt);
+    expect(gpt.subAgentStallTimeoutMs).toBe(base.subAgentStallTimeoutMs);
+    expect(gpt.applyGrokFinishBias).toBe(false);
+    expect(gpt.toolDisciplineRules).toBeUndefined();
+    expect(gpt.advertisedToolDeny).toEqual([]);
+  });
 });
