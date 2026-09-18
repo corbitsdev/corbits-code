@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   detectModelFamily,
+  isClaudeLeafProvider,
   isKimiLeafProvider,
   isXaiGrokLeafProvider,
   shouldApplyGrokAntiThrash,
@@ -137,5 +138,56 @@ describe("detectModelFamily", () => {
         model: "claude-sonnet-4",
       }),
     ).toBe("default");
+  });
+});
+
+describe("isClaudeLeafProvider", () => {
+  test("matches anthropic provider names and claude model ids", () => {
+    expect(isClaudeLeafProvider({ providerName: "anthropic" })).toBe(true);
+    expect(isClaudeLeafProvider({ providerName: "ANTHROPIC" })).toBe(true);
+    expect(
+      isClaudeLeafProvider({
+        providerName: "openai-compat",
+        model: "claude-sonnet-4",
+      }),
+    ).toBe(true);
+  });
+
+  test("rejects grok, gpt, kimi, and muse rows", () => {
+    expect(
+      isClaudeLeafProvider({ providerName: "xai/default", model: "grok-4.5" }),
+    ).toBe(false);
+    expect(
+      isClaudeLeafProvider({ providerName: "openai", model: "gpt-4.1" }),
+    ).toBe(false);
+    expect(
+      isClaudeLeafProvider({ providerName: "codex", model: "gpt-5.1" }),
+    ).toBe(false);
+    expect(
+      isClaudeLeafProvider({ providerName: "moonshot", model: "kimi-k2" }),
+    ).toBe(false);
+    expect(
+      isClaudeLeafProvider({
+        providerName: "opencode-go/abklabs",
+        model: "muse-spark-1.3-contributor",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("detectModelFamily claude row", () => {
+  test("resolves anthropic/claude to the claude family", () => {
+    expect(
+      detectModelFamily({
+        providerName: "anthropic",
+        model: "claude-sonnet-4",
+      }),
+    ).toBe("claude");
+    expect(
+      detectModelFamily({
+        providerName: "openai-compat",
+        model: "claude-opus-4-6",
+      }),
+    ).toBe("claude");
   });
 });

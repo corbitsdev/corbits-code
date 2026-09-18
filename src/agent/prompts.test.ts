@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildChatSystemPrompt,
+  buildClaudeTaskGuidanceNote,
   buildGrokLeafAntiThrashNote,
   buildGuidelines,
   buildPromptDisciplineBlock,
@@ -394,5 +395,40 @@ describe("promptResidual assembly (CL-8297)", () => {
       grokAntiThrash: true,
     });
     expect(prompt).not.toContain("Tool budget:");
+  });
+});
+
+describe("claude XML task_guidance residual (provider residual, not a prompt fork)", () => {
+  it("appends exactly one balanced <task_guidance> block for a claude worker", () => {
+    const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      promptResidual: buildClaudeTaskGuidanceNote(),
+    });
+    expect(countOccurrences(prompt, "<task_guidance>")).toBe(1);
+    expect(countOccurrences(prompt, "</task_guidance>")).toBe(1);
+  });
+
+  it("is absent without promptResidual — grok, gpt, and orchestrator rows untouched", () => {
+    for (const opts of [
+      { orchestrator: false },
+      { orchestrator: false, grokAntiThrash: true },
+      { orchestrator: true },
+    ] as const) {
+      const prompt = buildSubAgentSystemPrompt(
+        undefined,
+        undefined,
+        undefined,
+        opts,
+      );
+      expect(prompt).not.toContain("<task_guidance>");
+      expect(prompt).not.toContain("</task_guidance>");
+    }
+  });
+
+  it("emits one block with balanced tags, never a full-prompt XML renderer", () => {
+    const note = buildClaudeTaskGuidanceNote();
+    expect(countOccurrences(note, "<task_guidance>")).toBe(1);
+    expect(countOccurrences(note, "</task_guidance>")).toBe(1);
+    expect(note).not.toMatch(/<system_prompt>|<prompt>|<identity>/);
   });
 });
