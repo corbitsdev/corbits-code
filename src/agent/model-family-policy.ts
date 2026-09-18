@@ -2,6 +2,7 @@ import {
   detectModelFamily,
   type ModelFamily,
 } from "../subagent/provider-family.js";
+import { museRow } from "../../packages/prompt-variance/src/index.js";
 
 /**
  * Per-model-family tuning for the shared directors (main chat director and
@@ -120,11 +121,8 @@ const KIMI_POLICY: Omit<ModelFamilyPolicy, "family"> = { ...DEFAULT_POLICY };
 // three rules appended finished in 3 turns on 4.3x fewer input tokens. At
 // minimal effort it terminates either way, so the rules earn their keep exactly
 // at the rungs where each wasted turn is most expensive. See CL-7869.
-const MUSE_TOOL_DISCIPLINE_RULES =
-  "Tool discipline:\n" +
-  "- Batch independent tool calls into a single turn.\n" +
-  "- Never re-read a file you have already read this session.\n" +
-  "- Do not narrate; act.";
+// Single-sourced from the versioned prompt-variance package (CL-8269).
+const MUSE_TOOL_DISCIPLINE_RULES = museRow.residual;
 
 const MUSE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   ...DEFAULT_POLICY,
