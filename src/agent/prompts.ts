@@ -11,6 +11,7 @@ import {
   buildWorkerContract,
   buildWorkerToolNames,
 } from "./worker-contract.js";
+import { promptResidual } from "./model-family-policy.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
 // (tests, ad-hoc prompt previews) — except wait_agents, which is mount-gated:
@@ -511,14 +512,12 @@ export function buildSubAgentReportContract(
 // Tiny residual for Grok/xAI workers: mining showed higher tools-only thrash
 // than Codex on the same harness. Shared thrash harness + spawn contracts do
 // the structural work; this is only a finish-bias nudge, not a full rewrite.
+// Single source of truth is the promptResidual("grok") block in
+// model-family-policy.ts (CL-8296 merged the three ceremony lines into it);
+// this composes that block verbatim so the prompt carries one grok residual
+// with no line twice.
 export function buildGrokLeafAntiThrashNote(): string {
-  return [
-    "Finish bias (xAI / Grok worker):",
-    "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
-    "- If the next call would only re-open paths you already read, write the report instead.",
-    "- When the dispatch brief's done-definition is met, write the report envelope instead of making one more search or micro-edit.",
-    "- Route file and web work through the dedicated tools, never run_shell — mining showed grok reaching for shell first when a typed tool already covered the job.",
-  ].join("\n");
+  return promptResidual("grok");
 }
 
 export function buildSubAgentSystemPrompt(
