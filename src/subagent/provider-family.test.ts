@@ -124,7 +124,7 @@ describe("isKimiLeafProvider", () => {
 });
 
 describe("detectModelFamily", () => {
-  test("detects grok, kimi, claude, and default", () => {
+  test("detects grok, kimi, claude, gpt, and default", () => {
     expect(
       detectModelFamily({ providerName: "xai/default", model: "grok-4.5" }),
     ).toBe("grok");
@@ -142,6 +142,12 @@ describe("detectModelFamily", () => {
     ).toBe("claude");
     expect(
       detectModelFamily({ providerName: "openai", model: "gpt-4.1" }),
+    ).toBe("gpt");
+    expect(
+      detectModelFamily({
+        providerName: "unknown-provider",
+        model: "unknown-model",
+      }),
     ).toBe("default");
   });
 });
