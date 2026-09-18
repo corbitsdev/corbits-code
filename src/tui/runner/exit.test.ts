@@ -26,6 +26,10 @@ import {
   resetSessionForRotation,
   resyncIdleWithFleetFlag,
 } from "./exit.js";
+import {
+  COMPACTION_ABORTED_REASON,
+  createCompactionLifecycle,
+} from "../../session/compaction-lifecycle.js";
 import type { RunnerServices, RunnerState } from "./state.js";
 
 function stubQuit(args: {
@@ -392,6 +396,76 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     );
     const list = Array.isArray(actions) ? actions : [actions];
     expect(list.some((action) => action.type === "infer")).toBe(true);
+  });
+
+  test("interrupt during an in-flight compaction aborts the compact and rebuilds so the next send works", async () => {
+    const directorHolder: RunnerServices["directorHolder"] = {};
+    const sends: string[] = [];
+    const agent = recordingAgent(sends);
+    const { state, services } = stubSendLifecycle(agent);
+    services.directorHolder =
+      directorHolder as unknown as RunnerServices["directorHolder"];
+    services.subAgentSessions = {
+      cancelAll: async () => [],
+      list: () => [],
+    } as unknown as RunnerServices["subAgentSessions"];
+    services.workflowHost = {
+      reattach: () => undefined,
+    } as unknown as RunnerServices["workflowHost"];
+    services.cycleRecorder = {
+      dispose: async () => "",
+      reset: () => undefined,
+      handleEvent: () => undefined,
+    } as unknown as RunnerServices["cycleRecorder"];
+    services.buildAgent = (async () => {
+      directorHolder.instance = createChatDirector("base", [], {
+        allowIdleWithFleet: true,
+      });
+      return agent;
+    }) as unknown as RunnerServices["buildAgent"];
+    await createRunLifecycle(state, services);
+    // A fold is mid-flight on the reactor when the operator interrupts: the
+    // wrapped compact hangs on its summary call.
+    const lifecycle = createCompactionLifecycle();
+    state.compactionLifecycle = lifecycle;
+    const notices: string[] = [];
+    state.systemNotice = (text: string) => {
+      notices.push(text);
+    };
+    const wrapped = lifecycle.wrapCompactor({
+      name: "hang",
+      version: "0",
+      apply: () =>
+        new Promise<never>(() => {
+          // Never settles on purpose: the interrupt gate must win the race.
+        }),
+    });
+    const pending = wrapped.apply([], {} as never);
+    expect(lifecycle.isCompacting()).toBe(true);
+    // CL-8220: the gate aborts the compact first instead of parking the
+    // interrupt behind the unobservable reactor, then rebuilds as usual.
+    defined(state.interrupt, "interrupt")();
+    // The abort wins the apply race: the compact returns a no-op fold instead
+    // of parking behind the hung summary call, and the flag clears.
+    const aborted = await pending;
+    expect(aborted.record.reason).toBe(COMPACTION_ABORTED_REASON);
+    expect(lifecycle.isCompacting()).toBe(false);
+    await services.sessionOps.awaitTail();
+    expect(state.fatalBuildError).toBeNull();
+    expect(notices.some((notice) => notice.includes("interrupting"))).toBe(
+      true,
+    );
+    // The rebuilt session accepts the resend — no hop was dropped.
+    const codexRefresh = spyOn(
+      codexSession,
+      "getValidCodexToken",
+    ).mockResolvedValue({ access: "fresh-token" });
+    try {
+      await defined(state.agentProxy, "agentProxy").send("after interrupt");
+    } finally {
+      codexRefresh.mockRestore();
+    }
+    expect(sends).toContain("after interrupt");
   });
 
   test("reload-if-idle and interrupt rebuilds resume the open-task nudge with no fleet transition", async () => {
