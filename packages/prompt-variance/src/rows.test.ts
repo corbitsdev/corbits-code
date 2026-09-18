@@ -31,11 +31,7 @@ describe("prompt-variance family rows", () => {
   });
 
   test("row ids match their family", () => {
-    const ids: PromptVarianceFamily[] = [
-      defaultRow.id,
-      museRow.id,
-      grokRow.id,
-    ];
+    const ids: PromptVarianceFamily[] = [defaultRow.id, museRow.id, grokRow.id];
     expect(ids).toEqual(["default", "muse", "grok"]);
   });
 

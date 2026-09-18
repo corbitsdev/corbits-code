@@ -560,7 +560,8 @@ export function buildSubAgentSystemPrompt(
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
   }
-  const variance = opts.variance ?? (opts.grokAntiThrash === true ? grokRow : undefined);
+  const variance =
+    opts.variance ?? (opts.grokAntiThrash === true ? grokRow : undefined);
   if (variance === undefined) return joinSections(sections);
   return assemble(sections, variance, toolListForPrompt).systemPrompt;
 }
