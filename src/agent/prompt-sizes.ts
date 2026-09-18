@@ -12,6 +12,7 @@ import {
   type DirectorPackage,
 } from "./directors/types.js";
 import { buildChatSystemPrompt, buildSubAgentSystemPrompt } from "./prompts.js";
+import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 import {
   formatAgentsMdExtension,
   MAX_AGENTS_MD_BYTES,
@@ -37,8 +38,9 @@ import { webSearchDefinition } from "../tools/web-search.js";
  * extensions=[director systemPromptRole] + environment + tools +
  * appendix, with the Grok finish-bias note gated by
  * shouldApplyGrokAntiThrash (leaves on Grok-family providers only) and the
- * family promptResidual (CL-8297 tool budget, grok leaves only) resolved
- * from the model family policy.
+ * family promptResidual (CL-8297 tool budget for grok leaves, XML
+ * task_guidance block for claude leaves) resolved from the model family
+ * policy.
  *
  * The env and provider inputs are pinned here so sizes never drift with the
  * machine, date, or checkout — only real prompt changes move the numbers.
@@ -172,7 +174,6 @@ export function assembleDirectorPrompt(
     },
   );
 }
-
 /**
  * Skywalker primary infer envelope: the chat system prompt plus the
  * AGENTS.md extension. Family-agnostic — Grok does not substitute the
