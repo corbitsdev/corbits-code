@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildChatSystemPrompt,
   buildClaudeTaskGuidanceNote,
+  buildGptNarrateBeforeToolsNote,
   buildGrokLeafAntiThrashNote,
   buildGuidelines,
   buildPromptDisciplineBlock,
@@ -372,6 +373,7 @@ describe("grok finish-bias residual gating (extends existing provider-family tes
   });
 });
 
+<<<<<<< HEAD
 describe("promptResidual assembly (CL-8297)", () => {
   const TOOL_BUDGET =
     "Tool budget:\n" +
@@ -450,5 +452,81 @@ describe("claude XML task_guidance residual (provider residual, not a prompt for
     expect(buildClaudeTaskGuidanceNote()).not.toMatch(
       /\b(do not|don't|never|stop calling)\b/i,
     );
+  });
+});
+
+describe("gpt narrate-before-tools residual (CL-8310)", () => {
+  it("is a 3-line narrate-before-tools note, not manage_tasks ceremony", () => {
+    const note = buildGptNarrateBeforeToolsNote();
+    expect(note).toContain("Narrate before tools (GPT worker):");
+    expect(note).toMatch(/before.*tool call.*one short line/is);
+    expect(note).toMatch(/no narration between them/i);
+    expect(note).toContain("write the report envelope");
+    expect(note.toLowerCase()).not.toContain("manage_tasks");
+  });
+
+  it("appears exactly once on a gpt leaf prompt", () => {
+    const prompt = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      gptNarrateBeforeTools: true,
+    });
+    const note = buildGptNarrateBeforeToolsNote();
+    expect(countOccurrences(prompt, note)).toBe(1);
+    expect(prompt.trimEnd().endsWith(note)).toBe(true);
+  });
+
+  it("appears exactly once on a gpt primary prompt", () => {
+    const prompt = buildChatSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      [],
+      "orchestrator",
+      undefined,
+      undefined,
+      { gptNarrateBeforeTools: true },
+    );
+    const note = buildGptNarrateBeforeToolsNote();
+    expect(countOccurrences(prompt, note)).toBe(1);
+  });
+
+  it("is absent by default on both primary and leaf", () => {
+    const leaf = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      grokAntiThrash: false,
+    });
+    const primary = buildChatSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      [],
+      "orchestrator",
+    );
+    expect(leaf).not.toContain("Narrate before tools (GPT worker):");
+    expect(primary).not.toContain("Narrate before tools (GPT worker):");
+  });
+
+  it("is absent on grok and claude prompts", () => {
+    const grokLeaf = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      grokAntiThrash: true,
+    });
+    const claudeLeaf = buildSubAgentSystemPrompt(undefined, undefined, undefined, {
+      orchestrator: false,
+      grokAntiThrash: false,
+    });
+    const claudePrimary = buildChatSystemPrompt(
+      undefined,
+      undefined,
+      undefined,
+      [],
+      "orchestrator",
+    );
+    for (const prompt of [grokLeaf, claudeLeaf, claudePrimary]) {
+      expect(prompt).not.toContain("Narrate before tools (GPT worker):");
+      expect(prompt).not.toContain("Narrate before tools (GPT");
+    }
+    // The grok row keeps its own residual, untouched.
+    expect(grokLeaf).toContain("Finish bias (xAI / Grok worker):");
   });
 });
