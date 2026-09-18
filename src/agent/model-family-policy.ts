@@ -38,6 +38,14 @@ export interface ModelFamilyPolicy {
    * at the tail so it cannot disturb the cached prompt prefix.
    */
   toolDisciplineRules?: string;
+  /**
+   * Provider-family residual appended once to the assembled leaf system
+   * prompt (CL-8297). Generic tool-budget text today (grok only); the
+   * ceremony / Claude / GPT seams stay unfilled in sibling lanes. Withheld
+   * from orchestrators and appended at the tail so it cannot disturb the
+   * cached prompt prefix. Undefined for families that need none.
+   */
+  promptResidual?: string | undefined;
 }
 
 const DEFAULT_WRAP_UP_NUDGE_TEXT =
@@ -66,6 +74,16 @@ const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   advertisedToolDeny: [],
 };
 
+// Generic 4-line tool-budget residual (CL-8297). Grok leaves get this via
+// promptResidual today; other families leave the seam unfilled until their
+// own lanes land. Deliberately free of ceremony lines and family-specific
+// routing — pure tool-loop budget.
+export const GROK_TOOL_BUDGET_RESIDUAL =
+  "Tool budget:\n" +
+  "- Batch independent tool calls into a single turn.\n" +
+  "- Never re-issue a tool call whose result you already have.\n" +
+  "- When the next call would only repeat prior work, write the report instead.";
+
 // A directly observed 14-turn pure-tool-call session for this family
 // previously motivated a tightened nudge/pause pair here (6/10). That pair
 // was miscalibrated: it fired on a session that was making real progress
@@ -83,6 +101,8 @@ const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   applyGrokFinishBias: true,
   // Leaf value; the resolver clears it for orchestrators below.
   advertisedToolDeny: ["skill_search"],
+  // Leaf value; the resolver clears it for orchestrators below.
+  promptResidual: GROK_TOOL_BUDGET_RESIDUAL,
 };
 
 // Kimi (Moonshot) detection ships now so callers can branch on family, but
@@ -126,6 +146,7 @@ export function resolveModelFamilyPolicy(input: {
         ...policy,
         applyGrokFinishBias: policy.applyGrokFinishBias && !orchestrator,
         advertisedToolDeny: orchestrator ? [] : policy.advertisedToolDeny,
+        promptResidual: orchestrator ? undefined : policy.promptResidual,
       };
     }
     case "kimi":
