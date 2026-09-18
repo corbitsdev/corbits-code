@@ -2,6 +2,7 @@ import {
   detectModelFamily,
   type ModelFamily,
 } from "../subagent/provider-family.js";
+import { buildClaudeTaskGuidanceNote } from "./prompts.js";
 
 /**
  * Per-model-family tuning for the shared directors (main chat director and
@@ -38,6 +39,13 @@ export interface ModelFamilyPolicy {
    * at the tail so it cannot disturb the cached prompt prefix.
    */
   toolDisciplineRules?: string;
+  /**
+   * Provider residual text appended once at the tail of the worker system
+   * prompt (via the buildSubAgentSystemPrompt promptResidual seam).
+   * Undefined for families that need none. Minimal local hook: the parallel
+   * promptResidual lane owns the generic seam and may subsume this field.
+   */
+  promptResidual?: string;
 }
 
 const DEFAULT_WRAP_UP_NUDGE_TEXT =
@@ -58,6 +66,7 @@ const GROK_WRAP_UP_NUDGE_TEXT =
 // sits comfortably above the observed healthy ceiling; the nudge is a
 // check-in, not a stop, so erring high costs nothing. Tightened only for
 // families with observed runaway tool-only behavior (see grok below).
+/** Default policy: permissive, no finish bias, no prompt residual. */
 const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolOnlyTurnNudgeAt: 25,
   wrapUpNudgeText: DEFAULT_WRAP_UP_NUDGE_TEXT,
@@ -109,6 +118,14 @@ const MUSE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   toolDisciplineRules: MUSE_TOOL_DISCIPLINE_RULES,
 };
 
+// Claude (Anthropic) ships one XML residual, not prose: a prose residual did
+// nothing, but a single <task_guidance> block cut Sonnet tokens. The block is
+// the whole residual — never a full-prompt XML renderer.
+const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
+  ...DEFAULT_POLICY,
+  promptResidual: buildClaudeTaskGuidanceNote(),
+};
+
 export function resolveModelFamilyPolicy(input: {
   providerName: string;
   model?: string;
@@ -136,6 +153,13 @@ export function resolveModelFamilyPolicy(input: {
       };
     case "muse":
       return { family, ...MUSE_POLICY };
+    case "claude":
+      // Like the grok finish-bias residual, the task_guidance block only makes
+      // sense on leaf workers — orchestrators dispatch rather than doing the
+      // work directly, so they resolve to the permissive default (no residual).
+      return orchestrator
+        ? { family, ...DEFAULT_POLICY }
+        : { family, ...CLAUDE_POLICY };
     default:
       return { family: "default", ...DEFAULT_POLICY };
   }

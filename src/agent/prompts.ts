@@ -521,6 +521,19 @@ export function buildGrokLeafAntiThrashNote(): string {
   ].join("\n");
 }
 
+// Single XML residual for Claude-family workers: a prose residual did
+// nothing, but one <task_guidance> block cut Sonnet tokens. One block only —
+// never a full-prompt XML renderer, never applied outside the claude family.
+export function buildClaudeTaskGuidanceNote(): string {
+  return [
+    "<task_guidance>",
+    "- Follow the dispatch brief exactly; its Success criteria are the done-definition.",
+    "- When the done-definition is met, stop calling tools and write the structured report envelope.",
+    "- Batch independent tool calls into a single turn; never re-read a file you already read this session.",
+    "</task_guidance>",
+  ].join("\n");
+}
+
 export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
@@ -530,6 +543,12 @@ export function buildSubAgentSystemPrompt(
     toolNames?: readonly string[];
     /** When true, append the tiny Grok/xAI finish-bias note (provider residual). */
     grokAntiThrash?: boolean;
+    /**
+     * Generic provider-residual seam: appended once as the last section when
+     * non-empty. Callers pass the resolved ModelFamilyPolicy.promptResidual;
+     * the builder itself never selects per-family text.
+     */
+    promptResidual?: string | undefined;
   } = {},
 ): string {
   const toolListForPrompt =
@@ -555,6 +574,10 @@ export function buildSubAgentSystemPrompt(
   }
   if (opts.grokAntiThrash === true) {
     sections.push(buildGrokLeafAntiThrashNote());
+  }
+  const residual = opts.promptResidual?.trim();
+  if (residual !== undefined && residual.length > 0) {
+    sections.push(residual);
   }
   return joinSections(sections);
 }

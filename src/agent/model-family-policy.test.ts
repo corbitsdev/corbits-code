@@ -4,8 +4,8 @@ import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 describe("resolveModelFamilyPolicy", () => {
   test("defaults are permissive for an unrecognized provider", () => {
     const policy = resolveModelFamilyPolicy({
-      providerName: "anthropic",
-      model: "claude-sonnet-4",
+      providerName: "openai",
+      model: "gpt-4.1",
     });
     expect(policy.family).toBe("default");
     expect(policy.applyGrokFinishBias).toBe(false);
@@ -55,8 +55,8 @@ describe("resolveModelFamilyPolicy", () => {
 
   test("advertisedToolDeny is empty by default and never contains use_skill", () => {
     const leaf = resolveModelFamilyPolicy({
-      providerName: "anthropic",
-      model: "claude-opus-4-6",
+      providerName: "openai",
+      model: "gpt-4.1",
       orchestrator: false,
     });
     expect(leaf.advertisedToolDeny).toEqual([]);
@@ -112,6 +112,7 @@ describe("resolveModelFamilyPolicy", () => {
     expect(leaf.family).toBe("claude");
     expect(leaf.promptResidual).toContain("<task_guidance>");
     expect(leaf.promptResidual).toContain("</task_guidance>");
+    expect(leaf.advertisedToolDeny).toEqual([]);
     const orchestrator = resolveModelFamilyPolicy({
       providerName: "anthropic",
       model: "claude-sonnet-4",

@@ -12,6 +12,7 @@ import {
   type DirectorPackage,
 } from "./directors/types.js";
 import { buildChatSystemPrompt, buildSubAgentSystemPrompt } from "./prompts.js";
+import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 import {
   formatAgentsMdExtension,
   MAX_AGENTS_MD_BYTES,
@@ -35,7 +36,9 @@ import { webSearchDefinition } from "../tools/web-search.js";
  * Assembles each director prompt exactly as src/subagent/run.ts does:
  * extensions=[director systemPromptRole] + environment + tools +
  * appendix, with the Grok finish-bias note gated by
- * shouldApplyGrokAntiThrash (leaves on Grok-family providers only).
+ * shouldApplyGrokAntiThrash (leaves on Grok-family providers only) and the
+ * Claude task_guidance block via ModelFamilyPolicy.promptResidual (leaves on
+ * Claude-family providers only).
  *
  * The env and provider inputs are pinned here so sizes never drift with the
  * machine, date, or checkout — only real prompt changes move the numbers.
@@ -164,6 +167,8 @@ export function assembleDirectorPrompt(
       orchestrator,
       toolNames: canonicalToolNamesForDirector(pkg, family),
       grokAntiThrash: shouldApplyGrokAntiThrash({ ...provider, orchestrator }),
+      promptResidual: resolveModelFamilyPolicy({ ...provider, orchestrator })
+        .promptResidual,
     },
   );
 }
