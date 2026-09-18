@@ -625,6 +625,9 @@ export async function createRunLifecycle(
         } catch (err) {
           recordRunError(state, err);
           state.fatalBuildError = agentRebuildFailure(err);
+          // A failed rebuild never reaches onBuilt/reset: un-poison the
+          // lifecycle here so later compacts work instead of silently no-op.
+          state.compactionLifecycle?.reset();
         }
       },
     });
@@ -742,6 +745,8 @@ export async function createRunLifecycle(
         recordRunError(state, err);
         state.fatalBuildError =
           err instanceof Error ? err : new Error(String(err));
+        // Same poison guard as the interrupt rebuild above.
+        state.compactionLifecycle?.reset();
       }
     });
   };
@@ -774,6 +779,9 @@ export async function finalizeTUIRun(
       error: err instanceof Error ? err.message : String(err),
     });
   }
+  // Quit must not park behind a hung summary call: abort the compact first
+  // (no notice — quitting needs no commentary), then await the tail.
+  state.compactionLifecycle?.abortCompaction("quit");
   await services.sessionOps.awaitTail();
 
   state.stopFleetReporting?.();
