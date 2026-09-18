@@ -32,6 +32,30 @@ by hand.
   (Critic on the diff plus at most one extra lens), loading `/review`
   for quality rules only.
 
+## [0.3.29] - 2026-09-18
+
+### What's Changed
+* refactor(zen): inline zenProtocolForModel pass-through alias by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1111
+* refactor(tools-shell): dedupe shared web-fetch, convert, signal, and timer helpers by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1112
+* refactor(auth-provider): merge duplicated helpers by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1113
+* refactor(tui): dedupe renderer tests, prompt builders, validators, labels, links, truncator by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1115
+* refactor(plugins-mcp): dedupe collectors, guards, and register loops by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1116
+* refactor(agent-loop): dedup director tests, coordinator guard, error coercion by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1117
+* refactor(inference-cost): dedupe twin helpers, traversals, and fixtures by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1118
+* refactor: dedup crosscutting helpers across perf/telemetry/crash lanes by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1114
+* refactor(tests): consolidate duplicated test/infra helpers by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1119
+* fix(provider): grok-4.5/4.6 heuristic window 256k to 500k by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1125
+* feat(agent): shared worker contract, drop harness doctrine from workers by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1126
+* refactor(gaasbot): restore OG voice and mandatory preload by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1122
+* refactor(critic): restore OG evidence rules and mandatory preload by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1123
+* feat(directors): draper router + emil narrowed, DESIGN.md contract by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1127
+* fix(tui): abort-aware compact lifecycle, visible compaction state by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1128
+* fix(tui): abort compact on quit, reset lifecycle on failed rebuild by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1129
+* fix(tui): quit-abort ordering, phantom folds, reset generation guard by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1130
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.28...v0.3.29
+
 ## [0.3.28] - 2026-09-17
 
 ### What's Changed
