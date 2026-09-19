@@ -6,6 +6,7 @@ import { saveCodexProfile } from "../../config/oauth-stores.js";
 import {
   codexAuthFailureDiagnostic,
   CodexAuthError,
+  CodexRefreshLockError,
   getValidCodexToken,
 } from "./session.js";
 
@@ -99,6 +100,21 @@ describe("codex auth failure surface", () => {
       globalThis.fetch = originalFetch;
       await rm(home, { recursive: true, force: true });
     }
+  });
+
+  test("a refresh lock timeout projects outside credential_failure with its lock path", () => {
+    const lockPath = join(tmpdir(), "cl8628-lock-path", "auth.refresh.lock");
+    const lock = new CodexRefreshLockError(
+      "shared",
+      lockPath,
+      `Timed out after 100ms waiting for the Codex refresh lock at ${lockPath}.`,
+    );
+    // Lock contention is never a credential failure: no re-login hint, and
+    // the combined classifiers must not fold it into credential_failure.
+    expect(codexAuthFailureDiagnostic(lock)).toBeNull();
+    expect(lock.lockPath).toBe(lockPath);
+    expect(lock.message).toContain(lockPath);
+    expect(lock.message).not.toMatch(/log in again/i);
   });
 
   test("codexAuthFailureDiagnostic projects auth errors onto credential_failure", () => {

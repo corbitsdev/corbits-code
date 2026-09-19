@@ -1,4 +1,11 @@
-import { mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -82,6 +89,69 @@ describe("codex refresh lock", () => {
       );
       expect(result).toBe("taken-over");
       await expect(stat(lock)).rejects.toThrow();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a crashed holder's lock is taken over under default options", async () => {
+    const dir = await tempDir();
+    try {
+      const lock = join(dir, "refresh.lock");
+      // Simulate a crashed holder in the real tag format but with a PID that
+      // is already dead: takeover must fire via liveness, not the stale
+      // horizon (which defaults far above the default timeout).
+      const exited = Bun.spawn(["bun", "--version"], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+      await exited.exited;
+      await writeFile(lock, `${String(exited.pid)}:crashed-holder`);
+      const result = await withCodexRefreshLock(lock, async () => "recovered");
+      expect(result).toBe("recovered");
+      await expect(stat(lock)).rejects.toThrow();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a belated release never deletes a takeover holder's lock", async () => {
+    const dir = await tempDir();
+    try {
+      const lock = join(dir, "refresh.lock");
+      await withCodexRefreshLock(lock, async () => {
+        // Simulate a stale-takeover steal landing mid-hold: the victim's
+        // release must leave the new holder's file alone.
+        await writeFile(lock, "42424242:takeover-holder");
+      });
+      expect(await readFile(lock, "utf8")).toBe("42424242:takeover-holder");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("same-process queue wait is bounded by the timeout", async () => {
+    const dir = await tempDir();
+    try {
+      const lock = join(dir, "refresh.lock");
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const first = withCodexRefreshLock(lock, async () => {
+        await gate;
+        return "first";
+      });
+      // The second waiter queues behind the first in memory, outside the
+      // file timer: it must still give up within its own timeout.
+      await expect(
+        withCodexRefreshLock(lock, async () => "second", {
+          timeoutMs: 100,
+          retryMs: 10,
+        }),
+      ).rejects.toBeInstanceOf(CodexRefreshLockTimeoutError);
+      release();
+      expect(await first).toBe("first");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

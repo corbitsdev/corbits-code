@@ -43,6 +43,24 @@ export class CodexAuthError extends Error {
   }
 }
 
+// Raised when a Codex refresh cannot even acquire the inter-process refresh
+// lock: contention or a crashed holder's leftover file, never a bad
+// credential. Deliberately NOT a CodexAuthError — folding it into
+// credential_failure tells the operator to log in again, which never removes
+// the lock file (a futile loop). Carries the profile and lock path so every
+// surface can repeat the manual-removal recovery instead of a re-login hint.
+export class CodexRefreshLockError extends Error {
+  readonly profile: string;
+  readonly lockPath: string;
+
+  constructor(profile: string, lockPath: string, detail: string) {
+    super(`Codex profile "${profile}" could not refresh (${detail})`);
+    this.name = "CodexRefreshLockError";
+    this.profile = profile;
+    this.lockPath = lockPath;
+  }
+}
+
 // A usable access token plus the account id that must ride alongside it in the
 // chatgpt-account-id header. Returned together so callers need a single load,
 // not a token fetch followed by a separate profile read (which could observe a
@@ -146,14 +164,11 @@ async function withSerializedCodexRefresh(
       refresh,
     );
   } catch (err) {
-    // A refresh that cannot even acquire the lock still surfaces as a
-    // credential failure with a re-login hint, never a bare lock error.
+    // A refresh blocked on the lock is a contention/crash-hygiene problem,
+    // not a dead credential: surface it as its own error so classifiers and
+    // the exec layer keep the lock-path recovery instead of a re-login hint.
     if (err instanceof CodexRefreshLockTimeoutError) {
-      throw new CodexAuthError(
-        name,
-        "refresh-failed",
-        `Codex profile "${name}" could not be refreshed (${err.message}). Log in again.`,
-      );
+      throw new CodexRefreshLockError(name, err.lockPath, err.message);
     }
     throw err;
   }
@@ -165,6 +180,10 @@ async function withSerializedCodexRefresh(
 export function codexAuthFailureDiagnostic(
   err: unknown,
 ): InferenceErrorLike | null {
+  // Lock contention is never a credential failure (see CodexRefreshLockError):
+  // exclude it explicitly so it cannot compose into credential_failure even
+  // if a future refactor subtypes it under CodexAuthError.
+  if (err instanceof CodexRefreshLockError) return null;
   if (err instanceof CodexAuthError)
     return { category: "credential_failure", message: err.message };
   return null;
