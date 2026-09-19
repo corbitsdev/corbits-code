@@ -54,10 +54,8 @@ import {
   packageToCapabilities,
   resolveDirector,
 } from "../agent/directors/registry.js";
-import {
-  defaultEffortForDirector,
-  formatDirectorSystemPrompt,
-} from "../agent/directors/identity.js";
+import { defaultEffortForDirector } from "../agent/directors/identity.js";
+import { renderDirectorSystemPrompt } from "../agent/directors/prompt-sections.js";
 import type { Settings } from "../config/settings.js";
 import { resolveInferenceWithPolicy } from "../config/settings.js";
 import {
@@ -749,7 +747,7 @@ function resolveAgentDispatch(input: {
       return {
         directorId: pkg.id,
         agentLabel: pkg.id,
-        systemPromptRole: formatDirectorSystemPrompt(pkg),
+        systemPromptRole: renderDirectorSystemPrompt(pkg),
         ...(capabilities !== undefined ? { capabilities } : {}),
         roleDefault: defaultEffortForDirector(pkg),
         pkg,
@@ -824,7 +822,7 @@ function resolveAgentDispatch(input: {
     return {
       directorId: pkg.id,
       agentLabel: pkg.id,
-      systemPromptRole: formatDirectorSystemPrompt(pkg),
+      systemPromptRole: renderDirectorSystemPrompt(pkg),
       ...(capabilities !== undefined ? { capabilities } : {}),
       roleDefault: defaultEffortForDirector(pkg),
       pkg,
