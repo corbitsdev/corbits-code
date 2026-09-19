@@ -1055,6 +1055,7 @@ async function runSubAgentInner(
           model: params.provider.model,
           orchestrator: params.orchestrator === true,
         }),
+        promptResidual: modelFamilyPolicy.promptResidual,
       },
     );
 

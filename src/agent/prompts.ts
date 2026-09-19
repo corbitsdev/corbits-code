@@ -521,6 +521,23 @@ export function buildGrokLeafAntiThrashNote(): string {
   ].join("\n");
 }
 
+// Single XML residual for Claude-family workers: a prose residual did
+// nothing, but one <task_guidance> block cut Sonnet tokens. One block only —
+// never a full-prompt XML renderer, never applied outside the claude family.
+// Rebuilt end to end from Anthropic's prompting docs (CL-8309): rationale
+// first, numbered approach, named output contract; every line is positively
+// framed and scope-explicit for Sonnet's literal instruction-following.
+export function buildClaudeTaskGuidanceNote(): string {
+  return [
+    "<task_guidance>",
+    "Autonomous coding turn: finish the work in this turn on your best judgment.",
+    "1. Follow the dispatch brief exactly; its Success criteria are the done-definition.",
+    "2. Batch independent tool calls into a single turn; work from files already read this session.",
+    "3. Finish the task when the done-definition is met: prefer the structured report envelope over another tool call.",
+    "</task_guidance>",
+  ].join("\n");
+}
+
 export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,
@@ -530,6 +547,12 @@ export function buildSubAgentSystemPrompt(
     toolNames?: readonly string[];
     /** When true, append the tiny Grok/xAI finish-bias note (provider residual). */
     grokAntiThrash?: boolean;
+    /**
+     * Generic provider-residual seam: appended once as the last section when
+     * non-empty. Callers pass the resolved ModelFamilyPolicy.promptResidual;
+     * the builder itself never selects per-family text.
+     */
+    promptResidual?: string | undefined;
   } = {},
 ): string {
   const toolListForPrompt =
@@ -555,6 +578,10 @@ export function buildSubAgentSystemPrompt(
   }
   if (opts.grokAntiThrash === true) {
     sections.push(buildGrokLeafAntiThrashNote());
+  }
+  const residual = opts.promptResidual?.trim();
+  if (residual !== undefined && residual.length > 0) {
+    sections.push(residual);
   }
   return joinSections(sections);
 }

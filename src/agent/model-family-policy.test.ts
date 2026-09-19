@@ -4,8 +4,8 @@ import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 describe("resolveModelFamilyPolicy", () => {
   test("defaults are permissive for an unrecognized provider", () => {
     const policy = resolveModelFamilyPolicy({
-      providerName: "anthropic",
-      model: "claude-sonnet-4",
+      providerName: "openai",
+      model: "gpt-4.1",
     });
     expect(policy.family).toBe("default");
     expect(policy.applyGrokFinishBias).toBe(false);
@@ -55,8 +55,8 @@ describe("resolveModelFamilyPolicy", () => {
 
   test("advertisedToolDeny is empty by default and never contains use_skill", () => {
     const leaf = resolveModelFamilyPolicy({
-      providerName: "anthropic",
-      model: "claude-opus-4-6",
+      providerName: "openai",
+      model: "gpt-4.1",
       orchestrator: false,
     });
     expect(leaf.advertisedToolDeny).toEqual([]);
@@ -101,5 +101,37 @@ describe("resolveModelFamilyPolicy", () => {
     expect(muse.toolDisciplineRules).toContain("Batch independent tool calls");
     expect(muse.toolDisciplineRules).toContain("Never re-read a file");
     expect(base.toolDisciplineRules).toBeUndefined();
+  });
+
+  test("claude leaves carry the XML task_guidance residual; orchestrators do not", () => {
+    const leaf = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-sonnet-4",
+      orchestrator: false,
+    });
+    expect(leaf.family).toBe("claude");
+    expect(leaf.promptResidual).toContain("<task_guidance>");
+    expect(leaf.promptResidual).toContain("</task_guidance>");
+    expect(leaf.advertisedToolDeny).toEqual([]);
+    const orchestrator = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-sonnet-4",
+      orchestrator: true,
+    });
+    expect(orchestrator.promptResidual).toBeUndefined();
+  });
+
+  test("grok and gpt rows carry no promptResidual", () => {
+    for (const input of [
+      { providerName: "xai/default", model: "grok-4.6" },
+      { providerName: "openai", model: "gpt-4.1" },
+      { providerName: "codex", model: "gpt-5.1" },
+    ] as const) {
+      const policy = resolveModelFamilyPolicy({
+        ...input,
+        orchestrator: false,
+      });
+      expect(policy.promptResidual).toBeUndefined();
+    }
   });
 });
