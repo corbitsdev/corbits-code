@@ -279,6 +279,46 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalized).toBe(error);
   });
 
+  test("Codex 404 without a model marker reclassifies as credential_failure", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "codex/work",
+    });
+    expect(normalized.category).toBe("credential_failure");
+    expect(normalized.message).toBe(
+      'Codex profile "work" is not authorized. Log in again.',
+    );
+  });
+
+  test("Codex 404 naming an unknown model keeps fatal switch-models guidance", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "The model 'gpt-99' does not exist",
+      statusCode: 404,
+      providerId: "codex/work",
+      raw: {
+        error: {
+          code: "model_not_found",
+          message: "The model 'gpt-99' does not exist",
+          type: "invalid_request_error",
+        },
+      },
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("non-Codex 404 keeps fatal switch-models guidance", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "custom-provider",
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
   test("known-xAI message-only capacity protocol error becomes retryable", () => {
     const normalized = normalizeInferenceErrorForRetry({
       category: "protocol_mismatch",

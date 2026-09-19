@@ -160,6 +160,27 @@ describe("terminalProviderFailureMessage", () => {
     );
   });
 
+  test("terminal Codex credential 404 names the profile with a re-login hint", () => {
+    const normalized = normalizeInferenceErrorForTerminal(
+      { category: "fatal", message: "Not Found", statusCode: 404 },
+      "codex/work",
+    );
+    const message = terminalProviderFailureMessage("codex/work", normalized);
+    expect(message).toContain('Codex profile "work"');
+    expect(message.toLowerCase()).toMatch(/log in again/);
+    expect(message).not.toContain("/model");
+  });
+
+  test("terminal genuine unknown-model 404 keeps switch-models guidance", () => {
+    const message = terminalProviderFailureMessage("codex/work", {
+      category: "fatal",
+      message: "The model 'gpt-99' does not exist",
+      statusCode: 404,
+      providerId: "codex/work",
+    });
+    expect(message).toContain('"/model"');
+  });
+
   test.each([
     {
       name: "Bearer header",
