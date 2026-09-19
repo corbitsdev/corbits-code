@@ -18,7 +18,7 @@ import {
   peekSourceCredentialSecret,
   registerSourceCredential,
 } from "../config/source-credentials.js";
-import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
+import { renderDirectorSystemPrompt } from "../agent/directors/prompt-sections.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type { DirectorId, DirectorPackage } from "../agent/directors/types.js";
 import { submitOutputDefinition } from "../agent/director.js";
@@ -284,7 +284,7 @@ export function resolveExecDirectorOverlayForPackage(
           )
       : undefined;
   return {
-    systemPrompt: formatDirectorSystemPrompt(pkg),
+    systemPrompt: renderDirectorSystemPrompt(pkg),
     ...(advertisedAllow !== undefined ? { advertisedAllow } : {}),
     mountFleet: pkg.spawn.maySpawn,
   };

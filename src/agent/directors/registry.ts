@@ -19,7 +19,7 @@ import { testsmithPackage } from "./testsmith/package.js";
 import { gauntletPackage } from "./gauntlet/package.js";
 import { proberPackage } from "./prober/package.js";
 import { wardenPackage } from "./warden/package.js";
-import { formatDirectorSystemPrompt } from "./identity.js";
+import { renderDirectorSystemPrompt } from "./prompt-sections.js";
 import {
   DIRECTOR_IDS,
   type DirectorId,
@@ -144,7 +144,7 @@ export function packageToProfile(pkg: DirectorPackage): AgentProfile {
   return {
     id: pkg.id,
     description: `${pkg.description} (agent id: ${pkg.id})`,
-    systemPromptRole: formatDirectorSystemPrompt(pkg),
+    systemPromptRole: renderDirectorSystemPrompt(pkg),
     // Nested spawn is still gated by allowOrchestrator on the parent fleet tools.
     // Skywalker maySpawn marks intent; leaves stay non-orchestrator.
     orchestrator: pkg.spawn.maySpawn,
