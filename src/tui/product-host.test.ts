@@ -650,6 +650,53 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
+  test("composed Option+D (∂) sets the default instead of filtering the model picker", async () => {
+    const defaults: string[] = [];
+    const { harness, host } = await mountPicker({
+      onSetDefault: (id) => defaults.push(id),
+    });
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const composed = {
+        name: "∂",
+        sequence: "∂",
+        ctrl: false,
+        meta: false,
+        option: false,
+      } as KeyEvent;
+      expect(handleListFilterKey(host.shell, composed)).toBe(false);
+      expect(runOverlayAction(host.shell, composed)).toBe(true);
+      expect(defaults).toEqual(["codex/abk-labs:gpt-5.5"]);
+      expect(host.shell.overlayItems).not.toEqual(["(no matches)"]);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("composed Option+D (∂) remains filter text when setting a default is unavailable", async () => {
+    const { harness, host } = await mountPicker();
+    try {
+      host.openModels?.();
+      await harness.renderOnce();
+      const composed = {
+        name: "∂",
+        sequence: "∂",
+        ctrl: false,
+        meta: false,
+        option: false,
+      } as KeyEvent;
+      expect(handleListFilterKey(host.shell, composed)).toBe(true);
+      await harness.renderOnce();
+      expect(host.shell.overlayItems).toEqual(["(no matches)"]);
+      expect(runOverlayAction(host.shell, composed)).toBe(false);
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
   test("Alt+D on the no-matches sentinel does not set a default", async () => {
     const defaults: string[] = [];
     const { harness, host } = await mountPicker({
@@ -663,8 +710,35 @@ describe("flat type-to-filter model picker", () => {
       }
       await harness.renderOnce();
       expect(host.shell.overlayItems).toEqual(["(no matches)"]);
-      expect(runOverlayAction(host.shell, altD)).toBe(false);
+      expect(runOverlayAction(host.shell, altD)).toBe(true);
       expect(defaults).toEqual([]);
+      expect(host.shell.overlayKind).toBe("model_picker");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("composed Option+D (∂) on the no-matches sentinel does not reach the prompt", async () => {
+    const defaults: string[] = [];
+    const { harness, host } = await mountPicker({
+      onSetDefault: (id) => defaults.push(id),
+    });
+    try {
+      host.shell.prompt.value = "draft";
+      host.openModels?.();
+      await harness.renderOnce();
+      for (const ch of "zzzz-no-such-model") {
+        harness.pressKey(ch);
+      }
+      await harness.renderOnce();
+      expect(host.shell.overlayItems).toEqual(["(no matches)"]);
+
+      harness.pressKey("∂");
+      await harness.renderOnce();
+
+      expect(defaults).toEqual([]);
+      expect(host.shell.prompt.value).toBe("draft");
       expect(host.shell.overlayKind).toBe("model_picker");
     } finally {
       host.dispose();

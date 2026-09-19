@@ -61,6 +61,7 @@ import {
 import { setOwnedOverlayItems } from "./shell/overlay-host.js";
 import {
   isAddProviderShortcutKey,
+  isSetDefaultShortcutKey,
   setPaletteCatalog,
 } from "./shell/palette.js";
 import { surfaceSystemNotice } from "./shell/prompt.js";
@@ -670,18 +671,26 @@ export async function mountProductHost(
                   openAddProvider({ returnToModels: true });
                   return true;
                 }
-                if (!(key.meta || key.option)) return false;
+                // Alt+F stays modifier-only; the default shortcut also accepts
+                // the composed Option+D glyph through its scoped predicate.
                 const name =
                   typeof key.name === "string" ? key.name.toLowerCase() : "";
-                // Alt+F / Alt+D, never bare — type-to-filter claims printable keys.
-                if (name === "f" && onFavoriteToggle !== undefined) {
+                if (
+                  !key.ctrl &&
+                  (key.meta || key.option) &&
+                  name === "f" &&
+                  onFavoriteToggle !== undefined
+                ) {
                   // Empty id is the "(no matches)" filter sentinel — not a model.
                   if (itemId.length === 0) return false;
                   onFavoriteToggle(itemId);
                   return true;
                 }
-                if (name === "d" && onSetDefault !== undefined) {
-                  if (itemId.length === 0) return false;
+                if (
+                  onSetDefault !== undefined &&
+                  isSetDefaultShortcutKey(key)
+                ) {
+                  if (itemId.length === 0) return true;
                   onSetDefault(itemId);
                   return true;
                 }
