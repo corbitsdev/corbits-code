@@ -146,14 +146,21 @@ export function terminalProviderFailureMessage(
     ? diagnostic
     : `${diagnostic}.`;
   const guidance = terminalProviderFailureGuidance(error, category);
-  return `${label} Provider failed (${category}): ${diagnosticSentence} ${guidance}`;
+  const tail = guidance.length > 0 ? ` ${guidance}` : "";
+  return `${label} Provider failed (${category}): ${diagnosticSentence}${tail}`;
 }
 
 function terminalProviderFailureGuidance(
   error: InferenceErrorLike,
   category: string,
 ): string {
-  if (category === "credential_failure") return CREDENTIAL_FAILURE_USER_MESSAGE;
+  if (category === "credential_failure") {
+    // Normalized credential failures already carry the re-login hint in the
+    // diagnostic (e.g. Codex profile copy); repeating it reads as a stutter.
+    return /log in again|sign in again/i.test(error.message ?? "")
+      ? ""
+      : CREDENTIAL_FAILURE_USER_MESSAGE;
+  }
   if (category === "context_overflow") return "Try /clear to start fresh.";
   // A 429 that survived the harness's paced retries is a wait-it-out rate
   // limit, not a generic flake: say so instead of the bare "Try again."
@@ -180,7 +187,9 @@ function terminalProviderFailureSummary(
 ): string {
   const label = terminalProviderFailureLabel(providerId, displayLabel);
   const category = terminalProviderFailureCategory(error);
-  return `${label} Provider failed (${category}). ${terminalProviderFailureGuidance(error, category)}`;
+  const guidance = terminalProviderFailureGuidance(error, category);
+  const tail = guidance.length > 0 ? ` ${guidance}` : "";
+  return `${label} Provider failed (${category}).${tail}`;
 }
 
 export type ResolvedProviderFailureError = Error & {
