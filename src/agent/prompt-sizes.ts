@@ -18,7 +18,6 @@ import {
   MAX_AGENTS_MD_BYTES,
 } from "./context-extensions.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
-import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { shellCollectDefinition } from "./background-shell-tool.js";
 import {

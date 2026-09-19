@@ -124,10 +124,14 @@ describe("resolveModelFamilyPolicy", () => {
         orchestrator: true,
       });
       expect(orchestrator.promptResidual).toBeUndefined();
+      // Default-family probe: anthropic/claude-sonnet-4 would hit the claude
+      // row now, and the gpt row has NOT landed yet (#1135), so openai/gpt-4.1
+      // is the probe that still resolves to the default family.
       const base = resolveModelFamilyPolicy({
-        providerName: "anthropic",
-        model: "claude-sonnet-4",
+        providerName: "openai",
+        model: "gpt-4.1",
       });
+      expect(base.family).toBe("default");
       expect(base.promptResidual).toBeUndefined();
     });
   });
