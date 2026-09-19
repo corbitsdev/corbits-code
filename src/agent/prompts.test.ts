@@ -405,4 +405,24 @@ describe("claude XML task_guidance residual (provider residual, not a prompt for
     expect(countOccurrences(note, "</task_guidance>")).toBe(1);
     expect(note).not.toMatch(/<system_prompt>|<prompt>|<identity>/);
   });
+
+  it("keeps the measured CL-7775 shape: rationale first, numbered approach, named output contract, positively framed", () => {
+    const lines = buildClaudeTaskGuidanceNote().split("\n");
+    // Rationale first: the lead line frames the turn before any directive.
+    expect(lines[1]).toMatch(/^Autonomous coding turn:/);
+    // Numbered approach, not bullets.
+    expect(lines.slice(2, 5).map((l) => l.split(".")[0])).toEqual([
+      "1",
+      "2",
+      "3",
+    ]);
+    // Named output contract.
+    expect(buildClaudeTaskGuidanceNote()).toContain(
+      "structured report envelope",
+    );
+    // Positive framing: no negative imperatives.
+    expect(buildClaudeTaskGuidanceNote()).not.toMatch(
+      /\b(do not|don't|never|stop calling)\b/i,
+    );
+  });
 });
