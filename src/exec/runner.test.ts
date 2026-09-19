@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
+import {
+  CodexAuthError,
+  codexAuthFailureDiagnostic,
+  CodexRefreshLockError,
+} from "../auth/codex/session.js";
+import type { Config } from "../config/index.js";
+import { CREDENTIAL_FAILURE_USER_MESSAGE } from "../inference-error-message.js";
 import { createAdvertisedToolset } from "../session/assemble-runtime.js";
 import {
   armExecMcpHandshakeAbort,
@@ -11,7 +18,9 @@ import {
 import {
   createExecToolCallGate,
   createExecToolPromoter,
+  execUserFailureMessage,
   isExecOverlayToolAllowed,
+  refreshSelectedProviderCredential,
   resolveExecDirectorOverlay,
   resolveExecDirectorOverlayForPackage,
 } from "./runner.js";
@@ -326,5 +335,69 @@ describe("exec MCP connect bounds", () => {
     expect(resumed).toBe(true);
     expect(handshake.signal.aborted).toBe(true);
     expect(Date.now() - started).toBeLessThan(250);
+  });
+});
+
+describe("exec credential failure surface", () => {
+  test("a raw codex refresh failure maps to the credential failure message", () => {
+    const cfg = { inference: { timeoutMs: 1_000 } } as unknown as Config;
+    const auth = new CodexAuthError(
+      "personal",
+      "refresh-failed",
+      'Codex profile "personal" could not be refreshed (boom). Log in again.',
+    );
+    // Raw auth error, no SELECTED wrapper and no provider failure observed:
+    // still a credential failure, never the bare provider text.
+    expect(execUserFailureMessage(cfg, auth, false)).toBe(
+      CREDENTIAL_FAILURE_USER_MESSAGE,
+    );
+  });
+
+  test("a missing codex profile maps to the credential failure message", () => {
+    const cfg = { inference: { timeoutMs: 1_000 } } as unknown as Config;
+    const auth = new CodexAuthError(
+      "ghost",
+      "missing",
+      'Codex profile "ghost" is missing. Log in again to recreate it.',
+    );
+    expect(execUserFailureMessage(cfg, auth, false)).toBe(
+      CREDENTIAL_FAILURE_USER_MESSAGE,
+    );
+  });
+
+  test("the credential failure message itself carries the re-login hint", () => {
+    expect(CREDENTIAL_FAILURE_USER_MESSAGE).toMatch(/log in again/i);
+  });
+
+  test("a codex refresh lock failure keeps its own message with the lock path", async () => {
+    const cfg = { inference: { timeoutMs: 1_000 } } as unknown as Config;
+    const lockPath = "/tmp/cl8628-codex-auth.refresh.lock";
+    const lock = new CodexRefreshLockError(
+      "personal",
+      lockPath,
+      `Timed out after 30000ms waiting for the Codex refresh lock at ${lockPath}.`,
+    );
+    // Joint surface with the combined classifier (#1138 rework is in flight
+    // in parallel): the lock error never composes into credential_failure.
+    expect(codexAuthFailureDiagnostic(lock)).toBeNull();
+    // Raw pre-send failure: the exec layer repeats the lock message verbatim
+    // instead of the generic re-login hint.
+    const raw = execUserFailureMessage(cfg, lock, false);
+    expect(raw).toContain(lockPath);
+    expect(raw).not.toBe(CREDENTIAL_FAILURE_USER_MESSAGE);
+    expect(raw).not.toMatch(/log in again/i);
+    // First-inference refresh wraps failures in SELECTED_PROVIDER_FAILURE:
+    // the lock path must survive that wrapper too.
+    const wrapped = await refreshSelectedProviderCredential(() =>
+      Promise.reject(lock),
+    ).then(
+      () => {
+        throw new Error("expected the refresh to fail");
+      },
+      (err: unknown) => err,
+    );
+    const throughWrapper = execUserFailureMessage(cfg, wrapped, false);
+    expect(throughWrapper).toContain(lockPath);
+    expect(throughWrapper).not.toBe(CREDENTIAL_FAILURE_USER_MESSAGE);
   });
 });
