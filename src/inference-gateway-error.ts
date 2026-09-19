@@ -520,30 +520,94 @@ function normalizeCodexUsageLimitError(
 }
 
 /**
- * Body/message markers that mean a Codex 404 names an unknown model rather
- * than rejecting the credential. The regex below covers the same phrasing
- * when a model name sits between "model" and "does not exist".
+ * Positive auth-rejection signals for the Codex credential-404 classifier. A
+ * known-Codex fatal 404 reclassifies to credential_failure ONLY when the
+ * message or raw body carries one of these markers — bare / routing / config
+ * 404s and genuine unknown-model rejections stay fatal with switch-models
+ * guidance. Negative unknown-model matching is deliberately not used here:
+ * every new backend phrasing would otherwise need an allowlist entry.
  */
-const CODEX_UNKNOWN_MODEL_MARKERS = [
-  "model_not_found",
-  "unknown model",
+const CODEX_CREDENTIAL_404_MARKERS = [
+  "not authorized",
+  "unauthorized",
+  "unauthorised",
+  "invalid token",
+  "invalid_token",
+  "expired",
+  "revoked",
 ] as const;
 
-function hasCodexUnknownModelMarker(error: InferenceErrorLike): boolean {
-  const parts = [error.message ?? "", stringFromRaw(error.raw)];
-  if (combinedTextIncludesMarker(parts, CODEX_UNKNOWN_MODEL_MARKERS))
-    return true;
-  return parts.some((part) =>
-    /model\b[^.!?]{0,60}\b(?:does not exist|not found)\b/i.test(part),
+function hasCodexCredentialAuthSignal(error: InferenceErrorLike): boolean {
+  return combinedTextIncludesMarker(
+    [error.message ?? "", stringFromRaw(error.raw)],
+    CODEX_CREDENTIAL_404_MARKERS,
   );
 }
 
 /**
+ * Single shared predicate behind the Codex credential-404 re-login copy: the
+ * classifier brands with it (formatCodexCredential404Message) and the
+ * terminal-guidance dedup checks with it, so the two cannot drift.
+ */
+export function carriesCodexReLoginHint(text: string): boolean {
+  return /log in again|sign in again/i.test(text);
+}
+
+/** Branded re-login line for a Codex credential 404, diagnostic appended. */
+function formatCodexCredential404Message(
+  profile: string,
+  originalDiagnostic: string,
+): string {
+  const branded = `Codex profile "${profile}" is not authorized. Log in again.`;
+  const oneLine = originalDiagnostic.replace(/\s+/g, " ").trim();
+  if (oneLine.length === 0 || branded.includes(oneLine)) return branded;
+  const clipped = oneLine.length > 200 ? `${oneLine.slice(0, 199)}…` : oneLine;
+  return `${branded} (${clipped})`;
+}
+
+/**
+ * Reclassification telemetry for the Codex credential-404 classifier. The
+ * backend invents new 404 reasons over time; the counter plus the last-body
+ * sample let future unknown-404 waves be spotted without guessing.
+ */
+let codexCredential404ReclassifiedCount = 0;
+let lastReclassifiedCodex404Sample = "";
+
+export function codexCredential404ReclassifiedStats(): {
+  readonly count: number;
+  readonly lastSample: string;
+} {
+  return {
+    count: codexCredential404ReclassifiedCount,
+    lastSample: lastReclassifiedCodex404Sample,
+  };
+}
+
+export function resetCodexCredential404StatsForTests(): void {
+  codexCredential404ReclassifiedCount = 0;
+  lastReclassifiedCodex404Sample = "";
+}
+
+function recordCodexCredential404Reclassification(
+  error: InferenceErrorLike,
+): void {
+  codexCredential404ReclassifiedCount += 1;
+  const sample = [error.message ?? "", stringFromRaw(error.raw)]
+    .join("\n")
+    .replace(/\s+/g, " ")
+    .trim();
+  lastReclassifiedCodex404Sample =
+    sample.length > 500 ? `${sample.slice(0, 499)}…` : sample;
+}
+
+/**
  * Codex answers unauthenticated requests with 426/404, so a fatal 404 in a
- * known-Codex context is an expired, invalid, or missing credential — not a
- * bad model name. The re-login copy matches the CodexAuthError shape so the
- * TUI names the affected profile through its existing auth matchers. Only an
- * explicit unknown-model marker keeps the fatal switch-models path.
+ * known-Codex context whose body carries an auth-rejection signal is an
+ * expired, invalid, or revoked credential — not a bad model name. The
+ * re-login copy matches the CodexAuthError shape so the TUI names the
+ * affected profile through its existing auth matchers; the original
+ * diagnostic rides along in parens so the model name stays debuggable.
+ * Anything without an auth signal keeps the fatal switch-models path.
  */
 function normalizeCodexCredential404Error(
   error: InferenceErrorWithGoContext,
@@ -553,11 +617,13 @@ function normalizeCodexCredential404Error(
   const providerId = error.providerId;
   if (providerId === undefined || !isCodexProviderName(providerId))
     return error;
-  if (hasCodexUnknownModelMarker(error)) return error;
+  if (!hasCodexCredentialAuthSignal(error)) return error;
   const profile = codexProfileFromProviderName(providerId) ?? providerId;
+  const message = formatCodexCredential404Message(profile, error.message ?? "");
+  recordCodexCredential404Reclassification(error);
   return {
     category: "credential_failure",
-    message: `Codex profile "${profile}" is not authorized. Log in again.`,
+    message,
     statusCode: 404,
     ...(error.raw !== undefined ? { raw: error.raw } : {}),
     ...(error.retryAfterMs !== undefined
@@ -572,8 +638,8 @@ function normalizeCodexCredential404Error(
  * Go quota/rate-limit shapes (including HTTP 400 mis-status), known-xAI short
  * 429s, attributable xAI capacity protocol_mismatch, Codex usage limits
  * (nested detail.error with resets_in_seconds), known-Codex short 429s that
- * are not usage_limit_reached, and known-Codex credential 404s that do not
- * name an unknown model.
+ * are not usage_limit_reached, and known-Codex 404s carrying an
+ * auth-rejection signal (expired/revoked credential).
  */
 export function normalizeInferenceErrorForRetry(
   error: InferenceErrorWithGoContext,
