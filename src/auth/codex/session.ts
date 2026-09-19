@@ -78,11 +78,15 @@ async function refreshCodexTokensForStore(
   );
 }
 
-function sessionFor(home?: string): TokenSession<CodexTokens, CodexAccess> {
-  const key = home ?? "";
-  const existing = sessions.get(key);
-  if (existing !== undefined) return existing;
-  const created = createTokenSession<CodexTokens, CodexAccess>({
+/**
+ * Builds an independent Codex token session for a home directory. Each
+ * session carries its own in-flight deduplication, so two sessions over the
+ * same home behave like two processes sharing one credential store.
+ */
+export function createCodexTokenSession(
+  home?: string,
+): TokenSession<CodexTokens, CodexAccess> {
+  return createTokenSession<CodexTokens, CodexAccess>({
     skewMs: CODEX_REFRESH_SKEW_MS,
     loadProfile: (name) => loadCodexProfile(name, home),
     updateTokens: (name, tokens) => updateCodexTokens(name, tokens, home),
@@ -103,6 +107,13 @@ function sessionFor(home?: string): TokenSession<CodexTokens, CodexAccess> {
         ? { ...refreshed, accountId: previous.accountId }
         : refreshed,
   });
+}
+
+function sessionFor(home?: string): TokenSession<CodexTokens, CodexAccess> {
+  const key = home ?? "";
+  const existing = sessions.get(key);
+  if (existing !== undefined) return existing;
+  const created = createCodexTokenSession(home);
   sessions.set(key, created);
   return created;
 }
