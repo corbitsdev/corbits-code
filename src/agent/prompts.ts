@@ -526,6 +526,9 @@ export function buildGrokLeafAntiThrashNote(): string {
 // Single XML residual for Claude-family workers: a prose residual did
 // nothing, but one <task_guidance> block cut Sonnet tokens. One block only —
 // never a full-prompt XML renderer, never applied outside the claude family.
+// Rebuilt end to end from Anthropic's prompting docs (CL-8309): rationale
+// first, numbered approach, named output contract; every line is positively
+// framed and scope-explicit for Sonnet's literal instruction-following.
 // Single source of truth is the CLAUDE_TASK_GUIDANCE_NOTE block in
 // model-family-policy.ts (policy owns data); this returns that block verbatim
 // so the prompt carries one claude residual with no line twice.
@@ -577,5 +580,4 @@ export function buildSubAgentSystemPrompt(
     sections.push(opts.promptResidual);
   }
   return joinSections(sections);
-}
 }

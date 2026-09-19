@@ -157,9 +157,10 @@ export const GROK_PROMPT_RESIDUAL = [
 // verbatim so the prompt carries exactly one copy.
 export const CLAUDE_TASK_GUIDANCE_NOTE = [
   "<task_guidance>",
-  "- Follow the dispatch brief exactly; its Success criteria are the done-definition.",
-  "- When the done-definition is met, stop calling tools and write the structured report envelope.",
-  "- Batch independent tool calls into a single turn; never re-read a file you already read this session.",
+  "Autonomous coding turn: finish the work in this turn on your best judgment.",
+  "1. Follow the dispatch brief exactly; its Success criteria are the done-definition.",
+  "2. Batch independent tool calls into a single turn; work from files already read this session.",
+  "3. Finish the task when the done-definition is met: prefer the structured report envelope over another tool call.",
   "</task_guidance>",
 ].join("\n");
 
