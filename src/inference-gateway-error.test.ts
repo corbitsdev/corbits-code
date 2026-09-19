@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  carriesCodexReLoginHint,
+  codexCredential404ReclassifiedStats,
   GATEWAY_OVERLOAD_USER_MESSAGE,
   isGatewayOverloadInferenceError,
   looksLikeHtmlGatewayBody,
   normalizeInferenceErrorForRetry,
+  resetCodexCredential404StatsForTests,
   XAI_CAPACITY_USER_MESSAGE,
 } from "./inference-gateway-error.js";
 
@@ -277,6 +280,157 @@ describe("normalizeInferenceErrorForRetry", () => {
     };
     const normalized = normalizeInferenceErrorForRetry(error);
     expect(normalized).toBe(error);
+  });
+
+  /**
+   * Wire shape for a revoked Codex credential: the harness classifies the
+   * HTTP 404 as fatal with the statusText message while the JSON body rides
+   * on raw. The body carries the auth-rejection signal; the status line
+   * alone ("Not Found") must never reclassify.
+   */
+  const REVOKED_CREDENTIAL_404_RAW = {
+    error: {
+      code: "invalid_token",
+      message: "Not authorized: the access token has been revoked",
+      type: "invalid_request_error",
+    },
+  };
+
+  test("Codex 404 with a revoked-credential body reclassifies as credential_failure", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "codex/work",
+      raw: REVOKED_CREDENTIAL_404_RAW,
+    });
+    expect(normalized.category).toBe("credential_failure");
+    expect(normalized.message).toContain('Codex profile "work"');
+    expect(carriesCodexReLoginHint(normalized.message)).toBe(true);
+    // Original diagnostic rides along so the failure stays debuggable, and
+    // the wire body stays on raw for logs.
+    expect(normalized.message).toContain("Not Found");
+    expect(normalized.raw).toEqual(REVOKED_CREDENTIAL_404_RAW);
+  });
+
+  test.each([
+    { name: "not authorized", body: "Not authorized" },
+    { name: "unauthorized", body: "401 Unauthorized" },
+    { name: "invalid token", body: "Invalid token" },
+    { name: "expired", body: "The access token expired" },
+    { name: "revoked", body: "Token has been revoked" },
+  ])("Codex 404 with $name signal reclassifies", ({ body }) => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "codex/work",
+      raw: { error: { message: body } },
+    });
+    expect(normalized.category).toBe("credential_failure");
+    expect(carriesCodexReLoginHint(normalized.message)).toBe(true);
+  });
+
+  test("Codex 404 with an auth signal in the message reclassifies", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "Invalid token: expired",
+      statusCode: 404,
+      providerId: "codex/work",
+    });
+    expect(normalized.category).toBe("credential_failure");
+    expect(normalized.message).toContain("Invalid token: expired");
+  });
+
+  test("Codex bare 404 without an auth signal stays fatal", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "codex/work",
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("Codex routing 404 without an auth signal stays fatal", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "codex/work",
+      raw: { error: { code: "not_found", message: "No such endpoint" } },
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("Codex 404 naming a dotted unknown model stays fatal", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "The model 'gpt-3.5-turbo' does not exist",
+      statusCode: 404,
+      providerId: "codex/work",
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("Codex 404 naming an unknown model keeps fatal switch-models guidance", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "The model 'gpt-99' does not exist",
+      statusCode: 404,
+      providerId: "codex/work",
+      raw: {
+        error: {
+          code: "model_not_found",
+          message: "The model 'gpt-99' does not exist",
+          type: "invalid_request_error",
+        },
+      },
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("non-Codex 404 keeps fatal switch-models guidance", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "custom-provider",
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("non-Codex 404 with an auth signal keeps provider scoping", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "custom-provider",
+      raw: { error: { message: "Token has been revoked" } },
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("reclassified Codex 404s bump the counter with a body sample", () => {
+    resetCodexCredential404StatsForTests();
+    expect(codexCredential404ReclassifiedStats().count).toBe(0);
+    normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "codex/work",
+      raw: REVOKED_CREDENTIAL_404_RAW,
+    });
+    // A fatal 404 without an auth signal must not bump the counter.
+    normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "codex/work",
+    });
+    const stats = codexCredential404ReclassifiedStats();
+    expect(stats.count).toBe(1);
+    expect(stats.lastSample).toContain("revoked");
   });
 
   test("known-xAI message-only capacity protocol error becomes retryable", () => {

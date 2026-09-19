@@ -160,6 +160,65 @@ describe("terminalProviderFailureMessage", () => {
     );
   });
 
+  test("terminal Codex credential 404 names the profile with a re-login hint", () => {
+    const normalized = normalizeInferenceErrorForTerminal(
+      {
+        category: "fatal",
+        message: "Not Found",
+        statusCode: 404,
+        raw: {
+          error: {
+            code: "invalid_token",
+            message: "Not authorized: the access token has been revoked",
+          },
+        },
+      },
+      "codex/work",
+    );
+    const message = terminalProviderFailureMessage("codex/work", normalized);
+    expect(message).toContain('Codex profile "work"');
+    expect(message).toContain("Not Found");
+    expect(message).not.toContain("/model");
+    // One re-login hint, not a stutter: the branded diagnostic dedups via
+    // the shared carriesCodexReLoginHint predicate.
+    expect(message.toLowerCase().match(/log in again/g)).toHaveLength(1);
+  });
+
+  test("terminal bare Codex 404 without an auth signal keeps switch-models guidance", () => {
+    const normalized = normalizeInferenceErrorForTerminal(
+      { category: "fatal", message: "Not Found", statusCode: 404 },
+      "codex/work",
+    );
+    const message = terminalProviderFailureMessage("codex/work", normalized);
+    expect(message).toContain('"/model"');
+    expect(message.toLowerCase()).not.toMatch(/log in again/);
+  });
+
+  test("terminal Codex refresh-failed auth error renders one re-login hint", () => {
+    // Joint surface with #1139 (CL-8628 refresh serialization): both lanes
+    // land credential failures in the CodexAuthError copy shape, and the
+    // terminal dedup must swallow the generic hint for either source.
+    const message = terminalProviderFailureMessage("codex/work", {
+      category: "credential_failure",
+      message:
+        'Codex profile "work" could not be refreshed (invalid_grant). Log in again.',
+      statusCode: 401,
+      providerId: "codex/work",
+    });
+    expect(message).toContain('Codex profile "work"');
+    expect(message.toLowerCase().match(/log in again/g)).toHaveLength(1);
+  });
+
+  test("terminal genuine unknown-model 404 keeps switch-models guidance", () => {
+    const message = terminalProviderFailureMessage("codex/work", {
+      category: "fatal",
+      message: "The model 'gpt-99' does not exist",
+      statusCode: 404,
+      providerId: "codex/work",
+    });
+    expect(message).toContain('"/model"');
+  });
+
   test.each([
     {
       name: "Bearer header",
