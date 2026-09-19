@@ -27,7 +27,10 @@ import {
   shellDefinition,
   updatePlanDefinition,
 } from "../agent/codex-tool-proxies.js";
-import { getValidCodexToken } from "../auth/codex/session.js";
+import {
+  codexAuthFailureDiagnostic,
+  getValidCodexToken,
+} from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import {
   type ActivatedToolTracker,
@@ -183,6 +186,11 @@ export function execUserFailureMessage(
   providerError?: InferenceErrorLike,
 ): string {
   if (err instanceof Error && err.name === SELECTED_PROVIDER_FAILURE) {
+    return CREDENTIAL_FAILURE_USER_MESSAGE;
+  }
+  // A pre-send Codex refresh throws the raw auth error (no SELECTED wrapper):
+  // a failed refresh is still a credential failure with a re-login hint.
+  if (codexAuthFailureDiagnostic(err) !== null) {
     return CREDENTIAL_FAILURE_USER_MESSAGE;
   }
   if (providerError === undefined && isResolvedProviderFailureError(err))

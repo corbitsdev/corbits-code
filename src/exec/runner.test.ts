@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
+import { CodexAuthError } from "../auth/codex/session.js";
+import type { Config } from "../config/index.js";
+import { CREDENTIAL_FAILURE_USER_MESSAGE } from "../inference-error-message.js";
 import { createAdvertisedToolset } from "../session/assemble-runtime.js";
 import {
   armExecMcpHandshakeAbort,
@@ -11,6 +14,7 @@ import {
 import {
   createExecToolCallGate,
   createExecToolPromoter,
+  execUserFailureMessage,
   isExecOverlayToolAllowed,
   resolveExecDirectorOverlay,
   resolveExecDirectorOverlayForPackage,
@@ -326,5 +330,37 @@ describe("exec MCP connect bounds", () => {
     expect(resumed).toBe(true);
     expect(handshake.signal.aborted).toBe(true);
     expect(Date.now() - started).toBeLessThan(250);
+  });
+});
+
+describe("exec credential failure surface", () => {
+  test("a raw codex refresh failure maps to the credential failure message", () => {
+    const cfg = { inference: { timeoutMs: 1_000 } } as unknown as Config;
+    const auth = new CodexAuthError(
+      "personal",
+      "refresh-failed",
+      'Codex profile "personal" could not be refreshed (boom). Log in again.',
+    );
+    // Raw auth error, no SELECTED wrapper and no provider failure observed:
+    // still a credential failure, never the bare provider text.
+    expect(execUserFailureMessage(cfg, auth, false)).toBe(
+      CREDENTIAL_FAILURE_USER_MESSAGE,
+    );
+  });
+
+  test("a missing codex profile maps to the credential failure message", () => {
+    const cfg = { inference: { timeoutMs: 1_000 } } as unknown as Config;
+    const auth = new CodexAuthError(
+      "ghost",
+      "missing",
+      'Codex profile "ghost" is missing. Log in again to recreate it.',
+    );
+    expect(execUserFailureMessage(cfg, auth, false)).toBe(
+      CREDENTIAL_FAILURE_USER_MESSAGE,
+    );
+  });
+
+  test("the credential failure message itself carries the re-login hint", () => {
+    expect(CREDENTIAL_FAILURE_USER_MESSAGE).toMatch(/log in again/i);
   });
 });

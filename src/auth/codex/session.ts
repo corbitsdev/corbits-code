@@ -12,9 +12,15 @@ import {
 } from "@corbits/codex-provider";
 
 import {
+  codexAuthPath,
   loadCodexProfile,
   updateCodexTokens,
 } from "../../config/oauth-stores.js";
+import type { InferenceErrorLike } from "../../inference-gateway-error.js";
+import {
+  CodexRefreshLockTimeoutError,
+  withCodexRefreshLock,
+} from "./refresh-lock.js";
 import { withDefaultCodexExpiry } from "./store.js";
 
 // Raised when a Codex profile cannot yield a usable access token: it is gone,
@@ -86,7 +92,7 @@ async function refreshCodexTokensForStore(
 export function createCodexTokenSession(
   home?: string,
 ): TokenSession<CodexTokens, CodexAccess> {
-  return createTokenSession<CodexTokens, CodexAccess>({
+  const inner = createTokenSession<CodexTokens, CodexAccess>({
     skewMs: CODEX_REFRESH_SKEW_MS,
     loadProfile: (name) => loadCodexProfile(name, home),
     updateTokens: (name, tokens) => updateCodexTokens(name, tokens, home),
@@ -107,6 +113,61 @@ export function createCodexTokenSession(
         ? { ...refreshed, accountId: previous.accountId }
         : refreshed,
   });
+  return {
+    isExpired: inner.isExpired,
+    getValidToken: (name, now = Date.now()) =>
+      withSerializedCodexRefresh(home, name, now, () =>
+        inner.getValidToken(name, now),
+      ),
+  };
+}
+
+// Refreshes for one shared credential store serialize on a lock file so two
+// headless runs (or two sessions in one process) cannot hold overlapping
+// refresh grants and revoke each other under token rotation. Fresh tokens
+// resolve before the lock: a stalled refresh must never block healthy
+// readers behind it.
+async function withSerializedCodexRefresh(
+  home: string | undefined,
+  name: string,
+  now: number,
+  refresh: () => Promise<CodexAccess>,
+): Promise<CodexAccess> {
+  const profile = await loadCodexProfile(name, home);
+  if (profile === undefined) throw new OAuthProfileNotFoundError(name);
+  if (!isCodexTokenExpired(profile.tokens, now))
+    return {
+      access: profile.tokens.access,
+      accountId: profile.tokens.accountId,
+    };
+  try {
+    return await withCodexRefreshLock(
+      `${codexAuthPath(home)}.refresh.lock`,
+      refresh,
+    );
+  } catch (err) {
+    // A refresh that cannot even acquire the lock still surfaces as a
+    // credential failure with a re-login hint, never a bare lock error.
+    if (err instanceof CodexRefreshLockTimeoutError) {
+      throw new CodexAuthError(
+        name,
+        "refresh-failed",
+        `Codex profile "${name}" could not be refreshed (${err.message}). Log in again.`,
+      );
+    }
+    throw err;
+  }
+}
+
+// Projects a Codex auth failure onto the shared inference credential_failure
+// shape so classifiers compose over one category: a CodexAuthError always
+// carries a re-login hint, and anything else is not ours to classify.
+export function codexAuthFailureDiagnostic(
+  err: unknown,
+): InferenceErrorLike | null {
+  if (err instanceof CodexAuthError)
+    return { category: "credential_failure", message: err.message };
+  return null;
 }
 
 function sessionFor(home?: string): TokenSession<CodexTokens, CodexAccess> {
