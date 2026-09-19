@@ -41,6 +41,16 @@ describe("integration — signal finalizes run.json", () => {
 
         expect(exitCode).toBe(expectedExitCode);
 
+        // The interrupted session must name itself so the operator can
+        // resume exactly the session they just left. The hint goes to
+        // stderr — never stdout — so piped stdout (JSON consumers) stays
+        // clean. An external signal racing the finalize tail must still
+        // emit the line exactly once (shared once-flag in resume-hint).
+        const errText = await new Response(proc.stderr).text();
+        const hint = `Run corbits resume ${sessionId}`;
+        expect(errText).toContain(hint);
+        expect(errText.split(hint).length - 1).toBe(1);
+
         // The fixture parks two unawaited straggler "running" snapshot writes
         // behind setTestWriteGate and releases them only after markCrashed()
         // flips. Without that fence on the signal path, one of those renames

@@ -681,7 +681,7 @@ Usage:
 
 Continue verbs (project-keyed to this checkout's git toplevel):
   resume / continue           interactive session picker
-  --resume                    interactive session picker
+  --resume [<session-id>]     interactive session picker, or reopen a specific session
   resume <session-id>         reopen a specific session
   resume --pick / --list      interactive session picker
 
@@ -691,7 +691,7 @@ Flags:
   --provider <name>           configured provider name
   --model <id>                model for the active provider
   --profile <name>            settings profile
-  --resume                    interactive session picker
+  --resume [<session-id>]     interactive session picker, or reopen a specific session
   --director <id>             exec-only: run as this director (default: skywalker)
   --dangerously-skip-permissions
                                skip permission prompts for this run only;
@@ -888,7 +888,24 @@ export async function loadConfig(
       if (resumeMode === "id") {
         throw new Error("cannot combine a session id with --resume");
       }
-      resumeMode = "pick";
+      // Optional session id: `corbits --resume <uuid>` reopens that session
+      // directly (an alias for the `corbits resume <uuid>` form the exit
+      // hint prints); bare `--resume` opens the
+      // picker. A non-flag token that is not a session id errors exactly like
+      // the `resume` verb path instead of leaking into task text.
+      const next = args[i + 1];
+      if (next !== undefined && !isFlagToken(next)) {
+        if (!isSessionId(next)) {
+          throw new Error(
+            `'${next}' is not a session id. Use a UUID session id or \`corbits resume\` to choose.`,
+          );
+        }
+        resumeMode = "id";
+        resumeSessionId = next;
+        i++;
+      } else {
+        resumeMode = "pick";
+      }
       continue;
     }
     if ((arg === "--pick" || arg === "--list") && resumeMode !== undefined) {

@@ -16,6 +16,8 @@ import type {
 } from "@intx/types/runtime";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 import { defined } from "../../../tests/helpers/defined.js";
+import { withMockedHomedir } from "../../../tests/helpers/mock-module.js";
+import { createTempDirs } from "../../../tests/helpers/temporary-dirs.js";
 import {
   createDeliveryGeneration,
   createSessionOperationQueue,
@@ -30,6 +32,10 @@ import {
   COMPACTION_ABORTED_REASON,
   createCompactionLifecycle,
 } from "../../session/compaction-lifecycle.js";
+import {
+  printResumeHint,
+  resetResumeHintForTests,
+} from "../../session/resume-hint.js";
 import type { RunnerServices, RunnerState } from "./state.js";
 
 function stubQuit(args: {
@@ -193,6 +199,104 @@ describe("finalizeTUIRun quit order", () => {
       defined(settleTail, "settleTail")(new Error("stop"));
     }
     await expect(done).rejects.toThrow("stop");
+  });
+});
+
+describe("finalizeTUIRun resume hint", () => {
+  test("prints the resume command with the exited session id", async () => {
+    resetResumeHintForTests();
+    const dirs = createTempDirs(
+      "corbits-resume-hint-cwd-",
+      "corbits-resume-hint-home-",
+    );
+    const sessionId = "123e4567-e89b-12d3-a456-426614174000";
+    const { state, services } = stubQuit({
+      awaitTail: async () => undefined,
+      shutdownRuntime: async () => undefined,
+    });
+    state.sessionId = sessionId;
+    (
+      services as unknown as { activatedToolNames: { list: () => string[] } }
+    ).activatedToolNames = { list: () => [] };
+    (state.config as { cwd: string }).cwd = dirs.cwd;
+    const outWrites: string[] = [];
+    const errWrites: string[] = [];
+    const stdoutSpy = spyOn(process.stdout, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      outWrites.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write);
+    const stderrSpy = spyOn(process.stderr, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      errWrites.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      const code = await withMockedHomedir(dirs.home, () =>
+        finalizeTUIRun(state, services),
+      );
+      expect(code).toBe(0);
+    } finally {
+      stdoutSpy.mockRestore();
+      stderrSpy.mockRestore();
+      dirs.cleanup();
+    }
+    // stderr, not stdout: a piped stdout (JSON consumers) must stay clean.
+    expect(
+      errWrites.some((w) => w === `Run corbits resume ${sessionId}\n`),
+    ).toBe(true);
+    expect(outWrites.some((w) => w.includes("resume"))).toBe(false);
+  });
+
+  test("an external signal racing finalize prints the hint exactly once", async () => {
+    resetResumeHintForTests();
+    const dirs = createTempDirs(
+      "corbits-resume-hint-race-cwd-",
+      "corbits-resume-hint-race-home-",
+    );
+    const sessionId = "123e4567-e89b-12d3-a456-426614174000";
+    let releaseTail: (() => void) | undefined;
+    const gatedTail = new Promise<void>((resolve) => {
+      releaseTail = resolve;
+    });
+    const { state, services } = stubQuit({
+      awaitTail: () => gatedTail,
+      shutdownRuntime: async () => undefined,
+    });
+    state.sessionId = sessionId;
+    (
+      services as unknown as { activatedToolNames: { list: () => string[] } }
+    ).activatedToolNames = { list: () => [] };
+    (state.config as { cwd: string }).cwd = dirs.cwd;
+    const errWrites: string[] = [];
+    const stderrSpy = spyOn(process.stderr, "write").mockImplementation(((
+      chunk: unknown,
+    ) => {
+      errWrites.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write);
+    try {
+      const pending = withMockedHomedir(dirs.home, () =>
+        finalizeTUIRun(state, services),
+      );
+      // Simulate the signal handler firing mid-finalize: both paths funnel
+      // through printResumeHint, so the shared once-flag keeps exactly one
+      // line. (The process-level `terminating` guard covers signal-vs-signal
+      // only — it cannot see the finalize tail already in flight.)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      printResumeHint(sessionId);
+      defined(releaseTail, "releaseTail")();
+      expect(await pending).toBe(0);
+    } finally {
+      stderrSpy.mockRestore();
+      dirs.cleanup();
+    }
+    const hintLines = errWrites.filter(
+      (w) => w === `Run corbits resume ${sessionId}\n`,
+    );
+    expect(hintLines).toHaveLength(1);
   });
 });
 
