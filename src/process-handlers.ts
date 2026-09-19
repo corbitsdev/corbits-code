@@ -235,8 +235,10 @@ export function installSignalHandlers(options?: ProcessHandlerOptions): void {
         await teardown;
         // Capture before finalizing: the terminal write clears the slot.
         // Print before the finalize await below so the yielded disk I/O
-        // flushes this through the pipe before process.exit — a write
+        // flushes this through the stderr pipe before process.exit — a write
         // immediately preceding process.exit can otherwise be dropped.
+        // printResumeHint is exactly-once per process, so a signal racing
+        // the normal finalize tail cannot double-print the line.
         const run = getActiveRun();
         if (run !== null) printResumeHint(run.sessionId);
         await finalizeActiveRunOnSignal(signal);
