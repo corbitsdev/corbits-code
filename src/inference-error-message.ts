@@ -14,6 +14,7 @@ import {
 import { stripTerminalControlSequences } from "./util/control-char-strip.js";
 import { scrubSecretShapedContent } from "./plugins/tool-result-secret-scrub.js";
 import {
+  carriesCodexReLoginHint,
   gatewayOverloadUserMessage,
   isCodexShortRateLimitInferenceError,
   isGatewayOverloadInferenceError,
@@ -157,7 +158,8 @@ function terminalProviderFailureGuidance(
   if (category === "credential_failure") {
     // Normalized credential failures already carry the re-login hint in the
     // diagnostic (e.g. Codex profile copy); repeating it reads as a stutter.
-    return /log in again|sign in again/i.test(error.message ?? "")
+    // Shared with the classifier via carriesCodexReLoginHint — one predicate.
+    return carriesCodexReLoginHint(error.message ?? "")
       ? ""
       : CREDENTIAL_FAILURE_USER_MESSAGE;
   }
