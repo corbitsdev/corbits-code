@@ -520,12 +520,60 @@ function normalizeCodexUsageLimitError(
 }
 
 /**
+ * Body/message markers that mean a Codex 404 names an unknown model rather
+ * than rejecting the credential. The regex below covers the same phrasing
+ * when a model name sits between "model" and "does not exist".
+ */
+const CODEX_UNKNOWN_MODEL_MARKERS = [
+  "model_not_found",
+  "unknown model",
+] as const;
+
+function hasCodexUnknownModelMarker(error: InferenceErrorLike): boolean {
+  const parts = [error.message ?? "", stringFromRaw(error.raw)];
+  if (combinedTextIncludesMarker(parts, CODEX_UNKNOWN_MODEL_MARKERS))
+    return true;
+  return parts.some((part) =>
+    /model\b[^.!?]{0,60}\b(?:does not exist|not found)\b/i.test(part),
+  );
+}
+
+/**
+ * Codex answers unauthenticated requests with 426/404, so a fatal 404 in a
+ * known-Codex context is an expired, invalid, or missing credential — not a
+ * bad model name. The re-login copy matches the CodexAuthError shape so the
+ * TUI names the affected profile through its existing auth matchers. Only an
+ * explicit unknown-model marker keeps the fatal switch-models path.
+ */
+function normalizeCodexCredential404Error(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
+  if (error.category !== "fatal") return error;
+  if (error.statusCode !== 404) return error;
+  const providerId = error.providerId;
+  if (providerId === undefined || !isCodexProviderName(providerId))
+    return error;
+  if (hasCodexUnknownModelMarker(error)) return error;
+  const profile = codexProfileFromProviderName(providerId) ?? providerId;
+  return {
+    category: "credential_failure",
+    message: `Codex profile "${profile}" is not authorized. Log in again.`,
+    statusCode: 404,
+    ...(error.raw !== undefined ? { raw: error.raw } : {}),
+    ...(error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
+  };
+}
+
+/**
  * Reclassify gateway overload errors so the default retry policy treats them as
  * transient instead of aborting on protocol_mismatch. Also normalizes OpenCode
  * Go quota/rate-limit shapes (including HTTP 400 mis-status), known-xAI short
  * 429s, attributable xAI capacity protocol_mismatch, Codex usage limits
- * (nested detail.error with resets_in_seconds), and known-Codex short 429s that
- * are not usage_limit_reached.
+ * (nested detail.error with resets_in_seconds), known-Codex short 429s that
+ * are not usage_limit_reached, and known-Codex credential 404s that do not
+ * name an unknown model.
  */
 export function normalizeInferenceErrorForRetry(
   error: InferenceErrorWithGoContext,
@@ -544,6 +592,9 @@ export function normalizeInferenceErrorForRetry(
 
   const codexRateLimit = normalizeCodexRateLimitError(error);
   if (codexRateLimit !== error) return codexRateLimit;
+
+  const codexCredential = normalizeCodexCredential404Error(error);
+  if (codexCredential !== error) return codexCredential;
 
   if (!isGatewayOverloadInferenceError(error)) return error;
   if (error.category === "retryable" || error.category === "timeout")
