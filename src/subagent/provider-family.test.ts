@@ -41,7 +41,7 @@ describe("isXaiGrokLeafProvider", () => {
       }),
     ).toBe(false);
     expect(
-      isXaiGrokLeafProvider({ providerName: "openai", model: "gpt-4.1" }),
+      isXaiGrokLeafProvider({ providerName: "openai", model: "gpt-5.6" }),
     ).toBe(false);
   });
 
@@ -141,7 +141,7 @@ describe("detectModelFamily", () => {
       }),
     ).toBe("claude");
     expect(
-      detectModelFamily({ providerName: "openai", model: "gpt-4.1" }),
+      detectModelFamily({ providerName: "openai", model: "gpt-5.6" }),
     ).toBe("gpt");
     expect(
       detectModelFamily({
@@ -169,7 +169,7 @@ describe("isClaudeLeafProvider", () => {
       isClaudeLeafProvider({ providerName: "xai/default", model: "grok-4.5" }),
     ).toBe(false);
     expect(
-      isClaudeLeafProvider({ providerName: "openai", model: "gpt-4.1" }),
+      isClaudeLeafProvider({ providerName: "openai", model: "gpt-5.6" }),
     ).toBe(false);
     expect(
       isClaudeLeafProvider({ providerName: "codex", model: "gpt-5.1" }),

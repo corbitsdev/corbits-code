@@ -125,7 +125,7 @@ describe("resolveModelFamilyPolicy", () => {
       });
       expect(orchestrator.promptResidual).toBeUndefined();
       // Default-family probe: anthropic/claude-sonnet-4 hits the claude row
-      // and openai/gpt-4.1 hits the gpt row (#1135), so an unrecognized
+      // and openai/gpt-5.6 hits the gpt row (#1135), so an unrecognized
       // provider is the probe that still resolves to the default family.
       const base = resolveModelFamilyPolicy({
         providerName: "unknown-provider",
@@ -154,13 +154,13 @@ describe("resolveModelFamilyPolicy", () => {
     expect(orchestrator.promptResidual).toBeUndefined();
   });
 
-  // The gpt family row has landed (#1135): openai/gpt-4.1 and codex/gpt-5.1
+  // The gpt family row has landed (#1135): openai/gpt-5.6 and codex/gpt-5.1
   // resolve to the gpt family with the narrate-before-tools residual, leaf
   // and orchestrator alike (no carve-out). Grok keeps its CL-8297 tool-budget
   // residual — the "no residual" claim below is default-family-only.
   test("gpt probes resolve to gpt with the narrate residual; grok keeps its tool budget", () => {
     for (const input of [
-      { providerName: "openai", model: "gpt-4.1" },
+      { providerName: "openai", model: "gpt-5.6" },
       { providerName: "codex", model: "gpt-5.1" },
     ] as const) {
       for (const orchestrator of [false, true]) {
