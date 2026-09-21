@@ -27,7 +27,11 @@ import {
   shellDefinition,
   updatePlanDefinition,
 } from "../agent/codex-tool-proxies.js";
-import { getValidCodexToken } from "../auth/codex/session.js";
+import {
+  CodexRefreshLockError,
+  codexAuthFailureDiagnostic,
+  getValidCodexToken,
+} from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import {
   type ActivatedToolTracker,
@@ -176,13 +180,38 @@ function execTerminalProviderFailureMessage(
   return terminalProviderFailureMessage(providerId, diagnostic, displayLabel);
 }
 
+// Unwraps a Codex refresh-lock failure whether it arrives raw or as the
+// cause of a SELECTED_PROVIDER_FAILURE wrapper.
+function codexRefreshLockFailure(err: unknown): CodexRefreshLockError | null {
+  if (err instanceof CodexRefreshLockError) return err;
+  if (
+    err instanceof Error &&
+    err.name === SELECTED_PROVIDER_FAILURE &&
+    err.cause instanceof CodexRefreshLockError
+  )
+    return err.cause;
+  return null;
+}
+
 export function execUserFailureMessage(
   config: Config,
   err: unknown,
   providerFailureObserved: boolean,
   providerError?: InferenceErrorLike,
 ): string {
+  // A Codex refresh blocked on the inter-process lock arrives raw (pre-send,
+  // no SELECTED wrapper) or as the cause of a SELECTED_PROVIDER_FAILURE (the
+  // first-inference refresh at exec start). Either way it keeps its own lock
+  // message: mapping it to the generic re-login hint would send the operator
+  // into a futile loop that never removes the lock file.
+  const lockFailure = codexRefreshLockFailure(err);
+  if (lockFailure !== null) return lockFailure.message;
   if (err instanceof Error && err.name === SELECTED_PROVIDER_FAILURE) {
+    return CREDENTIAL_FAILURE_USER_MESSAGE;
+  }
+  // A pre-send Codex refresh throws the raw auth error (no SELECTED wrapper):
+  // a failed refresh is still a credential failure with a re-login hint.
+  if (codexAuthFailureDiagnostic(err) !== null) {
     return CREDENTIAL_FAILURE_USER_MESSAGE;
   }
   if (providerError === undefined && isResolvedProviderFailureError(err))
