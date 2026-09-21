@@ -146,14 +146,17 @@ describe("verifyCompactionSummary", () => {
     expect(kinds).toContain("exactName");
   });
 
-  test("auth as a goal token does not match authored", () => {
+  test("auth as a goal token does not match authored, author, or preauth", () => {
     const facts = extractContinuationFacts([textTurn("user", "Fix auth now")]);
-    const report = verifyCompactionSummary(
+    for (const summary of [
       "The authored notes: next step module plan is set.",
-      facts,
-    );
-    expect(report.supported).toBe(false);
-    expect(report.misses.some((m) => m.kind === "goal")).toBe(true);
+      "The author notes: next step module plan is set.",
+      "The preauth notes: next step module plan is set.",
+    ]) {
+      const report = verifyCompactionSummary(summary, facts);
+      expect(report.supported).toBe(false);
+      expect(report.misses.some((m) => m.kind === "goal")).toBe(true);
+    }
   });
 
   test("denying failure while errors were dropped is a contradiction", () => {
@@ -212,8 +215,55 @@ describe("verifyOrRepair", () => {
     const outcome = verifyOrRepair("Fix auth now. Work continues.", facts, 90);
     expect(outcome.aborted).toBe(true);
     expect(outcome.repaired).toBe(false);
-    const shipped = verifyCompactionSummary(outcome.summary, facts);
-    expect(shipped.misses.some((m) => m.kind === "exactName")).toBe(true);
+    expect(outcome.misses.some((m) => m.kind === "exactName")).toBe(true);
+  });
+
+  test("a roomy cap repairs and keeps the exact-name basename", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Fix auth now"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "c1",
+            name: "read_file",
+            arguments: { path: "src/very-long-unique-path/exact-file.ts" },
+          },
+        ],
+        timestamp: 2,
+      },
+    ]);
+    const outcome = verifyOrRepair(
+      "Fix auth now. Work continues.",
+      facts,
+      4000,
+    );
+    expect(outcome.aborted).toBe(false);
+    expect(outcome.repaired).toBe(true);
+    expect(outcome.summary).toContain("exact-file.ts");
+  });
+
+  test("a constraint-only residual after a sliced repair aborts", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Fix auth now"),
+      textTurn("assistant", "Working on auth now."),
+      textTurn("user", "Do not commit generated artifacts ever."),
+      textTurn("assistant", "Working on auth now."),
+    ]);
+    expect(
+      facts.constraints.some((c) => c.includes("generated artifacts")),
+    ).toBe(true);
+    const summary = "Fix auth now. Working on auth now.";
+    const misses = verifyCompactionSummary(summary, facts).misses;
+    expect(misses.map((m) => m.kind)).toEqual(["constraint"]);
+    const full = repairSummary(summary, facts, misses);
+    const cap = full.indexOf("Constraints:");
+    expect(cap).toBeGreaterThan(0);
+    const outcome = verifyOrRepair(summary, facts, cap);
+    expect(outcome.aborted).toBe(true);
+    expect(outcome.repaired).toBe(false);
+    expect(outcome.misses.some((m) => m.kind === "constraint")).toBe(true);
   });
 
   test("repairSummary names only what the handoff missed", () => {
