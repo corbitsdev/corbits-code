@@ -81,10 +81,10 @@ function isMuseSparkModel(model: string): boolean {
   return /^muse-spark/i.test(model.trim());
 }
 
-// grok-4.6 accepts xhigh — the same ladder as CODEX_EFFORTS above;
+// grok-4.6 and grok-4.7 accept xhigh — the same ladder as CODEX_EFFORTS above;
 // grok-4.5 and composer stay on the unknown-model subset.
 const GROK_46_EFFORTS: readonly ReasoningEffort[] = CODEX_EFFORTS;
-const GROK_46_MODELS: readonly string[] = ["grok-4.6"];
+const GROK_46_MODELS: readonly string[] = ["grok-4.6", "grok-4.7"];
 
 // GPT-6 Astra accepts low through max on both the OpenAI API and Codex surfaces.
 // Not ultra (gpt-5.6 Codex-only), not minimal, not none.

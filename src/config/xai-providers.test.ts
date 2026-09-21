@@ -12,9 +12,14 @@ import {
 } from "./xai-providers.js";
 
 describe("xAI OAuth provider projection", () => {
-  test("default models include Grok 4.6 while defaulting to the CLI coding model", () => {
+  test("default models include Grok 4.7 while defaulting to the CLI coding model", () => {
     const models: string[] = [...XAI_DEFAULT_MODELS];
-    expect(models).toEqual(["grok-4.5", "grok-4.6", "grok-composer-2.5-fast"]);
+    expect(models).toEqual([
+      "grok-4.5",
+      "grok-4.6",
+      "grok-4.7",
+      "grok-composer-2.5-fast",
+    ]);
     expect(models[0]).toBe("grok-4.5");
   });
 

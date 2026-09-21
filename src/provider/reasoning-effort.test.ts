@@ -147,6 +147,15 @@ describe("supportedEfforts", () => {
     ]);
   });
 
+  test("grok-4.7 includes xhigh", () => {
+    expect(supportedEfforts("grok-4.7")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+    ]);
+  });
+
   test("grok-4.5 stays on the unknown-model subset without xhigh", () => {
     expect(supportedEfforts("grok-4.5")).toEqual(["low", "medium", "high"]);
   });
@@ -223,6 +232,11 @@ describe("validateEffort", () => {
     expect(validateEffort("grok-4.5", "xhigh").ok).toBe(false);
   });
 
+  test("accepts xhigh on grok-4.7", () => {
+    expect(validateEffort("grok-4.7", "xhigh")).toEqual({ ok: true });
+    expect(validateEffort("grok-4.7", "minimal").ok).toBe(false);
+  });
+
   test("accepts minimal on Muse Spark and rejects none", () => {
     expect(validateEffort("muse-spark-1.3-contributor", "minimal")).toEqual({
       ok: true,
@@ -294,6 +308,12 @@ describe("cycleReasoningEffort", () => {
   test("wraps high to xhigh to low on grok-4.6", () => {
     expect(cycleReasoningEffort("grok-4.6", "high")).toBe("xhigh");
     expect(cycleReasoningEffort("grok-4.6", "xhigh")).toBe("low");
+  });
+
+  test("wraps high to xhigh to low on grok-4.7", () => {
+    expect(cycleReasoningEffort("grok-4.7", undefined)).toBe("xhigh");
+    expect(cycleReasoningEffort("grok-4.7", "high")).toBe("xhigh");
+    expect(cycleReasoningEffort("grok-4.7", "xhigh")).toBe("low");
   });
 });
 
@@ -504,6 +524,7 @@ describe("defaultEffortForModel", () => {
   afterEach(() => setModelReasoningCapabilities({}));
 
   test("grok family defaults to high", () => {
+    expect(defaultEffortForModel("grok-4.7")).toBe("high");
     expect(defaultEffortForModel("grok-4.6")).toBe("high");
     expect(defaultEffortForModel("grok-4.5")).toBe("high");
   });

@@ -27,10 +27,11 @@ describe("contextWindowFor", () => {
     expect(contextWindowFor("xai/thegreataxios:grok-4.5")).toBe(500_000);
   });
 
-  it("falls back to a 500k grok-4.5/4.6 heuristic window when the registry has no entry", () => {
+  it("falls back to a 500k grok-4.5/4.6/4.7 heuristic window when the registry has no entry", () => {
     setModelContextWindows(undefined);
     expect(contextWindowFor("xai/thegreataxios:grok-4.5")).toBe(500_000);
     expect(contextWindowFor("xai/thegreataxios:grok-4.6")).toBe(500_000);
+    expect(contextWindowFor("xai/thegreataxios:grok-4.7")).toBe(500_000);
     expect(contextWindowFor("xai/thegreataxios:grok-4.3")).toBe(1_000_000);
   });
 

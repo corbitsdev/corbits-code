@@ -93,7 +93,12 @@ function heuristicWindow(model: string): number {
   if (m.includes("glm-5.3")) return 1_000_000;
   if (m.includes("glm")) return 200_000;
   if (m.includes("o3") || m.includes("o4")) return 200_000;
-  if (m.includes("grok-4.6") || m.includes("grok-4.5")) return 500_000;
+  if (
+    m.includes("grok-4.7") ||
+    m.includes("grok-4.6") ||
+    m.includes("grok-4.5")
+  )
+    return 500_000;
   if (m.includes("grok-4.3")) return 1_000_000;
   if (m.includes("grok") || m.includes("xai")) return 256_000;
   return DEFAULT_CONTEXT_WINDOW;

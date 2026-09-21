@@ -132,6 +132,9 @@ describe("detectModelFamily", () => {
       detectModelFamily({ providerName: "xai/default", model: "grok-4.6" }),
     ).toBe("grok");
     expect(
+      detectModelFamily({ providerName: "xai/default", model: "grok-4.7" }),
+    ).toBe("grok");
+    expect(
       detectModelFamily({ providerName: "moonshot", model: "kimi-k2" }),
     ).toBe("kimi");
     expect(

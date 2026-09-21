@@ -1,14 +1,25 @@
 import { XAI_REDIRECT_URI } from "@corbits/xai-provider";
 
-// Local alias over the vendor fallback list (CL-5691): XAI_DEFAULT_MODELS
-// backs live xAI catalog calls and stays in the vendor package — this alias
-// only renames the proxy URL. identity-divergence.test.ts pins the agreement.
-export {
-  XAI_DEFAULT_MODELS,
+import {
+  XAI_DEFAULT_MODELS as VENDOR_XAI_DEFAULT_MODELS,
   XAI_OAUTH_PROXY_BASE_URL as XAI_BASE_URL,
-  XAI_REDIRECT_URI,
   XAI_REFRESH_SKEW_MS,
 } from "@corbits/xai-provider";
+
+export { XAI_BASE_URL, XAI_REDIRECT_URI, XAI_REFRESH_SKEW_MS };
+
+// Local extension over the vendor fallback list (CL-5691): grok-4.7 rides the
+// same OAuth proxy as the older Grok generations but the vendored catalog has
+// not caught up yet. The default stays the first vendor entry; drop this shim
+// once the vendor fallback lists grok-4.7 itself.
+const [firstVendorModel, secondVendorModel, ...restVendorModels] =
+  VENDOR_XAI_DEFAULT_MODELS;
+export const XAI_DEFAULT_MODELS = [
+  firstVendorModel,
+  secondVendorModel,
+  "grok-4.7",
+  ...restVendorModels,
+] as const;
 
 const xaiRedirect = new URL(XAI_REDIRECT_URI);
 export const XAI_CALLBACK_PORT = Number(xaiRedirect.port);
