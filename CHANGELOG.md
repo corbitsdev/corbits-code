@@ -32,6 +32,26 @@ by hand.
   (Critic on the diff plus at most one extra lens), loading `/review`
   for quality rules only.
 
+## [0.3.30] - 2026-09-21
+
+### What's Changed
+* fix(codex): serialize shared-credential OAuth token refreshes by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1139
+* refactor(greybeard): restore OG tone and mandatory skill preload by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1121
+* feat(tui): print resume command on session exit by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1134
+* fix(inference): treat Codex 404s as expired credentials by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1138
+* feat(prompts): promptResidual with grok tool budget, appended once by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1133
+* feat(agent): merge grok ceremony lines into the one residual by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1132
+* feat(agents): claude xml task_guidance prompt residual by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1137
+* feat(prompt): add GPT narrate-before-tools family residual by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1135
+* feat(prompt-variance): extract family prompt variance as a versioned package by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1136
+* fix(tui): handle composed Option-D in model picker by @bwachman in https://github.com/corbitsdev/corbits-code/pull/1141
+* test(prompts): modernize stale gpt-4.1 fixtures to gpt-5.6 by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1142
+
+### New Contributors
+* @bwachman made their first contribution in https://github.com/corbitsdev/corbits-code/pull/1141
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.29...v0.3.30
+
 ## [0.3.29] - 2026-09-18
 
 ### What's Changed
