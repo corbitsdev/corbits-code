@@ -76,14 +76,18 @@ const PROMPT_SIZE_BASELINE: Record<
 
 /**
  * Deliberate budgets above baseline + allowance, with justification.
- * Empty after the origin/main rebase: every main budget fits within fresh
- * baseline + allowance (draper/warden included), and the entries where main
- * reads higher (intern, testsmith, gauntlet, prober) are stale-measurement
- * residue, not deliberate over-allowance.
+ * greybeard: the grok residual (tool budget + 8-line ceremony, folded into the
+ * canonical promptResidual seam verbatim under CL-8296) plus the upstream
+ * greybeard-package growth (#1121) pushed greybeard-grok to 8218 chars,
+ * 218 over the 8000 baseline + allowance budget. Trimming the greybeard body
+ * is greybeard-lane-owned, so the overage is budgeted here instead; bytes
+ * stay at the current budget level (measured 8248 < 9000).
  */
 const PROMPT_SIZE_OVERRIDES: Partial<
   Record<DirectorId, { chars: number; bytes: number }>
-> = {};
+> = {
+  greybeard: { chars: 8300, bytes: 9000 },
+};
 
 const CHAR_ALLOWANCE = 2000;
 const BYTE_ALLOWANCE = 3000;
