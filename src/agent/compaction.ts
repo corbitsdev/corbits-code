@@ -317,6 +317,29 @@ export function createCompactionGovernor(
     return true;
   }
 
+  function inboundText(event: ReactorInboundEvent): string {
+    if (event.type !== "message.received") return "";
+    return typeof event.message.content === "string"
+      ? event.message.content
+      : "";
+  }
+
+  // Idle empty compact needs a meter-only re-entry; a raced operator message
+  // needs a follow-up infer. Shared by the threshold idle path and TTL fold.
+  function issueIdleFold(
+    content: string,
+    capabilities: ReactorCapabilities,
+    reason: string,
+  ): ReactorAction[] {
+    if (content.length > 0) postCompactInfer = true;
+    else postCompactMeter = true;
+    issueThresholdCompact();
+    return [
+      capabilities.compact(COMPACTOR_NAME, reason),
+      ...continuationActions(capabilities),
+    ];
+  }
+
   function interceptIdleContinuation(
     event: ReactorInboundEvent,
     capabilities: ReactorCapabilities,
@@ -329,40 +352,26 @@ export function createCompactionGovernor(
       }
       idlePending = false;
       pending = false;
-      const content =
-        typeof event.message.content === "string" ? event.message.content : "";
       // The reactor delivers no event after compact, so always request a
       // continuation to re-enter decide against the shrunk turns:
       // - raced operator content → re-infer to answer it
       // - empty synthetic continuation → meter-only sync (no infer)
-      if (content.length > 0) {
-        postCompactInfer = true;
-      } else {
-        postCompactMeter = true;
-      }
-      issueThresholdCompact();
-      return [
-        capabilities.compact(COMPACTOR_NAME, "context-threshold"),
-        ...continuationActions(capabilities),
-      ];
+      return issueIdleFold(
+        inboundText(event),
+        capabilities,
+        "context-threshold",
+      );
     }
     // Unarmed idle re-entry past the provider TTL: same fold, same
     // keep-recent tail, same cap — but a "cache-ttl-recompress" reason so the
     // fold is attributable. No arming: every live re-entry re-checks the
     // window, so a sub-agent stall ping or operator message is the trigger.
     if (!isTtlRecompressDue(now())) return null;
-    const content =
-      typeof event.message.content === "string" ? event.message.content : "";
-    if (content.length > 0) {
-      postCompactInfer = true;
-    } else {
-      postCompactMeter = true;
-    }
-    issueThresholdCompact();
-    return [
-      capabilities.compact(COMPACTOR_NAME, "cache-ttl-recompress"),
-      ...continuationActions(capabilities),
-    ];
+    return issueIdleFold(
+      inboundText(event),
+      capabilities,
+      "cache-ttl-recompress",
+    );
   }
 
   // A context-overflow inference error would otherwise terminate the loop
@@ -396,9 +405,7 @@ export function createCompactionGovernor(
     event: ReactorInboundEvent,
   ): "infer" | "meter" | null {
     if (event.type !== "message.received") return null;
-    const content =
-      typeof event.message.content === "string" ? event.message.content : "";
-    if (content.length > 0) return null;
+    if (inboundText(event).length > 0) return null;
     if (postCompactInfer) {
       postCompactInfer = false;
       return "infer";

@@ -950,6 +950,50 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     ).toEqual(ttlCompact);
   });
 
+  test("after threshold compact and gap TTL, growth-armed compact stays blocked until a tool_call", () => {
+    // Threshold compact (consecutive=1) plus TTL fire in the hysteresis gap
+    // (consecutive=2) fills the shared cap. Later growth that would re-arm
+    // the threshold path stays blocked until a tool_call occupancy resets it.
+    let nowMs = 80_000_000;
+    const governor = createCompactionGovernor(
+      () => undefined,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    nowMs += 11 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+
+    // Post-TTL snapshot, then growth past resumeDelta — pending re-arms,
+    // but the cap is full so interceptActions stays null.
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold + resumeDelta),
+      tenTurns,
+    );
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+
+    governor.noteInferenceDone(
+      inferenceDoneWithTools(overThreshold + 2 * resumeDelta),
+      tenTurns,
+    );
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+  });
+
   test("does not fold under an outstanding tool batch, fires once it settles", () => {
     let continuations = 0;
     let nowMs = 40_000_000;

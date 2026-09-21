@@ -21,7 +21,7 @@ describe("cacheTtlMsFor", () => {
     );
   });
 
-  test("disables idle recompress for local inference and unknown models", () => {
+  test("disables idle recompress for local inference and missing model ids", () => {
     expect(cacheTtlMsFor("ollama/llama3.1")).toBeUndefined();
     expect(cacheTtlMsFor(undefined)).toBeUndefined();
     expect(cacheTtlMsFor("")).toBeUndefined();
@@ -41,5 +41,8 @@ describe("cacheTtlMsFor", () => {
   test("assumes OpenAI-style economics for unrecognized providers", () => {
     expect(cacheTtlMsFor("bifrost/some-model")).toBe(10 * MINUTE_MS);
     expect(cacheTtlMsFor("totally-new-provider/model-x")).toBe(10 * MINUTE_MS);
+    // A truly unknown id (no provider segment, no family substring) still
+    // gets the 10-minute default — not the local-inference disable.
+    expect(cacheTtlMsFor("unknown-id")).toBe(10 * MINUTE_MS);
   });
 });
