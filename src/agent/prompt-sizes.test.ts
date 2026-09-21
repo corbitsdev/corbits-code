@@ -345,10 +345,11 @@ describe("grok tool-budget residual (CL-8297)", () => {
   test("default-family and orchestrator prompts carry no tool budget", () => {
     const defaultPrompt = assembleDirectorPrompt("builder", "default");
     expect(defaultPrompt).not.toContain("Tool budget:");
-    // The default probe (openai/gpt-4.1) resolves to the default family, so
-    // the default column carries no family residual at all — not the claude
-    // task_guidance block either.
+    // The default probe resolves to the default family, so the default
+    // column carries no family residual — neither the claude task_guidance
+    // block nor the gpt narrate-before-tools nudge.
     expect(defaultPrompt).not.toContain("<task_guidance>");
+    expect(defaultPrompt).not.toContain("Narrate before tools (GPT worker):");
     expect(assembleDirectorPrompt("skywalker", "grok")).not.toContain(
       "Tool budget:",
     );
