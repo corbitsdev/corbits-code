@@ -172,6 +172,8 @@ describe("OpenAI reasoning max_completion_tokens quirk (CL-7785)", () => {
     // max_tokens. Adding a preset model requires a decision here AND in the
     // preset's maxCompletionTokensModels — the union below fails loudly
     // otherwise instead of silently sending max_tokens.
+    // Keep: gpt-4.1 is the catalog's remaining non-reasoning preset. The
+    // union with maxCompletionTokensModels must equal OPENAI_API_MODELS.
     const explicitMaxTokensModels = new Set(["gpt-4.1"]);
     expect([...flagged, ...explicitMaxTokensModels].sort()).toEqual(
       [...new Set(presetModels)].sort(),

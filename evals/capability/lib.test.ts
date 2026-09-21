@@ -314,7 +314,7 @@ describe("parseMatrix", () => {
   });
 
   test("parses provider:model cells", () => {
-    const v = parseMatrix("xai:grok-4.5,openai:gpt-4.1", {});
+    const v = parseMatrix("xai:grok-4.5,openai:gpt-5.6", {});
     expect(v).toHaveLength(2);
     expect(v[0]).toEqual({
       id: "xai:grok-4.5",
@@ -322,9 +322,9 @@ describe("parseMatrix", () => {
       model: "grok-4.5",
     });
     expect(v[1]).toEqual({
-      id: "openai:gpt-4.1",
+      id: "openai:gpt-5.6",
       provider: "openai",
-      model: "gpt-4.1",
+      model: "gpt-5.6",
     });
   });
 
@@ -693,7 +693,7 @@ describe("detectProviderFallback", () => {
     const info = detectProviderFallback({
       requestedProvider: "xai",
       resolvedProvider: "openai",
-      resolvedModel: "gpt-4.1",
+      resolvedModel: "gpt-5.6",
     });
     expect(info?.requestedProvider).toBe("xai");
     expect(info?.resolvedProvider).toBe("openai");
@@ -704,12 +704,12 @@ describe("detectProviderFallback", () => {
       requestedProvider: "xai",
       requestedModel: "grok-4.5",
       resolvedProvider: "openai",
-      resolvedModel: "gpt-4.1",
+      resolvedModel: "gpt-5.6",
     });
     expect(info).not.toBeNull();
     const message = formatProviderFallback(defined(info));
     expect(message).toContain("xai/grok-4.5");
-    expect(message).toContain("openai/gpt-4.1");
+    expect(message).toContain("openai/gpt-5.6");
   });
 });
 
@@ -776,10 +776,10 @@ describe("resolveRequestedProviderModel", () => {
 
   test("a matrix cell's own override wins over the run's resolved labels", () => {
     const requested = resolveRequestedProviderModel(
-      { provider: "openai", model: "gpt-4.1" },
+      { provider: "openai", model: "gpt-5.6" },
       { provider: "xai", model: "grok-4.5" },
     );
-    expect(requested).toEqual({ provider: "openai", model: "gpt-4.1" });
+    expect(requested).toEqual({ provider: "openai", model: "gpt-5.6" });
   });
 
   test("the '(default)' placeholder from an unresolvable ambient probe is not a real request", () => {

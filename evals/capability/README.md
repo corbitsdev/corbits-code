@@ -138,14 +138,14 @@ bun run eval:capability -- --case simple-health --provider xai --model grok-4.5
 
 # Multi-model matrix (cases × variants)
 bun run eval:capability -- \
-  --matrix "xai:grok-4.5,openai:gpt-4.1" \
+  --matrix "xai:grok-4.5,openai:gpt-5.6" \
   --out evals/capability/results/matrix.json
 
 # Faster live matrix (independent cells; default is serial)
 bun run eval:capability -- --provider <name> --model <id> --concurrency 4
 
 # Labeled variants
-bun run eval:capability -- --matrix "fast=xai:grok-4.5,strong=openai:gpt-4.1"
+bun run eval:capability -- --matrix "fast=xai:grok-4.5,strong=openai:gpt-5.6"
 
 # Baseline improve/regress (keys by variantId::caseId)
 bun run eval:capability -- --provider <name> --model <id> \

@@ -69,6 +69,8 @@ describe("FIRST_CLASS_PROVIDERS", () => {
     for (const model of api?.maxCompletionTokensModels ?? []) {
       expect(api?.models).toContain(model);
     }
+    // Keep: gpt-4.1 remains the catalog's non-reasoning OpenAI API model and
+    // must not join the max_completion_tokens set.
     expect(api?.maxCompletionTokensModels).not.toContain("gpt-4.1");
   });
 

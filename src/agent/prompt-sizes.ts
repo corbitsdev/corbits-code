@@ -59,7 +59,7 @@ export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
 
 const GROK_PROVIDER = { providerName: "xai/default", model: "grok-4.6" };
 // Default-family probe: anthropic/claude-sonnet-4 hits the claude row and
-// openai/gpt-4.1 hits the gpt row, so an unrecognized provider is the probe
+// openai/gpt-5.6 hits the gpt row, so an unrecognized provider is the probe
 // that still resolves to the default family (no residual).
 const MUSE_PROVIDER = {
   providerName: "opencode-go",
@@ -73,7 +73,7 @@ const CLAUDE_PROVIDER = {
   providerName: "anthropic",
   model: "claude-sonnet-4",
 };
-const GPT_PROVIDER = { providerName: "openai", model: "gpt-4.1" };
+const GPT_PROVIDER = { providerName: "openai", model: "gpt-5.6" };
 
 /** Families in the size table: default (no residual), muse, grok, claude, gpt. */
 export type PromptSizeFamily = "default" | "muse" | "grok" | "claude" | "gpt";
