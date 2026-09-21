@@ -9,61 +9,70 @@ describe("builderPackage", () => {
     expect(p).not.toMatch(/build director/i);
   });
 
-  test("systemPrompt teaches implement-and-test from the implement skill", () => {
+  test("systemPrompt is a short Corbits implement card, not the GaaS implement skill", () => {
     const p = builderPackage.systemPrompt;
-    expect(p).toContain("Implement and Test");
+    expect(p).toContain("Ship the brief");
     expect(p).toContain("success_criteria");
-    expect(p).toMatch(/bug fixes \(test-first\)/i);
-    expect(p).toMatch(/reproduces the bug/i);
-    expect(p).toMatch(/verify it \*\*fails\*\*/);
-    expect(p).toMatch(/For new features/i);
-    expect(p).toMatch(/assert.*expected behavior|works as designed/i);
+    expect(p).toMatch(/test-first/i);
+    expect(p).toMatch(/assert expected behavior/i);
     expect(p).toContain("Blockers");
+    expect(p).not.toContain("## Implement and Test");
+    expect(p).not.toContain("## Prerequisites");
+    expect(p).not.toContain("## Build Gate");
+    expect(p).not.toContain("Greybeard Review");
+    expect(p).not.toContain("TaskCreate");
+    expect(p).not.toMatch(/Use the @greybeard subagent/i);
   });
 
-  test("systemPrompt teaches Build Gate and does not shortcut verify", () => {
+  test("systemPrompt ships tests with the change and runs the repo gate", () => {
     const p = builderPackage.systemPrompt;
-    expect(p).toContain("Build Gate");
     expect(p).toMatch(/bun run check/);
-    expect(p).toMatch(/Don't shortcut verify/i);
+    expect(p).toMatch(/Do not shortcut verify/i);
     expect(p).toMatch(/partial gates/i);
     expect(p).toMatch(/pre-existing/i);
-    expect(p).toMatch(
-      /defined typecheck command.*relevant tests.*defined full check/is,
+    expect(p).toMatch(/do not invent one/i);
+    expect(p).toMatch(/exact verification command/i);
+    expect(p).toMatch(/exit status/);
+    expect(p).toMatch(/bare "pass" without command evidence/i);
+    expect(p).toMatch(/same commit when committing/);
+  });
+
+  test("systemPrompt has no philosophy boot", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p).not.toMatch(/Before substantial repo work/i);
+    expect(p).not.toMatch(
+      /follow style, philosophy, native-runtime, idiot-proof, and Ponytail/i,
     );
-    expect(p).toMatch(
-      /repository defines no typecheck command.*explicit Blocker/is,
-    );
-    expect(p).toMatch(/evidence.*AGENTS.*package scripts/is);
-    expect(p).toMatch(/do not invent.*typecheck command/i);
-    expect(p).toMatch(/exact verification command.*outcome.*exit status/is);
-    expect(p).toMatch(/bare .*pass.*incomplete report/is);
-    expect(p).toMatch(/never silently skip/i);
+    expect(p).not.toMatch(/load each with skill_search \+ use_skill/i);
+    expect(p).not.toMatch(/use_skill is not mounted/i);
+  });
+
+  test("systemPrompt does not inline family residuals", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p).not.toContain("Finish bias (xAI / Grok worker):");
+    expect(p).not.toContain("Tool budget:");
+    expect(p).not.toContain("<task_guidance>");
+    expect(p).not.toContain("Narrate before tools (GPT worker):");
+    expect(p).not.toContain("Tool discipline:");
+  });
+
+  test("systemPrompt stays a short card (no 53k harness blob)", () => {
+    const p = builderPackage.systemPrompt;
+    expect(p.length).toBeLessThan(4000);
+    expect(p).not.toMatch(/parameters?:/i);
+    expect(p).not.toMatch(/fan-out/i);
+    expect(p).not.toMatch(/at most \d+/i);
+    expect(p).not.toMatch(/turn budget/i);
+    expect(p).not.toMatch(/scheduler/i);
   });
 
   test("systemPrompt requires a counsel / /plan plan for substantial work", () => {
     const p = builderPackage.systemPrompt;
-    expect(p).toContain("## Plan");
     expect(p).toContain("counsel / `/plan` plan");
     expect(p).toContain("If that plan is missing from the brief");
     expect(p).toContain("do not invent one and do not ship");
     expect(p).toContain("Tiny parent-DIY edits are plan-optional");
     expect(p).toContain("`/implement` does not steal planning from `/plan`");
-  });
-
-  test("systemPrompt requires core constraints and Ponytail prerequisites", () => {
-    const p = builderPackage.systemPrompt;
-    expect(p).toContain("Prerequisites");
-    expect(p).toMatch(
-      /style, philosophy, native-runtime, idiot-proof, and Ponytail/i,
-    );
-    expect(p).toMatch(/load each with skill_search \+ use_skill/i);
-    expect(p).not.toMatch(/use_skill is not mounted/i);
-    expect(p).toMatch(
-      /including their TypeScript conventions when TypeScript is the task surface/i,
-    );
-    expect(p).not.toMatch(/native-integration, and idiot-proof/i);
-    expect(p).not.toMatch(/Apply typescript when writing TypeScript/i);
   });
 
   test("systemPrompt is implement leaf only (no orchestrate / spawn / review-as-primary)", () => {
@@ -84,15 +93,6 @@ describe("builderPackage", () => {
     const p = builderPackage.systemPrompt;
     expect(p).toMatch(/does NOT commit unless/i);
     expect(p).toMatch(/working tree \+ report/i);
-  });
-
-  test("systemPrompt has no tool-schema restatement or fake caps", () => {
-    const p = builderPackage.systemPrompt;
-    expect(p).not.toMatch(/parameters?:/i);
-    expect(p).not.toMatch(/fan-out/i);
-    expect(p).not.toMatch(/at most \d+/i);
-    expect(p).not.toMatch(/turn budget/i);
-    expect(p).not.toMatch(/scheduler/i);
   });
 
   test("modelRole is implement", () => {
@@ -138,28 +138,14 @@ describe("builderPackage", () => {
   test("systemPrompt reports criteria status for parent routing", () => {
     const prompt = builderPackage.systemPrompt;
     expect(prompt).toMatch(/Findings/i);
-    expect(prompt).toMatch(/pass.*fail.*blocked|pass, fail, or blocked/s);
+    expect(prompt).toMatch(/pass, fail, or blocked/);
     expect(prompt).toMatch(/Paths must list files touched/);
     expect(prompt).toMatch(/Summary \/ Findings \/ Blockers \/ Paths/);
   });
 
-  test("systemPrompt wires same-unit tests, docs upkeep, and report mapping", () => {
-    const p = builderPackage.systemPrompt;
-    expect(p).toMatch(/same commit/);
-    expect(p).toMatch(/same commit when committing/);
-    expect(p).toMatch(/alters documented behavior/i);
-    expect(p).toMatch(/update the docs/i);
-    expect(p).toMatch(
-      /map each success_criteria item to pass, fail, or blocked/,
-    );
-    expect(p).toMatch(
-      /bare .*pass.*without command evidence.*incomplete report/is,
-    );
-  });
-
   test("systemPrompt wires docs routing, testsmith consumer, and branch/PR shape", () => {
     const p = builderPackage.systemPrompt;
-    expect(p).toMatch(/testsmith-designed cases/);
+    expect(p).toMatch(/testsmith/);
     expect(p).toMatch(/route a tester run/);
     expect(p).toMatch(/shakespeare docs pass/);
     expect(p).toMatch(/branch name carries the issue id/i);
@@ -167,11 +153,9 @@ describe("builderPackage", () => {
     expect(p).toMatch(/no AI-attribution lines/);
   });
 
-  test("systemPrompt preserves public API sync/async under Guidelines", () => {
+  test("systemPrompt preserves public API sync/async", () => {
     const prompt = builderPackage.systemPrompt;
-    expect(prompt).toMatch(/Public API shapes/i);
-    expect(prompt).toMatch(/sync/i);
-    expect(prompt).toMatch(/Promise|async/);
-    expect(prompt).toMatch(/public API|return shape/i);
+    expect(prompt).toMatch(/public API/i);
+    expect(prompt).toMatch(/sync\/async/);
   });
 });
