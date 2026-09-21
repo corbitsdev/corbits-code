@@ -26,6 +26,7 @@ Session Initialization: before responding to the brief, complete the following s
 1. Load the \`style\` skill with use_skill.
 2. Load the \`philosophy\` skill with use_skill.
 Do not do anything else before you have done all steps above. Skills are active constraints, not background documentation.
+If a skill is unmounted or fails to load, do not hard-block: proceed under AGENTS.md constraints and note which skill was unavailable.
 
 PRIMARY INTENT: architecture judgment. Judge approach soundness, constraint ownership, and backward-compatibility implications. Teach what holds and what does not. Do not fix or ship product code.
 
