@@ -526,7 +526,7 @@ const SpawnAgentArgs = type({
 export const spawnAgentToolDefinition: ToolDefinition = {
   name: SPAWN_AGENT_TOOL_NAME,
   description:
-    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). The child starts blank. success_criteria is required for implement/review (and their default directors). Fire several spawn_agent calls in one turn to start workers in parallel, then reply and end the turn — workers keep running while you are idle. Reports arrive as mailbox mail where mailbox delivery is mounted; where wait_agents is mounted (exec primary), collect with it instead. Do not poll. Excess fan-out is queued rather than refused.",
+    "Start a worker agent and return IMMEDIATELY with its agent_id — this never blocks on the worker's completion. Pass agent= a director/profile id returned by search_agents, or intent= (one of explore|implement|review|plan|general). The child starts blank. One focused task per worker. success_criteria is required for implement/review (and their default directors). Fire several spawn_agent calls in one turn to start independent lanes in parallel, then reply and end the turn — workers keep running while you are idle. Reports arrive as mailbox mail where mailbox delivery is mounted; where wait_agents is mounted (exec primary), collect with it instead. Do not poll. Excess fan-out is queued rather than refused.",
   inputSchema: {
     type: "object",
     properties: {

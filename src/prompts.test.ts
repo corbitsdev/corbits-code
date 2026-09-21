@@ -173,6 +173,9 @@ test("orchestrator guidelines teach the typed task spawn contract", () => {
   expect(guidelines).toContain("report_focus");
   expect(guidelines).toContain("intent");
   expect(guidelines).toContain("spawn_agent");
+  expect(guidelines).toContain("One focused task per spawned worker");
+  expect(guidelines).toContain("one lane per PR/path/ownership");
+  expect(guidelines).toContain("keep it tight");
   // CL-7678: the default (TUI/nested) surface is unmounted — spawn then idle
   // on mailbox mail. The wait_agents collect path is exec-primary opt-in.
   expect(guidelines).toContain("mailbox mail arrives as inbound");

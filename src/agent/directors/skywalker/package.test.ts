@@ -100,6 +100,9 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("fan-out");
     expect(p).toContain("0–1 worker");
     expect(p).toContain("named, non-overlapping lanes");
+    expect(p).toContain("one focused task");
+    expect(p).toContain("one lane per PR/path/ownership");
+    expect(p).toContain("Do not pack a multi-step workflow into one worker");
     expect(p).not.toContain("2–4 workers");
     expect(p).not.toContain("at most 4");
     expect(p).not.toContain("Prefer synthesizing early returns");
@@ -221,6 +224,8 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("clean-room");
     expect(p).toContain("no fork");
     expect(p).toContain("required for implement/review");
+    expect(p).toContain("keep it tight");
+    expect(p).toContain("One job per spawn");
     // CL-6953 / CL-6807: single contract statement (spawn graph); the routing
     // and handoff restatements are gone.
     expect(p).not.toContain("Runtime requires success_criteria");
