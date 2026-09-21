@@ -83,8 +83,8 @@ function isMuseSparkModel(model: string): boolean {
 
 // grok-4.6 and grok-4.7 accept xhigh — the same ladder as CODEX_EFFORTS above;
 // grok-4.5 and composer stay on the unknown-model subset.
-const GROK_46_EFFORTS: readonly ReasoningEffort[] = CODEX_EFFORTS;
-const GROK_46_MODELS: readonly string[] = ["grok-4.6", "grok-4.7"];
+const GROK_46_AND_47_EFFORTS: readonly ReasoningEffort[] = CODEX_EFFORTS;
+const GROK_46_AND_47_MODELS: readonly string[] = ["grok-4.6", "grok-4.7"];
 
 // GPT-6 Astra accepts low through max on both the OpenAI API and Codex surfaces.
 // Not ultra (gpt-5.6 Codex-only), not minimal, not none.
@@ -153,8 +153,8 @@ export function supportedEfforts(
   if (isKnownOpenAIReasoningModel(model)) {
     return [...DEFAULT_EFFORTS];
   }
-  if (GROK_46_MODELS.includes(model)) {
-    return [...GROK_46_EFFORTS];
+  if (GROK_46_AND_47_MODELS.includes(model)) {
+    return [...GROK_46_AND_47_EFFORTS];
   }
   if (GLM_53_MODELS.includes(model)) {
     return [...GLM_53_EFFORTS];

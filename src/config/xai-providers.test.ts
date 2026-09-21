@@ -20,6 +20,7 @@ describe("xAI OAuth provider projection", () => {
       "grok-4.7",
       "grok-composer-2.5-fast",
     ]);
+    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
     expect(models[0]).toBe("grok-4.5");
   });
 
