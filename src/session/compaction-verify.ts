@@ -160,22 +160,13 @@ function tokensSupported(fact: string, summary: string): boolean {
   return hits >= needed;
 }
 
-function userTexts(turns: readonly ConversationTurn[]): string[] {
+function textsForRole(
+  turns: readonly ConversationTurn[],
+  role: "user" | "assistant",
+): string[] {
   const out: string[] = [];
   for (const turn of turns) {
-    if (turn.role !== "user") continue;
-    for (const block of turn.content) {
-      if (block.type === "text" && block.text.trim().length > 0)
-        out.push(block.text);
-    }
-  }
-  return out;
-}
-
-function assistantTexts(turns: readonly ConversationTurn[]): string[] {
-  const out: string[] = [];
-  for (const turn of turns) {
-    if (turn.role !== "assistant") continue;
+    if (turn.role !== role) continue;
     for (const block of turn.content) {
       if (block.type === "text" && block.text.trim().length > 0)
         out.push(block.text);
@@ -254,8 +245,8 @@ function hostnameOf(url: string): string | undefined {
 export function extractContinuationFacts(
   turns: readonly ConversationTurn[],
 ): ContinuationFacts {
-  const users = userTexts(turns);
-  const assistants = assistantTexts(turns);
+  const users = textsForRole(turns, "user");
+  const assistants = textsForRole(turns, "assistant");
   const calls = toolCallArgs(turns);
   const blockers = erroredResultTexts(turns);
 
@@ -394,6 +385,14 @@ export function repairSummary(
   if (goalMiss !== undefined) lines.push(`Goal: ${facts.goal}`);
   const nextMiss = misses.find((m) => m.kind === "nextAction");
   if (nextMiss !== undefined) lines.push(`Next: ${facts.nextAction}`);
+  // Critical-first: goal, next action, exact names, then the rest. A cap
+  // that slices the tail still prefers the facts the next agent needs.
+  if (kinds.has("exactName")) {
+    const missing = misses
+      .filter((m) => m.kind === "exactName")
+      .map((m) => m.detail);
+    lines.push(`Exact references: ${missing.join(", ")}`);
+  }
   // The state line carries where the work stood when it is neither the next
   // action nor an already-listed blocker.
   const stateCovered =
@@ -411,12 +410,6 @@ export function repairSummary(
     lines.push(
       `Open blockers:\n${facts.blockers.map((b) => `- ${b}`).join("\n")}`,
     );
-  }
-  if (kinds.has("exactName")) {
-    const missing = misses
-      .filter((m) => m.kind === "exactName")
-      .map((m) => m.detail);
-    lines.push(`Exact references: ${missing.join(", ")}`);
   }
   if (kinds.has("verification")) {
     lines.push(`Ran: ${facts.verification.join("; ")}`);

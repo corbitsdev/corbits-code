@@ -7,6 +7,7 @@ import {
   formatPlan,
   classifyTaskBoundary,
   buildLLMTurnSummary,
+  buildTurnSummary,
   COMPACTED_PREFIX,
   COMPACT_SPACER_TEXT,
   LEGACY_COMPACT_SPACER_TEXT,
@@ -1234,7 +1235,26 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     expect(file).toContain("Total tool calls: 1");
   });
 
-  test("truncates summary when it exceeds maxChars", async () => {
+  test("buildTurnSummary truncates with ellipsis when over maxChars", () => {
+    const maxChars = 20;
+    const turns: ConversationTurn[] = [
+      makeTurn({
+        role: "user",
+        content: [{ type: "text", text: "migrate opaque tokens ".repeat(40) }],
+      }),
+      makeTurn({
+        role: "assistant",
+        content: [
+          { type: "text", text: "patch the refresh handler ".repeat(40) },
+        ],
+      }),
+    ];
+    const summary = buildTurnSummary(turns, maxChars);
+    expect(summary.endsWith("...")).toBe(true);
+    expect(summary.length).toBe(maxChars);
+  });
+
+  test("a truncated lying spine aborts instead of shipping", async () => {
     const maxChars = 20;
     const compactor = createPruningCompactor({
       keepRecentTurns: 1,
@@ -1243,28 +1263,20 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     const turns: ConversationTurn[] = [
       makeTurn({
         role: "user",
-        // Short tokens so the verify pass is vacuous; length still overflows.
-        content: [{ type: "text", text: "yes ".repeat(200) }],
+        content: [{ type: "text", text: "migrate opaque tokens ".repeat(40) }],
       }),
       makeTurn({
         role: "assistant",
-        content: [{ type: "text", text: "ok ".repeat(200) }],
+        content: [
+          { type: "text", text: "patch the refresh handler ".repeat(40) },
+        ],
       }),
       makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
     ];
 
     const result = await compactor.apply(turns, mockStrategyCtx);
-    // CL-8744: the deterministic narrative lives in the fat handoff file's
-    // Summary section; the live output carries only the thin spine.
-    const file = new TextDecoder().decode(
-      defined(defined(result.blobs)[0]).bytes,
-    );
-    const narrative = defined(
-      file.split("## Summary (this fold — may paraphrase)\n")[1],
-    ).split("## Exact facts")[0];
-    // The embedded buildTurnSummary output ends with "..." when truncated...
-    expect(narrative).toContain("...");
-    // ...and the truncated narrative stays within maxChars + 3 ("..." suffix).
-    expect(defined(narrative?.trim()).length).toBeLessThanOrEqual(maxChars + 3);
+    expect(result.output).toBe(turns);
+    expect(result.record.reason).toBe("verify failed — keeping prior context");
+    expect(result.record.decisions).toMatchObject({ verifyAborted: 1 });
   });
 });
