@@ -54,7 +54,7 @@ export type CompactionGovernor = ReturnType<typeof createCompactionGovernor>;
 // requestContinuation closure delivered. Subscribers that only care about
 // provider/connector traffic must ignore this event.
 export const COMPACTION_CONTINUATION_EVENT = "custom.compaction.continue";
-/** Compact reason for `/compact` (and later operator-triggered folds). */
+/** Compact reason for `/compact` and `/handoff` (operator-triggered folds). */
 export const OPERATOR_COMPACT_REASON = "operator-request";
 const THRESHOLD_COMPACT_REASON = "context-threshold";
 
@@ -67,6 +67,9 @@ export type ManualCompactOptions = {
   /** Live or restored turns; used to arm after resume before the first decide. */
   turns?: readonly ConversationTurn[];
 };
+
+/** How `/handoff` armed the shared fold pipeline. */
+export type HandoffArming = "armed" | "noop";
 
 type CompactRecordLike = {
   strategy?: string;
@@ -116,9 +119,10 @@ export function createCompactionGovernor(
   let pending = false;
   let idlePending = false;
   let manualPending = false;
-  // Sticky operator instructions from `/compact …`. Empty `/compact` still
-  // uses the default structured fold; a non-empty argument is kept for later
-  // auto-folds and written into the compact record.
+  // Sticky operator instructions from `/compact …` or `/handoff …`. Empty
+  // trailing instructions still fold with the default structured summary; a
+  // non-empty argument is kept for later auto-folds and written into the
+  // compact record.
   let extraInstructions: string | undefined;
   let postCompactInfer = false;
   // Idle empty compact needs a post-compact decide cycle to adopt the shrunk
@@ -551,6 +555,32 @@ export function createCompactionGovernor(
     extraInstructions = trimmed;
   }
 
+  // `/handoff` folds through the same operator pipeline as above, then starts
+  // the next turn immediately: unlike an idle auto-compact (empty synthetic
+  // continuation → meter, no infer), the caller delivers the pivot message
+  // itself, so the idle arrival slot is always armed and there is no kick
+  // case. Busy sessions queue the pivot behind the in-flight batch through
+  // the serial send path; whichever boundary fires first — a tool pause
+  // (compact-then-continue) or the pivot arrival (fold, then infer) — runs
+  // the single operator fold, because firing clears the arming.
+  function requestHandoff(instructions: string): HandoffArming {
+    if (turnCount <= MIN_TURNS_TO_COMPACT) return "noop";
+    const trimmed = instructions.trim();
+    if (trimmed.length > 0) extraInstructions = trimmed;
+    manualPending = true;
+    idlePending = true;
+    if (requestContinuation !== undefined) {
+      requestContinuation();
+    }
+    return "armed";
+  }
+
+  // Disarm after a pivot send that never delivered: without this the next
+  // operator message would fold unexpectedly.
+  function cancelManual(): void {
+    clearManualArming();
+  }
+
   return {
     get estimatedTokens(): number {
       return estimate.tokens;
@@ -569,6 +599,8 @@ export function createCompactionGovernor(
     },
     requestManual,
     restoreExtraInstructions,
+    requestHandoff,
+    cancelManual,
     syncFromTurns,
     noteInferenceDone,
     notePostCompact,

@@ -140,9 +140,10 @@ export interface SummaryContext {
   // activatedToolNames.list() only.
   activatedTools?: string[];
   /**
-   * Optional operator guidance from `/compact [instructions]`. Sticky across
-   * later auto-folds: the governor holds them, and a rebuilt director restores
-   * them from the latest compact record.
+   * Optional operator guidance from `/compact [instructions]` or
+   * `/handoff [instructions]`. Sticky across later auto-folds: the governor
+   * holds them, and a rebuilt director restores them from the latest compact
+   * record.
    */
   extraInstructions?: string;
 }

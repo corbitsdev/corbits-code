@@ -235,6 +235,27 @@ export function registerBuiltInCommands(): void {
     },
   });
 
+  // Pivot: fold the context through the shared operator pipeline, then
+  // immediately start the next turn with the trailing instructions as the
+  // inbound content (default copy when omitted). Unlike `/compact`, which
+  // stops after the fold, handoff always re-infers.
+  registerCommand({
+    name: "handoff",
+    description: "Fold context now, then continue with optional instructions",
+    argumentHint: "[optional instructions]",
+    handler: (args, ctx) => {
+      if (ctx.requestHandoff === undefined) {
+        return {
+          type: "message",
+          text: "Handoff is not available in this session.",
+        };
+      }
+      const err = ctx.requestHandoff(args);
+      if (err !== undefined) return { type: "message", text: err };
+      return { type: "noop" };
+    },
+  });
+
   // Persist as user-global default, not session-only.
   registerCommand({
     name: "yolo",
