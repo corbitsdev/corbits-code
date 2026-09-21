@@ -44,7 +44,7 @@ describe("grok ceremony merge (CL-8296)", () => {
       { providerName: "anthropic", model: "claude-sonnet-4" },
       { providerName: "moonshot", model: "kimi-k2" },
       { providerName: "opencode-go", model: "muse-spark-1.3-contributor" },
-      { providerName: "openai", model: "gpt-4.1" },
+      { providerName: "openai", model: "gpt-5.6" },
     ] as const) {
       expect(shouldApplyGrokAntiThrash({ ...input, orchestrator: false })).toBe(
         false,
