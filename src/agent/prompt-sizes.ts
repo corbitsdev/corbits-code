@@ -57,11 +57,12 @@ export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
 };
 
 const GROK_PROVIDER = { providerName: "xai/default", model: "grok-4.6" };
-// Default-family probe: openai/gpt-4.1 resolves to the default family (the
-// gpt row lands later in CL-8310), so the default column carries no residual.
+// Default-family probe: an unrecognized provider stays on the default
+// family no matter how many family rows land (claude now, gpt in #1135),
+// so the default column carries no residual.
 const DEFAULT_PROVIDER = {
-  providerName: "openai",
-  model: "gpt-4.1",
+  providerName: "unknown-provider",
+  model: "unknown-model",
 };
 
 /** Families in the size table: default assembly vs Grok (+finish-bias note). */
