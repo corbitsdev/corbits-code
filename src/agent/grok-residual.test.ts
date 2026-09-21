@@ -1,9 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { promptResidual } from "./model-family-policy.js";
+import { GROK_PROMPT_RESIDUAL } from "./model-family-policy.js";
 import {
   buildGrokLeafAntiThrashNote,
   buildSubAgentSystemPrompt,
 } from "./prompts.js";
+import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
 
 // The three Grok ceremony lines (CL-7768 Design, merged by CL-8296): no git,
 // no pre-plan, verify once.
@@ -19,28 +20,47 @@ function countOccurrences(haystack: string, needle: string): number {
 
 describe("grok ceremony merge (CL-8296)", () => {
   it("exposes a single grok residual with each ceremony line exactly once", () => {
-    const residual = promptResidual("grok");
-    expect(residual).toContain("Finish bias (xAI / Grok worker):");
+    expect(GROK_PROMPT_RESIDUAL).toContain("Finish bias (xAI / Grok worker):");
     for (const line of CEREMONY_LINES) {
-      expect(countOccurrences(residual, line)).toBe(1);
+      expect(countOccurrences(GROK_PROMPT_RESIDUAL, line)).toBe(1);
     }
   });
 
   it("keeps the don't re-read line exactly once — no duplicate", () => {
-    const residual = promptResidual("grok");
-    expect(countOccurrences(residual, "re-open paths you already read")).toBe(
-      1,
-    );
+    expect(
+      countOccurrences(GROK_PROMPT_RESIDUAL, "re-open paths you already read"),
+    ).toBe(1);
   });
 
-  it("is grok-only: every other family resolves to an empty residual", () => {
-    expect(promptResidual("default")).toBe("");
-    expect(promptResidual("kimi")).toBe("");
-    expect(promptResidual("muse")).toBe("");
+  it("is grok-only: the finish-bias gate fires for grok leaves alone", () => {
+    expect(
+      shouldApplyGrokAntiThrash({
+        providerName: "xai/default",
+        model: "grok-4.6",
+        orchestrator: false,
+      }),
+    ).toBe(true);
+    for (const input of [
+      { providerName: "anthropic", model: "claude-sonnet-4" },
+      { providerName: "moonshot", model: "kimi-k2" },
+      { providerName: "opencode-go", model: "muse-spark-1.3-contributor" },
+      { providerName: "openai", model: "gpt-4.1" },
+    ] as const) {
+      expect(shouldApplyGrokAntiThrash({ ...input, orchestrator: false })).toBe(
+        false,
+      );
+    }
+    expect(
+      shouldApplyGrokAntiThrash({
+        providerName: "xai/default",
+        model: "grok-4.6",
+        orchestrator: true,
+      }),
+    ).toBe(false);
   });
 
   it("buildGrokLeafAntiThrashNote is the same single residual (one source of truth)", () => {
-    expect(buildGrokLeafAntiThrashNote()).toBe(promptResidual("grok"));
+    expect(buildGrokLeafAntiThrashNote()).toBe(GROK_PROMPT_RESIDUAL);
   });
 
   it("the assembled grok worker prompt carries the merged residual exactly once", () => {
