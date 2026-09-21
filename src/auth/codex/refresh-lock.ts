@@ -11,6 +11,17 @@ import { dirname } from "node:path";
 // for one credential store. At most one refresh grant is ever in flight, so
 // a second refresher observes the persisted result instead of racing the
 // authorization server's refresh-token rotation and revoking its sibling.
+//
+// Limits (accepted; follow-ups, not fixes here). The PID-liveness takeover
+// assumes contender and holder share one PID namespace on one host: across
+// namespaces (containers) or machines (network credential store) the PID
+// check is meaningless — ESRCH steals a live holder's lock (overlapping
+// grants) while a recycled PID reads alive and stalls recovery. Likewise,
+// serialization needs one canonical lock path per store: contenders that
+// spell the same store via two paths (symlinked TMPDIR, uncanonicalized
+// home) contend on two files and never meet. Same-host headless runs share
+// namespace and path, so the lock holds; canonicalizing the lock path
+// (realpath of the store dir) is a follow-up, not this change.
 const tails = new Map<string, Promise<void>>();
 
 // Default stale horizon for legacy lock files that carry no holder PID
@@ -72,7 +83,9 @@ function holderPid(content: string): number | null {
 // means it exists but belongs to another user (alive); ESRCH/EINVAL mean no
 // such process (dead). Any other failure is treated as alive — never steal
 // a live holder's lock on a confused signal check; the waiter times out with
-// a recovery hint instead.
+// a recovery hint instead. Meaningful only when contender and holder share
+// a PID namespace (see the module header): across namespaces the answer is
+// about the wrong process table.
 function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -181,6 +194,8 @@ async function waitForTail(
  * lock file. The lock file is removed afterwards by the holder that created
  * it. One acquisition deadline covers both the queue wait and the file
  * contention, so the call either holds the lock or throws within ~timeoutMs.
+ * Callers must pass one canonical path per credential store: two spellings
+ * of the same store contend on two files (see the module header).
  */
 export async function withCodexRefreshLock<T>(
   lockPath: string,
