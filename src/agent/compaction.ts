@@ -290,17 +290,19 @@ export function createCompactionGovernor(
   // a cache play. Provider KV caches expire on their own schedule
   // (provider/cache-ttl.ts); compressing after that expiry makes the next
   // turn a cheaper write and later reads compound on the shrunk context. This
-  // fires under threshold — the threshold path above owns over-threshold —
-  // on any live re-entry once `now - lastCacheWrite >= ttl`. Guards, in
+  // fires on any live re-entry once `now - lastCacheWrite >= ttl`, including
+  // over-threshold sessions whose threshold path has disarmed (`pending` is
+  // false via growth hysteresis — the threshold path owns only armed
+  // over-threshold; the fold is still window- and cap-bounded). Guards, in
   // order: threshold arming defers (pending), the fresh-tail floor (turns at
   // or under it are all kept, so a fold would shrink nothing), the
   // consecutive-compact cap (existing death-spiral bound, shared with the
-  // threshold path), providers with no TTL (unknown model, local inference),
-  // no observed cache write yet, the TTL window itself, and one fire per
-  // window (a fresh fold rewrites the prefix; the summary call bypasses this
-  // governor so lastCacheWriteAt cannot observe it — lastCompactAt covers
-  // that). Never fires with a tool batch outstanding: the stall ping that
-  // triggers this can arrive mid-work.
+  // threshold path), providers with no TTL (undefined/empty model, local
+  // inference), no observed cache write yet, the TTL window itself, and one
+  // fire per window (a fresh fold rewrites the prefix; the summary call
+  // bypasses this governor so lastCacheWriteAt cannot observe it —
+  // lastCompactAt covers that). Never fires with a tool batch outstanding:
+  // the stall ping that triggers this can arrive mid-work.
   function isTtlRecompressDue(nowMs: number): boolean {
     if (pending) return false;
     if (turnCount <= MIN_TURNS_TO_COMPACT) return false;

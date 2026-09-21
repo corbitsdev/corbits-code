@@ -80,8 +80,9 @@ function canonicalSegment(model: string): string {
 
 /**
  * Milliseconds of provider-cache idle after which a recompress is allowed,
- * or `undefined` when the model is unknown or the provider has no remote
- * cache (local inference). Never throws; unknown strings get the default.
+ * or `undefined` when the model is undefined/empty or the provider has no
+ * remote cache (local inference). Never throws; unknown strings get the
+ * default 10-minute window.
  */
 export function cacheTtlMsFor(model: string | undefined): number | undefined {
   if (model === undefined) return undefined;

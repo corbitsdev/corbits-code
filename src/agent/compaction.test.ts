@@ -921,6 +921,35 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     ).toBeNull();
   });
 
+  test("fires cache-ttl-recompress in the hysteresis gap (over-threshold, no growth)", () => {
+    // Characterization, not a bug: after a threshold compact, a post-compact
+    // infer at the same usage clears `pending` via growth hysteresis, so the
+    // threshold path no longer owns the session. Idle past the provider TTL
+    // still folds — same window- and cap-bounded path as under-threshold.
+    let nowMs = 70_000_000;
+    const governor = createCompactionGovernor(
+      () => undefined,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+
+    nowMs += 11 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+  });
+
   test("does not fold under an outstanding tool batch, fires once it settles", () => {
     let continuations = 0;
     let nowMs = 40_000_000;
