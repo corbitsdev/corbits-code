@@ -173,6 +173,7 @@ export function assembleDirectorPrompt(
     },
   );
 }
+
 /**
  * Skywalker primary infer envelope: the chat system prompt plus the
  * AGENTS.md extension. Family-agnostic — Grok does not substitute the
