@@ -37,8 +37,20 @@ export function isMuseSparkLeafProvider(input: {
   return input.model !== undefined && /^muse-spark/i.test(input.model.trim());
 }
 
+/** True when the provider/model is Anthropic's Claude family. */
+export function isClaudeLeafProvider(input: {
+  providerName: string;
+  model?: string;
+}): boolean {
+  const name = input.providerName.toLowerCase();
+  if (name.includes("anthropic") || name.includes("claude")) return true;
+  if (input.model !== undefined && /^claude/i.test(input.model.trim()))
+    return true;
+  return false;
+}
+
 /** Model families the shared directors branch on via ModelFamilyPolicy. */
-export type ModelFamily = "grok" | "kimi" | "muse" | "default";
+export type ModelFamily = "grok" | "kimi" | "muse" | "claude" | "default";
 
 /**
  * Resolves a provider/model to a ModelFamily. Generalizes
@@ -53,6 +65,7 @@ export function detectModelFamily(input: {
   if (isXaiGrokLeafProvider(input)) return "grok";
   if (isKimiLeafProvider(input)) return "kimi";
   if (isMuseSparkLeafProvider(input)) return "muse";
+  if (isClaudeLeafProvider(input)) return "claude";
   return "default";
 }
 

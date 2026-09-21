@@ -12,12 +12,12 @@ import {
   type DirectorPackage,
 } from "./directors/types.js";
 import { buildChatSystemPrompt, buildSubAgentSystemPrompt } from "./prompts.js";
+import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 import {
   formatAgentsMdExtension,
   MAX_AGENTS_MD_BYTES,
 } from "./context-extensions.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
-import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { shellCollectDefinition } from "./background-shell-tool.js";
 import {
@@ -37,8 +37,9 @@ import { webSearchDefinition } from "../tools/web-search.js";
  * extensions=[director systemPromptRole] + environment + tools +
  * appendix, with the Grok finish-bias note gated by
  * shouldApplyGrokAntiThrash (leaves on Grok-family providers only) and the
- * family promptResidual (CL-8297 tool budget, grok leaves only) resolved
- * from the model family policy.
+ * family promptResidual (CL-8297 tool budget for grok leaves, XML
+ * task_guidance block for claude leaves) resolved from the model family
+ * policy.
  *
  * The env and provider inputs are pinned here so sizes never drift with the
  * machine, date, or checkout — only real prompt changes move the numbers.
@@ -56,9 +57,11 @@ export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
 };
 
 const GROK_PROVIDER = { providerName: "xai/default", model: "grok-4.6" };
+// Default-family probe: openai/gpt-4.1 resolves to the default family (the
+// gpt row lands later in CL-8310), so the default column carries no residual.
 const DEFAULT_PROVIDER = {
-  providerName: "anthropic",
-  model: "claude-sonnet-4",
+  providerName: "openai",
+  model: "gpt-4.1",
 };
 
 /** Families in the size table: default assembly vs Grok (+finish-bias note). */
