@@ -390,6 +390,27 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(error)).toBe(error);
   });
 
+  test("Codex model-deprecation 404 containing 'expired' stays fatal", () => {
+    // Keeper: a retired model names itself with the credential marker word,
+    // but logging in again cannot resurrect it — the fatal switch-models
+    // path must win over the expired-credential reclassification.
+    const error = {
+      category: "fatal" as const,
+      message:
+        "The model 'gpt-4o' has expired. Migrate to 'gpt-5' to continue.",
+      statusCode: 404,
+      providerId: "codex/work",
+      raw: {
+        error: {
+          code: "model_expired",
+          message: "The model 'gpt-4o' has expired (2025-02-01).",
+          type: "invalid_request_error",
+        },
+      },
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
   test("non-Codex 404 keeps fatal switch-models guidance", () => {
     const error = {
       category: "fatal" as const,

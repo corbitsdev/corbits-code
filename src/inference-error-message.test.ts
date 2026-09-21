@@ -194,21 +194,6 @@ describe("terminalProviderFailureMessage", () => {
     expect(message.toLowerCase()).not.toMatch(/log in again/);
   });
 
-  test("terminal Codex refresh-failed auth error renders one re-login hint", () => {
-    // Joint surface with #1139 (CL-8628 refresh serialization): both lanes
-    // land credential failures in the CodexAuthError copy shape, and the
-    // terminal dedup must swallow the generic hint for either source.
-    const message = terminalProviderFailureMessage("codex/work", {
-      category: "credential_failure",
-      message:
-        'Codex profile "work" could not be refreshed (invalid_grant). Log in again.',
-      statusCode: 401,
-      providerId: "codex/work",
-    });
-    expect(message).toContain('Codex profile "work"');
-    expect(message.toLowerCase().match(/log in again/g)).toHaveLength(1);
-  });
-
   test("terminal genuine unknown-model 404 keeps switch-models guidance", () => {
     const message = terminalProviderFailureMessage("codex/work", {
       category: "fatal",

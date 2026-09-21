@@ -545,6 +545,38 @@ function hasCodexCredentialAuthSignal(error: InferenceErrorLike): boolean {
 }
 
 /**
+ * Model-deprecation signals that veto the credential-404 classifier. A
+ * retired-model 404 can itself carry the word "expired" ("model 'gpt-4o'
+ * has expired — migrate to 'gpt-5'"), and reclassifying it as
+ * credential_failure would send the operator to log in again for a model
+ * that no longer exists. The veto needs a model mention plus a deprecation
+ * signal so bare credential texts ("the access token expired") still
+ * reclassify.
+ */
+const CODEX_MODEL_DEPRECATION_MARKERS = [
+  "model_expired",
+  "model_deprecated",
+  "deprecated",
+  "deprecation",
+  "retired",
+  "sunset",
+  "no longer supported",
+  "no longer available",
+  "has expired",
+  "end of life",
+] as const;
+
+function looksLikeCodexModelDeprecation(error: InferenceErrorLike): boolean {
+  const combined = [error.message ?? "", stringFromRaw(error.raw)]
+    .join("\n")
+    .toLowerCase();
+  if (!combined.includes("model")) return false;
+  return CODEX_MODEL_DEPRECATION_MARKERS.some((marker) =>
+    combined.includes(marker),
+  );
+}
+
+/**
  * Single shared predicate behind the Codex credential-404 re-login copy: the
  * classifier brands with it (formatCodexCredential404Message) and the
  * terminal-guidance dedup checks with it, so the two cannot drift.
@@ -607,7 +639,8 @@ function recordCodexCredential404Reclassification(
  * re-login copy matches the CodexAuthError shape so the TUI names the
  * affected profile through its existing auth matchers; the original
  * diagnostic rides along in parens so the model name stays debuggable.
- * Anything without an auth signal keeps the fatal switch-models path.
+ * Anything without an auth signal keeps the fatal switch-models path, as
+ * does a model-deprecation 404 even when it carries the word "expired".
  */
 function normalizeCodexCredential404Error(
   error: InferenceErrorWithGoContext,
@@ -617,6 +650,10 @@ function normalizeCodexCredential404Error(
   const providerId = error.providerId;
   if (providerId === undefined || !isCodexProviderName(providerId))
     return error;
+  // A retired model is a fatal switch-models failure, never a credential
+  // failure: the veto runs before the auth markers so deprecation wins over
+  // a merely expired-sounding word.
+  if (looksLikeCodexModelDeprecation(error)) return error;
   if (!hasCodexCredentialAuthSignal(error)) return error;
   const profile = codexProfileFromProviderName(providerId) ?? providerId;
   const message = formatCodexCredential404Message(profile, error.message ?? "");
