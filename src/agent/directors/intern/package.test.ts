@@ -5,17 +5,20 @@ import { internPackage } from "./package.js";
 describe("internPackage", () => {
   test("systemPrompt is mechanical executor (gaas intern port)", () => {
     const p = internPackage.systemPrompt;
+    expect(p).toMatch(/intern assistant/);
     expect(p).toMatch(/execute clear (mechanical )?instructions/i);
     expect(p).toMatch(/STOP/i);
-    expect(p).toMatch(/Blockers/i);
-    // Envelope shape is scaffold-owned: point at it, do not re-specify it.
-    expect(p).toMatch(/Corbits report envelope/);
+    expect(p).toMatch(/ask_director/);
+    // Envelope shape is scaffold-owned: do not re-specify it in the body.
+    expect(p).not.toMatch(/Corbits report envelope/);
     expect(p).not.toMatch(/## Summary/);
     expect(p).not.toMatch(/## Findings/);
     expect(p).not.toMatch(/## Paths/);
-    expect(p).toMatch(/run_shell/);
     // Role forbids debugging; body states the ban explicitly
     expect(p).toMatch(/You do NOT:[\s\S]*Debug failures/);
+    // Writes and background-shell policy live on the mount, not extra essays.
+    expect(p).not.toMatch(/write_file/);
+    expect(p).not.toMatch(/Background shells are forbidden/);
   });
 
   test("fail-closes without shell_collect rather than pinning prompt copy", () => {

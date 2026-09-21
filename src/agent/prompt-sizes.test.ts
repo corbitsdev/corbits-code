@@ -46,7 +46,8 @@ const PROMPT_SIZE_BASELINE: Record<
   builder: { chars: 10344, bytes: 10382 },
   explorer: { chars: 4897, bytes: 4921 },
   counsel: { chars: 4816, bytes: 4834 },
-  intern: { chars: 8148, bytes: 8176 },
+  // Restore of gaas intern.md mechanical body; grok family is the max.
+  intern: { chars: 7204, bytes: 7216 },
   critic: { chars: 6488, bytes: 6516 },
   greybeard: { chars: 5921, bytes: 5951 },
   neckbeard: { chars: 24256, bytes: 24290 },
