@@ -530,6 +530,11 @@ export function buildSubAgentSystemPrompt(
     toolNames?: readonly string[];
     /** When true, append the tiny Grok/xAI finish-bias note (provider residual). */
     grokAntiThrash?: boolean;
+    /**
+     * Family policy residual (CL-8297) appended once at the tail so it
+     * cannot disturb the cached prompt prefix. Unset for families with none.
+     */
+    promptResidual?: string | undefined;
   } = {},
 ): string {
   const toolListForPrompt =
@@ -555,6 +560,9 @@ export function buildSubAgentSystemPrompt(
   }
   if (opts.grokAntiThrash === true) {
     sections.push(buildGrokLeafAntiThrashNote());
+  }
+  if (opts.promptResidual !== undefined && opts.promptResidual.length > 0) {
+    sections.push(opts.promptResidual);
   }
   return joinSections(sections);
 }

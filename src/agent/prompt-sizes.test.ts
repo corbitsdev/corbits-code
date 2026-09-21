@@ -332,3 +332,22 @@ describe("skywalker grok prefix (infer envelope vs trimmed director)", () => {
     }
   });
 });
+
+describe("grok tool-budget residual (CL-8297)", () => {
+  const countOccurrences = (haystack: string, needle: string): number =>
+    haystack.split(needle).length - 1;
+
+  test("a grok leaf director prompt contains the tool budget exactly once", () => {
+    const prompt = assembleDirectorPrompt("builder", "grok");
+    expect(countOccurrences(prompt, "Tool budget:")).toBe(1);
+  });
+
+  test("default-family and orchestrator prompts carry no tool budget", () => {
+    expect(assembleDirectorPrompt("builder", "default")).not.toContain(
+      "Tool budget:",
+    );
+    expect(assembleDirectorPrompt("skywalker", "grok")).not.toContain(
+      "Tool budget:",
+    );
+  });
+});

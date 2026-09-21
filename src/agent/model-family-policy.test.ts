@@ -102,4 +102,33 @@ describe("resolveModelFamilyPolicy", () => {
     expect(muse.toolDisciplineRules).toContain("Never re-read a file");
     expect(base.toolDisciplineRules).toBeUndefined();
   });
+
+  describe("promptResidual (CL-8297)", () => {
+    test("grok leaf carries the generic 4-line tool-budget residual", () => {
+      const leaf = resolveModelFamilyPolicy({
+        providerName: "xai/default",
+        model: "grok-4.6",
+      });
+      expect(leaf.family).toBe("grok");
+      expect(leaf.promptResidual).toBeDefined();
+      if (!leaf.promptResidual)
+        throw new Error("expected promptResidual to be defined");
+      expect(leaf.promptResidual.split("\n")).toHaveLength(4);
+      expect(leaf.promptResidual).toContain("Tool budget:");
+    });
+
+    test("grok orchestrators and default family carry no residual", () => {
+      const orchestrator = resolveModelFamilyPolicy({
+        providerName: "xai/default",
+        model: "grok-4.6",
+        orchestrator: true,
+      });
+      expect(orchestrator.promptResidual).toBeUndefined();
+      const base = resolveModelFamilyPolicy({
+        providerName: "anthropic",
+        model: "claude-sonnet-4",
+      });
+      expect(base.promptResidual).toBeUndefined();
+    });
+  });
 });
