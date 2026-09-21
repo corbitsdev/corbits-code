@@ -15,6 +15,7 @@ import type { Compactor } from "@intx/types/runtime";
 
 import { buildChatSystemPrompt } from "../agent/prompts.js";
 import type { GuidelineSubBlockId } from "../agent/prompts.js";
+import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 import type { ToolAvailability } from "../agent/tool-search.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import {
@@ -293,6 +294,10 @@ export interface SessionChatPromptArgs {
   // Guideline sub-block ids to drop (see GUIDELINE_SUB_BLOCK_IDS).
   // Omitted = full guidelines.
   promptSectionOmit?: readonly GuidelineSubBlockId[];
+  // Active session provider/model, for family residuals on the primary
+  // prompt (CL-8310: GPT narrate-before-tools). Omitted = no family residual.
+  providerName?: string;
+  model?: string;
   // Session-start snapshot from createAgentToolset. When provided, skip
   // rediscovery so the prompt listing and skill_search share one catalog.
   skills?: readonly SkillSummary[];
@@ -320,6 +325,19 @@ export async function loadSessionChatPrompt(
     ...(args.systemPromptExtensions ?? []),
     ...overrides.append,
   ];
+  // Family residual on the primary prompt (CL-8310): resolved from the model
+  // family policy as an orchestrator — primaries dispatch rather than doing
+  // the work directly, so grok/claude primaries stay untouched (their rows
+  // withhold the residual from orchestrators) while the gpt row carries its
+  // narrate-before-tools note primary and leaf alike.
+  const { promptResidual } =
+    args.providerName !== undefined
+      ? resolveModelFamilyPolicy({
+          providerName: args.providerName,
+          ...(args.model !== undefined ? { model: args.model } : {}),
+          orchestrator: true,
+        })
+      : { promptResidual: undefined };
   return {
     systemPrompt: buildChatSystemPrompt(
       extensions.length > 0 ? extensions : undefined,
@@ -331,6 +349,7 @@ export async function loadSessionChatPrompt(
       args.promptSectionOmit !== undefined
         ? { omit: args.promptSectionOmit }
         : undefined,
+      { promptResidual },
     ),
     skills,
   };

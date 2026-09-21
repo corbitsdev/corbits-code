@@ -41,7 +41,8 @@ export interface ModelFamilyPolicy {
   /**
    * Provider-family residual appended once to the assembled leaf system
    * prompt (CL-8297). Tool-budget text for grok, the XML task_guidance block
-   * for claude; the GPT seam stays unfilled until its lane lands (#1135).
+   * for claude, the narrate-before-tools note for gpt (CL-8310, primary and
+   * leaf alike).
    * Withheld from orchestrators and appended at the tail so it cannot
    * disturb the cached prompt prefix. Undefined for families that need none.
    */
@@ -169,6 +170,33 @@ const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   promptResidual: CLAUDE_TASK_GUIDANCE_NOTE,
 };
 
+// Tiny narrate-before-tools residual for GPT workers (CL-8310): GPT-5.5 runs
+// showed 6–13 silent tool-only turns. Shared thrash harness + spawn contracts
+// do the structural work; this is only a narrate-before-tools nudge.
+// Deliberately not manage_tasks ceremony — that is CL-7769, not this text.
+// The text lives here (policy owns data); buildGptNarrateBeforeToolsNote
+// (prompts.ts) returns it verbatim so the prompt carries exactly one copy.
+// Served cells (astra/sol/terra/…) are never named here — CL-8265
+// characterizes them later.
+export const GPT_NARRATE_BEFORE_TOOLS_NOTE = [
+  "Narrate before tools (GPT worker):",
+  "- Before each tool call, write one short line saying what you are doing and why.",
+  "- Never make back-to-back tool calls with no narration between them.",
+  "- When the dispatch brief's done-definition is met, write the report envelope instead of making another tool call.",
+].join("\n");
+
+// GPT (Codex / gpt-*) thresholds are provisional: we have no eval
+// characterization yet for how GPT behaves under tool-only stretches or
+// background-run stalls. Ship the permissive default rather than guessing at
+// a tightened number; the narrate-before-tools residual is prompt-level (see
+// GPT_NARRATE_BEFORE_TOOLS_NOTE above), not a threshold.
+const GPT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
+  ...DEFAULT_POLICY,
+  // Primary and leaf alike, so unlike the grok finish-bias there is no
+  // orchestrator carve-out: the resolver below returns this as-is.
+  promptResidual: GPT_NARRATE_BEFORE_TOOLS_NOTE,
+};
+
 export function resolveModelFamilyPolicy(input: {
   providerName: string;
   model?: string;
@@ -204,6 +232,9 @@ export function resolveModelFamilyPolicy(input: {
       return orchestrator
         ? { family, ...DEFAULT_POLICY }
         : { family, ...CLAUDE_POLICY };
+    case "gpt":
+      // Primary and leaf alike: no orchestrator carve-out.
+      return { family, ...GPT_POLICY };
     default:
       return { family: "default", ...DEFAULT_POLICY };
   }

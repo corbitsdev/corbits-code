@@ -13,6 +13,7 @@ import {
 } from "./worker-contract.js";
 import {
   CLAUDE_TASK_GUIDANCE_NOTE,
+  GPT_NARRATE_BEFORE_TOOLS_NOTE,
   GROK_PROMPT_RESIDUAL,
 } from "./model-family-policy.js";
 
@@ -459,6 +460,13 @@ export function buildChatSystemPrompt(
   sessionMode: SessionMode = "orchestrator",
   toolAvailability: ToolAvailability = DEFAULT_TOOL_AVAILABILITY,
   guidelineConfig?: GuidelineConfig,
+  opts: {
+    /**
+     * Family policy residual (CL-8297) appended once at the tail so it
+     * cannot disturb the cached prompt prefix. Unset for families with none.
+     */
+    promptResidual?: string | undefined;
+  } = {},
 ): string {
   const sections = [
     baseSection(
@@ -476,6 +484,9 @@ export function buildChatSystemPrompt(
   sections.push(contextSection(env));
   if (extensions !== undefined && extensions.length > 0) {
     sections.push(...extensions);
+  }
+  if (opts.promptResidual !== undefined && opts.promptResidual.length > 0) {
+    sections.push(opts.promptResidual);
   }
   return joinSections(sections);
 }
@@ -534,6 +545,17 @@ export function buildGrokLeafAntiThrashNote(): string {
 // so the prompt carries one claude residual with no line twice.
 export function buildClaudeTaskGuidanceNote(): string {
   return CLAUDE_TASK_GUIDANCE_NOTE;
+}
+
+// Tiny residual for GPT workers (CL-8310): GPT-5.5/5.6-luna runs showed 6–13
+// silent tool-only turns. Shared thrash harness + spawn contracts do the
+// structural work; this is only a narrate-before-tools nudge. Deliberately
+// not manage_tasks ceremony — that is CL-7769, not this text.
+// Single source of truth is the GPT_NARRATE_BEFORE_TOOLS_NOTE block in
+// model-family-policy.ts (policy owns data); this returns that block verbatim
+// so the prompt carries one gpt residual with no line twice.
+export function buildGptNarrateBeforeToolsNote(): string {
+  return GPT_NARRATE_BEFORE_TOOLS_NOTE;
 }
 
 export function buildSubAgentSystemPrompt(

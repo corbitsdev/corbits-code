@@ -1,5 +1,6 @@
 import { GROK_RESPONSES_PROVIDER } from "../provider/grok-responses.js";
 import { isXaiProviderName } from "../config/xai-providers.js";
+import { isCodexProviderName } from "../config/codex-providers.js";
 
 /**
  * True when the leaf inference path is xAI / Grok family.
@@ -49,8 +50,33 @@ export function isClaudeLeafProvider(input: {
   return false;
 }
 
+/**
+ * True when the inference path is the GPT family: a Codex provider name
+ * (codex/ OAuth profiles, the codex-responses adapter, bare codex) or a
+ * gpt-* model id on any provider. Served codex cells (astra/sol/terra/luna)
+ * all match the generic gpt-* model shape — never name them here; CL-8265
+ * characterizes cells later.
+ */
+export function isGptProvider(input: {
+  providerName: string;
+  model?: string;
+}): boolean {
+  const name = input.providerName.toLowerCase();
+  if (isCodexProviderName(name) || name === "codex" || name.includes("codex"))
+    return true;
+  if (input.model !== undefined && /^gpt-/i.test(input.model.trim()))
+    return true;
+  return false;
+}
+
 /** Model families the shared directors branch on via ModelFamilyPolicy. */
-export type ModelFamily = "grok" | "kimi" | "muse" | "claude" | "default";
+export type ModelFamily =
+  | "grok"
+  | "kimi"
+  | "muse"
+  | "claude"
+  | "gpt"
+  | "default";
 
 /**
  * Resolves a provider/model to a ModelFamily. Generalizes
@@ -66,6 +92,7 @@ export function detectModelFamily(input: {
   if (isKimiLeafProvider(input)) return "kimi";
   if (isMuseSparkLeafProvider(input)) return "muse";
   if (isClaudeLeafProvider(input)) return "claude";
+  if (isGptProvider(input)) return "gpt";
   return "default";
 }
 

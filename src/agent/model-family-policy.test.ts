@@ -4,8 +4,8 @@ import { resolveModelFamilyPolicy } from "./model-family-policy.js";
 describe("resolveModelFamilyPolicy", () => {
   test("defaults are permissive for an unrecognized provider", () => {
     const policy = resolveModelFamilyPolicy({
-      providerName: "openai",
-      model: "gpt-4.1",
+      providerName: "unknown-provider",
+      model: "unknown-model",
     });
     expect(policy.family).toBe("default");
     expect(policy.applyGrokFinishBias).toBe(false);
@@ -55,8 +55,8 @@ describe("resolveModelFamilyPolicy", () => {
 
   test("advertisedToolDeny is empty by default and never contains use_skill", () => {
     const leaf = resolveModelFamilyPolicy({
-      providerName: "openai",
-      model: "gpt-4.1",
+      providerName: "unknown-provider",
+      model: "unknown-model",
       orchestrator: false,
     });
     expect(leaf.advertisedToolDeny).toEqual([]);
@@ -124,12 +124,12 @@ describe("resolveModelFamilyPolicy", () => {
         orchestrator: true,
       });
       expect(orchestrator.promptResidual).toBeUndefined();
-      // Default-family probe: anthropic/claude-sonnet-4 would hit the claude
-      // row now, and the gpt row has NOT landed yet (#1135), so openai/gpt-4.1
-      // is the probe that still resolves to the default family.
+      // Default-family probe: anthropic/claude-sonnet-4 hits the claude row
+      // and openai/gpt-4.1 hits the gpt row (#1135), so an unrecognized
+      // provider is the probe that still resolves to the default family.
       const base = resolveModelFamilyPolicy({
-        providerName: "openai",
-        model: "gpt-4.1",
+        providerName: "unknown-provider",
+        model: "unknown-model",
       });
       expect(base.family).toBe("default");
       expect(base.promptResidual).toBeUndefined();
@@ -154,21 +154,22 @@ describe("resolveModelFamilyPolicy", () => {
     expect(orchestrator.promptResidual).toBeUndefined();
   });
 
-  // The gpt family row has NOT landed yet (#1135): openai/gpt-4.1 and
-  // codex/gpt-5.1 are default-family probes here, asserting they resolve to
-  // the default family with no residual. Grok keeps its CL-8297 tool-budget
+  // The gpt family row has landed (#1135): openai/gpt-4.1 and codex/gpt-5.1
+  // resolve to the gpt family with the narrate-before-tools residual, leaf
+  // and orchestrator alike (no carve-out). Grok keeps its CL-8297 tool-budget
   // residual — the "no residual" claim below is default-family-only.
-  test("gpt probes resolve to default with no residual; grok keeps its tool budget", () => {
+  test("gpt probes resolve to gpt with the narrate residual; grok keeps its tool budget", () => {
     for (const input of [
       { providerName: "openai", model: "gpt-4.1" },
       { providerName: "codex", model: "gpt-5.1" },
     ] as const) {
-      const policy = resolveModelFamilyPolicy({
-        ...input,
-        orchestrator: false,
-      });
-      expect(policy.family).toBe("default");
-      expect(policy.promptResidual).toBeUndefined();
+      for (const orchestrator of [false, true]) {
+        const policy = resolveModelFamilyPolicy({ ...input, orchestrator });
+        expect(policy.family).toBe("gpt");
+        expect(policy.promptResidual).toContain(
+          "Narrate before tools (GPT worker):",
+        );
+      }
     }
     const grok = resolveModelFamilyPolicy({
       providerName: "xai/default",
@@ -177,5 +178,25 @@ describe("resolveModelFamilyPolicy", () => {
     });
     expect(grok.family).toBe("grok");
     expect(grok.promptResidual).toContain("Tool budget:");
+  });
+  test("gpt resolves its own family on permissive default thresholds (CL-8310)", () => {
+    const gpt = resolveModelFamilyPolicy({
+      providerName: "codex/default",
+      model: "gpt-5.5",
+    });
+    const base = resolveModelFamilyPolicy({
+      providerName: "anthropic",
+      model: "claude-sonnet-4",
+    });
+    expect(gpt.family).toBe("gpt");
+    // No eval characterization for gpt tool-only stretches yet: ship the
+    // permissive default, no finish-bias, no discipline rules. The
+    // narrate-before-tools residual is prompt-level (see prompts.ts), not a
+    // threshold.
+    expect(gpt.toolOnlyTurnNudgeAt).toBe(base.toolOnlyTurnNudgeAt);
+    expect(gpt.subAgentStallTimeoutMs).toBe(base.subAgentStallTimeoutMs);
+    expect(gpt.applyGrokFinishBias).toBe(false);
+    expect(gpt.toolDisciplineRules).toBeUndefined();
+    expect(gpt.advertisedToolDeny).toEqual([]);
   });
 });
