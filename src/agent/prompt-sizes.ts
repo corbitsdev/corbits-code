@@ -38,8 +38,9 @@ import { webSearchDefinition } from "../tools/web-search.js";
  * appendix, with the Grok finish-bias note gated by
  * shouldApplyGrokAntiThrash (leaves on Grok-family providers only) and the
  * family promptResidual (CL-8297 tool budget for grok leaves, XML
- * task_guidance block for claude leaves) resolved from the model family
- * policy.
+ * task_guidance block for claude leaves, narrate-before-tools nudge for
+ * gpt leaves) resolved from the model family policy. Residual texts are
+ * single-sourced from the versioned prompt-variance package (CL-8269).
  *
  * The env and provider inputs are pinned here so sizes never drift with the
  * machine, date, or checkout — only real prompt changes move the numbers.
@@ -57,16 +58,25 @@ export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
 };
 
 const GROK_PROVIDER = { providerName: "xai/default", model: "grok-4.6" };
-// Default-family probe: an unrecognized provider stays on the default
-// family no matter how many family rows land (claude/gpt already ship),
-// so the default column carries no residual.
+// Default-family probe: anthropic/claude-sonnet-4 hits the claude row and
+// openai/gpt-4.1 hits the gpt row, so an unrecognized provider is the probe
+// that still resolves to the default family (no residual).
+const MUSE_PROVIDER = {
+  providerName: "opencode-go",
+  model: "muse-spark-1.3-contributor",
+};
 const DEFAULT_PROVIDER = {
   providerName: "unknown-provider",
   model: "unknown-model",
 };
+const CLAUDE_PROVIDER = {
+  providerName: "anthropic",
+  model: "claude-sonnet-4",
+};
+const GPT_PROVIDER = { providerName: "openai", model: "gpt-4.1" };
 
-/** Families in the size table: default assembly vs Grok (+finish-bias note). */
-export type PromptSizeFamily = "default" | "grok";
+/** Families in the size table: default (no residual), muse, grok, claude, gpt. */
+export type PromptSizeFamily = "default" | "muse" | "grok" | "claude" | "gpt";
 
 /**
  * Pinned AGENTS.md body for prefix measurement. Production reads the live
@@ -120,7 +130,13 @@ export function canonicalToolNamesForDirector(
   const providerName =
     family === "grok"
       ? GROK_PROVIDER.providerName
-      : DEFAULT_PROVIDER.providerName;
+      : family === "muse"
+        ? MUSE_PROVIDER.providerName
+        : family === "claude"
+          ? CLAUDE_PROVIDER.providerName
+          : family === "gpt"
+            ? GPT_PROVIDER.providerName
+            : DEFAULT_PROVIDER.providerName;
   const filtered = [...preFilterMountNames(isCodexProviderName(providerName))];
   const capabilities = packageToCapabilities(pkg);
   const names =
@@ -162,9 +178,18 @@ export function assembleDirectorPrompt(
 ): string {
   const pkg = DIRECTOR_REGISTRY[directorId];
   const orchestrator = pkg.spawn.maySpawn;
-  const provider = family === "grok" ? GROK_PROVIDER : DEFAULT_PROVIDER;
+  const provider =
+    family === "grok"
+      ? GROK_PROVIDER
+      : family === "muse"
+        ? MUSE_PROVIDER
+        : family === "claude"
+          ? CLAUDE_PROVIDER
+          : family === "gpt"
+            ? GPT_PROVIDER
+            : DEFAULT_PROVIDER;
   const policy = resolveModelFamilyPolicy({ ...provider, orchestrator });
-  return buildSubAgentSystemPrompt(
+  const prompt = buildSubAgentSystemPrompt(
     [formatDirectorSystemPrompt(pkg)],
     CANONICAL_PROMPT_ENV,
     undefined,
@@ -175,6 +200,12 @@ export function assembleDirectorPrompt(
       promptResidual: policy.promptResidual,
     },
   );
+  // Mirror the SubAgentDirector constructor (nudge-director.ts): family
+  // tool-discipline rules go at the tail of the prompt on the wire.
+  return policy.toolDisciplineRules !== undefined &&
+    policy.toolDisciplineRules.length > 0
+    ? `${prompt}\n\n${policy.toolDisciplineRules}`
+    : prompt;
 }
 
 /**
@@ -234,7 +265,13 @@ export function measureSkywalkerPrefix(): SkywalkerPrefixSize {
 export function directorPromptSizeTable(): DirectorPromptSize[] {
   const rows: DirectorPromptSize[] = [];
   for (const directorId of DIRECTOR_IDS) {
-    for (const family of ["default", "grok"] as const) {
+    for (const family of [
+      "default",
+      "muse",
+      "grok",
+      "claude",
+      "gpt",
+    ] as const) {
       rows.push(measureDirectorPrompt(directorId, family));
     }
   }
@@ -244,18 +281,27 @@ export function directorPromptSizeTable(): DirectorPromptSize[] {
 /** Render the size table as markdown (for PR bodies and budget updates). */
 export function formatPromptSizeTable(rows: DirectorPromptSize[]): string {
   const lines = [
-    "| director | default chars (bytes) | grok chars (bytes) |",
-    "| --- | --- | --- |",
+    "| director | default chars (bytes) | muse chars (bytes) | grok chars (bytes) | claude chars (bytes) | gpt chars (bytes) |",
+    "| --- | --- | --- | --- | --- | --- |",
   ];
   for (const directorId of DIRECTOR_IDS) {
     const base = rows.find(
       (r) => r.directorId === directorId && r.family === "default",
     );
+    const muse = rows.find(
+      (r) => r.directorId === directorId && r.family === "muse",
+    );
     const grok = rows.find(
       (r) => r.directorId === directorId && r.family === "grok",
     );
+    const claude = rows.find(
+      (r) => r.directorId === directorId && r.family === "claude",
+    );
+    const gpt = rows.find(
+      (r) => r.directorId === directorId && r.family === "gpt",
+    );
     lines.push(
-      `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${grok?.chars} (${grok?.bytes}) |`,
+      `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${muse?.chars} (${muse?.bytes}) | ${grok?.chars} (${grok?.bytes}) | ${claude?.chars} (${claude?.bytes}) | ${gpt?.chars} (${gpt?.bytes}) |`,
     );
   }
   return lines.join("\n");

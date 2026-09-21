@@ -59,6 +59,10 @@
       "name": "@corbits/provider-opencode-go",
       "version": "0.1.0",
     },
+    "packages/prompt-variance": {
+      "name": "@corbits/prompt-variance",
+      "version": "0.1.0",
+    },
     "packages/zen": {
       "name": "@corbits/provider-zen",
       "version": "0.1.0",
@@ -223,6 +227,8 @@
     "@corbits/oauth-core": ["@corbits/oauth-core@github:corbitsdev/corbits-oauth-core#e1e69e6", { "dependencies": { "arktype": "2.2.3" } }, "corbitsdev-corbits-oauth-core-e1e69e6", "sha512-wUrD73iVyk/Dtb4yRn3hCh6N8syfsEvAkRz4XYqT0FIB3sYDSMYEWHcDMJx9nq64my/HBOeN1J6PHIOtpjhtPg=="],
 
     "@corbits/openai-responses": ["@corbits/openai-responses@github:corbitsdev/corbits-openai-responses#1d20dbb", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": ">=0.3.0", "@intx/types": ">=0.3.0" } }, "corbitsdev-corbits-openai-responses-1d20dbb", "sha512-lSJz1KkKD8mEUYiQ57dJprD9JavdJGt3OBRa42tvXLsikt1fJ6qX2mGCwaEXzkfZNc2XY5o7ZpxK5swSJX+LnA=="],
+
+    "@corbits/prompt-variance": ["@corbits/prompt-variance@workspace:packages/prompt-variance"],
 
     "@corbits/provider-opencode-go": ["@corbits/provider-opencode-go@workspace:packages/opencode-go"],
 

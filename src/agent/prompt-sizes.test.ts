@@ -27,7 +27,7 @@ import { resolveExecDirectorOverlay } from "../exec/runner.js";
 /**
  * Prompt size budget (CL-7664). Numeric asserts only — copy edits must not
  * fail this test. Baselines are a checked-in snapshot of the max measured
- * sizes across both families from the canonical fixture in
+ * sizes across all three families from the canonical fixture in
  * src/agent/prompt-sizes.ts; budgets add a +2000 char / +3000 byte allowance
  * (ceiling to 100) in code below. Bytes get the larger headroom because
  * multibyte copy can shift them faster. Adding a director is a type error
@@ -76,14 +76,18 @@ const PROMPT_SIZE_BASELINE: Record<
 
 /**
  * Deliberate budgets above baseline + allowance, with justification.
- * Empty after the origin/main rebase: every main budget fits within fresh
- * baseline + allowance (draper/warden included), and the entries where main
- * reads higher (intern, testsmith, gauntlet, prober) are stale-measurement
- * residue, not deliberate over-allowance.
+ * greybeard: the grok residual (tool budget + 8-line ceremony, folded into the
+ * canonical promptResidual seam verbatim under CL-8296) plus the upstream
+ * greybeard-package growth (#1121) pushed greybeard-grok to 8218 chars,
+ * 218 over the 8000 baseline + allowance budget. Trimming the greybeard body
+ * is greybeard-lane-owned, so the overage is budgeted here instead; bytes
+ * stay at the current budget level (measured 8248 < 9000).
  */
 const PROMPT_SIZE_OVERRIDES: Partial<
   Record<DirectorId, { chars: number; bytes: number }>
-> = {};
+> = {
+  greybeard: { chars: 8300, bytes: 9000 },
+};
 
 const CHAR_ALLOWANCE = 2000;
 const BYTE_ALLOWANCE = 3000;
@@ -123,10 +127,16 @@ function budgetMessage(
 describe("director prompt size budget", () => {
   const rows = directorPromptSizeTable();
 
-  test("covers every director in both families", () => {
-    expect(rows.length).toBe(DIRECTOR_IDS.length * 2);
+  test("covers every director in all five variance families", () => {
+    expect(rows.length).toBe(DIRECTOR_IDS.length * 5);
     for (const directorId of DIRECTOR_IDS) {
-      for (const family of ["default", "grok"] as const) {
+      for (const family of [
+        "default",
+        "muse",
+        "grok",
+        "claude",
+        "gpt",
+      ] as const) {
         expect(
           rows.some((r) => r.directorId === directorId && r.family === family),
         ).toBe(true);
@@ -173,6 +183,53 @@ describe("director prompt size budget", () => {
     }
   });
 
+  test("muse family appends the shipped tool-discipline rules", () => {
+    for (const directorId of DIRECTOR_IDS) {
+      const base = rows.find(
+        (r) => r.directorId === directorId && r.family === "default",
+      );
+      const muse = rows.find(
+        (r) => r.directorId === directorId && r.family === "muse",
+      );
+      expect(muse?.chars ?? 0).toBeGreaterThan(base?.chars ?? 0);
+      expect(assembleDirectorPrompt(directorId, "muse")).toContain(
+        "Tool discipline:",
+      );
+    }
+  });
+
+  test("claude leaves carry the XML task_guidance block exactly once", () => {
+    for (const directorId of DIRECTOR_IDS) {
+      const prompt = assembleDirectorPrompt(directorId, "claude");
+      const occurrences = prompt.split("<task_guidance>").length - 1;
+      if (DIRECTOR_REGISTRY[directorId].spawn.maySpawn) {
+        expect(occurrences).toBe(0);
+      } else {
+        expect(occurrences).toBe(1);
+        expect(prompt).toContain("</task_guidance>");
+      }
+    }
+  });
+
+  test("gpt directors carry the narrate-before-tools nudge exactly once", () => {
+    for (const directorId of DIRECTOR_IDS) {
+      const prompt = assembleDirectorPrompt(directorId, "gpt");
+      const occurrences =
+        prompt.split("Narrate before tools (GPT worker):").length - 1;
+      expect(occurrences).toBe(1);
+    }
+  });
+
+  test("default family carries no residual", () => {
+    for (const directorId of DIRECTOR_IDS) {
+      const prompt = assembleDirectorPrompt(directorId, "default");
+      expect(prompt).not.toContain("<task_guidance>");
+      expect(prompt).not.toContain("Narrate before tools (GPT worker):");
+      expect(prompt).not.toContain("Tool budget:");
+      expect(prompt).not.toContain("Finish bias (xAI / Grok worker):");
+    }
+  });
+
   test("measurement is deterministic", () => {
     const again = directorPromptSizeTable();
     expect(again.map((r) => r.chars)).toEqual(rows.map((r) => r.chars));
@@ -181,7 +238,13 @@ describe("director prompt size budget", () => {
 
   test("tool names match the production mount: no dupes, no phantoms", () => {
     for (const directorId of DIRECTOR_IDS) {
-      for (const family of ["default", "grok"] as const) {
+      for (const family of [
+        "default",
+        "muse",
+        "grok",
+        "claude",
+        "gpt",
+      ] as const) {
         const names = canonicalToolNamesForDirector(
           DIRECTOR_REGISTRY[directorId],
           family,
@@ -189,7 +252,7 @@ describe("director prompt size budget", () => {
         expect(new Set(names).size, `${directorId} [${family}]`).toBe(
           names.length,
         );
-        // Neither fixture family is Codex, so the Codex proxies
+        // No fixture family is Codex, so the Codex proxies
         // (createCodexToolProxies returns [] when !isCodex) must be absent,
         // as must list_dir, which no subagent mount installs.
         for (const phantom of [
@@ -215,17 +278,26 @@ describe("director prompt size budget", () => {
   test("formatPromptSizeTable renders one row per director", () => {
     const table = formatPromptSizeTable(rows);
     expect(table).toContain(
-      "| director | default chars (bytes) | grok chars (bytes) |",
+      "| director | default chars (bytes) | muse chars (bytes) | grok chars (bytes) | claude chars (bytes) | gpt chars (bytes) |",
     );
     for (const directorId of DIRECTOR_IDS) {
       const base = rows.find(
         (r) => r.directorId === directorId && r.family === "default",
       );
+      const muse = rows.find(
+        (r) => r.directorId === directorId && r.family === "muse",
+      );
       const grok = rows.find(
         (r) => r.directorId === directorId && r.family === "grok",
       );
+      const claude = rows.find(
+        (r) => r.directorId === directorId && r.family === "claude",
+      );
+      const gpt = rows.find(
+        (r) => r.directorId === directorId && r.family === "gpt",
+      );
       expect(table).toContain(
-        `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${grok?.chars} (${grok?.bytes}) |`,
+        `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${muse?.chars} (${muse?.bytes}) | ${grok?.chars} (${grok?.bytes}) | ${claude?.chars} (${claude?.bytes}) | ${gpt?.chars} (${gpt?.bytes}) |`,
       );
     }
   });
