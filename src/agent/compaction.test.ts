@@ -23,6 +23,7 @@ import {
   LEGACY_COMPACT_SPACER_TEXT,
   compactorNoOpFloor,
 } from "../session/compactor.js";
+import { buildSummaryPrompt } from "../session/summarizer.js";
 
 const capabilities = {
   infer: (options?: unknown) => ({
@@ -1433,12 +1434,75 @@ describe("handoff arming (/handoff)", () => {
     ).toBeNull();
   });
 
+  test("cancelManual restores extraInstructions from a prior successful fold", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.syncFromTurns(tenTurns);
+    expect(governor.requestHandoff("keep the UI audit")).toBe("armed");
+    governor.interceptIdleContinuation(
+      pivot("keep the UI audit"),
+      capabilities,
+    );
+    expect(governor.extraInstructions).toBe("keep the UI audit");
+    expect(governor.requestHandoff("failed pivot: drop this")).toBe("armed");
+    governor.cancelManual();
+    expect(governor.extraInstructions).toBe("keep the UI audit");
+  });
+
   test("cancelManual clears sticky extraInstructions from a failed pivot", () => {
     const governor = createCompactionGovernor(undefined);
     governor.syncFromTurns(tenTurns);
     expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
     governor.cancelManual();
     expect(governor.extraInstructions).toBeUndefined();
+  });
+
+  test("failed-pivot instructions are not in a later threshold summary prompt", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.syncFromTurns(tenTurns);
+    expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
+    governor.cancelManual();
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+    const prompt = buildSummaryPrompt(
+      tenTurns,
+      governor.extraInstructions !== undefined
+        ? { extraInstructions: governor.extraInstructions }
+        : undefined,
+    );
+    expect(prompt).not.toContain("now do the UI audit");
+    expect(prompt).not.toContain("Operator compact instructions");
+  });
+
+  test("cancelManual does not invent pending", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.syncFromTurns(tenTurns);
+    expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
+    governor.cancelManual();
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+  });
+
+  test("cancelManual restores idlePending so an idle threshold fold still fires", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.noteIdleTurn(inferenceDone(overThreshold), [
+        { type: "reply", content: "done" },
+      ]),
+    ).toBe(true);
+    expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
+    governor.cancelManual();
+    const actions = governor.interceptIdleContinuation(
+      emptyMessage(),
+      capabilities,
+    );
+    expect(actions).not.toBeNull();
+    expect(actions?.find((a) => a.type === "compact")).toMatchObject({
+      reason: "context-threshold",
+    });
   });
 
   test("threshold pending survives cancelManual so a tool pause still folds", () => {

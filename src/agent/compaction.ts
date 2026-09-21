@@ -124,6 +124,10 @@ export function createCompactionGovernor(
   // non-empty argument is kept for later auto-folds and written into the
   // compact record.
   let extraInstructions: string | undefined;
+  // Snapshots taken at requestHandoff so cancelManual can restore the
+  // pre-pivot idle arming and a prior successful fold's guidance.
+  let idlePendingAtHandoff = false;
+  let extraInstructionsAtHandoff: string | undefined;
   let postCompactInfer = false;
   // Idle empty compact needs a post-compact decide cycle to adopt the shrunk
   // turns for the meter, but must not start a new inference (there is no
@@ -565,6 +569,8 @@ export function createCompactionGovernor(
   // the single operator fold, because firing clears the arming.
   function requestHandoff(instructions: string): HandoffArming {
     if (turnCount <= MIN_TURNS_TO_COMPACT) return "noop";
+    idlePendingAtHandoff = idlePending;
+    extraInstructionsAtHandoff = extraInstructions;
     const trimmed = instructions.trim();
     if (trimmed.length > 0) extraInstructions = trimmed;
     manualPending = true;
@@ -577,13 +583,16 @@ export function createCompactionGovernor(
 
   // Disarm after a pivot send that never delivered: without this the next
   // operator message would fold unexpectedly. Threshold `pending` is independent
-  // of the failed pivot and must still fire at the next tool pause. Sticky
-  // extraInstructions belong to a successful fold, not a cancelled one.
+  // of the failed pivot and must still fire at the next tool pause. Restore
+  // idlePending and extraInstructions from the requestHandoff snapshots so a
+  // cancelled pivot neither invents an idle fold nor wipes a prior successful
+  // fold's guidance.
   function cancelManual(): void {
     const thresholdPending = pending;
     clearManualArming();
     pending = thresholdPending;
-    extraInstructions = undefined;
+    idlePending = idlePendingAtHandoff;
+    extraInstructions = extraInstructionsAtHandoff;
   }
 
   return {
