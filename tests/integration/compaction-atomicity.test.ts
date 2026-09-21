@@ -130,6 +130,86 @@ describe("compaction atomicity", () => {
     expect(result.record.reason).toBe("incomplete-evidence-archive");
   });
 
+  test("adopted handoff is recorded so the next fold can drop the spine", async () => {
+    const dir = tempDir();
+    const blobs = new Map<string, Uint8Array>();
+    const archive = createCompactionArchive({
+      sessionId: "primary",
+      contextDir: dir,
+      writeBlob: async (key, bytes) => {
+        blobs.set(key, bytes);
+      },
+      readBlob: async (key) => {
+        const hit = blobs.get(key);
+        if (hit === undefined) throw new Error(`missing ${key}`);
+        return hit;
+      },
+    });
+    const foldingCompactor = (
+      spine: string,
+      keep: ConversationTurn[],
+    ): Compactor => ({
+      name: "pruning-compactor",
+      version: "1",
+      async apply(_turns) {
+        return {
+          output: [turn(spine), ...keep],
+          record: {
+            strategy: "pruning-compactor",
+            version: "1",
+            parameters: {},
+            reason: "compact",
+            decisions: {},
+          },
+        };
+      },
+    });
+    const history1 = [turn("fact-a"), turn("fact-b")];
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "fact-a",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "fact-b",
+    });
+
+    const first = wrapCompactorWithCompletenessGate(
+      foldingCompactor("[Compacted prior context] goal-line-1", [
+        turn("fact-b"),
+      ]),
+      archive,
+    );
+    const adopted1 = await first.apply(history1, ctx);
+    expect(adopted1.record.reason).toBe("compact");
+
+    // The new spine never passes through inbound admission, so adoption must
+    // leave it in the archive — otherwise the next fold rejects it as
+    // uncovered (a repaired spine is never echoed verbatim).
+    const handoffs = (await archive.listOccurrences()).filter(
+      (occurrence) => occurrence.provenance === "compaction-handoff",
+    );
+    expect(handoffs).toHaveLength(1);
+
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "fact-c",
+    });
+    const history2 = [...adopted1.output, turn("fact-c")];
+    const second = wrapCompactorWithCompletenessGate(
+      foldingCompactor("[Compacted prior context] goal-line-2", [
+        turn("fact-c"),
+      ]),
+      archive,
+    );
+    const adopted2 = await second.apply(history2, ctx);
+    expect(adopted2.record.reason).toBe("compact");
+    expect(texts(adopted2.output)).toEqual([
+      "[Compacted prior context] goal-line-2",
+      "fact-c",
+    ]);
+  });
+
   test("primary complete rewrite publishes turns and evidence together", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);

@@ -23,6 +23,10 @@ import { ageImageBlocks } from "./attachment-store.js";
 import { buildHandoffFold, COMPACTED_PREFIX } from "./compaction-handoff.js";
 import type { SummaryContext } from "./summarizer.js";
 import {
+  extractContinuationFacts,
+  verifyOrRepair,
+} from "./compaction-verify.js";
+import {
   PATH_KEYED_READ_TOOLS,
   SEARCH_QUERY_TOOLS,
 } from "../agent/tool-classification.js";
@@ -1066,6 +1070,40 @@ export function createPruningCompactor(
         };
       }
 
+      // Verify pass: the handoff must still carry the dropped turns'
+      // continuation facts (goal, next action, exact names, blockers). A
+      // lossy summary is repaired deterministically; a contradicting one
+      // aborts the fold so the next agent keeps the true context instead.
+      const verified = verifyOrRepair(
+        summary,
+        extractContinuationFacts(summarizedTurns),
+        cfg.summaryMaxChars,
+      );
+      if (verified.aborted) {
+        return {
+          output: turns,
+          record: {
+            strategy: this.name,
+            version: this.version,
+            parameters: { keepRecentTurns: cfg.keepRecentTurns },
+            reason: "verify failed — keeping prior context",
+            decisions: {
+              verifyAborted: 1,
+              verifyMissing: verified.misses.map((m) => m.kind),
+              agedImageCount: aged.agedImageCount,
+            },
+          },
+        };
+      }
+      summary = verified.summary;
+      const verifyDecisions =
+        verified.repaired && verified.misses.length > 0
+          ? {
+              verifyRepaired: 1,
+              verifyMissing: verified.misses.map((m) => m.kind),
+            }
+          : {};
+
       // A user-role turn survives every adapter unchanged. A system-role turn
       // does not: the Anthropic builder drops mid-conversation system turns
       // whenever a system-prompt override is set, and the Grok builder emits
@@ -1139,6 +1177,7 @@ export function createPruningCompactor(
             agedImageCount: aged.agedImageCount,
             supersededReadCount: supersededReads.size,
             repeatedErrorCount: repeatedErrors.size,
+            ...verifyDecisions,
           },
         },
         blobs: [...aged.blobs, handoff.blob],

@@ -913,10 +913,40 @@ function isSyntheticHandoffText(text: string): boolean {
 }
 
 /**
+ * Persist genuinely new user text in the proposed output (the new spine)
+ * as archive occurrences so a later fold can drop them. Output units already
+ * present verbatim in the input need no recording; the spine never passed
+ * through inbound admission. Best effort: callers treat adoption as certified.
+ */
+async function recordFreshHandoffOutput(
+  archive: CompactionArchive,
+  input: readonly ConversationTurn[],
+  output: readonly ConversationTurn[],
+): Promise<void> {
+  const fresh = uncoveredContentUnits(output, input);
+  for (const unit of fresh) {
+    if (unit.kind !== "text" || unit.role !== "user") continue;
+    const text = unit.text ?? "";
+    if (text.length === 0) continue;
+    try {
+      await archive.recordAuthorizedPayload({
+        kind: "user_message",
+        payload: text,
+        provenance: "compaction-handoff",
+      });
+    } catch {
+      // Adoption stands; the next fold simply re-proves coverage another way.
+    }
+  }
+}
+
+/**
  * Refuse a destructive compact when the evidence archive cannot certify the
  * dropped prefix. Historical gap:true rows are not part of the expected set.
  * Synthetic handoff spines (and pre-format fat summaries) are adopted into
  * the archive as user_message so a later fold may change the live spine.
+ * After the fold certifies, the new spine is recorded so the next fold can
+ * drop it even when the summarizer does not echo it verbatim.
  */
 export function wrapCompactorWithCompletenessGate(
   inner: Compactor,
@@ -952,6 +982,7 @@ export function wrapCompactorWithCompletenessGate(
       if (certificate.status !== "complete") {
         return incompleteIdentity(inner, turns);
       }
+      await recordFreshHandoffOutput(archive, turns, proposed.output);
       return proposed;
     },
   };
