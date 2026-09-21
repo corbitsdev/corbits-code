@@ -51,19 +51,17 @@ packages/opencode-go/src/models.ts: satisfies
 packages/opencode-go/src/models.ts: readonly
 
 # Versioned prompt-variance package public surface (CL-8269 lane,
-# agent-owned). Family rows data, the assemble shape, and per-model-id
-# overrides re-exported through the package entry point for the 0.3.31+
-# agent packages; no in-repo barrel consumer exists yet (src/ consumes
-# assemble, resolvePromptVariance, grokRow, museRow, and PromptVarianceRow
-# only, and the package tests import the backing modules directly). Scoped
+# agent-owned). Family rows data re-exported through the package entry point;
+# no in-repo barrel consumer exists yet for the entries below (src/ consumes
+# claudeRow, gptRow, grokRow, grokToolBudgetResidual, and museRow through the
+# barrel, and the package tests import the backing modules directly). Scoped
 # to the exact ts-prune flags so a new dead export in this barrel fails the
 # guard instead of hiding under a whole-file exemption. Remove each entry
 # with the export it names if the public surface shrinks.
-packages/prompt-variance/src/index.ts: AssembledPromptVariance
-packages/prompt-variance/src/index.ts: applyRowOverride
+packages/prompt-variance/src/index.ts: assemble
+packages/prompt-variance/src/index.ts: resolvePromptVariance
 packages/prompt-variance/src/index.ts: defaultRow
 packages/prompt-variance/src/index.ts: FAMILY_IDS
 packages/prompt-variance/src/index.ts: FAMILY_ROWS
 packages/prompt-variance/src/index.ts: PromptVarianceFamily
-packages/prompt-variance/src/index.ts: PromptVarianceRender
-packages/prompt-variance/src/index.ts: PromptVarianceRowOverride
+packages/prompt-variance/src/index.ts: PromptVarianceRow

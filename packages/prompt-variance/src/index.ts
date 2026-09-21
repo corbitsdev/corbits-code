@@ -1,13 +1,14 @@
-export { assemble, type AssembledPromptVariance } from "./assemble.js";
-export { applyRowOverride, resolvePromptVariance } from "./resolve.js";
+export { assemble } from "./assemble.js";
+export { resolvePromptVariance } from "./resolve.js";
 export {
+  claudeRow,
   defaultRow,
   FAMILY_IDS,
   FAMILY_ROWS,
+  gptRow,
   grokRow,
+  grokToolBudgetResidual,
   museRow,
   type PromptVarianceFamily,
-  type PromptVarianceRender,
   type PromptVarianceRow,
-  type PromptVarianceRowOverride,
 } from "./rows.js";

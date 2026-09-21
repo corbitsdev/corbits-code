@@ -1,27 +1,37 @@
 import { describe, expect, test } from "bun:test";
-import { applyRowOverride, resolvePromptVariance } from "./resolve.js";
+import { resolvePromptVariance } from "./resolve.js";
 import { grokRow } from "./rows.js";
-
-// CL-8269 RED: the resolver does not exist yet — every test below fails
-// until the GREEN lands packages/prompt-variance.
 
 describe("resolvePromptVariance", () => {
   test("resolves each family to its row", () => {
     expect(resolvePromptVariance({ family: "default" }).id).toBe("default");
     expect(resolvePromptVariance({ family: "muse" }).id).toBe("muse");
     expect(resolvePromptVariance({ family: "grok" }).id).toBe("grok");
+    expect(resolvePromptVariance({ family: "claude" }).id).toBe("claude");
+    expect(resolvePromptVariance({ family: "gpt" }).id).toBe("gpt");
   });
 
-  test("grok keeps its finish-bias residual and skill_search deny on leaves", () => {
+  test("grok keeps its finish-bias residual on leaves", () => {
     const row = resolvePromptVariance({ family: "grok", orchestrator: false });
     expect(row.residual).toBe(grokRow.residual);
-    expect(row.advertisedToolDeny).toContain("skill_search");
   });
 
-  test("grok on orchestrators falls back to the default shape", () => {
+  test("grok on orchestrators falls back to the default row", () => {
     const row = resolvePromptVariance({ family: "grok", orchestrator: true });
+    expect(row.id).toBe("default");
     expect(row.residual).toBe("");
-    expect([...row.advertisedToolDeny]).toEqual([]);
+  });
+
+  test("claude keeps its task_guidance block on leaves, not orchestrators", () => {
+    expect(
+      resolvePromptVariance({ family: "claude", orchestrator: false }).residual,
+    ).toContain("<task_guidance>");
+    const orch = resolvePromptVariance({
+      family: "claude",
+      orchestrator: true,
+    });
+    expect(orch.id).toBe("default");
+    expect(orch.residual).toBe("");
   });
 
   test("muse keeps its residual on leaves and orchestrators alike", () => {
@@ -33,27 +43,12 @@ describe("resolvePromptVariance", () => {
     ).not.toBe("");
   });
 
-  test("applies per-model-id overrides from the row", () => {
-    const row = applyRowOverride(
-      {
-        ...grokRow,
-        overrides: {
-          "grok-4-special": { advertisedToolDeny: [] },
-        },
-      },
-      "GROK-4-SPECIAL",
-    );
-    expect([...row.advertisedToolDeny]).toEqual([]);
-    expect(row.residual).toBe(grokRow.residual);
-  });
-
-  test("an unknown model id resolves to the base row", () => {
-    const row = resolvePromptVariance({
-      family: "grok",
-      orchestrator: false,
-      model: "grok-9-unknown",
-    });
-    expect(row.residual).toBe(grokRow.residual);
-    expect([...row.advertisedToolDeny]).toEqual(["skill_search"]);
+  test("gpt keeps its narrate-before-tools nudge on leaves and orchestrators alike", () => {
+    expect(
+      resolvePromptVariance({ family: "gpt", orchestrator: false }).residual,
+    ).toContain("Narrate before tools");
+    expect(
+      resolvePromptVariance({ family: "gpt", orchestrator: true }).residual,
+    ).toContain("Narrate before tools");
   });
 });

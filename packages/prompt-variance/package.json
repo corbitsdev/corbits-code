@@ -1,6 +1,6 @@
 {
-  "name": "prompt-variance",
-  "version": "1.4.0",
+  "name": "@corbits/prompt-variance",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "license": "SEE LICENSE IN LICENSE.md",

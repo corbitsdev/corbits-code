@@ -2,7 +2,13 @@ import {
   detectModelFamily,
   type ModelFamily,
 } from "../subagent/provider-family.js";
-import { museRow } from "../../packages/prompt-variance/src/index.js";
+import {
+  claudeRow,
+  gptRow,
+  grokRow,
+  grokToolBudgetResidual,
+  museRow,
+} from "../../packages/prompt-variance/src/index.js";
 
 /**
  * Per-model-family tuning for the shared directors (main chat director and
@@ -80,12 +86,9 @@ const DEFAULT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 // Generic 4-line tool-budget residual (CL-8297). Grok leaves get this via
 // promptResidual today; other families leave the seam unfilled until their
 // own lanes land. Deliberately free of ceremony lines and family-specific
-// routing — pure tool-loop budget.
-export const GROK_TOOL_BUDGET_RESIDUAL =
-  "Tool budget:\n" +
-  "- Batch independent tool calls into a single turn.\n" +
-  "- Never re-issue a tool call whose result you already have.\n" +
-  "- When the next call would only repeat prior work, write the report instead.";
+// routing — pure tool-loop budget. Single-sourced from the versioned
+// prompt-variance package (CL-8269); the name stays for existing importers.
+export const GROK_TOOL_BUDGET_RESIDUAL = grokToolBudgetResidual;
 
 // A directly observed 14-turn pure-tool-call session for this family
 // previously motivated a tightened nudge/pause pair here (6/10). That pair
@@ -139,29 +142,17 @@ const MUSE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 // prompt carries exactly one copy. This is a different block from the CL-8297
 // tool-budget hook (GROK_TOOL_BUDGET_RESIDUAL, surfaced via the
 // ModelFamilyPolicy.promptResidual field): grok leaves carry both, each once.
-export const GROK_PROMPT_RESIDUAL = [
-  "Finish bias (xAI / Grok worker):",
-  "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
-  "- If the next call would only re-open paths you already read, write the report instead.",
-  "- When the dispatch brief's done-definition is met, write the report envelope instead of making one more search or micro-edit.",
-  "- Route file and web work through the dedicated tools, never run_shell — mining showed grok reaching for shell first when a typed tool already covered the job.",
-  "- Never run git add, git commit, git stash, or any other state-changing git command unless the user asks.",
-  "- Do not narrate a plan before acting on a small task; act, then report.",
-  "- Verify with the test command once at the end, not after every edit.",
-].join("\n");
+// Single-sourced from the versioned prompt-variance package (CL-8269); the
+// name stays for existing importers.
+export const GROK_PROMPT_RESIDUAL = grokRow.residual;
 // Claude (Anthropic) ships one XML residual, not prose: a prose residual did
 // nothing, but a single <task_guidance> block cut Sonnet tokens. The block is
 // the whole residual — never a full-prompt XML renderer. The text lives here
 // (policy owns data); buildClaudeTaskGuidanceNote (prompts.ts) returns it
-// verbatim so the prompt carries exactly one copy.
-export const CLAUDE_TASK_GUIDANCE_NOTE = [
-  "<task_guidance>",
-  "Autonomous coding turn: finish the work in this turn on your best judgment.",
-  "1. Follow the dispatch brief exactly; its Success criteria are the done-definition.",
-  "2. Batch independent tool calls into a single turn; work from files already read this session.",
-  "3. Finish the task when the done-definition is met: prefer the structured report envelope over another tool call.",
-  "</task_guidance>",
-].join("\n");
+// verbatim so the prompt carries exactly one copy. Single-sourced from the
+// versioned prompt-variance package (CL-8269); the name stays for existing
+// importers.
+export const CLAUDE_TASK_GUIDANCE_NOTE = claudeRow.residual;
 
 const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   ...DEFAULT_POLICY,
@@ -175,13 +166,9 @@ const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 // The text lives here (policy owns data); buildGptNarrateBeforeToolsNote
 // (prompts.ts) returns it verbatim so the prompt carries exactly one copy.
 // Served cells (astra/sol/terra/…) are never named here — CL-8265
-// characterizes them later.
-export const GPT_NARRATE_BEFORE_TOOLS_NOTE = [
-  "Narrate before tools (GPT worker):",
-  "- Before each tool call, write one short line saying what you are doing and why.",
-  "- Never make back-to-back tool calls with no narration between them.",
-  "- When the dispatch brief's done-definition is met, write the report envelope instead of making another tool call.",
-].join("\n");
+// characterizes them later. Single-sourced from the versioned
+// prompt-variance package (CL-8269); the name stays for existing importers.
+export const GPT_NARRATE_BEFORE_TOOLS_NOTE = gptRow.residual;
 
 // GPT (Codex / gpt-*) thresholds are provisional: we have no eval
 // characterization yet for how GPT behaves under tool-only stretches or

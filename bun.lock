@@ -60,8 +60,8 @@
       "version": "0.1.0",
     },
     "packages/prompt-variance": {
-      "name": "prompt-variance",
-      "version": "1.4.0",
+      "name": "@corbits/prompt-variance",
+      "version": "0.1.0",
     },
     "packages/zen": {
       "name": "@corbits/provider-zen",
@@ -227,6 +227,8 @@
     "@corbits/oauth-core": ["@corbits/oauth-core@github:corbitsdev/corbits-oauth-core#e1e69e6", { "dependencies": { "arktype": "2.2.3" } }, "corbitsdev-corbits-oauth-core-e1e69e6", "sha512-wUrD73iVyk/Dtb4yRn3hCh6N8syfsEvAkRz4XYqT0FIB3sYDSMYEWHcDMJx9nq64my/HBOeN1J6PHIOtpjhtPg=="],
 
     "@corbits/openai-responses": ["@corbits/openai-responses@github:corbitsdev/corbits-openai-responses#1d20dbb", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": ">=0.3.0", "@intx/types": ">=0.3.0" } }, "corbitsdev-corbits-openai-responses-1d20dbb", "sha512-lSJz1KkKD8mEUYiQ57dJprD9JavdJGt3OBRa42tvXLsikt1fJ6qX2mGCwaEXzkfZNc2XY5o7ZpxK5swSJX+LnA=="],
+
+    "@corbits/prompt-variance": ["@corbits/prompt-variance@workspace:packages/prompt-variance"],
 
     "@corbits/provider-opencode-go": ["@corbits/provider-opencode-go@workspace:packages/opencode-go"],
 
@@ -753,8 +755,6 @@
     "proc-log": ["proc-log@5.0.0", "", {}, "sha512-Azwzvl90HaF0aCz1JrDdXQykFakSSNPaPoiZ9fm5qJIMHioDZEi7OAdRwSm6rSoPtY3Qutnm3L7ogmg3dc+wbQ=="],
 
     "process": ["process@0.11.10", "", {}, "sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A=="],
-
-    "prompt-variance": ["prompt-variance@workspace:packages/prompt-variance"],
 
     "proxy-addr": ["proxy-addr@2.0.7", "", { "dependencies": { "forwarded": "0.2.0", "ipaddr.js": "1.9.1" } }, "sha512-llQsMLSUDUPT44jdrU/O37qlnifitDP+ZwrmmZcoSKyLKvtZxpyV0n2/bD/N4tBAAZ/gJEdZU7KMraoK1+XYAg=="],
 

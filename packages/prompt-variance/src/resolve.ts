@@ -6,38 +6,21 @@ import {
 } from "./rows.js";
 
 /**
- * Apply a row's per-model-id override, if any. Model ids match
- * case-insensitively against the row's lowercase override keys; an
- * unknown id resolves to the base row unchanged.
- */
-export function applyRowOverride(
-  row: PromptVarianceRow,
-  model?: string,
-): PromptVarianceRow {
-  if (model === undefined) return row;
-  const override = row.overrides?.[model.trim().toLowerCase()];
-  if (override === undefined) return row;
-  return {
-    ...row,
-    residual: override.residual ?? row.residual,
-    advertisedToolDeny: override.advertisedToolDeny ?? row.advertisedToolDeny,
-    sectionOmit: override.sectionOmit ?? row.sectionOmit,
-  };
-}
-
-/**
- * Resolve the variance row for a family, mirroring the leaves-only gate:
- * the grok finish-bias residual only makes sense on leaf workers, so
- * orchestrators fall back to the default shape. Muse keeps its residual
- * on both — its constructors append the same text at the tail either way.
+ * Resolve the variance row for a family, mirroring the leaves-only gates in
+ * the model family policy: the grok finish-bias residual and the claude
+ * task_guidance block only make sense on leaf workers, so orchestrators
+ * fall back to the default row. Muse keeps its residual on both — the
+ * constructors append the same text at the tail either way — and gpt keeps
+ * its narrate-before-tools nudge on primaries and leaves alike.
  */
 export function resolvePromptVariance(input: {
   family: PromptVarianceFamily;
   orchestrator?: boolean;
-  model?: string;
 }): PromptVarianceRow {
-  if (input.family === "grok" && input.orchestrator === true) {
-    return applyRowOverride(defaultRow, input.model);
+  if (input.orchestrator === true) {
+    if (input.family === "grok" || input.family === "claude") {
+      return defaultRow;
+    }
   }
-  return applyRowOverride(FAMILY_ROWS[input.family], input.model);
+  return FAMILY_ROWS[input.family];
 }

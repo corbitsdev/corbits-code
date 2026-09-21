@@ -127,10 +127,16 @@ function budgetMessage(
 describe("director prompt size budget", () => {
   const rows = directorPromptSizeTable();
 
-  test("covers every director in all three variance families", () => {
-    expect(rows.length).toBe(DIRECTOR_IDS.length * 3);
+  test("covers every director in all five variance families", () => {
+    expect(rows.length).toBe(DIRECTOR_IDS.length * 5);
     for (const directorId of DIRECTOR_IDS) {
-      for (const family of ["default", "muse", "grok"] as const) {
+      for (const family of [
+        "default",
+        "muse",
+        "grok",
+        "claude",
+        "gpt",
+      ] as const) {
         expect(
           rows.some((r) => r.directorId === directorId && r.family === family),
         ).toBe(true);
@@ -192,6 +198,38 @@ describe("director prompt size budget", () => {
     }
   });
 
+  test("claude leaves carry the XML task_guidance block exactly once", () => {
+    for (const directorId of DIRECTOR_IDS) {
+      const prompt = assembleDirectorPrompt(directorId, "claude");
+      const occurrences = prompt.split("<task_guidance>").length - 1;
+      if (DIRECTOR_REGISTRY[directorId].spawn.maySpawn) {
+        expect(occurrences).toBe(0);
+      } else {
+        expect(occurrences).toBe(1);
+        expect(prompt).toContain("</task_guidance>");
+      }
+    }
+  });
+
+  test("gpt directors carry the narrate-before-tools nudge exactly once", () => {
+    for (const directorId of DIRECTOR_IDS) {
+      const prompt = assembleDirectorPrompt(directorId, "gpt");
+      const occurrences =
+        prompt.split("Narrate before tools (GPT worker):").length - 1;
+      expect(occurrences).toBe(1);
+    }
+  });
+
+  test("default family carries no residual", () => {
+    for (const directorId of DIRECTOR_IDS) {
+      const prompt = assembleDirectorPrompt(directorId, "default");
+      expect(prompt).not.toContain("<task_guidance>");
+      expect(prompt).not.toContain("Narrate before tools (GPT worker):");
+      expect(prompt).not.toContain("Tool budget:");
+      expect(prompt).not.toContain("Finish bias (xAI / Grok worker):");
+    }
+  });
+
   test("measurement is deterministic", () => {
     const again = directorPromptSizeTable();
     expect(again.map((r) => r.chars)).toEqual(rows.map((r) => r.chars));
@@ -200,7 +238,13 @@ describe("director prompt size budget", () => {
 
   test("tool names match the production mount: no dupes, no phantoms", () => {
     for (const directorId of DIRECTOR_IDS) {
-      for (const family of ["default", "muse", "grok"] as const) {
+      for (const family of [
+        "default",
+        "muse",
+        "grok",
+        "claude",
+        "gpt",
+      ] as const) {
         const names = canonicalToolNamesForDirector(
           DIRECTOR_REGISTRY[directorId],
           family,
@@ -234,7 +278,7 @@ describe("director prompt size budget", () => {
   test("formatPromptSizeTable renders one row per director", () => {
     const table = formatPromptSizeTable(rows);
     expect(table).toContain(
-      "| director | default chars (bytes) | muse chars (bytes) | grok chars (bytes) |",
+      "| director | default chars (bytes) | muse chars (bytes) | grok chars (bytes) | claude chars (bytes) | gpt chars (bytes) |",
     );
     for (const directorId of DIRECTOR_IDS) {
       const base = rows.find(
@@ -246,8 +290,14 @@ describe("director prompt size budget", () => {
       const grok = rows.find(
         (r) => r.directorId === directorId && r.family === "grok",
       );
+      const claude = rows.find(
+        (r) => r.directorId === directorId && r.family === "claude",
+      );
+      const gpt = rows.find(
+        (r) => r.directorId === directorId && r.family === "gpt",
+      );
       expect(table).toContain(
-        `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${muse?.chars} (${muse?.bytes}) | ${grok?.chars} (${grok?.bytes}) |`,
+        `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${muse?.chars} (${muse?.bytes}) | ${grok?.chars} (${grok?.bytes}) | ${claude?.chars} (${claude?.bytes}) | ${gpt?.chars} (${gpt?.bytes}) |`,
       );
     }
   });
