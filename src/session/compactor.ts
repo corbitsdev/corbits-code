@@ -20,6 +20,7 @@ import type {
   StrategyBlob,
 } from "@intx/types/runtime";
 import { ageImageBlocks } from "./attachment-store.js";
+import { buildHandoffFold, COMPACTED_PREFIX } from "./compaction-handoff.js";
 import type { SummaryContext } from "./summarizer.js";
 import {
   PATH_KEYED_READ_TOOLS,
@@ -221,10 +222,11 @@ export interface CompactorConfig {
 // an independent literal that can silently drift out of sync.
 export const COMPACTOR_KEEP_RECENT_TURNS = 6;
 
-// Marker on every folded-history user turn. Later compact cycles fold these
-// (and any leftover assistant spacers from older builds) into one new handoff
-// rather than accumulating a frozen prefix of prior summaries.
-export const COMPACTED_PREFIX = "[Compacted prior context]";
+// Fold marker. Canonical home is ./compaction-handoff.js (the fat-handoff /
+// thin-spine module owns the handoff format); re-exported here so existing
+// importers keep working. Later compact cycles fold these turns into one new
+// handoff rather than accumulating a frozen prefix of prior summaries.
+export { COMPACTED_PREFIX };
 
 // Inserted between adjacent user turns so assembled history stays
 // role-alternating. Visible, non-format (not Unicode Cf) sentinel so Chat
@@ -1068,6 +1070,18 @@ export function createPruningCompactor(
       // dropped turns), so the handoff states it verbatim — the summary would
       // otherwise leave the model guessing whether the names it saw activated
       // earlier are still callable.
+      //
+      // CL-8744: the fold writes a fat structured handoff file (goal,
+      // constraints, decisions, evidence markers, files/commands,
+      // verification, dead ends, next actions, plus a verbatim exact-facts
+      // appendix) persisted as a context-store blob under one stable latest
+      // key, and keeps only a thin spine plus an explicit pointer to that
+      // file in the live prompt. Exact-required facts are copied verbatim
+      // into the file so they survive paraphrase; tool-body dumps leave the
+      // prompt and live in the file instead. The spine renders carried prior
+      // facts first so it survives the next fold byte-identical (the
+      // completeness gate rejects dropped novel text).
+      const handoff = buildHandoffFold(summarizedTurns, summary);
       const activatedTools = summaryCtx?.activatedTools ?? [];
       const toolsLine =
         activatedTools.length > 0
@@ -1075,9 +1089,7 @@ export function createPruningCompactor(
           : "";
       const summaryTurn: ConversationTurn = {
         role: "user",
-        content: [
-          { type: "text", text: `${COMPACTED_PREFIX}\n${summary}${toolsLine}` },
-        ],
+        content: [{ type: "text", text: `${handoff.spineText}${toolsLine}` }],
         timestamp: olderTurns[olderTurns.length - 1]?.timestamp ?? Date.now(),
       };
 
@@ -1113,12 +1125,15 @@ export function createPruningCompactor(
             anchorTurnCount: anchorTurns.length,
             recentTurnCount: recentTurns.length,
             summaryLength: summary.length,
+            handoffBlobKey: handoff.blob.key,
+            handoffSpineLength: handoff.spineText.length,
+            handoffFileLength: handoff.blob.bytes.length,
             agedImageCount: aged.agedImageCount,
             supersededReadCount: supersededReads.size,
             repeatedErrorCount: repeatedErrors.size,
           },
         },
-        ...(aged.blobs.length > 0 ? { blobs: aged.blobs } : {}),
+        blobs: [...aged.blobs, handoff.blob],
       };
     },
   };
@@ -1229,14 +1244,18 @@ export async function buildLLMTurnSummary(
 
   const prompt = [
     "You are summarizing a completed coding session for context compaction.",
-    "Based on the session excerpt below, produce a structured summary in exactly this format:",
+    "Your summary becomes the narrative section of a structured handoff file —",
+    "a deterministic pass already preserves exact paths, commands, counts, and",
+    "user decisions verbatim elsewhere, so do not recite tool outputs; explain",
+    "what mattered. Produce a structured summary in exactly this format:",
     "",
     "Goal: <what the user was trying to accomplish>",
     "Constraints: <any constraints or requirements mentioned>",
-    "Progress: <what was done and what worked>",
-    "Key Decisions: <important decisions made>",
-    "Next Steps: <what was left or planned next>",
-    "Critical Context: <anything the next task needs to know>",
+    "Decisions: <important decisions made>",
+    "Files and commands: <files touched and commands run>",
+    "Verification: <what was verified and the outcome>",
+    "Dead ends: <what was tried and abandoned, and why>",
+    "Next actions: <what was left or planned next>",
     "",
     "Session excerpt:",
     condensed,

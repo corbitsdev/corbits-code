@@ -7,6 +7,7 @@ import { wire } from "@intx/inference-testing";
 import { ContentBlock } from "@intx/types/runtime";
 import { createPermissionGate } from "../../src/permission/gate.js";
 import { COMPACTED_PREFIX } from "../../src/session/compactor.js";
+import { HANDOFF_LATEST_KEY } from "../../src/session/compaction-handoff.js";
 import {
   BASELINE,
   CORRECTION,
@@ -82,6 +83,36 @@ async function snapshot(session: IntegrationSession) {
     .split("\n")
     .map((line) => PersistedTurn.assert(JSON.parse(line)));
   return { hash: createHash("sha256").update(raw).digest("hex"), turns };
+}
+
+// CL-8744: folded-away evidence lives in the fat handoff file, not the live
+// prompt. Every fold overwrites the same stable latest key (a per-fold key
+// would make each spine novel, which the completeness gate must reject), so
+// one read behind the spine's pointer recovers the whole cumulative record.
+async function readHandoffFile(
+  session: IntegrationSession,
+  key: string,
+): Promise<string> {
+  return new TextDecoder().decode(await session.storage.readBlob(key));
+}
+
+function spineHandoffKey(
+  turns: { content: { type: string; text?: string }[] }[],
+): string | undefined {
+  const text = spineText(turns);
+  return /Handoff: tool-output:\/\/\/(\S+)/.exec(text)?.[1];
+}
+
+function spineText(
+  turns: { content: { type: string; text?: string }[] }[],
+): string {
+  const spine = turns
+    .flatMap((turn) => turn.content)
+    .find(
+      (block) =>
+        block.type === "text" && block.text?.startsWith(COMPACTED_PREFIX),
+    );
+  return spine?.type === "text" ? (spine.text ?? "") : "";
 }
 
 async function withTimeout<T>(promise: Promise<T>): Promise<T> {
@@ -251,6 +282,7 @@ describe("integration — compaction mechanics baseline", () => {
       });
       const folds: Fold[] = [];
       const trace: Work[] = [];
+      const spineTexts: string[] = [];
       try {
         await writeFile(join(session.cwd, "diagnostic.log"), OVERSIZED_OUTPUT);
         await writeFile(
@@ -349,8 +381,41 @@ describe("integration — compaction mechanics baseline", () => {
           folds.push(observation);
           expect(qualifyingFold(observation)).toBe(true);
           expect(summaryInputs.length).toBe(fold + 1);
+          // CL-8744: the live prompt carries only the thin spine plus its
+          // pointer — the spine's cumulative evidence echo keeps every
+          // required marker inference-visible, so the responder still
+          // recovers the full set from the reply itself.
           const recovered = recoverEvidence(reply);
           expect(recovered).toEqual([...REQUIRED_EVIDENCE]);
+          // The full structured record lives in the fat handoff file behind
+          // the spine's pointer: every section present, every marker verbatim.
+          const handoffKey = spineHandoffKey(after.turns);
+          expect(handoffKey).toBe(HANDOFF_LATEST_KEY);
+          const fileText = await readHandoffFile(session, handoffKey as string);
+          for (const heading of [
+            "## Goal",
+            "## Constraints",
+            "## Decisions",
+            "## Evidence markers (cumulative echo)",
+            "## Files and commands",
+            "## Verification",
+            "## Dead ends",
+            "## Next actions",
+            "## Exact facts (verbatim — do not paraphrase)",
+          ]) {
+            expect(fileText).toContain(heading);
+          }
+          expect(
+            recoverEvidence(fileText)
+              .map((fact) => fact.id)
+              .sort(),
+          ).toEqual(REQUIRED_EVIDENCE.map((fact) => fact.id).sort());
+          // The spine is the stable anchor: each fold re-renders it
+          // byte-identical so the completeness gate accepts the next fold.
+          spineTexts.push(spineText(after.turns));
+          if (fold > 0) {
+            expect(spineTexts[fold]).toBe(spineTexts[fold - 1]);
+          }
           process.stdout.write(
             `${JSON.stringify({ phase: fold + 1, ...observation, recoveredFacts: recoverEvidence(reply).length, requiredFacts: REQUIRED_EVIDENCE.length, phaseLatencyMs: performance.now() - startedAt })}\n`,
           );
