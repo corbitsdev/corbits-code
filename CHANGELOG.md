@@ -20,18 +20,6 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
-## [Unreleased]
-
-### Changed
-
-- `/review` now classifies the target first (diff vs topic, interview
-  only when the object or base is genuinely missing), then dispatches a
-  selected fleet: Critic always, Greybeard on architecture/API/approach,
-  other lenses only when the files warrant them, one target per wave.
-  `/pull-request-review` keeps the worktree checkout plus a surface pass
-  (Critic on the diff plus at most one extra lens), loading `/review`
-  for quality rules only.
-
 ## [0.3.30] - 2026-09-21
 
 ### What's Changed
