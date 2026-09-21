@@ -8,18 +8,30 @@ import {
 
 export { XAI_BASE_URL, XAI_REDIRECT_URI, XAI_REFRESH_SKEW_MS };
 
+const GROK_47 = "grok-4.7";
+
 // Local extension over the vendor fallback list (CL-5691): grok-4.7 rides the
 // same OAuth proxy as the older Grok generations but the vendored catalog has
-// not caught up yet. The default stays the first vendor entry; drop this shim
-// once the vendor fallback lists grok-4.7 itself.
-const [firstVendorModel, secondVendorModel, ...restVendorModels] =
-  VENDOR_XAI_DEFAULT_MODELS;
-export const XAI_DEFAULT_MODELS = [
-  firstVendorModel,
-  secondVendorModel,
-  "grok-4.7",
-  ...restVendorModels,
-] as const;
+// not caught up yet. Insert after the second vendor entry and skip when the
+// vendor list already includes it so a vendor bump cannot duplicate. The
+// default stays the first vendor entry.
+export function extendVendorXaiDefaultModels(
+  vendorModels: readonly string[],
+): readonly [string, ...string[]] {
+  if (vendorModels.some((id) => id === GROK_47)) {
+    const [first, ...rest] = vendorModels;
+    if (first === undefined) return [GROK_47];
+    return [first, ...rest];
+  }
+  const [first, second, ...rest] = vendorModels;
+  if (first === undefined) return [GROK_47];
+  if (second === undefined) return [first, GROK_47];
+  return [first, second, GROK_47, ...rest];
+}
+
+export const XAI_DEFAULT_MODELS = extendVendorXaiDefaultModels(
+  VENDOR_XAI_DEFAULT_MODELS,
+);
 
 const xaiRedirect = new URL(XAI_REDIRECT_URI);
 export const XAI_CALLBACK_PORT = Number(xaiRedirect.port);
