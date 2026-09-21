@@ -58,7 +58,7 @@ export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
 
 const GROK_PROVIDER = { providerName: "xai/default", model: "grok-4.6" };
 // Default-family probe: an unrecognized provider stays on the default
-// family no matter how many family rows land (claude now, gpt in #1135),
+// family no matter how many family rows land (claude/gpt already ship),
 // so the default column carries no residual.
 const DEFAULT_PROVIDER = {
   providerName: "unknown-provider",
