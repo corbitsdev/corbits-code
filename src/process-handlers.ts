@@ -4,6 +4,7 @@ import {
   type CrashKind,
 } from "./crash/report.js";
 import { getActiveRun, markCrashed } from "./session/active-run.js";
+import { printResumeHint } from "./session/resume-hint.js";
 import { getActiveDisposeHost } from "./session/active-host.js";
 import { saveCrashState } from "./session/state.js";
 import { classifyErrorClass } from "./telemetry/classify.js";
@@ -232,6 +233,14 @@ export function installSignalHandlers(options?: ProcessHandlerOptions): void {
         const teardown = awaitActiveDisposeHost(`handling ${signal}`);
         markCrashed();
         await teardown;
+        // Capture before finalizing: the terminal write clears the slot.
+        // Print before the finalize await below so the yielded disk I/O
+        // flushes this through the stderr pipe before process.exit — a write
+        // immediately preceding process.exit can otherwise be dropped.
+        // printResumeHint is exactly-once per process, so a signal racing
+        // the normal finalize tail cannot double-print the line.
+        const run = getActiveRun();
+        if (run !== null) printResumeHint(run.sessionId);
         await finalizeActiveRunOnSignal(signal);
         process.exit(128 + SIGNAL_EXIT_NUMBER[signal]);
       })();

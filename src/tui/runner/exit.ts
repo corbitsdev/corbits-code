@@ -38,6 +38,7 @@ import {
   resolveSessionLabel,
   truncateSessionLabel,
 } from "../../session/session-label.js";
+import { printResumeHint } from "../../session/resume-hint.js";
 import { clearActiveDisposeHost } from "../../session/active-host.js";
 import { syncRunStateHandle } from "../../session/active-run.js";
 import { startRunHeartbeat } from "../../session/run-liveness.js";
@@ -862,6 +863,11 @@ export async function finalizeTUIRun(
       error: err instanceof Error ? err.message : String(err),
     });
   }
+
+  // Last word on the restored terminal: every normal quit (exit/quit command,
+  // Ctrl+C, session end) funnels through here, so the exited session's id is
+  // always the one printed.
+  printResumeHint(state.sessionId);
 
   return resolveExitCode({
     runError: state.runError,
