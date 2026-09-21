@@ -1243,11 +1243,12 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     const turns: ConversationTurn[] = [
       makeTurn({
         role: "user",
-        content: [{ type: "text", text: "a".repeat(500) }],
+        // Short tokens so the verify pass is vacuous; length still overflows.
+        content: [{ type: "text", text: "yes ".repeat(200) }],
       }),
       makeTurn({
         role: "assistant",
-        content: [{ type: "text", text: "b".repeat(500) }],
+        content: [{ type: "text", text: "ok ".repeat(200) }],
       }),
       makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
     ];

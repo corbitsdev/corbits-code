@@ -127,11 +127,34 @@ function significantTokens(text: string, cap = 24): string[] {
 
 // Half (rounded up) of the fact's content words must appear in the summary.
 // Short facts need all of their words: one shared word proves nothing.
+// Match on token boundaries so "auth" does not score against "authored".
+function isTokenChar(ch: string | undefined): boolean {
+  if (ch === undefined) return false;
+  const code = ch.charCodeAt(0);
+  return (
+    (code >= 48 && code <= 57) || (code >= 97 && code <= 122) || code === 95
+  );
+}
+
+function tokenAppears(token: string, lowered: string): boolean {
+  let from = 0;
+  for (;;) {
+    const i = lowered.indexOf(token, from);
+    if (i < 0) return false;
+    if (
+      !isTokenChar(i === 0 ? undefined : lowered[i - 1]) &&
+      !isTokenChar(lowered[i + token.length])
+    )
+      return true;
+    from = i + 1;
+  }
+}
+
 function tokensSupported(fact: string, summary: string): boolean {
   const tokens = significantTokens(fact);
   if (tokens.length === 0) return true;
   const lowered = summary.toLowerCase();
-  const hits = tokens.filter((t) => lowered.includes(t)).length;
+  const hits = tokens.filter((t) => tokenAppears(t, lowered)).length;
   const needed =
     tokens.length <= 2 ? tokens.length : Math.ceil(tokens.length / 2);
   return hits >= needed;
@@ -404,8 +427,8 @@ export function repairSummary(
 /**
  * Verify a candidate handoff, repairing once or aborting the fold.
  * A contradiction aborts outright: an appended correction cannot retract the
- * handoff's false denial. A truncating repair that still drops the goal
- * aborts too — the fold ships the goal or it does not ship.
+ * handoff's false denial. A truncating repair that still misses any fact
+ * aborts too — never ship a lying spine.
  */
 export function verifyOrRepair(
   summary: string,
@@ -424,10 +447,8 @@ export function verifyOrRepair(
       ? repairedFull.slice(0, maxChars)
       : repairedFull;
   const second = verifyCompactionSummary(repaired, facts);
-  if (
-    second.misses.some((m) => m.kind === "contradiction" || m.kind === "goal")
-  )
-    return { summary, repaired: false, aborted: true, misses: first.misses };
+  if (second.misses.length > 0)
+    return { summary, repaired: false, aborted: true, misses: second.misses };
   return {
     summary: repaired,
     repaired: true,

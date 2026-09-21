@@ -139,6 +139,16 @@ describe("verifyCompactionSummary", () => {
     expect(kinds).toContain("exactName");
   });
 
+  test("auth as a goal token does not match authored", () => {
+    const facts = extractContinuationFacts([textTurn("user", "Fix auth now")]);
+    const report = verifyCompactionSummary(
+      "The authored notes: next step module plan is set.",
+      facts,
+    );
+    expect(report.supported).toBe(false);
+    expect(report.misses.some((m) => m.kind === "goal")).toBe(true);
+  });
+
   test("denying failure while errors were dropped is a contradiction", () => {
     const facts = extractContinuationFacts(droppedTurns());
     const report = verifyCompactionSummary(
@@ -174,6 +184,29 @@ describe("verifyOrRepair", () => {
     );
     expect(outcome.aborted).toBe(true);
     expect(outcome.repaired).toBe(false);
+  });
+
+  test("truncating repair that still misses exactName aborts", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Fix auth now"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "c1",
+            name: "read_file",
+            arguments: { path: "src/very-long-unique-path/exact-file.ts" },
+          },
+        ],
+        timestamp: 2,
+      },
+    ]);
+    const outcome = verifyOrRepair("Fix auth now. Work continues.", facts, 90);
+    expect(outcome.aborted).toBe(true);
+    expect(outcome.repaired).toBe(false);
+    const shipped = verifyCompactionSummary(outcome.summary, facts);
+    expect(shipped.misses.some((m) => m.kind === "exactName")).toBe(true);
   });
 
   test("repairSummary names only what the handoff missed", () => {
