@@ -56,7 +56,11 @@
     "./vendor/intx-mailbox",
     "./vendor/intx-harness",
     "./vendor/intx-mime",
-    "./packages/*"
+    "./packages/*",
+    "./agents/*",
+    "./workflows/*",
+    "./tools/*",
+    "./skills/*"
   ],
   "overrides": {
     "@intx/inference": "workspace:*",
