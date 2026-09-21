@@ -1432,4 +1432,35 @@ describe("handoff arming (/handoff)", () => {
       ),
     ).toBeNull();
   });
+
+  test("cancelManual clears sticky extraInstructions from a failed pivot", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.syncFromTurns(tenTurns);
+    expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
+    governor.cancelManual();
+    expect(governor.extraInstructions).toBeUndefined();
+  });
+
+  test("threshold pending survives cancelManual so a tool pause still folds", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+
+    const cancelled = createCompactionGovernor(undefined);
+    cancelled.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(cancelled.requestHandoff("now do the UI audit")).toBe("armed");
+    cancelled.cancelManual();
+    const actions = cancelled.interceptActions(
+      toolDone(),
+      inferAction,
+      capabilities,
+    );
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+    expect(actions?.find((a) => a.type === "compact")).toMatchObject({
+      reason: "context-threshold",
+    });
+  });
 });

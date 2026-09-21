@@ -576,9 +576,14 @@ export function createCompactionGovernor(
   }
 
   // Disarm after a pivot send that never delivered: without this the next
-  // operator message would fold unexpectedly.
+  // operator message would fold unexpectedly. Threshold `pending` is independent
+  // of the failed pivot and must still fire at the next tool pause. Sticky
+  // extraInstructions belong to a successful fold, not a cancelled one.
   function cancelManual(): void {
+    const thresholdPending = pending;
     clearManualArming();
+    pending = thresholdPending;
+    extraInstructions = undefined;
   }
 
   return {
