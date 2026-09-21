@@ -1,33 +1,16 @@
 import type { PromptVarianceRow } from "./rows.js";
 
-export interface AssembledPromptVariance {
-  systemPrompt: string;
-  toolNames: readonly string[];
-}
-
 /**
- * Assemble a prompt from sections plus a family variance row (CL-8269).
- * The row residual renders last; advertised denies filter the mounted
- * tool names. Variance is subtractive only: the output names are always
- * a subset of the input names, in input order.
+ * Append a family variance row's residual at the tail of the assembled
+ * sections (CL-8269). An empty residual leaves the sections unchanged.
+ * Residuals render last so they cannot disturb the cached prompt prefix.
+ * Tool mounting is out of scope: run.ts applies
+ * ModelFamilyPolicy.advertisedToolDeny at mount time.
  */
 export function assemble(
   sections: readonly string[],
   familyRow: PromptVarianceRow,
-  tools: readonly string[],
-): AssembledPromptVariance {
-  if (familyRow.advertisedToolDeny.includes("use_skill")) {
-    throw new Error(
-      `prompt-variance: row "${familyRow.id}" denies use_skill — brief-named skills always load directly`,
-    );
-  }
-  const systemPrompt =
-    familyRow.residual.length > 0
-      ? [...sections, familyRow.residual].join("\n\n")
-      : sections.join("\n\n");
-  const deny = new Set(familyRow.advertisedToolDeny);
-  return {
-    systemPrompt,
-    toolNames: tools.filter((name) => !deny.has(name)),
-  };
+): string {
+  if (familyRow.residual.length === 0) return sections.join("\n\n");
+  return [...sections, familyRow.residual].join("\n\n");
 }
