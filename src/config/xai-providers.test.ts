@@ -40,6 +40,30 @@ describe("xAI OAuth provider projection", () => {
     expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
   });
 
+  test("skips grok-4.7 insert when the vendor list starts with it", () => {
+    const vendor = [
+      "grok-4.7",
+      "grok-4.5",
+      "grok-4.6",
+      "grok-composer-2.5-fast",
+    ] as const;
+    const models = extendVendorXaiDefaultModels(vendor);
+    expect(models).toEqual(vendor);
+    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
+  });
+
+  test("skips grok-4.7 insert when the vendor list ends with it", () => {
+    const vendor = [
+      "grok-4.5",
+      "grok-4.6",
+      "grok-composer-2.5-fast",
+      "grok-4.7",
+    ] as const;
+    const models = extendVendorXaiDefaultModels(vendor);
+    expect(models).toEqual(vendor);
+    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
+  });
+
   test("inserts grok-4.7 after the second vendor model when absent", () => {
     expect(
       extendVendorXaiDefaultModels([
