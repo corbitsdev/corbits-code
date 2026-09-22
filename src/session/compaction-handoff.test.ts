@@ -62,6 +62,38 @@ function fileReadTurns(
   ];
 }
 
+function shellTurns(
+  id: string,
+  command: string,
+  result: string,
+  isError = false,
+): ConversationTurn[] {
+  return [
+    makeTurn({
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id,
+          name: "run_shell",
+          arguments: { command },
+        },
+      ],
+    }),
+    makeTurn({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          callId: id,
+          isError,
+          content: [{ type: "text", text: result }],
+        },
+      ],
+    }),
+  ];
+}
+
 function userTurn(text: string): ConversationTurn {
   return makeTurn({ role: "user", content: [{ type: "text", text }] });
 }
@@ -550,6 +582,83 @@ describe("iterative folding", () => {
     );
   });
 
+  test("iterative union keeps prefix-sharing constraints distinct", () => {
+    const first = buildHandoffFold(
+      [
+        userTurn(
+          "Ship the widget.\nMust never write to /tmp\nNever touch src/auth",
+        ),
+      ],
+      "narrative",
+    );
+    const second = buildHandoffFold(
+      [
+        spineTurn(first.spineText),
+        userTurn(
+          "Continue.\nMust never write to /tmp/cache\nNever touch src/auth.ts",
+        ),
+      ],
+      "narrative",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
+    );
+    expect(second.artifact.constraints).toEqual(
+      expect.arrayContaining([
+        "Must never write to /tmp",
+        "Must never write to /tmp/cache",
+        "Never touch src/auth",
+        "Never touch src/auth.ts",
+      ]),
+    );
+  });
+
+  test("iterative union keeps prefix-sharing decisions distinct", () => {
+    const first = buildHandoffFold(
+      [
+        userTurn("Ship the widget."),
+        userTurn("Use src/auth"),
+        userTurn("Keep going."),
+      ],
+      "narrative",
+    );
+    const second = buildHandoffFold(
+      [
+        spineTurn(first.spineText),
+        userTurn("Use src/auth.ts"),
+        userTurn("Keep going."),
+      ],
+      "narrative",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
+    );
+    expect(second.artifact.decisions).toEqual(
+      expect.arrayContaining(["Use src/auth", "Use src/auth.ts"]),
+    );
+  });
+
+  test("iterative union keeps prefix-sharing verification distinct", () => {
+    const first = buildHandoffFold(
+      [
+        userTurn("Run the suite."),
+        ...shellTurns("c1", "bun test", "1 pass, 0 fail"),
+      ],
+      "narrative",
+    );
+    const second = buildHandoffFold(
+      [
+        spineTurn(first.spineText),
+        userTurn("Run the module tests."),
+        ...shellTurns("c2", "bun test src/foo.test.ts", "1 pass, 0 fail"),
+      ],
+      "narrative",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
+    );
+    expect(second.artifact.verification).toEqual(
+      expect.arrayContaining([
+        "PASS: bun test",
+        "PASS: bun test src/foo.test.ts",
+      ]),
+    );
+  });
+
   test("narrative ## Goal/Files in the prior summary do not overwrite schema", () => {
     const first = buildHandoffFold(foldedRegion(), "First fold narrative.");
     const poisoned = renderHandoffFile(
@@ -588,6 +697,38 @@ describe("iterative folding", () => {
     );
     expect(second.artifact.constraints.join("\n")).toContain(
       "Never touch src/legacy.",
+    );
+  });
+
+  test("partial prior-file constraints do not drop extra carried spine constraints", () => {
+    const first = buildHandoffFold(
+      [
+        userTurn(
+          "Ship the widget.\nMust never write to /tmp\nNever touch src/auth",
+        ),
+      ],
+      "narrative",
+    );
+    const kept = first.artifact.constraints.filter((constraint) =>
+      constraint.includes("/tmp"),
+    );
+    expect(kept.length).toBeGreaterThan(0);
+    expect(first.artifact.constraints.length).toBeGreaterThan(kept.length);
+    const partial = renderHandoffFile(
+      { ...first.artifact, constraints: kept },
+      "narrative",
+      handoffBlobUri(HANDOFF_LATEST_KEY),
+    );
+    const second = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+      { priorFileText: partial },
+    );
+    expect(second.artifact.constraints).toEqual(
+      expect.arrayContaining([
+        "Must never write to /tmp",
+        "Never touch src/auth",
+      ]),
     );
   });
 });

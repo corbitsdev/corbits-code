@@ -323,15 +323,24 @@ function parseHandoffFile(text: string): Partial<HandoffArtifact> {
 }
 
 // Prefer the full prior-file text over a spine-truncated prefix of the same
-// fact. Distinct facts append until the cap. Prefix collapse is only for
-// known truncated spine fragments (80-char cuts); paths and commands use
-// exact equality so `src/auth` and `src/auth.ts` stay distinct.
+// fact. Distinct facts append until the cap. Production prior-file text is
+// full, so union is exact: `Must never write to /tmp` and `.../tmp/cache`
+// stay distinct. Prefix collapse is only for known 80-char spine cuts when
+// merging carried spine fragments into the fat file.
+function isSpineTruncationOf(fragment: string, full: string): boolean {
+  return (
+    fragment.length === MAX_SPINE_ITEM_CHARS &&
+    full.length > fragment.length &&
+    full.startsWith(fragment)
+  );
+}
+
 function mergeUnique(
   primary: readonly string[],
   extra: readonly string[],
   cap: number,
   maxChars = MAX_ITEM_CHARS,
-  mode: "prefix" | "exact" = "prefix",
+  mode: "prefix" | "exact" = "exact",
 ): string[] {
   const merged: string[] = [];
   const consider = (raw: string): void => {
@@ -342,7 +351,9 @@ function mergeUnique(
     const related = merged.findIndex((entry) =>
       mode === "exact"
         ? entry === item
-        : entry === item || entry.startsWith(item) || item.startsWith(entry),
+        : entry === item ||
+          isSpineTruncationOf(item, entry) ||
+          isSpineTruncationOf(entry, item),
     );
     if (related >= 0) {
       const existing = merged[related];
@@ -546,12 +557,24 @@ export function extractHandoffArtifact(
     );
 
   const mergedConstraints = mergeUnique(
-    priorFile.constraints ?? carried.constraints,
+    mergeUnique(
+      priorFile.constraints ?? [],
+      carried.constraints,
+      MAX_CONSTRAINTS,
+      MAX_ITEM_CHARS,
+      "prefix",
+    ),
     freshConstraints,
     MAX_CONSTRAINTS,
   );
   const mergedDecisions = mergeUnique(
-    priorFile.decisions ?? carried.decisions,
+    mergeUnique(
+      priorFile.decisions ?? [],
+      carried.decisions,
+      MAX_DECISIONS,
+      MAX_ITEM_CHARS,
+      "prefix",
+    ),
     freshDecisions,
     MAX_DECISIONS,
   );
