@@ -1,5 +1,6 @@
 import type {
   ConversationTurn,
+  LastCycleSource,
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
@@ -81,9 +82,13 @@ export function createCompactionGovernor(
   // can flag the number as approximate instead of implying provider-grade
   // precision.
   let usingEstimate = false;
-  // Model of the last inference.done turn, kept for live re-checks between
-  // inference cycles (see interceptActions) where the event carries no model.
+  // Last-cycle source of the last inference.done, kept for live re-checks
+  // between inference cycles (see interceptActions) where the event carries
+  // no source. Threshold sizing still keys off `model`; TTL identity needs
+  // `sourceId` / `provider` as well — production LastCycleSource stamps a
+  // bare model, and Ollama is `openai-compatible` with id `ollama/…`.
   let lastModel: string | undefined;
+  let lastCycleSource: LastCycleSource | undefined;
   let turnCount = 0;
   // Wall-clock of the last inference.done: the provider (re)wrote its prefix
   // cache for this session on that turn, so the provider TTL window in
@@ -189,6 +194,7 @@ export function createCompactionGovernor(
       consecutiveThresholdCompacts = 0;
     }
     syncFromTurns(turns);
+    lastCycleSource = event.source;
     lastModel = event.source?.model;
     lastCacheWriteAt = now();
     // The terminal reply ends the previous tool batch (its results are
@@ -308,7 +314,7 @@ export function createCompactionGovernor(
     if (turnCount <= MIN_TURNS_TO_COMPACT) return false;
     if (atThresholdCompactCap()) return false;
     if (outstandingToolCalls > 0) return false;
-    const ttl = cacheTtlMsFor(lastModel);
+    const ttl = cacheTtlMsFor(lastCycleSource);
     if (ttl === undefined) return false;
     if (lastCacheWriteAt === undefined) return false;
     if (nowMs - lastCacheWriteAt < ttl) return false;

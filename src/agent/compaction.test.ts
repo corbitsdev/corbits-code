@@ -791,9 +791,15 @@ describe("provider-aware idle recompress (CL-8745)", () => {
   const MINUTE_MS = 60_000;
 
   function ttlInferenceDone(
-    model: string,
+    modelOrSource:
+      | string
+      | { sourceId: string; provider: string; model: string },
     withTools: boolean,
   ): Extract<ReactorInboundEvent, { type: "inference.done" }> {
+    const source =
+      typeof modelOrSource === "string"
+        ? { sourceId: "s", provider: "p", model: modelOrSource }
+        : modelOrSource;
     return {
       type: "inference.done",
       turn: {
@@ -810,7 +816,7 @@ describe("provider-aware idle recompress (CL-8745)", () => {
           : [{ type: "text", text: "ok" }],
       },
       usage: usage(1000),
-      source: { sourceId: "s", provider: "p", model },
+      source,
     } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
   }
 
@@ -891,6 +897,35 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     ).toEqual(ttlCompact);
     expect(
       local.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+  });
+
+  test("production ollama LastCycleSource never fires cache-ttl-recompress", () => {
+    // Harness stamps { sourceId, provider, model } with a bare model. Ollama is
+    // buildOpenAISource: sourceId "ollama/default", provider openai-compatible,
+    // model llama3. Keying TTL only off model would take the 10-minute default.
+    let nowMs = 25_000_000;
+    const governor = createCompactionGovernor(
+      () => undefined,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(
+      ttlInferenceDone(
+        {
+          sourceId: "ollama/default",
+          provider: "openai-compatible",
+          model: "llama3",
+        },
+        false,
+      ),
+      tenTurns,
+    );
+
+    nowMs += 11 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
   });
 

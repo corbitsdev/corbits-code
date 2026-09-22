@@ -23,12 +23,19 @@
 //   60 min.
 // - ollama: local inference has no remote cache to expire, so an idle
 //   recompress would burn local compute for no cache benefit. Disabled.
+//   Production LastCycleSource is `{ sourceId, provider, model }` with a
+//   bare model; Ollama is `buildOpenAISource` (`provider: openai-compatible`,
+//   `sourceId` like `ollama/default`, model `llama3` / `qwen3`). Identity is
+//   `sourceId` via `isOllamaProviderId`, not a slash-form string the harness
+//   never stamps.
 // - Unknown/custom providers (bifrost proxy, `openai-compatible` fronting an
 //   unlisted upstream, unrecognized strings): assumed OpenAI-style in-memory
 //   economics. 10 min.
 //
 // Deliberate non-goal: the summary call itself carries no `cache_control` —
 // prompt-caching the fold is not attempted.
+
+import { isOllamaProviderId } from "./ollama.js";
 
 const MINUTE_MS = 60_000;
 
@@ -65,6 +72,12 @@ const FAMILY_TTLS_MS: readonly (readonly [string, number | undefined])[] = [
   ["ollama", undefined],
 ];
 
+type CacheTtlIdentity = {
+  sourceId?: string;
+  provider?: string;
+  model?: string;
+};
+
 // Canonical provider segment of a `provider:model` string: the account or
 // adapter name before the first "/" (custom names like `xai/thegreataxios`
 // carry the provider there), else the head before ":". Mirrors the
@@ -78,13 +91,7 @@ function canonicalSegment(model: string): string {
   return colon >= 0 ? head.slice(0, colon) : head;
 }
 
-/**
- * Milliseconds of provider-cache idle after which a recompress is allowed,
- * or `undefined` when the model is undefined/empty or the provider has no
- * remote cache (local inference). Never throws; unknown strings get the
- * default 10-minute window.
- */
-export function cacheTtlMsFor(model: string | undefined): number | undefined {
+function ttlForModelString(model: string | undefined): number | undefined {
   if (model === undefined) return undefined;
   const segment = canonicalSegment(model);
   if (segment.length === 0) return undefined;
@@ -95,4 +102,35 @@ export function cacheTtlMsFor(model: string | undefined): number | undefined {
     if (lower.includes(family)) return ttl;
   }
   return DEFAULT_TTL_MS;
+}
+
+/**
+ * Milliseconds of provider-cache idle after which a recompress is allowed,
+ * or `undefined` when the identity is missing/empty or the provider has no
+ * remote cache (local inference). Never throws; unknown strings get the
+ * default 10-minute window.
+ *
+ * Accepts a slash-form `provider/model` string or a LastCycleSource-shaped
+ * identity. Production events stamp a bare `model`; Ollama is recognized
+ * from `sourceId` (`isOllamaProviderId`), not from a combined string the
+ * harness never stamps.
+ */
+export function cacheTtlMsFor(
+  identity: string | CacheTtlIdentity | undefined,
+): number | undefined {
+  if (identity === undefined) return undefined;
+  if (typeof identity === "string") return ttlForModelString(identity);
+
+  if (identity.sourceId !== undefined && isOllamaProviderId(identity.sourceId))
+    return undefined;
+  if (identity.provider !== undefined && isOllamaProviderId(identity.provider))
+    return undefined;
+
+  if (identity.provider !== undefined) {
+    const provider = identity.provider.toLowerCase();
+    if (Object.hasOwn(PROVIDER_TTLS_MS, provider))
+      return PROVIDER_TTLS_MS[provider];
+  }
+
+  return ttlForModelString(identity.model);
 }

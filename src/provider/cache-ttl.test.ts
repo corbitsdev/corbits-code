@@ -27,6 +27,31 @@ describe("cacheTtlMsFor", () => {
     expect(cacheTtlMsFor("")).toBeUndefined();
   });
 
+  test("keys ollama off production LastCycleSource, not a slash-form model", () => {
+    expect(
+      cacheTtlMsFor({
+        sourceId: "ollama/default",
+        provider: "openai-compatible",
+        model: "llama3",
+      }),
+    ).toBeUndefined();
+  });
+
+  test("maps bare LastCycleSource ids through provider and family", () => {
+    expect(
+      cacheTtlMsFor({
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+      }),
+    ).toBe(5 * MINUTE_MS);
+    expect(
+      cacheTtlMsFor({
+        provider: "codex-responses",
+        model: "gpt-5.6-luna",
+      }),
+    ).toBe(10 * MINUTE_MS);
+  });
+
   test("falls back to model family for unrecognized provider prefixes", () => {
     expect(cacheTtlMsFor("proxy-acme/grok-4")).toBe(10 * MINUTE_MS);
     expect(cacheTtlMsFor("proxy-acme/gemini-3-pro")).toBe(15 * MINUTE_MS);
