@@ -19,6 +19,27 @@ describe("skywalkerPackage", () => {
     expect(createSkywalkerSystemPrompt()).toBe(skywalkerPackage.systemPrompt);
   });
 
+  test("dispatcher card stays in the 3–5k band", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p.length).toBeGreaterThanOrEqual(3000);
+    expect(p.length).toBeLessThanOrEqual(5000);
+  });
+
+  test("idle, mailbox, and poll stay out of the card", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).not.toMatch(/idle/i);
+    expect(p).not.toMatch(/mailbox/i);
+    expect(p).not.toMatch(/\bpoll\b/i);
+    expect(p).not.toContain("wait_agents");
+  });
+
+  test("card is not a Karen clone", () => {
+    const p = skywalkerPackage.systemPrompt;
+    expect(p).not.toMatch(/karen/i);
+    expect(p).not.toContain("section 9");
+    expect(p).not.toContain("You orchestrate.");
+  });
+
   test("spawn allowlist is the full closed set", () => {
     expect(skywalkerPackage.spawn.allowlist).toHaveLength(19);
     expect(skywalkerPackage.spawn.allowlist).toEqual([
@@ -85,65 +106,48 @@ describe("skywalkerPackage", () => {
     );
   });
 
-  test("systemPrompt parent tools tell the parent not to run long-blocking jobs", () => {
+  test("systemPrompt classifies, DIY in Builder neighborhood, and routes named specialists", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Parent tools");
-    expect(p).toContain("long-blocking");
-    expect(p).toContain("tool.boundary");
-    expect(p).toContain("Dispatch intern");
-    expect(p).toContain("or builder (substantial code)");
+    expect(p).toContain("# Classify");
+    expect(p).toContain("COMMUNICATION");
+    expect(p).toContain("IMPLEMENTATION");
+    expect(p).toContain("ORCHESTRATION");
+    expect(p).toContain("Builder neighborhood");
+    expect(p).toContain("operator surface");
+    expect(p).toContain("# Routing");
+    expect(p).toContain("builder = ship product code + tests");
+    expect(p).toContain("No catch-all worker");
+    expect(p).not.toContain("one-agent-per-task");
+    expect(p).not.toContain("one agent per task");
   });
 
-  test("systemPrompt has effort scaling / named non-overlapping lanes (no numeric soft ceiling)", () => {
+  test("systemPrompt gives each worker one focused task", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Effort scaling");
-    expect(p).toContain("fan-out");
-    expect(p).toContain("0–1 worker");
-    expect(p).toContain("named, non-overlapping lanes");
     expect(p).toContain("one focused task");
     expect(p).toContain("one lane per PR/path/ownership");
     expect(p).toContain("Do not pack a multi-step workflow into one worker");
+    expect(p).toContain("keep it tight");
+    expect(p).toContain("One job per spawn");
     expect(p).not.toContain("2–4 workers");
     expect(p).not.toContain("at most 4");
     expect(p).not.toContain("Prefer synthesizing early returns");
-    // CL-6953: admission queue owns queueing (src/subagent/admission.ts) —
-    // the prompt keeps the fan-out judgment, not the mechanism restatement.
     expect(p).not.toContain("queues excess");
-    expect(p).toContain("Do not invent a numeric cap");
   });
 
-  test("systemPrompt prefers spawn_agent then idle (idle-orchestrator)", () => {
+  test("systemPrompt parent tools tell the parent not to run long-blocking jobs", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("spawn_agent");
-    // CL-6953: collection path (wait_agents vs mailbox) lives in the runtime
-    // mount + spawn_agent tool description — not the static prompt.
-    expect(p).not.toContain("wait_agents");
-    expect(p).toContain("Idle-orchestrator");
-    expect(p).not.toContain("task()");
-    expect(p).toContain("Spawn then idle; do not poll");
-    expect(p).not.toContain("do not poll wait_agents");
-    // CL-6953: wait_agents mounting lives in the runtime (exec/runner.ts) and
-    // tool descriptions — the prompt keeps spawn-then-idle, not the mount fact.
-    expect(p).not.toContain("wait_agents is mounted on exec-primary runs only");
-    expect(p).toContain("mailbox mail arrives as inbound");
-    expect(p).toContain(
-      "When the fleet goes dry the runtime re-enters with collected reports",
-    );
-    expect(p).not.toContain("do not tight-loop wait_agents");
-    expect(p).not.toContain(
-      "Present the plan when the change is large or ambiguous",
-    );
+    expect(p).toContain("long-blocking");
+    expect(p).toContain("dispatch intern");
+    expect(p).toContain("tester");
+    expect(p).toContain("builder");
   });
 
-  test("systemPrompt requires frequent operator updates and staying free for Enter", () => {
+  test("systemPrompt requires frequent operator updates", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Operator updates");
+    expect(p).toContain("# Operator surface");
     expect(p).toContain("only surface that talks to the operator");
     expect(p).toContain("frequent short status updates");
-    expect(p).toContain("reply to the operator");
-    expect(p).toContain("end the turn");
-    expect(p).toContain("mailbox mail");
-    expect(p).toContain("Enter mid-run");
+    expect(p).toContain("send_input");
   });
 
   test("systemPrompt does not forbid steering workers when the operator messages mid-run", () => {
@@ -152,64 +156,14 @@ describe("skywalkerPackage", () => {
     expect(p).not.toContain("Do not hold the reply on fleet collection");
   });
 
-  test("systemPrompt anti-cascade keeps digs out of fleets", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Anti-cascade");
-    expect(p).toContain("COMMUNICATION first");
-    expect(p).toContain("Never spawn parallel");
-    expect(p).toContain("one explorer worker");
-    expect(p).toContain("search the repo yourself after a worker stops");
-    expect(p).toContain("Do not reclassify COMMUNICATION as ORCHESTRATION");
-    expect(p).toContain("synthesize what returned");
-    expect(p).toContain("do **not** re-fan-out another diagnostic wave");
-    expect(p).toContain(
-      "Permission asks and long run_shell clocks on worker rows are not a signal to spawn more diggers",
-    );
-    expect(p).toContain(
-      "`incomplete-report` from plan/counsel is not an attachable plan",
-    );
-    expect(p).not.toContain("Then start the next worker");
-    expect(p).not.toContain("if the job still needs doing");
-  });
-
-  test("systemPrompt fail-then-successor is distinct from operator-cancel wait", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("incomplete-report");
-    expect(p).toContain("MAY `spawn_agent` **one** successor");
-    expect(p).toContain("Cap is one successor for that stall");
-    expect(p).toContain("changed** brief");
-    expect(p).toContain("wait for the operator");
-    expect(p).toContain("Do not auto-retry");
-    expect(p).toContain(
-      "Identical re-dispatch of the same brief stays refused",
-    );
-    expect(p).toContain("Operator-cancel is not a re-dispatch");
-    expect(p).not.toContain("Then start the next worker");
-    expect(p).not.toContain("if the job still needs doing");
-    expect(p).not.toContain("interrupted-incomplete");
-  });
-
-  test("systemPrompt treats parent interrupt as resume, not successor spawn", () => {
-    const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Parent-initiated interrupt");
-    expect(p).toContain("resume_agent");
-    expect(p).toContain("still-live worker");
-    expect(p).toContain("no longer resumable");
-    expect(p).toContain("interrupt_agent");
-    expect(p).toContain("stop_reason: interrupted");
-  });
-
   test("systemPrompt simple path skips explorer+critic for tiny work", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("DIY on the parent");
-    expect(p).toContain("skip spawn, skip explorer, skip plan, skip critic");
+    expect(p).toContain("Skip spawn, skip explorer, skip plan, skip critic");
     expect(p).toContain("write_file/edit_file");
-    expect(p).toContain("Do not always explorer→plan→implement→critic");
   });
 
   test("systemPrompt routes URL reads through web_fetch on primary", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Fetch URLs");
     expect(p).toContain("web_fetch");
     expect(p).toContain("already mounted");
     expect(p).toContain("curl/wget");
@@ -217,7 +171,6 @@ describe("skywalkerPackage", () => {
 
   test("systemPrompt teaches spawn handoff packet for dispatch", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Spawn handoff");
     expect(p).toContain("success_criteria");
     expect(p).toContain("do_not");
     expect(p).toContain("Child starts blank");
@@ -226,14 +179,9 @@ describe("skywalkerPackage", () => {
     expect(p).toContain("required for implement/review");
     expect(p).toContain("keep it tight");
     expect(p).toContain("One job per spawn");
-    // CL-6953 / CL-6807: single contract statement (spawn graph); the routing
-    // and handoff restatements are gone.
     expect(p).not.toContain("Runtime requires success_criteria");
     expect(p).not.toContain("Brief completeness");
     expect(p).not.toContain("Prefer typed spawn");
-    expect(p.indexOf("Critic stays clean-room")).toBeGreaterThan(
-      p.indexOf("# Verify after ship"),
-    );
   });
 
   test("systemPrompt report envelope names each section header explicitly", () => {
@@ -254,13 +202,7 @@ describe("skywalkerPackage", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("ask_director");
     expect(p).toContain("send_input");
-    expect(p).toContain("Do not poll list_agents");
-    expect(p).not.toContain("list_agents shows awaiting_director");
-    expect(p).toContain("idle-send");
     expect(p).toMatch(/target = (that worker's |worker )session id/);
-    expect(p).not.toMatch(
-      /wait_agents returns status running plus a question/i,
-    );
     expect(p).toMatch(
       /Escalate with ask_operator only when you cannot resolve it/,
     );
@@ -276,44 +218,19 @@ describe("skywalkerPackage", () => {
 
   test("systemPrompt requires critic after every builder implementation", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain("Verify after ship");
     expect(p).toContain("tester");
-    expect(p).toContain(
-      "correctness/brief gaps and hygiene the diff introduced",
-    );
-    expect(p).toContain("That hygiene lens is not over-engineering theater");
-    expect(p).toMatch(
-      /after every delegated \*\*builder\*\* implementation.*run \*\*critic\*\*/is,
-    );
-    expect(p).toMatch(
-      /substantial implementation limited to one internal file.*still requires Critic/is,
-    );
+    expect(p).toMatch(/after every delegated builder landing.*run critic/is);
     expect(p).toMatch(/Builder self-report.*never sufficient to skip/is);
-    expect(p).toMatch(
-      /After every delegated builder landing.*run a critic.*architecture.*add greybeard/is,
-    );
-    expect(p).not.toMatch(
-      /critic \(or greybeard when architecture is in play\)/i,
-    );
-    expect(p).toMatch(
-      /Skip a new Critic dispatch only for parent-DIY work or when existing independent review evidence already covers both the resulting diff and its success criteria/i,
-    );
-    expect(p).not.toMatch(/Multi-file or public-API changes: after builder/i);
-    expect(p).not.toMatch(/After multi-file builder landings/i);
-    expect(p).not.toMatch(/self-report is thin/i);
+    expect(p).toContain("add greybeard when architecture is in play");
+    expect(p).toMatch(/Skip a new critic only for parent-DIY/i);
   });
 
   test("systemPrompt spawn-target for substantial code is builder, not implement", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("spawn builder");
-    expect(p).toContain("spawn (builder for code");
     expect(p).toContain("builder = ship product code + tests");
     expect(p).not.toContain("implement = ship product code + tests");
     expect(p).not.toMatch(/\bspawn implement\b/);
-    expect(p).toContain("explorer → plan → implement → critic");
-    expect(p).toContain("Do not always explorer→plan→implement→critic");
-    expect(p).toContain("Substantial builder work consumes a counsel");
-    expect(p).toContain("builder blocks if the plan is still missing");
     expect(p).toContain("Tiny parent-DIY edits stay plan-optional");
     expect(p).toContain("`/implement` does not steal planning from `/plan`");
   });
@@ -321,12 +238,8 @@ describe("skywalkerPackage", () => {
   test("systemPrompt re-dispatches builder on blocking critic", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("blocking");
-    expect(p).toContain("re-dispatch **builder**");
-    expect(p).toMatch(/narrowed or changed follow-up brief/i);
-    expect(p).toContain("ship → verify → fix → re-verify");
-    // CL-6953: no runtime retry budget enforces a re-fix cap — keep the loop
-    // judgment, not the number.
-    expect(p).not.toContain("Cap re-fix rounds");
+    expect(p).toContain("re-dispatch builder");
+    expect(p).toMatch(/narrowed brief/i);
   });
 
   test("systemPrompt Linear three-state: In Review at PR-open, never Done at PR-open", () => {
@@ -340,20 +253,14 @@ describe("skywalkerPackage", () => {
     expect(p).not.toContain("gh pr review");
   });
 
-  test("systemPrompt routes mutation-checks to gauntlet (tiny verify-after-ship mention)", () => {
+  test("systemPrompt routes mutation-checks to gauntlet", () => {
     const p = skywalkerPackage.systemPrompt;
-    expect(p).toContain(
-      "gauntlet = mutation-check that tests can actually fail (tree clean)",
-    );
+    expect(p).toContain("gauntlet = mutation-check");
   });
 
-  test("systemPrompt routes trust-path diffs to warden (tiny verify-after-ship mention)", () => {
+  test("systemPrompt routes trust-path diffs to warden", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("warden = permission / provider-auth / plugin-loader");
-    expect(p).toContain("only when the diff touches those paths");
-    expect(p).toContain(
-      "When the diff touches permission, provider-auth, or plugin-loader paths, add a warden trust review alongside critic",
-    );
-    expect(p).toContain("never ships fixes");
+    expect(p).toContain("add warden when the diff touches permission");
   });
 });

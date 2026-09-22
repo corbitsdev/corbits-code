@@ -198,11 +198,7 @@ test("primary chat prompt classifies fail-path successor vs interrupt resume vs 
   expect(guidelines).toContain("still-live worker");
   expect(guidelines).not.toContain("interrupted-incomplete");
   expect(guidelines).not.toContain("start the next worker");
-  expect(CHAT_SYSTEM_PROMPT).toContain("MAY `spawn_agent` **one** successor");
   expect(CHAT_SYSTEM_PROMPT).toContain("wait for the operator");
-  expect(CHAT_SYSTEM_PROMPT).toContain(
-    "Identical re-dispatch of the same brief stays refused",
-  );
   expect(CHAT_SYSTEM_PROMPT).not.toContain("Then start the next worker");
   expect(CHAT_SYSTEM_PROMPT).not.toContain("if the job still needs doing");
 });
