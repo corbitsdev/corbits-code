@@ -90,6 +90,7 @@ import {
 } from "../shell/background-shell.js";
 import { createShellCollectTool } from "../agent/background-shell-tool.js";
 import { createAttachmentRehydrateTransform } from "../session/attachment-store.js";
+import { tryReadPriorHandoffFile } from "../session/compaction-handoff.js";
 import { gatherEnvironment } from "../agent/environment.js";
 import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
@@ -1249,7 +1250,10 @@ async function runSubAgentInner(
         defaultId: `${ID_PREFIX}/subagent`,
       }),
       compactors: {
-        "pruning-compactor": createSessionPruningCompactor({}),
+        "pruning-compactor": createSessionPruningCompactor({
+          readPriorHandoff: () =>
+            tryReadPriorHandoffFile((key) => storage.readBlob(key)),
+        }),
       },
     });
     // Tools were built before the agent; bind the child's store now so own spills

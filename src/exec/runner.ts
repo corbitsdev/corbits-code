@@ -137,6 +137,7 @@ import {
   resolveLiveSessionSources,
 } from "../session/assemble-runtime.js";
 import type { CompactionArchive } from "../session/compaction-archive.js";
+import { tryReadPriorHandoffFile } from "../session/compaction-handoff.js";
 import { emitPluginWarningSummary } from "../plugins/diagnostics.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
@@ -848,6 +849,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
             const tools = activatedToolNames.list();
             return tools.length > 0 ? { activatedTools: tools } : undefined;
           },
+          readPriorHandoff: () =>
+            tryReadPriorHandoffFile(
+              currentStorage?.readBlob.bind(currentStorage),
+            ),
           telemetry: liveTelemetry,
           onFolded: () => {
             // Fold restarts the cached prefix, so catch promotions still

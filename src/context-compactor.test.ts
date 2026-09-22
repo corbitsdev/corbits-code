@@ -982,7 +982,17 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
       mockStrategyCtx,
     );
     expect(compactedTurns(result2.output)).toHaveLength(1);
-    expect(allText(result2.output)).toContain("UNIQUE_SUCCESS_SUMMARY");
+    // CL-8744: the narrative lives in the fat handoff file, not the prompt.
+    // The live output carries only the thin spine plus its pointer.
+    expect(allText(result2.output)).not.toContain("UNIQUE_SUCCESS_SUMMARY");
+    const handoffBlob = defined(defined(result2.blobs)[0]);
+    expect(handoffBlob.contentType).toBe("text/markdown");
+    expect(new TextDecoder().decode(handoffBlob.bytes)).toContain(
+      "UNIQUE_SUCCESS_SUMMARY",
+    );
+    expect(allText(result2.output)).toContain(
+      `Handoff: tool-output:///${handoffBlob.key}`,
+    );
     expect(hasConsecutiveSameRole(result2.output)).toBe(false);
   });
 });
@@ -1204,11 +1214,24 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     ];
 
     const result = await compactor.apply(turns, mockStrategyCtx);
-    const summaryText = (
+    const spineText = (
       defined(defined(result.output[0]).content[0]) as { text: string }
     ).text;
-    expect(summaryText).toContain("read_file");
-    expect(summaryText).toContain("Total tool calls: 1");
+    // CL-8744: the live output carries only the thin spine (goal one-liner,
+    // evidence echo, explicit pointer) — file lists and counts stay in the
+    // fat handoff file, where they cannot make the next spine novel.
+    expect(spineText).toContain("[Compacted prior context]");
+    expect(spineText).toContain("Handoff: tool-output:///");
+    expect(spineText).not.toContain("src/foo.ts");
+    // The structured tool memory lives in the fat handoff file.
+    const file = new TextDecoder().decode(
+      defined(defined(result.blobs)[0]).bytes,
+    );
+    expect(file).toContain("src/foo.ts");
+    expect(file).toContain("paths: src/foo.ts");
+    expect(file).toContain("turns: 2, tool calls: 1");
+    expect(file).toContain("read_file");
+    expect(file).toContain("Total tool calls: 1");
   });
 
   test("truncates summary when it exceeds maxChars", async () => {
@@ -1230,17 +1253,17 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     ];
 
     const result = await compactor.apply(turns, mockStrategyCtx);
-    const summaryBlock = defined(defined(result.output[0]).content[0]) as {
-      text: string;
-    };
-    // The summary portion of the block is extracted from after the header line.
-    // The header itself is "---..." so we look at the full block text — the
-    // embedded buildTurnSummary output must end with "..." when truncated.
-    expect(summaryBlock.text).toContain("...");
-    // And the truncated summary must not exceed maxChars + 3 (for the "..." suffix)
-    const summaryStart = summaryBlock.text.indexOf("[Compacted prior context]");
-    const rawSummary = summaryBlock.text.slice(summaryStart);
-    // The raw summary lines are bounded by maxChars
-    expect(rawSummary.length).toBeLessThan(maxChars + 200); // header text + bounded summary
+    // CL-8744: the deterministic narrative lives in the fat handoff file's
+    // Summary section; the live output carries only the thin spine.
+    const file = new TextDecoder().decode(
+      defined(defined(result.blobs)[0]).bytes,
+    );
+    const narrative = defined(
+      file.split("## Summary (this fold — may paraphrase)\n")[1],
+    ).split("## Exact facts")[0];
+    // The embedded buildTurnSummary output ends with "..." when truncated...
+    expect(narrative).toContain("...");
+    // ...and the truncated narrative stays within maxChars + 3 ("..." suffix).
+    expect(defined(narrative?.trim()).length).toBeLessThanOrEqual(maxChars + 3);
   });
 });

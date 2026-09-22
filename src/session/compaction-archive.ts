@@ -29,6 +29,7 @@ import {
   type ToolRecordingLifecycle,
 } from "./compaction-archive-schema.js";
 import { parseAgedImageMarker } from "./attachment-uri.js";
+import { COMPACTED_PREFIX } from "./compaction-handoff.js";
 
 const INDEX_DIR = "evidence-archive";
 const INDEX_FILE = "index.jsonl";
@@ -893,8 +894,29 @@ function incompleteIdentity(inner: Compactor, turns: ConversationTurn[]) {
 }
 
 /**
+ * Archive a synthetic `[Compacted prior context]` turn as a user_message so
+ * the completeness gate can certify dropping it when the next spine grows.
+ */
+export async function recordAdoptedHandoff(
+  archive: CompactionArchive,
+  text: string,
+): Promise<ArchiveOccurrence> {
+  return archive.recordAuthorizedPayload({
+    kind: "user_message",
+    payload: text,
+    provenance: "adopted-handoff",
+  });
+}
+
+function isSyntheticHandoffText(text: string): boolean {
+  return text.startsWith(COMPACTED_PREFIX);
+}
+
+/**
  * Refuse a destructive compact when the evidence archive cannot certify the
  * dropped prefix. Historical gap:true rows are not part of the expected set.
+ * Synthetic handoff spines (and pre-format fat summaries) are adopted into
+ * the archive as user_message so a later fold may change the live spine.
  */
 export function wrapCompactorWithCompletenessGate(
   inner: Compactor,
@@ -908,6 +930,15 @@ export function wrapCompactorWithCompletenessGate(
       const proposed = await inner.apply(turns, ctx);
       const units = uncoveredContentUnits(turns, proposed.output);
       if (units.length === 0) return proposed;
+      for (const unit of units) {
+        if (
+          unit.kind === "text" &&
+          unit.role === "user" &&
+          unit.text !== undefined &&
+          isSyntheticHandoffText(unit.text)
+        )
+          await recordAdoptedHandoff(archive, unit.text);
+      }
       const occurrences = await archive.listOccurrences();
       const covering = coveringOccurrence(
         units,
