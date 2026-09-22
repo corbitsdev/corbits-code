@@ -42,7 +42,8 @@ const PROMPT_SIZE_BASELINE: Record<
   // CL-8212: lean worker assembly [contract, tool-names-only, env, director
   // body, grok note] — no tool-catalog or appendix on the worker path.
   // Re-measured from the canonical fixture; grok family is the max for leaves.
-  skywalker: { chars: 16494, bytes: 16604 },
+  // Skywalker dispatcher card (CL-8214): gpt family is the max (narrate residual).
+  skywalker: { chars: 8287, bytes: 8325 },
   // CL-8228: short Corbits implement card; grok family is the max.
   builder: { chars: 6944, bytes: 6968 },
   explorer: { chars: 4897, bytes: 4921 },
