@@ -1,5 +1,6 @@
 import type {
   ConversationTurn,
+  LastCycleSource,
   ReactorAction,
   ReactorCapabilities,
   ReactorInboundEvent,
@@ -10,6 +11,7 @@ import {
   compactionThresholdFor,
   contextTokensFromUsage,
 } from "../provider/context-window.js";
+import { cacheTtlMsFor } from "../provider/cache-ttl.js";
 import {
   COMPACTOR_KEEP_RECENT_TURNS,
   assistantTextIsCompactSpacerEcho,
@@ -64,6 +66,7 @@ export function createCompactionGovernor(
   requestContinuation?: () => void,
   systemPrompt = "",
   toolDefinitions: readonly ToolDefinition[] = [],
+  now: () => number = Date.now,
 ) {
   let pending = false;
   let idlePending = false;
@@ -79,10 +82,30 @@ export function createCompactionGovernor(
   // can flag the number as approximate instead of implying provider-grade
   // precision.
   let usingEstimate = false;
-  // Model of the last inference.done turn, kept for live re-checks between
-  // inference cycles (see interceptActions) where the event carries no model.
+  // Last-cycle source of the last inference.done, kept for live re-checks
+  // between inference cycles (see interceptActions) where the event carries
+  // no source. Threshold sizing still keys off `model`; TTL identity needs
+  // `sourceId` / `provider` as well — production LastCycleSource stamps a
+  // bare model, and Ollama is `openai-compatible` with id `ollama/…`.
   let lastModel: string | undefined;
+  let lastCycleSource: LastCycleSource | undefined;
   let turnCount = 0;
+  // Wall-clock of the last inference.done: the provider (re)wrote its prefix
+  // cache for this session on that turn, so the provider TTL window in
+  // provider/cache-ttl.ts is measured from here. Stamped on every
+  // inference.done — estimated-usage providers wrote a cache entry too.
+  let lastCacheWriteAt: number | undefined;
+  // Wall-clock of the last issued compact of any kind. A fresh fold rewrites
+  // the session prefix, so the TTL recompress must not fire again inside the
+  // same window even when its own cache write has not been observed yet (the
+  // summary call bypasses this governor).
+  let lastCompactAt: number | undefined;
+  // Tool calls issued by the last inference.done and not yet settled. A TTL
+  // recompress must never fold while a batch is outstanding — the stall ping
+  // that triggers it can arrive mid-work, and folding under it would rewrite
+  // turns the pending results still belong to. Assigned (not incremented) on
+  // every inference.done so the serial loop self-heals a miscount.
+  let outstandingToolCalls = 0;
   // Growth hysteresis after a compact that remained over the high watermark:
   // snapshot the post-compact infer's usage, then do not re-arm until usage
   // grows by resumeDelta. Cleared once usage drops back to or under high.
@@ -122,6 +145,7 @@ export function createCompactionGovernor(
 
   function noteCompactIssued(): void {
     awaitingPostCompactMeasurement = true;
+    lastCompactAt = now();
   }
 
   function atThresholdCompactCap(): boolean {
@@ -170,7 +194,18 @@ export function createCompactionGovernor(
       consecutiveThresholdCompacts = 0;
     }
     syncFromTurns(turns);
+    lastCycleSource = event.source;
     lastModel = event.source?.model;
+    lastCacheWriteAt = now();
+    // The terminal reply ends the previous tool batch (its results are
+    // already in the turns) and opens the batch the reply just issued. A TTL
+    // recompress must never fold while a batch is outstanding — the stall
+    // ping that triggers it can arrive mid-work, and folding under it would
+    // rewrite turns the pending results still belong to. Assigned, not
+    // incremented, so the serial loop self-heals a miscount.
+    outstandingToolCalls = event.turn.content.filter(
+      (block) => block.type === "tool_call",
+    ).length;
     const reportedTokens = contextTokensFromUsage(event.usage);
     usingEstimate = reportedTokens <= 0;
     const contextTokens = usingEstimate ? estimate.tokens : reportedTokens;
@@ -210,6 +245,7 @@ export function createCompactionGovernor(
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
     if (event.type !== "tool.done") return null;
+    if (outstandingToolCalls > 0) outstandingToolCalls -= 1;
     if (!pending && !(usingEstimate && isOverThreshold(estimate.tokens)))
       return null;
     if (!actions.some((a) => a.type === "infer")) return null;
@@ -256,33 +292,92 @@ export function createCompactionGovernor(
     return true;
   }
 
+  // Provider-aware idle recompress (CL-8745): the fold is a re-compress, not
+  // a cache play. Provider KV caches expire on their own schedule
+  // (provider/cache-ttl.ts); compressing after that expiry makes the next
+  // turn a cheaper write and later reads compound on the shrunk context. This
+  // fires on any live re-entry once `now - lastCacheWrite >= ttl`, including
+  // over-threshold sessions whose threshold path has disarmed (`pending` is
+  // false via growth hysteresis — the threshold path owns only armed
+  // over-threshold; the fold is still window- and cap-bounded). Guards, in
+  // order: threshold arming defers (pending), the fresh-tail floor (turns at
+  // or under it are all kept, so a fold would shrink nothing), the
+  // consecutive-compact cap (existing death-spiral bound, shared with the
+  // threshold path), providers with no TTL (undefined/empty model, local
+  // inference), no observed cache write yet, the TTL window itself, and one
+  // fire per window (a fresh fold rewrites the prefix; the summary call
+  // bypasses this governor so lastCacheWriteAt cannot observe it —
+  // lastCompactAt covers that). Never fires with a tool batch outstanding:
+  // the stall ping that triggers this can arrive mid-work.
+  function isTtlRecompressDue(nowMs: number): boolean {
+    if (pending) return false;
+    if (turnCount <= MIN_TURNS_TO_COMPACT) return false;
+    if (atThresholdCompactCap()) return false;
+    if (outstandingToolCalls > 0) return false;
+    const ttl = cacheTtlMsFor(lastCycleSource);
+    if (ttl === undefined) return false;
+    if (lastCacheWriteAt === undefined) return false;
+    if (nowMs - lastCacheWriteAt < ttl) return false;
+    if (lastCompactAt !== undefined && nowMs - lastCompactAt < ttl)
+      return false;
+    return true;
+  }
+
+  function inboundText(event: ReactorInboundEvent): string {
+    if (event.type !== "message.received") return "";
+    return typeof event.message.content === "string"
+      ? event.message.content
+      : "";
+  }
+
+  // Idle empty compact needs a meter-only re-entry; a raced operator message
+  // needs a follow-up infer. Shared by the threshold idle path and TTL fold.
+  function issueIdleFold(
+    content: string,
+    capabilities: ReactorCapabilities,
+    reason: string,
+  ): ReactorAction[] {
+    if (content.length > 0) postCompactInfer = true;
+    else postCompactMeter = true;
+    issueThresholdCompact();
+    return [
+      capabilities.compact(COMPACTOR_NAME, reason),
+      ...continuationActions(capabilities),
+    ];
+  }
+
   function interceptIdleContinuation(
     event: ReactorInboundEvent,
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
-    if (!idlePending || event.type !== "message.received") return null;
-    if (atThresholdCompactCap()) {
+    if (event.type !== "message.received") return null;
+    if (idlePending) {
+      if (atThresholdCompactCap()) {
+        idlePending = false;
+        return null;
+      }
       idlePending = false;
-      return null;
+      pending = false;
+      // The reactor delivers no event after compact, so always request a
+      // continuation to re-enter decide against the shrunk turns:
+      // - raced operator content → re-infer to answer it
+      // - empty synthetic continuation → meter-only sync (no infer)
+      return issueIdleFold(
+        inboundText(event),
+        capabilities,
+        "context-threshold",
+      );
     }
-    idlePending = false;
-    pending = false;
-    const content =
-      typeof event.message.content === "string" ? event.message.content : "";
-    // The reactor delivers no event after compact, so always request a
-    // continuation to re-enter decide against the shrunk turns:
-    // - raced operator content → re-infer to answer it
-    // - empty synthetic continuation → meter-only sync (no infer)
-    if (content.length > 0) {
-      postCompactInfer = true;
-    } else {
-      postCompactMeter = true;
-    }
-    issueThresholdCompact();
-    return [
-      capabilities.compact(COMPACTOR_NAME, "context-threshold"),
-      ...continuationActions(capabilities),
-    ];
+    // Unarmed idle re-entry past the provider TTL: same fold, same
+    // keep-recent tail, same cap — but a "cache-ttl-recompress" reason so the
+    // fold is attributable. No arming: every live re-entry re-checks the
+    // window, so a sub-agent stall ping or operator message is the trigger.
+    if (!isTtlRecompressDue(now())) return null;
+    return issueIdleFold(
+      inboundText(event),
+      capabilities,
+      "cache-ttl-recompress",
+    );
   }
 
   // A context-overflow inference error would otherwise terminate the loop
@@ -316,9 +411,7 @@ export function createCompactionGovernor(
     event: ReactorInboundEvent,
   ): "infer" | "meter" | null {
     if (event.type !== "message.received") return null;
-    const content =
-      typeof event.message.content === "string" ? event.message.content : "";
-    if (content.length > 0) return null;
+    if (inboundText(event).length > 0) return null;
     if (postCompactInfer) {
       postCompactInfer = false;
       return "infer";
@@ -336,6 +429,10 @@ export function createCompactionGovernor(
   function notePostCompact(turns: readonly ConversationTurn[]): void {
     syncFromTurns(turns);
     usingEstimate = true;
+    // A fold rewrites the turns: results already applied vanish from the
+    // live set, and post-compact stall pings (empty continuations) carry no
+    // tool traffic. Reset so a stale count cannot pin the TTL window shut.
+    outstandingToolCalls = 0;
   }
 
   // True while the governor expects the host to answer a continuation emit.

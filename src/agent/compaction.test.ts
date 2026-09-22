@@ -786,3 +786,387 @@ describe("compaction governor", () => {
     expect(continuations).toBe(1);
   });
 });
+
+describe("provider-aware idle recompress (CL-8745)", () => {
+  const MINUTE_MS = 60_000;
+
+  function ttlInferenceDone(
+    modelOrSource:
+      | string
+      | { sourceId?: string; provider?: string; model?: string },
+    withTools: boolean,
+  ): Extract<ReactorInboundEvent, { type: "inference.done" }> {
+    const source =
+      typeof modelOrSource === "string"
+        ? { sourceId: "s", provider: "p", model: modelOrSource }
+        : {
+            sourceId: modelOrSource.sourceId ?? "s",
+            provider: modelOrSource.provider ?? "p",
+            model: modelOrSource.model ?? "m",
+          };
+    return {
+      type: "inference.done",
+      turn: {
+        role: "assistant",
+        content: withTools
+          ? [
+              {
+                type: "tool_call",
+                id: "c1",
+                name: "read_file",
+                arguments: { path: "a.ts" },
+              },
+            ]
+          : [{ type: "text", text: "ok" }],
+      },
+      usage: usage(1000),
+      source,
+    } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
+  }
+
+  function racedMessage(): ReactorInboundEvent {
+    return {
+      type: "message.received",
+      message: { content: "next question" },
+    } as ReactorInboundEvent;
+  }
+
+  const ttlCompact = [
+    {
+      type: "compact",
+      compactor: "pruning-compactor",
+      reason: "cache-ttl-recompress",
+    },
+  ] as ReactorAction[];
+
+  test("fires past the provider TTL while under threshold, meter-only on empty", () => {
+    let continuations = 0;
+    let nowMs = 10_000_000;
+    const governor = createCompactionGovernor(
+      () => continuations++,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(
+      ttlInferenceDone(
+        { provider: "anthropic", model: "claude-opus-4-6" },
+        false,
+      ),
+      tenTurns,
+    );
+
+    // Inside the 5-minute Anthropic window: no fire.
+    nowMs += 4 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+
+    // Past the window: the same fold as the threshold path (same compactor,
+    // so the fresh tail stays raw) with an attributable reason.
+    nowMs += MINUTE_MS + 1;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(continuations).toBe(1);
+    // Empty continuation adopts the shrunk turns without a new inference.
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+  });
+
+  test("production LastCycleSource: anthropic fires at 5m, codex stays quiet until 10m", () => {
+    // Harness stamps { sourceId, provider, model } with a bare model, not
+    // slash-form "anthropic/claude-opus-4-6". Anthropic's 5-minute window
+    // must come from provider, not a dummy model string; Codex must not
+    // inherit that 5-minute fire from sourceId "codex/work".
+    let nowMs = 15_000_000;
+    const clock = () => nowMs;
+    const anthropic = createCompactionGovernor(() => undefined, "", [], clock);
+    const codex = createCompactionGovernor(() => undefined, "", [], clock);
+    anthropic.noteInferenceDone(
+      ttlInferenceDone(
+        { provider: "anthropic", model: "claude-opus-4-6" },
+        false,
+      ),
+      tenTurns,
+    );
+    codex.noteInferenceDone(
+      ttlInferenceDone(
+        {
+          sourceId: "codex/work",
+          provider: "codex-responses",
+          model: "gpt-5.6-luna",
+        },
+        false,
+      ),
+      tenTurns,
+    );
+
+    nowMs += 5 * MINUTE_MS + 1;
+    expect(
+      anthropic.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(
+      codex.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+
+    nowMs += 5 * MINUTE_MS;
+    expect(
+      codex.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+  });
+
+  test("follows provider economics: deepseek waits out its long window, ollama never fires", () => {
+    let nowMs = 20_000_000;
+    const clock = () => nowMs;
+    const deepseek = createCompactionGovernor(() => undefined, "", [], clock);
+    const local = createCompactionGovernor(() => undefined, "", [], clock);
+    deepseek.noteInferenceDone(
+      ttlInferenceDone("deepseek/deepseek-chat", false),
+      tenTurns,
+    );
+    local.noteInferenceDone(
+      ttlInferenceDone("ollama/llama3.1", false),
+      tenTurns,
+    );
+
+    // Past Anthropic/OpenAI windows but inside DeepSeek's hour: neither fires.
+    nowMs += 30 * MINUTE_MS;
+    expect(
+      deepseek.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+    expect(
+      local.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+
+    // Past DeepSeek's hour: recompress fires; local inference still never
+    // does — no remote cache means no cache benefit.
+    nowMs += 31 * MINUTE_MS;
+    expect(
+      deepseek.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(
+      local.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+  });
+
+  test("production ollama LastCycleSource never fires cache-ttl-recompress", () => {
+    // Harness stamps { sourceId, provider, model } with a bare model. Ollama is
+    // buildOpenAISource: sourceId "ollama/default", provider openai-compatible,
+    // model llama3. Keying TTL only off model would take the 10-minute default.
+    let nowMs = 25_000_000;
+    const governor = createCompactionGovernor(
+      () => undefined,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(
+      ttlInferenceDone(
+        {
+          sourceId: "ollama/default",
+          provider: "openai-compatible",
+          model: "llama3",
+        },
+        false,
+      ),
+      tenTurns,
+    );
+
+    nowMs += 11 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+  });
+
+  test("stays inert with no observed cache write", () => {
+    const governor = createCompactionGovernor(() => undefined);
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+  });
+
+  test("defers to the armed threshold path while over threshold", () => {
+    let nowMs = 30_000_000;
+    const governor = createCompactionGovernor(
+      () => undefined,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    // The "m" fixture model carries the 10-minute default TTL; advance past it.
+    nowMs += 11 * MINUTE_MS;
+    // Threshold arming owns the over-threshold session: no TTL double-fold.
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+    expect(
+      governor.interceptIdleContinuation(racedMessage(), capabilities),
+    ).toBeNull();
+  });
+
+  test("fires cache-ttl-recompress in the hysteresis gap (over-threshold, no growth)", () => {
+    // Characterization, not a bug: after a threshold compact, a post-compact
+    // infer at the same usage clears `pending` via growth hysteresis, so the
+    // threshold path no longer owns the session. Idle past the provider TTL
+    // still folds — same window- and cap-bounded path as under-threshold.
+    let nowMs = 70_000_000;
+    const governor = createCompactionGovernor(
+      () => undefined,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+
+    nowMs += 11 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+  });
+
+  test("after threshold compact and gap TTL, growth-armed compact stays blocked until a tool_call", () => {
+    // Threshold compact (consecutive=1) plus TTL fire in the hysteresis gap
+    // (consecutive=2) fills the shared cap. Later growth that would re-arm
+    // the threshold path stays blocked until a tool_call occupancy resets it.
+    let nowMs = 80_000_000;
+    const governor = createCompactionGovernor(
+      () => undefined,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    nowMs += 11 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+
+    // Post-TTL snapshot, then growth past resumeDelta — pending re-arms,
+    // but the cap is full so interceptActions stays null.
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold + resumeDelta),
+      tenTurns,
+    );
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+
+    governor.noteInferenceDone(
+      inferenceDoneWithTools(overThreshold + 2 * resumeDelta),
+      tenTurns,
+    );
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+  });
+
+  test("does not fold under an outstanding tool batch, fires once it settles", () => {
+    let continuations = 0;
+    let nowMs = 40_000_000;
+    const governor = createCompactionGovernor(
+      () => continuations++,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(
+      ttlInferenceDone("anthropic/claude-opus-4-6", true),
+      tenTurns,
+    );
+    nowMs += 6 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+    // The batch settles (threshold path uninvolved: under threshold).
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(continuations).toBe(1);
+  });
+
+  test("one fire per window, then the shared consecutive-compact cap stops the spiral", () => {
+    let continuations = 0;
+    let nowMs = 50_000_000;
+    const governor = createCompactionGovernor(
+      () => continuations++,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(
+      ttlInferenceDone("anthropic/claude-opus-4-6", false),
+      tenTurns,
+    );
+
+    nowMs += 5 * MINUTE_MS + 1;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+    governor.notePostCompact(tenTurns);
+
+    // Inside the next window: no second fire.
+    nowMs += 4 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+
+    nowMs += MINUTE_MS + 1;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+    governor.notePostCompact(tenTurns);
+
+    // Cap reached: the third window stays quiet.
+    nowMs += 5 * MINUTE_MS + 1;
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+    expect(continuations).toBe(2);
+  });
+
+  test("a raced operator message past the TTL still folds, then re-infers", () => {
+    let continuations = 0;
+    let nowMs = 60_000_000;
+    const governor = createCompactionGovernor(
+      () => continuations++,
+      "",
+      [],
+      () => nowMs,
+    );
+    governor.noteInferenceDone(
+      ttlInferenceDone("anthropic/claude-opus-4-6", false),
+      tenTurns,
+    );
+    nowMs += 6 * MINUTE_MS;
+    expect(
+      governor.interceptIdleContinuation(racedMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(continuations).toBe(1);
+    // The follow-up empty continuation carries the infer that answers the
+    // raced question (mirrors the threshold raced path).
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+  });
+});
