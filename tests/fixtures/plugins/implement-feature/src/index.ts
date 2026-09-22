@@ -2,10 +2,12 @@ import { implementFeature } from "./workflows/implement-feature.js";
 import type { CommandPlugin } from "../../../../../src/tui/commands/registry.js";
 import type { WorkflowPlugin } from "../../../../../src/workflows/definition.js";
 
+// ts-prune-ignore-next
 export const workflowPlugin: WorkflowPlugin = {
   workflows: [implementFeature],
 };
 
+// ts-prune-ignore-next
 export const commandPlugin: CommandPlugin = {
   commands: [
     {

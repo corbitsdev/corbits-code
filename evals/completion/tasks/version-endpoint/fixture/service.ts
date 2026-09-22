@@ -3,6 +3,7 @@ export interface Reply {
   body: unknown;
 }
 
+// ts-prune-ignore-next
 export function handleRequest(method: string, path: string): Reply {
   if (method === "GET" && path === "/health") {
     return { status: 200, body: { ok: true } };

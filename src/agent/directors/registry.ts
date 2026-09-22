@@ -1,3 +1,4 @@
+import { internPackage } from "@corbits/agent-intern";
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
 import { randPackage } from "./rand/package.js";
 import { bruckheimerPackage } from "./bruckheimer/package.js";
@@ -8,7 +9,6 @@ import { explorerPackage } from "./explorer/package.js";
 import { gaasbotPackage } from "./gaasbot/package.js";
 import { greybeardPackage } from "./greybeard/package.js";
 import { builderPackage } from "./builder/package.js";
-import { internPackage } from "./intern/package.js";
 import { migratorPackage } from "./migrator/package.js";
 import { neckbeardPackage } from "./neckbeard/package.js";
 import { counselPackage } from "./counsel/package.js";

@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
-import { internPackage } from "./package.js";
+import { internPackage, type AgentPackage } from "@corbits/agent-intern";
+import { DIRECTOR_REGISTRY } from "../registry.js";
+import { INTERN_TOOLS } from "../tool-sets.js";
 
 describe("internPackage", () => {
+  test("workspace package is an AgentPackage used by the registry", () => {
+    const pkg: AgentPackage = internPackage;
+    expect(pkg.id).toBe("intern");
+    expect(DIRECTOR_REGISTRY.intern).toBe(internPackage);
+    expect([...(pkg.tools?.allow ?? [])]).toEqual([...INTERN_TOOLS]);
+  });
+
   test("systemPrompt is mechanical executor (gaas intern port)", () => {
     const p = internPackage.systemPrompt;
     expect(p).toMatch(/intern assistant/);
