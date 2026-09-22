@@ -480,7 +480,9 @@ export function createCompactionGovernor(
     }
     if (overflowRecoveries >= MAX_OVERFLOW_RECOVERIES) return null;
     overflowRecoveries++;
-    pending = false;
+    // Overflow compact spends any operator arming so a queued handoff
+    // pivot cannot fold again after this recovery. Sticky extras stay.
+    clearManualArming();
     postCompactInfer = true;
     noteCompactIssued();
     return [

@@ -1627,4 +1627,57 @@ describe("handoff arming (/handoff)", () => {
     expect(prompt).not.toContain("keep the UI audit");
     expect(prompt).not.toContain("Operator compact instructions");
   });
+
+  test("empty trailing then cancel restores committed extras", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.syncFromTurns(tenTurns);
+    expect(governor.requestHandoff("keep the UI audit")).toBe("armed");
+    governor.interceptIdleContinuation(
+      pivot("keep the UI audit"),
+      capabilities,
+    );
+    expect(governor.requestHandoff("   ")).toBe("armed");
+    expect(governor.extraInstructions).toBeUndefined();
+    governor.cancelManual();
+    expect(governor.extraInstructions).toBe("keep the UI audit");
+  });
+
+  test("noop then cancel after a restored idle fold has already fired does not re-arm idle", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.noteIdleTurn(inferenceDone(overThreshold), [
+        { type: "reply", content: "done" },
+      ]),
+    ).toBe(true);
+    expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
+    governor.cancelManual();
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).not.toBeNull();
+    governor.syncFromTurns(threeTurns);
+    expect(governor.requestHandoff("wipe this")).toBe("noop");
+    governor.cancelManual();
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+  });
+
+  test("overflow then handoff does not double-fold", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.syncFromTurns(tenTurns);
+    expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
+    const overflow = governor.interceptOverflow(overflowError(), capabilities);
+    expect(overflow).not.toBeNull();
+    expect(overflow?.find((a) => a.type === "compact")).toMatchObject({
+      reason: "context-overflow",
+    });
+    expect(
+      governor.interceptIdleContinuation(
+        pivot("now do the UI audit"),
+        capabilities,
+      ),
+    ).toBeNull();
+    expect(governor.extraInstructions).toBe("now do the UI audit");
+  });
 });

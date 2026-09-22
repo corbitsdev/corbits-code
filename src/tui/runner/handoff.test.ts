@@ -151,6 +151,19 @@ describe("runner /handoff wiring", () => {
     expect(h.cancelled).toBe(0);
   });
 
+  test("an uncertain noop pivot does not cancelManualCompact", async () => {
+    const h = setUpHandoffHarness();
+    h.setArming("noop");
+    h.setSendResult({
+      status: "uncertain",
+      detail: "network reset",
+    });
+    expect(h.requestHandoff("ship the dashboard")).toBeUndefined();
+    await flushSends();
+    expect(h.sent).toHaveLength(1);
+    expect(h.cancelled).toBe(0);
+  });
+
   test("a rejected noop pivot send does not cancelManualCompact", async () => {
     const h = setUpHandoffHarness();
     h.setArming("noop");
