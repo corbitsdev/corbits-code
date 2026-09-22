@@ -119,6 +119,13 @@ describe("extractContinuationFacts", () => {
     const report = verifyCompactionSummary("anything", facts);
     expect(report.supported).toBe(true);
   });
+
+  test("uppercase HTTP URL in user text is lifted into exactNames", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Call HTTP://API.COM next"),
+    ]);
+    expect(facts.exactNames).toContain("HTTP://API.COM");
+  });
 });
 
 describe("verifyCompactionSummary", () => {
@@ -158,6 +165,28 @@ describe("verifyCompactionSummary", () => {
       expect(report.supported).toBe(false);
       expect(report.misses.some((m) => m.kind === "goal")).toBe(true);
     }
+  });
+
+  test("trailing period on a goal needle does not miss an unpunctuated summary", () => {
+    const facts = extractContinuationFacts([textTurn("user", "Fix auth now.")]);
+    const report = verifyCompactionSummary("Fix auth now", facts);
+    expect(report.misses.some((m) => m.kind === "goal")).toBe(false);
+  });
+
+  test("trailing period on a constraint needle does not miss an unpunctuated summary", () => {
+    const facts = {
+      goal: "Fix auth now",
+      constraints: ["Never use emojis."],
+      nextAction: "",
+      verification: [],
+      blockers: [],
+      exactNames: [],
+    };
+    const report = verifyCompactionSummary(
+      "Fix auth now. Never use emojis",
+      facts,
+    );
+    expect(report.misses.some((m) => m.kind === "constraint")).toBe(false);
   });
 
   test("denying failure while errors were dropped is a contradiction", () => {
@@ -335,6 +364,31 @@ describe("verifyCompactionSummary", () => {
       facts,
     );
     expect(report.misses.some((m) => m.kind === "exactName")).toBe(false);
+  });
+
+  test("http/client.ts is covered by basename client.ts", () => {
+    for (const filePath of ["http/client.ts", "HTTP/Client.ts"]) {
+      const facts = extractContinuationFacts([
+        textTurn("user", "Fix auth now"),
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_call",
+              id: "c1",
+              name: "read_file",
+              arguments: { path: filePath },
+            },
+          ],
+          timestamp: 2,
+        },
+      ]);
+      const report = verifyCompactionSummary(
+        "Fix auth now. Read client.ts next.",
+        facts,
+      );
+      expect(report.misses.some((m) => m.kind === "exactName")).toBe(false);
+    }
   });
 
   test("uppercase HTTP URL scores hostname case-insensitively", () => {

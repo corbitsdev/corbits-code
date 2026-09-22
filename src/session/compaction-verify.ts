@@ -115,7 +115,11 @@ const STOPWORDS = new Set([
 
 function significantTokens(text: string, cap = 24): string[] {
   const out: string[] = [];
-  for (const word of text.toLowerCase().split(/[^a-z0-9_./-]+/)) {
+  for (const raw of text.toLowerCase().split(/[^a-z0-9_./-]+/)) {
+    // `.` stays in the splitter so `vite.config.ts` is one token; a sentence
+    // period still glues to the last word (`now.`, `emojis.`). Strip it from
+    // the needle so an unpunctuated summary still covers the fact.
+    const word = raw.replace(/\.+$/, "");
     if (word.length < 4 || STOPWORDS.has(word)) continue;
     if (!out.includes(word)) out.push(word);
     if (out.length >= cap) break;
@@ -292,7 +296,7 @@ export function extractContinuationFacts(
     }
   }
   for (const text of [...users, ...assistants]) {
-    for (const match of text.match(/https?:\/\/[^\s)]+/g) ?? []) {
+    for (const match of text.match(/https?:\/\/[^\s)]+/gi) ?? []) {
       if (!exactNames.includes(match)) exactNames.push(match);
     }
   }
@@ -319,11 +323,12 @@ export function extractContinuationFacts(
 // its basename.
 function exactNameSupported(name: string, summary: string): boolean {
   const lowered = summary.toLowerCase();
-  if (name.toLowerCase().startsWith("http")) {
+  const loweredName = name.toLowerCase();
+  if (loweredName.startsWith("http://") || loweredName.startsWith("https://")) {
     const host = hostnameOf(name);
     if (host !== undefined && tokenAppears(host.toLowerCase(), lowered))
       return true;
-    return tokenAppears(name.toLowerCase(), lowered);
+    return tokenAppears(loweredName, lowered);
   }
   const base = name.split("/").pop() ?? name;
   return base.length > 0 && tokenAppears(base.toLowerCase(), lowered);
