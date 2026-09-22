@@ -498,7 +498,7 @@ There is no skill `type` field required for model invocation — a skill body is
 
 `buildSkillsSection` lists discovered skill names in the system prompt (no descriptions). Details come from `skill_search`; the full instructions enter context in two ways:
 
-1. **Model** — `skill_search` for descriptions, then `use_skill` (`src/agent/use-skill.ts`) with a skill name; the handler calls `resolveSkillBody`, strips the frontmatter, and returns the body as the tool result.
+1. **Model** — `skill_search` for descriptions, then `use_skill` (`src/agent/use-skill.ts`) with a skill name. The handler refuses names already attached at spawn or already loaded this session (short “already in context”; it does not dump the body again). Otherwise it calls `resolveSkillBody`, strips the frontmatter, and returns the body as the tool result.
 2. **Operator** — `/<skill-name>` from `loadSkillCommands` sends the same SKILL.md body (plus typed args) to the primary as a user turn. Skills with `user-invocable: false` are omitted from the slash registry and remain `use_skill` only. Skywalker then follows the recipe.
 
 Which plugin skill directories are in scope is decided in `runner.ts` / `skillDirsFromEnabledPlugins`, which passes the enabled plugins' dirs to both `discoverSkills` (for the listing) and the `use_skill` tool (for resolution). Project-local `.agents`/`.claude`/`.codex/skills` are always searched. Slash-command registration is first-wins (built-ins, then plugins in discovery order), so a first-party `/implement` stays first-party if a marketplace plugin of the same slash name is also enabled.
