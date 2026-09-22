@@ -146,12 +146,13 @@ describe("verifyCompactionSummary", () => {
     expect(kinds).toContain("exactName");
   });
 
-  test("auth as a goal token does not match authored, author, or preauth", () => {
+  test("auth as a goal token does not match authored, author, preauth, or pre-auth", () => {
     const facts = extractContinuationFacts([textTurn("user", "Fix auth now")]);
     for (const summary of [
       "The authored notes: next step module plan is set.",
       "The author notes: next step module plan is set.",
       "The preauth notes: next step module plan is set.",
+      "The pre-auth notes: next step module plan is set.",
     ]) {
       const report = verifyCompactionSummary(summary, facts);
       expect(report.supported).toBe(false);
@@ -166,6 +167,15 @@ describe("verifyCompactionSummary", () => {
       facts,
     );
     expect(report.misses.some((m) => m.kind === "contradiction")).toBe(true);
+  });
+
+  test("a half-overlap paraphrase does not cover the standing goal", () => {
+    const facts = extractContinuationFacts(droppedTurns());
+    const report = verifyCompactionSummary(
+      "The module tokens migrate elsewhere on schedule.",
+      facts,
+    );
+    expect(report.misses.some((m) => m.kind === "goal")).toBe(true);
   });
 
   test("oauth.ts does not cover src/auth.ts", () => {
@@ -379,6 +389,7 @@ describe("verifyOrRepair", () => {
     expect(repair).not.toContain("src/auth.ts");
     expect(repair).not.toContain("Goal:");
     expect(repair).not.toContain("Next:");
+    expect(repair).not.toMatch(/^State:/m);
   });
 
   test("repair lines are goal, next, exact names, then the rest", () => {
@@ -395,6 +406,26 @@ describe("verifyOrRepair", () => {
     expect(exactAt).toBeGreaterThan(nextAt);
     expect(blockersAt).toBeGreaterThan(exactAt);
     expect(ranAt).toBeGreaterThan(blockersAt);
+  });
+
+  test("repair does not emit a State line even when state is independent", () => {
+    const facts = {
+      goal: "Migrate the auth module to opaque tokens",
+      constraints: [] as string[],
+      nextAction: "Fix the token refresh assertion next.",
+      state: "The cache is still cold after warmup.",
+      verification: [] as string[],
+      blockers: ["token refresh assertion failed"],
+      exactNames: [] as string[],
+    };
+    const summary = "Work continues.";
+    const misses = verifyCompactionSummary(summary, facts).misses;
+    expect(misses.some((m) => m.kind === "blocker")).toBe(true);
+    expect(misses.some((m) => m.kind === "nextAction")).toBe(true);
+    const repaired = repairSummary(summary, facts, misses);
+    const repair = repaired.slice(repaired.indexOf(VERIFY_REPAIR_HEADING));
+    expect(repair).not.toMatch(/^State:/m);
+    expect(repair).not.toContain("cache is still cold");
   });
 
   test("a tight cap keeps goal, next, and names before aborting on the tail", () => {

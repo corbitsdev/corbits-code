@@ -125,14 +125,18 @@ function significantTokens(text: string, cap = 24): string[] {
   return out;
 }
 
-// Half (rounded up) of the fact's content words must appear in the summary.
+// A strict majority of the fact's content words must appear in the summary.
 // Short facts need all of their words: one shared word proves nothing.
-// Match on token boundaries so "auth" does not score against "authored".
+// Match on token boundaries so "auth" does not score against "authored" or
+// hyphenated "pre-auth".
 function isTokenChar(ch: string | undefined): boolean {
   if (ch === undefined) return false;
   const code = ch.charCodeAt(0);
   return (
-    (code >= 48 && code <= 57) || (code >= 97 && code <= 122) || code === 95
+    (code >= 48 && code <= 57) ||
+    (code >= 97 && code <= 122) ||
+    code === 95 ||
+    code === 45
   );
 }
 
@@ -156,7 +160,7 @@ function tokensSupported(fact: string, summary: string): boolean {
   const lowered = summary.toLowerCase();
   const hits = tokens.filter((t) => tokenAppears(t, lowered)).length;
   const needed =
-    tokens.length <= 2 ? tokens.length : Math.ceil(tokens.length / 2);
+    tokens.length <= 2 ? tokens.length : Math.floor(tokens.length / 2) + 1;
   return hits >= needed;
 }
 
@@ -397,14 +401,6 @@ export function repairSummary(
       .map((m) => m.detail);
     lines.push(`Exact references: ${missing.join(", ")}`);
   }
-  // The state line carries where the work stood when it is neither the next
-  // action nor an already-listed blocker.
-  const stateCovered =
-    facts.state.trim().length === 0 ||
-    facts.state === facts.nextAction ||
-    facts.blockers.includes(facts.state);
-  if ((kinds.has("blocker") || kinds.has("nextAction")) && !stateCovered)
-    lines.push(`State: ${facts.state}`);
   if (kinds.has("constraint")) {
     const missing = misses
       .filter((m) => m.kind === "constraint")
