@@ -5,6 +5,7 @@
     "": {
       "name": "@corbits/code",
       "dependencies": {
+        "@corbits/agent-intern": "workspace:*",
         "@corbits/codex-provider": "github:corbitsdev/corbits-codex-provider",
         "@corbits/oauth-core": "github:corbitsdev/corbits-oauth-core",
         "@corbits/openai-responses": "github:corbitsdev/corbits-openai-responses",
@@ -50,6 +51,10 @@
         "@opentui/core-win32-arm64": "0.5.11",
         "@opentui/core-win32-x64": "0.5.11",
       },
+    },
+    "agents/intern": {
+      "name": "@corbits/agent-intern",
+      "version": "0.1.0",
     },
     "packages/first-class-providers": {
       "name": "@corbits/first-class-providers",
@@ -223,6 +228,8 @@
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 
     "@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@7.29.7", "", {}, "sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg=="],
+
+    "@corbits/agent-intern": ["@corbits/agent-intern@workspace:agents/intern"],
 
     "@corbits/codex-provider": ["@corbits/codex-provider@github:corbitsdev/corbits-codex-provider#bf07850", { "dependencies": { "@corbits/oauth-core": "github:corbitsdev/corbits-oauth-core", "@corbits/openai-responses": "github:corbitsdev/corbits-openai-responses", "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": ">=0.3.0", "@intx/types": ">=0.3.0" } }, "corbitsdev-corbits-codex-provider-bf07850", "sha512-5dVtVXd/CjWcXp4AitJAhcxky5mjhAq6G77q0t0iWs1bnms54VDLDnjN9oSqPJiD3nEiXmAoRbxiH1CxJkwTrA=="],
 

@@ -1,13 +1,38 @@
-import type { DirectorPackage } from "../types.js";
-import { INTERN_TOOLS } from "../tool-sets.js";
-
 /**
  * Mechanical intern worker — 1:1 port of gaas intern.md
  * (`abklabs/agents` plugins/gaas/agents/intern.md @ 6e16b6c).
  * Tool-name mapping only (ask → ask_director). Path writes live on the
  * intern mount and in the dispatch brief, not in extra prompt essays.
  */
-export const internPackage: DirectorPackage = {
+export type AgentPackage = {
+  readonly id: "intern";
+  readonly primaryIntent: string;
+  readonly outOfLane: readonly string[];
+  readonly description: string;
+  readonly systemPrompt: string;
+  readonly optionalSkills: readonly string[];
+  readonly tools: {
+    readonly allow: readonly string[];
+  };
+  readonly spawn: {
+    readonly maySpawn: false;
+  };
+  readonly modelRole: "implement";
+  readonly tier: "leaf";
+};
+
+const INTERN_TOOLS = [
+  "run_shell",
+  "read_file",
+  "list_dir",
+  "write_file",
+  "edit_file",
+  "delete_file",
+  "skill_search",
+  "use_skill",
+] as const;
+
+export const internPackage: AgentPackage = {
   id: "intern",
   primaryIntent:
     "Execute clear mechanical instructions exactly — zero judgment, zero invention",
