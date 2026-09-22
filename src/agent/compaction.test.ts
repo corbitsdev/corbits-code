@@ -8,6 +8,7 @@ import type {
 } from "@intx/types/runtime";
 import {
   COMPACTION_CONTINUATION_EVENT,
+  OPERATOR_COMPACT_REASON,
   createCompactionGovernor,
 } from "./compaction.js";
 import {
@@ -784,6 +785,74 @@ describe("compaction governor", () => {
       { type: "reply", content: "done" },
     ]);
     expect(continuations).toBe(1);
+  });
+
+  test("manual compact bypasses the occupancy governor on an idle session", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
+
+    expect(governor.requestManual("keep the auth discussion")).toBe("kick");
+    expect(governor.extraInstructions).toBe("keep the auth discussion");
+    expect(governor.requestManual("")).toBe("armed");
+    expect(governor.extraInstructions).toBe("keep the auth discussion");
+
+    const actions = governor.interceptIdleContinuation(
+      emptyMessage(),
+      capabilities,
+    );
+    expect(
+      actions?.some(
+        (a) =>
+          a.type === "compact" &&
+          "reason" in a &&
+          a.reason === OPERATOR_COMPACT_REASON,
+      ),
+    ).toBe(true);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+    expect(governor.resumeAfterCompact(emptyMessage())).toBeNull();
+  });
+
+  test("manual compact during a tool pause continues the in-flight turn", () => {
+    const governor = createCompactionGovernor(() => undefined);
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
+
+    expect(governor.requestManual("", { inFlight: true })).toBe("armed");
+    const actions = governor.interceptActions(
+      toolDone(),
+      inferAction,
+      capabilities,
+    );
+    expect(
+      actions?.some(
+        (a) =>
+          a.type === "compact" &&
+          "reason" in a &&
+          a.reason === OPERATOR_COMPACT_REASON,
+      ),
+    ).toBe(true);
+    expect(actions?.some((a) => a.type === "infer")).toBe(false);
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+  });
+
+  test("manual compact no-ops below the compactor floor", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.noteInferenceDone(inferenceDone(overThreshold), threeTurns);
+    expect(governor.requestManual("focus on tests")).toBe("noop");
+    expect(governor.extraInstructions).toBeUndefined();
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+  });
+
+  test("manual compact hydrates from restored turns without a prior decide", () => {
+    const governor = createCompactionGovernor(undefined);
+    expect(governor.compactTurnCount).toBe(0);
+    expect(governor.requestManual("keep the auth discussion")).toBe("noop");
+    expect(
+      governor.requestManual("keep the auth discussion", { turns: tenTurns }),
+    ).toBe("kick");
+    expect(governor.compactTurnCount).toBe(10);
+    expect(governor.extraInstructions).toBe("keep the auth discussion");
   });
 });
 

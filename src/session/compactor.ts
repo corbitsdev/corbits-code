@@ -242,6 +242,14 @@ const DEFAULT_COMPACTOR_CONFIG: CompactorConfig = {
   maxAnchorTurns: 8,
 };
 
+function extraInstructionParameter(
+  cfg: CompactorConfig,
+): { extraInstructions: string } | Record<string, never> {
+  const extra = cfg.summaryContext?.()?.extraInstructions?.trim();
+  if (extra === undefined || extra.length === 0) return {};
+  return { extraInstructions: extra };
+}
+
 // `apply` below no-ops at or below this turn count: keeping `keepRecentTurns`
 // turns plus at least one more is what makes pruning worth doing at all.
 export function compactorNoOpFloor(keepRecentTurns: number): number {
@@ -888,7 +896,10 @@ export function createPruningCompactor(
           record: {
             strategy: this.name,
             version: this.version,
-            parameters: { keepRecentTurns: cfg.keepRecentTurns },
+            parameters: {
+              keepRecentTurns: cfg.keepRecentTurns,
+              ...extraInstructionParameter(cfg),
+            },
             reason:
               aged.agedImageCount > 0
                 ? "aged images outside recent window"
@@ -998,7 +1009,10 @@ export function createPruningCompactor(
           record: {
             strategy: this.name,
             version: this.version,
-            parameters: { keepRecentTurns: cfg.keepRecentTurns },
+            parameters: {
+              keepRecentTurns: cfg.keepRecentTurns,
+              ...extraInstructionParameter(cfg),
+            },
             reason: "no compaction needed",
             decisions: {
               summarizedTurnCount: 0,
@@ -1034,7 +1048,10 @@ export function createPruningCompactor(
           record: {
             strategy: this.name,
             version: this.version,
-            parameters: { keepRecentTurns: cfg.keepRecentTurns },
+            parameters: {
+              keepRecentTurns: cfg.keepRecentTurns,
+              ...extraInstructionParameter(cfg),
+            },
             reason: "summarize failed",
             decisions: {
               summarizeFailed: 1,
@@ -1049,7 +1066,10 @@ export function createPruningCompactor(
           record: {
             strategy: this.name,
             version: this.version,
-            parameters: { keepRecentTurns: cfg.keepRecentTurns },
+            parameters: {
+              keepRecentTurns: cfg.keepRecentTurns,
+              ...extraInstructionParameter(cfg),
+            },
             reason: "summarize failed",
             decisions: {
               summarizeFailed: 1,
@@ -1106,6 +1126,7 @@ export function createPruningCompactor(
             keepRecentTurns: cfg.keepRecentTurns,
             summaryMaxChars: cfg.summaryMaxChars,
             maxAnchorTurns: cfg.maxAnchorTurns,
+            ...extraInstructionParameter(cfg),
           },
           reason: `compacted ${summarizedTurns.length} turns, anchored ${anchorTurns.length}, keeping ${keepCount} recent`,
           decisions: {

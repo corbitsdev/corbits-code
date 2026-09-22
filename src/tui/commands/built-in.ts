@@ -218,6 +218,23 @@ export function registerBuiltInCommands(): void {
     },
   });
 
+  registerCommand({
+    name: "compact",
+    description: "Fold conversation context now",
+    argumentHint: "[optional instructions]",
+    handler: (args, ctx) => {
+      if (ctx.requestCompact === undefined) {
+        return {
+          type: "message",
+          text: "Compaction is not available in this session.",
+        };
+      }
+      const err = ctx.requestCompact(args);
+      if (err !== undefined) return { type: "message", text: err };
+      return { type: "noop" };
+    },
+  });
+
   // Persist as user-global default, not session-only.
   registerCommand({
     name: "yolo",

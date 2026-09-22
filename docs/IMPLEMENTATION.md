@@ -138,7 +138,7 @@ src/
     commands/
       registry.ts         Extensible slash-command registry
       built-in.ts         /help, /model, /settings, /permissions, /plugins,
-                          /clear, /new, /mcp (connect providers from /model),
+                          /clear, /new, /compact, /mcp (connect providers from /model),
                           /yolo
   tui/
     shell.ts              Transcript, header, status line, prompt, overlays

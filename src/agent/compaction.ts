@@ -54,6 +54,19 @@ export type CompactionGovernor = ReturnType<typeof createCompactionGovernor>;
 // requestContinuation closure delivered. Subscribers that only care about
 // provider/connector traffic must ignore this event.
 export const COMPACTION_CONTINUATION_EVENT = "custom.compaction.continue";
+/** Compact reason for `/compact` (and later operator-triggered folds). */
+export const OPERATOR_COMPACT_REASON = "operator-request";
+const THRESHOLD_COMPACT_REASON = "context-threshold";
+
+/** How `/compact` armed the shared pipeline. */
+export type ManualCompactArming = "kick" | "armed" | "noop";
+
+/** Options for an operator-triggered compact. */
+export type ManualCompactOptions = {
+  inFlight?: boolean;
+  /** Live or restored turns; used to arm after resume before the first decide. */
+  turns?: readonly ConversationTurn[];
+};
 
 /** Build the continuation re-entry action for a compacted governor cycle. */
 export function compactionContinuationAction(
@@ -70,6 +83,11 @@ export function createCompactionGovernor(
 ) {
   let pending = false;
   let idlePending = false;
+  let manualPending = false;
+  // Sticky operator instructions from `/compact …`. Empty `/compact` still
+  // uses the default structured fold; a non-empty argument is kept for later
+  // auto-folds and written into the compact record.
+  let extraInstructions: string | undefined;
   let postCompactInfer = false;
   // Idle empty compact needs a post-compact decide cycle to adopt the shrunk
   // turns for the meter, but must not start a new inference (there is no
@@ -155,6 +173,16 @@ export function createCompactionGovernor(
   function issueThresholdCompact(): void {
     consecutiveThresholdCompacts++;
     noteCompactIssued();
+  }
+
+  function compactReason(operator: boolean): string {
+    return operator ? OPERATOR_COMPACT_REASON : THRESHOLD_COMPACT_REASON;
+  }
+
+  function clearManualArming(): void {
+    manualPending = false;
+    idlePending = false;
+    pending = false;
   }
 
   // Continuation re-entry for a compact-bearing return. The legacy subagent
@@ -246,16 +274,22 @@ export function createCompactionGovernor(
   ): ReactorAction[] | null {
     if (event.type !== "tool.done") return null;
     if (outstandingToolCalls > 0) outstandingToolCalls -= 1;
-    if (!pending && !(usingEstimate && isOverThreshold(estimate.tokens)))
+    const operator = manualPending;
+    if (
+      !operator &&
+      !pending &&
+      !(usingEstimate && isOverThreshold(estimate.tokens))
+    )
       return null;
     if (!actions.some((a) => a.type === "infer")) return null;
-    if (atThresholdCompactCap()) return null;
-    pending = false;
+    if (!operator && atThresholdCompactCap()) return null;
+    clearManualArming();
     postCompactInfer = true;
-    issueThresholdCompact();
+    if (operator) noteCompactIssued();
+    else issueThresholdCompact();
     return [
       ...actions.filter((a) => a.type !== "infer"),
-      capabilities.compact(COMPACTOR_NAME, "context-threshold"),
+      capabilities.compact(COMPACTOR_NAME, compactReason(operator)),
       ...continuationActions(capabilities),
     ];
   }
@@ -276,8 +310,10 @@ export function createCompactionGovernor(
     event: ReactorInboundEvent,
     actions: ReactorAction[],
   ): boolean {
-    if (!pending || idlePending) return false;
-    if (atThresholdCompactCap()) return false;
+    if (idlePending) return false;
+    const operator = manualPending;
+    if (!operator && !pending) return false;
+    if (!operator && atThresholdCompactCap()) return false;
     if (!onTurnBoundary(event)) return false;
     if (isSpacerEchoTerminal(event, actions)) return false;
     const terminal =
@@ -352,26 +388,35 @@ export function createCompactionGovernor(
   ): ReactorAction[] | null {
     if (event.type !== "message.received") return null;
     if (idlePending) {
-      if (atThresholdCompactCap()) {
+      const operator = manualPending;
+      if (!operator && atThresholdCompactCap()) {
         idlePending = false;
         return null;
       }
-      idlePending = false;
-      pending = false;
+      clearManualArming();
+      const content = inboundText(event);
       // The reactor delivers no event after compact, so always request a
       // continuation to re-enter decide against the shrunk turns:
       // - raced operator content → re-infer to answer it
       // - empty synthetic continuation → meter-only sync (no infer)
-      return issueIdleFold(
-        inboundText(event),
-        capabilities,
-        "context-threshold",
-      );
+      if (operator) {
+        if (content.length > 0) postCompactInfer = true;
+        else postCompactMeter = true;
+        noteCompactIssued();
+        return [
+          capabilities.compact(COMPACTOR_NAME, OPERATOR_COMPACT_REASON),
+          ...continuationActions(capabilities),
+        ];
+      }
+      return issueIdleFold(content, capabilities, THRESHOLD_COMPACT_REASON);
     }
     // Unarmed idle re-entry past the provider TTL: same fold, same
     // keep-recent tail, same cap — but a "cache-ttl-recompress" reason so the
     // fold is attributable. No arming: every live re-entry re-checks the
     // window, so a sub-agent stall ping or operator message is the trigger.
+    // In-flight `/compact` (manualPending without idlePending) waits on
+    // interceptActions; do not steal that hop with a TTL fold.
+    if (manualPending) return null;
     if (!isTtlRecompressDue(now())) return null;
     return issueIdleFold(
       inboundText(event),
@@ -443,6 +488,28 @@ export function createCompactionGovernor(
     return postCompactInfer || postCompactMeter;
   }
 
+  // `/compact` bypasses the occupancy governor. Same pair-safe compact pipeline
+  // as auto-compact: in-flight turns wait for interceptActions / noteIdleTurn;
+  // idle sessions arm an empty continuation so the host can kick decide().
+  function requestManual(
+    instructions: string,
+    options?: ManualCompactOptions,
+  ): ManualCompactArming {
+    if (options?.turns !== undefined) syncFromTurns(options.turns);
+    if (turnCount <= MIN_TURNS_TO_COMPACT) return "noop";
+    const trimmed = instructions.trim();
+    if (trimmed.length > 0) extraInstructions = trimmed;
+    manualPending = true;
+    if (options?.inFlight === true) return "armed";
+    if (idlePending) return "armed";
+    idlePending = true;
+    if (requestContinuation !== undefined) {
+      requestContinuation();
+      return "armed";
+    }
+    return "kick";
+  }
+
   return {
     get estimatedTokens(): number {
       return estimate.tokens;
@@ -453,6 +520,13 @@ export function createCompactionGovernor(
     get usingEstimate(): boolean {
       return usingEstimate;
     },
+    get extraInstructions(): string | undefined {
+      return extraInstructions;
+    },
+    get compactTurnCount(): number {
+      return turnCount;
+    },
+    requestManual,
     syncFromTurns,
     noteInferenceDone,
     notePostCompact,
