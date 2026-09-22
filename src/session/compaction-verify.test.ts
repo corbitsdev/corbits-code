@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createPruningCompactor } from "./compactor.js";
 import { condenseTurns } from "./summarizer.js";
+import { HANDOFF_LATEST_KEY } from "./compaction-handoff.js";
 import {
   createCompactionArchive,
   wrapCompactorWithCompletenessGate,
@@ -45,6 +46,14 @@ function allText(turns: ConversationTurn[]): string {
       t.content.filter((b) => b.type === "text").map((b) => b.text),
     )
     .join("\n");
+}
+
+function handoffFileText(result: {
+  blobs?: { key: string; bytes: Uint8Array }[];
+}): string {
+  const blob = result.blobs?.find((b) => b.key === HANDOFF_LATEST_KEY);
+  if (blob === undefined) return "";
+  return new TextDecoder().decode(blob.bytes);
 }
 
 // A dropped region with a standing goal, an exact path, a verification
@@ -667,10 +676,12 @@ describe("pruning compactor verify pass", () => {
 
 describe("continuation facts survive many folds", () => {
   test("verify signal holds after five lossy folds", async () => {
+    let priorFile: string | undefined;
     const compactor = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 4000,
       summarize: async () => "Work continues. Next: fix tests.",
+      readPriorHandoff: async () => priorFile,
     });
     let turns: ConversationTurn[] = [
       ...droppedTurns(),
@@ -683,17 +694,18 @@ describe("continuation facts survive many folds", () => {
       expect(result.record.reason).not.toBe(
         "verify failed — keeping prior context",
       );
+      const file = handoffFileText(result);
+      // The thin live spine does not carry next-action / blocker text; the
+      // fat handoff file does. Verify repair writes those into the narrative
+      // that the file persists, and later folds re-read it.
+      expect(file).toContain("refresh assertion");
+      priorFile = file;
       turns = [
         ...result.output,
         textTurn("user", `follow-up ${fold}`),
         textTurn("assistant", `progress note ${fold}`),
       ];
     }
-    const text = allText(turns);
-    // The initiating ask is anchored out of summarizedTurns, so "opaque tokens"
-    // / "auth.ts" survive from that turn and do not prove the verify pass.
-    // "refresh assertion" is only in dropped tool errors / next action.
-    expect(text).toContain("refresh assertion");
   });
 });
 
@@ -751,10 +763,12 @@ describe("completeness gate plus verify repair", () => {
 
   test("two lossy folds through the gate keep facts via adopted handoffs", async () => {
     const archive = memoryArchive();
+    let priorFile: string | undefined;
     const inner = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 4000,
       summarize: async () => "Work continues. Next: fix tests.",
+      readPriorHandoff: async () => priorFile,
     });
     const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
     let turns: ConversationTurn[] = [
@@ -774,7 +788,9 @@ describe("completeness gate plus verify repair", () => {
       (occurrence) => occurrence.provenance === "compaction-handoff",
     );
     expect(handoffs.length).toBeGreaterThan(0);
-    expect(allText(first.output)).toContain("refresh assertion");
+    const firstFile = handoffFileText(first);
+    expect(firstFile).toContain("refresh assertion");
+    priorFile = firstFile;
 
     const followUp = [
       textTurn("user", "follow-up after first fold"),
@@ -788,7 +804,7 @@ describe("completeness gate plus verify repair", () => {
     expect(second.record.reason).not.toBe(
       "verify failed — keeping prior context",
     );
-    expect(allText(second.output)).toContain("refresh assertion");
+    expect(handoffFileText(second)).toContain("refresh assertion");
   });
 });
 
