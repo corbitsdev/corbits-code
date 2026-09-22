@@ -43,7 +43,8 @@ const PROMPT_SIZE_BASELINE: Record<
   // body, grok note] — no tool-catalog or appendix on the worker path.
   // Re-measured from the canonical fixture; grok family is the max for leaves.
   skywalker: { chars: 16494, bytes: 16604 },
-  builder: { chars: 10344, bytes: 10382 },
+  // CL-8228: short Corbits implement card; grok family is the max.
+  builder: { chars: 6944, bytes: 6968 },
   explorer: { chars: 4897, bytes: 4921 },
   counsel: { chars: 4816, bytes: 4834 },
   intern: { chars: 8148, bytes: 8176 },
