@@ -2,7 +2,7 @@
 //
 // After the compactor writes a summary handoff, this module scores the new
 // spine against the continuation facts the dropped turns carried (goal,
-// state, next action, constraints, verification, blockers, exact names).
+// next action, constraints, verification, blockers, exact names).
 // A fold that drops or contradicts those facts would leave the next agent
 // without steam, so the pass repairs the handoff deterministically or aborts
 // the fold. Fail closed: never ship a lying spine.
@@ -17,8 +17,6 @@ export const ContinuationFacts = type({
   constraints: "string[]",
   /** Last substantive assistant/user text in the dropped region. */
   nextAction: "string",
-  /** Last error text or assistant snippet: where the work stood. */
-  state: "string",
   /** Verification commands run (shell/test invocations). */
   verification: "string[]",
   /** Errored tool-result texts: what is still broken. */
@@ -127,9 +125,10 @@ function significantTokens(text: string, cap = 24): string[] {
 
 // A strict majority of the fact's content words must appear in the summary.
 // Short facts need all of their words: one shared word proves nothing.
-// Match on token boundaries so "auth" does not score against "authored" or
-// hyphenated "pre-auth".
-function isTokenChar(ch: string | undefined): boolean {
+// Match on token boundaries so "auth" does not score against "authored",
+// hyphenated "pre-auth", or dotted "foo.auth". An interior `.` joins a
+// dotted name; a sentence period does not.
+function isNameChar(ch: string | undefined): boolean {
   if (ch === undefined) return false;
   const code = ch.charCodeAt(0);
   return (
@@ -140,14 +139,25 @@ function isTokenChar(ch: string | undefined): boolean {
   );
 }
 
+function isTokenCharAt(text: string, index: number): boolean {
+  if (index < 0 || index >= text.length) return false;
+  const ch = text[index];
+  if (isNameChar(ch)) return true;
+  // `.` is a token char only between name chars: `vite.config.ts` stays
+  // one token, but `tokens.` / `api.com.` still match at a sentence stop.
+  return (
+    ch === "." && isNameChar(text[index - 1]) && isNameChar(text[index + 1])
+  );
+}
+
 function tokenAppears(token: string, lowered: string): boolean {
   let from = 0;
   for (;;) {
     const i = lowered.indexOf(token, from);
     if (i < 0) return false;
     if (
-      !isTokenChar(i === 0 ? undefined : lowered[i - 1]) &&
-      !isTokenChar(lowered[i + token.length])
+      !isTokenCharAt(lowered, i - 1) &&
+      !isTokenCharAt(lowered, i + token.length)
     )
       return true;
     from = i + 1;
@@ -257,11 +267,6 @@ export function extractContinuationFacts(
   const goal = users[0] ?? "";
   const nextAction =
     assistants[assistants.length - 1] ?? users[users.length - 1] ?? "";
-  const state =
-    blockers[blockers.length - 1] ??
-    assistants[assistants.length - 1] ??
-    users[users.length - 1] ??
-    "";
 
   const exactNames: string[] = [];
   const verification: string[] = [];
@@ -298,7 +303,6 @@ export function extractContinuationFacts(
     goal: goal.slice(0, 500),
     constraints: extractConstraints(users),
     nextAction: nextAction.slice(0, 300),
-    state: state.slice(0, 300),
     verification: verification.slice(0, 6),
     blockers,
     exactNames: exactNames.slice(0, 20),
@@ -310,11 +314,12 @@ export function extractContinuationFacts(
 // Basename for paths (a summary that moves `src/auth.ts` to "auth.ts" still
 // names it); hostname for URLs (query strings get reworded freely).
 // Match on token/path boundaries so "oauth.ts" does not cover "auth.ts",
-// "tsconfig.json" does not cover "config.json", and "myapi.com" does not
-// cover hostname "api.com".
+// "vite.config.ts" does not cover "config.ts", and "www.api.com" does not
+// cover hostname "api.com". `/` stays a non-token so a path still covers
+// its basename.
 function exactNameSupported(name: string, summary: string): boolean {
   const lowered = summary.toLowerCase();
-  if (name.startsWith("http")) {
+  if (name.toLowerCase().startsWith("http")) {
     const host = hostnameOf(name);
     if (host !== undefined && tokenAppears(host.toLowerCase(), lowered))
       return true;

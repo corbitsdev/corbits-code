@@ -253,6 +253,119 @@ describe("verifyCompactionSummary", () => {
       true,
     );
   });
+
+  test("dotted names are whole tokens so suffixes and prefixes do not cover", () => {
+    const cases: {
+      tool: string;
+      args: Record<string, string>;
+      summary: string;
+      detail: string;
+    }[] = [
+      {
+        tool: "read_file",
+        args: { path: "src/config.ts" },
+        summary: "Fix auth now. Updated vite.config.ts.",
+        detail: "src/config.ts",
+      },
+      {
+        tool: "read_file",
+        args: { path: "src/test.ts" },
+        summary: "Fix auth now. Updated auth.test.ts.",
+        detail: "src/test.ts",
+      },
+      {
+        tool: "read_file",
+        args: { path: "src/auth.ts" },
+        summary: "Fix auth now. Updated foo.auth.ts.",
+        detail: "src/auth.ts",
+      },
+      {
+        tool: "read_file",
+        args: { path: "src/auth.ts" },
+        summary: "Fix auth now. Kept auth.ts.bak.",
+        detail: "src/auth.ts",
+      },
+      {
+        tool: "web_fetch",
+        args: { url: "https://api.com/v1" },
+        summary: "Fix auth now. Called www.api.com.",
+        detail: "https://api.com/v1",
+      },
+    ];
+    for (const { tool, args, summary, detail } of cases) {
+      const facts = extractContinuationFacts([
+        textTurn("user", "Fix auth now"),
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_call",
+              id: "c1",
+              name: tool,
+              arguments: args,
+            },
+          ],
+          timestamp: 2,
+        },
+      ]);
+      const report = verifyCompactionSummary(summary, facts);
+      expect(report.misses.some((m) => m.kind === "exactName")).toBe(true);
+      expect(report.misses.some((m) => m.detail === detail)).toBe(true);
+    }
+  });
+
+  test("basename in a path still covers the exact name", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Fix auth now"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "c1",
+            name: "read_file",
+            arguments: { path: "src/auth.ts" },
+          },
+        ],
+        timestamp: 2,
+      },
+    ]);
+    const report = verifyCompactionSummary(
+      "Fix auth now. Read auth.ts next.",
+      facts,
+    );
+    expect(report.misses.some((m) => m.kind === "exactName")).toBe(false);
+  });
+
+  test("uppercase HTTP URL scores hostname case-insensitively", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Fix auth now"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "c1",
+            name: "web_fetch",
+            arguments: { url: "HTTP://API.COM/v1" },
+          },
+        ],
+        timestamp: 2,
+      },
+    ]);
+    expect(
+      verifyCompactionSummary(
+        "Fix auth now. Called api.com.",
+        facts,
+      ).misses.some((m) => m.kind === "exactName"),
+    ).toBe(false);
+    expect(
+      verifyCompactionSummary(
+        "Fix auth now. Hit endpoint v1.",
+        facts,
+      ).misses.some((m) => m.kind === "exactName"),
+    ).toBe(true);
+  });
 });
 
 describe("verifyOrRepair", () => {
@@ -360,7 +473,6 @@ describe("verifyOrRepair", () => {
         "Always keep the public API stable.",
       ],
       nextAction: "Fix the token refresh assertion next.",
-      state: "Fix the token refresh assertion next.",
       verification: ["bun run test auth", "bun run check"],
       blockers: ["token refresh assertion failed", "ECONNREFUSED on staging"],
       exactNames: ["src/auth.ts", "packages/runtime/config.json"],
@@ -389,7 +501,6 @@ describe("verifyOrRepair", () => {
     expect(repair).not.toContain("src/auth.ts");
     expect(repair).not.toContain("Goal:");
     expect(repair).not.toContain("Next:");
-    expect(repair).not.toMatch(/^State:/m);
   });
 
   test("repair lines are goal, next, exact names, then the rest", () => {
@@ -406,26 +517,6 @@ describe("verifyOrRepair", () => {
     expect(exactAt).toBeGreaterThan(nextAt);
     expect(blockersAt).toBeGreaterThan(exactAt);
     expect(ranAt).toBeGreaterThan(blockersAt);
-  });
-
-  test("repair does not emit a State line even when state is independent", () => {
-    const facts = {
-      goal: "Migrate the auth module to opaque tokens",
-      constraints: [] as string[],
-      nextAction: "Fix the token refresh assertion next.",
-      state: "The cache is still cold after warmup.",
-      verification: [] as string[],
-      blockers: ["token refresh assertion failed"],
-      exactNames: [] as string[],
-    };
-    const summary = "Work continues.";
-    const misses = verifyCompactionSummary(summary, facts).misses;
-    expect(misses.some((m) => m.kind === "blocker")).toBe(true);
-    expect(misses.some((m) => m.kind === "nextAction")).toBe(true);
-    const repaired = repairSummary(summary, facts, misses);
-    const repair = repaired.slice(repaired.indexOf(VERIFY_REPAIR_HEADING));
-    expect(repair).not.toMatch(/^State:/m);
-    expect(repair).not.toContain("cache is still cold");
   });
 
   test("a tight cap keeps goal, next, and names before aborting on the tail", () => {
