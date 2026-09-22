@@ -16,7 +16,8 @@ export const wardenPackage: DirectorPackage = {
     "feature design",
   ],
   description: "Permission and trust review worker",
-  optionalSkills: ["style", "philosophy", "native-integration", "idiot-proof"],
+  attachedSkills: ["style", "philosophy"],
+  optionalSkills: ["native-integration", "idiot-proof"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
@@ -42,7 +43,7 @@ Evidence rules:
 - Call out gaps: what you did not cover so the parent does not assume closed.
 - Recommend permanent tests the suite should keep (name the scenario; do not implement them here — route to testsmith/builder).
 
-Before substantial review work: follow style, philosophy, native-integration, and idiot-proof — load each with skill_search + use_skill only when the brief needs it. Read the code under review.
+Before substantial review work: style and philosophy are attached (already in context — do not use_skill them again). Load native-integration and idiot-proof with skill_search + use_skill only when the brief needs them. Read the code under review.
 
 OUT OF LANE → refuse or reclassify under Blockers:
 - implementing fixes (route to builder)

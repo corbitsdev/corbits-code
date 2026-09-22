@@ -102,7 +102,13 @@ export interface DirectorPackage {
   readonly description: string;
   /** Opinionated core prompt (prompt-first). */
   readonly systemPrompt: string;
-  /** Optional skill names (ordered). Workers load matching bodies on demand with skill_search + use_skill, scoped to the dispatch's optionalSkills; the primary orchestrator keeps them use_skill-loadable. */
+  /**
+   * Skill names whose bodies are injected once into the worker system prompt
+   * at spawn (zero extra turn). Do not duplicate these names in optionalSkills.
+   * Skywalker/primary and intern leave this unset.
+   */
+  readonly attachedSkills?: readonly string[];
+  /** Optional skill names (ordered). Workers load matching bodies on demand with skill_search + use_skill, scoped to the union of attachedSkills and optionalSkills; the primary orchestrator keeps them use_skill-loadable. */
   readonly optionalSkills?: readonly string[];
   readonly tools?: ToolEnvelope;
   readonly spawn: SpawnRights;

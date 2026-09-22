@@ -62,12 +62,9 @@ describe("shakespearePackage", () => {
     expect(shakespearePackage.modelRole).toBe("docs");
   });
 
-  test("optionalSkills are style and philosophy", () => {
-    expect(shakespearePackage.optionalSkills).toEqual([
-      "style",
-      "philosophy",
-      "native-integration",
-    ]);
+  test("attachedSkills are style and philosophy; optionalSkills are on-demand", () => {
+    expect(shakespearePackage.attachedSkills).toEqual(["style", "philosophy"]);
+    expect(shakespearePackage.optionalSkills).toEqual(["native-integration"]);
   });
 
   test("primaryIntent is docs maintain", () => {

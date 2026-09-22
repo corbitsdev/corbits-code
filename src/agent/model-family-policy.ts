@@ -34,9 +34,9 @@ export interface ModelFamilyPolicy {
   applyGrokFinishBias: boolean;
   /**
    * Tool names to drop from the advertised wire prefix and the dispatch gate
-   * (CL-7668). Empty by default; grok/kimi leaves deny `skill_search` only and
-   * load brief-named skills straight through `use_skill`, which is never
-   * denied. Orchestrators keep the full surface.
+   * (CL-7668). Empty by default. Orchestrators and leaves share the same
+   * skill surface: both mount skill_search and use_skill. use_skill is never
+   * denied.
    */
   advertisedToolDeny: readonly string[];
   /**
@@ -105,8 +105,7 @@ const GROK_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   wrapUpNudgeText: GROK_WRAP_UP_NUDGE_TEXT,
   subAgentStallTimeoutMs: DEFAULT_POLICY.subAgentStallTimeoutMs,
   applyGrokFinishBias: true,
-  // Leaf value; the resolver clears it for orchestrators below.
-  advertisedToolDeny: ["skill_search"],
+  advertisedToolDeny: [],
   // Leaf value; the resolver clears it for orchestrators below.
   promptResidual: GROK_TOOL_BUDGET_RESIDUAL,
 };
@@ -206,7 +205,6 @@ export function resolveModelFamilyPolicy(input: {
       return {
         family,
         ...KIMI_POLICY,
-        advertisedToolDeny: orchestrator ? [] : ["skill_search"],
       };
     case "muse":
       return { family, ...MUSE_POLICY };

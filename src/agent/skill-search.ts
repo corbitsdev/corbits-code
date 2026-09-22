@@ -18,7 +18,7 @@ import {
 export const skillSearchDefinition: ToolDefinition = {
   name: "skill_search",
   description:
-    "Look up skill details by capability. Skill names are listed in the system prompt; call this for descriptions, then use_skill to load a body. Directly callable — do not tool_search for this.",
+    "Find a skill during prep when attached skills are not enough. Do not search on a tiny one-file fix. Directly callable — do not tool_search for this. Returns name + description; load a body with use_skill.",
   inputSchema: {
     type: "object",
     properties: {

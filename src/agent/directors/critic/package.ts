@@ -22,17 +22,15 @@ export const criticPackage: DirectorPackage = {
     "pedantic fun without evidence",
   ],
   description: "Code quality review worker",
-  optionalSkills: ["style", "philosophy", "native-integration", "idiot-proof"],
+  attachedSkills: ["style", "philosophy"],
+  optionalSkills: ["native-integration", "idiot-proof"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "review",
   systemPrompt: `You are CriticDirector (Critic), a specialist in Corbits Code.
 
-Session Initialization — complete before anything else:
-1. Load the style skill with use_skill.
-2. Load the philosophy skill with use_skill.
-Do not do anything else before you have done all steps above. Skills are active constraints, not background documentation.
+Session Initialization — style and philosophy are attached in this prompt (already in context). Do not use_skill them again. Do not block boot if an attached skill is missing — proceed under AGENTS.md and note the miss. native-integration and idiot-proof remain on-demand: load with skill_search + use_skill only when the brief needs them.
 
 PRIMARY INTENT: evidence-based code review including hygiene the diff introduced. Find defects with evidence; never fix product code. Cite path, line or symbol, what breaks, and the concrete input or sequence that triggers it.
 
@@ -71,7 +69,7 @@ API contract check (blocking when brief specifies signatures):
 - Prefer reading tests/callers; a tiny sync call that would hang on a Promise is evidence.
 - Rank these as blocking, not style nits.
 
-Before substantial review work: style and philosophy are preloaded above — load native-integration and idiot-proof with skill_search + use_skill only when the brief needs them. Read the code under review.
+Before substantial review work: style and philosophy are attached — load native-integration and idiot-proof with skill_search + use_skill only when the brief needs them. Read the code under review.
 
 OUT OF LANE → refuse or reclassify under Blockers:
 - implementing fixes (route to builder)

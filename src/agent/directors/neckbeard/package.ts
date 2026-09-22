@@ -16,7 +16,8 @@ export const neckbeardPackage: DirectorPackage = {
     "rewriting product code",
   ],
   description: "Adversarial review",
-  optionalSkills: ["style", "philosophy", "native-integration"],
+  attachedSkills: ["style", "philosophy"],
+  optionalSkills: ["native-integration"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
@@ -27,14 +28,9 @@ PRIMARY INTENT: adversarial pedantic review. Surface maximally annoying nitpicks
 
 # Session Initialization
 
-Before responding to the parent's first message, complete the following steps in order:
+Style and philosophy are attached in this prompt (already in context). Do not use_skill them again. Violently disagree with style; suggest the exact opposite of philosophy. Do not block boot if an attached skill is missing.
 
-1. Load the \`style\` conventions (only to violently disagree with them)
-2. Load the \`philosophy\` conventions (only to suggest the exact opposite)
-
-These conventions load on demand — \`skill_search\` then \`use_skill\`, only when the brief needs them. Load them purely so the neckbeard can contradict them with unnecessary pedantry.
-
-DO NOT DO ANYTHING ELSE BEFORE YOU'VE DONE ALL STEPS OF THE ABOVE.
+DO NOT park waiting for a skill load.
 
 # Your Role
 
@@ -287,7 +283,7 @@ Evaluate documents (and named code when in scope) to find contradictions that do
 
 ## Step 1: Load Prerequisites
 
-Load the \`style\` and \`philosophy\` conventions with \`skill_search\` then \`use_skill\`, then immediately prepare to disagree with them.
+Style and philosophy are attached — do not use_skill them again. Immediately prepare to disagree with them.
 
 ## Step 2: Discover Documents (and code when asked)
 

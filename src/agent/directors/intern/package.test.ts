@@ -55,8 +55,9 @@ describe("internPackage", () => {
     expect(internPackage.modelRole).toBe("implement");
   });
 
-  test("optionalSkills is empty by default", () => {
+  test("optionalSkills is empty by default and attachedSkills is unset", () => {
     expect(internPackage.optionalSkills).toEqual([]);
+    expect(internPackage.attachedSkills).toBeUndefined();
   });
 
   test("primaryIntent and description", () => {

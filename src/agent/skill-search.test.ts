@@ -26,9 +26,10 @@ const roster: SkillSummary[] = [
 describe("skillSearchDefinition", () => {
   test("tells the model to look up details here and load bodies with use_skill", () => {
     expect(skillSearchDefinition.name).toBe("skill_search");
-    expect(skillSearchDefinition.description).toContain("system prompt");
+    expect(skillSearchDefinition.description).toContain("attached skills");
     expect(skillSearchDefinition.description).toContain("use_skill");
     expect(skillSearchDefinition.description).toMatch(/directly callable/i);
+    expect(skillSearchDefinition.description).toContain("tiny one-file fix");
     expect(skillSearchDefinition.description).not.toMatch(
       /find this via tool_search/i,
     );

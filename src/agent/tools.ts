@@ -605,6 +605,7 @@ export async function createAgentToolset(
           gateAgentTools(inheritedMcpTools, gate),
         ...(shellTimeout !== undefined ? { shellTimeout } : {}),
         ...(shellEnv !== undefined ? { shellEnv } : {}),
+        ...(skillDirs.length > 0 ? { skillDirs } : {}),
         ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
         cwd,
         getWorkdirBase: sa.getWorkdirBase,

@@ -14,7 +14,7 @@ import { captureSkillUsed } from "../telemetry/product-events.js";
 const useSkillDefinition: ToolDefinition = {
   name: "use_skill",
   description:
-    "Load the full instructions for a skill. Names are listed under 'Skills' in the system prompt; call skill_search for descriptions, then this tool with the skill's name to load the body. The returned instructions stay in effect for the rest of the task.",
+    "Load a skill you already know by name (brief or search). Do not reload skills listed as attached or already in context. The returned instructions stay in effect for the rest of the task.",
   inputSchema: {
     type: "object",
     properties: {

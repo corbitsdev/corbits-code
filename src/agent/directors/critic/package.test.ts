@@ -101,13 +101,28 @@ describe("criticPackage", () => {
     expect(criticPackage.modelRole).toBe("review");
   });
 
-  test("optionalSkills order is style, philosophy, native-integration, idiot-proof", () => {
+  test("attachedSkills are style and philosophy; optionalSkills are on-demand", () => {
+    expect(criticPackage.attachedSkills).toEqual(["style", "philosophy"]);
     expect(criticPackage.optionalSkills).toEqual([
-      "style",
-      "philosophy",
       "native-integration",
       "idiot-proof",
     ]);
+  });
+
+  test("systemPrompt treats style and philosophy as attached, not boot loads", () => {
+    const p = criticPackage.systemPrompt;
+    expect(p).toContain("Session Initialization");
+    expect(p).toContain("style and philosophy are attached");
+    expect(p).toContain("Do not use_skill them again");
+    expect(p).toContain("Do not block boot if an attached skill is missing");
+    expect(p).toContain("native-integration and idiot-proof remain on-demand");
+    expect(p).not.toContain("Load the style skill with use_skill");
+    expect(p).not.toContain(
+      "Do not do anything else before you have done all steps above",
+    );
+    expect(p.indexOf("Session Initialization")).toBeLessThan(
+      p.indexOf("PRIMARY INTENT"),
+    );
   });
 
   test("primaryIntent and outOfLane match critic lane", () => {
@@ -121,19 +136,6 @@ describe("criticPackage", () => {
     expect(criticPackage.outOfLane).toContain("visual brand");
     expect(criticPackage.outOfLane).toContain("DESIGN.md");
     expect(criticPackage.outOfLane).toContain("pedantic fun without evidence");
-  });
-
-  test("systemPrompt has Session Initialization block before PRIMARY INTENT", () => {
-    const p = criticPackage.systemPrompt;
-    expect(p).toContain("Session Initialization");
-    expect(p).toContain("Load the style skill with use_skill");
-    expect(p).toContain("Load the philosophy skill with use_skill");
-    expect(p).toContain(
-      "Do not do anything else before you have done all steps above. Skills are active constraints, not background documentation.",
-    );
-    expect(p.indexOf("Session Initialization")).toBeLessThan(
-      p.indexOf("PRIMARY INTENT"),
-    );
   });
 
   test("systemPrompt labels VERIFIED/HIGH/MEDIUM and refuses LOW findings", () => {

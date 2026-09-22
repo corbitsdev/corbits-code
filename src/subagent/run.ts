@@ -112,6 +112,7 @@ import { createSearchAgentsTool } from "../agent/agent-search.js";
 import { createSkillSearchTool } from "../agent/skill-search.js";
 import { createUseSkillTool } from "../agent/use-skill.js";
 import { discoverSkills } from "../extensions/skills.js";
+import { formatAttachedSkillConstraints } from "../agent/directors/attached-skills.js";
 import {
   createManageTasksRunner,
   manageTasksDefinition,
@@ -771,37 +772,31 @@ async function runSubAgentInner(
       }),
     ];
 
-    // Worker skill mounts, family-gated (CL-7668): grok/kimi leaves omit
-    // skill_search and load brief-named skills straight through use_skill,
-    // which is never denied. Scoped to the dispatch's allowedSkillNames
-    // (pkg.optionalSkills). Mounted before the capability filter so worker
-    // allowlists keep them like any other named tool; the scope cannot
-    // widen — use_skill refuses names outside the allowlist.
-    // Resolved here (not below with the director wiring) so the mount itself
-    // executes the deny; toolNames/prompt derivation below inherits it.
+    // Worker skill mounts: every worker, including grok/kimi leaves, mounts
+    // skill_search + use_skill. Scoped to the dispatch's allowedSkillNames
+    // (union of pkg.attachedSkills and optionalSkills). Mounted before the
+    // capability filter so worker allowlists keep them like any other named
+    // tool; the scope cannot widen — use_skill refuses names outside the
+    // allowlist. Plugin skill dirs match the primary so bundled
+    // corbits-skills (style/philosophy) resolve.
     const modelFamilyPolicy = resolveModelFamilyPolicy({
       providerName: params.provider.providerName,
       model: params.provider.model,
       orchestrator: params.orchestrator === true,
     });
-    const skillSnapshot = await discoverSkills(params.cwd);
-    const skillSearchDenied =
-      modelFamilyPolicy.advertisedToolDeny.includes("skill_search");
+    const skillDirs = [...(params.skillDirs ?? [])];
+    const skillSnapshot = await discoverSkills(params.cwd, skillDirs);
     tools = [
       ...tools,
-      ...(skillSearchDenied
-        ? []
-        : [
-            createSkillSearchTool({
-              skills: skillSnapshot,
-              ...(params.allowedSkillNames !== undefined
-                ? { allowedNames: params.allowedSkillNames }
-                : {}),
-            }),
-          ]),
+      createSkillSearchTool({
+        skills: skillSnapshot,
+        ...(params.allowedSkillNames !== undefined
+          ? { allowedNames: params.allowedSkillNames }
+          : {}),
+      }),
       createUseSkillTool(
         params.cwd,
-        [],
+        skillDirs,
         liveTelemetry,
         params.allowedSkillNames,
       ),
@@ -980,6 +975,7 @@ async function runSubAgentInner(
           ? { shellTimeout: nd.shellTimeout }
           : {}),
         ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
+        ...(nd.skillDirs !== undefined ? { skillDirs: nd.skillDirs } : {}),
         ...(nd.extraToolPlugins !== undefined
           ? { extraToolPlugins: nd.extraToolPlugins }
           : {}),
@@ -1039,13 +1035,23 @@ async function runSubAgentInner(
     });
 
     const environment = await gatherEnvironment(params.cwd);
-    const extensions =
-      params.systemPromptRole !== undefined
-        ? [params.systemPromptRole]
+    const attachedSection =
+      params.attachedSkills !== undefined && params.attachedSkills.length > 0
+        ? await formatAttachedSkillConstraints({
+            names: params.attachedSkills,
+            cwd: params.cwd,
+            skillDirs,
+          })
         : undefined;
+    const extensions = [
+      ...(params.systemPromptRole !== undefined
+        ? [params.systemPromptRole]
+        : []),
+      ...(attachedSection !== undefined ? [attachedSection] : []),
+    ];
     const toolNames = tools.map((t) => t.definition.name);
     const systemPrompt = buildSubAgentSystemPrompt(
-      extensions,
+      extensions.length > 0 ? extensions : undefined,
       environment,
       undefined,
       {
@@ -1081,9 +1087,8 @@ async function runSubAgentInner(
       }
     };
 
-    // modelFamilyPolicy is resolved above at the skill mount so the
-    // grok/kimi skill_search deny executes there; reused here for stall
-    // timing and wire-schema normalization.
+    // modelFamilyPolicy is resolved above at the skill mount; reused here for
+    // stall timing and wire-schema normalization.
 
     // Family-gate wire schemas the same way main sessions do (kimi present rewrite).
     // Sub-agent toolsets currently omit `present` (main-session only); normalize is

@@ -99,10 +99,9 @@ describe("builderPackage", () => {
     expect(builderPackage.modelRole).toBe("implement");
   });
 
-  test("optionalSkills order is style, philosophy, native-runtime, idiot-proof, ponytail", () => {
+  test("attachedSkills are style and philosophy; optionalSkills are on-demand", () => {
+    expect(builderPackage.attachedSkills).toEqual(["style", "philosophy"]);
     expect(builderPackage.optionalSkills).toEqual([
-      "style",
-      "philosophy",
       "native-runtime",
       "idiot-proof",
       "ponytail",

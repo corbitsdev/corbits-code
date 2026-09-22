@@ -2,8 +2,8 @@
 // Prefer tools.allow at mount (CapabilityFilter include) over huge deny lists.
 // manage_tasks is always mounted by runSubAgent after the filter — omit it here.
 // skill_search + use_skill mount on every worker, scoped at mount to the
-// dispatch's optionalSkills. ask_operator stays primary-session-only: workers
-// never mount it (Do not #1).
+// union of attachedSkills and optionalSkills. ask_operator stays
+// primary-session-only: workers never mount it (Do not #1).
 
 /** Skill discovery + loading — mounted on every worker surface below. */
 export const SKILL_TOOLS = ["skill_search", "use_skill"] as const;
