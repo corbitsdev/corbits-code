@@ -111,6 +111,7 @@ describe("runner /handoff wiring", () => {
     await flushSends();
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0]?.content).toBe("ship the dashboard");
+    expect(h.cancelled).toBe(0);
   });
 
   test("noop fold without instructions reports instead of sending a blank pivot", async () => {
@@ -134,6 +135,29 @@ describe("runner /handoff wiring", () => {
     await flushSends();
     expect(h.sent).toHaveLength(1);
     expect(h.cancelled).toBe(1);
+  });
+
+  test("an undelivered noop pivot does not cancelManualCompact", async () => {
+    const h = setUpHandoffHarness();
+    h.setArming("noop");
+    h.setSendResult({
+      status: "not-delivered",
+      reason: "agent-closed",
+      detail: "closed",
+    });
+    expect(h.requestHandoff("ship the dashboard")).toBeUndefined();
+    await flushSends();
+    expect(h.sent).toHaveLength(1);
+    expect(h.cancelled).toBe(0);
+  });
+
+  test("a rejected noop pivot send does not cancelManualCompact", async () => {
+    const h = setUpHandoffHarness();
+    h.setArming("noop");
+    h.setSendThrows("boom");
+    expect(h.requestHandoff("ship the dashboard")).toBeUndefined();
+    await flushSends();
+    expect(h.cancelled).toBe(0);
   });
 
   test("a rejected pivot send disarms as well", async () => {

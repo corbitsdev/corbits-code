@@ -569,10 +569,15 @@ export function createCompactionGovernor(
   // the single operator fold, because firing clears the arming.
   function requestHandoff(instructions: string): HandoffArming {
     if (turnCount <= MIN_TURNS_TO_COMPACT) return "noop";
-    idlePendingAtHandoff = idlePending;
-    extraInstructionsAtHandoff = extraInstructions;
+    // Snapshot only the committed pre-pivot state. A second request while still
+    // armed replaces the pending extras; cancel must not restore the first
+    // uncommitted pivot.
+    if (!manualPending) {
+      idlePendingAtHandoff = idlePending;
+      extraInstructionsAtHandoff = extraInstructions;
+    }
     const trimmed = instructions.trim();
-    if (trimmed.length > 0) extraInstructions = trimmed;
+    extraInstructions = trimmed.length > 0 ? trimmed : undefined;
     manualPending = true;
     idlePending = true;
     if (requestContinuation !== undefined) {
@@ -582,12 +587,14 @@ export function createCompactionGovernor(
   }
 
   // Disarm after a pivot send that never delivered: without this the next
-  // operator message would fold unexpectedly. Threshold `pending` is independent
-  // of the failed pivot and must still fire at the next tool pause. Restore
-  // idlePending and extraInstructions from the requestHandoff snapshots so a
-  // cancelled pivot neither invents an idle fold nor wipes a prior successful
-  // fold's guidance.
+  // operator message would fold unexpectedly. Already-fired or never-armed
+  // cancels are no-ops so they cannot restore snapshots over sticky extras or
+  // re-arm a spent idle fold. Threshold `pending` is independent of the failed
+  // pivot and must still fire at the next tool pause. Restore idlePending and
+  // extraInstructions from the requestHandoff snapshots so a cancelled pivot
+  // neither invents an idle fold nor wipes a prior successful fold's guidance.
   function cancelManual(): void {
+    if (!manualPending) return;
     const thresholdPending = pending;
     clearManualArming();
     pending = thresholdPending;

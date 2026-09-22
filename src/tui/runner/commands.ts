@@ -284,14 +284,18 @@ export function createCommandLayer(
       // starts the next assistant turn — even a "noop" fold still pivots to
       // the operator's new goal without needing `/clear`.
       const pivot = trimmed.length > 0 ? trimmed : HANDOFF_DEFAULT_PIVOT;
+      const disarmOnMiss = arming === "armed";
       void send(userInboundMessage(pivot, [])).then(
         (result) => {
           // A pivot that never delivered must not leave a stale arming behind
-          // to fold the next innocent operator message.
-          if (result.status !== "accepted") director.cancelManualCompact();
+          // to fold the next innocent operator message. Noop never armed, so
+          // cancel would restore snapshots from a prior fold and wipe extras.
+          if (disarmOnMiss && result.status !== "accepted") {
+            director.cancelManualCompact();
+          }
         },
         () => {
-          director.cancelManualCompact();
+          if (disarmOnMiss) director.cancelManualCompact();
         },
       );
       return undefined;
