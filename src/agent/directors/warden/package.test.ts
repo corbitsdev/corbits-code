@@ -71,10 +71,9 @@ describe("wardenPackage", () => {
     expect(wardenPackage.modelRole).toBe("review");
   });
 
-  test("optionalSkills order is style, philosophy, native-integration, idiot-proof", () => {
+  test("attachedSkills are style and philosophy; optionalSkills are on-demand", () => {
+    expect(wardenPackage.attachedSkills).toEqual(["style", "philosophy"]);
     expect(wardenPackage.optionalSkills).toEqual([
-      "style",
-      "philosophy",
       "native-integration",
       "idiot-proof",
     ]);

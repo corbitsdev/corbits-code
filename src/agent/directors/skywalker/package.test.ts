@@ -81,6 +81,7 @@ describe("skywalkerPackage", () => {
       "native-integration",
       "interview",
     ]);
+    expect(skywalkerPackage.attachedSkills).toBeUndefined();
   });
 
   test("systemPrompt has no Ponytail routing or mode internals", () => {

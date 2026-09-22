@@ -79,7 +79,7 @@ describe("buildWorkerContract", () => {
     expect(contract).not.toContain("mailbox");
   });
 
-  test("contract owns the skill-escalation rule (deny-safe)", () => {
+  test("contract owns the skill-escalation rule", () => {
     const contract = buildWorkerContract({ askDirector: true });
     expect(contract).toContain(
       "Skills are available; search only when the brief names a skill or the task is outside your lane. For a small, bounded edit, do not search skills.",
@@ -88,10 +88,12 @@ describe("buildWorkerContract", () => {
       "Load a brief-named skill straight through use_skill",
     );
     expect(contract).toContain("load only the skills the task needs");
-    // Deny-safe: grok/kimi leaves omit skill_search, so discovery is
-    // conditional on the tool being mounted — never mandated.
+    expect(contract).toContain("Do not reload attached skills");
     expect(contract).not.toContain("Call skill_search for descriptions");
-    expect(contract).toContain("it is mounted");
+    expect(contract).toContain(
+      "call skill_search only when choosing among optional skills",
+    );
+    expect(contract).not.toContain("it is mounted");
   });
 });
 

@@ -5,7 +5,8 @@ import { BUILD_TOOLS } from "../tool-sets.js";
  * Builder worker (CL-7018 / CL-8228).
  * Short Corbits implement card: ship the brief, tests with the change, repo
  * gate, report. Family residuals come from packages/prompt-variance at
- * assembly — never inlined here. Skills stay optional; no philosophy boot.
+ * assembly — never inlined here. Style and philosophy attach at spawn;
+ * remaining skills stay optional. No philosophy boot in the card.
  */
 export const builderPackage: DirectorPackage = {
   id: "builder",
@@ -20,13 +21,8 @@ export const builderPackage: DirectorPackage = {
     "orchestrating or spawning other agents",
   ],
   description: "Implementation worker — edit, verify, report",
-  optionalSkills: [
-    "style",
-    "philosophy",
-    "native-runtime",
-    "idiot-proof",
-    "ponytail",
-  ],
+  attachedSkills: ["style", "philosophy"],
+  optionalSkills: ["native-runtime", "idiot-proof", "ponytail"],
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",

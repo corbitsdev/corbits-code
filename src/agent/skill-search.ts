@@ -14,21 +14,32 @@ import {
 // Catalog lookup for skills. Names live in the system prompt; this tool returns
 // matching name + description so the model can choose. Bodies load via use_skill.
 // Directly callable and advertised on primary — do not send the model through
-// tool_search to find it.
+// tool_search to find it. Primary copy is on-demand catalog (Skywalker has no
+// attached skills). Workers mount workerSkillSearchDefinition so they skip
+// search when attached bodies already cover the job.
+const SKILL_SEARCH_INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    query: {
+      type: "string",
+      description: "Keywords describing the capability you need.",
+    },
+  },
+  required: ["query"],
+} as const;
+
 export const skillSearchDefinition: ToolDefinition = {
   name: "skill_search",
   description:
     "Look up skill details by capability. Skill names are listed in the system prompt; call this for descriptions, then use_skill to load a body. Directly callable — do not tool_search for this.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      query: {
-        type: "string",
-        description: "Keywords describing the capability you need.",
-      },
-    },
-    required: ["query"],
-  },
+  inputSchema: SKILL_SEARCH_INPUT_SCHEMA,
+};
+
+export const workerSkillSearchDefinition: ToolDefinition = {
+  name: "skill_search",
+  description:
+    "Find a skill during prep when attached skills are not enough. Do not search on a tiny one-file fix. Directly callable — do not tool_search for this. Returns name + description; load a body with use_skill.",
+  inputSchema: SKILL_SEARCH_INPUT_SCHEMA,
 };
 
 export interface CreateSkillSearchToolArgs {
@@ -37,6 +48,8 @@ export interface CreateSkillSearchToolArgs {
   // set is the intersection with `skills` — a declared name that is not in
   // the snapshot cannot appear (the allowlist cannot widen).
   allowedNames?: readonly string[];
+  // Defaults to the primary catalog copy. Workers pass workerSkillSearchDefinition.
+  definition?: ToolDefinition;
 }
 
 function visibleSkills(
@@ -69,7 +82,7 @@ export function createSkillSearchTool(
 ): AgentTool {
   const catalog = visibleSkills(args.skills, args.allowedNames);
   return stringTool({
-    definition: skillSearchDefinition,
+    definition: args.definition ?? skillSearchDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
       const parsed = SkillSearchArgs(rawArgs);
       if (parsed instanceof type.errors) {

@@ -57,6 +57,7 @@ import {
 import {
   defaultEffortForDirector,
   formatDirectorSystemPrompt,
+  packageAllowedSkillNames,
 } from "../agent/directors/identity.js";
 import type { Settings } from "../config/settings.js";
 import { resolveInferenceWithPolicy } from "../config/settings.js";
@@ -1160,6 +1161,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               ? { shellTimeout: deps.shellTimeout }
               : {}),
             ...(deps.shellEnv !== undefined ? { shellEnv: deps.shellEnv } : {}),
+            ...(deps.skillDirs !== undefined
+              ? { skillDirs: deps.skillDirs }
+              : {}),
             ...(deps.extraToolPlugins !== undefined
               ? { extraToolPlugins: deps.extraToolPlugins }
               : {}),
@@ -1324,6 +1328,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             modelRole: laneModelRole,
           });
 
+          const allowedSkillNames = packageAllowedSkillNames(resolved.pkg);
           const params: RunSubAgentParams = {
             // Name the trace directory after the session-store id so the
             // descendant-scoping check behind read_agent_trace can resolve this
@@ -1376,8 +1381,13 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(resolved.capabilities !== undefined
               ? { capabilities: resolved.capabilities }
               : {}),
-            ...(resolved.pkg?.optionalSkills !== undefined
-              ? { allowedSkillNames: resolved.pkg.optionalSkills }
+            ...(allowedSkillNames !== undefined ? { allowedSkillNames } : {}),
+            ...(resolved.pkg?.attachedSkills !== undefined &&
+            resolved.pkg.attachedSkills.length > 0
+              ? { attachedSkills: resolved.pkg.attachedSkills }
+              : {}),
+            ...(deps.skillDirs !== undefined
+              ? { skillDirs: deps.skillDirs }
               : {}),
             ...(resolved.systemPromptRole !== undefined
               ? { systemPromptRole: resolved.systemPromptRole }

@@ -49,6 +49,11 @@ export interface SubAgentSandboxDeps {
   getBlobReader?: () => BlobReader | undefined;
   /** Project settings.env, merged into the sub-agent's run_shell spawn environment. */
   shellEnv?: Record<string, string>;
+  /**
+   * Plugin skill dirs, same list the primary passes to createUseSkillTool.
+   * Workers resolve attached/optional skill bodies through these dirs.
+   */
+  skillDirs?: readonly string[];
 }
 
 export type NestedDispatchDeps = SubAgentSandboxDeps & {
@@ -131,12 +136,24 @@ export type RunSubAgentParams = {
   capabilities?: CapabilityFilter;
   /**
    * Skill allowlist for the worker's skill_search + use_skill mounts,
-   * resolved by the caller (agent-fleet.ts) from the dispatch's
-   * DirectorPackage.optionalSkills. When set, both tools only see these
-   * names (the allowlist cannot widen: unknown names refuse). When unset
-   * (non-director plugin profiles), the worker sees every discovered skill.
+   * resolved by the caller (agent-fleet.ts) as the union of
+   * DirectorPackage.attachedSkills and optionalSkills. When set, both tools
+   * only see these names (the allowlist cannot widen: unknown names refuse).
+   * When unset (non-director plugin profiles), the worker sees every
+   * discovered skill.
    */
   allowedSkillNames?: readonly string[];
+  /**
+   * Attached skill names whose bodies are injected into the worker system
+   * prompt at spawn. Misses are noted in the prompt — never park or fail init.
+   */
+  attachedSkills?: readonly string[];
+  /**
+   * Plugin skill dirs threaded from the primary (skillDirsFromEnabledPlugins).
+   * Passed to discoverSkills and createUseSkillTool so bundled corbits-skills
+   * resolve the same way they do on the primary.
+   */
+  skillDirs?: readonly string[];
   systemPromptRole?: string;
   /** Resolved closed-director id (e.g. "critic") when the worker is one. Structured gate key — prefer over persona-string matching in systemPromptRole. */
   directorId?: string;

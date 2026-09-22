@@ -59,12 +59,9 @@ describe("counselPackage", () => {
     expect(counselPackage.modelRole).toBe("plan");
   });
 
-  test("optionalSkills order", () => {
-    expect(counselPackage.optionalSkills).toEqual([
-      "style",
-      "philosophy",
-      "native-integration",
-    ]);
+  test("attachedSkills are style and philosophy; optionalSkills are on-demand", () => {
+    expect(counselPackage.attachedSkills).toEqual(["style", "philosophy"]);
+    expect(counselPackage.optionalSkills).toEqual(["native-integration"]);
   });
 
   test("does not advertise interview skill workers cannot use", () => {

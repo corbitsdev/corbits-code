@@ -35,11 +35,17 @@ describe("neckbeardPackage", () => {
     expect(p).toMatch(/code \(when the brief asks\)|code review/i);
   });
 
-  test("systemPrompt loads style/philosophy on demand and reports to parent", () => {
+  test("systemPrompt treats style/philosophy as attached and reports to parent", () => {
     const p = neckbeardPackage.systemPrompt;
-    expect(p).toMatch(/skill_search.*use_skill|use_skill.*skill_search/i);
+    expect(p).toContain("Style and philosophy are attached");
+    expect(p).toContain("Do not use_skill them again");
+    expect(p).toContain("DO NOT park waiting for a skill load");
+    expect(p).not.toMatch(/Load the `style` and `philosophy` conventions/);
+    expect(p).not.toMatch(
+      /DO NOT DO ANYTHING ELSE BEFORE YOU'VE DONE ALL STEPS/,
+    );
     expect(p).not.toMatch(/use_skill.*not mounted|not mounted.*use_skill/i);
-    expect(p).toMatch(/violently disagree/);
+    expect(p).toMatch(/violently disagree/i);
     expect(p).toMatch(/report to the parent/i);
     expect(p).toMatch(/Corbits report envelope/);
     expect(p).not.toMatch(/## Summary/);
@@ -58,12 +64,9 @@ describe("neckbeardPackage", () => {
     expect(neckbeardPackage.modelRole).toBe("review");
   });
 
-  test("optionalSkills are style and philosophy", () => {
-    expect(neckbeardPackage.optionalSkills).toEqual([
-      "style",
-      "philosophy",
-      "native-integration",
-    ]);
+  test("attachedSkills are style and philosophy; optionalSkills are on-demand", () => {
+    expect(neckbeardPackage.attachedSkills).toEqual(["style", "philosophy"]);
+    expect(neckbeardPackage.optionalSkills).toEqual(["native-integration"]);
   });
 
   test("primaryIntent and outOfLane match neckbeard lane", () => {

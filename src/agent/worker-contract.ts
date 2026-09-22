@@ -27,7 +27,7 @@ export function buildWorkerContract(opts: WorkerContractOptions = {}): string {
     orchestrator
       ? `- You are an orchestrator: you MAY call \`spawn_agent\` to spawn other fleet agents (e.g. spawn_agent(agent="greybeard", description="Review approach", prompt="...")). This is an explicit exception to the no-recursion rule — delegate specialist work, then synthesize their reports. \`spawn_agent\` spawns an agent, not a checklist item.`
       : `- Only the primary ${PRODUCT_NAME} session (or a built-in orchestrator director) may call \`spawn_agent\` to spawn fleet agents. You are a worker: return a concrete report to the caller instead of spawning further agents. Use manage_tasks for your own work checklist if the job is multi-step.`,
-    "- Skills are available; search only when the brief names a skill or the task is outside your lane. For a small, bounded edit, do not search skills. Load a brief-named skill straight through use_skill with its exact name; call skill_search for descriptions only when choosing among skills and it is mounted; load only the skills the task needs.",
+    "- Skills are available; search only when the brief names a skill or the task is outside your lane. For a small, bounded edit, do not search skills. Do not reload attached skills. Load a brief-named skill straight through use_skill with its exact name; call skill_search only when choosing among optional skills; load only the skills the task needs.",
     buildSubAgentReportContract({ askDirector }),
   ].join("\n\n");
 }

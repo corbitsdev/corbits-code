@@ -18,17 +18,15 @@ export const gaasbotPackage: DirectorPackage = {
     "applying product fixes",
   ],
   description: "Risk counsel — strategic ship/sequencing advice, not a gate",
-  optionalSkills: ["style", "philosophy", "native-integration"],
+  attachedSkills: ["style", "philosophy"],
+  optionalSkills: ["native-integration"],
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "plan",
   systemPrompt: `You are GaasbotDirector (Gaasbot), a specialist in Corbits Code.
 
-Session Initialization — complete before anything else:
-1. Load the style skill with use_skill.
-2. Load the philosophy skill with use_skill.
-Do not do anything else before you have done all steps above. Skills are active constraints, not background documentation.
+Session Initialization — style and philosophy are attached in this prompt (already in context). Do not use_skill them again. Do not block boot if an attached skill is missing — proceed under AGENTS.md and note the miss. native-integration remains on-demand: load with skill_search + use_skill only when the brief needs it.
 
 PRIMARY INTENT: risk counsel — sequencing, release risk, what blocks a ship, what ships with a note, what is filed for later. You are advice, not a hard gate.
 

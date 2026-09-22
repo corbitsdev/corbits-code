@@ -1,8 +1,9 @@
 /**
  * runSubAgent mounts skill_search + use_skill on every worker, scoped to the
- * dispatch's allowedSkillNames (pkg.optionalSkills). The scope cannot widen:
- * use_skill refuses names outside the allowlist (CL-6803 stays closed) and
- * skill_search hides them.
+ * dispatch's allowedSkillNames (union of attachedSkills and optionalSkills).
+ * The scope cannot widen: use_skill refuses names outside the allowlist
+ * (CL-6803 stays closed) and skill_search hides them. Plugin skillDirs are
+ * threaded through so bundled corbits-skills resolve.
  *
  * Pattern follows run-authority.test.ts: drive the real runSubAgent with
  * failing inference (mount decisions run before the send) while wrapping the
@@ -15,6 +16,11 @@ import { join } from "node:path";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
 import { createPermissionGate } from "../permission/gate.js";
+import {
+  workerSkillSearchDefinition,
+  type CreateSkillSearchToolArgs,
+} from "../agent/skill-search.js";
+import { workerUseSkillDefinition } from "../agent/use-skill.js";
 import type { RunSubAgentParams } from "./types.js";
 
 const testPermissionGate = createPermissionGate({
@@ -92,9 +98,7 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
     );
     await writeSkill(cwd, "off-lane", "Unrelated lane.", "Off-lane body.");
 
-    let searchArgs:
-      | { skills: { name: string }[]; allowedNames?: readonly string[] }
-      | undefined;
+    let searchArgs: CreateSkillSearchToolArgs | undefined;
     let useSkillArgs: readonly unknown[] | undefined;
     let searchTool:
       | {
@@ -120,10 +124,9 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
         import.meta.resolve("../agent/skill-search.js"),
         (real: typeof import("../agent/skill-search.js")) => ({
           ...real,
-          createSkillSearchTool: (args: {
-            skills: { name: string; description: string }[];
-            allowedNames?: readonly string[];
-          }) => {
+          createSkillSearchTool: (
+            args: Parameters<typeof real.createSkillSearchTool>[0],
+          ) => {
             searchArgs = args;
             const tool = real.createSkillSearchTool(args);
             if (tool.kind !== "string") throw new Error("expected string tool");
@@ -171,7 +174,10 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
       "style",
     ]);
     expect(useSkillArgs?.[0]).toBe(cwd);
+    expect(useSkillArgs?.[1]).toEqual([]);
     expect(useSkillArgs?.[3]).toEqual(["style"]);
+    expect(searchArgs?.definition).toBe(workerSkillSearchDefinition);
+    expect(useSkillArgs?.[4]).toBe(workerUseSkillDefinition);
     expect(searchTool).toBeDefined();
     expect(useSkillTool).toBeDefined();
 
@@ -192,7 +198,7 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
     );
   }, 15_000);
 
-  test("grok/kimi leaves omit skill_search but keep scoped use_skill; orchestrators keep both", async () => {
+  test("grok/kimi leaves mount skill_search and use_skill like every other family", async () => {
     const cwd = await tmpCwd();
     await writeSkill(
       cwd,
@@ -265,7 +271,8 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
       };
     }
 
-    // Grok + kimi leaves: deny executes — skill_search omitted, use_skill kept.
+    // Grok + kimi leaves: both mount — orchestrator vs leaf no longer differs
+    // for skill_search.
     for (const [providerName, model] of [
       ["xai", "grok-4-1-fast-non-reasoning"],
       ["moonshot", "kimi-k2-0711"],
@@ -273,7 +280,7 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
       const counts = await runCase(leafParams(providerName, model));
       expect({ providerName, ...counts }).toEqual({
         providerName,
-        searchCalls: 0,
+        searchCalls: 1,
         useSkillCalls: 1,
       });
     }
@@ -284,7 +291,7 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
       useSkillCalls: 1,
     });
 
-    // Grok orchestrator: deny cleared — both mount.
+    // Grok orchestrator: both still mount.
     expect(
       await runCase(
         leafParams("xai", "grok-4-1-fast-non-reasoning", {
@@ -293,4 +300,196 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
       ),
     ).toEqual({ searchCalls: 1, useSkillCalls: 1 });
   }, 30_000);
+
+  test("plugin skillDirs reach use_skill and discoverSkills so bundled-style skills resolve", async () => {
+    const cwd = await tmpCwd();
+    const pluginRoot = join(cwd, "plugin");
+    await mkdir(join(pluginRoot, "skills", "style"), { recursive: true });
+    await writeFile(
+      join(pluginRoot, "skills", "style", "SKILL.md"),
+      "---\nname: style\ndescription: Code style rules.\n---\n\nFollow the style guide.\n",
+    );
+
+    let useSkillArgs: readonly unknown[] | undefined;
+    let searchArgs: CreateSkillSearchToolArgs | undefined;
+    let useSkillTool:
+      | {
+          kind: string;
+          handler: (
+            args: Record<string, unknown>,
+            signal: AbortSignal,
+          ) => Promise<string>;
+        }
+      | undefined;
+
+    await runWithFailingInference((baseURL) =>
+      withMockedModuleDuring(
+        import.meta.resolve("../agent/skill-search.js"),
+        (real: typeof import("../agent/skill-search.js")) => ({
+          ...real,
+          createSkillSearchTool: (
+            args: Parameters<typeof real.createSkillSearchTool>[0],
+          ) => {
+            searchArgs = args;
+            return real.createSkillSearchTool(args);
+          },
+        }),
+        () =>
+          withMockedModuleDuring(
+            import.meta.resolve("../agent/use-skill.js"),
+            (real: typeof import("../agent/use-skill.js")) => ({
+              ...real,
+              createUseSkillTool: (...args: unknown[]) => {
+                useSkillArgs = args;
+                const tool = (
+                  real.createUseSkillTool as (...a: never[]) => unknown
+                )(...(args as never[]));
+                if (
+                  typeof tool !== "object" ||
+                  tool === null ||
+                  (tool as { kind: string }).kind !== "string"
+                )
+                  throw new Error("expected string tool");
+                useSkillTool = tool as typeof useSkillTool & {};
+                return tool;
+              },
+            }),
+            async () => {
+              const { runSubAgent: run } = await import("./run.js");
+              await run({
+                ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
+                skillDirs: [pluginRoot],
+              }).catch(() => {
+                // Inference fails by design; mount decisions run first.
+              });
+            },
+          ),
+      ),
+    );
+
+    expect(useSkillArgs?.[1]).toEqual([pluginRoot]);
+    expect(searchArgs?.skills.map((s) => s.name)).toContain("style");
+    const loaded = await useSkillTool?.handler(
+      { name: "style" },
+      new AbortController().signal,
+    );
+    expect(loaded).toContain("Follow the style guide.");
+  }, 15_000);
+
+  test("threads attachedSkills into use_skill and refuses those names without returning the body", async () => {
+    const cwd = await tmpCwd();
+    await writeSkill(
+      cwd,
+      "style",
+      "Code style rules.",
+      "Follow the style guide.",
+    );
+
+    let useSkillArgs: readonly unknown[] | undefined;
+    let useSkillTool:
+      | {
+          kind: string;
+          handler: (
+            args: Record<string, unknown>,
+            signal: AbortSignal,
+          ) => Promise<string>;
+        }
+      | undefined;
+
+    await runWithFailingInference((baseURL) =>
+      withMockedModuleDuring(
+        import.meta.resolve("../agent/use-skill.js"),
+        (real: typeof import("../agent/use-skill.js")) => ({
+          ...real,
+          createUseSkillTool: (...args: unknown[]) => {
+            useSkillArgs = args;
+            const tool = (
+              real.createUseSkillTool as (...a: never[]) => unknown
+            )(...(args as never[]));
+            if (
+              typeof tool !== "object" ||
+              tool === null ||
+              (tool as { kind: string }).kind !== "string"
+            )
+              throw new Error("expected string tool");
+            useSkillTool = tool as typeof useSkillTool & {};
+            return tool;
+          },
+        }),
+        async () => {
+          const { runSubAgent: run } = await import("./run.js");
+          await run({
+            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
+            attachedSkills: ["style"],
+          }).catch(() => {
+            // Inference fails by design; mount decisions run first.
+          });
+        },
+      ),
+    );
+
+    expect(useSkillArgs?.[5]).toEqual(["style"]);
+    expect(useSkillTool).toBeDefined();
+    const refused = await useSkillTool?.handler(
+      { name: "style" },
+      new AbortController().signal,
+    );
+    expect(refused).toBe(
+      'Skill "style" is already attached / already in context.',
+    );
+    expect(refused).not.toContain("Follow the style guide.");
+  }, 15_000);
+
+  test("injects attached skill bodies into the worker prompt and notes misses without parking", async () => {
+    const cwd = await tmpCwd();
+    const pluginRoot = join(cwd, "plugin");
+    await mkdir(join(pluginRoot, "skills", "style"), { recursive: true });
+    await writeFile(
+      join(pluginRoot, "skills", "style", "SKILL.md"),
+      "---\nname: style\ndescription: Code style rules.\n---\n\nFollow the style guide.\n",
+    );
+
+    let extensions: readonly string[] | undefined;
+
+    await runWithFailingInference((baseURL) =>
+      withMockedModuleDuring(
+        import.meta.resolve("../agent/prompts.js"),
+        (real: typeof import("../agent/prompts.js")) => ({
+          ...real,
+          buildSubAgentSystemPrompt: (
+            ext: readonly string[] | undefined,
+            ...rest: unknown[]
+          ) => {
+            extensions = ext;
+            return (
+              real.buildSubAgentSystemPrompt as (
+                ...a: never[]
+              ) => ReturnType<typeof real.buildSubAgentSystemPrompt>
+            )(ext as never, ...(rest as never[]));
+          },
+        }),
+        async () => {
+          const { runSubAgent: run } = await import("./run.js");
+          await run({
+            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
+            skillDirs: [pluginRoot],
+            attachedSkills: ["style", "philosophy"],
+          }).catch(() => {
+            // Inference fails by design; prompt assembly runs first.
+          });
+        },
+      ),
+    );
+
+    const joined = (extensions ?? []).join("\n");
+    expect(joined).toContain("# Attached skill constraints");
+    expect(joined).toContain("Do not use_skill them again");
+    expect(joined).toContain("do not park, do not ask_director");
+    expect(joined).toContain("### style");
+    expect(joined).toContain("Follow the style guide.");
+    expect(joined).toContain(
+      'Attached skill "philosophy" could not be resolved. Proceed under AGENTS.md.',
+    );
+    expect(joined).not.toContain("### philosophy");
+  }, 15_000);
 });
