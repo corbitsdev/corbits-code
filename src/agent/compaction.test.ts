@@ -9,7 +9,9 @@ import type {
 import {
   COMPACTION_CONTINUATION_EVENT,
   OPERATOR_COMPACT_REASON,
+  compactFloorNoopNotice,
   createCompactionGovernor,
+  stickyExtraInstructionsFromRecords,
 } from "./compaction.js";
 import {
   compactionResumeDeltaFor,
@@ -853,6 +855,82 @@ describe("compaction governor", () => {
     ).toBe("kick");
     expect(governor.compactTurnCount).toBe(10);
     expect(governor.extraInstructions).toBe("keep the auth discussion");
+  });
+
+  test("restoreExtraInstructions hydrates a new governor from a compact record", () => {
+    const written = {
+      strategy: "pruning-compactor",
+      version: "1",
+      parameters: { extraInstructions: "keep the auth discussion" },
+      reason: "compacted",
+      decisions: {},
+    };
+    expect(stickyExtraInstructionsFromRecords([written])).toBe(
+      "keep the auth discussion",
+    );
+
+    const rebuilt = createCompactionGovernor(undefined);
+    expect(rebuilt.extraInstructions).toBeUndefined();
+    rebuilt.restoreExtraInstructions(
+      stickyExtraInstructionsFromRecords([written]),
+    );
+    expect(rebuilt.extraInstructions).toBe("keep the auth discussion");
+    rebuilt.restoreExtraInstructions(undefined);
+    expect(rebuilt.extraInstructions).toBe("keep the auth discussion");
+  });
+
+  test("sticky extra instructions skip empty values and later non-pruning records", () => {
+    expect(
+      stickyExtraInstructionsFromRecords([
+        {
+          strategy: "other",
+          parameters: { extraInstructions: "ignore me" },
+        },
+        {
+          strategy: "pruning-compactor",
+          parameters: { extraInstructions: "  keep tests  " },
+        },
+        {
+          strategy: "pruning-compactor",
+          parameters: { extraInstructions: "older" },
+        },
+      ]),
+    ).toBe("keep tests");
+    expect(
+      stickyExtraInstructionsFromRecords([
+        {
+          strategy: "pruning-compactor",
+          parameters: { extraInstructions: "" },
+        },
+        {
+          strategy: "pruning-compactor",
+          parameters: { extraInstructions: 12 },
+        },
+      ]),
+    ).toBeUndefined();
+  });
+
+  test("second /compact during the apply-to-meter window does not double-fold", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
+    expect(governor.requestManual("keep the auth discussion")).toBe("kick");
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).not.toBeNull();
+
+    expect(governor.requestManual("also keep the billing notes")).toBe("armed");
+    expect(governor.extraInstructions).toBe("also keep the billing notes");
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+  });
+
+  test("noop /compact below the floor tells the operator instructions were not saved", () => {
+    expect(compactFloorNoopNotice("")).toBe("Nothing to compact yet.");
+    expect(compactFloorNoopNotice("keep the auth discussion")).toBe(
+      "Nothing to compact yet. Instructions were not saved.",
+    );
   });
 });
 

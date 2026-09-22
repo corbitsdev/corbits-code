@@ -816,6 +816,10 @@ class ChatDirectorImpl extends DefaultDirector {
     return this.compaction.extraInstructions;
   }
 
+  restoreCompactInstructions(value: string | undefined): void {
+    this.compaction.restoreExtraInstructions(value);
+  }
+
   getCompactTurnCount(): number {
     return this.compaction.compactTurnCount;
   }
@@ -1418,5 +1422,6 @@ export interface ChatDirector extends ReactorDirector {
     options?: ManualCompactOptions,
   ): ManualCompactArming;
   getCompactInstructions(): string | undefined;
+  restoreCompactInstructions(value: string | undefined): void;
   getCompactTurnCount(): number;
 }

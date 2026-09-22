@@ -68,6 +68,38 @@ export type ManualCompactOptions = {
   turns?: readonly ConversationTurn[];
 };
 
+type CompactRecordLike = {
+  strategy?: string;
+  parameters?: Record<string, unknown>;
+};
+
+function extraInstructionsFromCompactRecord(
+  record: CompactRecordLike,
+): string | undefined {
+  if (record.strategy !== COMPACTOR_NAME) return undefined;
+  const extra = record.parameters?.extraInstructions;
+  if (typeof extra !== "string") return undefined;
+  const trimmed = extra.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Newest-commit-first: first pruning-compactor extraInstructions wins. */
+export function stickyExtraInstructionsFromRecords(
+  records: readonly CompactRecordLike[],
+): string | undefined {
+  for (const record of records) {
+    const extra = extraInstructionsFromCompactRecord(record);
+    if (extra !== undefined) return extra;
+  }
+  return undefined;
+}
+
+export function compactFloorNoopNotice(instructions: string): string {
+  return instructions.trim().length > 0
+    ? "Nothing to compact yet. Instructions were not saved."
+    : "Nothing to compact yet.";
+}
+
 /** Build the continuation re-entry action for a compacted governor cycle. */
 export function compactionContinuationAction(
   capabilities: ReactorCapabilities,
@@ -499,6 +531,9 @@ export function createCompactionGovernor(
     if (turnCount <= MIN_TURNS_TO_COMPACT) return "noop";
     const trimmed = instructions.trim();
     if (trimmed.length > 0) extraInstructions = trimmed;
+    // A compact is already in flight (apply-to-meter or post-compact infer).
+    // Keep sticky instructions but do not kick a second fold.
+    if (hasOutstandingContinuation()) return "armed";
     manualPending = true;
     if (options?.inFlight === true) return "armed";
     if (idlePending) return "armed";
@@ -508,6 +543,12 @@ export function createCompactionGovernor(
       return "armed";
     }
     return "kick";
+  }
+
+  function restoreExtraInstructions(value: string | undefined): void {
+    const trimmed = value?.trim();
+    if (trimmed === undefined || trimmed.length === 0) return;
+    extraInstructions = trimmed;
   }
 
   return {
@@ -527,6 +568,7 @@ export function createCompactionGovernor(
       return turnCount;
     },
     requestManual,
+    restoreExtraInstructions,
     syncFromTurns,
     noteInferenceDone,
     notePostCompact,

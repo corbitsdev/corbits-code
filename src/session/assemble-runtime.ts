@@ -50,6 +50,7 @@ import {
 } from "../agent/tool-search.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
+import { stickyExtraInstructionsFromRecords } from "../agent/compaction.js";
 import { createChatDirector, type ChatDirector } from "../agent/director.js";
 import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
 import type { AgentToolset } from "../agent/tools.js";
@@ -517,6 +518,21 @@ export interface AssembledChatAgent {
   buildAgent: () => Promise<Agent>;
 }
 
+const STICKY_COMPACT_MANIFEST_LIMIT = 32;
+
+async function stickyExtraInstructionsFromStore(
+  storage: ContextStore,
+): Promise<string | undefined> {
+  if (typeof storage.readManifestHistory !== "function") return undefined;
+  try {
+    return stickyExtraInstructionsFromRecords(
+      await storage.readManifestHistory(STICKY_COMPACT_MANIFEST_LIMIT),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Define the chat director + agent and build live instances against the
  * git-backed store. Identical for both runners: the TUI-only deltas
@@ -525,10 +541,14 @@ export interface AssembledChatAgent {
  */
 export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
   const directorHolder = wiring.directorHolder ?? {};
+  // Newest-commit-first compact records from the store, refreshed each build
+  // so resume and /model rebuilds restore sticky /compact instructions.
+  let stickyFromStore: string | undefined;
   const chatDirectorDef = defineDirector({
     id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
     factory: (_cfg, _env, agentCtx) => {
+      const fromPrev = directorHolder.instance?.getCompactInstructions();
       const d = createChatDirector(
         agentCtx.systemPrompt,
         wiring.computeAdvertised([...agentCtx.toolDefinitions]),
@@ -543,6 +563,8 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           allowIdleWithFleet: wiring.allowIdleWithFleet,
         },
       );
+      d.restoreCompactInstructions(stickyFromStore);
+      d.restoreCompactInstructions(fromPrev);
       if (wiring.clearDenials !== undefined)
         d.setClearDenials(wiring.clearDenials);
       directorHolder.instance = d;
@@ -621,6 +643,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
               return storage.writeResponse(admitted, signal);
             },
           };
+    stickyFromStore = await stickyExtraInstructionsFromStore(storageForAgent);
     const agent = await createAgentWithLiveToolDispatch(agentDef, {
       sources: wiring.getSources(),
       defaultSource: wiring.getDefaultSource(),

@@ -15,6 +15,10 @@ import {
   type SessionMetadata,
 } from "./session/compactor.js";
 import { createModelSummarizer } from "./session/summarizer.js";
+import {
+  createCompactionGovernor,
+  stickyExtraInstructionsFromRecords,
+} from "./agent/compaction.js";
 import type {
   ConversationTurn,
   InferenceSource,
@@ -783,6 +787,44 @@ describe("createPruningCompactor — operator extra instructions", () => {
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
     expect(result.record.parameters.extraInstructions).toBe(
+      "keep the auth discussion",
+    );
+  });
+
+  test("a rebuilt governor still passes stored extra instructions into the next fold", async () => {
+    const turns: ConversationTurn[] = [
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "a" }] }),
+      makeTurn({ role: "assistant", content: [{ type: "text", text: "b" }] }),
+      makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
+    ];
+    const written = await createPruningCompactor({
+      keepRecentTurns: 1,
+      summaryMaxChars: 500,
+      summaryContext: () => ({ extraInstructions: "keep the auth discussion" }),
+      summarize: async () => "summary text",
+    }).apply(turns, mockStrategyCtx);
+
+    const rebuilt = createCompactionGovernor(undefined);
+    rebuilt.restoreExtraInstructions(
+      stickyExtraInstructionsFromRecords([written.record]),
+    );
+
+    let captured: { extraInstructions?: string } | undefined;
+    const next = await createPruningCompactor({
+      keepRecentTurns: 1,
+      summaryMaxChars: 500,
+      summaryContext: () => {
+        const extra = rebuilt.extraInstructions;
+        return extra !== undefined ? { extraInstructions: extra } : undefined;
+      },
+      summarize: async (_folded, ctx) => {
+        captured = ctx;
+        return "later summary";
+      },
+    }).apply(turns, mockStrategyCtx);
+
+    expect(captured?.extraInstructions).toBe("keep the auth discussion");
+    expect(next.record.parameters.extraInstructions).toBe(
       "keep the auth discussion",
     );
   });

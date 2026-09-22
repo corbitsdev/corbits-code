@@ -5,6 +5,7 @@
 
 import { getLogger } from "@intx/log";
 import type { ConversationTurn } from "@intx/types/runtime";
+import { compactFloorNoopNotice } from "../../agent/compaction.js";
 import type { CommandContext, CommandResult } from "../commands/registry.js";
 import { getCommand, setHiddenCommands } from "../commands/registry.js";
 import { registerBuiltInCommands } from "../commands/built-in.js";
@@ -226,7 +227,7 @@ export function createCommandLayer(
           inFlight,
           ...(turns !== undefined ? { turns } : {}),
         });
-        if (arming === "noop") return "Nothing to compact yet.";
+        if (arming === "noop") return compactFloorNoopNotice(instructions);
         if (arming === "kick") {
           state.enqueueCompactionContinuation?.(() =>
             liveAgent(state).deliver(buildCompactionContinuationMessage()),

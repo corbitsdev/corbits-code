@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Agent } from "@intx/agent";
+import type { Agent, DirectorRegistry } from "@intx/agent";
 import type {
   AuditStore,
   Compactor,
@@ -11,6 +11,7 @@ import type {
 } from "@intx/types/runtime";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import type { ChatDirector } from "../agent/director.js";
 import {
   createAdvertisedToolset,
   loadSessionLocalSettings,
@@ -391,5 +392,74 @@ describe("assembleChatAgent", () => {
     expect(capturedAuthorize).toBe(authorize);
     expect(builtAgent).toBe(fakeAgent);
     expect(builtStorage).toBe(fakeStorage);
+  });
+
+  test("rebuild restores extraInstructions from the latest compact record", async () => {
+    let records: {
+      strategy: string;
+      version: string;
+      parameters: Record<string, unknown>;
+      reason: string;
+      decisions: Record<string, unknown>;
+    }[] = [
+      {
+        strategy: "pruning-compactor",
+        version: "1",
+        parameters: { extraInstructions: "keep the auth discussion" },
+        reason: "compacted",
+        decisions: {},
+      },
+    ];
+    const fakeStorage = {
+      readBlob: async () => new Uint8Array(),
+      readManifestHistory: async () => records,
+    } as unknown as ContextStore;
+    const fakeAgent = { close: async () => undefined } as unknown as Agent;
+    const directorHolder: { instance?: ChatDirector } = {};
+
+    await withMockedModuleDuring(
+      import.meta.resolve("./optimized-context-store.js"),
+      (real: typeof import("./optimized-context-store.js")) => ({
+        ...real,
+        createSessionStores: async () => ({
+          storage: fakeStorage,
+          audit: stubAuditStore(),
+        }),
+      }),
+      async () => {
+        await withMockedModuleDuring(
+          import.meta.resolve("../agent/live-tool-dispatch.js"),
+          (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+            ...real,
+            createAgentWithLiveToolDispatch: async (
+              _def: unknown,
+              env: { directors: DirectorRegistry },
+            ) => {
+              env.directors.defaultFactory()({}, {} as never, {
+                systemPrompt: "prompt",
+                toolDefinitions: [],
+                compactorNames: ["pruning-compactor"],
+              });
+              return fakeAgent;
+            },
+          }),
+          async () => {
+            const { assembleChatAgent } = await import("./assemble-runtime.js");
+            const { buildAgent } = assembleChatAgent(
+              stubChatAgentWiring({ directorHolder }),
+            );
+            await buildAgent();
+            expect(directorHolder.instance?.getCompactInstructions()).toBe(
+              "keep the auth discussion",
+            );
+            records = [];
+            await buildAgent();
+            expect(directorHolder.instance?.getCompactInstructions()).toBe(
+              "keep the auth discussion",
+            );
+          },
+        );
+      },
+    );
   });
 });

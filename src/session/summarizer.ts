@@ -141,7 +141,8 @@ export interface SummaryContext {
   activatedTools?: string[];
   /**
    * Optional operator guidance from `/compact [instructions]`. Sticky across
-   * later auto-folds when the governor still holds it.
+   * later auto-folds: the governor holds them, and a rebuilt director restores
+   * them from the latest compact record.
    */
   extraInstructions?: string;
 }
