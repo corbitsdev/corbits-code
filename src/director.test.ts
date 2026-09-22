@@ -6,7 +6,10 @@ import {
   CHAT_TOOLS_ACTIVATE_EVENT,
 } from "./agent/director.js";
 import type { WorkflowCoordinator } from "./workflows/coordinator.js";
-import { COMPACTION_CONTINUATION_EVENT } from "./agent/compaction.js";
+import {
+  COMPACTION_CONTINUATION_EVENT,
+  stickyExtraInstructionsFromRecords,
+} from "./agent/compaction.js";
 import { createAgentToolset } from "./agent/tools.js";
 import { createAdvertisedToolset } from "./session/assemble-runtime.js";
 import { createPermissionGate } from "./permission/gate.js";
@@ -1141,6 +1144,26 @@ describe("chatDirector compaction", () => {
       await director.decide(messageReceived(""), longState, mockCapabilities),
     );
     expect(afterCompact.some((a) => a.type === "done")).toBe(false);
+  });
+
+  test("restoreCompactInstructions hydrates a rebuilt director from a compact record", () => {
+    const written = {
+      strategy: "pruning-compactor" as const,
+      version: "1",
+      parameters: { extraInstructions: "keep the auth discussion" },
+      reason: "compacted",
+      decisions: {},
+    };
+    const first = chatDirector("");
+    first.restoreCompactInstructions(
+      stickyExtraInstructionsFromRecords([written]),
+    );
+    expect(first.getCompactInstructions()).toBe("keep the auth discussion");
+
+    const rebuilt = chatDirector("");
+    expect(rebuilt.getCompactInstructions()).toBeUndefined();
+    rebuilt.restoreCompactInstructions(first.getCompactInstructions());
+    expect(rebuilt.getCompactInstructions()).toBe("keep the auth discussion");
   });
 });
 

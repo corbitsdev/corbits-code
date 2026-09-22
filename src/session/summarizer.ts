@@ -139,6 +139,12 @@ export interface SummaryContext {
   // live in the advertised prefix, not this list — callers pass
   // activatedToolNames.list() only.
   activatedTools?: string[];
+  /**
+   * Optional operator guidance from `/compact [instructions]`. Sticky across
+   * later auto-folds: the governor holds them, and a rebuilt director restores
+   * them from the latest compact record.
+   */
+  extraInstructions?: string;
 }
 
 const SYSTEM_INSTRUCTION = [
@@ -249,6 +255,12 @@ function contextPreamble(ctx: SummaryContext | undefined): string {
   if (tools.length > 0) {
     parts.push(
       `Tools activated via tool_search and still callable directly: ${tools.join(", ")}`,
+    );
+  }
+  const extra = ctx?.extraInstructions?.trim();
+  if (extra !== undefined && extra.length > 0) {
+    parts.push(
+      `Operator compact instructions (honor these while keeping the sections above):\n${extra}`,
     );
   }
   if (parts.length === 0) return "";

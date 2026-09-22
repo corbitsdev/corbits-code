@@ -639,7 +639,14 @@ export async function assembleTUISession(
   const summaryContext = (): SummaryContext | undefined => {
     const status = workflowHost.status();
     const activatedTools = activatedToolNames.list();
-    if (!status.active && activatedTools.length === 0) return undefined;
+    const extraInstructions = directorHolder.instance?.getCompactInstructions();
+    if (
+      !status.active &&
+      activatedTools.length === 0 &&
+      (extraInstructions === undefined || extraInstructions.length === 0)
+    ) {
+      return undefined;
+    }
     return {
       ...(status.active
         ? {
@@ -652,6 +659,9 @@ export async function assembleTUISession(
           }
         : {}),
       ...(activatedTools.length > 0 ? { activatedTools } : {}),
+      ...(extraInstructions !== undefined && extraInstructions.length > 0
+        ? { extraInstructions }
+        : {}),
     };
   };
 

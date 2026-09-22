@@ -4,6 +4,8 @@
  */
 
 import { getLogger } from "@intx/log";
+import type { ConversationTurn } from "@intx/types/runtime";
+import { compactFloorNoopNotice } from "../../agent/compaction.js";
 import type { CommandContext, CommandResult } from "../commands/registry.js";
 import { getCommand, setHiddenCommands } from "../commands/registry.js";
 import { registerBuiltInCommands } from "../commands/built-in.js";
@@ -42,9 +44,15 @@ import { yoloModeLabel } from "../components/prompt-action-bar-label.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
 import { resolveSessionEffort } from "../../provider/reasoning-effort.js";
 import type { InferenceAttemptIdentity } from "./state.js";
-import { hostOf, type RunnerServices, type RunnerState } from "./state.js";
+import {
+  hostOf,
+  liveAgent,
+  type RunnerServices,
+  type RunnerState,
+} from "./state.js";
 import { userInboundMessage } from "./submit.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { buildCompactionContinuationMessage } from "../../session/runtime-assembly.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -91,6 +99,8 @@ export function createCommandLayer(
     };
   };
   state.currentAttemptIdentity = currentAttemptIdentity;
+
+  let compactHydrateInFlight = false;
 
   const commandContext: CommandContext = {
     signalClear: () => state.newSession?.(),
@@ -198,6 +208,52 @@ export function createCommandLayer(
     },
     beginFeedbackCapture: () => {
       armFeedbackCapture();
+    },
+    requestCompact: (instructions) => {
+      const director = services.directorHolder.instance;
+      const agent = state.currentAgent;
+      if (director === undefined || agent === undefined) {
+        return "Compaction is not available in this session.";
+      }
+      if (
+        state.compactionLifecycle?.isCompacting() === true ||
+        compactHydrateInFlight
+      ) {
+        return "Compaction is already in progress.";
+      }
+      const arm = (turns?: ConversationTurn[]) => {
+        const inFlight = state.host?.shell.session.run === "busy";
+        const arming = director.requestManualCompact(instructions, {
+          inFlight,
+          ...(turns !== undefined ? { turns } : {}),
+        });
+        if (arming === "noop") return compactFloorNoopNotice(instructions);
+        if (arming === "kick") {
+          state.enqueueCompactionContinuation?.(() =>
+            liveAgent(state).deliver(buildCompactionContinuationMessage()),
+          );
+        }
+        return undefined;
+      };
+      if (director.getCompactTurnCount() > 0) return arm();
+      // Resume (or a just-built agent) has not decided yet, so the governor's
+      // turn count is still 0. Load committed history before no-op'ing.
+      compactHydrateInFlight = true;
+      void agent
+        .history()
+        .then((turns) => {
+          compactHydrateInFlight = false;
+          const err = arm(turns);
+          if (err !== undefined) state.systemNotice?.(err);
+        })
+        .catch((err: unknown) => {
+          compactHydrateInFlight = false;
+          tuiLogger.warn("compact history load failed: {error}", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          state.systemNotice?.("Could not read session history to compact.");
+        });
+      return undefined;
     },
   };
 

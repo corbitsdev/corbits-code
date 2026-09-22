@@ -50,6 +50,7 @@ import {
 } from "../agent/tool-search.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
+import { stickyExtraInstructionsFromRecords } from "../agent/compaction.js";
 import { createChatDirector, type ChatDirector } from "../agent/director.js";
 import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
 import type { AgentToolset } from "../agent/tools.js";
@@ -517,6 +518,28 @@ export interface AssembledChatAgent {
   buildAgent: () => Promise<Agent>;
 }
 
+const STICKY_COMPACT_MANIFEST_PAGE = 32;
+
+async function stickyExtraInstructionsFromStore(
+  storage: ContextStore,
+): Promise<string | undefined> {
+  if (typeof storage.readManifestHistory !== "function") return undefined;
+  try {
+    let limit = STICKY_COMPACT_MANIFEST_PAGE;
+    let previousLength = -1;
+    for (;;) {
+      const records = await storage.readManifestHistory(limit);
+      const extra = stickyExtraInstructionsFromRecords(records);
+      if (extra !== undefined) return extra;
+      if (records.length === previousLength) return undefined;
+      previousLength = records.length;
+      limit *= 2;
+    }
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Define the chat director + agent and build live instances against the
  * git-backed store. Identical for both runners: the TUI-only deltas
@@ -525,10 +548,21 @@ export interface AssembledChatAgent {
  */
 export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
   const directorHolder = wiring.directorHolder ?? {};
+  // Newest-commit-first compact records from the store, refreshed each build
+  // so resume and /model rebuilds restore sticky /compact instructions.
+  let stickyFromStore: string | undefined;
+  // /model rebuilds keep the same session store and may miss extras there;
+  // /clear and /new mint a new workdir, so fromPrev must not follow.
+  let inheritFromPrev = true;
+  let lastWorkdir: string | undefined;
+  let lastSessionId: string | undefined;
   const chatDirectorDef = defineDirector({
     id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
     factory: (_cfg, _env, agentCtx) => {
+      const fromPrev = inheritFromPrev
+        ? directorHolder.instance?.getCompactInstructions()
+        : undefined;
       const d = createChatDirector(
         agentCtx.systemPrompt,
         wiring.computeAdvertised([...agentCtx.toolDefinitions]),
@@ -543,6 +577,8 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           allowIdleWithFleet: wiring.allowIdleWithFleet,
         },
       );
+      d.restoreCompactInstructions(stickyFromStore);
+      d.restoreCompactInstructions(fromPrev);
       if (wiring.clearDenials !== undefined)
         d.setClearDenials(wiring.clearDenials);
       directorHolder.instance = d;
@@ -570,6 +606,14 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
 
   const buildAgent = async (): Promise<Agent> => {
     const workdir = wiring.getWorkdir();
+    const sessionId = wiring.getSessionId();
+    inheritFromPrev =
+      lastWorkdir === undefined ||
+      (lastWorkdir === workdir && lastSessionId === sessionId);
+    // Do not stamp last* until this build succeeds. A failed /clear factory
+    // would otherwise make the retry look like the same session and inherit
+    // extras from the previous director / sticky store snapshot.
+    if (!inheritFromPrev) stickyFromStore = undefined;
     const { storage, audit } = await createSessionStores(workdir);
     // Primary-only evidence archive. Workers never pass evidenceArchiveHolder, so
     // they keep plain storage and omit admission / authorize recording wraps.
@@ -621,6 +665,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
               return storage.writeResponse(admitted, signal);
             },
           };
+    stickyFromStore = await stickyExtraInstructionsFromStore(storageForAgent);
     const agent = await createAgentWithLiveToolDispatch(agentDef, {
       sources: wiring.getSources(),
       defaultSource: wiring.getDefaultSource(),
@@ -648,7 +693,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         ],
       },
       audit,
-      sessionId: wiring.getSessionId(),
+      sessionId,
       // Gate-backed reactor authorization: ask-tier calls suspend via the
       // vendored approval-suspend primitive instead of parking on a closure.
       // Finalize evidence admission after guards resolve; never scrub exec args.
@@ -678,6 +723,8 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         ? agent
         : createPrimaryDeliveryAdmission(agent, primaryArchive);
     wiring.onBuilt(admittedAgent, storageForAgent);
+    lastWorkdir = workdir;
+    lastSessionId = sessionId;
     return admittedAgent;
   };
 

@@ -28,6 +28,12 @@ export interface CommandContext {
   getSkipPermissions?: () => boolean;
   /** Live-flip skip-permissions and persist `/yolo` as the user-global default. */
   setSkipPermissions?: (value: boolean) => void;
+  /**
+   * Fold conversation context now, bypassing the occupancy governor.
+   * Optional extra instructions go to the summarizer and stick for later folds.
+   * Returns an operator-facing error, or undefined when the compact is armed.
+   */
+  requestCompact?: (instructions: string) => string | undefined;
 }
 
 export type CommandResult =

@@ -331,3 +331,48 @@ describe("/feedback command", () => {
     });
   });
 });
+
+describe("/compact command", () => {
+  it("is registered with optional instruction hint", () => {
+    const cmd = defined(getCommand("compact"), "compact");
+    expect(cmd.argumentHint).toBe("[optional instructions]");
+  });
+
+  it("explains when compaction is not wired", () => {
+    expect(
+      defined(getCommand("compact"), "compact").handler("", makeCtx()),
+    ).toEqual({
+      type: "message",
+      text: "Compaction is not available in this session.",
+    });
+  });
+
+  it("passes trailing instructions and does not send a turn", () => {
+    const seen: string[] = [];
+    const ctx: CommandContext = {
+      signalClear: () => undefined,
+      requestCompact: (instructions) => {
+        seen.push(instructions);
+        return undefined;
+      },
+    };
+    expect(
+      defined(getCommand("compact"), "compact").handler(
+        "keep the auth discussion",
+        ctx,
+      ),
+    ).toEqual({ type: "noop" });
+    expect(seen).toEqual(["keep the auth discussion"]);
+  });
+
+  it("surfaces an arming error locally", () => {
+    const ctx: CommandContext = {
+      signalClear: () => undefined,
+      requestCompact: () => "Nothing to compact yet.",
+    };
+    expect(defined(getCommand("compact"), "compact").handler("", ctx)).toEqual({
+      type: "message",
+      text: "Nothing to compact yet.",
+    });
+  });
+});

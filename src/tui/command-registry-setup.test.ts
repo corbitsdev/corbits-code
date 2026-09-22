@@ -15,6 +15,7 @@ describe("session command registry setup", () => {
     expect(names).toContain("model");
     expect(names).toContain("settings");
     expect(names).toContain("clear");
+    expect(names).toContain("compact");
     expect(getCommand("cost")).toBeDefined();
   });
 

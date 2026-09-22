@@ -20,6 +20,8 @@ import {
   compactionContinuationAction,
   createCompactionGovernor,
   type CompactionGovernor,
+  type ManualCompactArming,
+  type ManualCompactOptions,
 } from "./compaction.js";
 import { onTurnBoundary } from "./reactor-events.js";
 import { isOperatorOriginated } from "./message-provenance.js";
@@ -803,6 +805,25 @@ class ChatDirectorImpl extends DefaultDirector {
     };
   }
 
+  requestManualCompact(
+    instructions: string,
+    options?: ManualCompactOptions,
+  ): ManualCompactArming {
+    return this.compaction.requestManual(instructions, options);
+  }
+
+  getCompactInstructions(): string | undefined {
+    return this.compaction.extraInstructions;
+  }
+
+  restoreCompactInstructions(value: string | undefined): void {
+    this.compaction.restoreExtraInstructions(value);
+  }
+
+  getCompactTurnCount(): number {
+    return this.compaction.compactTurnCount;
+  }
+
   private openTaskIds(): string[] {
     return this.tasks
       .filter((t) => t.status === "todo" || t.status === "doing")
@@ -1396,4 +1417,11 @@ export interface ChatDirector extends ReactorDirector {
   getTasks(): Task[];
   restoreTasks(tasks: Task[]): void;
   getContextEstimate(): { tokens: number; isEstimate: boolean };
+  requestManualCompact(
+    instructions: string,
+    options?: ManualCompactOptions,
+  ): ManualCompactArming;
+  getCompactInstructions(): string | undefined;
+  restoreCompactInstructions(value: string | undefined): void;
+  getCompactTurnCount(): number;
 }

@@ -85,6 +85,14 @@ test("buildSummaryPrompt omits workflow preamble when none active", () => {
   expect(prompt).toContain("Session excerpt");
 });
 
+test("buildSummaryPrompt injects operator compact instructions", () => {
+  const prompt = buildSummaryPrompt(turns(), {
+    extraInstructions: "keep the auth discussion",
+  });
+  expect(prompt).toContain("Operator compact instructions");
+  expect(prompt).toContain("keep the auth discussion");
+});
+
 test("model summarizer returns the model output", async () => {
   const summarize = createModelSummarizer({
     getSource: () => source,
