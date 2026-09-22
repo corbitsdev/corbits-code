@@ -610,8 +610,10 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
     inheritFromPrev =
       lastWorkdir === undefined ||
       (lastWorkdir === workdir && lastSessionId === sessionId);
-    lastWorkdir = workdir;
-    lastSessionId = sessionId;
+    // Do not stamp last* until this build succeeds. A failed /clear factory
+    // would otherwise make the retry look like the same session and inherit
+    // extras from the previous director / sticky store snapshot.
+    if (!inheritFromPrev) stickyFromStore = undefined;
     const { storage, audit } = await createSessionStores(workdir);
     // Primary-only evidence archive. Workers never pass evidenceArchiveHolder, so
     // they keep plain storage and omit admission / authorize recording wraps.
@@ -721,6 +723,8 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         ? agent
         : createPrimaryDeliveryAdmission(agent, primaryArchive);
     wiring.onBuilt(admittedAgent, storageForAgent);
+    lastWorkdir = workdir;
+    lastSessionId = sessionId;
     return admittedAgent;
   };
 
