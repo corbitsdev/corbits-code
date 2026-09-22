@@ -10,6 +10,8 @@ export type AgentPackage = {
   readonly outOfLane: readonly string[];
   readonly description: string;
   readonly systemPrompt: string;
+  /** Unset — intern never attaches skill bodies at spawn. */
+  readonly attachedSkills?: readonly string[];
   readonly optionalSkills: readonly string[];
   readonly tools: {
     readonly allow: readonly string[];
