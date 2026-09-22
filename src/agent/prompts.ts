@@ -207,12 +207,12 @@ const GUIDELINE_SUB_BLOCKS: Record<
     if (ctx.subAgent) return [];
     return [
       "Orchestration:",
-      "- Break multi-step or parallel work into focused worker dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle. " +
+      "- One focused task per spawned worker. Fan-out width follows independent lanes (one lane per PR/path/ownership). Break multi-step or parallel work into those dispatches with distinct lenses; prefer `spawn_agent` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle. " +
         (ctx.waitAgentsMounted
           ? "This surface has no mailbox delivery: collect with `wait_agents`; do not poll `list_agents`."
           : "Mailbox mail arrives as inbound when a worker finishes; read it and do not poll.") +
         " `list_agents` shows the fleet without blocking; after a parked ask is surfaced, answer with `send_input` and do not poll `list_agents`.",
-      "- Pass the typed spawn contract: `intent`, `success_criteria` (done-when; required for implement/review and their default directors), `do_not` (scope fence), and `report_focus`. Free-form `prompt` without `success_criteria` fail-closes for implement/review and their default directors.",
+      "- Pass the typed spawn contract and keep it tight: `intent`, `success_criteria` (done-when; required for implement/review and their default directors), `do_not` (scope fence), and `report_focus`. Free-form `prompt` without `success_criteria` fail-closes for implement/review and their default directors.",
       "- After workers return, classify fail / incomplete-report vs parent-initiated interrupt vs operator-cancel vs clean complete. Fail-path (`status: failed` or salvage `incomplete-report`): diagnose from the report or error and MAY spawn one successor with a changed brief. Parent-initiated interrupt (`interrupt_agent` / `send_input` with `interrupt:true` unblocks wait with `stop_reason: interrupted`): the worker is often still running and often has no report — `resume_agent`" +
         (ctx.waitAgentsMounted
           ? " or re-wait"

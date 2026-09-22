@@ -166,7 +166,7 @@ The primary session is always **orchestrator** (single-agent mode is gone). Its 
 
 There is **no catch-all worker**. `spawn_agent` requires `agent=…` or a non-general `intent` (implement/explore/plan/review→critic); bare dispatch and `intent=general` are refused. Named `spawn_agent(agent=…)` selects a director package without requiring a plugin profile, except `skywalker` which is the primary session identity and is refused as a spawned worker. Nested spawn is runtime-enforced: only skywalker (full fleet allowlist) may spawn; all other workers, including greybeard, have no fleet tools. Primary omits an allowlist so plugin profiles remain reachable from the main session.
 
-Corbits Code fans work out to short-lived **fleet agents** — workers with their own loop, tools, and checklist — while the primary session stays focused.
+Corbits Code fans work out to short-lived **fleet agents** — workers with their own loop, tools, and checklist — while the primary session stays focused. Each worker gets one focused task; fan-out width follows independent lanes (one lane per PR/path/ownership).
 
 - **Agents** are runtime entities (primary session or child).
 - **Tasks** are checklist items owned by one agent via `manage_tasks`.
