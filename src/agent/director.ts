@@ -20,6 +20,7 @@ import {
   compactionContinuationAction,
   createCompactionGovernor,
   type CompactionGovernor,
+  type HandoffArming,
   type ManualCompactArming,
   type ManualCompactOptions,
 } from "./compaction.js";
@@ -824,6 +825,19 @@ class ChatDirectorImpl extends DefaultDirector {
     return this.compaction.compactTurnCount;
   }
 
+  // `/handoff` arms the shared operator fold; the caller delivers the pivot
+  // message itself, which triggers the fold on arrival and then the next
+  // infer against the folded context.
+  requestHandoff(instructions: string): HandoffArming {
+    return this.compaction.requestHandoff(instructions);
+  }
+
+  // Drop a handoff arming whose pivot never delivered, so the next operator
+  // message does not fold unexpectedly.
+  cancelManualCompact(): void {
+    this.compaction.cancelManual();
+  }
+
   private openTaskIds(): string[] {
     return this.tasks
       .filter((t) => t.status === "todo" || t.status === "doing")
@@ -1424,4 +1438,8 @@ export interface ChatDirector extends ReactorDirector {
   getCompactInstructions(): string | undefined;
   restoreCompactInstructions(value: string | undefined): void;
   getCompactTurnCount(): number;
+  /** `/handoff`: arm the shared operator fold for the pivot the caller sends. */
+  requestHandoff(instructions: string): HandoffArming;
+  /** Drop a handoff arming whose pivot never delivered. */
+  cancelManualCompact(): void;
 }

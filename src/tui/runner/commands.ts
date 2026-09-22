@@ -57,6 +57,13 @@ import { buildCompactionContinuationMessage } from "../../session/runtime-assemb
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
 /**
+ * Pivot text delivered as the next turn when `/handoff` is invoked without
+ * trailing instructions. The fold already wrote the structured summary, so
+ * this only needs to point the fresh inference at it.
+ */
+export const HANDOFF_DEFAULT_PIVOT = "Continue from the handoff summary above.";
+
+/**
  * Populate the slash-command registry for a session: built-ins first, then
  * enabled plugin commands and workflows, then the hidden-command filter.
  *
@@ -253,6 +260,44 @@ export function createCommandLayer(
           });
           state.systemNotice?.("Could not read session history to compact.");
         });
+      return undefined;
+    },
+    requestHandoff: (instructions: string) => {
+      const director = services.directorHolder.instance;
+      if (director === undefined) {
+        return "Handoff is not available in this session.";
+      }
+      const send = state.sendWithAttemptIdentity;
+      if (send === undefined) {
+        return "Handoff is not available in this session.";
+      }
+      const trimmed = instructions.trim();
+      const arming = director.requestHandoff(instructions);
+      if (arming === "noop" && trimmed.length === 0) {
+        return "Nothing to hand off yet — the conversation is too short to fold.";
+      }
+      // The pivot rides the serial send path, so a busy session queues it
+      // behind the in-flight tool batch: whichever boundary fires first runs
+      // the single operator fold (a tool pause compacts-then-continues, the
+      // pivot arrival folds-then-infers), because firing clears the arming.
+      // Unlike `/compact`, the pivot is always delivered, so handoff always
+      // starts the next assistant turn — even a "noop" fold still pivots to
+      // the operator's new goal without needing `/clear`.
+      const pivot = trimmed.length > 0 ? trimmed : HANDOFF_DEFAULT_PIVOT;
+      const disarmOnMiss = arming === "armed";
+      void send(userInboundMessage(pivot, [])).then(
+        (result) => {
+          // A pivot that never delivered must not leave a stale arming behind
+          // to fold the next innocent operator message. Noop never armed, so
+          // cancel would restore snapshots from a prior fold and wipe extras.
+          if (disarmOnMiss && result.status !== "accepted") {
+            director.cancelManualCompact();
+          }
+        },
+        () => {
+          if (disarmOnMiss) director.cancelManualCompact();
+        },
+      );
       return undefined;
     },
   };

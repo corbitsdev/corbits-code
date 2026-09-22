@@ -376,3 +376,62 @@ describe("/compact command", () => {
     });
   });
 });
+
+describe("/handoff command", () => {
+  it("is registered with optional instructions", () => {
+    expect(getCommand("handoff")).toBeDefined();
+  });
+
+  it("passes the trailing instructions through and noops on success", () => {
+    const seen: string[] = [];
+    const ctx: CommandContext = {
+      signalClear: () => undefined,
+      requestHandoff: (instructions) => {
+        seen.push(instructions);
+        return undefined;
+      },
+    };
+    expect(
+      defined(getCommand("handoff"), "handoff").handler(
+        "now do the UI audit",
+        ctx,
+      ),
+    ).toEqual({ type: "noop" });
+    expect(seen).toEqual(["now do the UI audit"]);
+  });
+
+  it("passes empty args through for the default pivot copy", () => {
+    const seen: string[] = [];
+    const ctx: CommandContext = {
+      signalClear: () => undefined,
+      requestHandoff: (instructions) => {
+        seen.push(instructions);
+        return undefined;
+      },
+    };
+    expect(defined(getCommand("handoff"), "handoff").handler("", ctx)).toEqual({
+      type: "noop",
+    });
+    expect(seen).toEqual([""]);
+  });
+
+  it("surfaces the runner error as a message", () => {
+    const ctx: CommandContext = {
+      signalClear: () => undefined,
+      requestHandoff: () => "Nothing to hand off yet.",
+    };
+    expect(defined(getCommand("handoff"), "handoff").handler("", ctx)).toEqual({
+      type: "message",
+      text: "Nothing to hand off yet.",
+    });
+  });
+
+  it("says so when handoff is not wired", () => {
+    expect(
+      defined(getCommand("handoff"), "handoff").handler("x", makeCtx()),
+    ).toEqual({
+      type: "message",
+      text: "Handoff is not available in this session.",
+    });
+  });
+});

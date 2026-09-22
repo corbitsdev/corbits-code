@@ -54,7 +54,7 @@ export type CompactionGovernor = ReturnType<typeof createCompactionGovernor>;
 // requestContinuation closure delivered. Subscribers that only care about
 // provider/connector traffic must ignore this event.
 export const COMPACTION_CONTINUATION_EVENT = "custom.compaction.continue";
-/** Compact reason for `/compact` (and later operator-triggered folds). */
+/** Compact reason for `/compact` and `/handoff` (operator-triggered folds). */
 export const OPERATOR_COMPACT_REASON = "operator-request";
 const THRESHOLD_COMPACT_REASON = "context-threshold";
 
@@ -67,6 +67,9 @@ export type ManualCompactOptions = {
   /** Live or restored turns; used to arm after resume before the first decide. */
   turns?: readonly ConversationTurn[];
 };
+
+/** How `/handoff` armed the shared fold pipeline. */
+export type HandoffArming = "armed" | "noop";
 
 type CompactRecordLike = {
   strategy?: string;
@@ -116,10 +119,15 @@ export function createCompactionGovernor(
   let pending = false;
   let idlePending = false;
   let manualPending = false;
-  // Sticky operator instructions from `/compact …`. Empty `/compact` still
-  // uses the default structured fold; a non-empty argument is kept for later
-  // auto-folds and written into the compact record.
+  // Sticky operator instructions from `/compact …` or `/handoff …`. Empty
+  // trailing instructions still fold with the default structured summary; a
+  // non-empty argument is kept for later auto-folds and written into the
+  // compact record.
   let extraInstructions: string | undefined;
+  // Snapshots taken at requestHandoff so cancelManual can restore the
+  // pre-pivot idle arming and a prior successful fold's guidance.
+  let idlePendingAtHandoff = false;
+  let extraInstructionsAtHandoff: string | undefined;
   let postCompactInfer = false;
   // Idle empty compact needs a post-compact decide cycle to adopt the shrunk
   // turns for the meter, but must not start a new inference (there is no
@@ -472,7 +480,9 @@ export function createCompactionGovernor(
     }
     if (overflowRecoveries >= MAX_OVERFLOW_RECOVERIES) return null;
     overflowRecoveries++;
-    pending = false;
+    // Overflow compact spends any operator arming so a queued handoff
+    // pivot cannot fold again after this recovery. Sticky extras stay.
+    clearManualArming();
     postCompactInfer = true;
     noteCompactIssued();
     return [
@@ -551,6 +561,49 @@ export function createCompactionGovernor(
     extraInstructions = trimmed;
   }
 
+  // `/handoff` folds through the same operator pipeline as above, then starts
+  // the next turn immediately: unlike an idle auto-compact (empty synthetic
+  // continuation → meter, no infer), the caller delivers the pivot message
+  // itself, so the idle arrival slot is always armed and there is no kick
+  // case. Busy sessions queue the pivot behind the in-flight batch through
+  // the serial send path; whichever boundary fires first — a tool pause
+  // (compact-then-continue) or the pivot arrival (fold, then infer) — runs
+  // the single operator fold, because firing clears the arming.
+  function requestHandoff(instructions: string): HandoffArming {
+    if (turnCount <= MIN_TURNS_TO_COMPACT) return "noop";
+    // Snapshot only the committed pre-pivot state. A second request while still
+    // armed replaces the pending extras; cancel must not restore the first
+    // uncommitted pivot.
+    if (!manualPending) {
+      idlePendingAtHandoff = idlePending;
+      extraInstructionsAtHandoff = extraInstructions;
+    }
+    const trimmed = instructions.trim();
+    extraInstructions = trimmed.length > 0 ? trimmed : undefined;
+    manualPending = true;
+    idlePending = true;
+    if (requestContinuation !== undefined) {
+      requestContinuation();
+    }
+    return "armed";
+  }
+
+  // Disarm after a pivot send that never delivered: without this the next
+  // operator message would fold unexpectedly. Already-fired or never-armed
+  // cancels are no-ops so they cannot restore snapshots over sticky extras or
+  // re-arm a spent idle fold. Threshold `pending` is independent of the failed
+  // pivot and must still fire at the next tool pause. Restore idlePending and
+  // extraInstructions from the requestHandoff snapshots so a cancelled pivot
+  // neither invents an idle fold nor wipes a prior successful fold's guidance.
+  function cancelManual(): void {
+    if (!manualPending) return;
+    const thresholdPending = pending;
+    clearManualArming();
+    pending = thresholdPending;
+    idlePending = idlePendingAtHandoff;
+    extraInstructions = extraInstructionsAtHandoff;
+  }
+
   return {
     get estimatedTokens(): number {
       return estimate.tokens;
@@ -569,6 +622,8 @@ export function createCompactionGovernor(
     },
     requestManual,
     restoreExtraInstructions,
+    requestHandoff,
+    cancelManual,
     syncFromTurns,
     noteInferenceDone,
     notePostCompact,

@@ -34,6 +34,13 @@ export interface CommandContext {
    * Returns an operator-facing error, or undefined when the compact is armed.
    */
   requestCompact?: (instructions: string) => string | undefined;
+  /**
+   * Fold conversation context now, then start the next turn with the given
+   * pivot instructions (default copy when empty). Unlike `/compact` this
+   * always answers with a fresh inference. Returns an operator-facing error,
+   * or undefined when the handoff pivot was queued.
+   */
+  requestHandoff?: (instructions: string) => string | undefined;
 }
 
 export type CommandResult =
