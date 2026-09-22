@@ -518,16 +518,23 @@ export interface AssembledChatAgent {
   buildAgent: () => Promise<Agent>;
 }
 
-const STICKY_COMPACT_MANIFEST_LIMIT = 32;
+const STICKY_COMPACT_MANIFEST_PAGE = 32;
 
 async function stickyExtraInstructionsFromStore(
   storage: ContextStore,
 ): Promise<string | undefined> {
   if (typeof storage.readManifestHistory !== "function") return undefined;
   try {
-    return stickyExtraInstructionsFromRecords(
-      await storage.readManifestHistory(STICKY_COMPACT_MANIFEST_LIMIT),
-    );
+    let limit = STICKY_COMPACT_MANIFEST_PAGE;
+    let previousLength = -1;
+    for (;;) {
+      const records = await storage.readManifestHistory(limit);
+      const extra = stickyExtraInstructionsFromRecords(records);
+      if (extra !== undefined) return extra;
+      if (records.length === previousLength) return undefined;
+      previousLength = records.length;
+      limit *= 2;
+    }
   } catch {
     return undefined;
   }
@@ -544,11 +551,18 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
   // Newest-commit-first compact records from the store, refreshed each build
   // so resume and /model rebuilds restore sticky /compact instructions.
   let stickyFromStore: string | undefined;
+  // /model rebuilds keep the same session store and may miss extras there;
+  // /clear and /new mint a new workdir, so fromPrev must not follow.
+  let inheritFromPrev = true;
+  let lastWorkdir: string | undefined;
+  let lastSessionId: string | undefined;
   const chatDirectorDef = defineDirector({
     id: `${ID_PREFIX}/chat`,
     configSchema: type({}),
     factory: (_cfg, _env, agentCtx) => {
-      const fromPrev = directorHolder.instance?.getCompactInstructions();
+      const fromPrev = inheritFromPrev
+        ? directorHolder.instance?.getCompactInstructions()
+        : undefined;
       const d = createChatDirector(
         agentCtx.systemPrompt,
         wiring.computeAdvertised([...agentCtx.toolDefinitions]),
@@ -592,6 +606,12 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
 
   const buildAgent = async (): Promise<Agent> => {
     const workdir = wiring.getWorkdir();
+    const sessionId = wiring.getSessionId();
+    inheritFromPrev =
+      lastWorkdir === undefined ||
+      (lastWorkdir === workdir && lastSessionId === sessionId);
+    lastWorkdir = workdir;
+    lastSessionId = sessionId;
     const { storage, audit } = await createSessionStores(workdir);
     // Primary-only evidence archive. Workers never pass evidenceArchiveHolder, so
     // they keep plain storage and omit admission / authorize recording wraps.
@@ -671,7 +691,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         ],
       },
       audit,
-      sessionId: wiring.getSessionId(),
+      sessionId,
       // Gate-backed reactor authorization: ask-tier calls suspend via the
       // vendored approval-suspend primitive instead of parking on a closure.
       // Finalize evidence admission after guards resolve; never scrub exec args.

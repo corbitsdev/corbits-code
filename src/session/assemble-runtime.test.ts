@@ -259,6 +259,90 @@ function stubChatAgentWiring(
   };
 }
 
+type ManifestRecord = {
+  strategy: string;
+  version: string;
+  parameters: Record<string, unknown>;
+  reason: string;
+  decisions: Record<string, unknown>;
+};
+
+function pruningExtrasRecord(extraInstructions: string): ManifestRecord {
+  return {
+    strategy: "pruning-compactor",
+    version: "1",
+    parameters: { extraInstructions },
+    reason: "compacted",
+    decisions: {},
+  };
+}
+
+function laterManifestRecord(): ManifestRecord {
+  return {
+    strategy: "other",
+    version: "1",
+    parameters: {},
+    reason: "later",
+    decisions: {},
+  };
+}
+
+async function withAssembledDirector(
+  input: {
+    getRecords: () => readonly ManifestRecord[];
+    directorHolder: { instance?: ChatDirector };
+    wiring?: Partial<ChatAgentWiring>;
+  },
+  run: (buildAgent: () => Promise<unknown>) => Promise<void>,
+): Promise<void> {
+  const fakeAgent = { close: async () => undefined } as unknown as Agent;
+  const fakeStorage = {
+    readBlob: async () => new Uint8Array(),
+    readManifestHistory: async (limit: number) =>
+      input.getRecords().slice(0, limit),
+  } as unknown as ContextStore;
+
+  await withMockedModuleDuring(
+    import.meta.resolve("./optimized-context-store.js"),
+    (real: typeof import("./optimized-context-store.js")) => ({
+      ...real,
+      createSessionStores: async () => ({
+        storage: fakeStorage,
+        audit: stubAuditStore(),
+      }),
+    }),
+    async () => {
+      await withMockedModuleDuring(
+        import.meta.resolve("../agent/live-tool-dispatch.js"),
+        (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+          ...real,
+          createAgentWithLiveToolDispatch: async (
+            _def: unknown,
+            env: { directors: DirectorRegistry },
+          ) => {
+            env.directors.defaultFactory()({}, {} as never, {
+              systemPrompt: "prompt",
+              toolDefinitions: [],
+              compactorNames: ["pruning-compactor"],
+            });
+            return fakeAgent;
+          },
+        }),
+        async () => {
+          const { assembleChatAgent } = await import("./assemble-runtime.js");
+          const { buildAgent } = assembleChatAgent(
+            stubChatAgentWiring({
+              directorHolder: input.directorHolder,
+              ...input.wiring,
+            }),
+          );
+          await run(buildAgent);
+        },
+      );
+    },
+  );
+}
+
 describe("assembleChatAgent", () => {
   test("getWorkdir and getCompactor run at buildAgent time, not assemble time", async () => {
     const storeDirs: string[] = [];
@@ -395,69 +479,74 @@ describe("assembleChatAgent", () => {
   });
 
   test("rebuild restores extraInstructions from the latest compact record", async () => {
-    let records: {
-      strategy: string;
-      version: string;
-      parameters: Record<string, unknown>;
-      reason: string;
-      decisions: Record<string, unknown>;
-    }[] = [
-      {
-        strategy: "pruning-compactor",
-        version: "1",
-        parameters: { extraInstructions: "keep the auth discussion" },
-        reason: "compacted",
-        decisions: {},
-      },
+    let records: ManifestRecord[] = [
+      pruningExtrasRecord("keep the auth discussion"),
     ];
-    const fakeStorage = {
-      readBlob: async () => new Uint8Array(),
-      readManifestHistory: async () => records,
-    } as unknown as ContextStore;
-    const fakeAgent = { close: async () => undefined } as unknown as Agent;
     const directorHolder: { instance?: ChatDirector } = {};
 
-    await withMockedModuleDuring(
-      import.meta.resolve("./optimized-context-store.js"),
-      (real: typeof import("./optimized-context-store.js")) => ({
-        ...real,
-        createSessionStores: async () => ({
-          storage: fakeStorage,
-          audit: stubAuditStore(),
-        }),
-      }),
-      async () => {
-        await withMockedModuleDuring(
-          import.meta.resolve("../agent/live-tool-dispatch.js"),
-          (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-            ...real,
-            createAgentWithLiveToolDispatch: async (
-              _def: unknown,
-              env: { directors: DirectorRegistry },
-            ) => {
-              env.directors.defaultFactory()({}, {} as never, {
-                systemPrompt: "prompt",
-                toolDefinitions: [],
-                compactorNames: ["pruning-compactor"],
-              });
-              return fakeAgent;
-            },
-          }),
-          async () => {
-            const { assembleChatAgent } = await import("./assemble-runtime.js");
-            const { buildAgent } = assembleChatAgent(
-              stubChatAgentWiring({ directorHolder }),
-            );
-            await buildAgent();
-            expect(directorHolder.instance?.getCompactInstructions()).toBe(
-              "keep the auth discussion",
-            );
-            records = [];
-            await buildAgent();
-            expect(directorHolder.instance?.getCompactInstructions()).toBe(
-              "keep the auth discussion",
-            );
-          },
+    await withAssembledDirector(
+      { getRecords: () => records, directorHolder },
+      async (buildAgent) => {
+        await buildAgent();
+        expect(directorHolder.instance?.getCompactInstructions()).toBe(
+          "keep the auth discussion",
+        );
+        // /model store-miss on the same session still inherits fromPrev.
+        records = [];
+        await buildAgent();
+        expect(directorHolder.instance?.getCompactInstructions()).toBe(
+          "keep the auth discussion",
+        );
+      },
+    );
+  });
+
+  test("/clear-like rebuild against an empty store does not inherit extraInstructions", async () => {
+    let records: ManifestRecord[] = [
+      pruningExtrasRecord("keep the auth discussion"),
+    ];
+    let workdir = "/session-a";
+    let sessionId = "session-a";
+    const directorHolder: { instance?: ChatDirector } = {};
+
+    await withAssembledDirector(
+      {
+        getRecords: () => records,
+        directorHolder,
+        wiring: {
+          getWorkdir: () => workdir,
+          getSessionId: () => sessionId,
+        },
+      },
+      async (buildAgent) => {
+        await buildAgent();
+        expect(directorHolder.instance?.getCompactInstructions()).toBe(
+          "keep the auth discussion",
+        );
+        records = [];
+        workdir = "/session-b";
+        sessionId = "session-b";
+        await buildAgent();
+        expect(
+          directorHolder.instance?.getCompactInstructions(),
+        ).toBeUndefined();
+      },
+    );
+  });
+
+  test("cold resume restores extraInstructions beyond 32 later cycles", async () => {
+    const records: ManifestRecord[] = [
+      ...Array.from({ length: 32 }, () => laterManifestRecord()),
+      pruningExtrasRecord("keep the auth discussion"),
+    ];
+    const directorHolder: { instance?: ChatDirector } = {};
+
+    await withAssembledDirector(
+      { getRecords: () => records, directorHolder },
+      async (buildAgent) => {
+        await buildAgent();
+        expect(directorHolder.instance?.getCompactInstructions()).toBe(
+          "keep the auth discussion",
         );
       },
     );
