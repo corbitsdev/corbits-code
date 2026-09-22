@@ -233,6 +233,23 @@ function parseSpineText(text: string): CarriedFacts {
   return carried;
 }
 
+const HANDOFF_SCHEMA_HEADINGS = new Set([
+  "Goal",
+  "Constraints",
+  "Decisions",
+  "Evidence markers (cumulative echo)",
+  "Files",
+  "Commands",
+  "Verification",
+  "Dead ends",
+  "Next actions",
+  "Exact facts (verbatim — do not paraphrase)",
+]);
+
+const HANDOFF_SUMMARY_HEADING = "Summary (this fold — may paraphrase)";
+const HANDOFF_EXACT_FACTS_HEADING =
+  "Exact facts (verbatim — do not paraphrase)";
+
 function listItems(body: string): string[] {
   if (body.length === 0 || body === "(none)") return [];
   const items: string[] = [];
@@ -247,45 +264,74 @@ function listItems(body: string): string[] {
 
 /** Parse a previously written fat handoff file into structured sections. */
 function parseHandoffFile(text: string): Partial<HandoffArtifact> {
-  const sections = new Map<string, string>();
-  const heading = /^## (.+)$/gm;
-  const matches = [...text.matchAll(heading)];
-  for (let i = 0; i < matches.length; i++) {
-    const match = matches[i];
-    if (match === undefined) continue;
-    const title = (match[1] ?? "").trim();
-    const start = (match.index ?? 0) + match[0].length;
-    const end = matches[i + 1]?.index ?? text.length;
-    sections.set(title, text.slice(start, end).trim());
+  const sections = new Map<string, string[]>();
+  let current: string | undefined;
+  let inSummary = false;
+  for (const line of text.split("\n")) {
+    const heading = /^## (.+)$/.exec(line);
+    if (heading !== null) {
+      const title = (heading[1] ?? "").trim();
+      if (title === HANDOFF_SUMMARY_HEADING) {
+        inSummary = true;
+        current = undefined;
+        continue;
+      }
+      if (title === HANDOFF_EXACT_FACTS_HEADING) inSummary = false;
+      if (inSummary || !HANDOFF_SCHEMA_HEADINGS.has(title)) {
+        current = undefined;
+        continue;
+      }
+      if (sections.has(title)) {
+        current = undefined;
+        continue;
+      }
+      current = title;
+      sections.set(title, []);
+      continue;
+    }
+    if (current !== undefined) sections.get(current)?.push(line);
   }
-  const goal = sections.get("Goal");
+
+  const body = (title: string): string =>
+    (sections.get(title) ?? []).join("\n").trim();
+  const maybeList = (title: string): string[] | undefined => {
+    const items = listItems(body(title));
+    return items.length > 0 ? items : undefined;
+  };
+  const goal = body("Goal");
+  const constraints = maybeList("Constraints");
+  const decisions = maybeList("Decisions");
+  const evidenceMarkers = maybeList("Evidence markers (cumulative echo)");
+  const files = maybeList("Files");
+  const commands = maybeList("Commands");
+  const verification = maybeList("Verification");
+  const deadEnds = maybeList("Dead ends");
+  const nextActions = maybeList("Next actions");
+  const exactFacts = maybeList(HANDOFF_EXACT_FACTS_HEADING);
   return {
-    ...(goal !== undefined && goal.length > 0 && goal !== "(none)"
-      ? { goal }
-      : {}),
-    constraints: listItems(sections.get("Constraints") ?? ""),
-    decisions: listItems(sections.get("Decisions") ?? ""),
-    evidenceMarkers: listItems(
-      sections.get("Evidence markers (cumulative echo)") ?? "",
-    ),
-    files: listItems(sections.get("Files") ?? ""),
-    commands: listItems(sections.get("Commands") ?? ""),
-    verification: listItems(sections.get("Verification") ?? ""),
-    deadEnds: listItems(sections.get("Dead ends") ?? ""),
-    nextActions: listItems(sections.get("Next actions") ?? ""),
-    exactFacts: listItems(
-      sections.get("Exact facts (verbatim — do not paraphrase)") ?? "",
-    ),
+    ...(goal.length > 0 && goal !== "(none)" ? { goal } : {}),
+    ...(constraints !== undefined ? { constraints } : {}),
+    ...(decisions !== undefined ? { decisions } : {}),
+    ...(evidenceMarkers !== undefined ? { evidenceMarkers } : {}),
+    ...(files !== undefined ? { files } : {}),
+    ...(commands !== undefined ? { commands } : {}),
+    ...(verification !== undefined ? { verification } : {}),
+    ...(deadEnds !== undefined ? { deadEnds } : {}),
+    ...(nextActions !== undefined ? { nextActions } : {}),
+    ...(exactFacts !== undefined ? { exactFacts } : {}),
   };
 }
 
 // Prefer the full prior-file text over a spine-truncated prefix of the same
-// fact. Distinct facts append until the cap.
+// fact. Distinct facts append until the cap. Prefix collapse is only for
+// known truncated spine fragments (80-char cuts); paths and commands use
+// exact equality so `src/auth` and `src/auth.ts` stay distinct.
 function mergeUnique(
   primary: readonly string[],
   extra: readonly string[],
   cap: number,
   maxChars = MAX_ITEM_CHARS,
+  mode: "prefix" | "exact" = "prefix",
 ): string[] {
   const merged: string[] = [];
   const consider = (raw: string): void => {
@@ -293,9 +339,10 @@ function mergeUnique(
     if (clean.length === 0) return;
     const item =
       clean.length > maxChars ? `${clean.slice(0, maxChars)}...` : clean;
-    const related = merged.findIndex(
-      (entry) =>
-        entry === item || entry.startsWith(item) || item.startsWith(entry),
+    const related = merged.findIndex((entry) =>
+      mode === "exact"
+        ? entry === item
+        : entry === item || entry.startsWith(item) || item.startsWith(entry),
     );
     if (related >= 0) {
       const existing = merged[related];
@@ -513,12 +560,19 @@ export function extractHandoffArtifact(
     narrative,
     ...(priorFile.evidenceMarkers ?? []),
   ]);
-  const mergedFiles = mergeUnique(priorFile.files ?? [], files, MAX_FILES);
+  const mergedFiles = mergeUnique(
+    priorFile.files ?? [],
+    files,
+    MAX_FILES,
+    MAX_ITEM_CHARS,
+    "exact",
+  );
   const mergedCommands = mergeUnique(
     priorFile.commands ?? [],
     commands.map((entry) => entry.command),
     MAX_COMMANDS,
     MAX_COMMAND_CHARS,
+    "exact",
   );
   const mergedVerification = mergeUnique(
     priorFile.verification ?? [],
