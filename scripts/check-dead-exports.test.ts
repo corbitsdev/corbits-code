@@ -20,6 +20,7 @@ import {
   parseAllowlistText,
   parseGuardConfig,
   parseTsPruneLine,
+  tsPruneSpawn,
   validateAllowlistEntry,
   validateAllowlistOwnership,
   validateAllowlistText,
@@ -245,6 +246,19 @@ describe("pinned scan invocation", () => {
     expect(config.tsPruneArgs).toEqual(["-p", "tsconfig.json"]);
     expect(config.minScannedFiles).toBeGreaterThan(0);
     expect(existsSync(join(repoRoot, config.tsconfig))).toBe(true);
+  });
+
+  test("ts-prune is launched with node, not as a Bun-executed bin", () => {
+    const spawn = tsPruneSpawn("/repo/node_modules/.bin/ts-prune", [
+      "-p",
+      "tsconfig.json",
+    ]);
+    expect(spawn.command).toBe("node");
+    expect(spawn.args).toEqual([
+      "/repo/node_modules/.bin/ts-prune",
+      "-p",
+      "tsconfig.json",
+    ]);
   });
 
   test("parseGuardConfig rejects an unpinned or empty invocation", () => {
