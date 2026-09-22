@@ -272,6 +272,18 @@ export function isGuardPassing(outcome: GuardOutcome): boolean {
   return outcome.violations.length === 0 && outcome.unused.length === 0;
 }
 
+// ts-prune's analyzer (ts-morph) under-reports unused exports when the CLI
+// runs on Bun: Linux CI then treats the Darwin/Node allowlist as stale
+// (1 consumer-less export vs ~230). The bin shebang is `node`, but Bun's
+// spawn of that file still executes it with Bun. Always launch the CLI
+// with node so the gate matches `node node_modules/ts-prune/lib/index.js`.
+export function tsPruneSpawn(
+  tsPruneBinPath: string,
+  tsPruneArgs: readonly string[],
+): { readonly command: string; readonly args: string[] } {
+  return { command: "node", args: [tsPruneBinPath, ...tsPruneArgs] };
+}
+
 // Counts the TypeScript files the pinned tsconfig pulls into its program via
 // tsc --listFilesOnly: the same project ts-prune analyzes. A narrowed
 // tsconfig (or a moved scan root) shrinks this count, and the gate fails
@@ -329,10 +341,16 @@ function main(): void {
     );
   }
   const rules = parseAllowlistText(allowlistText);
-  const pruned = spawnSync(tsPruneBin, [...config.tsPruneArgs], {
+  const prune = tsPruneSpawn(tsPruneBin, config.tsPruneArgs);
+  const pruned = spawnSync(prune.command, prune.args, {
     cwd: repoRoot,
     encoding: "utf8",
   });
+  if (pruned.error !== undefined) {
+    fail(
+      `ts-prune failed to start with ${prune.command}: ${pruned.error.message}`,
+    );
+  }
   if (pruned.status !== 0) {
     fail(`ts-prune failed:\n${pruned.stderr || pruned.stdout}`);
   }

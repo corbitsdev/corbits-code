@@ -177,6 +177,21 @@ const SYSTEM_INSTRUCTION = [
   "turns can retrieve the evidence. Do not invent archive contents.",
 ].join("\n");
 
+// The user-message window is recency-bounded, which starves the standing
+// goal once the session runs long: the summary call would only see the last
+// dumps. Pin the first user message — the initiating ask — ahead of the
+// recent window so the goal survives no matter how many turns pile up.
+const CONDENSED_USER_WINDOW = 6;
+
+function withPinnedGoal(userMessages: string[]): string[] {
+  const recent = userMessages.slice(-CONDENSED_USER_WINDOW);
+  if (userMessages.length <= CONDENSED_USER_WINDOW) return recent;
+  const goal = userMessages[0];
+  if (goal !== undefined && !recent.includes(goal))
+    return [`Goal (first user message):\n${goal}`, ...recent];
+  return recent;
+}
+
 // Pull a compact, model-readable excerpt out of the turns being dropped:
 // recent user asks, assistant reasoning snippets, tool calls and the files
 // they touched. Bounded so the summary call itself stays cheap.
@@ -227,7 +242,7 @@ export function condenseTurns(turns: ConversationTurn[]): string {
           .join("\n")}`
       : null,
     userMessages.length > 0
-      ? `User messages (most recent last):\n${userMessages.slice(-6).join("\n---\n")}`
+      ? `User messages (most recent last):\n${withPinnedGoal(userMessages).join("\n---\n")}`
       : null,
     assistantSnippets.length > 0
       ? `Assistant notes (excerpts):\n${assistantSnippets.slice(-8).join("\n---\n")}`
