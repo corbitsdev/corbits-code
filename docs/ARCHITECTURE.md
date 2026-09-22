@@ -202,7 +202,7 @@ When a cycle's input tokens cross a threshold, the director compacts the inferen
 | `ollama`                                                          | never                         | Local inference has no remote cache to expire                                        |
 | anything else                                                     | 10 min                        | Assumed OpenAI-style in-memory economics; tune per upstream                          |
 
-Production identity for the `ollama` row is `sourceId` `ollama` / `ollama/<instance>` via `isOllamaProviderId` (`src/provider/ollama.ts`), not a bare model id: Ollama is `buildOpenAISource` (`provider: openai-compatible`, model `llama3` / `qwen3`). Slash-form `ollama/…` is a table key, not what the harness stamps.
+The `ollama` table key is the bare provider segment; the harness stamps slash-form on `sourceId` (`ollama/default` / `ollama/<instance>`), with `provider: openai-compatible` (`buildOpenAISource`) and a bare model (`llama3` / `qwen3`). Idle-recompress disable matches via `isOllamaProviderId` on that `sourceId` (`src/provider/ollama.ts`), not by looking up slash-form as a table key.
 
 - **Overflow recovery** — A `context_overflow` inference error would otherwise become a terminal error reply; the governor compacts and retries instead, bounded so a history the compactor cannot shrink does not loop forever. Overflow ignores hysteresis for the compact itself.
 

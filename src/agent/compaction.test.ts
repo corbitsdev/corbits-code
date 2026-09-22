@@ -891,7 +891,11 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     );
     codex.noteInferenceDone(
       ttlInferenceDone(
-        { sourceId: "codex/work", provider: "codex-responses" },
+        {
+          sourceId: "codex/work",
+          provider: "codex-responses",
+          model: "gpt-5.6-luna",
+        },
         false,
       ),
       tenTurns,
