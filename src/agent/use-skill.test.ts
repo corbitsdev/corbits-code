@@ -114,6 +114,38 @@ describe("createUseSkillTool already-in-context", () => {
     expect(second).not.toContain("Create worktree recipe.");
   });
 
+  test("parallel use_skill of the same name dumps the body only once", async () => {
+    const cwd = await fixtureWithHiddenSkill();
+    let resolveCalls = 0;
+    await withMockedModuleDuring(
+      import.meta.resolve("../extensions/skills.js"),
+      (real: typeof import("../extensions/skills.js")) => ({
+        ...real,
+        resolveSkillBody: async (
+          ...args: Parameters<typeof real.resolveSkillBody>
+        ) => {
+          resolveCalls += 1;
+          await Promise.resolve();
+          return real.resolveSkillBody(...args);
+        },
+      }),
+      async () => {
+        const tool = createUseSkillTool(cwd);
+        const [a, b] = await Promise.all([
+          call(tool, { name: "git-worktrees" }),
+          call(tool, { name: "git-worktrees" }),
+        ]);
+        const bodies = [a, b].filter((s) => s.includes("Create worktree recipe."));
+        const refused = [a, b].filter((s) =>
+          s.includes("already attached / already in context"),
+        );
+        expect(bodies).toHaveLength(1);
+        expect(refused).toHaveLength(1);
+      },
+    );
+    expect(resolveCalls).toBe(1);
+  });
+
   test("first load still returns the body when the name is not attached", async () => {
     const cwd = await fixtureWithHiddenSkill();
     const tool = createUseSkillTool(

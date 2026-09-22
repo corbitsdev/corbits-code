@@ -70,13 +70,22 @@ export function createUseSkillTool(
         return `No skill named "${name}" is available.`;
       }
       if (loaded.has(name)) return alreadyInContextMessage(name);
-      const body = await resolveSkillBody(cwd, name, skillDirs);
-      if (body === undefined) return `No skill named "${name}" is available.`;
+      loaded.add(name);
+      let body: string | undefined;
+      try {
+        body = await resolveSkillBody(cwd, name, skillDirs);
+      } catch (err) {
+        loaded.delete(name);
+        throw err;
+      }
+      if (body === undefined) {
+        loaded.delete(name);
+        return `No skill named "${name}" is available.`;
+      }
       // Skill names are project- or plugin-authored, so an unrecognised
       // name never leaves the process: first-party `corbits-skills` names
       // are reported by name, everything else as `custom`.
       captureSkillUsed(telemetry, name);
-      loaded.add(name);
       return `Skill "${name}" — follow these instructions for this task:\n\n${body}`;
     },
   });
