@@ -1663,7 +1663,7 @@ describe("handoff arming (/handoff)", () => {
     ).toBeNull();
   });
 
-  test("overflow then handoff does not double-fold", () => {
+  test("handoff then overflow then pivot does not double-fold", () => {
     const governor = createCompactionGovernor(undefined);
     governor.syncFromTurns(tenTurns);
     expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
@@ -1679,5 +1679,44 @@ describe("handoff arming (/handoff)", () => {
       ),
     ).toBeNull();
     expect(governor.extraInstructions).toBe("now do the UI audit");
+  });
+
+  test("handoff then overflow then interceptActions is spent", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.syncFromTurns(tenTurns);
+    expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
+    expect(
+      governor.interceptOverflow(overflowError(), capabilities),
+    ).not.toBeNull();
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+  });
+
+  test("overflow then cancelManual keeps extras", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.syncFromTurns(tenTurns);
+    expect(governor.requestHandoff("now do the UI audit")).toBe("armed");
+    expect(
+      governor.interceptOverflow(overflowError(), capabilities),
+    ).not.toBeNull();
+    governor.cancelManual();
+    expect(governor.extraInstructions).toBe("now do the UI audit");
+  });
+
+  test("overflow spends idle threshold arming so later empty arrival does not fold", () => {
+    const governor = createCompactionGovernor(undefined);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.noteIdleTurn(inferenceDone(overThreshold), [
+        { type: "reply", content: "done" },
+      ]),
+    ).toBe(true);
+    expect(
+      governor.interceptOverflow(overflowError(), capabilities),
+    ).not.toBeNull();
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
   });
 });
