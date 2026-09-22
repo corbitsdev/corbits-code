@@ -366,7 +366,9 @@ function mergeUnique(
     );
     if (related >= 0) {
       const existing = merged[related];
-      if (existing !== undefined && item.length > existing.length)
+      // Cuts are 83 chars (80 + "..."). Longer-string-wins would replace an
+      // 81- or 82-char complete fact with that cut and drop the last chars.
+      if (existing !== undefined && isSpineTruncationOf(existing, item))
         merged[related] = item;
       return;
     }

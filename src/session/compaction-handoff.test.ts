@@ -389,6 +389,28 @@ describe("renderHandoffSpine", () => {
     expect(rendered.length).toBeLessThan(file.length / 3);
     expect(rendered.split("\n").length).toBeLessThanOrEqual(10);
   });
+
+  test("leaves 79- and 80-char items unmarked and marks 81 with an ellipsis", () => {
+    const unmarked79 = `Must never write to ${"a".repeat(59)}`;
+    const unmarked80 = `Must never write to ${"a".repeat(60)}`;
+    const marked81 = `Must never write to ${"a".repeat(61)}`;
+    expect(unmarked79.length).toBe(79);
+    expect(unmarked80.length).toBe(80);
+    expect(marked81.length).toBe(81);
+    const rendered = renderHandoffSpine(
+      {
+        goal: "Ship it.",
+        constraints: [unmarked79, unmarked80, marked81],
+        decisions: [],
+        evidenceMarkers: [],
+        activatedTools: [],
+      },
+      handoffBlobUri(HANDOFF_LATEST_KEY),
+    );
+    expect(rendered).toContain(
+      `Constraints: ${unmarked79} | ${unmarked80} | ${unmarked80}...`,
+    );
+  });
 });
 
 describe("iterative folding", () => {
@@ -593,6 +615,9 @@ describe("iterative folding", () => {
     expect(first.artifact.constraints).toEqual(
       expect.arrayContaining([complete, sibling]),
     );
+    expect(first.spineText).toContain(
+      `Constraints: ${complete} | ${complete}...`,
+    );
 
     const second = buildHandoffFold(
       [spineTurn(first.spineText), userTurn("Continue.")],
@@ -618,6 +643,51 @@ describe("iterative folding", () => {
     );
     expect(second.artifact.constraints).toEqual([full]);
     expect(second.artifact.constraints).not.toContain(cut);
+  });
+
+  test("81- and 82-char complete constraints survive a fold against their 83-char cuts", () => {
+    for (const length of [81, 82]) {
+      const complete = `Must never write to ${"a".repeat(length - 20)}`;
+      expect(complete.length).toBe(length);
+      const first = buildHandoffFold([userTurn(complete)], "narrative");
+      expect(first.artifact.constraints).toEqual([complete]);
+      const cut = `${complete.slice(0, 80)}...`;
+      expect(cut.length).toBe(83);
+      expect(first.spineText).toContain(`Constraints: ${cut}`);
+
+      const second = buildHandoffFold(
+        [spineTurn(first.spineText), userTurn("Continue.")],
+        "narrative",
+        { priorFileText: new TextDecoder().decode(first.blob.bytes) },
+      );
+      expect(second.artifact.constraints).toEqual([complete]);
+      expect(second.artifact.constraints).not.toContain(cut);
+    }
+  });
+
+  test("an 81-char complete decision survives a fold against its 83-char cut", () => {
+    const complete = `Use the session table ${"x".repeat(59)}`;
+    expect(complete.length).toBe(81);
+    const first = buildHandoffFold(
+      [
+        userTurn("Ship the widget."),
+        userTurn(complete),
+        userTurn("Keep going."),
+      ],
+      "narrative",
+    );
+    expect(first.artifact.decisions).toEqual([complete]);
+    const cut = `${complete.slice(0, 80)}...`;
+    expect(cut.length).toBe(83);
+    expect(first.spineText).toContain(`Decisions: ${cut}`);
+
+    const second = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
+    );
+    expect(second.artifact.decisions).toEqual([complete]);
+    expect(second.artifact.decisions).not.toContain(cut);
   });
 
   test("iterative union keeps prefix-sharing constraints distinct", () => {
