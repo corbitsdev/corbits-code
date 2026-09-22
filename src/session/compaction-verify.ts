@@ -305,15 +305,19 @@ export function extractContinuationFacts(
 
 // Basename for paths (a summary that moves `src/auth.ts` to "auth.ts" still
 // names it); hostname for URLs (query strings get reworded freely).
+// Match on token/path boundaries so "oauth.ts" does not cover "auth.ts",
+// "tsconfig.json" does not cover "config.json", and "myapi.com" does not
+// cover hostname "api.com".
 function exactNameSupported(name: string, summary: string): boolean {
   const lowered = summary.toLowerCase();
   if (name.startsWith("http")) {
     const host = hostnameOf(name);
-    if (host !== undefined && lowered.includes(host.toLowerCase())) return true;
-    return lowered.includes(name.toLowerCase());
+    if (host !== undefined && tokenAppears(host.toLowerCase(), lowered))
+      return true;
+    return tokenAppears(name.toLowerCase(), lowered);
   }
   const base = name.split("/").pop() ?? name;
-  return base.length > 0 && lowered.includes(base.toLowerCase());
+  return base.length > 0 && tokenAppears(base.toLowerCase(), lowered);
 }
 
 // Claims that deny failure while the dropped turns record it. Narrow on
@@ -402,17 +406,22 @@ export function repairSummary(
   if ((kinds.has("blocker") || kinds.has("nextAction")) && !stateCovered)
     lines.push(`State: ${facts.state}`);
   if (kinds.has("constraint")) {
-    lines.push(
-      `Constraints:\n${facts.constraints.map((c) => `- ${c}`).join("\n")}`,
-    );
+    const missing = misses
+      .filter((m) => m.kind === "constraint")
+      .map((m) => m.detail);
+    lines.push(`Constraints:\n${missing.map((c) => `- ${c}`).join("\n")}`);
   }
   if (kinds.has("blocker")) {
-    lines.push(
-      `Open blockers:\n${facts.blockers.map((b) => `- ${b}`).join("\n")}`,
-    );
+    const missing = misses
+      .filter((m) => m.kind === "blocker")
+      .map((m) => m.detail);
+    lines.push(`Open blockers:\n${missing.map((b) => `- ${b}`).join("\n")}`);
   }
   if (kinds.has("verification")) {
-    lines.push(`Ran: ${facts.verification.join("; ")}`);
+    const missing = misses
+      .filter((m) => m.kind === "verification")
+      .map((m) => m.detail);
+    lines.push(`Ran: ${missing.join("; ")}`);
   }
   return `${summary.trimEnd()}\n\n${lines.join("\n")}`;
 }

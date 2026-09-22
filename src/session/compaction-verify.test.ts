@@ -167,6 +167,82 @@ describe("verifyCompactionSummary", () => {
     );
     expect(report.misses.some((m) => m.kind === "contradiction")).toBe(true);
   });
+
+  test("oauth.ts does not cover src/auth.ts", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Fix auth now"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "c1",
+            name: "read_file",
+            arguments: { path: "src/auth.ts" },
+          },
+        ],
+        timestamp: 2,
+      },
+    ]);
+    const report = verifyCompactionSummary(
+      "Fix auth now. Read oauth.ts next.",
+      facts,
+    );
+    expect(report.misses.some((m) => m.kind === "exactName")).toBe(true);
+    expect(report.misses.some((m) => m.detail === "src/auth.ts")).toBe(true);
+  });
+
+  test("tsconfig.json does not cover config.json", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Fix auth now"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "c1",
+            name: "read_file",
+            arguments: { path: "src/config.json" },
+          },
+        ],
+        timestamp: 2,
+      },
+    ]);
+    const report = verifyCompactionSummary(
+      "Fix auth now. Updated tsconfig.json.",
+      facts,
+    );
+    expect(report.misses.some((m) => m.kind === "exactName")).toBe(true);
+    expect(report.misses.some((m) => m.detail === "src/config.json")).toBe(
+      true,
+    );
+  });
+
+  test("myapi.com does not cover hostname api.com", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Fix auth now"),
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "c1",
+            name: "web_fetch",
+            arguments: { url: "https://api.com/v1" },
+          },
+        ],
+        timestamp: 2,
+      },
+    ]);
+    const report = verifyCompactionSummary(
+      "Fix auth now. Called myapi.com.",
+      facts,
+    );
+    expect(report.misses.some((m) => m.kind === "exactName")).toBe(true);
+    expect(report.misses.some((m) => m.detail === "https://api.com/v1")).toBe(
+      true,
+    );
+  });
 });
 
 describe("verifyOrRepair", () => {
@@ -267,16 +343,42 @@ describe("verifyOrRepair", () => {
   });
 
   test("repairSummary names only what the handoff missed", () => {
-    const facts = extractContinuationFacts(droppedTurns());
-    const repaired = repairSummary(
-      "Migrating auth to opaque tokens in src/auth.ts.",
-      facts,
-      verifyCompactionSummary(
-        "Migrating auth to opaque tokens in src/auth.ts.",
-        facts,
-      ).misses,
-    );
-    expect(repaired).toContain(VERIFY_REPAIR_HEADING);
+    const facts = {
+      goal: "Migrate the auth module to opaque tokens",
+      constraints: [
+        "Never use emojis in the handoff.",
+        "Always keep the public API stable.",
+      ],
+      nextAction: "Fix the token refresh assertion next.",
+      state: "Fix the token refresh assertion next.",
+      verification: ["bun run test auth", "bun run check"],
+      blockers: ["token refresh assertion failed", "ECONNREFUSED on staging"],
+      exactNames: ["src/auth.ts", "packages/runtime/config.json"],
+    };
+    const summary =
+      "Migrating auth to opaque tokens. Read src/auth.ts, ran bun run test " +
+      "auth; the token refresh assertion failed. Never use emojis in the " +
+      "handoff. Fix the token refresh assertion next.";
+    const misses = verifyCompactionSummary(summary, facts).misses;
+    const kinds = misses.map((m) => m.kind);
+    expect(kinds).toContain("constraint");
+    expect(kinds).toContain("blocker");
+    expect(kinds).toContain("verification");
+    expect(kinds).toContain("exactName");
+    expect(kinds).not.toContain("goal");
+    expect(kinds).not.toContain("nextAction");
+    const repaired = repairSummary(summary, facts, misses);
+    const repair = repaired.slice(repaired.indexOf(VERIFY_REPAIR_HEADING));
+    expect(repair).toContain("Always keep the public API stable.");
+    expect(repair).not.toContain("Never use emojis");
+    expect(repair).toContain("ECONNREFUSED on staging");
+    expect(repair).not.toContain("token refresh assertion failed");
+    expect(repair).toContain("bun run check");
+    expect(repair).not.toContain("bun run test auth");
+    expect(repair).toContain("packages/runtime/config.json");
+    expect(repair).not.toContain("src/auth.ts");
+    expect(repair).not.toContain("Goal:");
+    expect(repair).not.toContain("Next:");
   });
 
   test("repair lines are goal, next, exact names, then the rest", () => {
@@ -367,7 +469,7 @@ describe("pruning compactor verify pass", () => {
 });
 
 describe("continuation facts survive many folds", () => {
-  test("goal, exact path, and next action hold after five lossy folds", async () => {
+  test("verify signal holds after five lossy folds", async () => {
     const compactor = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 4000,
@@ -391,8 +493,9 @@ describe("continuation facts survive many folds", () => {
       ];
     }
     const text = allText(turns);
-    expect(text).toContain("opaque tokens");
-    expect(text).toContain("auth.ts");
+    // The initiating ask is anchored out of summarizedTurns, so "opaque tokens"
+    // / "auth.ts" survive from that turn and do not prove the verify pass.
+    // "refresh assertion" is only in dropped tool errors / next action.
     expect(text).toContain("refresh assertion");
   });
 });
@@ -474,8 +577,7 @@ describe("completeness gate plus verify repair", () => {
       (occurrence) => occurrence.provenance === "compaction-handoff",
     );
     expect(handoffs.length).toBeGreaterThan(0);
-    expect(allText(first.output)).toContain("opaque tokens");
-    expect(allText(first.output)).toContain("auth.ts");
+    expect(allText(first.output)).toContain("refresh assertion");
 
     const followUp = [
       textTurn("user", "follow-up after first fold"),
@@ -489,8 +591,6 @@ describe("completeness gate plus verify repair", () => {
     expect(second.record.reason).not.toBe(
       "verify failed — keeping prior context",
     );
-    expect(allText(second.output)).toContain("opaque tokens");
-    expect(allText(second.output)).toContain("auth.ts");
     expect(allText(second.output)).toContain("refresh assertion");
   });
 });
