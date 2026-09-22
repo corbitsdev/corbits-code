@@ -783,7 +783,8 @@ async function runSubAgentInner(
     // (union of pkg.attachedSkills and optionalSkills). Mounted before the
     // capability filter so worker allowlists keep them like any other named
     // tool; the scope cannot widen — use_skill refuses names outside the
-    // allowlist. Plugin skill dirs match the primary so bundled
+    // allowlist and refuses attached/already-loaded names without dumping the
+    // body again. Plugin skill dirs match the primary so bundled
     // corbits-skills (style/philosophy) resolve.
     const modelFamilyPolicy = resolveModelFamilyPolicy({
       providerName: params.provider.providerName,
@@ -807,6 +808,7 @@ async function runSubAgentInner(
         liveTelemetry,
         params.allowedSkillNames,
         workerUseSkillDefinition,
+        params.attachedSkills,
       ),
     ];
 

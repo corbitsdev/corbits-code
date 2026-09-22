@@ -359,7 +359,6 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
               await run({
                 ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
                 skillDirs: [pluginRoot],
-                attachedSkills: ["style"],
               }).catch(() => {
                 // Inference fails by design; mount decisions run first.
               });
@@ -375,6 +374,70 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
       new AbortController().signal,
     );
     expect(loaded).toContain("Follow the style guide.");
+  }, 15_000);
+
+  test("threads attachedSkills into use_skill and refuses those names without returning the body", async () => {
+    const cwd = await tmpCwd();
+    await writeSkill(
+      cwd,
+      "style",
+      "Code style rules.",
+      "Follow the style guide.",
+    );
+
+    let useSkillArgs: readonly unknown[] | undefined;
+    let useSkillTool:
+      | {
+          kind: string;
+          handler: (
+            args: Record<string, unknown>,
+            signal: AbortSignal,
+          ) => Promise<string>;
+        }
+      | undefined;
+
+    await runWithFailingInference((baseURL) =>
+      withMockedModuleDuring(
+        import.meta.resolve("../agent/use-skill.js"),
+        (real: typeof import("../agent/use-skill.js")) => ({
+          ...real,
+          createUseSkillTool: (...args: unknown[]) => {
+            useSkillArgs = args;
+            const tool = (
+              real.createUseSkillTool as (...a: never[]) => unknown
+            )(...(args as never[]));
+            if (
+              typeof tool !== "object" ||
+              tool === null ||
+              (tool as { kind: string }).kind !== "string"
+            )
+              throw new Error("expected string tool");
+            useSkillTool = tool as typeof useSkillTool & {};
+            return tool;
+          },
+        }),
+        async () => {
+          const { runSubAgent: run } = await import("./run.js");
+          await run({
+            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
+            attachedSkills: ["style"],
+          }).catch(() => {
+            // Inference fails by design; mount decisions run first.
+          });
+        },
+      ),
+    );
+
+    expect(useSkillArgs?.[5]).toEqual(["style"]);
+    expect(useSkillTool).toBeDefined();
+    const refused = await useSkillTool?.handler(
+      { name: "style" },
+      new AbortController().signal,
+    );
+    expect(refused).toBe(
+      'Skill "style" is already attached / already in context.',
+    );
+    expect(refused).not.toContain("Follow the style guide.");
   }, 15_000);
 
   test("injects attached skill bodies into the worker prompt and notes misses without parking", async () => {

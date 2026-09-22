@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
 import {
   createUseSkillTool,
   useSkillDefinition,
@@ -64,5 +65,67 @@ describe("createUseSkillTool allowedNames", () => {
     const tool = createUseSkillTool(cwd, [], undefined, ["git-worktrees"]);
     const out = await call(tool, { name: "git-worktrees" });
     expect(out).toContain("Create worktree recipe.");
+  });
+});
+
+describe("createUseSkillTool already-in-context", () => {
+  test("attached name is refused without resolving the body", async () => {
+    const cwd = await fixtureWithHiddenSkill();
+    let resolveCalls = 0;
+    await withMockedModuleDuring(
+      import.meta.resolve("../extensions/skills.js"),
+      (real: typeof import("../extensions/skills.js")) => ({
+        ...real,
+        resolveSkillBody: async (
+          ...args: Parameters<typeof real.resolveSkillBody>
+        ) => {
+          resolveCalls += 1;
+          return real.resolveSkillBody(...args);
+        },
+      }),
+      async () => {
+        const tool = createUseSkillTool(
+          cwd,
+          [],
+          undefined,
+          undefined,
+          useSkillDefinition,
+          ["git-worktrees"],
+        );
+        const out = await call(tool, { name: "git-worktrees" });
+        expect(out).toBe(
+          'Skill "git-worktrees" is already attached / already in context.',
+        );
+        expect(out).not.toContain("Create worktree recipe.");
+      },
+    );
+    expect(resolveCalls).toBe(0);
+  });
+
+  test("second use_skill of the same name is refused without returning the body", async () => {
+    const cwd = await fixtureWithHiddenSkill();
+    const tool = createUseSkillTool(cwd);
+    const first = await call(tool, { name: "git-worktrees" });
+    expect(first).toContain("Create worktree recipe.");
+    const second = await call(tool, { name: "git-worktrees" });
+    expect(second).toBe(
+      'Skill "git-worktrees" is already attached / already in context.',
+    );
+    expect(second).not.toContain("Create worktree recipe.");
+  });
+
+  test("first load still returns the body when the name is not attached", async () => {
+    const cwd = await fixtureWithHiddenSkill();
+    const tool = createUseSkillTool(
+      cwd,
+      [],
+      undefined,
+      undefined,
+      useSkillDefinition,
+      ["style"],
+    );
+    const out = await call(tool, { name: "git-worktrees" });
+    expect(out).toContain("Create worktree recipe.");
+    expect(out).toContain('Skill "git-worktrees"');
   });
 });

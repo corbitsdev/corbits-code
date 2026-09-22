@@ -12,7 +12,9 @@ import { captureSkillUsed } from "../telemetry/product-events.js";
 // model decides one applies. There is no operator invocation — discovery and
 // loading are entirely model-driven. Primary copy is on-demand catalog
 // (Skywalker has no attached skills). Workers mount workerUseSkillDefinition
-// so they do not reload bodies already injected as attached.
+// so they do not reload bodies already injected as attached. The handler
+// refuses attached names and names already loaded this session so the body
+// is never dumped twice.
 const USE_SKILL_INPUT_SCHEMA = {
   type: "object",
   properties: {
@@ -40,15 +42,21 @@ export const workerUseSkillDefinition: ToolDefinition = {
 
 const UseSkillArgs = type({ name: "string" });
 
+function alreadyInContextMessage(name: string): string {
+  return `Skill "${name}" is already attached / already in context.`;
+}
+
 export function createUseSkillTool(
   cwd: string,
   skillDirs: string[] = [],
   telemetry: Telemetry = NOOP_TELEMETRY,
   allowedNames?: readonly string[],
   definition: ToolDefinition = useSkillDefinition,
+  attachedNames?: readonly string[],
 ): AgentTool {
   const allowed =
     allowedNames === undefined ? undefined : new Set(allowedNames);
+  const loaded = new Set(attachedNames ?? []);
   return stringTool({
     definition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
@@ -61,12 +69,14 @@ export function createUseSkillTool(
       if (allowed !== undefined && !allowed.has(name)) {
         return `No skill named "${name}" is available.`;
       }
+      if (loaded.has(name)) return alreadyInContextMessage(name);
       const body = await resolveSkillBody(cwd, name, skillDirs);
       if (body === undefined) return `No skill named "${name}" is available.`;
       // Skill names are project- or plugin-authored, so an unrecognised
       // name never leaves the process: first-party `corbits-skills` names
       // are reported by name, everything else as `custom`.
       captureSkillUsed(telemetry, name);
+      loaded.add(name);
       return `Skill "${name}" — follow these instructions for this task:\n\n${body}`;
     },
   });
