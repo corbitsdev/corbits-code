@@ -58,8 +58,6 @@ packages/opencode-go/src/models.ts: readonly
 # to the exact ts-prune flags so a new dead export in this barrel fails the
 # guard instead of hiding under a whole-file exemption. Remove each entry
 # with the export it names if the public surface shrinks.
-packages/prompt-variance/src/index.ts: assemble
-packages/prompt-variance/src/index.ts: resolvePromptVariance
 packages/prompt-variance/src/index.ts: defaultRow
 packages/prompt-variance/src/index.ts: FAMILY_IDS
 packages/prompt-variance/src/index.ts: FAMILY_ROWS
