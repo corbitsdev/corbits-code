@@ -397,6 +397,11 @@ export interface SessionPruningCompactorArgs {
     ctx?: SummaryContext,
   ) => Promise<string>;
   summaryContext?: () => SummaryContext | undefined;
+  /**
+   * Previous fat handoff file, so iterative folds union files/commands and
+   * full constraint/goal text instead of storing spine-truncated cuts.
+   */
+  readPriorHandoff?: () => Promise<string | undefined>;
   telemetry?: Telemetry;
   /** Fires only when turns were actually folded away — not on no-ops. */
   onFolded?: (info: { turnsBefore: number; turnsAfter: number }) => void;
@@ -418,6 +423,9 @@ export function createSessionPruningCompactor(
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
     ...(args.summarize !== undefined ? { summarize: args.summarize } : {}),
     ...(args.summaryContext ? { summaryContext: args.summaryContext } : {}),
+    ...(args.readPriorHandoff !== undefined
+      ? { readPriorHandoff: args.readPriorHandoff }
+      : {}),
   });
   const telemetry = args.telemetry ?? NOOP_TELEMETRY;
   return {

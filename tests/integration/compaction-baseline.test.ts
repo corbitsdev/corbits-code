@@ -397,7 +397,8 @@ describe("integration — compaction mechanics baseline", () => {
             "## Constraints",
             "## Decisions",
             "## Evidence markers (cumulative echo)",
-            "## Files and commands",
+            "## Files",
+            "## Commands",
             "## Verification",
             "## Dead ends",
             "## Next actions",
@@ -410,12 +411,12 @@ describe("integration — compaction mechanics baseline", () => {
               .map((fact) => fact.id)
               .sort(),
           ).toEqual(REQUIRED_EVIDENCE.map((fact) => fact.id).sort());
-          // The spine is the stable anchor: each fold re-renders it
-          // byte-identical so the completeness gate accepts the next fold.
+          // The live spine may grow with newly discovered tokens; dropped prior
+          // spines are adopted into the evidence archive so the completeness
+          // gate still certifies the fold (qualifyingFold above).
           spineTexts.push(spineText(after.turns));
-          if (fold > 0) {
-            expect(spineTexts[fold]).toBe(spineTexts[fold - 1]);
-          }
+          expect(spineTexts[fold]?.startsWith(COMPACTED_PREFIX)).toBe(true);
+          expect(spineTexts[fold]).toContain("Handoff:");
           process.stdout.write(
             `${JSON.stringify({ phase: fold + 1, ...observation, recoveredFacts: recoverEvidence(reply).length, requiredFacts: REQUIRED_EVIDENCE.length, phaseLatencyMs: performance.now() - startedAt })}\n`,
           );

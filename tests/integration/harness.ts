@@ -50,6 +50,7 @@ import {
   wrapCompactorWithCompletenessGate,
   type CompactionArchive,
 } from "../../src/session/compaction-archive.js";
+import { tryReadPriorHandoffFile } from "../../src/session/compaction-handoff.js";
 import { assertReplySend } from "../../src/subagent/run.js";
 import {
   createModelSummarizer,
@@ -244,6 +245,10 @@ export async function openIntegrationSession(
                   complete: opts.compactionCompletion,
                   getArchive: () => evidenceArchiveHolder.current,
                 }),
+                readPriorHandoff: () =>
+                  tryReadPriorHandoffFile((key) =>
+                    storageForAgent.readBlob(key),
+                  ),
               }),
               primaryArchive,
             ),

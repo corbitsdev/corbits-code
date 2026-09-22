@@ -144,7 +144,8 @@ describe("extractHandoffArtifact", () => {
     expect(artifact.verification.join("\n")).toContain(
       "PASS: bun test src/auth.test.ts",
     );
-    expect(artifact.deadEnds.join("\n")).toContain(
+    expect(artifact.verification.join("\n")).toContain("FAIL: bun run check");
+    expect(artifact.deadEnds.join("\n")).not.toContain(
       "lint: unused import in src/auth.ts",
     );
     expect(artifact.nextActions.join("\n")).toContain(
@@ -178,6 +179,32 @@ describe("extractHandoffArtifact", () => {
     expect(spine.decisions).toEqual(artifact.decisions);
     expect(spine.evidenceMarkers).toEqual(artifact.evidenceMarkers);
   });
+
+  test("does not treat should/only as a constraint signal", () => {
+    const { artifact } = extractHandoffArtifact(
+      [userTurn("You should only look at the README.")],
+      "narrative",
+    );
+    expect(artifact.constraints).toEqual([]);
+  });
+
+  test("last user text is a next action, not also a decision", () => {
+    const { artifact } = extractHandoffArtifact(foldedRegion(), "narrative");
+    expect(artifact.nextActions.join("\n")).toContain(
+      "Fix the lint error and re-run the checks.",
+    );
+    expect(artifact.decisions.join("\n")).not.toContain(
+      "Fix the lint error and re-run the checks.",
+    );
+  });
+
+  test("verification failures are recorded once, not also as dead ends", () => {
+    const { artifact } = extractHandoffArtifact(foldedRegion(), "narrative");
+    expect(artifact.verification.join("\n")).toContain("FAIL: bun run check");
+    expect(artifact.deadEnds.join("\n")).not.toContain(
+      "lint: unused import in src/auth.ts",
+    );
+  });
 });
 
 describe("recoverEvidenceMarkers", () => {
@@ -196,6 +223,45 @@ describe("recoverEvidenceMarkers", () => {
       recoverEvidenceMarkers(["[[evidence:decision|operator:cor"]),
     ).toEqual([]);
   });
+
+  test("extract recovers markers that exist only inside tool_result text", () => {
+    const { artifact, spine } = extractHandoffArtifact(
+      [
+        userTurn("Read the auth module."),
+        makeTurn({
+          role: "assistant",
+          content: [
+            {
+              type: "tool_call",
+              id: "c1",
+              name: "read_file",
+              arguments: { path: "src/auth.ts" },
+            },
+          ],
+        }),
+        makeTurn({
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              callId: "c1",
+              content: [
+                {
+                  type: "text",
+                  text: "export const x = 1; [[evidence:read|file|auth-ts]]",
+                },
+              ],
+            },
+          ],
+        }),
+      ],
+      "narrative",
+    );
+    expect(artifact.evidenceMarkers).toEqual([
+      "[[evidence:read|file|auth-ts]]",
+    ]);
+    expect(spine.evidenceMarkers).toEqual(["[[evidence:read|file|auth-ts]]"]);
+  });
 });
 
 describe("renderHandoffFile", () => {
@@ -212,7 +278,8 @@ describe("renderHandoffFile", () => {
       "## Constraints",
       "## Decisions",
       "## Evidence markers (cumulative echo)",
-      "## Files and commands",
+      "## Files",
+      "## Commands",
       "## Verification",
       "## Dead ends",
       "## Next actions",
@@ -227,6 +294,9 @@ describe("renderHandoffFile", () => {
     expect(file).toContain(
       "[[evidence:decision|operator:correction|session-table]]",
     );
+    expect(file).toContain("## Files\n");
+    expect(file).toContain("## Commands\n");
+    expect(file).not.toContain("## Files and commands");
   });
 });
 
@@ -260,12 +330,12 @@ describe("renderHandoffSpine", () => {
 });
 
 describe("iterative folding", () => {
-  test("the next spine is byte-identical to the prior spine (fixed point)", () => {
+  test("the next spine is byte-identical when no new constraint/decision/evidence arrives", () => {
     const first = buildHandoffFold(foldedRegion(), "First fold narrative.");
     expect(first.blob.key).toBe(HANDOFF_LATEST_KEY);
 
-    // The next folded region always carries the prior spine at its head,
-    // followed by filler that must not move the anchor.
+    // Production next region is the prior spine plus later turns only —
+    // never a replay of the original user line.
     const second = buildHandoffFold(
       [
         spineTurn(first.spineText),
@@ -299,56 +369,114 @@ describe("iterative folding", () => {
         }),
       ],
       "Second fold narrative.",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
     );
 
     expect(second.blob.key).toBe(HANDOFF_LATEST_KEY);
     expect(second.spineText).toBe(first.spineText);
-    // The fat file still accumulates the fresh fold's detail. File-only
-    // sections (files, commands) reflect the fresh region; the cumulative
-    // evidence echo is what carries exact facts across the overwrite.
     const file = new TextDecoder().decode(second.blob.bytes);
     expect(file).toContain("diagnostic.log");
     expect(file).toContain("Verify audit item 1-3.");
+    expect(file).toContain("src/auth.ts");
+    expect(file).toContain("bun test src/auth.test.ts");
+    expect(file).toContain("Never touch src/legacy.");
     expect(file).toContain(
       "[[evidence:decision|operator:correction|session-table]]",
     );
-    // The prior spine's own text is not restated as a new user decision.
     expect(second.artifact.decisions.join("\n")).not.toContain(
       COMPACTED_PREFIX,
     );
   });
 
-  test("a fresh contradiction lands in the file without moving the spine", () => {
+  test("a new constraint and evidence token land on the spine and in the file", () => {
+    const first = buildHandoffFold(foldedRegion(), "First fold narrative.");
+    const second = buildHandoffFold(
+      [
+        spineTurn(first.spineText),
+        userTurn(
+          "Must never write diagnostics to /tmp. [[evidence:decision|operator:correction|no-tmp]]",
+        ),
+      ],
+      "Second fold narrative.",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
+    );
+
+    expect(second.spineText).toContain("Must never write diagnostics to /tmp.");
+    expect(second.spineText).toContain(
+      "[[evidence:decision|operator:correction|no-tmp]]",
+    );
+    expect(second.spineText).toContain(
+      "[[evidence:decision|operator:correction|session-table]]",
+    );
+    const file = new TextDecoder().decode(second.blob.bytes);
+    expect(file).toContain("Must never write diagnostics to /tmp.");
+    expect(file).toContain("src/auth.ts");
+    expect(file).toContain("Never touch src/legacy.");
+  });
+
+  test("a fresh contradiction lands in the file and on the spine", () => {
     const first = buildHandoffFold(foldedRegion(), "First fold narrative.");
     const second = buildHandoffFold(
       [
         spineTurn(first.spineText),
         userTurn("Correction: target east instead of west."),
+        userTurn("Proceed."),
       ],
       "Second fold narrative.",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
     );
 
-    // Stability contract: the live anchor does not move (the gate rejects
-    // dropped novel text); the pointer leads to the update one re-read away.
-    expect(second.spineText).toBe(first.spineText);
+    expect(second.spineText).toContain(
+      "Correction: target east instead of west.",
+    );
     expect(second.artifact.decisions.join("\n")).toContain(
       "Correction: target east instead of west.",
     );
+    expect(second.artifact.nextActions.join("\n")).toContain("Proceed.");
+    expect(second.artifact.decisions.join("\n")).not.toContain("Proceed.");
   });
 
-  test("a carried truncation does not duplicate the full fresh text", () => {
+  test("a carried truncation does not duplicate the full prior-file text", () => {
     const longLine = `Never ship without a canary. Constraint detail: ${"x".repeat(100)}`;
     const first = buildHandoffFold([userTurn(longLine)], "narrative");
-    // The spine renders constraints at 80 chars; the file keeps the full line.
     expect(first.spineText).toContain("Constraints: ");
     expect(first.artifact.constraints).toEqual([longLine]);
 
     const second = buildHandoffFold(
-      [spineTurn(first.spineText), userTurn(longLine)],
+      [spineTurn(first.spineText), userTurn("Continue the canary work.")],
+      "narrative",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
+    );
+    expect(second.artifact.constraints).toEqual([longLine]);
+    const file = new TextDecoder().decode(second.blob.bytes);
+    expect(file).toContain(longLine);
+  });
+
+  test("activated tools ride the spine so a later fold can parse them", () => {
+    const first = buildHandoffFold(foldedRegion(), "narrative", {
+      activatedTools: ["read_file", "run_shell"],
+    });
+    expect(first.spineText).toContain(
+      "Tools still activated and callable directly (no tool_search needed): read_file, run_shell",
+    );
+    const second = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
       "narrative",
     );
-    expect(second.spineText).toBe(first.spineText);
-    expect(second.artifact.constraints).toEqual([longLine]);
+    expect(second.spineText).toContain(
+      "Tools still activated and callable directly (no tool_search needed): read_file, run_shell",
+    );
+  });
+
+  test("exactFacts turn count skips the prior spine turn", () => {
+    const first = buildHandoffFold(foldedRegion(), "narrative");
+    const second = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    expect(second.artifact.exactFacts.join("\n")).toContain(
+      "turns: 1, tool calls: 0",
+    );
   });
 });
 

@@ -57,6 +57,7 @@ import {
   type LiveSessionSources,
 } from "../../session/assemble-runtime.js";
 import type { CompactionArchive } from "../../session/compaction-archive.js";
+import { tryReadPriorHandoffFile } from "../../session/compaction-handoff.js";
 import {
   createApprovalResume,
   resolveParkedCallIdFromStore,
@@ -690,6 +691,10 @@ export async function assembleTUISession(
           summarize: compactionSummarize,
           summaryContext,
           telemetry: liveTelemetry,
+          readPriorHandoff: () =>
+            tryReadPriorHandoffFile(
+              state.currentStorage?.readBlob.bind(state.currentStorage),
+            ),
           // The outer abort race discards this run's output — a fold that
           // still completes underneath must not report telemetry or side
           // effects for work that never landed.

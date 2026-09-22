@@ -209,6 +209,11 @@ export interface CompactorConfig {
    * compacted turns were dropped).
    */
   summaryContext?: () => SummaryContext | undefined;
+  /**
+   * Previous fat handoff file body, so the next fold unions files/commands
+   * and full constraint/goal text instead of storing spine-truncated cuts.
+   */
+  readPriorHandoff?: () => Promise<string | undefined>;
   // Max older turns to pull forward as anchors (file edits, task updates)
   // before the summary stub. Selected from the end of the older set so the
   // most-recent anchors survive; pair partners count against the cap too.
@@ -868,7 +873,7 @@ export function createPruningCompactor(
 
   return {
     name: "pruning-compactor",
-    version: "1.5.0",
+    version: "1.6.0",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
@@ -1078,18 +1083,21 @@ export function createPruningCompactor(
       // key, and keeps only a thin spine plus an explicit pointer to that
       // file in the live prompt. Exact-required facts are copied verbatim
       // into the file so they survive paraphrase; tool-body dumps leave the
-      // prompt and live in the file instead. The spine renders carried prior
-      // facts first so it survives the next fold byte-identical (the
-      // completeness gate rejects dropped novel text).
-      const handoff = buildHandoffFold(summarizedTurns, summary);
-      const activatedTools = summaryCtx?.activatedTools ?? [];
-      const toolsLine =
-        activatedTools.length > 0
-          ? `\n\nTools still activated and callable directly (no tool_search needed): ${activatedTools.join(", ")}`
-          : "";
+      // prompt and live in the file instead. The spine unions carried facts
+      // with newly discovered constraints/decisions/evidence; dropped prior
+      // spines are adopted into the evidence archive so the completeness
+      // gate still certifies the fold. Activated tools ride the spine so a
+      // later fold can parse them instead of appending outside the parser.
+      const priorFileText = await cfg.readPriorHandoff?.();
+      const handoff = buildHandoffFold(summarizedTurns, summary, {
+        ...(priorFileText !== undefined ? { priorFileText } : {}),
+        ...(summaryCtx?.activatedTools !== undefined
+          ? { activatedTools: summaryCtx.activatedTools }
+          : {}),
+      });
       const summaryTurn: ConversationTurn = {
         role: "user",
-        content: [{ type: "text", text: `${handoff.spineText}${toolsLine}` }],
+        content: [{ type: "text", text: handoff.spineText }],
         timestamp: olderTurns[olderTurns.length - 1]?.timestamp ?? Date.now(),
       };
 

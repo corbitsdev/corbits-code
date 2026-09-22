@@ -998,4 +998,150 @@ describe("wrapCompactorWithCompletenessGate", () => {
     expect(result.output).toHaveLength(1);
     expect(result.output[0]).not.toBe(turns[1]);
   });
+
+  test("second fold that grows the spine still compact-succeeds by adopting the prior handoff", async () => {
+    const { wrapCompactorWithCompletenessGate } =
+      await import("./compaction-archive.js");
+    const { createPruningCompactor } = await import("./compactor.js");
+    const { COMPACTED_PREFIX, buildHandoffFold } =
+      await import("./compaction-handoff.js");
+    const { archive } = memoryArchive();
+
+    const first = buildHandoffFold(
+      [
+        {
+          role: "user",
+          content: [{ type: "text", text: "Ship the widget." }],
+          timestamp: 1,
+        },
+      ],
+      "first narrative",
+    );
+    const priorSpine = first.spineText;
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "Must never write to /tmp. [[evidence:decision|op|no-tmp]]",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "assistant_text",
+      payload: "ok",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "assistant_text",
+      payload: "working",
+    });
+
+    const inner = createPruningCompactor({
+      keepRecentTurns: 2,
+      maxAnchorTurns: 0,
+      summaryMaxChars: 500,
+    });
+    const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
+    const turns: import("@intx/types/runtime").ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: priorSpine }],
+        timestamp: 1,
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "Continue the widget." }],
+        timestamp: 2,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "working" }],
+        timestamp: 3,
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Must never write to /tmp. [[evidence:decision|op|no-tmp]]",
+          },
+        ],
+        timestamp: 4,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "ok" }],
+        timestamp: 5,
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "keep one" }],
+        timestamp: 6,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "keep two" }],
+        timestamp: 7,
+      },
+    ];
+    const result = await wrapped.apply(turns, ctx);
+    expect(result.record.reason).not.toBe("incomplete-evidence-archive");
+    const spine = result.output[0]?.content.find((b) => b.type === "text");
+    expect(spine?.type).toBe("text");
+    if (spine?.type !== "text") throw new Error("unreachable");
+    expect(spine.text.startsWith(COMPACTED_PREFIX)).toBe(true);
+    expect(spine.text).toContain("Must never write to /tmp.");
+    expect(spine.text).toContain("[[evidence:decision|op|no-tmp]]");
+  });
+
+  test("pre-format fat Compacted prior context summaries still compact", async () => {
+    const { wrapCompactorWithCompletenessGate } =
+      await import("./compaction-archive.js");
+    const { createPruningCompactor } = await import("./compactor.js");
+    const { COMPACTED_PREFIX } = await import("./compaction-handoff.js");
+    const { archive } = memoryArchive();
+    const fatSummary = `${COMPACTED_PREFIX}\nLong pre-format narrative about the auth migration and every file that was touched.`;
+    await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "next ask after the old summary",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "assistant_text",
+      payload: "working",
+    });
+    const inner = createPruningCompactor({
+      keepRecentTurns: 2,
+      maxAnchorTurns: 0,
+      summaryMaxChars: 500,
+    });
+    const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
+    const turns: import("@intx/types/runtime").ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: fatSummary }],
+        timestamp: 1,
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "next ask after the old summary" }],
+        timestamp: 2,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "working" }],
+        timestamp: 3,
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "keep one" }],
+        timestamp: 4,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "keep two" }],
+        timestamp: 5,
+      },
+    ];
+    const result = await wrapped.apply(turns, ctx);
+    expect(result.record.reason).not.toBe("incomplete-evidence-archive");
+    const spine = result.output[0]?.content.find((b) => b.type === "text");
+    expect(spine?.type).toBe("text");
+    if (spine?.type !== "text") throw new Error("unreachable");
+    expect(spine.text.startsWith(COMPACTED_PREFIX)).toBe(true);
+  });
 });
