@@ -122,7 +122,7 @@ describe("normalizeToolDefinitionsForProvider", () => {
   test("non-kimi providers get identity schemas (recursive present kept)", () => {
     for (const ctx of [
       { providerName: "anthropic", model: "claude-sonnet-4" },
-      { providerName: "openai", model: "gpt-4.1" },
+      { providerName: "openai", model: "gpt-5.6" },
       { providerName: "xai/default", model: "grok-4.5" },
       { providerName: "opencode-go", model: "gpt-5.1" },
     ] as const) {

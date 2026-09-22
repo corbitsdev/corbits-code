@@ -11,12 +11,12 @@ describe("buildModelCatalog", () => {
   test("maps provider array to id/label picker options", () => {
     const options = buildModelCatalog([
       { name: "xai", models: ["grok-4", "grok-3"], label: "xAI" },
-      { name: "openai", models: ["gpt-4.1"] },
+      { name: "openai", models: ["gpt-5.6"] },
     ]);
     expect(options).toEqual([
       { id: "xai:grok-4", label: "grok-4 * [xAI]" },
       { id: "xai:grok-3", label: "grok-3 * [xAI]" },
-      { id: "openai:gpt-4.1", label: "gpt-4.1 * [openai]" },
+      { id: "openai:gpt-5.6", label: "gpt-5.6 * [openai]" },
     ]);
   });
 

@@ -25,13 +25,13 @@ test("parseModelsDevContextWindows reads limit.context per model", () => {
     },
     openai: {
       models: {
-        "gpt-4.1": { id: "openai/gpt-4.1", limit: { context: 1_000_000 } },
+        "gpt-5.6": { id: "openai/gpt-5.6", limit: { context: 1_000_000 } },
         "no-limit": { id: "openai/no-limit" },
       },
     },
   });
   expect(windows["z-ai/glm-4.6"]).toBe(64_000);
-  expect(windows["openai/gpt-4.1"]).toBe(1_000_000);
+  expect(windows["openai/gpt-5.6"]).toBe(1_000_000);
   expect(windows["openai/no-limit"]).toBeUndefined();
 });
 
@@ -53,8 +53,8 @@ test("parseModelsDevPricing supports multiple model IDs", () => {
   const models = parseModelsDevPricing({
     openai: {
       models: {
-        "gpt-4.1": {
-          id: "openai/gpt-4.1",
+        "gpt-5.6": {
+          id: "openai/gpt-5.6",
           input_cost_per_million: 2,
           output_cost_per_million: 8,
           cache_read_cost_per_million: 0.5,
@@ -72,7 +72,7 @@ test("parseModelsDevPricing supports multiple model IDs", () => {
     },
   });
 
-  expect(models["openai/gpt-4.1"]).toEqual({
+  expect(models["openai/gpt-5.6"]).toEqual({
     inputPricePerToken: 0.000002,
     outputPricePerToken: 0.000008,
     cacheReadPricePerToken: 0.0000005,

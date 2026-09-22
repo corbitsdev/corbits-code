@@ -19,6 +19,9 @@ const OPENAI_API_MODELS = [
   "gpt-6-astra",
   "gpt-5.4",
   "gpt-5.4-mini",
+  // Keep: still a first-party API catalog id; non-reasoning so it stays on
+  // max_tokens (not in OPENAI_API_MAX_COMPLETION_TOKENS_MODELS). Dropping it
+  // would change Connect/API-path model lists.
   "gpt-4.1",
   "o3",
   "o4-mini",
