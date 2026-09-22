@@ -202,6 +202,8 @@ When a cycle's input tokens cross a threshold, the director compacts the inferen
 | `ollama`                                                          | never                         | Local inference has no remote cache to expire                                        |
 | anything else                                                     | 10 min                        | Assumed OpenAI-style in-memory economics; tune per upstream                          |
 
+Production identity for the `ollama` row is `sourceId` `ollama` / `ollama/<instance>` via `isOllamaProviderId` (`src/provider/ollama.ts`), not a bare model id: Ollama is `buildOpenAISource` (`provider: openai-compatible`, model `llama3` / `qwen3`). Slash-form `ollama/…` is a table key, not what the harness stamps.
+
 - **Overflow recovery** — A `context_overflow` inference error would otherwise become a terminal error reply; the governor compacts and retries instead, bounded so a history the compactor cannot shrink does not loop forever. Overflow ignores hysteresis for the compact itself.
 
 The TTL window is measured from the last `inference.done` (every inference rewrites the provider's prefix cache) with one fire per window per compact of any kind, and it never fires with a tool batch outstanding — stall pings can arrive mid-work. The consecutive-compact cap shared with the threshold path still bounds compact→infer→compact. Prompt-caching the summary call itself is an explicit non-goal: the fold carries no cache options.

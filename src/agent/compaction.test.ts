@@ -793,13 +793,17 @@ describe("provider-aware idle recompress (CL-8745)", () => {
   function ttlInferenceDone(
     modelOrSource:
       | string
-      | { sourceId: string; provider: string; model: string },
+      | { sourceId?: string; provider?: string; model?: string },
     withTools: boolean,
   ): Extract<ReactorInboundEvent, { type: "inference.done" }> {
     const source =
       typeof modelOrSource === "string"
         ? { sourceId: "s", provider: "p", model: modelOrSource }
-        : modelOrSource;
+        : {
+            sourceId: modelOrSource.sourceId ?? "s",
+            provider: modelOrSource.provider ?? "p",
+            model: modelOrSource.model ?? "m",
+          };
     return {
       type: "inference.done",
       turn: {
@@ -845,7 +849,10 @@ describe("provider-aware idle recompress (CL-8745)", () => {
       () => nowMs,
     );
     governor.noteInferenceDone(
-      ttlInferenceDone("anthropic/claude-opus-4-6", false),
+      ttlInferenceDone(
+        { provider: "anthropic", model: "claude-opus-4-6" },
+        false,
+      ),
       tenTurns,
     );
 
@@ -864,6 +871,44 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     expect(continuations).toBe(1);
     // Empty continuation adopts the shrunk turns without a new inference.
     expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+  });
+
+  test("production LastCycleSource: anthropic fires at 5m, codex stays quiet until 10m", () => {
+    // Harness stamps { sourceId, provider, model } with a bare model, not
+    // slash-form "anthropic/claude-opus-4-6". Anthropic's 5-minute window
+    // must come from provider, not a dummy model string; Codex must not
+    // inherit that 5-minute fire from sourceId "codex/work".
+    let nowMs = 15_000_000;
+    const clock = () => nowMs;
+    const anthropic = createCompactionGovernor(() => undefined, "", [], clock);
+    const codex = createCompactionGovernor(() => undefined, "", [], clock);
+    anthropic.noteInferenceDone(
+      ttlInferenceDone(
+        { provider: "anthropic", model: "claude-opus-4-6" },
+        false,
+      ),
+      tenTurns,
+    );
+    codex.noteInferenceDone(
+      ttlInferenceDone(
+        { sourceId: "codex/work", provider: "codex-responses" },
+        false,
+      ),
+      tenTurns,
+    );
+
+    nowMs += 5 * MINUTE_MS + 1;
+    expect(
+      anthropic.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
+    expect(
+      codex.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+
+    nowMs += 5 * MINUTE_MS;
+    expect(
+      codex.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toEqual(ttlCompact);
   });
 
   test("follows provider economics: deepseek waits out its long window, ollama never fires", () => {
