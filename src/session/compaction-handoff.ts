@@ -76,6 +76,7 @@ const MAX_EXACT_FACTS = 40;
 const MAX_SPINE_ITEMS = 3;
 const MAX_SPINE_ITEM_CHARS = 80;
 const SPINE_GOAL_CHARS = 160;
+const SPINE_CUT_SENTINEL = "...";
 
 // User-text lines carrying an obligation or restriction read as constraints.
 // `should` / `only` are too common in ordinary prose to be a signal.
@@ -94,6 +95,12 @@ const EVIDENCE_TOKEN = /\[\[evidence:[^[\]\r\n]+\]\]/g;
 
 function oneLine(text: string, maxChars: number): string {
   return text.replace(/\s+/g, " ").trim().slice(0, maxChars);
+}
+
+function cutSpineItem(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  if (line.length <= MAX_SPINE_ITEM_CHARS) return line;
+  return `${line.slice(0, MAX_SPINE_ITEM_CHARS)}${SPINE_CUT_SENTINEL}`;
 }
 
 function textBlocks(turn: ConversationTurn): string[] {
@@ -325,13 +332,15 @@ function parseHandoffFile(text: string): Partial<HandoffArtifact> {
 // Prefer the full prior-file text over a spine-truncated prefix of the same
 // fact. Distinct facts append until the cap. Production prior-file text is
 // full, so union is exact: `Must never write to /tmp` and `.../tmp/cache`
-// stay distinct. Prefix collapse is only for known 80-char spine cuts when
-// merging carried spine fragments into the fat file.
+// stay distinct, including when the shorter fact is naturally 80 chars.
+// Prefix collapse is only for spine cuts marked with SPINE_CUT_SENTINEL.
 function isSpineTruncationOf(fragment: string, full: string): boolean {
+  if (!fragment.endsWith(SPINE_CUT_SENTINEL)) return false;
+  const prefix = fragment.slice(0, -SPINE_CUT_SENTINEL.length);
   return (
-    fragment.length === MAX_SPINE_ITEM_CHARS &&
-    full.length > fragment.length &&
-    full.startsWith(fragment)
+    prefix.length === MAX_SPINE_ITEM_CHARS &&
+    full.length > prefix.length &&
+    full.startsWith(prefix)
   );
 }
 
@@ -730,14 +739,14 @@ export function renderHandoffSpine(
     lines.push(
       `Constraints: ${spine.constraints
         .slice(0, MAX_SPINE_ITEMS)
-        .map((constraint) => oneLine(constraint, MAX_SPINE_ITEM_CHARS))
+        .map((constraint) => cutSpineItem(constraint))
         .join(" | ")}`,
     );
   if (spine.decisions.length > 0)
     lines.push(
       `Decisions: ${spine.decisions
         .slice(0, MAX_SPINE_ITEMS)
-        .map((decision) => oneLine(decision, MAX_SPINE_ITEM_CHARS))
+        .map((decision) => cutSpineItem(decision))
         .join(" | ")}`,
     );
   lines.push(

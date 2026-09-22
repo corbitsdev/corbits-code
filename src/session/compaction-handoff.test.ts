@@ -582,6 +582,44 @@ describe("iterative folding", () => {
     );
   });
 
+  test("an 80-char complete constraint that prefixes a sibling both survive a fold", () => {
+    const complete = `Must never write to ${"a".repeat(60)}`;
+    expect(complete.length).toBe(80);
+    const sibling = `${complete}/cache`;
+    const first = buildHandoffFold(
+      [userTurn(`${complete}\n${sibling}`)],
+      "narrative",
+    );
+    expect(first.artifact.constraints).toEqual(
+      expect.arrayContaining([complete, sibling]),
+    );
+
+    const second = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
+    );
+    expect(second.artifact.constraints).toEqual(
+      expect.arrayContaining([complete, sibling]),
+    );
+  });
+
+  test("a truncated spine fragment collapses into the full prior-file constraint", () => {
+    const full = `Must never ship without ${"x".repeat(80)}`;
+    const first = buildHandoffFold([userTurn(full)], "narrative");
+    expect(first.artifact.constraints).toEqual([full]);
+    const cut = `${full.slice(0, 80)}...`;
+    expect(first.spineText).toContain(`Constraints: ${cut}`);
+
+    const second = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
+    );
+    expect(second.artifact.constraints).toEqual([full]);
+    expect(second.artifact.constraints).not.toContain(cut);
+  });
+
   test("iterative union keeps prefix-sharing constraints distinct", () => {
     const first = buildHandoffFold(
       [
