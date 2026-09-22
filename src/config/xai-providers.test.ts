@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
+import {
+  extendVendorXaiDefaultModels,
+  XAI_BASE_URL,
+  XAI_DEFAULT_MODELS,
+} from "../auth/xai/constants.js";
 import type { XaiProfile } from "../auth/xai/store.js";
 import { providerCatalogToSettings } from "./index.js";
 import {
@@ -12,10 +16,62 @@ import {
 } from "./xai-providers.js";
 
 describe("xAI OAuth provider projection", () => {
-  test("default models include Grok 4.6 while defaulting to the CLI coding model", () => {
+  test("default models include Grok 4.7 while defaulting to the CLI coding model", () => {
     const models: string[] = [...XAI_DEFAULT_MODELS];
-    expect(models).toEqual(["grok-4.5", "grok-4.6", "grok-composer-2.5-fast"]);
+    expect(models).toEqual([
+      "grok-4.5",
+      "grok-4.6",
+      "grok-4.7",
+      "grok-composer-2.5-fast",
+    ]);
+    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
     expect(models[0]).toBe("grok-4.5");
+  });
+
+  test("skips grok-4.7 insert when the vendor list already includes it", () => {
+    const vendor = [
+      "grok-4.5",
+      "grok-4.6",
+      "grok-4.7",
+      "grok-composer-2.5-fast",
+    ] as const;
+    const models = extendVendorXaiDefaultModels(vendor);
+    expect(models).toEqual(vendor);
+    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
+  });
+
+  test("skips grok-4.7 insert when the vendor list starts with it", () => {
+    const vendor = [
+      "grok-4.7",
+      "grok-4.5",
+      "grok-4.6",
+      "grok-composer-2.5-fast",
+    ] as const;
+    const models = extendVendorXaiDefaultModels(vendor);
+    expect(models).toEqual(vendor);
+    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
+  });
+
+  test("skips grok-4.7 insert when the vendor list ends with it", () => {
+    const vendor = [
+      "grok-4.5",
+      "grok-4.6",
+      "grok-composer-2.5-fast",
+      "grok-4.7",
+    ] as const;
+    const models = extendVendorXaiDefaultModels(vendor);
+    expect(models).toEqual(vendor);
+    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
+  });
+
+  test("inserts grok-4.7 after the second vendor model when absent", () => {
+    expect(
+      extendVendorXaiDefaultModels([
+        "grok-4.5",
+        "grok-4.6",
+        "grok-composer-2.5-fast",
+      ]),
+    ).toEqual(["grok-4.5", "grok-4.6", "grok-4.7", "grok-composer-2.5-fast"]);
   });
 
   const profile: XaiProfile = {

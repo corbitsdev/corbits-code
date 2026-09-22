@@ -63,6 +63,7 @@ const ZEN_MODELS: readonly ZenModel[] = [
   { id: "gpt-5", protocol: "responses" },
   { id: "gpt-5-codex", protocol: "responses" },
   { id: "gpt-5-nano", protocol: "responses" },
+  { id: "grok-4.7", protocol: "responses" },
   { id: "grok-4.6", protocol: "responses" },
   { id: "grok-4.5", protocol: "responses" },
   { id: "grok-build-0.1", protocol: "responses" },

@@ -6,4 +6,9 @@ export {
 } from "./constants.js";
 export { resolveZenEndpoint } from "./endpoint.js";
 export { isZenProvider, isZenProviderId } from "./identity.js";
-export { isKnownZenModel, ZEN_DEFAULT_MODEL, ZEN_MODEL_IDS } from "./models.js";
+export {
+  isKnownZenModel,
+  protocolForZenModel,
+  ZEN_DEFAULT_MODEL,
+  ZEN_MODEL_IDS,
+} from "./models.js";

@@ -14,6 +14,7 @@ import {
   ZEN_DEFAULT_MODEL,
   ZEN_MODEL_IDS,
   isKnownZenModel,
+  protocolForZenModel,
 } from "../../packages/zen/src/index.js";
 import {
   CODEX_BASE_URL,
@@ -129,6 +130,12 @@ describe("provider identity divergence", () => {
     for (const id of ZEN_MODEL_IDS) {
       expect(isKnownZenModel(id)).toBe(true);
     }
+  });
+
+  test("Zen protocol map pins grok-4.7 to responses like grok-4.6", () => {
+    expect(protocolForZenModel("grok-4.7")).toBe("responses");
+    expect(protocolForZenModel("grok-4.6")).toBe("responses");
+    expect(isKnownZenModel("grok-4.7")).toBe(true);
   });
 
   test("OpenCode Go registry entry tracks the packaged seed catalog", () => {
