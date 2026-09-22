@@ -16,6 +16,11 @@ import { join } from "node:path";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
 import { createPermissionGate } from "../permission/gate.js";
+import {
+  workerSkillSearchDefinition,
+  type CreateSkillSearchToolArgs,
+} from "../agent/skill-search.js";
+import { workerUseSkillDefinition } from "../agent/use-skill.js";
 import type { RunSubAgentParams } from "./types.js";
 
 const testPermissionGate = createPermissionGate({
@@ -93,9 +98,7 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
     );
     await writeSkill(cwd, "off-lane", "Unrelated lane.", "Off-lane body.");
 
-    let searchArgs:
-      | { skills: { name: string }[]; allowedNames?: readonly string[] }
-      | undefined;
+    let searchArgs: CreateSkillSearchToolArgs | undefined;
     let useSkillArgs: readonly unknown[] | undefined;
     let searchTool:
       | {
@@ -121,10 +124,9 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
         import.meta.resolve("../agent/skill-search.js"),
         (real: typeof import("../agent/skill-search.js")) => ({
           ...real,
-          createSkillSearchTool: (args: {
-            skills: { name: string; description: string }[];
-            allowedNames?: readonly string[];
-          }) => {
+          createSkillSearchTool: (
+            args: Parameters<typeof real.createSkillSearchTool>[0],
+          ) => {
             searchArgs = args;
             const tool = real.createSkillSearchTool(args);
             if (tool.kind !== "string") throw new Error("expected string tool");
@@ -174,6 +176,8 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
     expect(useSkillArgs?.[0]).toBe(cwd);
     expect(useSkillArgs?.[1]).toEqual([]);
     expect(useSkillArgs?.[3]).toEqual(["style"]);
+    expect(searchArgs?.definition).toBe(workerSkillSearchDefinition);
+    expect(useSkillArgs?.[4]).toBe(workerUseSkillDefinition);
     expect(searchTool).toBeDefined();
     expect(useSkillTool).toBeDefined();
 
@@ -307,9 +311,7 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
     );
 
     let useSkillArgs: readonly unknown[] | undefined;
-    let searchArgs:
-      | { skills: { name: string }[]; allowedNames?: readonly string[] }
-      | undefined;
+    let searchArgs: CreateSkillSearchToolArgs | undefined;
     let useSkillTool:
       | {
           kind: string;
@@ -325,10 +327,9 @@ describe("runSubAgent worker skill mounts (CL-7668)", () => {
         import.meta.resolve("../agent/skill-search.js"),
         (real: typeof import("../agent/skill-search.js")) => ({
           ...real,
-          createSkillSearchTool: (args: {
-            skills: { name: string; description: string }[];
-            allowedNames?: readonly string[];
-          }) => {
+          createSkillSearchTool: (
+            args: Parameters<typeof real.createSkillSearchTool>[0],
+          ) => {
             searchArgs = args;
             return real.createSkillSearchTool(args);
           },

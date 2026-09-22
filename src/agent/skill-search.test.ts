@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createSkillSearchTool,
   skillSearchDefinition,
+  workerSkillSearchDefinition,
 } from "./skill-search.js";
 import type { SkillSummary } from "../extensions/skills.js";
 
@@ -24,14 +25,31 @@ const roster: SkillSummary[] = [
 ];
 
 describe("skillSearchDefinition", () => {
-  test("tells the model to look up details here and load bodies with use_skill", () => {
+  test("primary catalog copy does not imply attached skills", () => {
     expect(skillSearchDefinition.name).toBe("skill_search");
-    expect(skillSearchDefinition.description).toContain("attached skills");
+    expect(skillSearchDefinition.description).toMatch(/look up skill details/i);
     expect(skillSearchDefinition.description).toContain("use_skill");
     expect(skillSearchDefinition.description).toMatch(/directly callable/i);
-    expect(skillSearchDefinition.description).toContain("tiny one-file fix");
+    expect(skillSearchDefinition.description).not.toMatch(/attached/i);
+    expect(skillSearchDefinition.description).not.toContain(
+      "tiny one-file fix",
+    );
     expect(skillSearchDefinition.description).not.toMatch(
       /find this via tool_search/i,
+    );
+  });
+
+  test("worker copy tells the model not to search when attached skills suffice", () => {
+    expect(workerSkillSearchDefinition.name).toBe("skill_search");
+    expect(workerSkillSearchDefinition.description).toContain(
+      "attached skills",
+    );
+    expect(workerSkillSearchDefinition.description).toContain(
+      "tiny one-file fix",
+    );
+    expect(workerSkillSearchDefinition.description).toContain("use_skill");
+    expect(workerSkillSearchDefinition.description).toMatch(
+      /directly callable/i,
     );
   });
 });
@@ -129,6 +147,10 @@ describe("createAgentToolset skill_search mount", () => {
     const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
     expect(names).toContain("skill_search");
     expect(names).toContain("use_skill");
+    const skillSearch = toolset.dynamicRunner
+      .currentDefinitions()
+      .find((d) => d.name === "skill_search");
+    expect(skillSearch?.description).not.toMatch(/attached/i);
     expect(toolset.skills).toEqual(snapshot);
     await toolset.dispose();
   });

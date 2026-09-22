@@ -109,8 +109,14 @@ import type { CapabilityFilter } from "../agent/profiles.js";
 import type { Settings } from "../config/settings.js";
 import { toolWatchdogFromSettings } from "../config/settings.js";
 import { createSearchAgentsTool } from "../agent/agent-search.js";
-import { createSkillSearchTool } from "../agent/skill-search.js";
-import { createUseSkillTool } from "../agent/use-skill.js";
+import {
+  createSkillSearchTool,
+  workerSkillSearchDefinition,
+} from "../agent/skill-search.js";
+import {
+  createUseSkillTool,
+  workerUseSkillDefinition,
+} from "../agent/use-skill.js";
 import { discoverSkills } from "../extensions/skills.js";
 import { formatAttachedSkillConstraints } from "../agent/directors/attached-skills.js";
 import {
@@ -790,6 +796,7 @@ async function runSubAgentInner(
       ...tools,
       createSkillSearchTool({
         skills: skillSnapshot,
+        definition: workerSkillSearchDefinition,
         ...(params.allowedSkillNames !== undefined
           ? { allowedNames: params.allowedSkillNames }
           : {}),
@@ -799,6 +806,7 @@ async function runSubAgentInner(
         skillDirs,
         liveTelemetry,
         params.allowedSkillNames,
+        workerUseSkillDefinition,
       ),
     ];
 

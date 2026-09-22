@@ -21,14 +21,24 @@ export interface ResolveSkillBodyOptions {
    * ignored for bare skill names.
    */
   pluginRoot?: string;
+  /**
+   * Skip project-local `.agents/.claude/.codex/skills` fallbacks. Attached
+   * product skills (style/philosophy) use this so a repo SKILL.md cannot
+   * become system-prompt constraints.
+   */
+  pluginDirsOnly?: boolean;
 }
 
-// Skill subfolders live under enabled plugin dirs first, then project-local dirs.
-function skillBaseDirs(cwd: string, pluginDirs: string[]): string[] {
-  return [
-    ...pluginDirs.map((dir) => join(dir, "skills")),
-    ...FALLBACK_SKILL_DIRS.map((rel) => join(cwd, rel)),
-  ];
+// Skill subfolders live under enabled plugin dirs first, then project-local dirs
+// unless the caller opts out of the fallback.
+function skillBaseDirs(
+  cwd: string,
+  pluginDirs: string[],
+  includeProjectFallback = true,
+): string[] {
+  const pluginBases = pluginDirs.map((dir) => join(dir, "skills"));
+  if (!includeProjectFallback) return pluginBases;
+  return [...pluginBases, ...FALLBACK_SKILL_DIRS.map((rel) => join(cwd, rel))];
 }
 
 function parseSkillRef(ref: string): string {
@@ -135,9 +145,10 @@ async function resolvePathLikeSkillBody(
 // Resolve a skill reference (e.g. scribe or gaas:scribe) to its body text — the
 // frontmatter is stripped, leaving the instructions to inject into context.
 //
-// Bare names search `skillBaseDirs` (plugin dirs then project-local fallbacks).
-// Path-like refs (`./skills/style`, `skills/foo`) resolve only under
-// `options.pluginRoot` with containment checks; absolute and escape paths fail.
+// Bare names search `skillBaseDirs` (plugin dirs then, unless pluginDirsOnly,
+// project-local fallbacks). Path-like refs (`./skills/style`, `skills/foo`)
+// resolve only under `options.pluginRoot` with containment checks; absolute
+// and escape paths fail.
 export async function resolveSkillBody(
   cwd: string,
   ref: string,
@@ -152,7 +163,11 @@ export async function resolveSkillBody(
     if (pluginRoot === undefined) return undefined;
     return resolvePathLikeSkillBody(pluginRoot, name);
   }
-  for (const base of skillBaseDirs(cwd, pluginDirs)) {
+  for (const base of skillBaseDirs(
+    cwd,
+    pluginDirs,
+    options?.pluginDirsOnly !== true,
+  )) {
     const body = await bodyFromSkillPath(join(base, name, "SKILL.md"));
     if (body !== undefined) return body;
   }

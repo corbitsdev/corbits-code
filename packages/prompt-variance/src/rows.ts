@@ -2,8 +2,8 @@
  * Versioned model-family prompt variance (CL-8269). One row per tuned
  * family: the tail residual text directors append to the assembled prompt.
  * Residuals-only: the package owns residual TEXT, never tool mounting —
- * tool denial stays live in ModelFamilyPolicy.advertisedToolDeny
- * (src/agent/model-family-policy.ts), which run.ts applies at mount time.
+ * advertisedToolDeny stays on ModelFamilyPolicy
+ * (src/agent/model-family-policy.ts) and is empty on every family today.
  * Keeping deny out of this package removes the duplicate-deny footgun.
  *
  * Families ship here as their lanes characterize them: default/muse/grok

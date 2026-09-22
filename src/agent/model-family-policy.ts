@@ -197,7 +197,6 @@ export function resolveModelFamilyPolicy(input: {
       return {
         ...policy,
         applyGrokFinishBias: policy.applyGrokFinishBias && !orchestrator,
-        advertisedToolDeny: orchestrator ? [] : policy.advertisedToolDeny,
         promptResidual: orchestrator ? undefined : policy.promptResidual,
       };
     }
