@@ -135,7 +135,9 @@ describe("createUseSkillTool already-in-context", () => {
           call(tool, { name: "git-worktrees" }),
           call(tool, { name: "git-worktrees" }),
         ]);
-        const bodies = [a, b].filter((s) => s.includes("Create worktree recipe."));
+        const bodies = [a, b].filter((s) =>
+          s.includes("Create worktree recipe."),
+        );
         const refused = [a, b].filter((s) =>
           s.includes("already attached / already in context"),
         );
