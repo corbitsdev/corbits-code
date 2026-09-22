@@ -256,6 +256,13 @@ function hostnameOf(url: string): string | undefined {
   }
 }
 
+// User-text URLs sit next to sentence punct (`Call HTTP://API.COM.`).
+// `new URL` keeps a trailing `.` in the hostname, so a summary that
+// names `api.com` would miss the exactName.
+function stripUrlGlue(match: string): string {
+  return match.replace(/[.,;:!]+$/, "");
+}
+
 /**
  * Pull the continuation facts out of the turns a fold is about to drop.
  * Deterministic and total: no fact means nothing to verify, never an abort.
@@ -297,7 +304,8 @@ export function extractContinuationFacts(
   }
   for (const text of [...users, ...assistants]) {
     for (const match of text.match(/https?:\/\/[^\s)]+/gi) ?? []) {
-      if (!exactNames.includes(match)) exactNames.push(match);
+      const url = stripUrlGlue(match);
+      if (url.length > 0 && !exactNames.includes(url)) exactNames.push(url);
     }
   }
 

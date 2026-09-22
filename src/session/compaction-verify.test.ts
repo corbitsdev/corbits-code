@@ -126,6 +126,27 @@ describe("extractContinuationFacts", () => {
     ]);
     expect(facts.exactNames).toContain("HTTP://API.COM");
   });
+
+  test("sentence-final period is not part of a user-text URL", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Call HTTP://API.COM."),
+    ]);
+    expect(facts.exactNames).toContain("HTTP://API.COM");
+    expect(facts.exactNames).not.toContain("HTTP://API.COM.");
+    expect(
+      verifyCompactionSummary("Call api.com", facts).misses.some(
+        (m) => m.kind === "exactName",
+      ),
+    ).toBe(false);
+  });
+
+  test("comma glue is not part of a user-text URL", () => {
+    const facts = extractContinuationFacts([
+      textTurn("user", "Call HTTP://API.COM, then retry"),
+    ]);
+    expect(facts.exactNames).toContain("HTTP://API.COM");
+    expect(facts.exactNames).not.toContain("HTTP://API.COM,");
+  });
 });
 
 describe("verifyCompactionSummary", () => {
