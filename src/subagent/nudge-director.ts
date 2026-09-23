@@ -343,6 +343,10 @@ export class SubAgentDirector extends DefaultDirector {
 
     const stallOutcome = this.checkStallPing(event, capabilities);
     if (stallOutcome !== null) return stallOutcome;
+    // Inside the stall window, or with no stall timeout, an empty
+    // continuation is not a model turn. Leave lastActivityAt and
+    // stallNudgeAt alone so the next real silence can still nudge.
+    if (isEmptyContinuation(event)) return capabilities.wait();
 
     // Keep the running local estimate current on every cycle (tool results and
     // rewrites included). Arming still happens inside noteInferenceDone, which
@@ -522,8 +526,9 @@ export class SubAgentDirector extends DefaultDirector {
    * stallNudgeAt. Queued pings that arrive inside the stallTimeoutMs grace
    * after that nudge neither stop nor restart the grace (and do not count as
    * activity). Stop only when a ping arrives after the grace with still no
-   * activity. Returns null when this event is not a stall check the director
-   * should act on (let it fall through as an ordinary continuation).
+   * activity. Returns null when this ping is not yet silence, or when stall
+   * timing is unconfigured. decide then waits on an empty continuation
+   * without stamping the silence clock, instead of inferring.
    */
   private checkStallPing(
     event: ReactorInboundEvent,
