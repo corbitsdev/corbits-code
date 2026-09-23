@@ -1,6 +1,6 @@
 import { defined } from "../tests/helpers/defined.js";
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -50,9 +50,12 @@ import {
 import {
   generateSessionId,
   initSessionDir,
+  sessionContextDir,
   sessionDir,
 } from "./session/index.js";
 import { saveState } from "./session/state.js";
+import { createOptimizedContextStore } from "./session/optimized-context-store.js";
+import { projectSessionsRoot } from "./session/project-key.js";
 import { filterMcpServersForConnect } from "./trust/project-trust.js";
 import { createExaMCPServerConfig } from "./mcp/exa.js";
 import { withFileLogSink } from "../tests/helpers/file-log-sink.js";
@@ -120,6 +123,15 @@ async function writeGlobalSettings(
 // A cwd with no per-repo settings file, so local resolution is inert.
 async function emptyCwd(): Promise<string> {
   return mkdtemp(join(tmpdir(), "ic-config-"));
+}
+
+async function sessionIdsOnDisk(cwd: string, home: string): Promise<string[]> {
+  try {
+    const names = await readdir(projectSessionsRoot(cwd, home));
+    return names.filter((name) => name !== "latest").sort();
+  } catch {
+    return [];
+  }
 }
 
 async function expectCliHelp(argv: readonly string[]): Promise<void> {
@@ -809,6 +821,226 @@ describe("loadConfig", () => {
       expect(config.sessionId).toBe(sessionId);
       expect(config.skipInitialTask).toBe(true);
       expect(config.task).toBe("ship resume");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("-p is the exec one-shot path in either flag order", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const model = "accounts/fireworks/routers/kimi-k2p6-turbo";
+      const viaExec = await loadConfig(["exec", "--cwd", cwd, "do the thing"], {
+        globalSettingsPath: globalPath,
+      });
+      const viaP = await loadConfig(["-p", "--cwd", cwd, "do the thing"], {
+        globalSettingsPath: globalPath,
+      });
+      const providerFirst = await loadConfig(
+        ["-p", "--provider", "fireworks", "--cwd", cwd, "hello"],
+        { globalSettingsPath: globalPath },
+      );
+      const modelFirst = await loadConfig(
+        ["--model", model, "-p", "--cwd", cwd, "hello"],
+        { globalSettingsPath: globalPath },
+      );
+      const directorFirst = await loadConfig(
+        ["--director", "skywalker", "-p", "--cwd", cwd, "ship it"],
+        { globalSettingsPath: globalPath },
+      );
+      assertConfigured(viaExec);
+      assertConfigured(viaP);
+      assertConfigured(providerFirst);
+      assertConfigured(modelFirst);
+      assertConfigured(directorFirst);
+      expect(viaP.command).toBe("exec");
+      expect(viaP.task).toBe(viaExec.task);
+      expect(viaP.providerName).toBe(viaExec.providerName);
+      expect(viaP.model).toBe(viaExec.model);
+      expect(providerFirst.command).toBe("exec");
+      expect(providerFirst.providerName).toBe("fireworks");
+      expect(providerFirst.task).toBe("hello");
+      expect(modelFirst.command).toBe("exec");
+      expect(modelFirst.model).toBe(model);
+      expect(modelFirst.task).toBe("hello");
+      expect(directorFirst.command).toBe("exec");
+      expect(directorFirst.director).toBe("skywalker");
+      expect(directorFirst.task).toBe("ship it");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("exec --resume and -p --resume send the new prompt on that session", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const sessionId = generateSessionId();
+      await initSessionDir(cwd, sessionId, home);
+      await saveState(
+        cwd,
+        sessionId,
+        {
+          status: "done",
+          turnsUsed: 2,
+          task: "original task",
+          startedAt: Date.now() - 1_000,
+          finishedAt: Date.now(),
+        },
+        home,
+      );
+      const viaExec = await loadConfig(
+        ["exec", "--resume", sessionId, "--cwd", cwd, "follow up"],
+        { globalSettingsPath: globalPath, home },
+      );
+      const viaP = await loadConfig(
+        ["-p", "--resume", sessionId, "--cwd", cwd, "follow up from p"],
+        { globalSettingsPath: globalPath, home },
+      );
+      const flagOrder = await loadConfig(
+        ["--resume", sessionId, "-p", "--cwd", cwd, "flag order"],
+        { globalSettingsPath: globalPath, home },
+      );
+      assertConfigured(viaExec);
+      assertConfigured(viaP);
+      assertConfigured(flagOrder);
+      expect(viaExec.command).toBe("exec");
+      expect(viaExec.resumeMode).toBe("id");
+      expect(viaExec.sessionId).toBe(sessionId);
+      expect(viaExec.skipInitialTask).toBeUndefined();
+      expect(viaExec.resumePicker).toBeUndefined();
+      expect(viaExec.task).toBe("follow up");
+      expect(viaP.command).toBe("exec");
+      expect(viaP.sessionId).toBe(sessionId);
+      expect(viaP.skipInitialTask).toBeUndefined();
+      expect(viaP.task).toBe("follow up from p");
+      expect(flagOrder.command).toBe("exec");
+      expect(flagOrder.sessionId).toBe(sessionId);
+      expect(flagOrder.task).toBe("flag order");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("exec --resume without an id errors and does not open a picker", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      await expect(
+        loadConfig(["exec", "--resume", "--cwd", cwd], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow("--resume requires a session id in exec mode");
+      await expect(
+        loadConfig(["-p", "--resume", "--cwd", cwd, "orphan prompt"], {
+          globalSettingsPath: globalPath,
+        }),
+      ).rejects.toThrow("--resume requires a session id in exec mode");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("exec --resume with a missing or unreadable id does not create a session", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const missing = generateSessionId();
+      await expect(
+        loadConfig(["exec", "--resume", missing, "--cwd", cwd, "follow up"], {
+          globalSettingsPath: globalPath,
+          home,
+        }),
+      ).rejects.toThrow(new RegExp(`No session ${missing}`));
+      expect(await sessionIdsOnDisk(cwd, home)).toEqual([]);
+
+      const unreadable = generateSessionId();
+      await initSessionDir(cwd, unreadable, home);
+      await writeFile(join(sessionDir(cwd, unreadable, home), "run.json"), "{");
+      await expect(
+        loadConfig(["-p", "--resume", unreadable, "--cwd", cwd, "follow up"], {
+          globalSettingsPath: globalPath,
+          home,
+        }),
+      ).rejects.toBeInstanceOf(CliUserError);
+      expect(await sessionIdsOnDisk(cwd, home)).toEqual([unreadable]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("a headless follow-up reopens the same context store and keeps prior turns", async () => {
+    const cwd = await emptyCwd();
+    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const sessionId = generateSessionId();
+      await initSessionDir(cwd, sessionId, home);
+      await saveState(
+        cwd,
+        sessionId,
+        {
+          status: "done",
+          turnsUsed: 1,
+          task: "first task",
+          startedAt: Date.now() - 1_000,
+          finishedAt: Date.now(),
+        },
+        home,
+      );
+      const contextDir = sessionContextDir(cwd, sessionId, home);
+      const first = await createOptimizedContextStore(contextDir);
+      await first.writeTurns([
+        {
+          role: "user",
+          content: [{ type: "text", text: "first task" }],
+          timestamp: 1,
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "first answer" }],
+          model: "test",
+          timestamp: 2,
+        },
+      ]);
+      await first.writeMetadata({
+        pendingOperations: [],
+        tokenUsage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
+      });
+      await first.commit({ message: "cycle" });
+
+      const config = await loadConfig(
+        ["exec", "--resume", sessionId, "--cwd", cwd, "second prompt"],
+        { globalSettingsPath: globalPath, home },
+      );
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.sessionId).toBe(sessionId);
+      expect(config.task).toBe("second prompt");
+      expect(config.skipInitialTask).toBeUndefined();
+
+      const reopened = await createOptimizedContextStore(
+        sessionContextDir(cwd, config.sessionId, home),
+      );
+      const loaded = await reopened.load();
+      expect(
+        loaded.turns.map((turn) => {
+          const block = turn.content[0];
+          return block?.type === "text" ? block.text : "";
+        }),
+      ).toEqual(["first task", "first answer"]);
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });
