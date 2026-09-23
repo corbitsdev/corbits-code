@@ -163,6 +163,13 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           name: c.name,
           description: c.description,
           ...(c.pluginOrigin !== undefined ? { origin: c.pluginOrigin } : {}),
+          // Carried so the `/` popup can show hints and offer arg rows.
+          ...(c.argumentHint !== undefined
+            ? { argumentHint: c.argumentHint }
+            : {}),
+          ...(c.subcommands !== undefined && c.subcommands.length > 0
+            ? { subcommands: c.subcommands }
+            : {}),
         })),
       onCommand: (name) => {
         const route = routeSubmission(name);

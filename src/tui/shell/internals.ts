@@ -1052,6 +1052,31 @@ export function slashPopupQuery(shell: AppShell): string | null {
   return /\s/.test(head) ? null : head;
 }
 
+/** Second-stage arg parse: `/name` + whitespace + typed arg tail. */
+export interface SlashArgQuery {
+  /** Command name after the leading `/` (before the first whitespace). */
+  readonly name: string;
+  /** Typed argument tail after the first whitespace run (may be empty). */
+  readonly arg: string;
+}
+
+/**
+ * Arg-stage parse for the `/` popup. Null when the prompt is not `/name`
+ * followed by whitespace — the `slashPopupQuery` null-on-whitespace contract
+ * is unchanged; this is the separate second stage built on top of it.
+ */
+export function slashArgQuery(shell: AppShell): SlashArgQuery | null {
+  const value = shell.prompt.value;
+  if (!value.startsWith("/")) return null;
+  const head = value.slice(1);
+  const gap = /\s/.exec(head);
+  if (gap === null) return null;
+  return {
+    name: head.slice(0, gap.index),
+    arg: head.slice(gap.index + gap[0].length),
+  };
+}
+
 export function shellInternals(shell: AppShell): ShellInternals | undefined {
   return internals.get(shell);
 }

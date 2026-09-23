@@ -158,7 +158,7 @@ function settingsOnCommand(
 
 describe("/ popup keeps a queued gate queued across a filter refresh", () => {
   test("filter keystroke while a gate is queued", async () => {
-    await withShell(async ({ shell, press }) => {
+    await withShell(async ({ shell, press, render }) => {
       const emitter = new EventEmitter();
       const dispose = wireGates(emitter, shell);
       // The host going idle (onOverlayClosed) is what the queued gate waits
@@ -227,9 +227,11 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(resolved).toBeUndefined();
         expect(closedCount).toBe(0);
 
-        // A true dismiss still drains the queue as before.
+        // A true dismiss still drains the queue as before. A bare ESC is held
+        // by the input parser until it cannot be a sequence, so render + hold.
         press("Escape");
-        await Bun.sleep(20);
+        await render();
+        await Bun.sleep(60);
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
         expect(closedCount).toBe(1);
@@ -300,6 +302,44 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
       } finally {
+        dispose();
+      }
+    });
+  });
+
+  test("space into an arg-less command dismisses without draining a queued gate", async () => {
+    await withShell(async ({ shell, press }) => {
+      const emitter = new EventEmitter();
+      const dispose = wireGates(emitter, shell);
+      let closedCount = 0;
+      const disposeClosedSpy = onOverlayClosed(shell, () => {
+        closedCount++;
+      });
+      try {
+        typePrompt(press, "/mcp");
+        expect(isSlashPopupOpen(shell)).toBe(true);
+
+        let resolved: unknown;
+        emitPermissionGate(emitter, (outcome) => {
+          resolved = outcome;
+        });
+        expect(shell.overlayKind).toBe("palette");
+        expect(resolved).toBeUndefined();
+        expect(closedCount).toBe(0);
+
+        // `/mcp ` takes no params, so the popup dismisses — but silently: the
+        // operator is mid-word, and the idle-notify is what the queued gate
+        // waits on to drain. It stays queued behind the idle host.
+        press(" ");
+        expect(shell.prompt.value).toBe("/mcp ");
+        expect(isSlashPopupOpen(shell)).toBe(false);
+
+        await Bun.sleep(20);
+        expect(shell.overlayKind).not.toBe("permissions");
+        expect(resolved).toBeUndefined();
+        expect(closedCount).toBe(0);
+      } finally {
+        disposeClosedSpy();
         dispose();
       }
     });

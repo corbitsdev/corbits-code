@@ -4,7 +4,11 @@ import {
   type RenderContext,
 } from "@opentui/core";
 import { middleEllipsis } from "./command-display.js";
-import { formatPaletteRows, type PaletteCommand } from "./command-catalog.js";
+import {
+  formatPaletteRows,
+  paletteLabels,
+  type PaletteCommand,
+} from "./command-catalog.js";
 import type {
   OverlayList,
   ItemDescription,
@@ -33,7 +37,10 @@ export interface OverlayListPresentation {
   readonly kind: PrimaryOverlayKind | null;
   readonly items: readonly string[];
   readonly itemIds?: readonly string[];
-  readonly paletteCommands: readonly Pick<PaletteCommand, "label">[];
+  readonly paletteCommands: readonly Pick<
+    PaletteCommand,
+    "label" | "hintLabel"
+  >[];
   readonly list: OverlayList | null;
   readonly bodyLines: readonly string[];
   readonly bodyFgs: readonly string[];
@@ -313,9 +320,13 @@ export function createOverlayView(ctx: RenderContext) {
     list: OverlayList,
     contentWidth: number,
   ): void {
+    // Hint suffixes (`/yolo [on|off]`) paint as plain row text: the select
+    // widget takes unstyled string options, so a dimmed suffix would need a
+    // custom row renderer. Unselected rows already paint dim, which carries
+    // most of the "greyed hint" read.
     const interior = overlayInteriorWidth(contentWidth);
     const lines = formatPaletteRows(
-      commands.map((command) => command.label),
+      paletteLabels(commands),
       Math.max(4, interior - 1),
     );
     list.setHeight(list.height, 1);

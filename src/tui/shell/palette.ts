@@ -9,6 +9,7 @@ import { spliceMentionCompletion } from "../prompt-attachments.js";
 import {
   filterPaletteCommands,
   paletteLabels,
+  slashArgItems,
   type PaletteCommand,
 } from "../command-catalog.js";
 import { helpItems } from "../keybindings.js";
@@ -31,6 +32,7 @@ import {
   type OverlaySelection,
   shellInternals,
   shellMentionSource,
+  slashArgQuery,
   slashPopupQuery,
   slashPopups,
 } from "./internals.js";
@@ -502,10 +504,13 @@ export function handleMentionPopupKey(shell: AppShell, key: KeyEvent): boolean {
   return true;
 }
 
-export function closeSlashPopup(shell: AppShell): void {
+export function closeSlashPopup(
+  shell: AppShell,
+  opts?: { readonly suppressIdleNotify?: boolean },
+): void {
   if (!slashPopups.has(shell)) return;
   slashPopups.delete(shell);
-  if (shell.overlayList) closeInsetOverlay(shell);
+  if (shell.overlayList) closeInsetOverlay(shell, opts);
 }
 
 /**
@@ -515,44 +520,101 @@ export function closeSlashPopup(shell: AppShell): void {
  */
 export function openSlashCommands(shell: AppShell): boolean {
   const query = slashPopupQuery(shell);
-  if (query === null) {
-    closeSlashPopup(shell);
-    return false;
-  }
-  // Name-prefix, not the palette's fuzzy label match: at the prompt the
-  // operator is typing the command they already mean.
-  const q = query.toLowerCase();
-  const matches = resolvePaletteCatalog(shell).filter((cmd) =>
-    cmd.id.toLowerCase().startsWith(q),
-  );
+  if (query !== null) {
+    // Name-prefix, not the palette's fuzzy label match: at the prompt the
+    // operator is typing the command they already mean.
+    const q = query.toLowerCase();
+    const matches = resolvePaletteCatalog(shell).filter((cmd) =>
+      cmd.id.toLowerCase().startsWith(q),
+    );
 
-  // Every keystroke lands here while the popup is already open. Closing and
-  // reopening released the overlay host between the two calls (closeSlashPopup
-  // routes through closeInsetOverlay, which idle-notifies) — long enough for a
-  // queued permission/operator gate to drain onto it. Refreshing the open
-  // palette in place never releases the host, so a queued gate has nothing to
-  // drain into. priorOverlay stacking is untouched here (it is only ever
-  // written by openListOverlay's stack-on-open path), so a palette stacked
-  // over a prior overlay keeps that snapshot across the refresh.
-  //
-  // A typo that zeroes the matches must not fall through to closeSlashPopup
-  // while the popup is already open — that closes through the same idle-notify
-  // path and drains a queued gate mid-filter. Instead this refreshes in place
-  // to a "(no matches)" row, same as the general palette does, and holds the
-  // host until a real dismiss (deleting the `/`, Esc, accept) or a backspace
-  // that restores matches.
-  if (isSlashPopupOpen(shell) && shell.overlayKind === "palette") {
-    refreshSlashPopupInPlace(shell, matches);
+    // Every keystroke lands here while the popup is already open. Closing and
+    // reopening released the overlay host between the two calls (closeSlashPopup
+    // routes through closeInsetOverlay, which idle-notifies) — long enough for a
+    // queued permission/operator gate to drain onto it. Refreshing the open
+    // palette in place never releases the host, so a queued gate has nothing to
+    // drain into. priorOverlay stacking is untouched here (it is only ever
+    // written by openListOverlay's stack-on-open path), so a palette stacked
+    // over a prior overlay keeps that snapshot across the refresh.
+    //
+    // A typo that zeroes the matches must not fall through to closeSlashPopup
+    // while the popup is already open — that closes through the same idle-notify
+    // path and drains a queued gate mid-filter. Instead this refreshes in place
+    // to a "(no matches)" row, same as the general palette does, and holds the
+    // host until a real dismiss (deleting the `/`, Esc, accept) or a backspace
+    // that restores matches.
+    if (isSlashPopupOpen(shell) && shell.overlayKind === "palette") {
+      refreshSlashPopupInPlace(shell, matches);
+      return true;
+    }
+
+    if (matches.length === 0) {
+      closeSlashPopup(shell);
+      return false;
+    }
+
+    closeSlashPopup(shell);
+    openPalette(shell, { catalog: matches, title: "commands · /" });
+    slashPopups.add(shell);
     return true;
   }
+  return openSlashArgRows(shell);
+}
 
-  if (matches.length === 0) {
+/**
+ * Second stage: `/name` is settled (whitespace follows) and the tail filters
+ * the command's arg rows — subcommand choices by name prefix, or the
+ * free-form hint as a single reminder row while the tail is still empty.
+ * Unknown names and arg-less commands (`/mcp `) dismiss the popup, keeping
+ * today's dismiss for commands that take no params — but silently: this runs
+ * on keystroke re-parses while the operator is mid-word, and the default
+ * idle-notify would drain a queued permission/operator gate onto the host.
+ */
+function openSlashArgRows(shell: AppShell): boolean {
+  const argQuery = slashArgQuery(shell);
+  if (argQuery === null) {
     closeSlashPopup(shell);
     return false;
   }
-
+  // Two or more tokens past the name (`/deploy prod --force`): the popup's
+  // filtering job is over — subcommand rows only ever match a single prefix
+  // token and a hint row only shows on the empty tail — so dismiss instead of
+  // holding a dead "(no matches)" while real arguments are typed. A trailing
+  // space after one token (`/deploy prod `) still filters; only genuinely
+  // multi-token tails dismiss.
+  if (/\s/.test(argQuery.arg.trim())) {
+    closeSlashPopup(shell, { suppressIdleNotify: true });
+    return false;
+  }
+  const cmd = resolvePaletteCatalog(shell).find(
+    (c) => c.id.toLowerCase() === argQuery.name.toLowerCase(),
+  );
+  const rows = cmd !== undefined ? slashArgItems(cmd, argQuery.arg) : [];
+  if (rows.length === 0) {
+    // Unlike the name stage, an empty arg stage usually means "nothing to
+    // offer" (arg-less command, hint already being typed over) rather than a
+    // recoverable typo, so dismiss instead of holding a dead "(no matches)"
+    // while free-form args are typed. Subcommand filtering is the exception:
+    // a zeroed single-token prefix is still recoverable by typing, so hold
+    // the host exactly like the name stage does.
+    const filterable = (cmd?.subcommands?.length ?? 0) > 0;
+    if (
+      filterable &&
+      isSlashPopupOpen(shell) &&
+      shell.overlayKind === "palette"
+    ) {
+      refreshSlashPopupInPlace(shell, rows);
+      return true;
+    }
+    closeSlashPopup(shell, { suppressIdleNotify: true });
+    return false;
+  }
+  if (isSlashPopupOpen(shell) && shell.overlayKind === "palette") {
+    refreshSlashPopupInPlace(shell, rows);
+    return true;
+  }
   closeSlashPopup(shell);
-  openPalette(shell, { catalog: matches, title: "commands · /" });
+  openPalette(shell, { catalog: rows, title: "commands · /" });
   slashPopups.add(shell);
   return true;
 }
@@ -597,22 +659,79 @@ export function setPromptText(shell: AppShell, value: string): void {
 }
 
 /**
+ * setPromptText plus a selected span. Choice A from the popup-params notes:
+ * the hint lands as real selected text (not ghost paint) because the
+ * textarea already owns selection — setSelection/insertText/deleteSelection
+ * all exist on the widget (see the yank-rotation path in keys.ts) — and the
+ * next keystroke's insert replaces the span, so typing over the hint works
+ * with no extra bookkeeping. Ghost paint-only would need a custom prompt-box
+ * renderer with no precedent in the tree.
+ */
+function setPromptTextWithSelection(
+  shell: AppShell,
+  value: string,
+  start: number,
+  end: number,
+): void {
+  setPromptText(shell, value);
+  shell.prompt.setSelection(start, end);
+}
+
+/**
+ * Complete a second-stage arg row into the prompt. Arg rows are fragments,
+ * not runnable commands, so they never dispatch: a subcommand completes to
+ * `/parent sub ` with the caret parked past the space, while a free-form
+ * hint completes to selected text (choice A above) so typing replaces it.
+ */
+function completeSlashArgRow(shell: AppShell, row: PaletteCommand): void {
+  const base = `/${row.parentId ?? row.id} `;
+  if (row.argKind === "hint" && row.argValue !== undefined) {
+    setPromptTextWithSelection(
+      shell,
+      `${base}${row.argValue}`,
+      base.length,
+      base.length + row.argValue.length,
+    );
+    return;
+  }
+  setPromptText(shell, `${base}${row.argValue ?? ""} `);
+}
+
+/**
  * Keys the `/` popup claims while open. Returns true when handled.
  *
- * Enter runs the highlighted command with no arguments; Tab instead completes
- * the name and leaves the popup so arguments can be typed — a command that
- * needs arguments should not fire bare just because its name matched.
+ * Enter runs the highlighted command with no arguments (bare dispatch, even
+ * for param commands — the typed `/name` already says what to run, and an
+ * untouched Tab-accepted hint is stripped at submit so it never arrives as a
+ * literal argument). Tab instead completes the name so arguments can be
+ * typed. Commands carrying an
+ * argumentHint or subcommands complete to `/id ` and open the second-stage
+ * arg rows; param-less commands keep the bare `/id ` accept and close.
  */
 export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
   if (!isSlashPopupOpen(shell) || shell.overlayList === null) return false;
 
   if (key.name === "backspace" && !key.ctrl && !key.meta && !key.option) {
-    setPromptText(shell, shell.prompt.value.slice(0, -1));
+    // A Tab-accepted hint sits selected; backspace clears the span itself so
+    // the stage re-parse below lands back on the arg rows, not on truncated
+    // text with a stale selection.
+    if (shell.prompt.hasSelection()) {
+      shell.prompt.deleteSelection();
+      shell.sentHistory = sentHistoryOnEdit(shell.sentHistory);
+    } else {
+      setPromptText(shell, shell.prompt.value.slice(0, -1));
+    }
     openSlashCommands(shell);
     return true;
   }
 
   const active = shell.paletteCommands[shell.overlayList.activeIndex];
+  const activeArgRow =
+    active !== undefined &&
+    active.parentId !== undefined &&
+    active.argValue !== undefined
+      ? active
+      : undefined;
 
   if (
     key.name === "tab" &&
@@ -621,7 +740,27 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
     !key.meta &&
     !key.option
   ) {
-    if (active) setPromptText(shell, `/${active.id} `);
+    if (activeArgRow !== undefined) {
+      completeSlashArgRow(shell, activeArgRow);
+      closeSlashPopup(shell);
+      return true;
+    }
+    if (active === undefined) {
+      closeSlashPopup(shell);
+      return true;
+    }
+    if (
+      active.argumentHint !== undefined ||
+      (active.subcommands !== undefined && active.subcommands.length > 0)
+    ) {
+      // Param command: complete the name and open the second stage so the
+      // hint/subcommand rows stay visible while args are typed. Param-less
+      // commands keep today's bare `/id ` accept below.
+      setPromptText(shell, `/${active.id} `);
+      openSlashCommands(shell);
+      return true;
+    }
+    setPromptText(shell, `/${active.id} `);
     closeSlashPopup(shell);
     return true;
   }
@@ -634,6 +773,11 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
   ) {
     // Genuine dismiss (zero matches) still notifies immediately so a queued
     // gate can drain. Accept-with-match keeps the host until dispatch settles.
+    if (activeArgRow !== undefined) {
+      completeSlashArgRow(shell, activeArgRow);
+      closeSlashPopup(shell);
+      return true;
+    }
     if (!active) {
       closeSlashPopup(shell);
       return true;
@@ -660,9 +804,23 @@ export function handleSlashPopupKey(shell: AppShell, key: KeyEvent): boolean {
     !key.option;
   if (!printable) return false;
 
-  setPromptText(shell, shell.prompt.value + seq);
-  // Whitespace ends the name; keep the popup out of the way while args are typed.
-  if (/\s/.test(seq)) closeSlashPopup(shell);
-  else openSlashCommands(shell);
+  // A selected span (manual select, or a just-completed hint row whose popup
+  // stayed open) is replaced by the typed character; otherwise append as
+  // before. The no-selection path is byte-for-byte today's behavior.
+  if (shell.prompt.hasSelection()) {
+    shell.prompt.deleteSelection();
+    shell.prompt.insertText(seq);
+    shell.sentHistory = sentHistoryOnEdit(shell.sentHistory);
+  } else {
+    setPromptText(shell, shell.prompt.value + seq);
+  }
+  if (/\s/.test(seq)) {
+    // Whitespace settles the name; re-parse into the second stage instead of
+    // closing so subcommand/hint rows offer themselves while args are typed.
+    // openSlashArgRows closes itself for unknown names and arg-less commands.
+    openSlashCommands(shell);
+    return true;
+  }
+  openSlashCommands(shell);
   return true;
 }

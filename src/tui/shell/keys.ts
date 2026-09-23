@@ -49,6 +49,7 @@ import {
   submitPrompt,
 } from "./prompt.js";
 import {
+  closeSlashPopup,
   handleListFilterKey,
   handleMentionPopupKey,
   handlePaletteFilterKey,
@@ -288,7 +289,15 @@ export function createShellKeyHandlers(
       if (shell.overlayList) {
         key.preventDefault();
         abortOverlayHostReservations(shell);
-        closeInsetOverlay(shell);
+        // closeSlashPopup owns the slash entry's cleanup and closes the inset
+        // overlay itself; a second closeInsetOverlay after it would idle-notify
+        // twice and kill a gate the first notify drains. Non-slash overlays
+        // carry no entry, so closeSlashPopup no-ops on them (same list still
+        // open) and the shared close handles those.
+        const list = shell.overlayList;
+        closeSlashPopup(shell);
+        if (list !== null && shell.overlayList === list)
+          closeInsetOverlay(shell);
         return;
       }
       if (shellInternals(shell)?.overlayHostReservations) {
