@@ -676,14 +676,16 @@ export const CLI_HELP_TEXT = `corbits — coding agent CLI
 
 Usage:
   corbits [flags] [task...]
-  corbits exec|run [flags] <prompt>
+  corbits exec|run|-p [flags] <prompt>
   corbits resume|continue [session-id] [flags]
 
 Continue verbs (project-keyed to this checkout's git toplevel):
   resume / continue           interactive session picker
-  --resume [<session-id>]     interactive session picker, or reopen a specific session
-  resume <session-id>         reopen a specific session
+  --resume [<session-id>]     interactive picker, or reopen a session; with exec/-p the id is required
+  resume <session-id>         reopen a specific session in the TUI
   resume --pick / --list      interactive session picker
+  exec --resume <session-id>  headless: continue that session and send <prompt>
+  -p --resume <session-id>    same one-shot path as exec --resume
 
 Flags:
   --cwd <dir>                 working directory (default: process.cwd())
@@ -691,7 +693,8 @@ Flags:
   --provider <name>           configured provider name
   --model <id>                model for the active provider
   --profile <name>            settings profile
-  --resume [<session-id>]     interactive session picker, or reopen a specific session
+  -p                          one-shot prompt (same as exec / run)
+  --resume [<session-id>]     interactive picker, or reopen a session; with exec/-p the id is required
   --director <id>             exec-only: run as this director (default: skywalker)
   --dangerously-skip-permissions
                                skip permission prompts for this run only;
@@ -744,7 +747,7 @@ export interface LoadConfigOptions {
 }
 
 function isFlagToken(arg: string): boolean {
-  return arg.startsWith("--") || arg === "-h";
+  return arg.startsWith("--") || arg === "-h" || arg === "-p";
 }
 
 export async function loadConfig(
@@ -799,6 +802,18 @@ export async function loadConfig(
     } else {
       resumeMode = "pick";
     }
+  }
+
+  // `-p` is the exec one-shot path in any position (`-p --provider …`,
+  // `--model … -p …`). Detect it before value flags so exec-only options
+  // that appear before `-p` still see exec mode.
+  if (args.includes("-p")) {
+    if (leading === "resume" || leading === "continue") {
+      throw new Error(
+        `cannot combine resume with -p; use \`${COMMAND_NAME} -p --resume <session-id>\` to continue a session headlessly`,
+      );
+    }
+    command = "exec";
   }
 
   let cwd = process.cwd();
@@ -881,18 +896,18 @@ export async function loadConfig(
       noWorkflow = true;
       continue;
     }
+    if (arg === "-p") {
+      command = "exec";
+      continue;
+    }
     if (arg === "--resume") {
-      if (command === "exec") {
-        throw new Error("--resume is only available in interactive mode");
-      }
       if (resumeMode === "id") {
         throw new Error("cannot combine a session id with --resume");
       }
-      // Optional session id: `corbits --resume <uuid>` reopens that session
-      // directly (an alias for the `corbits resume <uuid>` form the exit
-      // hint prints); bare `--resume` opens the
-      // picker. A non-flag token that is not a session id errors exactly like
-      // the `resume` verb path instead of leaking into task text.
+      // Optional session id on the interactive path: `corbits --resume <uuid>`
+      // reopens that session (an alias for `corbits resume <uuid>`); bare
+      // `--resume` opens the picker. Exec / `-p` require the id — headless
+      // has no picker. A non-id token errors instead of leaking into task text.
       const next = args[i + 1];
       if (next !== undefined && !isFlagToken(next)) {
         if (!isSessionId(next)) {
@@ -903,6 +918,10 @@ export async function loadConfig(
         resumeMode = "id";
         resumeSessionId = next;
         i++;
+      } else if (command === "exec") {
+        throw new Error(
+          `--resume requires a session id in exec mode. Use \`${COMMAND_NAME} resume\` to choose a session.`,
+        );
       } else {
         resumeMode = "pick";
       }
@@ -1106,8 +1125,12 @@ export async function loadConfig(
     }
     const state = loaded.state;
     sessionId = id;
-    skipInitialTask = true;
-    if (task.length === 0) resumeTask = state.task;
+    // The TUI reopens without auto-sending. Exec must send the new prompt
+    // on this session and must not substitute the stored task.
+    if (command !== "exec") {
+      skipInitialTask = true;
+      if (task.length === 0) resumeTask = state.task;
+    }
   }
 
   return {
@@ -1123,7 +1146,12 @@ export async function loadConfig(
     globalSettingsPath: effectiveSettingsPath,
     sessionId,
     noWorkflow,
-    ...(resumeMode !== undefined ? { resumeMode, skipInitialTask } : {}),
+    ...(resumeMode !== undefined
+      ? {
+          resumeMode,
+          ...(skipInitialTask ? { skipInitialTask: true } : {}),
+        }
+      : {}),
     ...(resumePicker ? { resumePicker: true } : {}),
     ...(settings?.defaultProvider !== undefined
       ? { globalDefaultProvider: settings.defaultProvider }
