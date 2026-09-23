@@ -67,6 +67,7 @@ function turnsOfLength(count: number, textLength: number): ConversationTurn[] {
 function inferenceDone(
   input: number,
   text = "",
+  provider = "p",
 ): Extract<ReactorInboundEvent, { type: "inference.done" }> {
   return {
     type: "inference.done",
@@ -75,7 +76,7 @@ function inferenceDone(
       content: text.length > 0 ? [{ type: "text", text }] : [],
     },
     usage: usage(input),
-    source: { sourceId: "s", provider: "p", model: "m" },
+    source: { sourceId: "s", provider, model: "m" },
   } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
 }
 
@@ -946,7 +947,11 @@ describe("provider-aware idle recompress (CL-8745)", () => {
   ): Extract<ReactorInboundEvent, { type: "inference.done" }> {
     const source =
       typeof modelOrSource === "string"
-        ? { sourceId: "s", provider: "p", model: modelOrSource }
+        ? {
+            sourceId: "s",
+            provider: modelOrSource.split("/")[0] ?? "p",
+            model: modelOrSource,
+          }
         : {
             sourceId: modelOrSource.sourceId ?? "s",
             provider: modelOrSource.provider ?? "p",
@@ -1021,11 +1026,12 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
   });
 
-  test("production LastCycleSource: anthropic fires at 5m, codex stays quiet until 10m", () => {
+  test("production LastCycleSource: anthropic fires at 5m, codex never does", () => {
     // Harness stamps { sourceId, provider, model } with a bare model, not
     // slash-form "anthropic/claude-opus-4-6". Anthropic's 5-minute window
-    // must come from provider, not a dummy model string; Codex must not
-    // inherit that 5-minute fire from sourceId "codex/work".
+    // must come from provider, not a dummy model string. Codex has no
+    // published 5-minute expiry, so it must stay quiet past the old 10-minute
+    // guess as well.
     let nowMs = 15_000_000;
     const clock = () => nowMs;
     const anthropic = createCompactionGovernor(() => undefined, "", [], clock);
@@ -1057,13 +1063,13 @@ describe("provider-aware idle recompress (CL-8745)", () => {
       codex.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
 
-    nowMs += 5 * MINUTE_MS;
+    nowMs += 30 * MINUTE_MS;
     expect(
       codex.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toEqual(ttlCompact);
+    ).toBeNull();
   });
 
-  test("follows provider economics: deepseek waits out its long window, ollama never fires", () => {
+  test("does not idle-recompress DeepSeek or ollama", () => {
     let nowMs = 20_000_000;
     const clock = () => nowMs;
     const deepseek = createCompactionGovernor(() => undefined, "", [], clock);
@@ -1077,21 +1083,10 @@ describe("provider-aware idle recompress (CL-8745)", () => {
       tenTurns,
     );
 
-    // Past Anthropic/OpenAI windows but inside DeepSeek's hour: neither fires.
-    nowMs += 30 * MINUTE_MS;
+    nowMs += 90 * MINUTE_MS;
     expect(
       deepseek.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
-    expect(
-      local.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-
-    // Past DeepSeek's hour: recompress fires; local inference still never
-    // does — no remote cache means no cache benefit.
-    nowMs += 31 * MINUTE_MS;
-    expect(
-      deepseek.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toEqual(ttlCompact);
     expect(
       local.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
@@ -1100,7 +1095,8 @@ describe("provider-aware idle recompress (CL-8745)", () => {
   test("production ollama LastCycleSource never fires cache-ttl-recompress", () => {
     // Harness stamps { sourceId, provider, model } with a bare model. Ollama is
     // buildOpenAISource: sourceId "ollama/default", provider openai-compatible,
-    // model llama3. Keying TTL only off model would take the 10-minute default.
+    // Keying TTL off the bare model would miss the ollama sourceId. Local
+    // inference stays disabled.
     let nowMs = 25_000_000;
     const governor = createCompactionGovernor(
       () => undefined,
@@ -1120,7 +1116,7 @@ describe("provider-aware idle recompress (CL-8745)", () => {
       tenTurns,
     );
 
-    nowMs += 11 * MINUTE_MS;
+    nowMs += 5 * MINUTE_MS + 1;
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
@@ -1142,8 +1138,8 @@ describe("provider-aware idle recompress (CL-8745)", () => {
       () => nowMs,
     );
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    // The "m" fixture model carries the 10-minute default TTL; advance past it.
-    nowMs += 11 * MINUTE_MS;
+    // Fixture provider "p" has no TTL. Threshold arming still owns this session.
+    nowMs += 5 * MINUTE_MS + 1;
     // Threshold arming owns the over-threshold session: no TTL double-fold.
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
@@ -1165,18 +1161,24 @@ describe("provider-aware idle recompress (CL-8745)", () => {
       [],
       () => nowMs,
     );
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold, "", "anthropic"),
+      tenTurns,
+    );
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).not.toBeNull();
     expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
 
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold, "", "anthropic"),
+      tenTurns,
+    );
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
 
-    nowMs += 11 * MINUTE_MS;
+    nowMs += 5 * MINUTE_MS + 1;
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toEqual(ttlCompact);
@@ -1193,14 +1195,20 @@ describe("provider-aware idle recompress (CL-8745)", () => {
       [],
       () => nowMs,
     );
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold, "", "anthropic"),
+      tenTurns,
+    );
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).not.toBeNull();
     expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
 
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    nowMs += 11 * MINUTE_MS;
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold, "", "anthropic"),
+      tenTurns,
+    );
+    nowMs += 5 * MINUTE_MS + 1;
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toEqual(ttlCompact);
