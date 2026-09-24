@@ -324,6 +324,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       recentModels: [{ provider: "p", model: "m" }],
       favoriteModels: [{ provider: "p", model: "m" }],
       dangerouslySkipPermissions: true,
+      anthropicCachePrompt: true,
     };
     await writeFile(globalPath, JSON.stringify(fixture));
     const loaded = await loadSettings(globalPath);

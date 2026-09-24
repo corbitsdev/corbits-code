@@ -135,7 +135,7 @@ export function createCompactionGovernor(
   requestContinuation?: () => void,
   systemPrompt = "",
   toolDefinitions: readonly ToolDefinition[] = [],
-  now: () => number = Date.now,
+  _now: () => number = Date.now,
 ) {
   let pending = false;
   let idlePending = false;
@@ -163,16 +163,6 @@ export function createCompactionGovernor(
   let usingEstimate = false;
   let lastModel: string | undefined;
   let turnCount = 0;
-  // Wall-clock of the last inference.done: the provider (re)wrote its prefix
-  // cache for this session on that turn, so the provider TTL window in
-  // provider/cache-ttl.ts is measured from here. Stamped on every
-  // inference.done — estimated-usage providers wrote a cache entry too.
-  let lastCacheWriteAt: number | undefined;
-  // Wall-clock of the last issued compact of any kind. A fresh fold rewrites
-  // the session prefix, so the TTL recompress must not fire again inside the
-  // same window even when its own cache write has not been observed yet (the
-  // summary call bypasses this governor).
-  let lastCompactAt: number | undefined;
   // Tool calls issued by the last inference.done and not yet settled. A TTL
   // recompress must never fold while a batch is outstanding — the stall ping
   // that triggers it can arrive mid-work, and folding under it would rewrite
@@ -218,7 +208,6 @@ export function createCompactionGovernor(
 
   function noteCompactIssued(): void {
     awaitingPostCompactMeasurement = true;
-    lastCompactAt = now();
   }
 
   function atThresholdCompactCap(): boolean {
@@ -278,7 +267,6 @@ export function createCompactionGovernor(
     }
     syncFromTurns(turns);
     lastModel = event.source?.model;
-    lastCacheWriteAt = now();
     // The terminal reply ends the previous tool batch (its results are
     // already in the turns) and opens the batch the reply just issued. A TTL
     // recompress must never fold while a batch is outstanding — the stall
@@ -543,17 +531,16 @@ export function createCompactionGovernor(
     extraInstructions = trimmed;
   }
 
-  // A new process has no in-memory cache write. Seed the stored stamp, the
-  // identity that wrote it, and the stored turns so the next message.received
-  // can fold before its infer. Turn count is the stored set: the inbound
-  // message is appended after this, and the floor is measured without it.
+  // A new process has no in-memory turn count. Seed the stored turns so
+  // threshold and manual compact see the resumed history. The cache-write
+  // time lives on the run record for the prompt transform, not here.
   function restoreCacheWrite(args: {
     at: number;
     source: LastCycleSource;
     turns: readonly ConversationTurn[];
   }): void {
+    void args.at;
     syncFromTurns(args.turns);
-    lastCacheWriteAt = args.at;
     lastModel = args.source.model;
   }
 

@@ -984,14 +984,6 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     } as ReactorInboundEvent;
   }
 
-  const ttlCompact = [
-    {
-      type: "compact",
-      compactor: "pruning-compactor",
-      reason: "cache-ttl-recompress",
-    },
-  ] as ReactorAction[];
-
   test("fires past the provider TTL while under threshold, meter-only on empty", () => {
     let continuations = 0;
     let nowMs = 10_000_000;
