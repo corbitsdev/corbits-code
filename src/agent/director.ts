@@ -12,6 +12,7 @@ import type {
   ReactorAction,
   ToolDefinition,
   ConversationTurn,
+  LastCycleSource,
   RetryPolicy,
 } from "@intx/types/runtime";
 import { isCompactSpacerEchoTurn } from "../session/compactor.js";
@@ -821,6 +822,14 @@ class ChatDirectorImpl extends DefaultDirector {
     this.compaction.restoreExtraInstructions(value);
   }
 
+  restoreCacheWrite(args: {
+    at: number;
+    source: LastCycleSource;
+    turns: readonly ConversationTurn[];
+  }): void {
+    this.compaction.restoreCacheWrite(args);
+  }
+
   getCompactTurnCount(): number {
     return this.compaction.compactTurnCount;
   }
@@ -1437,6 +1446,11 @@ export interface ChatDirector extends ReactorDirector {
   ): ManualCompactArming;
   getCompactInstructions(): string | undefined;
   restoreCompactInstructions(value: string | undefined): void;
+  restoreCacheWrite(args: {
+    at: number;
+    source: LastCycleSource;
+    turns: readonly ConversationTurn[];
+  }): void;
   getCompactTurnCount(): number;
   /** `/handoff`: arm the shared operator fold for the pivot the caller sends. */
   requestHandoff(instructions: string): HandoffArming;

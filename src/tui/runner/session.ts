@@ -56,6 +56,10 @@ import {
   resolveLiveSessionSources,
   type LiveSessionSources,
 } from "../../session/assemble-runtime.js";
+import {
+  anthropicCacheWriteAt,
+  resumeCacheWriteSeed,
+} from "../../provider/cache-ttl.js";
 import type { CompactionArchive } from "../../session/compaction-archive.js";
 import { tryReadPriorHandoffFile } from "../../session/compaction-handoff.js";
 import {
@@ -156,7 +160,14 @@ export async function assembleTUISession(
       // persistRunSnapshot onto the state this closure reads it from.
       getSource: () => state.liveSource,
       initialTurnCount: start.resumeSeed.turnsUsed,
-      onTurnBoundarySnapshot: () => {
+      onTurnBoundarySnapshot: (event) => {
+        if (event?.type === "inference.done") {
+          const at = anthropicCacheWriteAt(event.data.source, Date.now());
+          if (at !== undefined) {
+            start.activeRunHandle.lastCacheWriteAt = at;
+            start.activeRunHandle.cacheWriteModel = `${event.data.source.provider}:${event.data.source.model}`;
+          }
+        }
         void state.persistRunSnapshot?.("running");
       },
       hookEnabled: initialHookEnabled,
@@ -722,6 +733,12 @@ export async function assembleTUISession(
           },
         }),
       ),
+    getCacheWriteSeed: () =>
+      resumeCacheWriteSeed({
+        at: start.activeRunHandle.lastCacheWriteAt,
+        storedModel: start.activeRunHandle.cacheWriteModel,
+        liveProvider: state.config.providerName,
+      }),
     onBuilt: (agent, storage) => {
       state.currentAgent = agent;
       state.currentStorage = storage;

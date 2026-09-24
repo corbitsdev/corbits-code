@@ -103,6 +103,28 @@ export function compactFloorNoopNotice(instructions: string): string {
     : "Nothing to compact yet.";
 }
 
+/** Run-record `provider:model` (or slash form) as a LastCycleSource. */
+export function lastCycleSourceFromRunModel(
+  model: string | undefined,
+): LastCycleSource | undefined {
+  if (model === undefined || model.length === 0) return undefined;
+  const colon = model.indexOf(":");
+  if (colon > 0) {
+    const provider = model.slice(0, colon);
+    const rest = model.slice(colon + 1);
+    return {
+      sourceId: model,
+      provider,
+      model: rest.length > 0 ? rest : model,
+    };
+  }
+  const slash = model.indexOf("/");
+  if (slash > 0) {
+    return { sourceId: model, provider: model.slice(0, slash), model };
+  }
+  return { sourceId: model, provider: model, model };
+}
+
 /** Build the continuation re-entry action for a compacted governor cycle. */
 export function compactionContinuationAction(
   capabilities: ReactorCapabilities,
@@ -561,6 +583,21 @@ export function createCompactionGovernor(
     extraInstructions = trimmed;
   }
 
+  // A new process has no in-memory cache write. Seed the stored stamp, the
+  // identity that wrote it, and the stored turns so the next message.received
+  // can fold before its infer. Turn count is the stored set: the inbound
+  // message is appended after this, and the floor is measured without it.
+  function restoreCacheWrite(args: {
+    at: number;
+    source: LastCycleSource;
+    turns: readonly ConversationTurn[];
+  }): void {
+    syncFromTurns(args.turns);
+    lastCacheWriteAt = args.at;
+    lastCycleSource = args.source;
+    lastModel = args.source.model;
+  }
+
   // `/handoff` folds through the same operator pipeline as above, then starts
   // the next turn immediately: unlike an idle auto-compact (empty synthetic
   // continuation → meter, no infer), the caller delivers the pivot message
@@ -622,6 +659,7 @@ export function createCompactionGovernor(
     },
     requestManual,
     restoreExtraInstructions,
+    restoreCacheWrite,
     requestHandoff,
     cancelManual,
     syncFromTurns,

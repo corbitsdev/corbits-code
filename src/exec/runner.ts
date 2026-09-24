@@ -107,6 +107,7 @@ import {
 } from "../session/active-host.js";
 import {
   finalizeRunState,
+  loadState,
   saveState,
   type ConnectedMcpServer,
 } from "../session/state.js";
@@ -141,6 +142,10 @@ import { tryReadPriorHandoffFile } from "../session/compaction-handoff.js";
 import { emitPluginWarningSummary } from "../plugins/diagnostics.js";
 import { createModelSummarizer } from "../session/summarizer.js";
 import { ID_PREFIX, LOG_NAMESPACE_ROOT } from "../branding.js";
+import {
+  anthropicCacheWriteAt,
+  resumeCacheWriteSeed,
+} from "../provider/cache-ttl.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import { setAgentSourceUnlessClosed } from "../tui/agent-source-sync.js";
 import { ensureFreshInferenceSource } from "../subagent/refresh-inference-source.js";
@@ -433,6 +438,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
   const startedAt = Date.now();
   const workdir = sessionContextDir(config.cwd, sessionId);
   await initSessionDir(config.cwd, sessionId);
+  const prior =
+    config.sessionId.length > 0
+      ? await loadState(config.cwd, config.sessionId)
+      : undefined;
+  const priorState = prior?.kind === "ok" ? prior.state : undefined;
 
   let connectedMcp: ConnectedMcpServer[] = [];
   let agent: Agent | null = null;
@@ -455,6 +465,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     startedAt,
     turnsUsed: 0,
     model: `${config.providerName}:${config.model}`,
+    ...(priorState?.lastCacheWriteAt !== undefined
+      ? { lastCacheWriteAt: priorState.lastCacheWriteAt }
+      : {}),
+    ...(priorState?.lastCacheWriteAt !== undefined &&
+    priorState.model !== undefined
+      ? { cacheWriteModel: priorState.model }
+      : {}),
   };
   let stopHeartbeat: (() => void) | undefined;
 
@@ -486,6 +503,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       model,
       mcpServers: connectedMcp,
       ...(activatedTools.length > 0 ? { activatedTools } : {}),
+      ...(activeRunHandle.lastCacheWriteAt !== undefined
+        ? { lastCacheWriteAt: activeRunHandle.lastCacheWriteAt }
+        : {}),
       ...(status !== "running" ? { finishedAt: Date.now() } : {}),
       ...(extra?.error !== undefined ? { error: extra.error } : {}),
     };
@@ -866,6 +886,12 @@ export async function runExec(config: Config): Promise<ExecResult> {
             }
           },
         }),
+      getCacheWriteSeed: () =>
+        resumeCacheWriteSeed({
+          at: activeRunHandle.lastCacheWriteAt,
+          storedModel: activeRunHandle.cacheWriteModel,
+          liveProvider: config.providerName,
+        }),
       onBuilt: (agent, storage) => {
         currentAgent = agent;
         currentStorage = storage;
@@ -913,7 +939,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
       getTelemetry: () => liveTelemetry,
       getSessionId: () => sessionId,
       getSource: () => liveSource,
-      onTurnBoundarySnapshot: () => {
+      onTurnBoundarySnapshot: (event) => {
+        if (event?.type === "inference.done") {
+          const at = anthropicCacheWriteAt(event.data.source, Date.now());
+          if (at !== undefined) {
+            activeRunHandle.lastCacheWriteAt = at;
+            activeRunHandle.cacheWriteModel = `${event.data.source.provider}:${event.data.source.model}`;
+          }
+        }
         void persist("running");
       },
       resolveContextDir: () => workdir,

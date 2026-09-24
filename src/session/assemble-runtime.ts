@@ -14,6 +14,7 @@
 // unifying further would be abstraction for its own sake.
 
 import type { EventEmitter } from "node:events";
+import type { ReactorEmittedEvent } from "@intx/inference";
 import {
   createDirectorRegistry,
   defineAgent,
@@ -50,7 +51,10 @@ import {
 } from "../agent/tool-search.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
-import { stickyExtraInstructionsFromRecords } from "../agent/compaction.js";
+import {
+  stickyExtraInstructionsFromRecords,
+  lastCycleSourceFromRunModel,
+} from "../agent/compaction.js";
 import { createChatDirector, type ChatDirector } from "../agent/director.js";
 import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
 import type { AgentToolset } from "../agent/tools.js";
@@ -503,6 +507,13 @@ export interface ChatAgentWiring {
   getDefaultSource: () => string;
   /** Read at each build so a compaction-mode toggle is visible on rebuild. */
   getCompactor: () => Compactor;
+  /**
+   * Present when a resumed run record has an Anthropic-protocol cache write
+   * and the provider about to be called is the same protocol. Read at each
+   * build so an interrupt rebuild of the same session still folds before the
+   * next infer. A new session omits it.
+   */
+  getCacheWriteSeed?: () => { at: number; model: string } | undefined;
   /** Assigns the runner's live agent/storage holders; keeps call sites unchanged. */
   onBuilt: (agent: Agent, storage: ContextStore) => void;
   /**
@@ -718,6 +729,17 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
               ),
       },
     });
+    const seed = wiring.getCacheWriteSeed?.();
+    const source =
+      seed === undefined ? undefined : lastCycleSourceFromRunModel(seed.model);
+    if (seed !== undefined && source !== undefined) {
+      const loaded = await storage.load();
+      directorHolder.instance?.restoreCacheWrite({
+        at: seed.at,
+        source,
+        turns: loaded.turns,
+      });
+    }
     const admittedAgent =
       primaryArchive === undefined
         ? agent
@@ -742,7 +764,9 @@ export interface SessionLifecycleWiring {
   getSessionId: () => string;
   getSource: () => InferenceSource;
   initialTurnCount?: number | undefined;
-  onTurnBoundarySnapshot: () => void;
+  onTurnBoundarySnapshot: (
+    event: Extract<ReactorEmittedEvent, { type: "inference.done" }>,
+  ) => void;
   hookEnabled?: Record<string, boolean> | undefined;
   onHookEvent?: ((event: LifecycleHookEvent) => void) | undefined;
   resolveContextDir: () => string;

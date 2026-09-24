@@ -50,6 +50,10 @@ const RunStateSchema = type({
   // so a resume can re-activate them before the first post-resume inference —
   // the transcript still tells the model they are callable.
   "activatedTools?": "string[]",
+  // Wall time of the last Anthropic-protocol inference. A later process
+  // folds before its first infer once this is at least the published TTL old.
+  // Absent for other providers and for records written before this field.
+  "lastCacheWriteAt?": "number",
 });
 
 export type RunState = typeof RunStateSchema.infer;

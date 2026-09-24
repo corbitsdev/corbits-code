@@ -26,6 +26,12 @@ export interface RunStateHandle {
   // crash/signal terminal write can carry them into run.json for the resume
   // seed.
   activatedTools?: string[];
+  // Last Anthropic-protocol cache write, and the run-record model that wrote
+  // it. The crash path copies the stamp so a killed process can still fold
+  // before the next infer. cacheWriteModel is process-local: the on-disk
+  // model field is the live provider, which resume reads back as this value.
+  lastCacheWriteAt?: number;
+  cacheWriteModel?: string;
 }
 
 // Keep the crash/signal handle in step with every persisted snapshot so a

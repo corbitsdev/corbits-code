@@ -82,3 +82,35 @@ export function cacheTtlMsFor(
     return ttlForSegment(canonicalSegment(identity.provider));
   return ttlForSegment(canonicalSegment(identity.model ?? ""));
 }
+
+/**
+ * Wall time to record as the last Anthropic-protocol cache write, or
+ * `undefined` when this inference must not stamp one. Other providers stay
+ * unstamped so a later resume does not treat their history as an expired
+ * Anthropic prefix.
+ */
+export function anthropicCacheWriteAt(
+  identity: string | CacheTtlIdentity | undefined,
+  nowMs: number,
+): number | undefined {
+  if (cacheTtlMsFor(identity) === undefined) return undefined;
+  return nowMs;
+}
+
+/**
+ * Seed for a resumed session's pre-infer fold. Absent unless both the
+ * identity that wrote the cache and the provider about to be called are
+ * Anthropic-protocol. A stamp alone is not enough: a non-Anthropic model
+ * on the run record must not fold.
+ */
+export function resumeCacheWriteSeed(args: {
+  at: number | undefined;
+  storedModel: string | undefined;
+  liveProvider: string;
+}): { at: number; model: string } | undefined {
+  if (args.at === undefined) return undefined;
+  if (args.storedModel === undefined) return undefined;
+  if (cacheTtlMsFor(args.storedModel) === undefined) return undefined;
+  if (cacheTtlMsFor(args.liveProvider) === undefined) return undefined;
+  return { at: args.at, model: args.storedModel };
+}
