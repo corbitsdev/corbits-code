@@ -98,19 +98,48 @@ export function anthropicCacheWriteAt(
 }
 
 /**
- * Seed for a resumed session's pre-infer fold. Absent unless both the
- * identity that wrote the cache and the provider about to be called are
- * Anthropic-protocol. A stamp alone is not enough: a non-Anthropic model
- * on the run record must not fold.
+ * Seed for a resumed session's pre-infer fold. Absent unless the provider
+ * about to be called speaks the Anthropic messages protocol. A stamp alone
+ * is not enough: a non-Anthropic live adapter must not fold.
+ *
+ * `liveProvider` is the catalog id (`source.id`). Runners persist
+ * `${id}:${model}`, and that id is `zen`, `opencode-go`, or a custom account
+ * name — not `zen-messages`, `opencode-go-messages`, or `anthropic`.
+ * `liveProtocol` is `source.provider`, the adapter that actually wrote the
+ * cache. A catalog-form stamp is accepted only for this same catalog id, and
+ * the returned model uses the protocol name so the governor's TTL check
+ * follows the adapter. A protocol-form stamp (the in-memory `provider:model`
+ * recorded at inference.done) is kept as-is.
  */
 export function resumeCacheWriteSeed(args: {
   at: number | undefined;
   storedModel: string | undefined;
   liveProvider: string;
+  liveProtocol: string;
 }): { at: number; model: string } | undefined {
   if (args.at === undefined) return undefined;
-  if (args.storedModel === undefined) return undefined;
-  if (cacheTtlMsFor(args.storedModel) === undefined) return undefined;
-  if (cacheTtlMsFor(args.liveProvider) === undefined) return undefined;
-  return { at: args.at, model: args.storedModel };
+  if (args.storedModel === undefined || args.storedModel.length === 0) {
+    return undefined;
+  }
+  if (cacheTtlMsFor(args.liveProtocol) === undefined) return undefined;
+  if (cacheTtlMsFor(args.storedModel) !== undefined) {
+    return { at: args.at, model: args.storedModel };
+  }
+
+  const stored = splitRunModel(args.storedModel);
+  if (stored.provider !== args.liveProvider) return undefined;
+  if (stored.model.length === 0) return undefined;
+  return { at: args.at, model: `${args.liveProtocol}:${stored.model}` };
+}
+
+function splitRunModel(value: string): { provider: string; model: string } {
+  const colon = value.indexOf(":");
+  if (colon > 0) {
+    return { provider: value.slice(0, colon), model: value.slice(colon + 1) };
+  }
+  const slash = value.indexOf("/");
+  if (slash > 0) {
+    return { provider: value.slice(0, slash), model: value.slice(slash + 1) };
+  }
+  return { provider: value, model: "" };
 }

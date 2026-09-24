@@ -8,6 +8,7 @@ import { createDefaultDependencies } from "@intx/inference/providers";
 import type {
   ConversationTurn,
   InferenceEvent,
+  InferenceSource,
   ReactorAction,
 } from "@intx/types/runtime";
 import { createChatDirector } from "../agent/director.js";
@@ -15,6 +16,13 @@ import {
   COMPACTION_CONTINUATION_EVENT,
   lastCycleSourceFromRunModel,
 } from "../agent/compaction.js";
+import {
+  buildAnthropicSource,
+  buildGoSource,
+  buildOpenAISource,
+  buildZenSource,
+} from "../config/index.js";
+import { resumeCacheWriteSeed } from "../provider/cache-ttl.js";
 import { HANDOFF_LATEST_KEY } from "./compaction-handoff.js";
 import { COMPACTED_PREFIX, createPruningCompactor } from "./compactor.js";
 import { createOptimizedContextStore } from "./optimized-context-store.js";
@@ -62,7 +70,10 @@ function actionsOf(result: ReactorAction | ReactorAction[]): ReactorAction[] {
   return Array.isArray(result) ? result : [result];
 }
 
-async function resumeAndInfer(args: { at: number; model: string }): Promise<{
+async function resumeAndInfer(args: {
+  at: number;
+  source: InferenceSource;
+}): Promise<{
   first: ReactorAction[];
   stored: ConversationTurn[];
   prompt: ConversationTurn[];
@@ -80,10 +91,21 @@ async function resumeAndInfer(args: { at: number; model: string }): Promise<{
     });
     await store.commit({ message: "seed" });
 
-    const source = lastCycleSourceFromRunModel(args.model);
-    if (source === undefined) throw new Error("missing source");
+    const storedModel = `${args.source.id}:${args.source.model}`;
+    const cacheSeed = resumeCacheWriteSeed({
+      at: args.at,
+      storedModel,
+      liveProvider: args.source.id,
+      liveProtocol: args.source.provider,
+    });
+    const source =
+      cacheSeed === undefined
+        ? undefined
+        : lastCycleSourceFromRunModel(cacheSeed.model);
     const director = createChatDirector("test", [], {});
-    director.restoreCacheWrite({ at: args.at, source, turns: seed });
+    if (cacheSeed !== undefined && source !== undefined) {
+      director.restoreCacheWrite({ at: cacheSeed.at, source, turns: seed });
+    }
     const original = director.decide.bind(director);
     let first: ReactorAction[] | undefined;
     director.decide = async (event, state, capabilities) => {
@@ -104,13 +126,7 @@ async function resumeAndInfer(args: { at: number; model: string }): Promise<{
     const reactor = createReactor({
       sessionId: "cache-ttl-resume",
       director,
-      source: {
-        id: "anthropic:claude-opus-4-6",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-        baseURL: "https://example.invalid",
-        credentialId: "test",
-      },
+      source: args.source,
       toolRunner: {
         async run(call) {
           return { callId: call.id, content: "ok" };
@@ -150,9 +166,9 @@ async function resumeAndInfer(args: { at: number; model: string }): Promise<{
               },
               usage: USAGE,
               source: {
-                sourceId: source.sourceId,
-                provider: source.provider,
-                model: source.model,
+                sourceId: args.source.id,
+                provider: args.source.provider,
+                model: args.source.model,
               },
             },
           };
@@ -216,10 +232,16 @@ async function resumeAndInfer(args: { at: number; model: string }): Promise<{
 }
 
 describe("resumed Anthropic cache write compacts before infer", () => {
+  const native = buildAnthropicSource({
+    id: "anthropic",
+    baseURL: "https://example.invalid",
+    model: "claude-opus-4-6",
+  });
+
   test("an expired Anthropic stamp folds into the context store first", async () => {
     const result = await resumeAndInfer({
       at: Date.now() - 6 * MINUTE_MS,
-      model: "anthropic:claude-opus-4-6",
+      source: native,
     });
 
     expect(result.first[0]).toMatchObject({
@@ -242,7 +264,7 @@ describe("resumed Anthropic cache write compacts before infer", () => {
   test("a write inside 5 minutes leaves the stored turns in place", async () => {
     const result = await resumeAndInfer({
       at: Date.now() - 2 * MINUTE_MS,
-      model: "anthropic:claude-opus-4-6",
+      source: native,
     });
 
     expect(result.first.some((action) => action.type === "compact")).toBe(
@@ -255,7 +277,11 @@ describe("resumed Anthropic cache write compacts before infer", () => {
   test("a non-Anthropic stored stamp does not compact", async () => {
     const result = await resumeAndInfer({
       at: Date.now() - 6 * MINUTE_MS,
-      model: "openai:gpt-5.6",
+      source: buildOpenAISource({
+        id: "openai",
+        baseURL: "https://example.invalid/v1",
+        model: "gpt-5.6",
+      }),
     });
 
     expect(result.first.some((action) => action.type === "compact")).toBe(
@@ -263,5 +289,38 @@ describe("resumed Anthropic cache write compacts before infer", () => {
     );
     expect(texts(result.stored)).toEqual(texts(result.seed));
     expect(result.handoff).toBeUndefined();
+  });
+
+  test("expired Zen, OpenCode Go, and custom Anthropic catalog ids fold before infer", async () => {
+    const sources = [
+      buildZenSource({
+        id: "zen",
+        model: "claude-opus-4-6",
+        sessionId: "sess-zen",
+      }),
+      buildGoSource({
+        id: "opencode-go",
+        model: "minimax-m3",
+        sessionId: "sess-go",
+      }),
+      buildAnthropicSource({
+        id: "acme",
+        baseURL: "https://example.invalid",
+        model: "claude-opus-4-6",
+      }),
+    ];
+    for (const source of sources) {
+      expect(source.id).not.toBe(source.provider);
+      const result = await resumeAndInfer({
+        at: Date.now() - 6 * MINUTE_MS,
+        source,
+      });
+      expect(result.first[0]).toMatchObject({
+        type: "compact",
+        compactor: "pruning-compactor",
+        reason: "cache-ttl-recompress",
+      });
+      expect(result.stored.length).toBeLessThan(result.seed.length);
+    }
   });
 });

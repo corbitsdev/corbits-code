@@ -738,6 +738,7 @@ export async function assembleTUISession(
         at: start.activeRunHandle.lastCacheWriteAt,
         storedModel: start.activeRunHandle.cacheWriteModel,
         liveProvider: state.config.providerName,
+        liveProtocol: state.liveSource.provider,
       }),
     onBuilt: (agent, storage) => {
       state.currentAgent = agent;

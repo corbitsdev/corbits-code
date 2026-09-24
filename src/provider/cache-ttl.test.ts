@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildAnthropicSource,
+  buildGoSource,
+  buildZenSource,
+} from "../config/index.js";
+import {
   anthropicCacheWriteAt,
   cacheTtlMsFor,
   resumeCacheWriteSeed,
@@ -79,6 +84,7 @@ describe("anthropic cache-write stamp", () => {
         at: 10,
         storedModel: "anthropic:claude-opus-4-6",
         liveProvider: "anthropic",
+        liveProtocol: "anthropic",
       }),
     ).toEqual({ at: 10, model: "anthropic:claude-opus-4-6" });
     expect(
@@ -86,6 +92,7 @@ describe("anthropic cache-write stamp", () => {
         at: 10,
         storedModel: "openai:gpt-5.6",
         liveProvider: "openai",
+        liveProtocol: "openai",
       }),
     ).toBeUndefined();
     expect(
@@ -93,6 +100,7 @@ describe("anthropic cache-write stamp", () => {
         at: 10,
         storedModel: "anthropic:claude-opus-4-6",
         liveProvider: "openai",
+        liveProtocol: "openai",
       }),
     ).toBeUndefined();
     expect(
@@ -100,7 +108,64 @@ describe("anthropic cache-write stamp", () => {
         at: undefined,
         storedModel: "anthropic:claude-opus-4-6",
         liveProvider: "anthropic",
+        liveProtocol: "anthropic",
       }),
     ).toBeUndefined();
+  });
+
+  test("catalog ids that speak the Anthropic protocol still return the stamp", () => {
+    const at = 10;
+    const sources = [
+      buildZenSource({
+        id: "zen",
+        model: "claude-opus-4-6",
+        sessionId: "sess-zen",
+      }),
+      buildGoSource({
+        id: "opencode-go",
+        model: "minimax-m3",
+        sessionId: "sess-go",
+      }),
+      buildAnthropicSource({
+        id: "acme",
+        baseURL: "https://example.invalid",
+        model: "claude-opus-4-6",
+      }),
+    ];
+    for (const source of sources) {
+      expect(source.id).not.toBe(source.provider);
+      const storedModel = `${source.id}:${source.model}`;
+      expect(
+        resumeCacheWriteSeed({
+          at,
+          storedModel,
+          liveProvider: source.id,
+          liveProtocol: source.provider,
+        }),
+      ).toEqual({ at, model: `${source.provider}:${source.model}` });
+    }
+
+    const gemini = buildZenSource({
+      id: "zen",
+      model: "gemini-3-flash",
+      sessionId: "sess-zen",
+    });
+    expect(
+      resumeCacheWriteSeed({
+        at,
+        storedModel: `${gemini.id}:${gemini.model}`,
+        liveProvider: gemini.id,
+        liveProtocol: gemini.provider,
+      }),
+    ).toBeUndefined();
+
+    expect(
+      resumeCacheWriteSeed({
+        at,
+        storedModel: "zen-messages:claude-opus-4-6",
+        liveProvider: "zen",
+        liveProtocol: "zen-messages",
+      }),
+    ).toEqual({ at, model: "zen-messages:claude-opus-4-6" });
   });
 });

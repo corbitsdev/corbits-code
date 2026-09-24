@@ -891,6 +891,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
           at: activeRunHandle.lastCacheWriteAt,
           storedModel: activeRunHandle.cacheWriteModel,
           liveProvider: config.providerName,
+          liveProtocol: liveSource.provider,
         }),
       onBuilt: (agent, storage) => {
         currentAgent = agent;
