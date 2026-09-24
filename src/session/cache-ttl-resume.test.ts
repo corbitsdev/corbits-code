@@ -24,7 +24,7 @@ import {
 } from "../config/index.js";
 import { resumeCacheWriteSeed } from "../provider/cache-ttl.js";
 import { HANDOFF_LATEST_KEY } from "./compaction-handoff.js";
-import { COMPACTED_PREFIX, createPruningCompactor } from "./compactor.js";
+import { createPruningCompactor } from "./compactor.js";
 import { createOptimizedContextStore } from "./optimized-context-store.js";
 import { buildCompactionContinuationMessage } from "./runtime-assembly.js";
 
@@ -39,16 +39,6 @@ const USAGE = {
 
 function userTurn(text: string, timestamp: number): ConversationTurn {
   return { role: "user", content: [{ type: "text", text }], timestamp };
-}
-
-function textLength(turns: readonly ConversationTurn[]): number {
-  let total = 0;
-  for (const turn of turns) {
-    for (const block of turn.content) {
-      if (block.type === "text") total += block.text.length;
-    }
-  }
-  return total;
 }
 
 function texts(turns: readonly ConversationTurn[]): string[] {
@@ -231,34 +221,24 @@ async function resumeAndInfer(args: {
   }
 }
 
-describe("resumed Anthropic cache write compacts before infer", () => {
+describe("resumed Anthropic cache write does not compact", () => {
   const native = buildAnthropicSource({
     id: "anthropic",
     baseURL: "https://example.invalid",
     model: "claude-opus-4-6",
   });
 
-  test("an expired Anthropic stamp folds into the context store first", async () => {
+  test("an expired Anthropic stamp does not rewrite the stored turns", async () => {
     const result = await resumeAndInfer({
       at: Date.now() - 6 * MINUTE_MS,
       source: native,
     });
 
-    expect(result.first[0]).toMatchObject({
-      type: "compact",
-      compactor: "pruning-compactor",
-      reason: "cache-ttl-recompress",
-    });
-    expect(result.stored.length).toBeLessThan(result.seed.length);
-    expect(textLength(result.stored)).toBeLessThan(textLength(result.seed));
-    expect(textLength(result.prompt)).toBeLessThan(textLength(result.seed));
-    expect(texts(result.prompt)).toEqual(texts(result.stored));
-    expect(
-      texts(result.stored).some((text) => text.startsWith(COMPACTED_PREFIX)),
-    ).toBe(true);
-    expect(result.handoff?.length ?? 0).toBeGreaterThan(0);
-    expect(result.handoff).toContain(HANDOFF_LATEST_KEY);
-    expect(result.handoff).toContain("# Compaction handoff");
+    expect(result.first.some((action) => action.type === "compact")).toBe(
+      false,
+    );
+    expect(texts(result.stored)).toEqual(texts(result.seed));
+    expect(result.handoff).toBeUndefined();
   });
 
   test("a write inside 5 minutes leaves the stored turns in place", async () => {
@@ -291,7 +271,7 @@ describe("resumed Anthropic cache write compacts before infer", () => {
     expect(result.handoff).toBeUndefined();
   });
 
-  test("expired Zen, OpenCode Go, and custom Anthropic catalog ids fold before infer", async () => {
+  test("expired Zen, OpenCode Go, and custom Anthropic catalog ids do not compact", async () => {
     const sources = [
       buildZenSource({
         id: "zen",
@@ -315,12 +295,10 @@ describe("resumed Anthropic cache write compacts before infer", () => {
         at: Date.now() - 6 * MINUTE_MS,
         source,
       });
-      expect(result.first[0]).toMatchObject({
-        type: "compact",
-        compactor: "pruning-compactor",
-        reason: "cache-ttl-recompress",
-      });
-      expect(result.stored.length).toBeLessThan(result.seed.length);
+      expect(result.first.some((action) => action.type === "compact")).toBe(
+        false,
+      );
+      expect(texts(result.stored)).toEqual(texts(result.seed));
     }
   });
 });

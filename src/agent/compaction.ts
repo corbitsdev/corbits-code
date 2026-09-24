@@ -11,7 +11,6 @@ import {
   compactionThresholdFor,
   contextTokensFromUsage,
 } from "../provider/context-window.js";
-import { cacheTtlMsFor } from "../provider/cache-ttl.js";
 import {
   COMPACTOR_KEEP_RECENT_TURNS,
   assistantTextIsCompactSpacerEcho,
@@ -162,13 +161,7 @@ export function createCompactionGovernor(
   // can flag the number as approximate instead of implying provider-grade
   // precision.
   let usingEstimate = false;
-  // Last-cycle source of the last inference.done, kept for live re-checks
-  // between inference cycles (see interceptActions) where the event carries
-  // no source. Threshold sizing still keys off `model`; TTL identity needs
-  // `sourceId` / `provider` as well — production LastCycleSource stamps a
-  // bare model, and Ollama is `openai-compatible` with id `ollama/…`.
   let lastModel: string | undefined;
-  let lastCycleSource: LastCycleSource | undefined;
   let turnCount = 0;
   // Wall-clock of the last inference.done: the provider (re)wrote its prefix
   // cache for this session on that turn, so the provider TTL window in
@@ -284,7 +277,6 @@ export function createCompactionGovernor(
       consecutiveThresholdCompacts = 0;
     }
     syncFromTurns(turns);
-    lastCycleSource = event.source;
     lastModel = event.source?.model;
     lastCacheWriteAt = now();
     // The terminal reply ends the previous tool batch (its results are
@@ -390,37 +382,6 @@ export function createCompactionGovernor(
     return true;
   }
 
-  // Provider-aware idle recompress (CL-8745): the fold is a re-compress, not
-  // a cache play. Provider KV caches expire on their own schedule
-  // (provider/cache-ttl.ts); compressing after that expiry makes the next
-  // turn a cheaper write and later reads compound on the shrunk context. This
-  // fires on any live re-entry once `now - lastCacheWrite >= ttl`, including
-  // over-threshold sessions whose threshold path has disarmed (`pending` is
-  // false via growth hysteresis — the threshold path owns only armed
-  // over-threshold; the fold is still window- and cap-bounded). Guards, in
-  // order: threshold arming defers (pending), the fresh-tail floor (turns at
-  // or under it are all kept, so a fold would shrink nothing), the
-  // consecutive-compact cap (existing death-spiral bound, shared with the
-  // threshold path), providers with no TTL (undefined/empty model, local
-  // inference), no observed cache write yet, the TTL window itself, and one
-  // fire per window (a fresh fold rewrites the prefix; the summary call
-  // bypasses this governor so lastCacheWriteAt cannot observe it —
-  // lastCompactAt covers that). Never fires with a tool batch outstanding:
-  // the stall ping that triggers this can arrive mid-work.
-  function isTtlRecompressDue(nowMs: number): boolean {
-    if (pending) return false;
-    if (turnCount <= MIN_TURNS_TO_COMPACT) return false;
-    if (atThresholdCompactCap()) return false;
-    if (outstandingToolCalls > 0) return false;
-    const ttl = cacheTtlMsFor(lastCycleSource);
-    if (ttl === undefined) return false;
-    if (lastCacheWriteAt === undefined) return false;
-    if (nowMs - lastCacheWriteAt < ttl) return false;
-    if (lastCompactAt !== undefined && nowMs - lastCompactAt < ttl)
-      return false;
-    return true;
-  }
-
   function inboundText(event: ReactorInboundEvent): string {
     if (event.type !== "message.received") return "";
     return typeof event.message.content === "string"
@@ -479,12 +440,11 @@ export function createCompactionGovernor(
     // In-flight `/compact` (manualPending without idlePending) waits on
     // interceptActions; do not steal that hop with a TTL fold.
     if (manualPending) return null;
-    if (!isTtlRecompressDue(now())) return null;
-    return issueIdleFold(
-      inboundText(event),
-      capabilities,
-      "cache-ttl-recompress",
-    );
+    // Cache expiry is a prompt transform, not a fold. Compacting here rewrites
+    // turns.jsonl and drops the history the transform is supposed to leave
+    // stored. The Anthropic prompt transform stubs tool bodies on the request
+    // when this stamp is expired.
+    return null;
   }
 
   // A context-overflow inference error would otherwise terminate the loop
@@ -594,7 +554,6 @@ export function createCompactionGovernor(
   }): void {
     syncFromTurns(args.turns);
     lastCacheWriteAt = args.at;
-    lastCycleSource = args.source;
     lastModel = args.source.model;
   }
 

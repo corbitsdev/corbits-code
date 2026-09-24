@@ -18,6 +18,8 @@ export type AnthropicCachePromptDeps = {
   cacheWriteAt: () => number | undefined;
   /** Live adapter protocol (`InferenceSource.provider`). */
   protocol: () => string | undefined;
+  /** When omitted, the shrink is on. Settings pass false unless opted in. */
+  enabled?: () => boolean;
 };
 
 const STRATEGY = "anthropic-cache-prompt";
@@ -144,6 +146,9 @@ export function createAnthropicCachePromptTransform(
     name: STRATEGY,
     version: "1",
     async apply(turns, _ctx) {
+      if (deps.enabled !== undefined && !deps.enabled()) {
+        return passthrough(turns, "disabled");
+      }
       const ttl = cacheTtlMsFor(deps.protocol());
       if (ttl === undefined) return passthrough(turns, "non-anthropic");
       const at = deps.cacheWriteAt();

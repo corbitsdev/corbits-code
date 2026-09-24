@@ -576,6 +576,9 @@ export interface Config {
   cwd: string;
   task: string;
   dangerouslySkipPermissions: boolean;
+  // Experimental prompt shrink after an Anthropic cache expiry. Off unless
+  // settings set anthropicCachePrompt.
+  anthropicCachePrompt: boolean;
   // True when dangerouslySkipPermissions came from the persisted global
   // default rather than this invocation's CLI flag. Entry points use this to
   // surface a startup notice since the persisted default is otherwise silent.
@@ -1139,6 +1142,7 @@ export async function loadConfig(
     cwd,
     task: resumeTask,
     dangerouslySkipPermissions,
+    anthropicCachePrompt: settings?.anthropicCachePrompt === true,
     skipPermissionsFromSettings,
     auto,
     command,

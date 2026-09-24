@@ -862,6 +862,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       },
       getDefaultSource: () =>
         liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id,
+      anthropicCachePrompt: () => config.anthropicCachePrompt,
       getCompactor: () =>
         createSessionPruningCompactor({
           summarize: summarizeForCompaction,

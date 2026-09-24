@@ -509,6 +509,8 @@ export interface ChatAgentWiring {
   getDefaultSource: () => string;
   /** Read at each build so a compaction-mode toggle is visible on rebuild. */
   getCompactor: () => Compactor;
+  /** Experimental Anthropic prompt shrink. Default off when omitted. */
+  anthropicCachePrompt?: () => boolean;
   /**
    * Present when a resumed run record has an Anthropic-protocol cache write
    * and the provider about to be called is the same protocol. Read at each
@@ -706,6 +708,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           createAnthropicCachePromptTransform({
             nowMs: () => Date.now(),
             cacheWriteAt: () => getActiveRun()?.lastCacheWriteAt,
+            enabled: () => wiring.anthropicCachePrompt?.() === true,
             protocol: () => {
               const sources = wiring.getSources();
               const preferred = wiring.getDefaultSource();

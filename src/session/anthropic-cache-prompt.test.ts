@@ -92,6 +92,19 @@ function history(): ConversationTurn[] {
 }
 
 describe("anthropic cache prompt transform", () => {
+  test("settings off leaves an expired Anthropic prompt unchanged", async () => {
+    const turns = history();
+    const transform = createAnthropicCachePromptTransform({
+      nowMs: () => NOW,
+      cacheWriteAt: () => NOW - 6 * MINUTE_MS,
+      protocol: () => "anthropic",
+      enabled: () => false,
+    });
+    const result = await transform.apply(turns, CTX);
+    expect(result.output).toBe(turns);
+    expect(result.record.reason).toBe("disabled");
+  });
+
   test("expired or missing Anthropic stamp stubs old tool bodies and leaves stored turns", async () => {
     const dir = await mkdtemp(join(tmpdir(), "anthropic-cache-prompt-"));
     const store = await createOptimizedContextStore(dir);

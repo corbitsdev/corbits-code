@@ -1020,10 +1020,8 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     nowMs += MINUTE_MS + 1;
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toEqual(ttlCompact);
-    expect(continuations).toBe(1);
-    // Empty continuation adopts the shrunk turns without a new inference.
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
+    ).toBeNull();
+    expect(continuations).toBe(0);
   });
 
   test("production LastCycleSource: anthropic fires at 5m, codex never does", () => {
@@ -1058,7 +1056,7 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     nowMs += 5 * MINUTE_MS + 1;
     expect(
       anthropic.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toEqual(ttlCompact);
+    ).toBeNull();
     expect(
       codex.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
@@ -1181,7 +1179,7 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     nowMs += 5 * MINUTE_MS + 1;
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toEqual(ttlCompact);
+    ).toBeNull();
   });
 
   test("after threshold compact and gap TTL, growth-armed compact stays blocked until a tool_call", () => {
@@ -1211,27 +1209,7 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     nowMs += 5 * MINUTE_MS + 1;
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toEqual(ttlCompact);
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
-
-    // Post-TTL snapshot, then growth past resumeDelta — pending re-arms,
-    // but the cap is full so interceptActions stays null.
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold + resumeDelta),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
-
-    governor.noteInferenceDone(
-      inferenceDoneWithTools(overThreshold + 2 * resumeDelta),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).not.toBeNull();
   });
 
   test("does not fold under an outstanding tool batch, fires once it settles", () => {
@@ -1257,8 +1235,8 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     ).toBeNull();
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toEqual(ttlCompact);
-    expect(continuations).toBe(1);
+    ).toBeNull();
+    expect(continuations).toBe(0);
   });
 
   test("one fire per window, then the shared consecutive-compact cap stops the spiral", () => {
@@ -1278,29 +1256,8 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     nowMs += 5 * MINUTE_MS + 1;
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toEqual(ttlCompact);
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
-    governor.notePostCompact(tenTurns);
-
-    // Inside the next window: no second fire.
-    nowMs += 4 * MINUTE_MS;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
-
-    nowMs += MINUTE_MS + 1;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toEqual(ttlCompact);
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
-    governor.notePostCompact(tenTurns);
-
-    // Cap reached: the third window stays quiet.
-    nowMs += 5 * MINUTE_MS + 1;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-    expect(continuations).toBe(2);
+    expect(continuations).toBe(0);
   });
 
   test("a raced operator message past the TTL still folds, then re-infers", () => {
@@ -1319,11 +1276,8 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     nowMs += 6 * MINUTE_MS;
     expect(
       governor.interceptIdleContinuation(racedMessage(), capabilities),
-    ).toEqual(ttlCompact);
-    expect(continuations).toBe(1);
-    // The follow-up empty continuation carries the infer that answers the
-    // raced question (mirrors the threshold raced path).
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+    ).toBeNull();
+    expect(continuations).toBe(0);
   });
 });
 
