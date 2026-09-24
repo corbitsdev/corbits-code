@@ -60,7 +60,9 @@ import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
 import type { AgentToolset } from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { createSessionStores } from "./optimized-context-store.js";
+import { getActiveRun } from "./active-run.js";
 import { createAttachmentRehydrateTransform } from "./attachment-store.js";
+import { createAnthropicCachePromptTransform } from "./anthropic-cache-prompt.js";
 import {
   applyRecordingPolicyToText,
   createCompactionArchive,
@@ -701,6 +703,16 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           createAttachmentRehydrateTransform((key) =>
             storageForAgent.readBlob(key),
           ),
+          createAnthropicCachePromptTransform({
+            nowMs: () => Date.now(),
+            cacheWriteAt: () => getActiveRun()?.lastCacheWriteAt,
+            protocol: () => {
+              const sources = wiring.getSources();
+              const preferred = wiring.getDefaultSource();
+              const match = sources.find((source) => source.id === preferred);
+              return (match ?? sources[0])?.provider;
+            },
+          }),
         ],
       },
       audit,
