@@ -1665,6 +1665,64 @@ describe("SubAgentDirector idle stall ping", () => {
     expect(folded.some((action) => action.type === "wait")).toBe(false);
   });
 
+  test("cache-ttl recompress still folds on an in-window empty ping", async () => {
+    // test-model takes the 10-minute default TTL. The stall window is longer
+    // so the due fold is still an in-window ping, not a stall nudge.
+    const activityAt = 11_000_000;
+    const cacheTtlMs = 10 * 60_000;
+    const stallTimeoutMs = 15 * 60_000;
+    let now = activityAt;
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      stallTimeoutMs,
+      () => now,
+    );
+    const caps = createTestCapabilities();
+
+    await director.decide(inferenceDoneText("working"), longState, caps);
+
+    now += cacheTtlMs + 1;
+    const folded = actions(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    expect(folded).toEqual([
+      {
+        type: "compact",
+        compactor: "pruning-compactor",
+        reason: "cache-ttl-recompress",
+      },
+    ]);
+    expect(continuations).toBe(1);
+    expect(folded.some((action) => action.type === "infer")).toBe(false);
+    expect(folded.some((action) => action.type === "wait")).toBe(false);
+
+    // Meter-only resume of the empty fold. Same clock: still inside the
+    // stall window, and this wait must not count as activity either.
+    const resumed = actions(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    expect(resumed).toEqual([{ type: "wait" }]);
+    expect(resumed.some((action) => action.type === "infer")).toBe(false);
+
+    // The fold must not stamp lastActivityAt or clear stallNudgeAt. One
+    // stall timeout from the original activity still nudges, once.
+    now = activityAt + stallTimeoutMs;
+    const nudge = actions(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    expect(nudge).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+    expect(ephemeralTexts(inferAction(nudge))).toEqual([STALL_NUDGE_TEXT]);
+    expect(nudge.some((action) => action.type === "wait")).toBe(false);
+  });
+
   test("no stall timeout waits on an unsolicited empty continuation", async () => {
     const director = new SubAgentDirector("system", [], undefined);
     const caps = createTestCapabilities();

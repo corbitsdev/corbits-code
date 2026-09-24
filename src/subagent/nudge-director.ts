@@ -265,6 +265,7 @@ export class SubAgentDirector extends DefaultDirector {
       requestContinuation,
       composedPrompt,
       toolDefinitions,
+      now,
     );
     this.stallTimeoutMs = stallTimeoutMs;
     this.now = now;
