@@ -567,12 +567,13 @@ async function finishClient(
     serverName,
     tools,
     async callBlocks(toolName, args, signal) {
-      const context =
-        authContext === undefined ? undefined : { ...authContext, signal };
-      const result = await withHTTPAuthorizationRecovery(context, () =>
-        client.callTool({ name: toolName, arguments: args }, undefined, {
-          signal,
-        }),
+      const result = await withHTTPAuthorizationRecovery(
+        authContext,
+        () =>
+          client.callTool({ name: toolName, arguments: args }, undefined, {
+            signal,
+          }),
+        signal,
       );
       return validateMcpContentBlocks(result.content);
     },
