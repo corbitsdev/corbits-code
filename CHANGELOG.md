@@ -20,6 +20,33 @@ release that deserves narration. Passing `--notes <file>` overrides both for
 the GitHub body. Sections below this line predate generation and were written
 by hand.
 
+## [0.3.31] - 2026-09-25
+
+### What's Changed
+* chore(changelog): drop stale hand-written Unreleased section by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1144
+* feat(models): add grok-4.7 model support by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1152
+* build(workspaces): add agents, workflows, tools, and skills globs by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1145
+* test(models): modernize leftover gpt-4.1 fixtures to gpt-5.6 by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1146
+* chore(prompt-variance): drop unused assemble and resolve by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1147
+* fix(skywalker): spawn one focused task per worker by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1148
+* feat(builder): ship a short Corbits implement card by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1149
+* fix(intern): restore gaas mechanical intern identity by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1150
+* feat(compaction): idle recompress past the provider cache ttl by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1151
+* feat(session): fold compaction into a fat handoff file with a thin live spine by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1155
+* feat(intern): ship intern as a workspace agent package by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1159
+* feat(tui): add /compact command with optional summarizer instructions by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1158
+* feat(skywalker): shrink primary prompt to a dispatcher card by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1157
+* feat(subagent): attach style and philosophy at worker spawn by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1156
+* feat(session): verify compaction spine and record adopted handoffs by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1154
+* feat(tui): add /handoff to fold context and start the next turn by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1153
+* Continue a headless run on an existing session by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1162
+* fix(subagent): wait on idle stall pings instead of inferring by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1160
+* Replace idle TTL folds with an opt-in Anthropic cache prompt transform by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1161
+* Show suggested slash-command parameters in the popup by @TheGreatAxios in https://github.com/corbitsdev/corbits-code/pull/1163
+
+
+**Full Changelog**: https://github.com/corbitsdev/corbits-code/compare/v0.3.30...v0.3.31
+
 ## [0.3.30] - 2026-09-21
 
 ### What's Changed
