@@ -17,6 +17,7 @@ function event(type: string, data: unknown): ReactorEmittedEvent {
 function observeOneTurnWithToolResult(
   collector: ReturnType<typeof createTurnContextCollector>,
   toolResultContent: string,
+  toolResultDetail?: unknown,
 ): void {
   collector.observe(
     event("inference.done", {
@@ -34,7 +35,11 @@ function observeOneTurnWithToolResult(
   );
   collector.observe(
     event("tool.done", {
-      result: { callId: "call-1", content: toolResultContent },
+      result: {
+        callId: "call-1",
+        content: toolResultContent,
+        ...(toolResultDetail !== undefined ? { detail: toolResultDetail } : {}),
+      },
     }),
   );
 }
@@ -63,6 +68,33 @@ describe("createTurnContextCollector tool result truncation", () => {
 
     const [turn] = collector.getTurns();
     expect(turn?.toolResults[0]?.content).toBe(smallOutput);
+  });
+
+  test("preserves small structured detail in hook payloads", () => {
+    const collector = createTurnContextCollector(() => undefined);
+    const detail = { answer: 42 };
+
+    observeOneTurnWithToolResult(collector, "exit code 0", detail);
+
+    const [turn] = collector.getTurns();
+    expect(turn?.toolResults[0]?.detail).toEqual(detail);
+  });
+
+  test("omits oversized structured detail while keeping the content cap", () => {
+    const collector = createTurnContextCollector(() => undefined);
+    const hugeOutput = "x".repeat(HOOK_PAYLOAD_TOOL_RESULT_CHARS * 4);
+    const hugeDetail = { blob: "y".repeat(HOOK_PAYLOAD_TOOL_RESULT_CHARS * 4) };
+
+    observeOneTurnWithToolResult(collector, hugeOutput, hugeDetail);
+
+    const [turn] = collector.getTurns();
+    const result = turn?.toolResults[0];
+    expect(result?.detail).toBeUndefined();
+    const content = result?.content;
+    expect(typeof content).toBe("string");
+    expect((content as string).length).toBeLessThanOrEqual(
+      HOOK_PAYLOAD_TOOL_RESULT_CHARS + 64,
+    );
   });
 });
 
