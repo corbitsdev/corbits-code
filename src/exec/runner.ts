@@ -8,6 +8,7 @@ import { type Config } from "../config/index.js";
 import {
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
+  type MCPServerConfig,
 } from "../config/settings.js";
 import {
   codexProfileFromProviderName,
@@ -161,6 +162,17 @@ import { WorkflowHost } from "../workflows/host.js";
 const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 
 const SELECTED_PROVIDER_FAILURE = "SelectedProviderFailure";
+
+export function formatExecMcpTrustQuestion(server: MCPServerConfig): string {
+  return (
+    `Trust local MCP server "${server.name}" for this project?` +
+    (server.command !== undefined
+      ? `\nCommand: ${server.command}${(server.args ?? []).length > 0 ? ` ${(server.args ?? []).join(" ")}` : ""}`
+      : server.url !== undefined
+        ? `\nURL: ${server.url}`
+        : "")
+  );
+}
 
 export async function refreshSelectedProviderCredential<T>(
   refresh: () => Promise<T>,
@@ -706,12 +718,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       requestMcpTrust: async (server) => {
         if (!interactive) return false;
         const result = await promptOperator(
-          `Trust local MCP server "${server.name}" for this project?` +
-            (server.command !== undefined
-              ? `\nCommand: ${server.command}`
-              : server.url !== undefined
-                ? `\nURL: ${server.url}`
-                : ""),
+          formatExecMcpTrustQuestion(server),
           ["Trust and connect", "Deny"],
           true,
         );

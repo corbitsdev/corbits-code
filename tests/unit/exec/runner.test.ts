@@ -12,6 +12,7 @@ import {
   createExecToolCallGate,
   createExecToolPromoter,
   execUserFailureMessage,
+  formatExecMcpTrustQuestion,
   refreshSelectedProviderCredential,
   resolveExecDirectorOverlay,
   runExec,
@@ -69,6 +70,58 @@ function bareConfig(task: string): Config {
     sessionId: "test-session",
   } as unknown as Config;
 }
+
+describe("exec MCP trust prompt", () => {
+  test("shows a stdio command with literal space-joined args", () => {
+    const question = formatExecMcpTrustQuestion({
+      name: "filesystem",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/work"],
+    });
+
+    expect(question).toBe(
+      'Trust local MCP server "filesystem" for this project?\nCommand: npx -y @modelcontextprotocol/server-filesystem /tmp/work',
+    );
+  });
+
+  test("shows only the stdio command when args are omitted", () => {
+    expect(formatExecMcpTrustQuestion({ name: "local", command: "node" })).toBe(
+      'Trust local MCP server "local" for this project?\nCommand: node',
+    );
+  });
+
+  test("shows only the stdio command when args are empty", () => {
+    expect(
+      formatExecMcpTrustQuestion({ name: "local", command: "node", args: [] }),
+    ).toBe('Trust local MCP server "local" for this project?\nCommand: node');
+  });
+
+  test("shows an HTTP server URL", () => {
+    expect(
+      formatExecMcpTrustQuestion({
+        name: "remote",
+        type: "http",
+        url: "https://mcp.example.test/api",
+      }),
+    ).toBe(
+      'Trust local MCP server "remote" for this project?\nURL: https://mcp.example.test/api',
+    );
+  });
+
+  test("does not show environment secrets", () => {
+    const question = formatExecMcpTrustQuestion({
+      name: "private",
+      command: "private-server",
+      env: { API_TOKEN: "super-secret" },
+    });
+
+    expect(question).toBe(
+      'Trust local MCP server "private" for this project?\nCommand: private-server',
+    );
+    expect(question).not.toContain("API_TOKEN");
+    expect(question).not.toContain("super-secret");
+  });
+});
 
 describe("formatCaughtError", () => {
   test("prefers Error.message and stringifies other values", () => {
