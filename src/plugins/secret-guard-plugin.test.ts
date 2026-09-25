@@ -47,9 +47,11 @@ const APPLY_PATCH_GRANT_STORE = `*** Begin Patch
 describe("isSensitivePath", () => {
   const sensitive = [
     ".env",
+    ".envrc",
     ".env.local",
     ".env.production",
     "/abs/path/.env",
+    "/abs/path/.flaskenv",
     "config/.dev.vars",
     ".npmrc",
     ".git-credentials",
@@ -108,6 +110,10 @@ describe("isSensitivePath", () => {
     "README.md",
     "env.ts",
     "environment.json",
+    ".env.example",
+    ".env.sample",
+    ".env.template",
+    ".env.dist",
     ".env.example.md",
     "docs/pem.md",
     ".corbits/hooks/post-turn.ts",
@@ -130,14 +136,59 @@ describe("isSensitivePath", () => {
   for (const p of ok) {
     test(`allows ${p}`, () => expect(isSensitivePath(p)).toBe(false));
   }
+
+  test("normalizes drive-relative paths only for cmd", () => {
+    expect(isSensitivePath("C:.envrc", "posix")).toBe(false);
+    expect(isSensitivePath("C:.envrc", "cmd")).toBe(true);
+  });
+
+  test("normalizes exact Windows file aliases only for cmd", () => {
+    for (const path of [
+      ".env ",
+      ".envrc.",
+      ".flaskenv::$DATA",
+      String.raw`C:\repo\.EnV.LoCaL::$data`,
+    ]) {
+      expect(isSensitivePath(path, "cmd")).toBe(true);
+      expect(isSensitivePath(path, "posix")).toBe(false);
+    }
+  });
+
+  test("normalizes aliases on ordinary Windows path components", () => {
+    for (const path of [
+      String.raw`C:\repo\.corbits.\permissions.json`,
+      String.raw`C:\repo\.aws.\credentials`,
+      String.raw`C:\repo\.config\gcloud.\credentials.db`,
+    ]) {
+      expect(isSensitivePath(path, "cmd")).toBe(true);
+    }
+    expect(
+      isSensitivePath(
+        String.raw`\\?\C:\repo\.corbits.\permissions.json`,
+        "cmd",
+      ),
+    ).toBe(false);
+  });
+
+  test("preserves Windows template exceptions and non-default streams", () => {
+    for (const path of [
+      ".env.example.",
+      ".env.sample::$DATA",
+      ".envrc:backup",
+    ]) {
+      expect(isSensitivePath(path, "cmd")).toBe(false);
+    }
+  });
 });
 
 describe("secretGuardPlugin", () => {
-  test("denies reading a sensitive file", async () => {
-    const result = await handler()(read(".env"), new AbortController().signal);
-    expect(result.isError).toBe(true);
-    expect(result.content).toMatch(/sensitive file blocked/);
-  });
+  for (const path of [".env", ".envrc", "/abs/path/.flaskenv"]) {
+    test(`denies reading sensitive file ${path}`, async () => {
+      const result = await handler()(read(path), new AbortController().signal);
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/sensitive file blocked/);
+    });
+  }
 
   test("denies writing a sensitive file", async () => {
     const call: ToolCall = {
@@ -222,6 +273,7 @@ describe("commandReferencesSensitivePath", () => {
     // Runtime env-file loaders — detected so the gate can ask, not hard-deny.
     "bun --env-file=../../.env.staging run bin/publish.ts",
     "bun --env-file=.env run -e 'console.log(1)'",
+    "sed --fil=.envrc input.txt",
     // Cloud, keychain, and infra credential stores.
     "cat ~/.aws/config",
     "cat ~/.config/gcloud/application_default_credentials.json",
@@ -247,6 +299,13 @@ describe("commandReferencesSensitivePath", () => {
     "grep TODO src/index.ts",
     "echo environment",
     "cat .env.example",
+    "cat .env.sample",
+    "cat .env.template",
+    "cat .env.dist",
+    String.raw`cat ordinary\=.envrc`,
+    "sed --fil=.env.example input.txt",
+    "sed --f=.envrc input.txt",
+    "grep --fil=.envrc needle",
     "bun test",
   ];
   for (const c of allowed) {

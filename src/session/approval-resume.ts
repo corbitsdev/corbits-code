@@ -24,7 +24,8 @@ import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import {
-  commandReferencesSensitivePath,
+  inspectShellSecretReference,
+  shellSecretInspectionRequiresApproval,
   createExtraDeniedPathMatcher,
 } from "../plugins/secret-guard-plugin.js";
 import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
@@ -74,16 +75,19 @@ export function requestFromApprovalSnapshot(
     name: canonicalToolName(parsed.name),
     arguments: parsed.arguments ?? {},
   };
-  const [request] = buildRequests(call);
-  if (request === undefined) return null;
-  const anySecret =
-    request.tool === "run_shell" &&
-    commandReferencesSensitivePath(
-      request.subject,
-      extras.cwd ?? process.cwd(),
-      extras.isExtraDenied ?? (() => false),
-    ) !== undefined;
-  return anySecret ? { ...request, scopes: [] } : request;
+  const [builtRequest] = buildRequests(call);
+  if (builtRequest === undefined) return null;
+  const cwd = extras.cwd;
+  const request = cwd === undefined ? builtRequest : { ...builtRequest, cwd };
+  if (request.tool !== "run_shell") return request;
+  const secret = inspectShellSecretReference(
+    request.subject,
+    cwd,
+    extras.isExtraDenied ?? (() => false),
+  );
+  return shellSecretInspectionRequiresApproval(secret)
+    ? { ...request, scopes: [] }
+    : request;
 }
 
 export async function resolveParkedCallIdFromStore(

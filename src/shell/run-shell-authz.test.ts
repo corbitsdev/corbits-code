@@ -226,7 +226,29 @@ describe("stdin-blocking with quote-aware tokenizeSegment", () => {
   test("unquoted readers with a file operand are allowed", () => {
     expect(runShellAuthzBlockReason("cat foo")).toBeUndefined();
     expect(runShellAuthzBlockReason("grep pat file")).toBeUndefined();
+    expect(runShellAuthzBlockReason("grep -if.envrc file")).toBeUndefined();
     expect(runShellAuthzBlockReason("tail -n 50 file.log")).toBeUndefined();
+  });
+
+  test("clustered grep file options still require an input file", () => {
+    for (const command of [
+      "grep -if.envrc",
+      "grep -Jf.envrc",
+      "grep -2f.envrc",
+      "egrep -Tf.envrc",
+    ]) {
+      expect(runShellAuthzBlockReason(command)).toMatch(/standard input/);
+      expect(runShellAuthzBlockReason(`${command} file.txt`)).toBeUndefined();
+    }
+  });
+
+  test("value-taking lookalikes keep f inside their option value", () => {
+    expect(runShellAuthzBlockReason("grep -Af.envrc needle")).toMatch(
+      /standard input/,
+    );
+    expect(
+      runShellAuthzBlockReason("grep -Af.envrc needle file.txt"),
+    ).toBeUndefined();
   });
 
   test("quoted path with spaces counts as one file operand", () => {

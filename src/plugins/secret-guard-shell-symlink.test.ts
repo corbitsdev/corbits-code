@@ -132,7 +132,7 @@ describe("CL-7790 shell tokens resolve symlinks before the secret denylist", () 
 
   test("flag-adjacent bare names do not auto-allow", async () => {
     await withFixture(async ({ cwd }) => {
-      // `=` splits `--file=notes` into a bare `notes` token; `-n` is a flag.
+      // The named grep form extracts `notes`; `-n` remains only a flag.
       expect(isAutoAllowedShellCommand("cat -n notes", cwd)).toBe(false);
       expect(commandReferencesSensitivePath("cat -n notes", cwd)).toBe("notes");
       expect(isAutoAllowedShellCommand("grep --file=notes foo", cwd)).toBe(

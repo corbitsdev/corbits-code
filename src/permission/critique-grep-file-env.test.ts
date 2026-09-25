@@ -1,6 +1,5 @@
 import { describe, test, expect } from "bun:test";
 import { isAutoAllowedShellCall } from "./classify.js";
-import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
 import { createPermissionGate } from "./gate.js";
 
 const shellCall = (command: string) => ({
@@ -14,10 +13,6 @@ describe("critique permission lane", () => {
     expect(
       isAutoAllowedShellCall(shellCall("grep --file=.env foo"), process.cwd()),
     ).toBe(false);
-  });
-
-  test("commandReferencesSensitivePath still sees glued flag .env", () => {
-    expect(commandReferencesSensitivePath("grep --file=.env foo")).toBe(".env");
   });
 
   test("interactive gate must prompt for grep --file=.env, not auto-allow", async () => {
@@ -35,6 +30,27 @@ describe("critique permission lane", () => {
     });
     const v = await gate.evaluate(shellCall("grep --file=.env foo"));
     expect(v.allowed).toBe(false);
+    expect(asked).toBe(1);
+  });
+
+  test("a stored grant cannot bypass an expanded sensitive operand", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "*" }],
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      auto: false,
+    });
+
+    const verdict = await gate.evaluate(
+      shellCall("xargs grep --file=.envrc needle"),
+    );
+    expect(verdict.allowed).toBe(false);
     expect(asked).toBe(1);
   });
 

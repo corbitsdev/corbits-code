@@ -3,7 +3,10 @@ import {
   commandHasRecursiveRm,
   expandShellSubjects,
 } from "../shell/run-shell-authz.js";
-import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  inspectShellSecretReference,
+  shellSecretInspectionRequiresApproval,
+} from "../plugins/secret-guard-plugin.js";
 import {
   commandHasUnboundedDirectoryListing,
   commandTargetsRestricted,
@@ -533,11 +536,16 @@ export function autoShellRuleForCall(
     matched = preferRule(matched, ENV_ASSIGNMENT_ASK_RULE);
   }
 
-  for (const subject of subjects) {
-    if (
-      commandReferencesSensitivePath(subject, cwd, isExtraDenied) !== undefined
-    )
-      return SENSITIVE_PATH_ASK_RULE;
+  const secretInspection = inspectShellSecretReference(
+    command,
+    cwd,
+    isExtraDenied,
+  );
+  if (
+    shellSecretInspectionRequiresApproval(secretInspection) &&
+    (secretInspection.reference !== undefined || !opaque)
+  ) {
+    return SENSITIVE_PATH_ASK_RULE;
   }
 
   // Even inside the workspace: unbounded listing must ask so auto mode cannot OOM.
