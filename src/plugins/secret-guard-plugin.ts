@@ -12,6 +12,18 @@ import {
 } from "../permission/path-restriction.js";
 import { buildCredentialPatterns } from "../auth/credential-surface.js";
 import { productMutationPaths } from "../agent/product-mutation-tools.js";
+import {
+  inspectLiteralPathArgumentCommands,
+  nativeShellDialect,
+  type ShellDialect,
+} from "../shell/literal-path-arguments.js";
+import {
+  FILE_OPTION_GRAMMARS,
+  inspectShortOptions,
+  isLongFileOption,
+} from "../shell/file-option-grammar.js";
+import { expandShellSubjects } from "../shell/run-shell-authz.js";
+import { peelTransparentCommand } from "../shell/transparent-command.js";
 import { looksLikePath } from "./path-escape-plugin.js";
 
 // Files that hold secrets and must never be read or written by path-keyed tools
@@ -25,6 +37,7 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   // .env, .env.local, .env.production — but not template files like
   // .env.example / .env.sample / .env.template / .env.dist.
   /(^|\/)\.env($|\.(?!example|sample|template|dist))/,
+  /(^|\/)\.(envrc|flaskenv)$/,
   /(^|\/)\.dev\.vars$/, // Cloudflare Workers secrets
   /(^|\/)\.npmrc$/,
   /(^|\/)\.netrc$/,
@@ -96,9 +109,26 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   ...buildCredentialPatterns(),
 ];
 
-export function isSensitivePath(value: string): boolean {
-  const normalized = value.replace(/\\/g, "/");
+export function isSensitivePath(
+  value: string,
+  dialect: ShellDialect = nativeShellDialect(process.platform),
+): boolean {
+  const slashNormalized = dialect === "cmd" ? value.replace(/\\/g, "/") : value;
+  const normalized =
+    dialect === "cmd" ? normalizeWin32Path(slashNormalized) : slashNormalized;
   return SENSITIVE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function normalizeWin32Path(value: string): string {
+  const withoutDefaultStream = value.replace(/::\$DATA$/i, "");
+  const ordinary = !/^\/\/[?.]\//.test(withoutDefaultStream);
+  const aliasNormalized = ordinary
+    ? withoutDefaultStream
+        .split("/")
+        .map((component) => component.replace(/[ .]+$/, ""))
+        .join("/")
+    : withoutDefaultStream;
+  return aliasNormalized.replace(/^([A-Za-z]:)(?!\/)/, "$1/").toLowerCase();
 }
 
 // Secret-guard floor (CL-6971): match the lexical path AND its realpath. Under
@@ -108,23 +138,14 @@ export function isSensitivePath(value: string): boolean {
 // yet when a parent component is a symlink into a sensitive directory.
 // Absolute-only for the realpath leg — pathEscape absolutizes in the live
 // stack; relative unit-test args still match on the lexical form.
-export function isSensitivePathResolved(value: string): boolean {
-  if (isSensitivePath(value)) return true;
+export function isSensitivePathResolved(
+  value: string,
+  dialect: ShellDialect = nativeShellDialect(process.platform),
+): boolean {
+  if (isSensitivePath(value, dialect)) return true;
   if (!isAbsolute(value)) return false;
   const real = realpathNearestOr(value);
-  return real !== UNRESOLVABLE && isSensitivePath(real);
-}
-
-// Break a shell command into the bare path-like tokens it references so each can
-// be matched against the secret-file denylist. Quote, backtick and backslash
-// characters are stripped first so split obfuscations (`.e''nv`, `'.env'`,
-// `\.env`) collapse back to the real path; the command is then split on
-// whitespace, shell separators, redirections, parens and `=` so that
-// env-assignment and redirection forms (`FILE=.env cat $FILE`, `dd of=.env`)
-// expose the path token too.
-function shellPathTokens(command: string): string[] {
-  const cleaned = command.replace(/['"`\\]/g, "");
-  return cleaned.split(/[\s;&|()<>=]+/).filter((token) => token.length > 0);
+  return real !== UNRESOLVABLE && isSensitivePath(real, dialect);
 }
 
 // Return the first token in a shell command that names a secret file, or
@@ -231,13 +252,15 @@ export function isSensitiveShellToken(
   token: string,
   cwd: string = process.cwd(),
   resolveSymlinks = true,
+  dialect: ShellDialect = nativeShellDialect(process.platform),
 ): boolean {
   const expanded = expandHome(token);
-  if (isSensitivePath(expanded)) return true;
+  if (isSensitivePath(expanded, dialect)) return true;
   if (!resolveSymlinks) return false;
+  if (dialect === "cmd" && /^\\\\[?.]\\/.test(expanded)) return false;
   if (isPathLikeShellToken(expanded)) {
-    if (isAbsolute(expanded)) return isSensitivePathResolved(expanded);
-    return isSensitivePathResolved(resolvePath(cwd, expanded));
+    if (isAbsolute(expanded)) return isSensitivePathResolved(expanded, dialect);
+    return isSensitivePathResolved(resolvePath(cwd, expanded), dialect);
   }
   if (!isBareProbeCandidate(expanded)) return false;
   const abs = isAbsolute(expanded) ? expanded : resolvePath(cwd, expanded);
@@ -246,26 +269,236 @@ export function isSensitiveShellToken(
   } catch {
     return false;
   }
-  return isSensitivePathResolved(abs);
+  return isSensitivePathResolved(abs, dialect);
+}
+
+const LEADING_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/s;
+
+function programName(token: string): string {
+  return token.split(/[\\/]/).at(-1) ?? token;
+}
+
+const CMD_EXECUTABLE_SUFFIX = /\.(?:com|exe|bat|cmd)$/i;
+
+function cmdProgramName(token: string): string {
+  return programName(token)
+    .replace(/^@+/, "")
+    .replace(CMD_EXECUTABLE_SUFFIX, "")
+    .toLowerCase();
+}
+
+function fileOptionProgramName(token: string, dialect: ShellDialect): string {
+  const native = dialect === "cmd" ? cmdProgramName(token) : programName(token);
+  return native === "egrep" || native === "fgrep" ? "grep" : native;
+}
+
+interface FileOptionValues {
+  values: string[];
+  opaque: boolean;
+}
+
+function commandFileOptionValues(
+  command: readonly string[],
+  executableIndex: number,
+  program: string,
+): FileOptionValues {
+  const grammar = FILE_OPTION_GRAMMARS[program];
+  if (grammar === undefined) return { values: [], opaque: false };
+
+  const values: string[] = [];
+  let opaque = false;
+  for (let index = executableIndex + 1; index < command.length; index++) {
+    const token = command[index] ?? "";
+    if (token === "--") break;
+    if (token === "-f") {
+      const value = command[index + 1];
+      if (value !== undefined) {
+        values.push(value);
+        index++;
+      }
+      continue;
+    }
+    if (isLongFileOption(token, grammar)) {
+      const equalsIndex = token.indexOf("=");
+      if (equalsIndex >= 0) {
+        values.push(token.slice(equalsIndex + 1));
+      } else {
+        const value = command[index + 1];
+        if (value !== undefined) {
+          values.push(value);
+          index++;
+        }
+      }
+      continue;
+    }
+    const inspection = inspectShortOptions(token, grammar);
+    if (inspection.ambiguousFileOption) opaque = true;
+    const valueOption = inspection.valueOption;
+    if (valueOption === undefined) continue;
+    if (valueOption.option === "f") {
+      const value = valueOption.attachedValue ?? command[index + 1];
+      if (value !== undefined) values.push(value);
+    }
+    if (valueOption.attachedValue === undefined) index++;
+  }
+  return { values, opaque };
+}
+
+interface LiteralPathCandidates {
+  candidates: string[];
+  opaque: boolean;
+}
+
+function literalPathCandidates(
+  commands: string[][],
+  dialect: ShellDialect,
+): LiteralPathCandidates {
+  const tokens = commands.flat();
+  const candidates = [...tokens];
+  let opaque = false;
+
+  if (dialect === "posix") {
+    for (const command of commands) {
+      const transparent = peelTransparentCommand(command, {
+        acceptsWrapper: (token, program) =>
+          program !== "env" || token === "env" || token === "/usr/bin/env",
+      });
+      candidates.push(...transparent.assignmentValues);
+      const executable = command[transparent.executableIndex] ?? "";
+      const program = fileOptionProgramName(executable, dialect);
+      const fileOptions = commandFileOptionValues(
+        command,
+        transparent.executableIndex,
+        program,
+      );
+      candidates.push(...fileOptions.values);
+      opaque ||= fileOptions.opaque;
+      for (const token of command) {
+        if (token.startsWith("--env-file=")) {
+          candidates.push(token.slice("--env-file=".length));
+        }
+        if (
+          program === "dd" &&
+          (token.startsWith("if=") || token.startsWith("of="))
+        ) {
+          candidates.push(token.slice(3));
+        }
+      }
+    }
+    return { candidates, opaque };
+  }
+
+  for (const command of commands) {
+    let commandIndex = 0;
+    while (commandIndex < command.length) {
+      const assignment = LEADING_ASSIGNMENT.exec(command[commandIndex] ?? "");
+      if (assignment === null) break;
+      candidates.push(assignment[1] ?? "");
+      commandIndex++;
+    }
+
+    const program = fileOptionProgramName(command[commandIndex] ?? "", dialect);
+    const fileOptions = commandFileOptionValues(command, commandIndex, program);
+    candidates.push(...fileOptions.values);
+    opaque ||= fileOptions.opaque;
+    for (const token of command) {
+      if (token.startsWith("--env-file=")) {
+        candidates.push(token.slice("--env-file=".length));
+      }
+      if (
+        program === "dd" &&
+        (token.startsWith("if=") || token.startsWith("of="))
+      ) {
+        candidates.push(token.slice(3));
+      }
+    }
+  }
+
+  return { candidates, opaque };
+}
+
+function unsupportedCmdConstruct(command: string): string | undefined {
+  const expansion = /%[^%\r\n]+%|![^!\r\n]+!/.exec(command)?.[0];
+  if (expansion !== undefined) return expansion;
+  const unescapedQuotes = command.replace(/\^./g, "").match(/"/g)?.length ?? 0;
+  if (unescapedQuotes % 2 !== 0 || /\^(?:\r?\n)?$/.test(command))
+    return command;
+  return undefined;
+}
+
+function subjectReferencesSensitivePath(
+  command: string,
+  cwd: string,
+  dialect: ShellDialect,
+): ShellSecretInspection {
+  if (dialect === "cmd") {
+    const unsupported = unsupportedCmdConstruct(command);
+    if (unsupported !== undefined) {
+      return { reference: unsupported, opaque: false };
+    }
+  }
+
+  const literalInspection = inspectLiteralPathArgumentCommands(
+    command,
+    dialect,
+  );
+  const tokens = literalInspection.commands.flat();
+  const inspection = literalPathCandidates(literalInspection.commands, dialect);
+  inspection.opaque ||= literalInspection.opaque;
+  // Dump vs list: a lone name-listing never dumps file contents, so only the
+  // cheap lexical leg applies and `ls notes.txt` still lists freely. Anything
+  // composed (pipes, chains, redirects, subshells) takes the resolve leg —
+  // `ls && cat notes.txt` must not ride the listing exemption.
+  const program = tokens.find((token) => !LEADING_ASSIGNMENT.test(token)) ?? "";
+  const listingOnly =
+    PURE_DIRECTORY_LISTING_PROGRAMS.has(programName(program)) &&
+    !/[;&|()<>\n]/.test(command);
+  for (const token of inspection.candidates) {
+    if (isSensitiveShellToken(token, cwd, !listingOnly, dialect)) {
+      return { reference: token, opaque: inspection.opaque };
+    }
+  }
+  return { reference: undefined, opaque: inspection.opaque };
+}
+
+export interface ShellSecretInspection {
+  reference: string | undefined;
+  opaque: boolean;
+}
+
+export function shellSecretInspectionRequiresApproval(
+  inspection: ShellSecretInspection,
+): boolean {
+  return inspection.reference !== undefined || inspection.opaque;
+}
+
+export function inspectShellSecretReference(
+  command: string,
+  cwd: string = process.cwd(),
+  dialect: ShellDialect = nativeShellDialect(process.platform),
+): ShellSecretInspection {
+  if (dialect === "cmd") {
+    return subjectReferencesSensitivePath(command, cwd, dialect);
+  }
+
+  const expanded = expandShellSubjects(command);
+  let opaque = expanded.opaque;
+  for (const subject of expanded.subjects) {
+    const inspection = subjectReferencesSensitivePath(subject, cwd, dialect);
+    opaque ||= inspection.opaque;
+    if (inspection.reference !== undefined) {
+      return { reference: inspection.reference, opaque };
+    }
+  }
+  return { reference: undefined, opaque };
 }
 
 export function commandReferencesSensitivePath(
   command: string,
   cwd: string = process.cwd(),
+  dialect: ShellDialect = nativeShellDialect(process.platform),
 ): string | undefined {
-  const tokens = shellPathTokens(command);
-  // Dump vs list: a lone name-listing never dumps file contents, so only the
-  // cheap lexical leg applies and `ls notes.txt` still lists freely. Anything
-  // composed (pipes, chains, redirects, subshells) takes the resolve leg —
-  // `ls && cat notes.txt` must not ride the listing exemption.
-  const program = tokens[0] ?? "";
-  const listingOnly =
-    PURE_DIRECTORY_LISTING_PROGRAMS.has(program) &&
-    !/[;&|()<>\n]/.test(command);
-  for (const token of tokens) {
-    if (isSensitiveShellToken(token, cwd, !listingOnly)) return token;
-  }
-  return undefined;
+  return inspectShellSecretReference(command, cwd, dialect).reference;
 }
 
 // Hard-deny path-keyed tool calls that would put a secret file's contents into

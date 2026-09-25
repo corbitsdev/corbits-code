@@ -14,8 +14,9 @@ import {
 } from "../mcp/tool-name.js";
 import type { McpToolPermissionRegistry } from "../mcp/tool-permissions.js";
 import {
-  commandReferencesSensitivePath,
+  inspectShellSecretReference,
   isSensitiveShellToken,
+  shellSecretInspectionRequiresApproval,
   PURE_DIRECTORY_LISTING_PROGRAMS,
 } from "../plugins/secret-guard-plugin.js";
 import {
@@ -412,7 +413,12 @@ function isAutoAllowedSegment(
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
-  if (commandReferencesSensitivePath(trimmed, cwd)) return false;
+  if (
+    shellSecretInspectionRequiresApproval(
+      inspectShellSecretReference(trimmed, cwd),
+    )
+  )
+    return false;
   // Same metacharacter gate as isAutoAllowedShellCommand: this classifier also
   // runs standalone per pipeline/chain segment (see isAutoAllowedShellSegment),
   // so a segment carrying its own command substitution or redirect must not
@@ -469,7 +475,12 @@ export function isAutoAllowedShellCommand(
     (isShellCommentOnly(trimmed) || isShellNoOp(trimmed))
   )
     return true;
-  if (commandReferencesSensitivePath(trimmed, cwd)) return false;
+  if (
+    shellSecretInspectionRequiresApproval(
+      inspectShellSecretReference(trimmed, cwd),
+    )
+  )
+    return false;
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).

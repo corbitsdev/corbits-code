@@ -20,12 +20,18 @@ import {
   safeWorktreeCommand,
   isWorktreeForceFlag,
 } from "./auto-shell-policy.js";
-import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  inspectShellSecretReference,
+  shellSecretInspectionRequiresApproval,
+} from "../plugins/secret-guard-plugin.js";
 import {
   normalizePathArguments,
   pathEscapeBlockReason,
 } from "../plugins/path-escape-plugin.js";
-import { runShellAuthzBlockReason } from "../shell/run-shell-authz.js";
+import {
+  runShellAuthzBlock,
+  runShellAuthzBlockReason,
+} from "../shell/run-shell-authz.js";
 import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import {
   approvalCoversSubject,
@@ -115,7 +121,7 @@ export type GateVerdict =
 // to know *which* guard tripped, to drive the anySecret behavior below) and
 // preGrantGuardReason (which only needs to know whether one tripped).
 interface SegmentGuard {
-  kind: "secret" | "restricted";
+  kind: "secret" | "opaque" | "restricted";
 }
 
 // `cwd`/`rootsProvider`, when both supplied, let a contained or
@@ -132,8 +138,10 @@ function segmentGuard(
   cwd?: string,
   rootsProvider?: RootsProvider,
 ): SegmentGuard | undefined {
-  if (commandReferencesSensitivePath(segment, cwd) !== undefined)
-    return { kind: "secret" };
+  const secret = inspectShellSecretReference(segment, cwd);
+  if (shellSecretInspectionRequiresApproval(secret)) {
+    return { kind: secret.reference !== undefined ? "secret" : "opaque" };
+  }
   if (
     cwd !== undefined &&
     rootsProvider !== undefined &&
@@ -173,10 +181,13 @@ function worktreeMismatchKind(segment: string): WorktreeMismatch | undefined {
 // never the grant — matching semantics are untouched.
 function grantMismatchNotice(
   segment: string,
-  kind: "secret" | "restricted",
+  kind: SegmentGuard["kind"],
 ): string {
   if (kind === "secret") {
     return "A standing grant matches this command, but it references a sensitive path, so it still needs approval.";
+  }
+  if (kind === "opaque") {
+    return "A standing grant matches this command, but its wrapped payload cannot be inspected, so it still needs approval.";
   }
   const worktreeKind = worktreeMismatchKind(segment);
   if (worktreeKind?.kind === "force") {
@@ -239,9 +250,11 @@ export function preGrantGuardReason(
   for (const segment of segments) {
     const guard = segmentGuard(segment, restricted, request.cwd, rootsProvider);
     if (guard !== undefined) {
-      return guard.kind === "secret"
-        ? `${segment} references a sensitive path`
-        : `${segment} targets a restricted path`;
+      if (guard.kind === "secret")
+        return `${segment} references a sensitive path`;
+      if (guard.kind === "opaque")
+        return `${segment} contains an opaque wrapped payload`;
+      return `${segment} targets a restricted path`;
     }
   }
   return undefined;
@@ -701,9 +714,14 @@ export function createPermissionGate(
     // preGrantGuardReason).
     if (call.name === "run_shell") {
       const command = String(call.arguments.command ?? "");
-      const blockReason = runShellAuthzBlockReason(command);
-      if (blockReason !== undefined) {
-        return { kind: "deny", reason: blockReason };
+      const block = runShellAuthzBlock(command);
+      const inspection = inspectShellSecretReference(command);
+      const opaqueAsks =
+        block?.kind === "stdin" &&
+        inspection.reference === undefined &&
+        shellSecretInspectionRequiresApproval(inspection);
+      if (block !== undefined && !opaqueAsks) {
+        return { kind: "deny", reason: block.reason };
       }
     }
     if (skipPermissions) return { kind: "allow" };
@@ -762,15 +780,17 @@ export function createPermissionGate(
     // Per-segment secret checks below govern grants and segment auto-skip so a
     // safe pipeline tail (e.g. `| sort`) is not re-prompted when only an earlier
     // segment mentions a secret path.
-    const shellReferencesSecret =
+    const shellRequiresSecretApproval =
       shellCmd !== undefined &&
-      commandReferencesSensitivePath(shellCmd, effectiveCwd) !== undefined;
+      shellSecretInspectionRequiresApproval(
+        inspectShellSecretReference(shellCmd, effectiveCwd),
+      );
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { kind: "allow" };
     }
     if (
       !restricted &&
-      !shellReferencesSecret &&
+      !shellRequiresSecretApproval &&
       isAutoAllowedShellCall(call, effectiveCwd, rootsProvider)
     ) {
       return { kind: "allow" };
@@ -844,7 +864,7 @@ export function createPermissionGate(
             rootsProvider,
           );
           if (guard !== undefined) {
-            if (guard.kind === "secret") anySecret = true;
+            if (guard.kind !== "restricted") anySecret = true;
             needsOperator = true;
             // A standing grant may still cover this segment even though the
             // pre-grant guard forces an ask — record why so the prompt can say
@@ -1103,10 +1123,12 @@ export function createPermissionGate(
     request: PermissionRequest,
     stillCurrent?: () => boolean,
   ) => {
+    const secret =
+      request.tool === "run_shell"
+        ? inspectShellSecretReference(request.subject, request.cwd)
+        : undefined;
     const anySecret =
-      request.tool === "run_shell" &&
-      commandReferencesSensitivePath(request.subject, request.cwd) !==
-        undefined;
+      secret !== undefined && shellSecretInspectionRequiresApproval(secret);
     const decision = {
       kind: "ask" as const,
       request,

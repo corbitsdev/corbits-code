@@ -59,11 +59,49 @@ describe("isAutoAllowedShellCall — sensitive-path arguments", () => {
     expect(isAutoAllowedShellCall(shellCall("cat .git-credentials"))).toBe(
       false,
     );
+    expect(
+      isAutoAllowedShellCall(
+        shellCall("env FILE=.envrc sh -c 'cat \"$FILE\"'"),
+      ),
+    ).toBe(false);
+    expect(isAutoAllowedShellCall(shellCall("sed -Enf.flaskenv input"))).toBe(
+      false,
+    );
+    expect(
+      isAutoAllowedShellCall(shellCall("sed --fil=.envrc input.txt")),
+    ).toBe(false);
+  });
+
+  test("aliases, clusters, control prefixes, and ambiguity cannot auto-allow", () => {
+    for (const command of [
+      "egrep -Jf.envrc needle",
+      "grep -2f.flaskenv needle",
+      "sed -anf.envrc input.txt",
+      "{ awk -f.flaskenv input.txt; }",
+      "! grep -Tf.envrc needle",
+      "grep -Xf.envrc needle",
+      "grep -uf.envrc needle",
+      "cat $'.envrc'",
+      "bash -c \"cat \\$'.envrc'\"",
+      "bash -lc \"cat \\$'.envrc'\"",
+      "bash -lc \"cat \\$'.flaskenv'\"",
+      `bash -c "cat "'.envrc'`,
+      `sh -cc "cat "'.flaskenv'`,
+      "cat $'notes\\cQ'",
+    ]) {
+      expect(isAutoAllowedShellCall(shellCall(command))).toBe(false);
+    }
   });
 
   test("still auto-allows reads of ordinary files", () => {
     expect(isAutoAllowedShellCall(shellCall("cat src/index.ts"))).toBe(true);
     expect(isAutoAllowedShellCall(shellCall("cat .env.example"))).toBe(true);
+    expect(isAutoAllowedShellCall(shellCall("echo grep --file=.envrc"))).toBe(
+      true,
+    );
+    expect(isAutoAllowedShellCall(shellCall("echo dd if=.flaskenv"))).toBe(
+      true,
+    );
   });
 });
 
@@ -428,11 +466,21 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
   });
 
   test("auto mode forces ask for shell commands that reference secret files", () => {
-    const rule = autoShellRuleForCall(
-      shellCall("bun --env-file=.env.staging run publish.ts"),
-    );
+    const rule = autoShellRuleForCall(shellCall("cat .envrc"));
     expect(rule?.name).toBe("sensitive-path");
     expect(rule?.effect).toBe("ask");
+  });
+
+  test("auto mode asks for clustered bash secret reads", () => {
+    for (const command of [
+      "bash -lc \"cat \\$'.envrc'\"",
+      "bash -lc \"cat \\$'.flaskenv'\"",
+    ]) {
+      expect(autoShellRuleForCall(shellCall(command))).toMatchObject({
+        name: "sensitive-path",
+        effect: "ask",
+      });
+    }
   });
 
   test("operator approval lets a sensitive-path shell command through the gate", async () => {
@@ -484,7 +532,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       skipPermissions: false,
       reactorGated: false,
     });
-    const verdict = await gate.evaluate(shellCall("cat .env"));
+    const verdict = await gate.evaluate(shellCall("cat .flaskenv"));
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(1);
   });
@@ -501,7 +549,7 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
       skipPermissions: false,
       reactorGated: false,
     });
-    const verdict = await gate.evaluate(shellCall("cat README.md"));
+    const verdict = await gate.evaluate(shellCall("cat ordinary=.envrc"));
     expect(verdict.allowed).toBe(true);
     expect(asked).toBe(0);
   });

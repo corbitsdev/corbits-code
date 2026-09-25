@@ -3,6 +3,10 @@
 
 import { splitChainedCommand, tokenize } from "../permission/command.js";
 import {
+  FILE_OPTION_GRAMMARS,
+  firstShortValueOption,
+} from "./file-option-grammar.js";
+import {
   peelTransparentCommand,
   programBasename,
 } from "./transparent-command.js";
@@ -256,6 +260,47 @@ function fileOperandCount(args: string[], valueFlags: Set<string>): number {
   return count;
 }
 
+function grepOperandSummary(args: string[]): {
+  count: number;
+  suppliesPatternViaFlag: boolean;
+} {
+  const grammar = FILE_OPTION_GRAMMARS.grep;
+  if (grammar === undefined) {
+    return {
+      count: fileOperandCount(args, GREP_VALUE_FLAGS),
+      suppliesPatternViaFlag: false,
+    };
+  }
+
+  let count = 0;
+  let suppliesPatternViaFlag = false;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (arg === "--") continue;
+    if (arg === "--regexp" || arg === "--file") {
+      suppliesPatternViaFlag = true;
+      index++;
+      continue;
+    }
+    if (arg.startsWith("--regexp=") || arg.startsWith("--file=")) {
+      suppliesPatternViaFlag = true;
+      continue;
+    }
+    const valueOption = firstShortValueOption(arg, grammar);
+    if (valueOption !== undefined) {
+      if (valueOption.option === "e" || valueOption.option === "f") {
+        suppliesPatternViaFlag = true;
+      }
+      if (valueOption.attachedValue === undefined) index++;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    count++;
+  }
+  return { count, suppliesPatternViaFlag };
+}
+
 function readsStdinWithoutInput(head: string): boolean {
   const tokens = tokenizeSegment(head);
   const exec = tokens[0];
@@ -264,17 +309,10 @@ function readsStdinWithoutInput(head: string): boolean {
   if (exec === "grep" || exec === "egrep" || exec === "fgrep") {
     // grep reads stdin unless given a file in addition to the pattern; a `-e`
     // or `-f` flag supplies the pattern, so then a single operand is the file.
-    const suppliesPatternViaFlag = args.some(
-      (a) =>
-        a === "-e" ||
-        a === "-f" ||
-        a === "--regexp" ||
-        a === "--file" ||
-        a.startsWith("-f") ||
-        a.startsWith("--file="),
-    );
-    const operands = fileOperandCount(args, GREP_VALUE_FLAGS);
-    return suppliesPatternViaFlag ? operands < 1 : operands < 2;
+    const summary = grepOperandSummary(args);
+    return summary.suppliesPatternViaFlag
+      ? summary.count < 1
+      : summary.count < 2;
   }
   if (STDIN_READERS.has(exec)) {
     const valueFlags =
@@ -1228,27 +1266,45 @@ export function runShellAuthzSegmentBlockReason(
   return openEndedSearchReason(trimmed);
 }
 
-export function runShellAuthzBlockReason(command: string): string | undefined {
+export interface RunShellAuthzBlock {
+  kind: "destructive" | "open-ended" | "never-terminating" | "stdin";
+  reason: string;
+}
+
+export function runShellAuthzBlock(
+  command: string,
+): RunShellAuthzBlock | undefined {
   // Destructive / open-ended / never-terminating / stdin all expand subjects so
   // env -S and shell -c payloads cannot hide a blocked program.
   if (isDestructive(command)) {
-    return `Destructive command blocked by policy: ${command}`;
+    return {
+      kind: "destructive",
+      reason: `Destructive command blocked by policy: ${command}`,
+    };
   }
   const openEnded = openEndedSearchReason(command);
-  if (openEnded !== undefined) return openEnded;
+  if (openEnded !== undefined) return { kind: "open-ended", reason: openEnded };
   if (subjectsHit(command, isNeverTerminating)) {
-    return (
-      `Never-terminating command blocked — follow/pager/watch commands (tail -f, watch, ` +
-      `top, less, more) never exit under the agent and hang the run. Use a bounded ` +
-      `alternative (e.g. tail -n 50 file). Command: ${command}`
-    );
+    return {
+      kind: "never-terminating",
+      reason:
+        `Never-terminating command blocked — follow/pager/watch commands (tail -f, watch, ` +
+        `top, less, more) never exit under the agent and hang the run. Use a bounded ` +
+        `alternative (e.g. tail -n 50 file). Command: ${command}`,
+    };
   }
   if (subjectsHit(command, blocksOnStdin)) {
-    return (
-      `Command reads standard input with no file operand and would hang, since stdin is ` +
-      `not connected. Pass a file operand (e.g. tail -n 50 file.log, grep pattern file). ` +
-      `Command: ${command}`
-    );
+    return {
+      kind: "stdin",
+      reason:
+        `Command reads standard input with no file operand and would hang, since stdin is ` +
+        `not connected. Pass a file operand (e.g. tail -n 50 file.log, grep pattern file). ` +
+        `Command: ${command}`,
+    };
   }
   return undefined;
+}
+
+export function runShellAuthzBlockReason(command: string): string | undefined {
+  return runShellAuthzBlock(command)?.reason;
 }
