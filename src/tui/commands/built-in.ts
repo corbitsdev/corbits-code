@@ -256,7 +256,7 @@ export function registerBuiltInCommands(): void {
     },
   });
 
-  // Persist as user-global default, not session-only.
+  // Persist to the active settings source, not only the running session.
   registerCommand({
     name: "yolo",
     description: "Skip permission prompts (persists as the default)",

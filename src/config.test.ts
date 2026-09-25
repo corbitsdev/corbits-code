@@ -1,6 +1,13 @@
 import { defined } from "../tests/helpers/defined.js";
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
-import { mkdtemp, mkdir, writeFile, rm, readdir } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  writeFile,
+  rm,
+  readdir,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -1225,6 +1232,19 @@ describe("loadConfig", () => {
     await expectCliHelp(["-h"]);
   });
 
+  test("--help explains process-only yolo and its precedence over auto", () => {
+    expect(CLI_HELP_TEXT).toContain("--dangerously-skip-permissions, --yolo");
+    expect(CLI_HELP_TEXT).toContain("this process only (--yolo alias)");
+    expect(CLI_HELP_TEXT).toContain("--auto --yolo uses yolo mode");
+    expect(CLI_HELP_TEXT).toContain(
+      "/yolo in the TUI persists the active settings file",
+    );
+    expect(CLI_HELP_TEXT).toContain(
+      "the default settings file is machine-wide",
+    );
+    expect(CLI_HELP_TEXT).toContain("--config selects another source");
+  });
+
   test("--help after flags throws CliHelpError", async () => {
     await expectCliHelp(["--auto", "--help"]);
     await expectCliHelp(["--auto", "-h"]);
@@ -1344,6 +1364,28 @@ describe("loadConfig", () => {
       expect(config.dangerouslySkipPermissions).toBe(true);
       // Came from the CLI flag, not the persisted default — no startup notice.
       expect(config.skipPermissionsFromSettings).toBe(false);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("exec --auto --yolo enables process-only skip without changing settings", async () => {
+    const cwd = await emptyCwd();
+    try {
+      const globalPath = await writeGlobalSettings(cwd);
+      const settingsBefore = await readFile(globalPath);
+      const config = await loadConfig(
+        ["exec", "--cwd", cwd, "--auto", "--yolo", "ship", "it"],
+        { globalSettingsPath: globalPath },
+      );
+
+      assertConfigured(config);
+      expect(config.command).toBe("exec");
+      expect(config.task).toBe("ship it");
+      expect(config.auto).toBe(true);
+      expect(config.dangerouslySkipPermissions).toBe(true);
+      expect(config.skipPermissionsFromSettings).toBe(false);
+      expect(await readFile(globalPath)).toEqual(settingsBefore);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
