@@ -960,3 +960,107 @@ describe("createOptimizedContextStore unpublished rewrite", () => {
     expect(turnTexts((await store.load()).turns)).toEqual(["era-2"]);
   });
 });
+
+describe("createOptimizedContextStore prompt dedupe (CL-9026)", () => {
+  const PROMPT_FILE = "prompt.jsonl";
+
+  function toolResultTurn(body: string): ConversationTurn {
+    return {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          callId: "call-1",
+          content: [{ type: "text", text: body }],
+        },
+      ],
+      timestamp: 1,
+    };
+  }
+
+  function cloneTurns(turns: ConversationTurn[]): ConversationTurn[] {
+    return turns.map(
+      (t) => JSON.parse(JSON.stringify(t)) as ConversationTurn,
+    );
+  }
+
+  test("identical writePrompt writes no prompt segment", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const turns = [turn("a"), turn("b")];
+    await store.writeTurns([...turns]);
+    await store.writePrompt([...turns]);
+    await store.writePrompt(cloneTurns(turns));
+
+    expect(fs.existsSync(path.join(dir, PROMPT_FILE))).toBe(false);
+    expect(await listSegmentFiles(dir, PROMPT_FILE)).toEqual([]);
+
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "identical prompt is a no-op" });
+    expect(await gitLsTree(dir)).not.toContain(PROMPT_FILE);
+
+    // A fresh instance compares against on-disk live turns and also skips.
+    const fresh = await createOptimizedContextStore(dir);
+    await fresh.writePrompt(cloneTurns(turns));
+    expect(fs.existsSync(path.join(dir, PROMPT_FILE))).toBe(false);
+  });
+
+  test("differing writePrompt still writes the prompt snapshot", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const live = [turn("a"), toolResultTurn("x".repeat(1000))];
+    await store.writeTurns([...live]);
+
+    const shrunk = [turn("a"), toolResultTurn("summarized")];
+    await store.writePrompt(shrunk);
+    expect(fs.existsSync(path.join(dir, PROMPT_FILE))).toBe(true);
+    expect(fs.readFileSync(path.join(dir, PROMPT_FILE), "utf-8")).toBe(
+      jsonl(shrunk),
+    );
+
+    // An appended ephemeral turn also changes the prompt and still writes.
+    const ephemeralDir = tempDir();
+    const ephemeralStore = await createOptimizedContextStore(ephemeralDir);
+    await ephemeralStore.writeTurns([...live]);
+    const withEphemeral = [...cloneTurns(live), turn("ephemeral")];
+    await ephemeralStore.writePrompt(withEphemeral);
+    expect(
+      fs.readFileSync(path.join(ephemeralDir, PROMPT_FILE), "utf-8"),
+    ).toBe(jsonl(withEphemeral));
+  });
+
+  test("turns-only store loads live turns and commits no prompt file", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    await store.writeTurns([turn("a"), turn("b")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const first = await store.commit({ message: "turns only" });
+
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b"]);
+
+    const fresh = await createOptimizedContextStore(dir);
+    expect(turnTexts((await fresh.load()).turns)).toEqual(["a", "b"]);
+    const second = await fresh.commit({ message: "turns-only no-op" });
+    expect(second.hash).toBe(first.hash);
+    expect(fs.existsSync(path.join(dir, PROMPT_FILE))).toBe(false);
+    expect(await gitLsTree(dir)).not.toContain(PROMPT_FILE);
+  });
+
+  test("identical writePrompt after a differing one removes stale prompt segments", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const live = [turn("a"), turn("b")];
+    await store.writeTurns([...live]);
+    await store.writePrompt([turn("a")]);
+    expect(fs.existsSync(path.join(dir, PROMPT_FILE))).toBe(true);
+
+    await store.writePrompt(cloneTurns(live));
+    expect(fs.existsSync(path.join(dir, PROMPT_FILE))).toBe(false);
+    expect(await listSegmentFiles(dir, PROMPT_FILE)).toEqual([]);
+
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "stale prompt removed" });
+    expect(await gitLsTree(dir)).not.toContain(PROMPT_FILE);
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b"]);
+  });
+});
