@@ -656,3 +656,138 @@ describe("readFileGuardPlugin", () => {
     expect(String(replay.content)).not.toContain("Blob not found");
   });
 });
+
+describe("CL-8980 single-way path+offset resume (RED)", () => {
+  const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+    callId: call.id,
+    content: "FALLBACK",
+  });
+
+  function freshRunner(blobReader?: ReturnType<typeof createBlobReader>) {
+    const plugin = readFileGuardPlugin(
+      dir,
+      blobReader !== undefined ? { blobReader } : {},
+    );
+    const middleware = defined(plugin.middleware)(fallback);
+    return (id: string, args: Record<string, unknown>) =>
+      middleware({ id, name: "read_file", arguments: args }, neverAbort());
+  }
+
+  function noticeOffset(content: string): number {
+    const match = /Use offset=(\d+) to continue/.exec(content);
+    expect(match).not.toBeNull();
+    return Number((match as RegExpExecArray)[1]);
+  }
+
+  test("a truncated read emits same-path + explicit offset and no handle", async () => {
+    await fixture(
+      "single-way.txt",
+      Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
+    );
+    const content = String(
+      (await freshRunner()("w1", { path: "single-way.txt", limit: 4 })).content,
+    );
+    expect(content).toMatch(/Use offset=(\d+) to continue/);
+    expect(content).not.toMatch(/Use path="tool-output:\/\/\//);
+    expect(content).not.toContain("single-use");
+    expect(content).not.toContain("continuation handle");
+  });
+
+  test("following the notice verbatim yields the next window on a fresh instance; replay and re-read are identical", async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => `row-${i}`);
+    await fixture("chain.txt", rows.join("\n"));
+    const first = await freshRunner()("c1", { path: "chain.txt", limit: 4 });
+    expect(first.isError).toBeFalsy();
+    const offset = noticeOffset(String(first.content));
+
+    // Session resume is a fresh plugin instance: no cursor map survives, so
+    // the verbatim same-path + offset follow must still yield the next window.
+    const run = freshRunner();
+    const second = await run("c2", { path: "chain.txt", offset, limit: 4 });
+    expect(second.isError).toBeFalsy();
+    const secondContent = String(second.content);
+    expect(secondContent).toContain("row-4");
+    expect(secondContent).not.toContain("row-3");
+    expect(secondContent).toMatch(/Use offset=(\d+) to continue/);
+
+    const replay = await run("c3", { path: "chain.txt", offset, limit: 4 });
+    expect(replay.isError).toBeFalsy();
+    expect(String(replay.content)).toBe(secondContent);
+
+    const reread = await run("c4", { path: "chain.txt", offset: 0, limit: 4 });
+    expect(reread.isError).toBeFalsy();
+    expect(String(reread.content)).toBe(String(first.content));
+  });
+
+  test("a dead file offset names the file and the valid range", async () => {
+    const absolutePath = await fixture(
+      "dead-offset.txt",
+      Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
+    );
+    const result = await freshRunner()("d1", {
+      path: "dead-offset.txt",
+      offset: 500,
+      limit: 4,
+    });
+    expect(result.isError).toBe(true);
+    const content = String(result.content);
+    expect(content).toContain("beyond end of file");
+    expect(content).toContain(absolutePath);
+    expect(content).toContain("10 lines");
+    expect(content).not.toContain("Blob not found");
+  });
+
+  test("a dead blob offset names the spill URI and the valid range", async () => {
+    const encoder = new TextEncoder();
+    const body = Array.from({ length: 100 }, (_, i) => `brow-${i}`).join("\n");
+    const blobReader = createBlobReader({
+      async readBlob(key) {
+        if (key === "dead-blob") return encoder.encode(body);
+        throw new Error(`missing ${key}`);
+      },
+    });
+    const result = await freshRunner(blobReader)("d2", {
+      path: "tool-output:///dead-blob",
+      offset: 500,
+      limit: 4,
+    });
+    expect(result.isError).toBe(true);
+    const content = String(result.content);
+    expect(content).toContain("beyond end of file");
+    expect(content).toContain("tool-output:///dead-blob");
+    expect(content).toContain("100 lines");
+  });
+
+  test("a spilled blob pages forward on the same URI with rising offsets; replay is identical", async () => {
+    const encoder = new TextEncoder();
+    const body = Array.from({ length: 100 }, (_, i) => `srow-${i}`).join("\n");
+    const blobReader = createBlobReader({
+      async readBlob(key) {
+        if (key === "chain-blob") return encoder.encode(body);
+        throw new Error(`missing ${key}`);
+      },
+    });
+    const run = freshRunner(blobReader);
+    const first = await run("e1", {
+      path: "tool-output:///chain-blob",
+      offset: 0,
+      limit: 10,
+    });
+    expect(first.isError).toBeFalsy();
+    const offset = noticeOffset(String(first.content));
+    const second = await run("e2", {
+      path: "tool-output:///chain-blob",
+      offset,
+      limit: 10,
+    });
+    expect(second.isError).toBeFalsy();
+    expect(String(second.content)).toContain("srow-10");
+    expect(String(second.content)).not.toContain("srow-9");
+    const replay = await run("e3", {
+      path: "tool-output:///chain-blob",
+      offset,
+      limit: 10,
+    });
+    expect(String(replay.content)).toBe(String(second.content));
+  });
+});
