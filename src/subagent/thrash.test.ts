@@ -119,6 +119,21 @@ describe("thrash pure module", () => {
     expect(state.readCounts.get("big.ts::500:500")).toBe(1);
   });
 
+  test("CL-8980: a same-path offset chain is one ranged read per window, not a same-path loop", () => {
+    const chain = Array.from({ length: 12 }, (_, i) =>
+      read("src/big.ts", { offset: i * 50, limit: 50 }),
+    );
+    const state = applyAll(chain);
+    // Rising offsets key every window distinctly: no single key accumulates
+    // the chain, so an offset chain never reads as "same path, many calls".
+    expect(state.readCounts.size).toBe(12);
+    for (let i = 0; i < 12; i++) {
+      expect(state.readCounts.get(`src/big.ts::${i * 50}:50`)).toBe(1);
+    }
+    // Salvage still collapses the chain to the one path for the parent report.
+    expect(salvagePathsFromThrash(state, 40)).toEqual(["src/big.ts"]);
+  });
+
   test("greps count toward read evidence keyed by pattern and path", () => {
     const state = applyAll([grep("needle"), grep("needle")]);
     expect(state.readCounts.get("grep::needle::src")).toBe(2);

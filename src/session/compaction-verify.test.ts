@@ -821,3 +821,122 @@ describe("condenseTurns keep-set", () => {
     expect(condensed).toContain("Goal (first user message)");
   });
 });
+
+describe("CL-8980 compaction preserves the path+offset resume recipe", () => {
+  function readCallTurn(id: string, offset: number): ConversationTurn {
+    return {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_call",
+          id,
+          name: "read_file",
+          arguments: { path: "var/log/big.log", offset, limit: 2 },
+        },
+      ],
+      timestamp: Date.now(),
+    };
+  }
+
+  function readResultTurn(
+    callId: string,
+    body: string,
+    notice: string,
+  ): ConversationTurn {
+    return {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          callId,
+          content: [{ type: "text", text: `${body}\n\n${notice}` }],
+        },
+      ],
+      timestamp: Date.now(),
+    };
+  }
+
+  const NOTICE_OFF_2 =
+    "[Showing lines 1-2; stopped at the 2-line limit. Use offset=2 to continue.]";
+  const NOTICE_OFF_4 =
+    "[Showing lines 3-4; stopped at the 2-line limit. Use offset=4 to continue.]";
+
+  // Deliberately omits notice text: the kept result bodies — not the summary
+  // — are what must carry the resume recipe.
+  const summarize = async () =>
+    "Reading var/log/big.log in windows. Next: keep reading.";
+
+  function allResultText(turns: ConversationTurn[]): string {
+    return turns
+      .flatMap((t) =>
+        t.content.flatMap((b) => {
+          if (b.type === "text") return [b.text];
+          if (b.type === "tool_result")
+            return b.content
+              .filter((c) => c.type === "text")
+              .map((c) => c.text);
+          return [];
+        }),
+      )
+      .join("\n");
+  }
+
+  test("distinct windows keep their bodies and notices; nothing hollows across windows", async () => {
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 8,
+      summaryMaxChars: 4000,
+      summarize,
+    });
+    const turns: ConversationTurn[] = [
+      textTurn("user", "Read var/log/big.log in full"),
+      textTurn("assistant", "Reading the log in full."),
+      readCallTurn("c1", 0),
+      readResultTurn("c1", "w1-row-a\nw1-row-b", NOTICE_OFF_2),
+      readCallTurn("c2", 2),
+      readResultTurn("c2", "w2-row-a\nw2-row-b", NOTICE_OFF_4),
+      readCallTurn("c3", 4),
+      readResultTurn("c3", "w3-row-a\nw3-row-b", "end of file"),
+      textTurn("user", "recent ask"),
+      textTurn("assistant", "recent reply"),
+    ];
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    expect(result.record.reason).toMatch(/compacted/);
+    const text = allResultText(result.output);
+    expect(text).toContain("w2-row-a");
+    expect(text).toContain("w3-row-a");
+    expect(text).toContain("Use offset=2 to continue");
+    expect(text).toContain("Use offset=4 to continue");
+    expect(text).not.toContain("omitted from context");
+    expect(text).not.toContain("continuation handle");
+    expect(text).not.toContain("already used");
+  });
+
+  test("a verbatim replay stubs the older duplicate and keeps the newest whole with its notice", async () => {
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 6,
+      summaryMaxChars: 4000,
+      summarize,
+    });
+    const turns: ConversationTurn[] = [
+      textTurn("user", "Read var/log/big.log in full"),
+      textTurn("assistant", "Reading the log in full."),
+      readCallTurn("c1", 0),
+      readResultTurn("c1", "w1-row-a\nw1-row-b", NOTICE_OFF_2),
+      readCallTurn("c2", 2),
+      readResultTurn("c2", "w2-row-a\nw2-row-b", NOTICE_OFF_4),
+      readCallTurn("c3", 2),
+      readResultTurn("c3", "w2-row-a\nw2-row-b", NOTICE_OFF_4),
+      textTurn("user", "recent ask"),
+      textTurn("assistant", "recent reply"),
+    ];
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    expect(result.record.reason).toMatch(/compacted/);
+    expect(result.record.decisions).toMatchObject({ supersededReadCount: 1 });
+    const text = allResultText(result.output);
+    expect(text).toContain("Use offset=4 to continue");
+    expect(text).toContain("w2-row-a");
+    expect(text).toContain("omitted from context");
+    expect(text).not.toContain("continuation handle");
+    expect(text).not.toContain("already used");
+  });
+});
