@@ -936,6 +936,166 @@ describe("compaction governor", () => {
   });
 });
 
+describe("post-compact above-threshold latch (CL-9006)", () => {
+  // Wide resume gap: twice the old resume delta — a full warning band of
+  // growth past the post-compact measurement before a still-over session may
+  // fold again (danger-anchored; see COMPACTION_WIDE_RESUME_FRACTION).
+  const wideDelta = resumeDelta * 2;
+
+  test("resume-delta-scale growth while still over threshold does not re-arm", () => {
+    const governor = createCompactionGovernor(() => undefined);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+
+    // Post-compact measurement stays over the high watermark: the latch sets.
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    // Growth by the old resume delta must NOT re-arm on its own.
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold + resumeDelta),
+      tenTurns,
+    );
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+    // The idle path shares the same latch.
+    governor.noteIdleTurn(inferenceDone(overThreshold + resumeDelta), [
+      { type: "reply", content: "done" },
+    ]);
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+  });
+
+  test("a wide resume gap while still over threshold re-arms", () => {
+    const governor = createCompactionGovernor(() => undefined);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold + wideDelta),
+      tenTurns,
+    );
+    const actions = governor.interceptActions(
+      toolDone(),
+      inferAction,
+      capabilities,
+    );
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+  });
+
+  test("the consecutive-compact cap holds across tool-call occupancy", () => {
+    const governor = createCompactionGovernor(() => undefined);
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold + wideDelta),
+      tenTurns,
+    );
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+
+    // Post-compact measurement still over: tool-call occupancy must not reset
+    // the cap, even past a wide gap.
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold + wideDelta),
+      tenTurns,
+    );
+    governor.noteInferenceDone(
+      inferenceDoneWithTools(overThreshold + 2 * wideDelta),
+      tenTurns,
+    );
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+    // The idle path shares the same cap.
+    governor.noteIdleTurn(
+      inferenceDoneWithTools(overThreshold + 2 * wideDelta),
+      [{ type: "reply", content: "done" }],
+    );
+    expect(
+      governor.interceptIdleContinuation(emptyMessage(), capabilities),
+    ).toBeNull();
+  });
+
+  test("overflow recoveries are bounded across still-over measurements", () => {
+    const governor = createCompactionGovernor(() => undefined);
+    expect(
+      governor.interceptOverflow(overflowError(), capabilities),
+    ).not.toBeNull();
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+
+    // Still-over post-compact measurement: no relief, budget stays spent.
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptOverflow(overflowError(), capabilities),
+    ).not.toBeNull();
+    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
+
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.interceptOverflow(overflowError(), capabilities)).toBeNull();
+  });
+
+  test("an under-threshold fold restores the overflow budget", () => {
+    const governor = createCompactionGovernor(() => undefined);
+    expect(
+      governor.interceptOverflow(overflowError(), capabilities),
+    ).not.toBeNull();
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(
+      governor.interceptOverflow(overflowError(), capabilities),
+    ).not.toBeNull();
+    // Fold evidence: usage back under the watermark restores the budget.
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
+    expect(
+      governor.interceptOverflow(overflowError(), capabilities),
+    ).not.toBeNull();
+  });
+
+  test("auto re-arm after an operator compact uses the identical latch", () => {
+    const governor = createCompactionGovernor(() => undefined);
+    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
+    expect(governor.requestManual("", { inFlight: true })).toBe("armed");
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).not.toBeNull();
+
+    // Post-operator-compact measurement stays over: small growth must not
+    // re-arm the automatic path.
+    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold + resumeDelta),
+      tenTurns,
+    );
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+
+    // Wide gap re-arms identically to the automatic path.
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold + wideDelta),
+      tenTurns,
+    );
+    const actions = governor.interceptActions(
+      toolDone(),
+      inferAction,
+      capabilities,
+    );
+    expect(actions).not.toBeNull();
+    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+  });
+});
+
 describe("cache expiry never folds (CL-8914)", () => {
   const MINUTE_MS = 60_000;
 
