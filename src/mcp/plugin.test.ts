@@ -179,4 +179,36 @@ describe("mcpClientToAgentTools", () => {
       toolOutputAbsolutePath(contextDir, key, "text/plain"),
     );
   });
+
+  test("a parked block-path call aborted mid-recovery surfaces a failed result", async () => {
+    const gate = skipGate();
+    const client: MCPClient = {
+      ...fakeClient("unused"),
+      callBlocks: (_tool, _args, signal) =>
+        new Promise<never>((_resolve, reject) => {
+          if (signal.aborted) {
+            reject(signal.reason ?? new Error("aborted"));
+            return;
+          }
+          signal.addEventListener(
+            "abort",
+            () => reject(signal.reason ?? new Error("aborted")),
+            { once: true },
+          );
+        }),
+    };
+    const [tool] = mcpClientToAgentTools(client, gate);
+    if (tool?.kind !== "full") throw new Error("expected full tool");
+
+    const controller = new AbortController();
+    const pending = tool.handler(
+      { id: "c-mcp-abort", name: "mcp__acme__fetch_secret", arguments: {} },
+      controller.signal,
+    );
+    controller.abort(new Error("caller stopped"));
+    const result = await pending;
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("caller stopped");
+  });
 });
