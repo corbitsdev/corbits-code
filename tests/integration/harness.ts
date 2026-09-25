@@ -27,11 +27,15 @@ import type {
   ContextTransform,
   ContextStore,
   InferenceSource,
+  ToolDefinition,
 } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import { createAgentWithLiveToolDispatch } from "../../src/agent/live-tool-dispatch.js";
-import { createChatDirector } from "../../src/agent/director.js";
+import {
+  createChatDirector,
+  type ChatDirector,
+} from "../../src/agent/director.js";
 import { OPERATOR_ORIGINATED_FLAG } from "../../src/agent/message-provenance.js";
 import {
   readSourceCredentialMaterial,
@@ -82,6 +86,7 @@ export interface IntegrationSession {
   workdir: string;
   agent: Agent;
   toolset: Awaited<ReturnType<typeof createAgentToolset>>;
+  updateToolDefinitions: (definitions: ToolDefinition[]) => void;
 }
 
 export interface OpenIntegrationSessionOpts {
@@ -114,6 +119,9 @@ export async function openIntegrationSession(
   const storageHolder: { current: ContextStore | undefined } = {
     current: undefined,
   };
+  const directorHolder: { current: ChatDirector | undefined } = {
+    current: undefined,
+  };
 
   const toolset = await createAgentToolset({
     cwd,
@@ -140,6 +148,7 @@ export async function openIntegrationSession(
         },
       );
       d.setClearDenials(() => opts.permissionGate.clearDenials());
+      directorHolder.current = d;
       return d;
     },
   });
@@ -262,7 +271,22 @@ export async function openIntegrationSession(
       ? innerAgent
       : createPrimaryDeliveryAdmission(innerAgent, primaryArchive);
 
-  return { harness, cwd, workdir, agent, toolset, storage: storageForAgent };
+  const updateToolDefinitions = (definitions: ToolDefinition[]): void => {
+    const director = directorHolder.current;
+    if (director === undefined)
+      throw new Error("chat director is not available");
+    director.updateToolDefinitions(definitions);
+  };
+
+  return {
+    harness,
+    cwd,
+    workdir,
+    agent,
+    toolset,
+    storage: storageForAgent,
+    updateToolDefinitions,
+  };
 }
 
 export async function closeIntegrationSession(
