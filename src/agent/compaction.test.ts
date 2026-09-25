@@ -14,7 +14,7 @@ import {
   stickyExtraInstructionsFromRecords,
 } from "./compaction.js";
 import {
-  compactionResumeDeltaFor,
+  compactionWideResumeDeltaFor,
   compactionThresholdFor,
 } from "../provider/context-window.js";
 import {
@@ -147,7 +147,7 @@ function overflowError(): ReactorInboundEvent {
 }
 
 const overThreshold = compactionThresholdFor("m") + 1;
-const resumeDelta = compactionResumeDeltaFor("m");
+const wideDelta = compactionWideResumeDeltaFor("m");
 const inferAction: ReactorAction[] = [{ type: "infer" }];
 const tenTurns = turnsOfLength(10, 1);
 const threeTurns = turnsOfLength(3, 1);
@@ -634,15 +634,15 @@ describe("compaction governor", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).not.toBeNull();
 
-    // Post-compact snapshot is still over high; growth hysteresis must hold
-    // the next arm until usage grows by resumeDelta.
+    // Post-compact snapshot is still over high; the latch must hold the next
+    // arm until usage climbs a wide resume gap past the snapshot.
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
   });
 
-  test("re-arms after usage grows by the resume delta past the last compact", () => {
+  test("re-arms after usage grows by the wide resume gap past the last compact", () => {
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     expect(
@@ -655,7 +655,7 @@ describe("compaction governor", () => {
     ).toBeNull();
 
     governor.noteInferenceDone(
-      inferenceDone(overThreshold + resumeDelta),
+      inferenceDone(overThreshold + wideDelta),
       tenTurns,
     );
     const actions = governor.interceptActions(
@@ -667,7 +667,7 @@ describe("compaction governor", () => {
     expect(actions?.some((a) => a.type === "compact")).toBe(true);
   });
 
-  test("clears hysteresis once usage drops under the high watermark", () => {
+  test("clears the latch once usage drops under the high watermark", () => {
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     expect(
@@ -695,7 +695,7 @@ describe("compaction governor", () => {
     expect(actions?.some((a) => a.type === "compact")).toBe(true);
   });
 
-  test("overflow still compact while hysteresis blocks the proactive path", () => {
+  test("overflow still compacts while the latch blocks the proactive path", () => {
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     expect(
@@ -712,7 +712,7 @@ describe("compaction governor", () => {
     expect(actions?.some((a) => a.type === "compact")).toBe(true);
   });
 
-  test("consecutive threshold and idle compacts are bounded until occupancy", () => {
+  test("consecutive threshold and idle compacts stay bounded across tool-call occupancy", () => {
     const governor = createCompactionGovernor(() => undefined);
     const echo = LEGACY_COMPACT_SPACER_TEXT;
     governor.noteInferenceDone(inferenceDone(overThreshold, echo), tenTurns);
@@ -722,42 +722,47 @@ describe("compaction governor", () => {
 
     governor.noteInferenceDone(inferenceDone(overThreshold, echo), tenTurns);
     governor.noteInferenceDone(
-      inferenceDone(overThreshold + resumeDelta, echo),
+      inferenceDone(overThreshold + wideDelta, echo),
       tenTurns,
     );
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).not.toBeNull();
 
+    // Still over after two folds: the cap holds on both rails even as usage
+    // keeps climbing past wide gaps ...
     governor.noteInferenceDone(
-      inferenceDone(overThreshold + resumeDelta, echo),
+      inferenceDone(overThreshold + wideDelta, echo),
       tenTurns,
     );
     governor.noteInferenceDone(
-      inferenceDone(overThreshold + 2 * resumeDelta, echo),
+      inferenceDone(overThreshold + 2 * wideDelta, echo),
       tenTurns,
     );
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
-    governor.noteIdleTurn(
-      inferenceDone(overThreshold + 2 * resumeDelta, echo),
-      [{ type: "reply", content: "done" }],
-    );
+    governor.noteIdleTurn(inferenceDone(overThreshold + 2 * wideDelta, echo), [
+      { type: "reply", content: "done" },
+    ]);
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
 
+    // ... and tool-call occupancy does not reopen either rail.
     governor.noteInferenceDone(
-      inferenceDone(overThreshold + 3 * resumeDelta, "real work"),
+      inferenceDoneWithTools(overThreshold + 3 * wideDelta),
       tenTurns,
     );
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
 
+    // Fold evidence restores the rails: under the watermark, then a fresh
+    // crossing arms immediately with no gap required.
+    governor.noteInferenceDone(inferenceDone(1000, "real work"), tenTurns);
     governor.noteInferenceDone(
-      inferenceDoneWithTools(overThreshold + 4 * resumeDelta),
+      inferenceDone(overThreshold, "real work"),
       tenTurns,
     );
     expect(
@@ -937,10 +942,9 @@ describe("compaction governor", () => {
 });
 
 describe("post-compact above-threshold latch (CL-9006)", () => {
-  // Wide resume gap: twice the old resume delta — a full warning band of
-  // growth past the post-compact measurement before a still-over session may
-  // fold again (danger-anchored; see COMPACTION_WIDE_RESUME_FRACTION).
-  const wideDelta = resumeDelta * 2;
+  // Half the wide gap: growth that used to re-arm under the old resume delta
+  // must no longer re-arm on its own.
+  const smallGrowth = Math.floor(wideDelta / 2);
 
   test("resume-delta-scale growth while still over threshold does not re-arm", () => {
     const governor = createCompactionGovernor(() => undefined);
@@ -951,16 +955,16 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
 
     // Post-compact measurement stays over the high watermark: the latch sets.
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    // Growth by the old resume delta must NOT re-arm on its own.
+    // Growth by half the wide gap must NOT re-arm on its own.
     governor.noteInferenceDone(
-      inferenceDone(overThreshold + resumeDelta),
+      inferenceDone(overThreshold + smallGrowth),
       tenTurns,
     );
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
     // The idle path shares the same latch.
-    governor.noteIdleTurn(inferenceDone(overThreshold + resumeDelta), [
+    governor.noteIdleTurn(inferenceDone(overThreshold + smallGrowth), [
       { type: "reply", content: "done" },
     ]);
     expect(
@@ -1043,7 +1047,9 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
     expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
 
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    expect(governor.interceptOverflow(overflowError(), capabilities)).toBeNull();
+    expect(
+      governor.interceptOverflow(overflowError(), capabilities),
+    ).toBeNull();
   });
 
   test("an under-threshold fold restores the overflow budget", () => {
@@ -1074,7 +1080,7 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
     // re-arm the automatic path.
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     governor.noteInferenceDone(
-      inferenceDone(overThreshold + resumeDelta),
+      inferenceDone(overThreshold + smallGrowth),
       tenTurns,
     );
     expect(
@@ -1205,10 +1211,10 @@ describe("cache expiry never folds (CL-8914)", () => {
     ).toBeNull();
   });
 
-  test("the hysteresis gap does not fold on cache expiry", () => {
+  test("the latched gap does not fold on cache expiry", () => {
     // After a threshold compact, a post-compact infer at the same usage
-    // clears `pending` via growth hysteresis — the exact re-entry where the
-    // removed TTL path used to fire.
+    // clears `pending` via the above-threshold latch — the exact re-entry
+    // where the removed TTL path used to fire.
     let nowMs = 70_000_000;
     const governor = createCompactionGovernor(
       () => undefined,
