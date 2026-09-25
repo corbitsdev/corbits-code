@@ -13,6 +13,8 @@ import {
 } from "../permission/decline-markers.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { gateToolCall } from "./permission-plugin.js";
+import { pathEscapePlugin } from "./path-escape-plugin.js";
+import { encodeResumeCursor } from "../util/tool-output-uri.js";
 import { readFileGuardPlugin } from "./read-file-guard-plugin.js";
 
 // CL-8980 RED: continuation recovery. Truncated reads mint a one-shot
@@ -300,6 +302,60 @@ describe("CL-8980 continuation recovery (blob source)", () => {
     expect(String(result.content)).toContain("Blob not found for key");
     expect(String(result.content)).not.toContain("already used");
     expectNotDeclined(String(result.content));
+  });
+});
+
+describe("CL-8980 forged continuation handle is denied end to end", () => {
+  function stackedGuard() {
+    const guard = defined(readFileGuardPlugin(dir, {}).middleware)(fallback);
+    const stacked = defined(pathEscapePlugin(dir, () => []).middleware)(guard);
+    return (call: ToolCall) => stacked(call, neverAbort());
+  }
+
+  test("a hand-crafted cursor for an unminted outside-root path is denied, not served", async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), "read-forged-outside-"));
+    const outsidePath = join(outsideDir, "secret.txt");
+    await writeFile(outsidePath, "forged-handle-secret-payload");
+    try {
+      const forged = encodeResumeCursor({
+        source: { kind: "file", path: outsidePath },
+        offset: 0,
+        limit: 4,
+        nonce: "never-minted",
+      });
+      const result = await stackedGuard()({
+        id: "f1",
+        name: "read_file",
+        arguments: { path: forged },
+      });
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/escapes working directory/);
+      expect(String(result.content)).not.toContain(
+        "forged-handle-secret-payload",
+      );
+      expectNotDeclined(String(result.content));
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a minted in-bounds handle is still served through the same stack", async () => {
+    await fixture("stacked.txt", tenLines("stacked"));
+    const stack = stackedGuard();
+    const first = await stack({
+      id: "s1",
+      name: "read_file",
+      arguments: { path: "stacked.txt", limit: 4 },
+    });
+    expect(first.isError).toBeFalsy();
+    const handle = extractHandle(String(first.content));
+    const second = await stackedGuard()({
+      id: "s2",
+      name: "read_file",
+      arguments: { path: handle, limit: 4 },
+    });
+    expect(second.isError).toBeFalsy();
+    expect(String(second.content)).toContain("stacked-line-4");
   });
 });
 

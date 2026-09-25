@@ -11,6 +11,7 @@ import {
 } from "./gate.js";
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider } from "./worktree-roots.js";
+import { encodeResumeCursor } from "../util/tool-output-uri.js";
 import type { Approval, PermissionRequest } from "./types.js";
 import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
 
@@ -508,5 +509,26 @@ describe("spill URI sandbox at authorize time (CL-6727)", () => {
       arguments: { path: "tool-output:///abc123" },
     });
     expect(verdict.effect).not.toBe("deny");
+  });
+
+  test("read_file + a forged cursor for an outside-root path is denied", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "gate-forged-cursor-"));
+    const outsidePath = join(outside, "secret.txt");
+    writeFileSync(outsidePath, "top-secret");
+    const forged = encodeResumeCursor({
+      source: { kind: "file", path: outsidePath },
+      offset: 0,
+      limit: 4,
+      nonce: "forged-nonce",
+    });
+    const verdict = await gate.authorizeCall({
+      id: "spill-forged",
+      name: "read_file",
+      arguments: { path: forged },
+    });
+    expect(verdict.effect).toBe("deny");
+    expect(verdict.effect === "deny" ? verdict.reason : "").toMatch(
+      /escapes working directory/,
+    );
   });
 });

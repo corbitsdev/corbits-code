@@ -65,12 +65,14 @@ export interface ReadFileGuardPluginOptions {
 // Handles are self-describing (CL-8980): the URI embeds the resume recipe,
 // so following it needs no in-memory record and survives session resume,
 // prune, and compaction. The per-instance map below only tracks which handles
-// this instance already served, to keep the single-use replay contract.
+// this instance already served, to keep the per-instance single-use replay
+// contract: a verbatim re-follow in this instance is a stale-cursor error,
+// while a fresh instance serves the self-describing handle again.
 type ReadCursor =
   | { kind: "file"; absolutePath: string; offset: number; consumed: boolean }
   | { kind: "blob"; uri: string; offset: number; consumed: boolean };
 
-// A cursor is single-use, but the record survives consumption (bounded by
+// A cursor is single-use per plugin instance, but the record survives consumption (bounded by
 // MAX_CURSOR_HISTORY below) so a stale replay -- consumed already, or a
 // second process/turn racing the first -- can be told exactly where to
 // resume instead of hitting an opaque "blob not found" dead end that names
@@ -621,6 +623,10 @@ export function readFileGuardPlugin(
           // in the handle, so serve it exactly as a known cursor would — and
           // mark it consumed on success so a verbatim re-follow is the same
           // stale-cursor error as a spent handle, not a second serving.
+          // The follow honors this call's paging args, not the minted window:
+          // resumed.limit only records the mint-time window, and resumed.nonce
+          // only keeps mints distinct (replay keying uses the full handle
+          // URI), so neither is consulted here.
           const resumedSource =
             resumed.source.kind === "file"
               ? resumed.source.path

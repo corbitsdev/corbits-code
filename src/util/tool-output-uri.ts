@@ -30,8 +30,8 @@ export function canonicalToolOutputUri(path: string): string | undefined {
 // handle itself carries the resume recipe (source + next offset + window
 // limit + nonce), so following it needs no in-memory record and keeps working
 // across session resume, prune, and compaction. The nonce keeps every mint a
-// distinct one-shot even for identical windows, preserving spent-handle
-// replay semantics.
+// distinct handle even for identical windows, preserving per-instance
+// spent-handle replay semantics.
 export const CURSOR_HANDLE_PREFIX = "tool-output:///cursor/";
 
 export type ResumeSource =

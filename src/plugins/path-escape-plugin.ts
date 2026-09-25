@@ -1,6 +1,10 @@
 import { resolve } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
-import { isToolOutputLike } from "../util/tool-output-uri.js";
+import {
+  canonicalToolOutputUri,
+  decodeResumeCursor,
+  isToolOutputLike,
+} from "../util/tool-output-uri.js";
 import { isArchiveLike } from "../session/compaction-archive.js";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
 import {
@@ -224,6 +228,32 @@ function virtualRefVerdict(
   return undefined;
 }
 
+// A self-describing read_file continuation handle (tool-output:///cursor/...)
+// embeds its resume source, so the spill-URI exemption above must not cover
+// it blindly: a hand-crafted handle naming an outside-root file would
+// otherwise bypass the containment check the plain path would fail. Resolve
+// the embedded file path through the normal workspace check and deny escapes
+// exactly like the plain path. Blob-source handles and opaque (never-a-handle)
+// spill URIs carry no filesystem target and keep the exemption.
+function cursorEscapeReason(
+  value: string,
+  cwd: string,
+  rootsProvider: RootsProvider,
+  toolName: string,
+): string | undefined {
+  if (canonicalToolName(toolName) !== TOOL_OUTPUT_URI_TOOL) return undefined;
+  const resumed = decodeResumeCursor(canonicalToolOutputUri(value));
+  if (resumed === undefined || resumed.source.kind !== "file") {
+    return undefined;
+  }
+  if (
+    resolveWorkspacePath(cwd, resumed.source.path, rootsProvider) === undefined
+  ) {
+    return `Path escapes working directory: ${resumed.source.path}`;
+  }
+  return undefined;
+}
+
 // Same sandbox pathEscapePlugin enforces at execution. The permission gate
 // consults this at authorize time so it can deny instead of asking for a call
 // the plugin will reject after Accept.
@@ -297,7 +327,9 @@ function blockReasonFor(
   if (typeof value === "string") {
     if (key === undefined || !looksLikePath(key)) return undefined;
     const verdict = virtualRefVerdict(value, toolName);
-    if (verdict === "skip") return undefined;
+    if (verdict === "skip") {
+      return cursorEscapeReason(value, cwd, rootsProvider, toolName);
+    }
     if (typeof verdict === "string") return verdict;
     if (resolveWorkspacePath(cwd, value, rootsProvider) === undefined) {
       return `Path escapes working directory: ${value}`;

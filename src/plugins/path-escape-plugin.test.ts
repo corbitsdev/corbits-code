@@ -16,6 +16,10 @@ import {
   pathEscapeBlockReason,
   pathEscapePlugin,
 } from "./path-escape-plugin.js";
+import {
+  encodeResumeCursor,
+  type ResumeCursor,
+} from "../util/tool-output-uri.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 function makeCall(name: string, args: Record<string, unknown>): ToolCall {
@@ -453,6 +457,80 @@ describe("pathEscapePlugin", () => {
       expect(result.isError).not.toBe(true);
       const args = JSON.parse(String(result.content)) as { path: string };
       expect(args.path).toBe("tool-output:///abc123");
+    });
+
+    test("a forged file cursor for an outside-root path is denied, not served", async () => {
+      const cwd = await mkdtemp(join(tmpdir(), "corbits-escape-cursor-cwd-"));
+      const outsideDir = await mkdtemp(
+        join(tmpdir(), "corbits-escape-cursor-outside-"),
+      );
+      const outsidePath = join(outsideDir, "secret.txt");
+      await writeFile(outsidePath, "top-secret");
+      try {
+        const forged = encodeResumeCursor({
+          source: { kind: "file", path: outsidePath },
+          offset: 0,
+          limit: 4,
+          nonce: "forged-nonce",
+        } satisfies ResumeCursor);
+        expect(
+          pathEscapeBlockReason({ path: forged }, cwd, () => [], "read_file"),
+        ).toMatch(/escapes working directory/);
+        const plugin = pathEscapePlugin(cwd, () => []);
+        const handler = plugin.middleware
+          ? plugin.middleware(nextHandler)
+          : nextHandler;
+        const result = await handler(
+          makeCall("read_file", { path: forged }),
+          new AbortController().signal,
+        );
+        expect(result.isError).toBe(true);
+        expect(result.content).toMatch(/escapes working directory/);
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+        await rm(outsideDir, { recursive: true, force: true });
+      }
+    });
+
+    test("an in-bounds file cursor and a blob cursor keep the read_file exemption", async () => {
+      const cwd = await mkdtemp(join(tmpdir(), "corbits-escape-cursor-ok-"));
+      const insidePath = join(cwd, "notes.txt");
+      await writeFile(insidePath, "notes");
+      try {
+        const inBounds = encodeResumeCursor({
+          source: { kind: "file", path: insidePath },
+          offset: 4,
+          limit: 4,
+          nonce: "minted-nonce",
+        } satisfies ResumeCursor);
+        expect(
+          pathEscapeBlockReason({ path: inBounds }, cwd, () => [], "read_file"),
+        ).toBeUndefined();
+        const blob = encodeResumeCursor({
+          source: { kind: "blob", uri: "tool-output:///abc123" },
+          offset: 0,
+          limit: 4,
+          nonce: "blob-nonce",
+        } satisfies ResumeCursor);
+        expect(
+          pathEscapeBlockReason({ path: blob }, cwd, () => [], "read_file"),
+        ).toBeUndefined();
+        const plugin = pathEscapePlugin(cwd, () => []);
+        const next = async (call: ToolCall): Promise<ToolResult> => ({
+          callId: call.id,
+          content: JSON.stringify(call.arguments),
+        });
+        const handler = plugin.middleware ? plugin.middleware(next) : next;
+        const result = await handler(
+          makeCall("read_file", { path: inBounds }),
+          new AbortController().signal,
+        );
+        expect(result.isError).not.toBe(true);
+        const args = JSON.parse(String(result.content)) as { path: string };
+        expect(args.path).toBe(inBounds);
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
     });
 
     test("archive refs pass for archive readers but not for other tools", async () => {
