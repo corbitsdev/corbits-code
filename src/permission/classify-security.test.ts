@@ -67,6 +67,45 @@ describe("isAutoAllowedShellCall — sensitive-path arguments", () => {
   });
 });
 
+describe("clustered shell command options", () => {
+  test("classifies clustered command payloads like canonical command payloads", () => {
+    for (const options of ["-c", "-lc", "-xec", "-cc", "-cache"]) {
+      const call = shellCall(`bash ${options} "echo x > .env"`);
+      expect(autoShellRuleForCall(call)?.name).toBe("file-mutation");
+      expect(autoShellRuleForCall(call)?.effect).toBe("deny");
+    }
+  });
+
+  test("classifies interpreter-specific and conservative alphabetic clusters", () => {
+    for (const [shell, options] of [
+      ["zsh", "-yc"],
+      ["dash", "-Vc"],
+      ["ksh", "-Gc"],
+      ["bash", "-zc"],
+      ["bash", "-lc"],
+      ["sh", "-ec"],
+    ]) {
+      expect(
+        autoShellRuleForCall(shellCall(`${shell} ${options} "echo x > .env"`)),
+      ).toMatchObject({ name: "file-mutation", effect: "deny" });
+    }
+  });
+
+  test("classifies complete adjacent-fragment payloads", () => {
+    for (const command of [
+      `bash -c "echo x "'> .env'`,
+      `bash -lc 'echo x '" > .env"`,
+      `bash -xec "echo x"' > .env'`,
+      `bash -cc echo" x > .env"`,
+    ]) {
+      expect(autoShellRuleForCall(shellCall(command))).toMatchObject({
+        name: "file-mutation",
+        effect: "deny",
+      });
+    }
+  });
+});
+
 describe("isAutoAllowedShellCall — environment dump", () => {
   test("does not auto-allow printenv (full env dump)", () => {
     expect(isAutoAllowedShellCall(shellCall("printenv"))).toBe(false);
@@ -779,6 +818,16 @@ describe("content inside an env -S payload never receives a weaker tier than it 
       shellCall(`env -S "FOO=bar npm install left-pad"`),
     );
     expect(rule?.name).toBe("dependency-install");
+  });
+
+  test("trailing env terminal flags remain arguments to split payloads", () => {
+    expect(
+      autoShellRuleForCall(shellCall(`env -S "rm -rf /" --version`))?.name,
+    ).toBe("recursive-rm");
+    expect(
+      autoShellRuleForCall(shellCall(`env -S "npm install left-pad" --help`))
+        ?.name,
+    ).toBe("dependency-install");
   });
 });
 

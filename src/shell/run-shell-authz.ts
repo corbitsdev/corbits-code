@@ -2,6 +2,12 @@
 // enforcement owner (hard deny at the top of its verdict path).
 
 import { splitChainedCommand, tokenize } from "../permission/command.js";
+import {
+  peelTransparentCommand,
+  programBasename,
+} from "./transparent-command.js";
+
+export { programBasename } from "./transparent-command.js";
 
 function skipMatching(
   tokens: readonly string[],
@@ -318,16 +324,6 @@ const RECURSIVE_FLAG = /^(--recursive|-[A-Za-z]*[rR][A-Za-z]*)$/;
 // Interpreters whose `-c` / `--command` payload is an independent shell subject.
 // Exported so tests and callers share one explicit list with the peeler.
 export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
-// Transparent prefixes that sit in front of a real program without changing it.
-const PREFIX_WRAPPERS = new Set([
-  "command",
-  "env",
-  "builtin",
-  "time",
-  "nice",
-  "nohup",
-  "timeout",
-]);
 // Max recursive peel depth for nested wrappers. Exported so the depth cap is a
 // named policy knob tests can assert against, not a magic number.
 export const MAX_PEEL_DEPTH = 4;
@@ -373,12 +369,6 @@ function isDangerousTarget(token: string): boolean {
     return true;
   }
   return false;
-}
-
-export function programBasename(token: string): string {
-  const bare = token.replace(/['"]/g, "");
-  const slash = bare.lastIndexOf("/");
-  return slash >= 0 ? bare.slice(slash + 1) : bare;
 }
 
 // Payload we cannot statically inspect: empty, a bare expansion, or a leading
@@ -472,8 +462,100 @@ function nestedInterpreterPayloadOpaque(
 }
 
 const SHELL_SEPARATE_VALUE_FLAGS = new Set(["-O", "-o"]);
+const SHELL_COMMAND_OPTION_CLUSTER = /^-[A-Za-z]*c[A-Za-z]*$/;
 
-function peelShellDashC(tokens: string[], start: number): PeelOutcome {
+function isClusteredShellCommandOption(token: string): boolean {
+  return SHELL_COMMAND_OPTION_CLUSTER.test(token);
+}
+
+function shellWords(segment: string): string[] | undefined {
+  const words: string[] = [];
+  let word = "";
+  let wordStarted = false;
+  let quote: "'" | '"' | undefined;
+
+  const push = (): void => {
+    if (wordStarted) words.push(word);
+    word = "";
+    wordStarted = false;
+  };
+
+  for (let index = 0; index < segment.length; index++) {
+    const char = segment[index] ?? "";
+    if (quote === "'") {
+      if (char === "'") quote = undefined;
+      else word += char;
+      continue;
+    }
+    if (quote === '"') {
+      if (char === '"') {
+        quote = undefined;
+        continue;
+      }
+      if (char !== "\\") {
+        word += char;
+        continue;
+      }
+      const next = segment[index + 1];
+      if (next === undefined) return undefined;
+      if (next === "$" || next === "`" || next === '"' || next === "\\") {
+        word += next;
+        index++;
+        continue;
+      }
+      if (next === "\n") {
+        index++;
+        continue;
+      }
+      word += char;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      wordStarted = true;
+      continue;
+    }
+    if (char === "\\") {
+      const next = segment[index + 1];
+      if (next === undefined) return undefined;
+      wordStarted = true;
+      if (next !== "\n") word += next;
+      index++;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      push();
+      continue;
+    }
+    wordStarted = true;
+    word += char;
+  }
+  if (quote !== undefined) return undefined;
+  push();
+  return words;
+}
+
+function shellCommandPayload(
+  segment: string,
+  optionToken: string,
+  optionOccurrence: number,
+): string | undefined {
+  const words = shellWords(segment);
+  if (words === undefined) return undefined;
+  let seen = 0;
+  for (let index = 0; index < words.length; index++) {
+    if (words[index] !== optionToken) continue;
+    seen++;
+    if (seen === optionOccurrence) return words[index + 1];
+  }
+  return undefined;
+}
+
+function peelShellDashC(
+  tokens: string[],
+  start: number,
+  rawSegment: string,
+): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
     const t = tokens[i];
@@ -483,9 +565,14 @@ function peelShellDashC(tokens: string[], start: number): PeelOutcome {
       break;
     }
     if (t === "-c" || t === "--command") {
-      const payload = tokens[i + 1];
-      if (payload === undefined || isOpaquePayload(payload))
-        return { kind: "opaque" };
+      const tokenPayload = tokens[i + 1];
+      if (tokenPayload === undefined) return { kind: "opaque" };
+      const optionOccurrence = tokens
+        .slice(0, i + 1)
+        .filter((token) => token === t).length;
+      const payload =
+        shellCommandPayload(rawSegment, t, optionOccurrence) ?? tokenPayload;
+      if (isOpaquePayload(payload)) return { kind: "opaque" };
       const rest = tokens.slice(i + 2);
       if (nestedInterpreterPayloadOpaque(payload, rest))
         return { kind: "opaque" };
@@ -503,12 +590,15 @@ function peelShellDashC(tokens: string[], start: number): PeelOutcome {
       i += 2;
       continue;
     }
-    // Clustered short flags that include `c` (`-lc`, `-ic`, …): `c` takes the
-    // next token as the command string, matching bash/sh/zsh.
-    if (/^-[A-Za-z]*c[A-Za-z]*$/.test(t)) {
-      const payload = tokens[i + 1];
-      if (payload === undefined || isOpaquePayload(payload))
-        return { kind: "opaque" };
+    if (isClusteredShellCommandOption(t)) {
+      const tokenPayload = tokens[i + 1];
+      if (tokenPayload === undefined) return { kind: "opaque" };
+      const optionOccurrence = tokens
+        .slice(0, i + 1)
+        .filter((token) => token === t).length;
+      const payload =
+        shellCommandPayload(rawSegment, t, optionOccurrence) ?? tokenPayload;
+      if (isOpaquePayload(payload)) return { kind: "opaque" };
       const rest = tokens.slice(i + 2);
       if (nestedInterpreterPayloadOpaque(payload, rest))
         return { kind: "opaque" };
@@ -684,7 +774,8 @@ function finishEnvSplitPayload(
     raw = payload;
   } else {
     if (isOpaquePayload(rest.join(" "))) return { kind: "opaque" };
-    raw = rejoinTokens([payload, ...rest]);
+    const trailing = rejoinTokens(rest);
+    raw = trailing === null ? null : `${payload} ${trailing}`;
   }
   if (raw === null) return { kind: "opaque" };
   return peelEnvSplitUtility(raw);
@@ -811,66 +902,14 @@ function skipEnvFlagsAndAssignments(tokens: string[], start: number): number {
 // single segment.
 function peelOnce(segment: string): PeelOutcome {
   const tokens = tokenize(segment);
-  let i = 0;
-  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
-
-  let strippedPrefix = false;
-  while (i < tokens.length) {
-    const current = tokens[i];
-    if (current === undefined) break;
-    const base = programBasename(current);
-    if (base === "env") {
-      // Prefer split-string peel: the whole payload is one quoted argument
-      // that env re-splits itself, so the transparent-prefix path below
-      // would only rejoin `-S '…'` and leave the real command invisible.
-      const splitPeel = peelEnvSplitString(tokens, i + 1);
-      if (splitPeel.kind !== "none") return splitPeel;
-      strippedPrefix = true;
-      i = skipEnvFlagsAndAssignments(tokens, i + 1);
-      continue;
-    }
-    if (base === "timeout") {
-      strippedPrefix = true;
-      i++;
-      // Optional duration (10, 30s, 1m, …) and common long/short flags.
-      while (i < tokens.length) {
-        const t = tokens[i];
-        if (t === undefined) break;
-        if (/^\d/.test(t)) {
-          i++;
-          continue;
-        }
-        if (t.startsWith("-") && t !== "-") {
-          // Flags that take a value: -k / --kill-after / -s / --signal.
-          if (
-            t === "-k" ||
-            t === "--kill-after" ||
-            t === "-s" ||
-            t === "--signal" ||
-            t.startsWith("--kill-after=") ||
-            t.startsWith("--signal=")
-          ) {
-            i++;
-            if (!t.includes("=") && i < tokens.length) {
-              const next = tokens[i];
-              if (next !== undefined && !next.startsWith("-")) i++;
-            }
-            continue;
-          }
-          i++;
-          continue;
-        }
-        break;
-      }
-      continue;
-    }
-    if (PREFIX_WRAPPERS.has(base) && base !== "env" && base !== "timeout") {
-      strippedPrefix = true;
-      i++;
-      continue;
-    }
-    break;
+  const transparent = peelTransparentCommand(tokens);
+  for (const wrapperIndex of transparent.wrapperIndexes) {
+    if (programBasename(tokens[wrapperIndex] ?? "") !== "env") continue;
+    const splitPeel = peelEnvSplitString(tokens, wrapperIndex + 1);
+    if (splitPeel.kind !== "none") return splitPeel;
   }
+  const i = transparent.executableIndex;
+  const strippedPrefix = transparent.wrapperIndexes.length > 0;
 
   if (i >= tokens.length)
     return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
@@ -889,7 +928,7 @@ function peelOnce(segment: string): PeelOutcome {
     // wrapper as opaque rather than risk peeling a truncated, misleading payload.
     if (segment.includes("`") || segment.includes("$("))
       return { kind: "opaque" };
-    const shellPeel = peelShellDashC(tokens, i + 1);
+    const shellPeel = peelShellDashC(tokens, i + 1, segment);
     if (shellPeel.kind !== "none") return shellPeel;
     // Interpreter without -c (e.g. `bash script.sh`) — not a peelable wrapper.
     return { kind: "none" };
