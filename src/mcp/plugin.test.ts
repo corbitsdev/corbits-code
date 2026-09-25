@@ -8,7 +8,49 @@ import {
 } from "../plugins/result-truncation-plugin.js";
 import { toolOutputAbsolutePath } from "../plugins/tool-result-materialize.js";
 import { CREDENTIAL_REDACTION } from "../plugins/tool-result-secret-scrub.js";
-import type { MCPClient } from "./client.js";
+import type { MCPClient, MCPContentBlock } from "./client.js";
+
+interface ScriptedMcpEnvelope {
+  blocks: MCPContentBlock[];
+  isError?: boolean;
+  structuredContent?: Record<string, unknown>;
+}
+
+function fakeEnvelopeClient(envelope: ScriptedMcpEnvelope): MCPClient {
+  const client: MCPClient = {
+    serverName: "acme",
+    tools: [
+      {
+        name: "fetch_secret",
+        description: "returns a value",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ],
+    call: async () => "",
+    callBlocks: async () => envelope.blocks,
+    close: async () => undefined,
+  };
+  // callResult is the new envelope channel (GREEN); absent on RED code.
+  Object.assign(client, {
+    callResult: async () => envelope,
+  });
+  return client;
+}
+
+async function runEnvelopeTool(
+  envelope: ScriptedMcpEnvelope,
+  callId: string,
+  spillOptions?: Parameters<typeof mcpClientToAgentTools>[2],
+) {
+  const gate = skipGate();
+  const client = fakeEnvelopeClient(envelope);
+  const [tool] = mcpClientToAgentTools(client, gate, spillOptions);
+  if (tool?.kind !== "full") throw new Error("expected full tool");
+  return tool.handler(
+    { id: callId, name: "mcp__acme__fetch_secret", arguments: {} },
+    new AbortController().signal,
+  );
+}
 
 function fakeClient(reply: string): MCPClient {
   return {
@@ -178,5 +220,106 @@ describe("mcpClientToAgentTools", () => {
     expect(result.content).toContain(
       toolOutputAbsolutePath(contextDir, key, "text/plain"),
     );
+  });
+
+  test("tool-level failure surfaces as an error result with text preserved", async () => {
+    const result = await runEnvelopeTool(
+      {
+        blocks: [{ type: "text", text: "tool failed: bad input" }],
+        isError: true,
+      },
+      "c-mcp-iserror-text",
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("tool failed: bad input");
+  });
+
+  test("tool-level failure with empty content still yields a failure message", async () => {
+    const result = await runEnvelopeTool(
+      { blocks: [], isError: true },
+      "c-mcp-iserror-empty",
+    );
+
+    expect(result.isError).toBe(true);
+    expect(typeof result.content).toBe("string");
+    expect((result.content as string).length).toBeGreaterThan(0);
+  });
+
+  test("structured-only result surfaces a scrubbed JSON string, not empty text", async () => {
+    const result = await runEnvelopeTool(
+      { blocks: [], structuredContent: { answer: 42 } },
+      "c-mcp-structured-only",
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(typeof result.content).toBe("string");
+    expect(result.content).toContain("42");
+    expect(result.detail).toEqual({ answer: 42 });
+  });
+
+  test("text plus structured content keeps the text and preserves structured detail", async () => {
+    const result = await runEnvelopeTool(
+      {
+        blocks: [{ type: "text", text: "hello from tool" }],
+        structuredContent: { answer: 42 },
+      },
+      "c-mcp-text-plus-structured",
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain("hello from tool");
+    expect(result.detail).toEqual({ answer: 42 });
+  });
+
+  test("credential-shaped values inside structured content are redacted", async () => {
+    const secret = "sk-live-abcdefghij1234567890";
+    const result = await runEnvelopeTool(
+      {
+        blocks: [],
+        structuredContent: { token: secret },
+      },
+      "c-mcp-structured-secret",
+    );
+
+    expect(result.content).toContain(CREDENTIAL_REDACTION);
+    expect(result.content).not.toContain(secret);
+    expect(JSON.stringify(result.detail)).not.toContain(secret);
+  });
+
+  test("thrown transport failures still surface as error results", async () => {
+    const gate = skipGate();
+    const client: MCPClient = {
+      serverName: "acme",
+      tools: [
+        {
+          name: "fetch_secret",
+          description: "returns a value",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      call: async () => {
+        throw new Error("transport exploded");
+      },
+      callBlocks: async () => {
+        throw new Error("transport exploded");
+      },
+      close: async () => undefined,
+    };
+    Object.assign(client, {
+      callResult: async () => {
+        throw new Error("transport exploded");
+      },
+    });
+    const [tool] = mcpClientToAgentTools(client, gate);
+    if (tool?.kind !== "full") throw new Error("expected full tool");
+
+    const result = await tool.handler(
+      { id: "c-mcp-throw", name: "mcp__acme__fetch_secret", arguments: {} },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("transport exploded");
   });
 });
