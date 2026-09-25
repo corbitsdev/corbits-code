@@ -523,6 +523,7 @@ export function createAppShell(
     overlayClosedListeners: new Set(),
     deferredCommandOverlay: null,
     deferredFlushScheduled: false,
+    suspendedCommandSurface: null,
     overlayHostReservations: 0,
     overlayReservationEpoch: 0,
     paletteCatalog: paletteCatalogOpt,

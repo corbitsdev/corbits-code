@@ -28,10 +28,7 @@ import type {
   PermissionRequest,
 } from "../permission/types.js";
 import { defined } from "../../tests/helpers/defined.js";
-import {
-  attachSessionBridge,
-  createRecordingPort,
-} from "./runtime-bridge.js";
+import { attachSessionBridge, createRecordingPort } from "./runtime-bridge.js";
 import { withTestRenderer } from "./harness.js";
 import { createAppShell } from "./shell/index.js";
 import type { AppShell } from "./shell/internals.js";
@@ -81,6 +78,18 @@ async function settledWithin<T>(
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+/**
+ * `gate.evaluate()` raises its card asynchronously (decide → approval seam →
+ * emit → enqueue), so the overlay is never up on the very next line. Flush
+ * macrotasks so the card is raised — shown, or queued behind the live gate —
+ * before asserting on the host. All gate-side work is microtasks, so two
+ * macrotask drains provably suffice; nothing here changes what is asserted.
+ */
+async function flushGateRaise(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function withWiredWorld(
@@ -138,6 +147,7 @@ describe("CL-8792 gate level: a second destructive evaluation re-prompts after a
     await withWiredWorld(async ({ shell, emitter }) => {
       const gate = createOverlayBackedGate(emitter);
       const first = gate.evaluate(shellCall("rm -rf /tmp/cl8792-a"));
+      await flushGateRaise();
       expect(shell.overlayKind).toBe("permissions");
 
       acceptChoice(shell, 1);
@@ -147,6 +157,7 @@ describe("CL-8792 gate level: a second destructive evaluation re-prompts after a
       expect(firstVerdict.value.allowed).toBe(true);
 
       const second = gate.evaluate(shellCall("rm -rf /tmp/cl8792-b"));
+      await flushGateRaise();
       // Allow-once persisted nothing, so the new command must prompt again.
       expect(shell.overlayKind).toBe("permissions");
       acceptChoice(shell, 1);
@@ -162,11 +173,13 @@ describe("CL-8792 gate level: a second destructive evaluation re-prompts after a
       const gate = createOverlayBackedGate(emitter);
       const command = "rm -rf /tmp/cl8792-same";
       const first = gate.evaluate(shellCall(command));
+      await flushGateRaise();
       expect(shell.overlayKind).toBe("permissions");
       acceptChoice(shell, 1);
       await settledWithin(first, 500);
 
       const second = gate.evaluate(shellCall(command));
+      await flushGateRaise();
       // A grant would auto-allow with no overlay; allow-once must re-prompt.
       expect(shell.overlayKind).toBe("permissions");
       acceptChoice(shell, 1);
@@ -181,6 +194,7 @@ describe("CL-8792 gate level: a second destructive evaluation re-prompts after a
     await withWiredWorld(async ({ shell, emitter }) => {
       const gate = createOverlayBackedGate(emitter);
       const first = gate.evaluate(shellCall("rm -rf /tmp/cl8792-a"));
+      await flushGateRaise();
       expect(shell.overlayKind).toBe("permissions");
 
       // A slash opened under the live gate defers; the live gate keeps it waiting.
@@ -188,6 +202,8 @@ describe("CL-8792 gate level: a second destructive evaluation re-prompts after a
       expect(shell.overlayKind).toBe("permissions");
 
       const second = gate.evaluate(shellCall("rm -rf /tmp/cl8792-b"));
+      // Let the second card enqueue behind the live gate before accepting it.
+      await flushGateRaise();
 
       // Accept once on the first card: the queued card must take the host
       // before the deferred slash, and both evaluations must settle.
@@ -305,7 +321,10 @@ describe("CL-8792 overlay host: queued cards outrank deferred surfaces", () => {
       });
 
       acceptChoice(shell, 2);
-      expect(resolvedA).toMatchObject({ allow: true, persist: { id: "scope-a" } });
+      expect(resolvedA).toMatchObject({
+        allow: true,
+        persist: { id: "scope-a" },
+      });
       expect(shell.overlayKind).toBe("permissions");
 
       acceptChoice(shell, 1);

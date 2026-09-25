@@ -30,6 +30,7 @@ import {
 import {
   clearShellBridgeHooks,
   setShellBridgeHooks,
+  shellInternals,
   type AppShell,
 } from "./shell/internals.js";
 import { applyShellInterrupt, surfaceSystemNotice } from "./shell/prompt.js";
@@ -1185,10 +1186,18 @@ function syncShellOutputs(
 /**
  * Refresh every plain in-flight tool call's row with how long it has been
  * running, frame-coalesced. `spawn_agent` dispatches already get this (and
- * more) from `syncAgentProgress`, so they are skipped here.
+ * more) from `syncAgentProgress`, so they are skipped here. While a decision
+ * gate is outstanding but not on screen — queued behind another overlay — the
+ * tool waits on an operator who cannot see it yet, so its elapsed stays frozen
+ * and the row reads as paused instead of running. Once the gate is shown the
+ * clock runs again: the operator can see what blocks the tool.
  */
 function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
   if (bag.toolCallStartedAt.size === 0) return;
+  const gateOnScreen =
+    shell.overlayList !== null &&
+    shellInternals(shell)?.primaryBindings.isGate === true;
+  const gateHidden = bag.turn.blockedGateCount > 0 && !gateOnScreen;
   for (const [callId, startedAt] of bag.toolCallStartedAt) {
     if (bag.taskCallIds.has(callId)) continue;
     const index = bag.toolRows.get(callId);
@@ -1201,6 +1210,7 @@ function syncToolElapsed(shell: AppShell, bag: BridgeBag, nowMs: number): void {
       bag.toolCallStartedAt.delete(callId);
       continue;
     }
+    if (gateHidden) continue;
     const current = bag.pendingRowUpdates.get(index) ?? row;
     const stat = clockLabel(nowMs - startedAt);
     if (current.stat === stat) continue;

@@ -684,7 +684,7 @@ export const EMPTY_PRIMARY_BINDINGS: Readonly<PrimaryOverlayBindings> = {
   mcpAddHint: false,
 };
 
-interface PriorOverlaySnapshot {
+export interface PriorOverlaySnapshot {
   readonly kind: PrimaryOverlayKind | null;
   readonly items: readonly string[];
   readonly bodyLines: readonly string[];
@@ -711,6 +711,13 @@ interface ShellInternals {
   overlayRawBodyText: string;
   /** Snapshot when palette stacks over another primary overlay. */
   priorOverlay: PriorOverlaySnapshot | null;
+  /**
+   * Replaceable command surface suspended while a decision gate holds the
+   * host. One slot; restored after the gate settles when no queued gate
+   * takes the host first. Never a gate or palette — those keep their own
+   * stacking contracts.
+   */
+  suspendedCommandSurface: PriorOverlaySnapshot | null;
   /** Advances on a new overlay taking the host, and when the host empties. */
   overlayGeneration: number;
   primaryBindings: PrimaryOverlayBindings;

@@ -34,6 +34,7 @@ import {
   type OpenListOverlayOpts,
   type OverlaySelection,
   type PrimaryOverlayKind,
+  type PriorOverlaySnapshot,
   shellInternals,
   slashPopups,
 } from "./internals.js";
@@ -118,6 +119,116 @@ export function applyOverlayBodyText(
 }
 
 /**
+ * Snapshot the live primary frame: list, body, bindings, answer field, title.
+ * The palette stack and command-surface suspend share it so a suspended
+ * surface returns pixel-identical.
+ */
+function capturePrimaryFrame(
+  shell: AppShell,
+  bag: NonNullable<ReturnType<typeof shellInternals>>,
+): PriorOverlaySnapshot | null {
+  const list = shell.overlayList;
+  if (list === null) return null;
+  return {
+    kind: shell.overlayKind,
+    items: shell.overlayItems,
+    bodyLines: shell.overlayBodyLines,
+    bodyFgs: shell.overlayBodyFgs,
+    list,
+    title: String(shell.overlayTitle.content),
+    paletteCommands: shell.paletteCommands,
+    primaryBindings: { ...bag.primaryBindings },
+    answer: bag.overlayAnswer,
+    titleText: bag.overlayTitleText,
+  };
+}
+
+/** Restore a frame captured by `capturePrimaryFrame` onto the empty host. */
+function restorePrimaryFrame(
+  shell: AppShell,
+  bag: NonNullable<ReturnType<typeof shellInternals>>,
+  frame: PriorOverlaySnapshot,
+): void {
+  // Restore prior primary overlay paint; focus should already be overlay.
+  shell.overlayItems = frame.items;
+  shell.overlayKind = frame.kind;
+  shell.overlayBodyLines = frame.bodyLines;
+  shell.overlayBodyFgs = frame.bodyFgs;
+  shell.overlayList = frame.list;
+  shell.paletteCommands = frame.paletteCommands;
+  shell.overlayTitle.visible = true;
+  shell.overlayTitle.content = frame.title;
+  bag.primaryBindings = { ...frame.primaryBindings };
+  bag.overlayAnswer = frame.answer;
+  bag.overlayTitleText = frame.titleText;
+  // If focus was not stacked (edge case), re-open overlay frame.
+  if (focusOwner(shell.focus) !== "overlay") {
+    shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
+      target: "overlay",
+      scrollOwner: "overlay",
+    });
+  }
+  relayoutOverlayHost(shell, frame.list.count);
+  applyFocus(shell);
+  paintOverlayList(shell);
+}
+
+/**
+ * Kinds opened through `openCommandSurface` (`CommandSurfaceKind` in
+ * ../command-surfaces.ts, restated here to keep shell/ import-clean). Only
+ * these yield to a decision gate. Inline popups (mentions, palette, pickers)
+ * keep their stacking contracts — suspending one would strand its owner, the
+ * CL-6698 mention-refresh stall — so a gate arriving behind them stays queued.
+ */
+const GATE_PREEMPTABLE_SURFACE_KINDS: ReadonlySet<string> = new Set([
+  "help",
+  "settings",
+  "permissions",
+  "plugins",
+  "hooks",
+  "mcp",
+  "models",
+  "add-provider",
+]);
+
+/**
+ * Suspend the live replaceable command surface so a decision gate can take
+ * the host; the surface returns after the gate settles (see
+ * `resumeSuspendedCommandSurface`). Live gates and non-surface popups
+ * (palette, mentions, pickers) keep their contracts: arrivals behind them
+ * stay queued. Never loses a surface: a second suspend is a no-op while one
+ * is held.
+ */
+export function suspendReplaceableOverlay(shell: AppShell): void {
+  const bag = shellInternals(shell);
+  if (!bag || shell.overlayList === null) return;
+  const kind = shell.overlayKind;
+  if (kind === null || !GATE_PREEMPTABLE_SURFACE_KINDS.has(kind)) return;
+  if (bag.primaryBindings.isGate === true) return;
+  if (bag.suspendedCommandSurface !== null) return;
+  const frame = capturePrimaryFrame(shell, bag);
+  if (frame === null) return;
+  bag.suspendedCommandSurface = frame;
+  // Unsuspended close: idle-notify lets an older queued gate take the host
+  // first (FIFO); the caller opens its gate only if the host is still free.
+  closeInsetOverlay(shell);
+}
+
+/**
+ * Return a suspended command surface to the host. No-op unless the host is
+ * empty — a queued gate always takes it first (the settle path drains gates
+ * before calling here).
+ */
+export function resumeSuspendedCommandSurface(shell: AppShell): void {
+  const bag = shellInternals(shell);
+  const suspended = bag?.suspendedCommandSurface;
+  if (!bag || !suspended) return;
+  if (shell.overlayList !== null) return;
+  bag.suspendedCommandSurface = null;
+  restorePrimaryFrame(shell, bag, suspended);
+}
+
+/**
  * Open an inset list overlay on the shared host (permissions / operator / picker / palette).
  * Measures body + list into geometry — no guessed absolute paint.
  *
@@ -145,18 +256,8 @@ export function openListOverlay(
     if (shell.overlayKind !== "palette") {
       const bag = shellInternals(shell);
       if (bag) {
-        bag.priorOverlay = {
-          kind: shell.overlayKind,
-          items: shell.overlayItems,
-          bodyLines: shell.overlayBodyLines,
-          bodyFgs: shell.overlayBodyFgs,
-          list: shell.overlayList,
-          title: String(shell.overlayTitle.content),
-          paletteCommands: shell.paletteCommands,
-          primaryBindings: { ...bag.primaryBindings },
-          answer: bag.overlayAnswer,
-          titleText: bag.overlayTitleText,
-        };
+        const frame = capturePrimaryFrame(shell, bag);
+        if (frame !== null) bag.priorOverlay = frame;
       }
       // Leave prior overlay focus frame; palette will stack above it.
     } else {
@@ -442,28 +543,7 @@ export function closeInsetOverlay(
 
   if (prior && bag) {
     bag.priorOverlay = null;
-    // Restore prior primary overlay paint; focus should already be overlay.
-    shell.overlayItems = prior.items;
-    shell.overlayKind = prior.kind;
-    shell.overlayBodyLines = prior.bodyLines;
-    shell.overlayBodyFgs = prior.bodyFgs;
-    shell.overlayList = prior.list;
-    shell.paletteCommands = prior.paletteCommands;
-    shell.overlayTitle.visible = true;
-    shell.overlayTitle.content = prior.title;
-    bag.primaryBindings = { ...prior.primaryBindings };
-    bag.overlayAnswer = prior.answer;
-    bag.overlayTitleText = prior.titleText;
-    // If focus was not stacked (edge case), re-open overlay frame.
-    if (focusOwner(shell.focus) !== "overlay") {
-      shell.focus = openOverlay(shell.focus, OVERLAY_FRAME_ID, {
-        target: "overlay",
-        scrollOwner: "overlay",
-      });
-    }
-    relayoutOverlayHost(shell, prior.list.count);
-    applyFocus(shell);
-    paintOverlayList(shell);
+    restorePrimaryFrame(shell, bag, prior);
     return;
   }
 
@@ -578,7 +658,10 @@ export function reserveOverlayHost(shell: AppShell): () => void {
 /** Drop in-flight host holds. Stale `release()` callbacks become no-ops. */
 export function abortOverlayHostReservations(shell: AppShell): void {
   const bag = shellInternals(shell);
-  if (!bag || bag.overlayHostReservations === 0) return;
+  if (!bag) return;
+  // A torn-down session must not resurrect its suspended surface.
+  bag.suspendedCommandSurface = null;
+  if (bag.overlayHostReservations === 0) return;
   bag.overlayReservationEpoch += 1;
   bag.overlayHostReservations = 0;
   bag.overlayGeneration += 1;
