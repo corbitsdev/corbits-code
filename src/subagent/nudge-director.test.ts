@@ -335,10 +335,11 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(resumedTexts).toHaveLength(1);
     expect(resumedTexts?.[0]).toContain("A tool call failed");
 
-    const later = inferAction(
+    const later = actions(
       await director.decide(messageReceived(""), longState, caps),
     );
-    expect(ephemeralTexts(later)).toBeUndefined();
+    expect(later).toEqual([{ type: "wait" }]);
+    expect(later.some((action) => action.type === "infer")).toBe(false);
   });
 
   test("recovery nudge appends to ephemeral turns already on the infer", async () => {
@@ -462,10 +463,11 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(resumedTexts).toHaveLength(1);
     expect(resumedTexts?.[0]).toContain("A tool call failed");
 
-    const later = inferAction(
+    const later = actions(
       await director.decide(messageReceived(""), state, caps),
     );
-    expect(ephemeralTexts(later)).toBeUndefined();
+    expect(later).toEqual([{ type: "wait" }]);
+    expect(later.some((action) => action.type === "infer")).toBe(false);
   });
 
   test("successful nudged infer then later overflow does not resurrect recovery", async () => {
@@ -1527,6 +1529,211 @@ describe("SubAgentDirector ask_director park wait-guard", () => {
       message: "subagent-stall-nudge",
     });
     expect(afterUnpark.some((action) => action.type === "infer")).toBe(true);
+  });
+});
+
+describe("SubAgentDirector idle stall ping", () => {
+  const STALL_NUDGE_TEXT =
+    "No activity has been observed for a while. If you are waiting on a " +
+    "background command, check its status now; otherwise continue working or " +
+    "write your report.";
+
+  test("empty ping inside the stall window waits and does not infer", async () => {
+    let now = 8_000_000;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      undefined,
+      1_000,
+      () => now,
+    );
+    const caps = createTestCapabilities();
+
+    await director.decide(inferenceDoneText("working"), state, caps);
+
+    now += 200;
+    const early = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(early).toEqual([{ type: "wait" }]);
+    expect(early.some((action) => action.type === "infer")).toBe(false);
+    expect(early.some((action) => action.type === "checkpoint")).toBe(false);
+
+    // The in-window wait must not restart the silence clock. One stall
+    // timeout from the original activity still nudges, once.
+    now = 8_000_000 + 1_000;
+    const nudge = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(nudge).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+    expect(ephemeralTexts(inferAction(nudge))).toEqual([STALL_NUDGE_TEXT]);
+
+    now += 200;
+    const grace = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(grace).toEqual([{ type: "wait" }]);
+
+    now += 800;
+    const stopped = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(stopped).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stalled",
+    });
+    expect(stopped.some((action) => action.type === "infer")).toBe(false);
+    expect(stopped.some((action) => action.type === "reply")).toBe(true);
+  });
+
+  test("outstanding post-compact infer still infers on an in-window empty ping", async () => {
+    let now = 9_000_000;
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      60_000,
+      () => now,
+    );
+    const caps = createTestCapabilities();
+
+    const compact = actions(
+      await director.decide(overflowError(), state, caps),
+    );
+    expect(compact).toEqual([
+      {
+        type: "compact",
+        compactor: "pruning-compactor",
+        reason: "context-overflow",
+      },
+    ]);
+    expect(continuations).toBe(1);
+
+    now += 200;
+    const resumed = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(resumed.some((action) => action.type === "infer")).toBe(true);
+    expect(resumed.some((action) => action.type === "wait")).toBe(false);
+  });
+
+  test("idle-threshold fold still compacts on an in-window empty ping", async () => {
+    let now = 10_000_000;
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      60_000,
+      () => now,
+    );
+    const caps = createTestCapabilities();
+
+    await director.decide(inferenceDone(["read-1"]), longState, caps);
+    await director.decide(toolDone("read-1"), longState, caps);
+    const complete = actions(
+      await director.decide(
+        inferenceDoneText(REPORT_ENVELOPE, 999_999),
+        longState,
+        caps,
+      ),
+    );
+    expect(complete.some((action) => action.type === "reply")).toBe(true);
+    expect(continuations).toBe(1);
+
+    now += 200;
+    const folded = actions(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    expect(folded).toEqual([
+      {
+        type: "compact",
+        compactor: "pruning-compactor",
+        reason: "context-threshold",
+      },
+    ]);
+    expect(continuations).toBe(2);
+    expect(folded.some((action) => action.type === "infer")).toBe(false);
+    expect(folded.some((action) => action.type === "wait")).toBe(false);
+  });
+
+  test("cache-ttl recompress still folds on an in-window empty ping", async () => {
+    // test-model takes the 10-minute default TTL. The stall window is longer
+    // so the due fold is still an in-window ping, not a stall nudge.
+    const activityAt = 11_000_000;
+    const cacheTtlMs = 10 * 60_000;
+    const stallTimeoutMs = 15 * 60_000;
+    let now = activityAt;
+    let continuations = 0;
+    const director = new SubAgentDirector(
+      "system",
+      [],
+      () => {
+        continuations++;
+      },
+      stallTimeoutMs,
+      () => now,
+    );
+    const caps = createTestCapabilities();
+
+    await director.decide(inferenceDoneText("working"), longState, caps);
+
+    now += cacheTtlMs + 1;
+    const folded = actions(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    expect(folded).toEqual([
+      {
+        type: "compact",
+        compactor: "pruning-compactor",
+        reason: "cache-ttl-recompress",
+      },
+    ]);
+    expect(continuations).toBe(1);
+    expect(folded.some((action) => action.type === "infer")).toBe(false);
+    expect(folded.some((action) => action.type === "wait")).toBe(false);
+
+    // Meter-only resume of the empty fold. Same clock: still inside the
+    // stall window, and this wait must not count as activity either.
+    const resumed = actions(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    expect(resumed).toEqual([{ type: "wait" }]);
+    expect(resumed.some((action) => action.type === "infer")).toBe(false);
+
+    // The fold must not stamp lastActivityAt or clear stallNudgeAt. One
+    // stall timeout from the original activity still nudges, once.
+    now = activityAt + stallTimeoutMs;
+    const nudge = actions(
+      await director.decide(messageReceived(""), longState, caps),
+    );
+    expect(nudge).toContainEqual({
+      type: "checkpoint",
+      message: "subagent-stall-nudge",
+    });
+    expect(ephemeralTexts(inferAction(nudge))).toEqual([STALL_NUDGE_TEXT]);
+    expect(nudge.some((action) => action.type === "wait")).toBe(false);
+  });
+
+  test("no stall timeout waits on an unsolicited empty continuation", async () => {
+    const director = new SubAgentDirector("system", [], undefined);
+    const caps = createTestCapabilities();
+
+    await director.decide(inferenceDoneText("working"), state, caps);
+    const ping = actions(
+      await director.decide(messageReceived(""), state, caps),
+    );
+    expect(ping).toEqual([{ type: "wait" }]);
+    expect(ping.some((action) => action.type === "infer")).toBe(false);
+    expect(ping.some((action) => action.type === "checkpoint")).toBe(false);
   });
 });
 
