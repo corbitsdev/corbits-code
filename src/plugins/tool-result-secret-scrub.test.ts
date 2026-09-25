@@ -62,6 +62,110 @@ describe("scrubSecretShapedValue", () => {
   });
 });
 
+describe("scrubSecretShapedValue normalization", () => {
+  test("redacts short values selected by credential-named keys", () => {
+    const out = scrubSecretShapedValue({
+      apiKey: "a",
+      nested: {
+        api_key: "b",
+        accessToken: "c",
+        token: "d",
+        password: "e",
+        secret: "f",
+        credential: "g",
+        authorization: "h",
+        auth: "i",
+      },
+    });
+
+    expect(out).toEqual({
+      apiKey: CREDENTIAL_REDACTION,
+      nested: {
+        api_key: CREDENTIAL_REDACTION,
+        accessToken: CREDENTIAL_REDACTION,
+        token: CREDENTIAL_REDACTION,
+        password: CREDENTIAL_REDACTION,
+        secret: CREDENTIAL_REDACTION,
+        credential: CREDENTIAL_REDACTION,
+        authorization: CREDENTIAL_REDACTION,
+        auth: CREDENTIAL_REDACTION,
+      },
+    });
+  });
+
+  test("preserves special own keys without changing object prototypes", () => {
+    const input = JSON.parse(
+      '{"__proto__":"top","constructor":"ctor","nested":{"__proto__":"nested"}}',
+    ) as Record<string, unknown>;
+
+    const out = scrubSecretShapedValue(input) as Record<string, unknown>;
+    const nested = out.nested as Record<string, unknown>;
+
+    expect(Object.getPrototypeOf(out)).toBeNull();
+    expect(Object.getPrototypeOf(nested)).toBeNull();
+    expect(Object.hasOwn(out, "__proto__")).toBe(true);
+    expect(Object.hasOwn(out, "constructor")).toBe(true);
+    expect(Object.hasOwn(nested, "__proto__")).toBe(true);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(input));
+    expect(({} as Record<string, unknown>).top).toBeUndefined();
+    expect(({} as Record<string, unknown>).nested).toBeUndefined();
+  });
+
+  test("rejects accessors without invoking them", () => {
+    let reads = 0;
+    const input = Object.defineProperty({}, "secret", {
+      enumerable: true,
+      get: () => {
+        reads++;
+        return "short-secret";
+      },
+    });
+
+    expect(() => scrubSecretShapedValue(input)).toThrow(
+      "Tool result is not JSON-safe",
+    );
+    expect(reads).toBe(0);
+  });
+
+  test("rejects custom serialization without invoking it", () => {
+    let calls = 0;
+    const input = {
+      safe: "value",
+      toJSON: () => {
+        calls++;
+        return { leaked: "short-secret" };
+      },
+    };
+
+    expect(() => scrubSecretShapedValue(input)).toThrow(
+      "Tool result is not JSON-safe",
+    );
+    expect(calls).toBe(0);
+  });
+
+  test.each([
+    ["function", () => undefined],
+    ["symbol", Symbol("unsupported")],
+    ["bigint", 1n],
+    ["undefined", undefined],
+  ])("rejects %s values", (_name, value) => {
+    expect(() => scrubSecretShapedValue({ value })).toThrow(
+      "Tool result is not JSON-safe",
+    );
+  });
+
+  test("rejects cycles and custom object behavior", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+
+    expect(() => scrubSecretShapedValue(cyclic)).toThrow(
+      "Tool result is not JSON-safe",
+    );
+    expect(() => scrubSecretShapedValue({ value: new Date(0) })).toThrow(
+      "Tool result is not JSON-safe",
+    );
+  });
+});
 describe("scrubSecretShapedValue key handling", () => {
   test("scrubs credential-shaped keys recursively", () => {
     const topLevelKey = ["sk-", "live-", "a".repeat(24)].join("");

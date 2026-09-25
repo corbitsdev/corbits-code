@@ -96,6 +96,21 @@ describe("createTurnContextCollector tool result truncation", () => {
     expect(payload).not.toContain(rawKey);
   });
 
+  test("retained hook payloads redact short credential-keyed values", () => {
+    const collector = createTurnContextCollector(() => undefined);
+    const detail = scrubSecretShapedValue({
+      apiKey: "top-short",
+      nested: { auth: "nested-short" },
+    });
+
+    observeOneTurnWithToolResult(collector, "exit code 0", detail);
+
+    const payload = JSON.stringify(collector.getTurns()[0]);
+    expect(payload).toContain(CREDENTIAL_REDACTION);
+    expect(payload).not.toContain("top-short");
+    expect(payload).not.toContain("nested-short");
+  });
+
   test("omits oversized structured detail while keeping the content cap", () => {
     const collector = createTurnContextCollector(() => undefined);
     const hugeOutput = "x".repeat(HOOK_PAYLOAD_TOOL_RESULT_CHARS * 4);

@@ -143,6 +143,7 @@ export function mcpClientTools(
               ? undefined
               : serializeStructuredContent(scrubbedStructured);
           const archive = getEvidenceArchive?.();
+          let archivedFullEnvelope = false;
           if (archive !== undefined) {
             try {
               await archive.recordAuthorizedPayload({
@@ -157,6 +158,7 @@ export function mcpClientTools(
                 callId: call.id,
                 provenance: "mcp:post-policy-pre-flatten",
               });
+              archivedFullEnvelope = true;
             } catch {
               // Archive write must not fail a successful tool result.
             }
@@ -182,7 +184,14 @@ export function mcpClientTools(
                   ...(contextDir !== undefined ? { contextDir } : {}),
                 }
               : undefined;
-          const content = await sanitizeMcpResultContent(baseContent, spill);
+          const structuredOnlyArchived =
+            archivedFullEnvelope &&
+            flattened === "" &&
+            scrubbedStructured !== undefined;
+          const content = await sanitizeMcpResultContent(
+            baseContent,
+            structuredOnlyArchived ? undefined : spill,
+          );
           return {
             callId: call.id,
             content,
