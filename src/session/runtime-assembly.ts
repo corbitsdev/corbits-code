@@ -54,7 +54,9 @@ import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import {
   COMPACTOR_KEEP_RECENT_TURNS,
+  DEFAULT_TAIL_COMPACTION_SHAPE,
   createPruningCompactor,
+  type CompactionShape,
 } from "./compactor.js";
 import type { SummaryContext } from "./summarizer.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
@@ -412,6 +414,12 @@ export interface SessionPruningCompactorArgs {
    * no onFolded side effects for work that never landed.
    */
   isAborted?: () => boolean;
+  /**
+   * CL-9007 budgeted-tail shape override. Absent means the shared production
+   * default (DEFAULT_TAIL_COMPACTION_SHAPE); tests pin a tiny budget so small
+   * fixtures still fold the same region the old keep-window cut folded.
+   */
+  compactionShape?: Partial<CompactionShape>;
 }
 
 /** Shared pruning-compactor defaults for the main session agent. */
@@ -421,6 +429,13 @@ export function createSessionPruningCompactor(
   const compactor = createPruningCompactor({
     keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
+    // CL-9007 budgeted-tail shape: explicit defaults (same object the record
+    // carries under parameters.compactionShape). keepRecentTurns stays as the
+    // legacy floor only — the budget decides how far past it the tail extends.
+    compactionShape: {
+      ...DEFAULT_TAIL_COMPACTION_SHAPE,
+      ...args.compactionShape,
+    },
     ...(args.summarize !== undefined ? { summarize: args.summarize } : {}),
     ...(args.summaryContext ? { summaryContext: args.summaryContext } : {}),
     ...(args.readPriorHandoff !== undefined

@@ -61,6 +61,7 @@ import {
   createContinuationGate,
   createSessionPruningCompactor,
 } from "../../src/session/runtime-assembly.js";
+import type { CompactionShape } from "../../src/session/compactor.js";
 import { COMPACTION_CONTINUATION_EVENT } from "../../src/agent/compaction.js";
 
 export const INTEGRATION_SOURCE: InferenceSource = {
@@ -99,6 +100,12 @@ export interface OpenIntegrationSessionOpts {
   contextTransforms?: ContextTransform[];
   /** Override to pin the published createAgent snapshot (characterization). */
   createAgentFn?: typeof createAgent;
+  /**
+   * CL-9007 tail-budget override for the production compactor. Absent means
+   * the shared default; compaction tests pin a tiny budget so their
+   * calibrated growth volumes still fold instead of fitting the live tail.
+   */
+  compactionShape?: Partial<CompactionShape>;
 }
 
 export async function openIntegrationSession(
@@ -239,6 +246,11 @@ export async function openIntegrationSession(
           compactors: {
             "pruning-compactor": wrapCompactorWithCompletenessGate(
               createSessionPruningCompactor({
+                // Absent compactionShape falls back to the shared production
+                // default inside createSessionPruningCompactor.
+                ...(opts.compactionShape !== undefined
+                  ? { compactionShape: opts.compactionShape }
+                  : {}),
                 summarize: createModelSummarizer({
                   getSource: () => INTEGRATION_SOURCE,
                   deps: harness.deps,

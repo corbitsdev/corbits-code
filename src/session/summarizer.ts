@@ -146,6 +146,13 @@ export interface SummaryContext {
    * record.
    */
   extraInstructions?: string;
+  /**
+   * Newest prior handoff spine text on a repeat fold. The next summary updates
+   * this text with what changed instead of summarizing beside it — the spine
+   * turn itself rides the summarized region so the handoff fold absorbs it;
+   * this is the copy the model prompt carries.
+   */
+  priorSummary?: string;
 }
 
 const SYSTEM_INSTRUCTION = [
@@ -277,6 +284,12 @@ function contextPreamble(ctx: SummaryContext | undefined): string {
   if (extra !== undefined && extra.length > 0) {
     parts.push(
       `Operator compact instructions (honor these while keeping the sections above):\n${extra}`,
+    );
+  }
+  const prior = ctx?.priorSummary?.trim();
+  if (prior !== undefined && prior.length > 0) {
+    parts.push(
+      `Prior handoff summary (update this with what changed since — do not restate it wholesale):\n${prior}`,
     );
   }
   if (parts.length === 0) return "";

@@ -222,6 +222,49 @@ export interface CompactorConfig {
   // before the summary stub. Selected from the end of the older set so the
   // most-recent anchors survive; pair partners count against the cap too.
   maxAnchorTurns: number;
+  /**
+   * CL-9007 budgeted-tail shape. keepRecentTurns stays as the legacy floor
+   * (the tail always holds at least the last keepRecentTurns turns) — the
+   * budget decides how far past it the live tail extends. Partial: missing
+   * fields resolve against DEFAULT_TAIL_COMPACTION_SHAPE.
+   */
+  compactionShape?: Partial<CompactionShape>;
+}
+
+/**
+ * CL-9007 shape of the live tail the fold keeps: a structured summary plus a
+ * small recent tail (~5-10k tokens by default), not full raw recent turns.
+ * One object so CL-7686 research can tune per-family values later; the
+ * governor (CL-9006) reads the resolved copy off record.parameters.
+ */
+export interface CompactionShape {
+  /** Live-tail budget in tokens (chars/4 estimate). Default ~7500. */
+  tailBudgetTokens: number;
+  /** Tool outputs in the tail longer than this are head+tail excerpted. */
+  maxTailToolOutputChars: number;
+  /** Keep the head of a shortened tail tool output. */
+  excerptHead: boolean;
+  /** Keep the tail of a shortened tail tool output. */
+  excerptTail: boolean;
+  /** Newest user messages (plus attachments) stay whole up to the budget. */
+  preserveWholeUserMessages: boolean;
+  /** Cut points never split a tool call from its result (whole-or-nothing). */
+  pairSafe: boolean;
+}
+
+export const DEFAULT_TAIL_COMPACTION_SHAPE: CompactionShape = {
+  tailBudgetTokens: 7500,
+  maxTailToolOutputChars: 2048,
+  excerptHead: true,
+  excerptTail: true,
+  preserveWholeUserMessages: true,
+  pairSafe: true,
+};
+
+export function resolveCompactionShape(
+  partial?: Partial<CompactionShape>,
+): CompactionShape {
+  return { ...DEFAULT_TAIL_COMPACTION_SHAPE, ...partial };
 }
 
 // Recent turns kept verbatim by both real pruning-compactor registrations
@@ -772,11 +815,20 @@ async function ageImagesOutsideRecentWindow(
 // so this removes all of them. It does not repair a non-alternating sequence
 // that was already present in the input.
 //
-// Only the later turn must be plain text; the earlier one may carry a
-// tool_result. A surviving tool_result is always immediately preceded by its
-// assistant tool_call, never by a text turn, so it only ever merges as the
-// first block of the combined turn — its position relative to its tool_call is
-// preserved, and no tool_call/tool_result sequence is disturbed.
+// A turn carrying a tool_result body never fuses into a neighbor: result
+// bodies are the bulk the tail budgets and excerpts per turn, and fusing an
+// already-excerpted result into adjacent text would build a heavy hybrid turn
+// the next fold cannot budget independently — live user text dragged into the
+// summarized region together with old bulk instead of riding the tail
+// forward. Call headers stay fusible (merging a following text turn into its
+// call turn preserves role alternation without moving bulk), and a surviving
+// result still lands immediately after its assistant tool_call either way, so
+// no tool_call/tool_result sequence is disturbed. Result/text neighbors that
+// no longer fuse get a [compact] spacer from separateAdjacentUserTurns.
+function carriesToolResult(turn: ConversationTurn): boolean {
+  return turn.content.some((block) => block.type === "tool_result");
+}
+
 function coalesceAdjacentTextTurns(
   turns: ConversationTurn[],
 ): ConversationTurn[] {
@@ -786,6 +838,7 @@ function coalesceAdjacentTextTurns(
     if (
       prev !== undefined &&
       prev.role === turn.role &&
+      !carriesToolResult(prev) &&
       isPlainTextTurn(turn) &&
       !isCompactedSummaryTurn(prev) &&
       !isCompactedSummaryTurn(turn) &&
@@ -878,6 +931,218 @@ function compactSpacerTurn(timestamp: number): ConversationTurn {
   };
 }
 
+// ---------------------------------------------------------------------------
+// CL-9007 budgeted tail
+// ---------------------------------------------------------------------------
+
+// Rough token estimate for tail budgeting: ~4 chars per token, matching the
+// estimator buildTurnSummary uses.
+function estimateTextTokens(chars: number): number {
+  return Math.ceil(chars / 4);
+}
+
+// Marker stamped by excerptTailText below. A tail turn carried forward into
+// the next fold already wears it: excerpting is idempotent so a live excerpt
+// rides unchanged (summarized from its shortened text, never re-expanded raw
+// and never re-shortened into nested sentinels).
+const TAIL_EXCERPT_SENTINEL = "[tail-shortened ";
+
+// Shorten one oversized text part of a tail tool result to a head+tail
+// excerpt. The excerpt carries a sentinel, the original length, and the kept
+// length so the tail is visibly lossy; the full text stays stored (archive
+// blob / adopted handoff file) and is never rewritten by excerpting.
+function excerptTailText(
+  text: string,
+  shape: CompactionShape,
+): { text: string; shortened: boolean } {
+  if (
+    text.length <= shape.maxTailToolOutputChars ||
+    text.includes(TAIL_EXCERPT_SENTINEL)
+  )
+    return { text, shortened: false };
+  const headChars = shape.excerptHead
+    ? Math.ceil(shape.maxTailToolOutputChars / 2)
+    : shape.maxTailToolOutputChars;
+  const tailChars = shape.excerptTail
+    ? Math.floor(shape.maxTailToolOutputChars / 2)
+    : 0;
+  const head = text.slice(0, headChars);
+  const tail = tailChars > 0 ? text.slice(text.length - tailChars) : "";
+  return {
+    text:
+      `${head}\n${TAIL_EXCERPT_SENTINEL}${text.length}→${head.length + tail.length} chars; ` +
+      `full text remains in the archived transcript]` +
+      (tail.length > 0 ? `\n${tail}` : ""),
+    shortened: true,
+  };
+}
+
+// Excerpted live copy of a tail turn: large tool_result text parts shrink to
+// head+tail excerpts, everything else (user text, attachments, tool calls,
+// error results stay whole — errors are resume state, not bulk) passes
+// through untouched.
+function excerptTailTurn(
+  turn: ConversationTurn,
+  shape: CompactionShape,
+): { turn: ConversationTurn; shortenedOutputs: number } {
+  let shortenedOutputs = 0;
+  let changed = false;
+  const content = turn.content.map(
+    (block): ConversationTurn["content"][number] => {
+      if (block.type !== "tool_result" || block.isError === true) return block;
+      const parts = block.content.map((c) => {
+        if (c.type !== "text") return c;
+        const excerpted = excerptTailText(c.text, shape);
+        if (!excerpted.shortened) return c;
+        shortenedOutputs += 1;
+        changed = true;
+        return { ...c, text: excerpted.text };
+      });
+      return changed ? { ...block, content: parts } : block;
+    },
+  );
+  return { turn: changed ? { ...turn, content } : turn, shortenedOutputs };
+}
+
+interface TailSelection {
+  /** Contiguous live-tail boundary: tail is turns[tailStart..]. */
+  tailStart: number;
+  /** Excerpted live copies for tail turns that needed shortening. */
+  excerpted: Map<number, ConversationTurn>;
+  shortenedToolOutputs: number;
+  /** Token estimate over the emitted (excerpted) tail. */
+  tailTokenEstimate: number;
+}
+
+// Newest→oldest budgeted tail selection. The last keepRecentTurns turns are
+// the legacy floor (always kept); older turns are picked whole-or-nothing —
+// user messages with attachments first-class whole, tool pairs only with
+// their partners — until the next pick would overflow the token budget. Pair
+// partners are dragged in even past the budget: pair-safety outranks size.
+function selectTail(
+  turns: readonly ConversationTurn[],
+  keepRecentTurns: number,
+  shape: CompactionShape,
+  partnerIndex: ReadonlyMap<number, number[]>,
+): TailSelection {
+  const n = turns.length;
+  const excerpted = new Map<number, ConversationTurn>();
+  const picked = new Set<number>();
+  let shortenedToolOutputs = 0;
+  let usedChars = 0;
+  const budgetChars = shape.tailBudgetTokens * 4;
+
+  const turnCost = (idx: number): { chars: number; shortened: number } => {
+    const turn = turns[idx];
+    if (turn === undefined) return { chars: 0, shortened: 0 };
+    const { turn: live, shortenedOutputs } = excerptTailTurn(turn, shape);
+    if (shortenedOutputs > 0) excerpted.set(idx, live);
+    let chars = 0;
+    for (const block of live.content) {
+      if (block.type === "text") chars += block.text.length;
+      else if (block.type === "tool_call")
+        chars += JSON.stringify(block.arguments).length;
+      else if (block.type === "tool_result") chars += resultContentSize(block);
+    }
+    return { chars, shortened: shortenedOutputs };
+  };
+
+  const pick = (idx: number): void => {
+    if (picked.has(idx)) return;
+    const turn = turns[idx];
+    // A dragged pair partner that is a foldable handoff turn stays out of the
+    // tail — it folds with the summarized region instead of riding live.
+    if (turn === undefined || isFoldableHandoffTurn(turn)) return;
+    picked.add(idx);
+    const { chars, shortened } = turnCost(idx);
+    usedChars += chars;
+    shortenedToolOutputs += shortened;
+  };
+
+  // Whole-or-nothing pair closure for the tail: the turn plus any partners
+  // the budget walk has not picked yet (newer partners are already held).
+  const tailClosure = (idx: number): number[] => {
+    const closure = [idx];
+    const queue = [idx];
+    const seen = new Set([idx]);
+    while (queue.length > 0) {
+      const current = queue.pop();
+      if (current === undefined) continue;
+      for (const partner of partnerIndex.get(current) ?? []) {
+        if (seen.has(partner)) continue;
+        seen.add(partner);
+        closure.push(partner);
+        queue.push(partner);
+      }
+    }
+    return closure;
+  };
+
+  // Legacy floor: the newest turns stay live no matter the budget. Foldable
+  // handoff turns are never tail candidates — they belong to the summarized
+  // region that folds them, otherwise a fresh summary would stack beside a
+  // live prior spine.
+  const floorCount = Math.min(Math.max(keepRecentTurns, 0), n);
+  for (let i = n - floorCount; i < n; i++) {
+    const turn = turns[i];
+    if (turn === undefined || isFoldableHandoffTurn(turn)) continue;
+    const closure = shape.pairSafe ? tailClosure(i) : [i];
+    for (const idx of closure) pick(idx);
+  }
+
+  // Newest→oldest budget walk. Foldable handoff turns are never tail
+  // candidates — they belong to the summarized region that folds them.
+  for (let i = n - floorCount - 1; i >= 0; i--) {
+    if (picked.has(i)) continue;
+    const turn = turns[i];
+    if (turn === undefined || isFoldableHandoffTurn(turn)) continue;
+    const closure = (shape.pairSafe ? tailClosure(i) : [i]).filter(
+      (idx) => !picked.has(idx),
+    );
+    let closureChars = 0;
+    for (const idx of closure) {
+      const t = turns[idx];
+      if (t === undefined) continue;
+      const { turn: live } = excerptTailTurn(t, shape);
+      for (const block of live.content) {
+        if (block.type === "text") closureChars += block.text.length;
+        else if (block.type === "tool_call")
+          closureChars += JSON.stringify(block.arguments).length;
+        else if (block.type === "tool_result")
+          closureChars += resultContentSize(block);
+      }
+    }
+    if (usedChars + closureChars > budgetChars) break;
+    for (const idx of closure) pick(idx);
+  }
+
+  let tailStart = n;
+  for (const idx of picked) tailStart = Math.min(tailStart, idx);
+  return {
+    tailStart,
+    excerpted,
+    shortenedToolOutputs,
+    tailTokenEstimate: estimateTextTokens(usedChars),
+  };
+}
+
+// Thin spine text of prior folds still live in the input: the next summary
+// updates this text with what changed instead of summarizing beside it. The
+// spine turn itself stays in the summarized region so the fold carries it
+// forward; this is the copy the summarizer sees.
+function extractFoldableSpineText(
+  turns: readonly ConversationTurn[],
+): string | undefined {
+  const parts: string[] = [];
+  for (const turn of turns) {
+    if (!isCompactedSummaryTurn(turn)) continue;
+    const text = firstTextBlock(turn);
+    if (text !== undefined && text.length > 0) parts.push(text);
+  }
+  if (parts.length === 0) return undefined;
+  return parts.join("\n");
+}
+
 export function createPruningCompactor(
   config: Partial<CompactorConfig> = {},
 ): Compactor {
@@ -885,7 +1150,7 @@ export function createPruningCompactor(
 
   return {
     name: "pruning-compactor",
-    version: "1.6.0",
+    version: "1.7.0",
     async apply(
       turns: ConversationTurn[],
       _ctx: StrategyContext,
@@ -893,6 +1158,7 @@ export function createPruningCompactor(
       // Prior compacted summaries are folded into the next handoff, not frozen.
       // Image aging still skips the recent window so a just-pasted screenshot
       // stays live.
+      const shape = resolveCompactionShape(cfg.compactionShape);
 
       // Eager image aging runs before the compact/no-op branch so base64 pastes
       // leave the inference-facing context as soon as they exit the recent window.
@@ -909,6 +1175,7 @@ export function createPruningCompactor(
             version: this.version,
             parameters: {
               keepRecentTurns: cfg.keepRecentTurns,
+              compactionShape: shape,
               ...extraInstructionParameter(cfg),
             },
             reason:
@@ -925,40 +1192,56 @@ export function createPruningCompactor(
       // result can still name its path even when its call turn was summarized.
       const callIndex = buildCallIndex(aged.turns);
 
-      const keepCount = Math.min(cfg.keepRecentTurns, aged.turns.length - 1);
-      const keepFrom = aged.turns.length - keepCount;
-      const recentTurns = aged.turns.slice(keepFrom);
-      const olderTurns = aged.turns.slice(0, keepFrom);
-
       const pairs = buildPairIndex(aged.turns);
       const partnerIndex = buildPartnerIndex(pairs);
+
+      // CL-9007 budgeted tail replaces the last-N-verbatim keep window: the
+      // tail always holds at least the last keepRecentTurns turns (legacy
+      // floor) and extends older while the next whole pick fits the token
+      // budget. Pair partners are dragged in whole-or-nothing, so no pair
+      // ever straddles the tail boundary and the old mandatory-pull rescue
+      // has nothing left to do. Large tail tool outputs ride excerpted; the
+      // excerpted live copies below are the only shortened text — stored
+      // turns (handoff file, archive) keep full bodies.
+      const tail = selectTail(
+        aged.turns,
+        cfg.keepRecentTurns,
+        shape,
+        partnerIndex,
+      );
+      const tailStart = tail.tailStart;
+      // Foldable handoff turns inside the tail range ride the summarized region
+      // so the fold absorbs them; otherwise a fresh summary would stack beside
+      // a live prior spine. They sort after every excluded turn, keeping the
+      // summarized region in global index order.
+      const tailTurns: ConversationTurn[] = [];
+      const carriedSpines: ConversationTurn[] = [];
+      aged.turns.forEach((turn, idx) => {
+        if (idx < tailStart) return;
+        if (isFoldableHandoffTurn(turn)) {
+          carriedSpines.push(turn);
+          return;
+        }
+        tailTurns.push(tail.excerpted.get(idx) ?? turn);
+      });
+      const excludedTurns = aged.turns.slice(0, tailStart);
 
       // Repeated identical errors collapse to their last occurrence before
       // scoring, so a failing retry loop contributes one representative
       // instead of scoring every iteration.
       const repeatedErrors = repeatedErroredResultCallIds(
-        olderTurns,
+        excludedTurns,
         callIndex,
       );
-      const scoredOlder = olderTurns.map((t, i) => ({
+      const scoredOlder = excludedTurns.map((t, i) => ({
         index: i,
         score: anchorScore(t, repeatedErrors),
       }));
 
-      // Keep tool_call/tool_result pairs together across the keep/summarize
-      // boundary: a surviving turn whose partner is summarized leaves a
-      // dangling tool_call or an orphaned tool_result, which the inference
-      // layer rejects. Partners of recent-window turns are mandatory pulls
-      // and are counted against maxAnchorTurns first, so the cap bounds the
-      // total turns pulled forward past the summary.
+      // The tail boundary never splits a tool pair (partners are dragged into
+      // the tail whole-or-nothing during selection), so there are no straddling
+      // partners left to rescue — anchors here are importance pulls only.
       const anchorIndices = new Set<number>();
-      for (const { callIdx, resultIdx } of pairs.values()) {
-        if (callIdx === undefined || resultIdx === undefined) continue;
-        if (callIdx >= keepFrom && resultIdx < keepFrom)
-          addPairClosure(resultIdx, partnerIndex, keepFrom, anchorIndices);
-        else if (resultIdx >= keepFrom && callIdx < keepFrom)
-          addPairClosure(callIdx, partnerIndex, keepFrom, anchorIndices);
-      }
 
       // Pull high-importance turns forward regardless of age, most recent
       // first so the freshest anchors survive. Each candidate is taken with
@@ -968,7 +1251,7 @@ export function createPruningCompactor(
       for (let i = scoredOlder.length - 1; i >= 0; i--) {
         const candidate = scoredOlder[i];
         if (candidate === undefined) continue;
-        const candidateTurn = olderTurns[candidate.index];
+        const candidateTurn = excludedTurns[candidate.index];
         if (candidateTurn !== undefined && isFoldableHandoffTurn(candidateTurn))
           continue;
         if (
@@ -979,7 +1262,7 @@ export function createPruningCompactor(
         const closure = pairClosure(
           candidate.index,
           partnerIndex,
-          keepFrom,
+          tailStart,
           anchorIndices,
         );
         if (closure.size > anchorBudget) continue;
@@ -991,45 +1274,58 @@ export function createPruningCompactor(
       // cap. Losing the oldest user turn is how the agent forgets what it was
       // asked to do; correctness outranks the size target here. Prior compacted
       // summaries are not the initiating task — they get folded.
-      const initiatingIdx = firstUserTurnIndex(olderTurns);
+      const initiatingIdx = firstUserTurnIndex(excludedTurns);
       if (initiatingIdx >= 0)
-        addPairClosure(initiatingIdx, partnerIndex, keepFrom, anchorIndices);
+        addPairClosure(initiatingIdx, partnerIndex, tailStart, anchorIndices);
 
       for (const idx of [...anchorIndices]) {
-        const turn = olderTurns[idx];
+        const turn = excludedTurns[idx];
         if (turn !== undefined && isFoldableHandoffTurn(turn))
           anchorIndices.delete(idx);
       }
 
-      // Ascending original order keeps the concatenated [anchors, recent]
+      // Ascending original order keeps the concatenated [anchors, tail]
       // sequence globally index-ordered, so every result still follows its call.
       const sortedAnchorIndices = [...anchorIndices].sort((a, b) => a - b);
       const anchorTurns = sortedAnchorIndices.flatMap((i) => {
-        const turn = olderTurns[i];
+        const turn = excludedTurns[i];
         return turn === undefined ? [] : [turn];
       });
-      const summarizedTurns = olderTurns.filter(
-        (_, i) => !anchorIndices.has(i),
-      );
+      // Summarized region: everything outside the tail that is not an anchor.
+      // Prior fold spines ride along so buildHandoffFold folds them (never
+      // stacked); on a repeat fold the live tail carried forward re-enters
+      // here already excerpted — summarized from its shortened text, never
+      // re-expanded raw.
+      const summarizedTurns = [
+        ...excludedTurns.filter((_, i) => !anchorIndices.has(i)),
+        ...carriedSpines,
+      ];
 
       // Keep-set covered everything foldable: nothing to replace. Leave the
-      // input untouched rather than rewriting the head with an empty summary.
+      // input untouched rather than rewriting the head with an empty summary —
+      // but return the image-aged turns (plus their spill blobs), not the raw
+      // input, so eager aging outside the tail is not silently dropped.
       if (summarizedTurns.length === 0) {
         return {
-          output: turns,
+          output: aged.turns,
           record: {
             strategy: this.name,
             version: this.version,
             parameters: {
               keepRecentTurns: cfg.keepRecentTurns,
+              compactionShape: shape,
               ...extraInstructionParameter(cfg),
             },
             reason: "no compaction needed",
             decisions: {
               summarizedTurnCount: 0,
+              tailBudgetTokens: shape.tailBudgetTokens,
+              tailTokenEstimate: tail.tailTokenEstimate,
+              shortenedToolOutputs: tail.shortenedToolOutputs,
               agedImageCount: aged.agedImageCount,
             },
           },
+          ...(aged.blobs.length > 0 ? { blobs: aged.blobs } : {}),
         };
       }
 
@@ -1037,12 +1333,20 @@ export function createPruningCompactor(
       // transcript would hollow a kept older read when the newer re-read is only
       // in the summary (CL-4374 review follow-up).
       const pathToReads = buildPathToReads(
-        [...anchorTurns, ...recentTurns],
+        [...anchorTurns, ...tailTurns],
         callIndex,
       );
       const supersededReads = supersededReadCallIds(pathToReads);
 
-      const summaryCtx = cfg.summaryContext?.();
+      // Repeat folds update the prior summary instead of summarizing beside
+      // it: the prior spine text rides the summary context while the spine
+      // turn itself stays in the summarized region for the handoff to fold.
+      const priorSummaryForFold = extractFoldableSpineText(aged.turns);
+      const operatorCtx = cfg.summaryContext?.();
+      const summaryCtx: SummaryContext | undefined =
+        priorSummaryForFold === undefined
+          ? operatorCtx
+          : { ...operatorCtx, priorSummary: priorSummaryForFold };
       let summary: string;
       try {
         summary =
@@ -1061,6 +1365,7 @@ export function createPruningCompactor(
             version: this.version,
             parameters: {
               keepRecentTurns: cfg.keepRecentTurns,
+              compactionShape: shape,
               ...extraInstructionParameter(cfg),
             },
             reason: "summarize failed",
@@ -1079,6 +1384,7 @@ export function createPruningCompactor(
             version: this.version,
             parameters: {
               keepRecentTurns: cfg.keepRecentTurns,
+              compactionShape: shape,
               ...extraInstructionParameter(cfg),
             },
             reason: "summarize failed",
@@ -1105,7 +1411,10 @@ export function createPruningCompactor(
           record: {
             strategy: this.name,
             version: this.version,
-            parameters: { keepRecentTurns: cfg.keepRecentTurns },
+            parameters: {
+              keepRecentTurns: cfg.keepRecentTurns,
+              compactionShape: shape,
+            },
             reason: "verify failed — keeping prior context",
             decisions: {
               verifyAborted: 1,
@@ -1156,14 +1465,15 @@ export function createPruningCompactor(
       const summaryTurn: ConversationTurn = {
         role: "user",
         content: [{ type: "text", text: handoff.spineText }],
-        timestamp: olderTurns[olderTurns.length - 1]?.timestamp ?? Date.now(),
+        timestamp:
+          excludedTurns[excludedTurns.length - 1]?.timestamp ?? Date.now(),
       };
 
-      // Anchors and recent turns stay contentful except for path-dedup: when the
+      // Anchors and tail turns stay contentful except for path-dedup: when the
       // same file was read successfully more than once among kept turns, older
       // results become a one-line stub and the newest stays whole. Error results
       // are never stubbed. SummarizedTurns lose content wholesale via the summary
-      // above. Anchors are already image-aged (outside the recent window). Recent
+      // above. Anchors are already image-aged (outside the recent window). Tail
       // turns keep live base64 so a just-pasted screenshot still reaches the model.
       const process = (t: ConversationTurn): ConversationTurn =>
         stubSupersededReads(t, supersededReads, callIndex);
@@ -1171,7 +1481,7 @@ export function createPruningCompactor(
         coalesceAdjacentTextTurns([
           summaryTurn,
           ...anchorTurns.map(process),
-          ...recentTurns.map(process),
+          ...tailTurns.map(process),
         ]),
       );
 
@@ -1184,13 +1494,17 @@ export function createPruningCompactor(
             keepRecentTurns: cfg.keepRecentTurns,
             summaryMaxChars: cfg.summaryMaxChars,
             maxAnchorTurns: cfg.maxAnchorTurns,
+            compactionShape: shape,
             ...extraInstructionParameter(cfg),
           },
-          reason: `compacted ${summarizedTurns.length} turns, anchored ${anchorTurns.length}, keeping ${keepCount} recent`,
+          reason: `compacted ${summarizedTurns.length} turns, anchored ${anchorTurns.length}, keeping ${tailTurns.length} tail`,
           decisions: {
             summarizedTurnCount: summarizedTurns.length,
             anchorTurnCount: anchorTurns.length,
-            recentTurnCount: recentTurns.length,
+            recentTurnCount: tailTurns.length,
+            tailBudgetTokens: shape.tailBudgetTokens,
+            tailTokenEstimate: tail.tailTokenEstimate,
+            shortenedToolOutputs: tail.shortenedToolOutputs,
             summaryLength: summary.length,
             handoffBlobKey: handoff.blob.key,
             handoffSpineLength: handoff.spineText.length,

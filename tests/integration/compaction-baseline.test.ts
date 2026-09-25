@@ -265,6 +265,9 @@ describe("integration — compaction mechanics baseline", () => {
           skipPermissions: true,
           reactorGated: false,
         }),
+        // CL-9007: pin a tiny tail budget so the calibrated growth volumes
+        // still fold instead of fitting the default live tail.
+        compactionShape: { tailBudgetTokens: 10 },
         compactionCompletion: async (turns) => {
           const context = turns
             .flatMap((turn) =>

@@ -472,6 +472,8 @@ describe("createSessionPruningCompactor", () => {
     const llm = createSessionPruningCompactor({
       summarize,
       summaryContext: () => ctx,
+      // CL-9007: pin a one-token tail budget so this tiny fixture still folds.
+      compactionShape: { tailBudgetTokens: 1 },
     });
     const now = Date.now();
     const turns = Array.from({ length: 8 }, (_, i) => ({
@@ -489,6 +491,8 @@ describe("createSessionPruningCompactor", () => {
     const folding = createSessionPruningCompactor({
       summarize,
       onFolded: (info) => folds.push(info),
+      // CL-9007: pin a one-token tail budget so this tiny fixture still folds.
+      compactionShape: { tailBudgetTokens: 1 },
     });
     const now = Date.now();
     const many = Array.from({ length: 8 }, (_, i) => ({
