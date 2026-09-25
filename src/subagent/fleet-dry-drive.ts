@@ -34,6 +34,8 @@ export interface FleetDryMailboxRecord {
   readonly description?: string;
   readonly hint?: string;
   readonly providerFailure?: true;
+  /** CL-8978: transient provider failure — the parent may spawn one successor. */
+  readonly recoverableFailure?: true;
   readonly stopReason?: string;
 }
 
@@ -58,8 +60,24 @@ export interface CollectedWorkerReport {
   error?: string;
   hint?: string;
   provider_failure?: true;
+  /**
+   * CL-8978: failed entries from a transient provider failure carry this
+   * marker plus single-successor guidance in continue_with. Capped affordance:
+   * at most one respawn with the same brief, never a retry loop.
+   */
+  continuable?: true;
+  continue_with?: string;
   stop_reason?: string;
 }
+
+/**
+ * Single-successor guidance for a failed+continuable entry. The marker is
+ * advisory only — no runtime auto-retry backs it.
+ */
+export const RECOVERABLE_FAILURE_CONTINUE_GUIDANCE =
+  "This worker failed with a transient provider error (retryable/timeout/overload) " +
+  "and is terminal — do not re-wait it. You may spawn at most one successor with " +
+  "the same brief; do not retry in a loop.";
 
 export function shouldDriveOpenTasks(input: {
   previousRunning?: number | undefined;
@@ -169,6 +187,12 @@ export function projectMailboxRecord(
     ...(error !== undefined ? { error } : {}),
     ...(taken.hint !== undefined ? { hint: taken.hint } : {}),
     ...(taken.providerFailure === true ? { provider_failure: true } : {}),
+    ...(taken.status === "failed" && taken.recoverableFailure === true
+      ? {
+          continuable: true as const,
+          continue_with: RECOVERABLE_FAILURE_CONTINUE_GUIDANCE,
+        }
+      : {}),
     ...(taken.stopReason !== undefined
       ? { stop_reason: taken.stopReason }
       : {}),

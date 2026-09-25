@@ -161,7 +161,11 @@ describe("CL-8978 recoverable subagent failure", () => {
     // The parent handle still works: spawn and wait a successor.
     const deps2 = makeDeps(async () => ({ report: "successor done" }));
     // Share the fleet so the successor is a true sibling lane.
-    const spawn2 = createSpawnAgentTool({ ...deps2, sessions: deps.sessions, fleetRecords: deps.fleetRecords });
+    const spawn2 = createSpawnAgentTool({
+      ...deps2,
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
     const wait2 = createWaitAgentsTool({
       sessions: deps.sessions,
       fleetRecords: deps.fleetRecords,
@@ -255,6 +259,53 @@ describe("CL-8978 recoverable subagent failure", () => {
     expect(await drive()).toBe(true);
     expect(prompts).toHaveLength(2);
     expect(deps.fleetRecords.peek(id)?.collected).toBe(true);
+    // The mailbox path carries the same continuable marker as wait_agents.
+    expect(prompts[1]).toContain('"continuable":true');
+  });
+
+  test("in-flight work stays live until settled: a timeout is liveness, not failure", async () => {
+    let resolveRun!: (v: RunSubAgentResult) => void;
+    const gate = new Promise<RunSubAgentResult>((res) => {
+      resolveRun = res;
+    });
+    const deps = makeDeps(() => gate);
+    const spawn = createSpawnAgentTool(deps);
+    const wait = createWaitAgentsTool({
+      sessions: deps.sessions,
+      fleetRecords: deps.fleetRecords,
+    });
+
+    const spawned = await callTool(spawn, {
+      description: "slow job",
+      prompt: "do it",
+      intent: "explore",
+    });
+    const id = spawned.agent_id as string;
+
+    // Unsettled work (including an in-flight provider retry) projects live.
+    const snap = deps.fleetRecords.peek(id);
+    expect(snap?.status).toBe("running");
+    expect(isLiveWaitStatus(snap?.status ?? "failed")).toBe(true);
+
+    const waited = await callTool(wait, {
+      targets: [id],
+      timeout_ms: 50,
+      mode: "all",
+    });
+    expect(waited.timed_out).toBe(true);
+    const results = waited.results as Record<string, unknown>[];
+    expect(results[0]?.status).toBe("running");
+    expect(results[0]?.continuable).toBeUndefined();
+
+    resolveRun({ report: "slow done" });
+    const waited2 = await callTool(wait, {
+      targets: [id],
+      timeout_ms: 5000,
+      mode: "all",
+    });
+    expect(waited2.timed_out).toBe(false);
+    const results2 = waited2.results as Record<string, unknown>[];
+    expect(results2[0]?.status).toBe("done");
   });
 
   test("wait_agents documents the continuable failed marker", () => {

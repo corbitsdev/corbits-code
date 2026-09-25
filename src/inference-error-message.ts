@@ -68,6 +68,31 @@ export function classifyInferenceErrorCategory(
     : error.category;
 }
 
+/**
+ * Whether a normalized provider-failure category is transient enough that a
+ * parent may spawn one successor with the same brief (CL-8978). Allowlist:
+ * retryable/timeout — including 429 overload, which normalizes to retryable.
+ * Fatal categories win explicitly: credential, quota, and context-overflow
+ * failures must never read as continuable.
+ */
+const FATAL_PROVIDER_FAILURE_CATEGORIES: ReadonlySet<string> = new Set([
+  "credential_failure",
+  "quota_exhausted",
+  "context_overflow",
+]);
+
+const RECOVERABLE_PROVIDER_FAILURE_CATEGORIES: ReadonlySet<string> = new Set([
+  "retryable",
+  "timeout",
+]);
+
+export function isRecoverableProviderFailureCategory(
+  category: string,
+): boolean {
+  if (FATAL_PROVIDER_FAILURE_CATEGORIES.has(category)) return false;
+  return RECOVERABLE_PROVIDER_FAILURE_CATEGORIES.has(category);
+}
+
 function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
   // Match normalizeCodexUsageLimitError: never brand a known non-Codex source.
   if (
