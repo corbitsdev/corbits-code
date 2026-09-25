@@ -936,7 +936,7 @@ describe("compaction governor", () => {
   });
 });
 
-describe("provider-aware idle recompress (CL-8745)", () => {
+describe("cache expiry never folds (CL-8914)", () => {
   const MINUTE_MS = 60_000;
 
   function ttlInferenceDone(
@@ -984,142 +984,48 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     } as ReactorInboundEvent;
   }
 
-  test("fires past the provider TTL while under threshold, meter-only on empty", () => {
+  test("idle pings past any provider cache window return null", () => {
+    // The governor holds no TTL table: an unarmed idle re-entry never
+    // produces a compact, whatever the provider's cache economics. Staleness
+    // on the outgoing prompt is the anthropic-cache-prompt transform's job.
     let continuations = 0;
     let nowMs = 10_000_000;
-    const governor = createCompactionGovernor(
-      () => continuations++,
-      "",
-      [],
-      () => nowMs,
-    );
-    governor.noteInferenceDone(
-      ttlInferenceDone(
-        { provider: "anthropic", model: "claude-opus-4-6" },
-        false,
-      ),
-      tenTurns,
-    );
-
-    // Inside the 5-minute Anthropic window: no fire.
-    nowMs += 4 * MINUTE_MS;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-
-    // Past the window: the same fold as the threshold path (same compactor,
-    // so the fresh tail stays raw) with an attributable reason.
-    nowMs += MINUTE_MS + 1;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
+    const clock = () => nowMs;
+    const sources = [
+      { provider: "anthropic", model: "claude-opus-4-6" },
+      {
+        sourceId: "codex/work",
+        provider: "codex-responses",
+        model: "gpt-5.6-luna",
+      },
+      { provider: "deepseek", model: "deepseek-chat" },
+      {
+        sourceId: "ollama/default",
+        provider: "openai-compatible",
+        model: "llama3",
+      },
+      { provider: "custom-proxy", model: "unknown-model" },
+    ];
+    for (const source of sources) {
+      const governor = createCompactionGovernor(
+        () => continuations++,
+        "",
+        [],
+        clock,
+      );
+      governor.noteInferenceDone(ttlInferenceDone(source, false), tenTurns);
+      expect(
+        governor.interceptIdleContinuation(emptyMessage(), capabilities),
+      ).toBeNull();
+      nowMs += 90 * MINUTE_MS;
+      expect(
+        governor.interceptIdleContinuation(emptyMessage(), capabilities),
+      ).toBeNull();
+    }
     expect(continuations).toBe(0);
   });
 
-  test("production LastCycleSource: anthropic fires at 5m, codex never does", () => {
-    // Harness stamps { sourceId, provider, model } with a bare model, not
-    // slash-form "anthropic/claude-opus-4-6". Anthropic's 5-minute window
-    // must come from provider, not a dummy model string. Codex has no
-    // published 5-minute expiry, so it must stay quiet past the old 10-minute
-    // guess as well.
-    let nowMs = 15_000_000;
-    const clock = () => nowMs;
-    const anthropic = createCompactionGovernor(() => undefined, "", [], clock);
-    const codex = createCompactionGovernor(() => undefined, "", [], clock);
-    anthropic.noteInferenceDone(
-      ttlInferenceDone(
-        { provider: "anthropic", model: "claude-opus-4-6" },
-        false,
-      ),
-      tenTurns,
-    );
-    codex.noteInferenceDone(
-      ttlInferenceDone(
-        {
-          sourceId: "codex/work",
-          provider: "codex-responses",
-          model: "gpt-5.6-luna",
-        },
-        false,
-      ),
-      tenTurns,
-    );
-
-    nowMs += 5 * MINUTE_MS + 1;
-    expect(
-      anthropic.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-    expect(
-      codex.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-
-    nowMs += 30 * MINUTE_MS;
-    expect(
-      codex.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-  });
-
-  test("does not idle-recompress DeepSeek or ollama", () => {
-    let nowMs = 20_000_000;
-    const clock = () => nowMs;
-    const deepseek = createCompactionGovernor(() => undefined, "", [], clock);
-    const local = createCompactionGovernor(() => undefined, "", [], clock);
-    deepseek.noteInferenceDone(
-      ttlInferenceDone("deepseek/deepseek-chat", false),
-      tenTurns,
-    );
-    local.noteInferenceDone(
-      ttlInferenceDone("ollama/llama3.1", false),
-      tenTurns,
-    );
-
-    nowMs += 90 * MINUTE_MS;
-    expect(
-      deepseek.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-    expect(
-      local.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-  });
-
-  test("production ollama LastCycleSource never fires cache-ttl-recompress", () => {
-    // Harness stamps { sourceId, provider, model } with a bare model. Ollama is
-    // buildOpenAISource: sourceId "ollama/default", provider openai-compatible,
-    // Keying TTL off the bare model would miss the ollama sourceId. Local
-    // inference stays disabled.
-    let nowMs = 25_000_000;
-    const governor = createCompactionGovernor(
-      () => undefined,
-      "",
-      [],
-      () => nowMs,
-    );
-    governor.noteInferenceDone(
-      ttlInferenceDone(
-        {
-          sourceId: "ollama/default",
-          provider: "openai-compatible",
-          model: "llama3",
-        },
-        false,
-      ),
-      tenTurns,
-    );
-
-    nowMs += 5 * MINUTE_MS + 1;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-  });
-
-  test("stays inert with no observed cache write", () => {
-    const governor = createCompactionGovernor(() => undefined);
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-  });
-
-  test("defers to the armed threshold path while over threshold", () => {
+  test("an armed threshold fold is not disturbed by idle re-entry", () => {
     let nowMs = 30_000_000;
     const governor = createCompactionGovernor(
       () => undefined,
@@ -1128,9 +1034,9 @@ describe("provider-aware idle recompress (CL-8745)", () => {
       () => nowMs,
     );
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    // Fixture provider "p" has no TTL. Threshold arming still owns this session.
+    // Threshold arming owns the over-threshold session and fires at the tool
+    // pause; a message.received re-entry is not its trigger.
     nowMs += 5 * MINUTE_MS + 1;
-    // Threshold arming owns the over-threshold session: no TTL double-fold.
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
@@ -1139,11 +1045,10 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     ).toBeNull();
   });
 
-  test("fires cache-ttl-recompress in the hysteresis gap (over-threshold, no growth)", () => {
-    // Characterization, not a bug: after a threshold compact, a post-compact
-    // infer at the same usage clears `pending` via growth hysteresis, so the
-    // threshold path no longer owns the session. Idle past the provider TTL
-    // still folds — same window- and cap-bounded path as under-threshold.
+  test("the hysteresis gap does not fold on cache expiry", () => {
+    // After a threshold compact, a post-compact infer at the same usage
+    // clears `pending` via growth hysteresis — the exact re-entry where the
+    // removed TTL path used to fire.
     let nowMs = 70_000_000;
     const governor = createCompactionGovernor(
       () => undefined,
@@ -1174,37 +1079,7 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     ).toBeNull();
   });
 
-  test("after threshold compact and gap TTL, growth-armed compact stays blocked until a tool_call", () => {
-    // Threshold compact (consecutive=1) plus TTL fire in the hysteresis gap
-    // (consecutive=2) fills the shared cap. Later growth that would re-arm
-    // the threshold path stays blocked until a tool_call occupancy resets it.
-    let nowMs = 80_000_000;
-    const governor = createCompactionGovernor(
-      () => undefined,
-      "",
-      [],
-      () => nowMs,
-    );
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold, "", "anthropic"),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).not.toBeNull();
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
-
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold, "", "anthropic"),
-      tenTurns,
-    );
-    nowMs += 5 * MINUTE_MS + 1;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-  });
-
-  test("does not fold under an outstanding tool batch, fires once it settles", () => {
+  test("an outstanding tool batch does not change idle re-entry", () => {
     let continuations = 0;
     let nowMs = 40_000_000;
     const governor = createCompactionGovernor(
@@ -1221,7 +1096,6 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
-    // The batch settles (threshold path uninvolved: under threshold).
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
@@ -1231,28 +1105,7 @@ describe("provider-aware idle recompress (CL-8745)", () => {
     expect(continuations).toBe(0);
   });
 
-  test("one fire per window, then the shared consecutive-compact cap stops the spiral", () => {
-    let continuations = 0;
-    let nowMs = 50_000_000;
-    const governor = createCompactionGovernor(
-      () => continuations++,
-      "",
-      [],
-      () => nowMs,
-    );
-    governor.noteInferenceDone(
-      ttlInferenceDone("anthropic/claude-opus-4-6", false),
-      tenTurns,
-    );
-
-    nowMs += 5 * MINUTE_MS + 1;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-    expect(continuations).toBe(0);
-  });
-
-  test("a raced operator message past the TTL still folds, then re-infers", () => {
+  test("a raced operator message past the window does not fold", () => {
     let continuations = 0;
     let nowMs = 60_000_000;
     const governor = createCompactionGovernor(

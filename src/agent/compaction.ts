@@ -163,12 +163,6 @@ export function createCompactionGovernor(
   let usingEstimate = false;
   let lastModel: string | undefined;
   let turnCount = 0;
-  // Tool calls issued by the last inference.done and not yet settled. A TTL
-  // recompress must never fold while a batch is outstanding — the stall ping
-  // that triggers it can arrive mid-work, and folding under it would rewrite
-  // turns the pending results still belong to. Assigned (not incremented) on
-  // every inference.done so the serial loop self-heals a miscount.
-  let outstandingToolCalls = 0;
   // Growth hysteresis after a compact that remained over the high watermark:
   // snapshot the post-compact infer's usage, then do not re-arm until usage
   // grows by resumeDelta. Cleared once usage drops back to or under high.
@@ -267,15 +261,6 @@ export function createCompactionGovernor(
     }
     syncFromTurns(turns);
     lastModel = event.source?.model;
-    // The terminal reply ends the previous tool batch (its results are
-    // already in the turns) and opens the batch the reply just issued. A TTL
-    // recompress must never fold while a batch is outstanding — the stall
-    // ping that triggers it can arrive mid-work, and folding under it would
-    // rewrite turns the pending results still belong to. Assigned, not
-    // incremented, so the serial loop self-heals a miscount.
-    outstandingToolCalls = event.turn.content.filter(
-      (block) => block.type === "tool_call",
-    ).length;
     const reportedTokens = contextTokensFromUsage(event.usage);
     usingEstimate = reportedTokens <= 0;
     const contextTokens = usingEstimate ? estimate.tokens : reportedTokens;
@@ -315,7 +300,6 @@ export function createCompactionGovernor(
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
     if (event.type !== "tool.done") return null;
-    if (outstandingToolCalls > 0) outstandingToolCalls -= 1;
     const operator = manualPending;
     if (
       !operator &&
@@ -421,17 +405,11 @@ export function createCompactionGovernor(
       }
       return issueIdleFold(content, capabilities, THRESHOLD_COMPACT_REASON);
     }
-    // Unarmed idle re-entry past the provider TTL: same fold, same
-    // keep-recent tail, same cap — but a "cache-ttl-recompress" reason so the
-    // fold is attributable. No arming: every live re-entry re-checks the
-    // window, so a sub-agent stall ping or operator message is the trigger.
-    // In-flight `/compact` (manualPending without idlePending) waits on
-    // interceptActions; do not steal that hop with a TTL fold.
-    if (manualPending) return null;
-    // Cache expiry is a prompt transform, not a fold. Compacting here rewrites
-    // turns.jsonl and drops the history the transform is supposed to leave
-    // stored. The Anthropic prompt transform stubs tool bodies on the request
-    // when this stamp is expired.
+    // Cache expiry is a prompt transform, not a fold. Compacting on an
+    // unarmed idle re-entry rewrites turns.jsonl and drops the history the
+    // transform is supposed to leave stored; the Anthropic prompt transform
+    // stubs tool bodies on the outgoing request instead. In-flight `/compact`
+    // (manualPending without idlePending) waits on interceptActions.
     return null;
   }
 
@@ -486,10 +464,6 @@ export function createCompactionGovernor(
   function notePostCompact(turns: readonly ConversationTurn[]): void {
     syncFromTurns(turns);
     usingEstimate = true;
-    // A fold rewrites the turns: results already applied vanish from the
-    // live set, and post-compact stall pings (empty continuations) carry no
-    // tool traffic. Reset so a stale count cannot pin the TTL window shut.
-    outstandingToolCalls = 0;
   }
 
   // True while the governor expects the host to answer a continuation emit.
