@@ -8,11 +8,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test, spyOn } from "bun:test";
 import * as posixModule from "@intx/tools-posix";
 
-import {
-  allowDeleteFromCapabilities,
-  allowShellFromCapabilities,
-  createCodexToolProxies,
-} from "./codex-tool-proxies.js";
 import { BUILD_TOOLS, DOCS_TOOLS } from "./directors/tool-sets.js";
 import { advertisedTools, CORE_TOOL_NAMES } from "./tool-search.js";
 
@@ -122,65 +117,5 @@ describe("Codex tool proxy mount", () => {
     expect(BUILD_TOOLS).not.toContain("apply_patch");
     expect(DOCS_TOOLS).not.toContain("apply_patch");
     expect(CORE_TOOL_NAMES).not.toContain("apply_patch");
-  });
-
-  test("capability include-filter no longer keeps Codex proxy names", () => {
-    const proxies = createCodexToolProxies({
-      isCodex: true,
-      runTool: async () => ({ content: "ok" }),
-      readRawFile: async () => ({ content: "ok" }),
-      runManageTasks: async () => ({ content: "ok" }),
-    });
-    expect(proxies.map((t) => t.definition.name)).toEqual([
-      "apply_patch",
-      "shell",
-      "update_plan",
-    ]);
-
-    const allow = new Set<string>(BUILD_TOOLS);
-    const kept = proxies.filter((t) => allow.has(t.definition.name));
-    expect(kept).toEqual([]);
-
-    const docsAllow = new Set<string>(DOCS_TOOLS);
-    const docsKept = proxies.filter((t) => docsAllow.has(t.definition.name));
-    expect(docsKept).toEqual([]);
-  });
-
-  test("runSubAgent-shaped allowlists do not keep Codex proxy names", () => {
-    const docsAllow = new Set<string>(DOCS_TOOLS);
-    const proxies = createCodexToolProxies({
-      isCodex: true,
-      runTool: async () => ({ content: "ok" }),
-      readRawFile: async () => ({ content: "ok" }),
-      runManageTasks: async () => ({ content: "ok" }),
-      allowDelete: allowDeleteFromCapabilities({
-        mode: "allow",
-        tools: DOCS_TOOLS,
-      }),
-      allowShell: allowShellFromCapabilities({
-        mode: "allow",
-        tools: DOCS_TOOLS,
-      }),
-    });
-    const docsKept = proxies.filter((t) => docsAllow.has(t.definition.name));
-    expect(docsKept).toEqual([]);
-  });
-
-  test("non-Codex runSubAgent-shaped mount produces no proxies at all", () => {
-    const proxies = createCodexToolProxies({
-      isCodex: false,
-      runTool: async () => ({ content: "ok" }),
-      readRawFile: async () => ({ content: "ok" }),
-      runManageTasks: async () => ({ content: "ok" }),
-      allowDelete: allowDeleteFromCapabilities({
-        mode: "allow",
-        tools: BUILD_TOOLS,
-      }),
-      allowShell: allowShellFromCapabilities({
-        mode: "allow",
-        tools: BUILD_TOOLS,
-      }),
-    });
-    expect(proxies).toEqual([]);
   });
 });

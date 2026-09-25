@@ -1,4 +1,5 @@
 import { PRODUCT_NAME } from "../branding.js";
+import { advertisedToolName } from "./tool-aliases.js";
 import { buildSubAgentReportContract } from "./prompts.js";
 
 export interface WorkerContractOptions {
@@ -38,5 +39,5 @@ export function buildWorkerContract(opts: WorkerContractOptions = {}): string {
  * primary chat prompt.
  */
 export function buildWorkerToolNames(toolNames: readonly string[]): string {
-  return `Tools (names only): ${toolNames.join(", ")}`;
+  return `Tools (names only): ${toolNames.map(advertisedToolName).join(", ")}`;
 }

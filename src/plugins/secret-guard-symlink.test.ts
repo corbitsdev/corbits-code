@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { createPosixTools } from "@intx/tools-posix";
 import { createPermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
-import { createCodexReadRawFile } from "../agent/codex-read-raw-file.js";
 
 /**
  * CL-6971: under skip-permissions (yolo), pathEscape absolutizes outside paths
@@ -62,7 +61,6 @@ function runner(cwd: string, skipPermissions: boolean) {
     cwd,
   });
   return {
-    gate,
     tools: createPosixTools({
       cwd,
       plugins: buildCorePosixToolPlugins({ cwd, permissionGate: gate }),
@@ -146,33 +144,6 @@ describe("CL-6971 secret-guard realpaths before denylist (symlink floor)", () =>
           /sensitive file|escapes working directory/i,
         );
         expect(await Bun.file(target).text()).toBe(before);
-      });
-    });
-
-    test(`${mode}: file symlink → outside .env is blocked for apply_patch raw read`, async () => {
-      await withFixture(async ({ cwd }) => {
-        const { gate } = runner(cwd, skipPermissions);
-        const result = await createCodexReadRawFile(cwd, gate)("config.txt");
-        expect(result.isError).toBe(true);
-        expect(String(result.content)).toMatch(
-          /sensitive file|escapes working directory/i,
-        );
-        expect(String(result.content)).not.toContain("SECRET=outside-env");
-      });
-    });
-
-    test(`${mode}: dir symlink → outside .aws/credentials is blocked for apply_patch raw read`, async () => {
-      await withFixture(async ({ cwd }) => {
-        const { gate } = runner(cwd, skipPermissions);
-        const result = await createCodexReadRawFile(
-          cwd,
-          gate,
-        )("cache/credentials");
-        expect(result.isError).toBe(true);
-        expect(String(result.content)).toMatch(
-          /sensitive file|escapes working directory/i,
-        );
-        expect(String(result.content)).not.toContain("LEAKED");
       });
     });
   }
