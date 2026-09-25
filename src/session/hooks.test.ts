@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import {
+  CREDENTIAL_REDACTION,
+  scrubSecretShapedValue,
+} from "../plugins/tool-result-secret-scrub.js";
+import {
   createLifecycleHookManager,
   createTurnContextCollector,
   HOOK_PAYLOAD_TOOL_RESULT_CHARS,
@@ -80,6 +84,18 @@ describe("createTurnContextCollector tool result truncation", () => {
     expect(turn?.toolResults[0]?.detail).toEqual(detail);
   });
 
+  test("retained hook payloads do not expose credential-shaped detail keys", () => {
+    const collector = createTurnContextCollector(() => undefined);
+    const rawKey = ["sk-", "live-", "h".repeat(24)].join("");
+    const detail = scrubSecretShapedValue({ [rawKey]: "value" });
+
+    observeOneTurnWithToolResult(collector, "exit code 0", detail);
+
+    const payload = JSON.stringify(collector.getTurns()[0]);
+    expect(payload).toContain(CREDENTIAL_REDACTION);
+    expect(payload).not.toContain(rawKey);
+  });
+
   test("omits oversized structured detail while keeping the content cap", () => {
     const collector = createTurnContextCollector(() => undefined);
     const hugeOutput = "x".repeat(HOOK_PAYLOAD_TOOL_RESULT_CHARS * 4);
@@ -94,6 +110,9 @@ describe("createTurnContextCollector tool result truncation", () => {
     expect(typeof content).toBe("string");
     expect((content as string).length).toBeLessThanOrEqual(
       HOOK_PAYLOAD_TOOL_RESULT_CHARS + 64,
+    );
+    expect(JSON.stringify(turn).length).toBeLessThanOrEqual(
+      HOOK_PAYLOAD_TOOL_RESULT_CHARS + 512,
     );
   });
 });

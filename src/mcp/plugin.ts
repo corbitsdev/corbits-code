@@ -7,6 +7,7 @@ import {
   scrubSecretShapedValue,
 } from "../plugins/tool-result-secret-scrub.js";
 import {
+  MAX_RESULT_CHARS,
   truncateToolResultContent,
   type SpillBlobWriter,
 } from "../plugins/result-truncation-plugin.js";
@@ -43,21 +44,9 @@ export interface McpSpillOptions {
 }
 
 function applyPolicyToBlocks(blocks: MCPContentBlock[]): MCPContentBlock[] {
-  return blocks.map((block) => {
-    const next = { ...block };
-    if (typeof next.text === "string") {
-      next.text = scrubSecretShapedContent(next.text);
-    }
-    for (const [key, value] of Object.entries(next)) {
-      if (key === "type" || key === "text") continue;
-      if (typeof value === "string") {
-        next[key] = scrubSecretShapedContent(value);
-      } else if (value !== null && typeof value === "object") {
-        next[key] = scrubSecretShapedValue(value);
-      }
-    }
-    return next;
-  });
+  return blocks.map(
+    (block) => scrubSecretShapedValue(block) as MCPContentBlock,
+  );
 }
 
 // MCP results never reach the posix runner, so the secret-scrub and truncation
@@ -73,6 +62,20 @@ function sanitizeMcpResultContent(
     undefined,
     spill,
   );
+}
+
+function serializeStructuredContent(
+  value: Record<string, unknown>,
+): { serialized: string; detail?: Record<string, unknown> } | undefined {
+  try {
+    const serialized = JSON.stringify(value);
+    return {
+      serialized,
+      ...(serialized.length <= MAX_RESULT_CHARS ? { detail: value } : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export function mcpClientTools(
@@ -134,18 +137,23 @@ export function mcpClientTools(
                   string,
                   unknown
                 >);
+          const isError = envelope.isError === true;
+          const serializedStructured =
+            scrubbedStructured === undefined
+              ? undefined
+              : serializeStructuredContent(scrubbedStructured);
           const archive = getEvidenceArchive?.();
           if (archive !== undefined) {
             try {
               await archive.recordAuthorizedPayload({
                 kind: "tool_result",
-                payload:
-                  scrubbedStructured === undefined
-                    ? { blocks: authorizedBlocks }
-                    : {
-                        blocks: authorizedBlocks,
-                        structuredContent: scrubbedStructured,
-                      },
+                payload: {
+                  blocks: authorizedBlocks,
+                  isError,
+                  ...(scrubbedStructured !== undefined
+                    ? { structuredContent: scrubbedStructured }
+                    : {}),
+                },
                 callId: call.id,
                 provenance: "mcp:post-policy-pre-flatten",
               });
@@ -154,15 +162,16 @@ export function mcpClientTools(
             }
           }
           const flattened = unwrapToolContent(authorizedBlocks);
-          const isError = envelope.isError === true;
           const baseContent =
             flattened !== ""
               ? flattened
-              : scrubbedStructured !== undefined
-                ? `${MCP_STRUCTURED_CONTENT_MARKER}\n${JSON.stringify(scrubbedStructured)}`
-                : isError
-                  ? `MCP tool ${client.serverName}/${tool.name} reported an error with empty content.`
-                  : flattened;
+              : serializedStructured !== undefined
+                ? `${MCP_STRUCTURED_CONTENT_MARKER}\n${serializedStructured.serialized}`
+                : scrubbedStructured !== undefined
+                  ? `${MCP_STRUCTURED_CONTENT_MARKER}\n[structured content unavailable]`
+                  : isError
+                    ? `MCP tool ${client.serverName}/${tool.name} reported an error with empty content.`
+                    : flattened;
           const writeBlob = getBlobWriter?.();
           const contextDir = getContextDir?.();
           const spill =
@@ -178,8 +187,8 @@ export function mcpClientTools(
             callId: call.id,
             content,
             ...(isError ? { isError: true as const } : {}),
-            ...(scrubbedStructured !== undefined
-              ? { detail: scrubbedStructured }
+            ...(serializedStructured?.detail !== undefined
+              ? { detail: serializedStructured.detail }
               : {}),
           };
         } catch (err) {

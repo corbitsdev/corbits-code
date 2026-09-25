@@ -78,8 +78,8 @@ export function scrubSecretShapedContent(text: string): string {
 
 /**
  * Structure-preserving scrub for validated JSON-shaped tool results. String
- * leaves are scrubbed in place; objects/arrays keep their shape. Never
- * stringifies a Record into the result content.
+ * keys and leaves are scrubbed in place; objects/arrays keep their shape.
+ * Never stringifies a Record into the result content.
  */
 export function scrubSecretShapedValue(value: unknown): unknown {
   if (typeof value === "string") return scrubSecretShapedContent(value);
@@ -88,9 +88,22 @@ export function scrubSecretShapedValue(value: unknown): unknown {
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
-      out[key] = scrubSecretShapedValue(child);
+      const scrubbedKey = uniqueScrubbedKey(out, scrubSecretShapedContent(key));
+      out[scrubbedKey] = scrubSecretShapedValue(child);
     }
     return out;
   }
   return value;
+}
+
+function uniqueScrubbedKey(
+  target: Record<string, unknown>,
+  scrubbedKey: string,
+): string {
+  if (!Object.hasOwn(target, scrubbedKey)) return scrubbedKey;
+  let collisionIndex = 2;
+  while (Object.hasOwn(target, `${scrubbedKey} [${collisionIndex}]`)) {
+    collisionIndex++;
+  }
+  return `${scrubbedKey} [${collisionIndex}]`;
 }

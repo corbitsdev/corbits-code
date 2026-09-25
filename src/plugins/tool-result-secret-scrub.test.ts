@@ -62,6 +62,46 @@ describe("scrubSecretShapedValue", () => {
   });
 });
 
+describe("scrubSecretShapedValue key handling", () => {
+  test("scrubs credential-shaped keys recursively", () => {
+    const topLevelKey = ["sk-", "live-", "a".repeat(24)].join("");
+    const nestedKey = `prefix-${["sk-", "live-", "b".repeat(24)].join("")}`;
+
+    const out = scrubSecretShapedValue({
+      [topLevelKey]: "top-level",
+      nested: { [nestedKey]: "nested" },
+    });
+    const serialized = JSON.stringify(out);
+
+    expect(out).toEqual({
+      [CREDENTIAL_REDACTION]: "top-level",
+      nested: { [`prefix-${CREDENTIAL_REDACTION}`]: "nested" },
+    });
+    expect(serialized).not.toContain(topLevelKey);
+    expect(serialized).not.toContain(nestedKey);
+  });
+
+  test("resolves scrubbed key collisions deterministically without raw keys", () => {
+    const firstKey = ["sk-", "live-", "a".repeat(24)].join("");
+    const secondKey = ["sk-", "live-", "b".repeat(24)].join("");
+
+    const out = scrubSecretShapedValue({
+      [firstKey]: "first",
+      [secondKey]: "second",
+      [CREDENTIAL_REDACTION]: "already-redacted",
+    });
+    const serialized = JSON.stringify(out);
+
+    expect(out).toEqual({
+      [CREDENTIAL_REDACTION]: "first",
+      [`${CREDENTIAL_REDACTION} [2]`]: "second",
+      [`${CREDENTIAL_REDACTION} [3]`]: "already-redacted",
+    });
+    expect(serialized).not.toContain(firstKey);
+    expect(serialized).not.toContain(secondKey);
+  });
+});
+
 describe("toolResultSecretScrubPlugin", () => {
   const next =
     (content: ToolResult["content"], isError = false) =>

@@ -34,9 +34,9 @@ export interface MCPContentBlock {
  * protocol layer. The envelope carries all three so the plugin can surface
  * failures as errors and structured-only payloads as readable text.
  * `structuredContent` reaches the model JSON-serialized into the content
- * string under MCP_STRUCTURED_CONTENT_MARKER (see plugin.ts) with the raw
- * (policy-scrubbed) record preserved under ToolResult `detail` and in the
- * evidence archive — never raw.
+ * string under MCP_STRUCTURED_CONTENT_MARKER (see plugin.ts). Small
+ * policy-scrubbed records are preserved under ToolResult `detail`; the full
+ * scrubbed record is retained in the evidence archive — never raw.
  */
 export interface MCPToolResultEnvelope {
   blocks: MCPContentBlock[];
