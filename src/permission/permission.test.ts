@@ -1553,11 +1553,47 @@ describe("createPermissionGate", () => {
       "search_agents",
       "spawn_agent",
       "wait_agents",
+      "list_agents",
+      "send_input",
+      "interrupt_agent",
+      "close_agent",
+      "resume_agent",
+      "read_agent_trace",
     ]) {
       const verdict = await gate.evaluate({ id: "c", name, arguments: {} });
       expect(verdict.allowed).toBe(true);
     }
     expect(asked).toBe(0);
+  });
+
+  test("ask mode prompts for fleet continuation tools", async () => {
+    let asked = 0;
+    let approval = false;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: approval };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      auto: false,
+    });
+    const tools = [
+      "list_agents",
+      "send_input",
+      "interrupt_agent",
+      "close_agent",
+      "resume_agent",
+      "read_agent_trace",
+    ];
+    for (const [index, name] of tools.entries()) {
+      approval = index % 2 === 0;
+      const verdict = await gate.evaluate({ id: "c", name, arguments: {} });
+      expect(verdict.allowed).toBe(approval);
+    }
+    expect(asked).toBe(tools.length);
   });
 
   // manage_tasks's handler has no side effect — the task list is mutated
