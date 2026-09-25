@@ -979,9 +979,7 @@ describe("createOptimizedContextStore prompt dedupe (CL-9026)", () => {
   }
 
   function cloneTurns(turns: ConversationTurn[]): ConversationTurn[] {
-    return turns.map(
-      (t) => JSON.parse(JSON.stringify(t)) as ConversationTurn,
-    );
+    return turns.map((t) => JSON.parse(JSON.stringify(t)) as ConversationTurn);
   }
 
   test("identical writePrompt writes no prompt segment", async () => {
@@ -1024,9 +1022,9 @@ describe("createOptimizedContextStore prompt dedupe (CL-9026)", () => {
     await ephemeralStore.writeTurns([...live]);
     const withEphemeral = [...cloneTurns(live), turn("ephemeral")];
     await ephemeralStore.writePrompt(withEphemeral);
-    expect(
-      fs.readFileSync(path.join(ephemeralDir, PROMPT_FILE), "utf-8"),
-    ).toBe(jsonl(withEphemeral));
+    expect(fs.readFileSync(path.join(ephemeralDir, PROMPT_FILE), "utf-8")).toBe(
+      jsonl(withEphemeral),
+    );
   });
 
   test("turns-only store loads live turns and commits no prompt file", async () => {
