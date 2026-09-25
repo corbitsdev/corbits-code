@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defined } from "../../tests/helpers/defined.js";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 import { connectMCPServer } from "./client.js";
 
@@ -25,14 +26,6 @@ await withMockedModule(
   }),
 );
 
-await withMockedModule(
-  import.meta.resolve("@modelcontextprotocol/sdk/client/stdio.js"),
-  (real: typeof import("@modelcontextprotocol/sdk/client/stdio.js")) => ({
-    ...real,
-    StdioClientTransport: class {},
-  }),
-);
-
 describe("mcp client tool envelope", () => {
   test("callResult preserves isError and structuredContent from the SDK", async () => {
     scriptedCallToolResult = {
@@ -45,11 +38,10 @@ describe("mcp client tool envelope", () => {
       {},
     );
     if (!connected.ok) throw new Error("expected stdio connect to succeed");
-    const envelope = await connected.client.callResult(
-      "do_thing",
-      {},
-      new AbortController().signal,
-    );
+    const envelope = await defined(
+      connected.client.callResult,
+      "mcp client callResult",
+    )("do_thing", {}, new AbortController().signal);
 
     expect(envelope.isError).toBe(true);
     expect(envelope.blocks).toEqual([

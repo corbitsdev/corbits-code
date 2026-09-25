@@ -11,12 +11,23 @@ import {
   type SpillBlobWriter,
 } from "../plugins/result-truncation-plugin.js";
 import type { CompactionArchive } from "../session/compaction-archive.js";
-import type { MCPClient, MCPContentBlock } from "./client.js";
+import type {
+  MCPClient,
+  MCPContentBlock,
+  MCPToolResultEnvelope,
+} from "./client.js";
 import { mcpToolName } from "./tool-name.js";
 import { unwrapToolContent } from "./client.js";
 
 export const MCP_RECONNECTING_TOOL_ERROR =
   "MCP server is reconnecting; retry the call once it reports connected.";
+
+/**
+ * Stable marker prefixing JSON-serialized `structuredContent` when it is the
+ * only payload (or supplements an empty flatten). Lets the model — and log
+ * grep — distinguish server-structured data from free text.
+ */
+export const MCP_STRUCTURED_CONTENT_MARKER = "mcp structured result:";
 
 /** True while the server keeps its tools mounted but cannot execute. */
 export function isDegradedMcpState(state: { state: string }): boolean {
@@ -90,22 +101,51 @@ export function mcpClientTools(
         signal: AbortSignal,
       ): Promise<ToolResult> => {
         try {
-          const rawBlocks =
-            typeof client.callBlocks === "function"
-              ? await client.callBlocks(tool.name, call.arguments, signal)
-              : [
-                  {
-                    type: "text",
-                    text: await client.call(tool.name, call.arguments, signal),
-                  } satisfies MCPContentBlock,
-                ];
-          const authorizedBlocks = applyPolicyToBlocks(rawBlocks);
+          const envelope: MCPToolResultEnvelope =
+            typeof client.callResult === "function"
+              ? await client.callResult(tool.name, call.arguments, signal)
+              : typeof client.callBlocks === "function"
+                ? {
+                    blocks: await client.callBlocks(
+                      tool.name,
+                      call.arguments,
+                      signal,
+                    ),
+                    isError: false,
+                  }
+                : {
+                    blocks: [
+                      {
+                        type: "text",
+                        text: await client.call(
+                          tool.name,
+                          call.arguments,
+                          signal,
+                        ),
+                      } satisfies MCPContentBlock,
+                    ],
+                    isError: false,
+                  };
+          const authorizedBlocks = applyPolicyToBlocks(envelope.blocks);
+          const scrubbedStructured =
+            envelope.structuredContent === undefined
+              ? undefined
+              : (scrubSecretShapedValue(envelope.structuredContent) as Record<
+                  string,
+                  unknown
+                >);
           const archive = getEvidenceArchive?.();
           if (archive !== undefined) {
             try {
               await archive.recordAuthorizedPayload({
                 kind: "tool_result",
-                payload: { blocks: authorizedBlocks },
+                payload:
+                  scrubbedStructured === undefined
+                    ? { blocks: authorizedBlocks }
+                    : {
+                        blocks: authorizedBlocks,
+                        structuredContent: scrubbedStructured,
+                      },
                 callId: call.id,
                 provenance: "mcp:post-policy-pre-flatten",
               });
@@ -114,6 +154,15 @@ export function mcpClientTools(
             }
           }
           const flattened = unwrapToolContent(authorizedBlocks);
+          const isError = envelope.isError === true;
+          const baseContent =
+            flattened !== ""
+              ? flattened
+              : scrubbedStructured !== undefined
+                ? `${MCP_STRUCTURED_CONTENT_MARKER}\n${JSON.stringify(scrubbedStructured)}`
+                : isError
+                  ? `MCP tool ${client.serverName}/${tool.name} reported an error with empty content.`
+                  : flattened;
           const writeBlob = getBlobWriter?.();
           const contextDir = getContextDir?.();
           const spill =
@@ -124,8 +173,15 @@ export function mcpClientTools(
                   ...(contextDir !== undefined ? { contextDir } : {}),
                 }
               : undefined;
-          const content = await sanitizeMcpResultContent(flattened, spill);
-          return { callId: call.id, content };
+          const content = await sanitizeMcpResultContent(baseContent, spill);
+          return {
+            callId: call.id,
+            content,
+            ...(isError ? { isError: true as const } : {}),
+            ...(scrubbedStructured !== undefined
+              ? { detail: scrubbedStructured }
+              : {}),
+          };
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           const scrubbed = scrubSecretShapedContent(message);

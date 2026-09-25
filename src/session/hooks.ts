@@ -501,6 +501,7 @@ function truncateToolResultForHookPayload(result: ToolResult): ToolResult {
     callId: result.callId,
     content,
     ...(result.isError !== undefined ? { isError: result.isError } : {}),
+    ...(result.detail !== undefined ? { detail: result.detail } : {}),
     ...(result.pendingMarker !== undefined
       ? { pendingMarker: result.pendingMarker }
       : {}),
