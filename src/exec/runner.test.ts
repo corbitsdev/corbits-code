@@ -92,9 +92,7 @@ describe("exec director allowlist", () => {
     promote([OUTSIDE_ALLOW]);
     expect(activated.has(OUTSIDE_ALLOW)).toBe(false);
     expect(isAdvertised(OUTSIDE_ALLOW)).toBe(false);
-    expect(
-      createExecToolCallGate(isAdvertised, { isCodex: false })(OUTSIDE_ALLOW),
-    ).toBe(false);
+    expect(createExecToolCallGate(isAdvertised)(OUTSIDE_ALLOW)).toBe(false);
   });
 
   test("the promoter commits allowed names onto the next infer wire", () => {
@@ -125,9 +123,7 @@ describe("exec director allowlist", () => {
     expect(activated.has(OUTSIDE_ALLOW)).toBe(false);
     expect(activated.has("read_file")).toBe(true);
     expect(committed).toBe(1);
-    expect(computeAdvertised(registry).map((d) => d.name)).toContain(
-      "read_file",
-    );
+    expect(computeAdvertised(registry).map((d) => d.name)).toContain("read");
   });
 
   test("the promoter does not commit a name outside the overlay allow list", () => {

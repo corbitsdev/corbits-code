@@ -42,10 +42,10 @@ describe("bruckheimerPackage", () => {
 
   test("systemPrompt uses Corbits file tools (not Read/Write/Bash)", () => {
     const p = bruckheimerPackage.systemPrompt;
-    expect(p).toMatch(/read_file/);
-    expect(p).toMatch(/write_file/);
-    expect(p).toMatch(/edit_file/);
-    expect(p).toMatch(/search_files/);
+    expect(p).toMatch(/`read`/);
+    expect(p).toMatch(/`write`/);
+    expect(p).toMatch(/`edit`/);
+    expect(p).toMatch(/`glob`/);
     expect(p).not.toMatch(/\bAskUserQuestion\b/);
     expect(p).not.toMatch(/Use Read and Write/);
     expect(p).not.toMatch(/Use Bash sparingly/);

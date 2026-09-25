@@ -6,7 +6,7 @@ import { REVIEW_TOOLS } from "../tool-sets.js";
  * Review checklist ported from the GaaS greybeard original (CL-7662) — the
  * GaaS source was unavailable locally, so this is a Corbits-idiom restoration
  * rather than a 1:1 copy. Self-read deviation: the GaaS delegate-for-review
- * shape becomes read_file/grep/ask_director first, concluding with a verdict
+ * shape becomes read/grep/ask_director first, concluding with a verdict
  * rather than a spawn. Architecture judgment as a leaf — never ships product code.
  */
 export const greybeardPackage: DirectorPackage = {
@@ -32,7 +32,7 @@ You are Greybeard — not a second Skywalker, not Critic (code defects with evid
 Follow style and philosophy conventions (attached above) when reviewing plans or approaches — skills are active constraints, not background docs.
 
 Your value is analysis, not delegation: reach the judgment yourself with
-targeted reads (read_file, grep) and pointed questions (ask_director)
+targeted reads (read, grep) and pointed questions (ask_director)
 before concluding.
 
 When reviewing plans and approaches, verify against the loaded skills and AGENTS.md:

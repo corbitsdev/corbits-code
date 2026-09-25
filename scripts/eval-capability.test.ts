@@ -381,8 +381,8 @@ describe("buildEvalDiagnostics", () => {
     const diagnostics = await buildEvalDiagnostics(
       sampleConfig({ providerName: "openai" }),
     );
-    expect(diagnostics.advertisedTools).toContain("read_file");
-    expect(diagnostics.advertisedTools).toContain("run_shell");
+    expect(diagnostics.advertisedTools).toContain("read");
+    expect(diagnostics.advertisedTools).toContain("bash");
     expect(diagnostics.advertisedTools).not.toContain("ask_operator");
     expect(diagnostics.reasoningEffort).toBeNull();
   });
@@ -394,7 +394,7 @@ describe("buildEvalDiagnostics", () => {
         sampleConfig({ providerName }),
       );
       expect(diagnostics).not.toHaveProperty("codexInstructionsHash");
-      expect(diagnostics.advertisedTools).toContain("read_file");
+      expect(diagnostics.advertisedTools).toContain("read");
     },
   );
 

@@ -35,7 +35,7 @@ describe("DOCS_TOOLS", () => {
     expect(DOCS_TOOLS).toContain("delete_file");
   });
 
-  test("keeps read/search/lsp/web + file writes + apply_patch", () => {
+  test("keeps read/search/lsp/web + file writes", () => {
     const expected: readonly string[] = [
       "read_file",
       "grep",
@@ -47,7 +47,6 @@ describe("DOCS_TOOLS", () => {
       "write_file",
       "edit_file",
       "delete_file",
-      "apply_patch",
     ];
     for (const tool of expected) {
       expect(DOCS_TOOLS as readonly string[]).toContain(tool);
@@ -60,9 +59,10 @@ describe("DOCS_TOOLS", () => {
     }
   });
 
-  test("excludes the shell proxy (no run_shell) but keeps update_plan", () => {
-    expect(DOCS_TOOLS).not.toContain("shell");
-    expect(DOCS_TOOLS).toContain("update_plan");
+  test("omits Codex native names", () => {
+    expect(DOCS_TOOLS as readonly string[]).not.toContain("shell");
+    expect(DOCS_TOOLS as readonly string[]).not.toContain("update_plan");
+    expect(DOCS_TOOLS as readonly string[]).not.toContain("apply_patch");
   });
 });
 
@@ -151,19 +151,16 @@ describe("REVIEW_TOOLS / INTERN_TOOLS", () => {
 });
 
 describe("BUILD_TOOLS", () => {
-  test("includes apply_patch alongside path mutation tools", () => {
+  test("includes path mutation tools and omits Codex natives", () => {
     expect(BUILD_TOOLS).toContain("write_file");
     expect(BUILD_TOOLS).toContain("edit_file");
     expect(BUILD_TOOLS).toContain("delete_file");
-    expect(BUILD_TOOLS).toContain("apply_patch");
+    expect(BUILD_TOOLS as readonly string[]).not.toContain("apply_patch");
+    expect(BUILD_TOOLS as readonly string[]).not.toContain("shell");
+    expect(BUILD_TOOLS as readonly string[]).not.toContain("update_plan");
   });
 
-  test("includes the Codex shell and update_plan proxy names", () => {
-    expect(BUILD_TOOLS).toContain("shell");
-    expect(BUILD_TOOLS).toContain("update_plan");
-  });
-
-  test("review/orchestrator/intern do not mount apply_patch", () => {
+  test("review/orchestrator/intern do not list apply_patch", () => {
     for (const surface of [REVIEW_TOOLS, ORCHESTRATOR_TOOLS, INTERN_TOOLS]) {
       expect(surface as readonly string[]).not.toContain("apply_patch");
     }

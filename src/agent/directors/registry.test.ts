@@ -192,15 +192,13 @@ describe("director registry", () => {
     }
   });
 
-  test("builder mounts product writes + apply_patch; intern mounts writes without apply_patch; other leaves do not spawn", () => {
+  test("builder mounts product writes; intern mounts writes without apply_patch; other leaves do not spawn", () => {
     expect(DIRECTOR_REGISTRY.builder.tools?.allow).toEqual(
-      expect.arrayContaining([
-        "write_file",
-        "edit_file",
-        "delete_file",
-        "apply_patch",
-      ]),
+      expect.arrayContaining(["write_file", "edit_file", "delete_file"]),
     );
+    expect(
+      DIRECTOR_REGISTRY.builder.tools?.allow as readonly string[],
+    ).not.toContain("apply_patch");
     const internAllow = DIRECTOR_REGISTRY.intern.tools?.allow ?? [];
     expect(internAllow).toContain("run_shell");
     expect(internAllow).toContain("write_file");
@@ -215,7 +213,7 @@ describe("director registry", () => {
 
   test("skywalker primary stance: DIY tiny writes, spawn for substantial work", () => {
     const s = DIRECTOR_REGISTRY.skywalker;
-    expect(s.systemPrompt).toContain("write_file/edit_file/delete_file");
+    expect(s.systemPrompt).toContain("write/edit/delete");
     expect(s.systemPrompt).toContain("DIY tiny/single-file/one-route");
     expect(s.systemPrompt).toContain("You are Skywalker");
     expect(s.systemPrompt).toMatch(/No catch-all worker/i);

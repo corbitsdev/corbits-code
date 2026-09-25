@@ -16,7 +16,7 @@ export const CHAT_PROMPT_QUALITY_MARKERS = [
   "skill_search when choosing",
   "use_skill style and philosophy when starting repo work",
   "advertised catalog (including skill_search) are resident",
-  "grep or search_files",
+  "grep or glob",
   "never shell-write (echo/heredoc/sed/rm)",
   "ask_director",
   "send_input",

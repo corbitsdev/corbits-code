@@ -5,13 +5,13 @@ disable-model-invocation: true
 description: Compact Corbits worker runtime invariants for baked prompts.
 ---
 
-Use Corbits tool names: `read_file`, `write_file`, `edit_file`, `delete_file`,
-`grep`, `search_files`, `run_shell`, `web_search`, `web_fetch`,
+Use Corbits tool names: `read`, `write`, `edit`, `delete`,
+`grep`, `glob`, `bash`, `web_search`, `web_fetch`,
 `manage_tasks`, and `ask_director` for worker questions.
 
 Use file tools for file reads, edits, writes, and deletions. Never use shell
 redirects, heredocs, `echo`, `cat`, stream editors, or remove commands as
-substitutes for file tools. Use bounded `grep` and `search_files` instead of
+substitutes for file tools. Use bounded `grep` and `glob` instead of
 unbounded recursive shell searches. Use web tools for URLs; never use curl or
 wget.
 

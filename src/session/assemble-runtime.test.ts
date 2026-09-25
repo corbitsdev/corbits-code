@@ -44,7 +44,7 @@ describe("createAdvertisedToolset", () => {
       def("write_file"),
       def("mystery_tool"),
     ]).map((d) => d.name);
-    expect(names).toContain("write_file");
+    expect(names).toContain("write");
     expect(names).not.toContain("mystery_tool");
   });
 
@@ -98,7 +98,7 @@ describe("createAdvertisedToolset", () => {
       computeAdvertised([def("read_file"), def("write_file")]).map(
         (d) => d.name,
       ),
-    ).toEqual(["read_file"]);
+    ).toEqual(["read"]);
   });
 
   test("advertises nothing from an empty registry", () => {

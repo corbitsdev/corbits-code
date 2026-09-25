@@ -11,6 +11,7 @@ import { AgentProfileSchema } from "../agent/profiles.js";
 import { REASONING_EFFORTS } from "../agent/profile-types.js";
 import { splitFrontmatter } from "./frontmatter.js";
 import { type } from "arktype";
+import { WIRE_TO_ENGINE, HIDDEN_TO_ENGINE } from "../agent/tool-aliases.js";
 
 // Reasoning-effort schema derived from the canonical array, mirroring the
 // pattern in ../agent/profiles.ts (arktype's `type()` needs a literal union
@@ -59,14 +60,14 @@ const NativeCapabilitiesModeSchema = type("'allow' | 'exclude'");
 // Native Corbits Code keys also work and win ties: inference, capabilities,
 // skills (frontmatter list, in addition to body `Load the X skill` lines).
 
-// Upstream tool-name aliases mapped to Corbits Code tool ids. Case-insensitive.
+// Upstream tool-name aliases mapped to Corbits Code engine ids. Case-insensitive.
+// Posix wire/hidden names come from the shared CL-8400 table.
 const TOOL_ALIASES: Record<string, readonly string[]> = {
-  read: ["read_file"],
-  write: ["write_file"],
-  edit: ["edit_file"],
-  bash: ["run_shell"],
-  shell: ["run_shell"],
-  glob: ["search_files"],
+  ...Object.fromEntries(
+    Object.entries({ ...WIRE_TO_ENGINE, ...HIDDEN_TO_ENGINE }).map(
+      ([alias, engine]) => [alias, [engine]],
+    ),
+  ),
   find: ["search_files"],
   grep: ["grep"],
   ls: ["list_dir"],

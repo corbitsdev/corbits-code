@@ -23,9 +23,10 @@ export const READ_TOOLS = [
 ] as const;
 
 /**
- * Path mutation tools shared by closed directors. Codex `apply_patch` stays on
- * build/docs only — review/explore/orchestrator/intern mount these path tools
- * alone (lane discipline lives in prompts, not the capability filter).
+ * Path mutation tools shared by closed directors. Review/explore/orchestrator
+ * /intern mount these path tools (lane discipline lives in prompts, not the
+ * capability filter). delete is advertised on write surfaces, omitted from
+ * READ_TOOLS only.
  */
 export const PRODUCT_WRITE_TOOLS = [
   "write_file",
@@ -34,18 +35,11 @@ export const PRODUCT_WRITE_TOOLS = [
 ] as const;
 
 /**
- * Build: read + full file mutation. `shell` and `update_plan` are Codex
- * proxy names (createCodexToolProxies) for `run_shell` / the plan tool; both
- * are listed here so Codex build workers keep the proxies after the
- * capability filter, same rationale as `apply_patch` below.
+ * Build: read + full file mutation. Codex natives are not advertised and are
+ * not mounted as extra AgentTools — hidden aliases dispatch onto run_shell /
+ * manage_tasks when those engines are mounted.
  */
-export const BUILD_TOOLS = [
-  ...READ_TOOLS,
-  ...PRODUCT_WRITE_TOOLS,
-  "apply_patch",
-  "shell",
-  "update_plan",
-] as const;
+export const BUILD_TOOLS = [...READ_TOOLS, ...PRODUCT_WRITE_TOOLS] as const;
 
 /**
  * Docs workers: read/search/lsp/web + file writes — no run_shell.
@@ -53,16 +47,11 @@ export const BUILD_TOOLS = [
  * terminal. There is no separate path-level lock on top of the tool envelope.
  *
  * Composed from READ_TOOLS minus run_shell so it tracks the read surface
- * automatically; path writes come from PRODUCT_WRITE_TOOLS. `apply_patch` is
- * included so Codex docs workers keep the proxy after the capability filter.
- * `update_plan` is included for the same reason (its proxy has no `run_shell`
- * dependency, so it is not excluded alongside `shell`).
+ * automatically; path writes come from PRODUCT_WRITE_TOOLS.
  */
 export const DOCS_TOOLS = [
   ...READ_TOOLS.filter((t) => t !== "run_shell" && t !== "shell_collect"),
   ...PRODUCT_WRITE_TOOLS,
-  "apply_patch",
-  "update_plan",
 ] as const;
 
 /** Review / counsel: read surface + path writes (skill tools arrive via READ_TOOLS; lane discipline in prompts). */

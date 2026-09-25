@@ -18,13 +18,9 @@ import {
   MAX_AGENTS_MD_BYTES,
 } from "./context-extensions.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
-import { isCodexProviderName } from "../config/codex-providers.js";
 import { shellCollectDefinition } from "./background-shell-tool.js";
-import {
-  applyPatchDefinition,
-  shellDefinition,
-  updatePlanDefinition,
-} from "./codex-tool-proxies.js";
+import { advertisedToolName } from "./tool-aliases.js";
+import { canonicalToolName } from "./canonical-tool-name.js";
 import { manageTasksDefinition } from "./tasks.js";
 import { DELETE_FILE_DEFINITION } from "../plugins/delete-file-plugin.js";
 import { webFetchDefinition } from "../tools/web-fetch.js";
@@ -90,11 +86,9 @@ export const CANONICAL_AGENTS_MD = "Follow the repository conventions.\n";
  * Pre-filter mount names in run.ts install order: posix base (TOOL_NAMES,
  * shared with createPosixTools) + delete_file / lsp plugin tools
  * (buildCorePosixToolPlugins) + core web tools (coreSubAgentWebTools) +
- * shell_collect (run.ts:678-694). Codex proxies (apply_patch, shell,
- * update_plan) join only when isCodex — createCodexToolProxies returns []
- * otherwise (run.ts:708-718, codex-tool-proxies.ts:163-166).
+ * shell_collect (run.ts). Codex natives are not mounted.
  */
-function preFilterMountNames(isCodex: boolean): readonly string[] {
+function preFilterMountNames(): readonly string[] {
   return [
     ...Object.values(TOOL_NAMES),
     DELETE_FILE_DEFINITION.name,
@@ -102,13 +96,6 @@ function preFilterMountNames(isCodex: boolean): readonly string[] {
     webFetchDefinition.name,
     webSearchDefinition.name,
     shellCollectDefinition.name,
-    ...(isCodex
-      ? [
-          applyPatchDefinition.name,
-          shellDefinition.name,
-          updatePlanDefinition.name,
-        ]
-      : []),
   ];
 }
 
@@ -125,26 +112,27 @@ function preFilterMountNames(isCodex: boolean): readonly string[] {
  */
 export function canonicalToolNamesForDirector(
   pkg: DirectorPackage,
-  family: PromptSizeFamily,
+  _family: PromptSizeFamily,
 ): readonly string[] {
-  const providerName =
-    family === "grok"
-      ? GROK_PROVIDER.providerName
-      : family === "muse"
-        ? MUSE_PROVIDER.providerName
-        : family === "claude"
-          ? CLAUDE_PROVIDER.providerName
-          : family === "gpt"
-            ? GPT_PROVIDER.providerName
-            : DEFAULT_PROVIDER.providerName;
-  const filtered = [...preFilterMountNames(isCodexProviderName(providerName))];
+  const filtered = [...preFilterMountNames()];
   const capabilities = packageToCapabilities(pkg);
   const names =
     capabilities === undefined
       ? filtered
       : capabilities.mode === "allow"
-        ? filtered.filter((name) => capabilities.tools.includes(name))
-        : filtered.filter((name) => !capabilities.tools.includes(name));
+        ? filtered.filter((name) =>
+            capabilities.tools.some(
+              (allowed) =>
+                canonicalToolName(allowed) === canonicalToolName(name),
+            ),
+          )
+        : filtered.filter(
+            (name) =>
+              !capabilities.tools.some(
+                (denied) =>
+                  canonicalToolName(denied) === canonicalToolName(name),
+              ),
+          );
   names.push(manageTasksDefinition.name);
   if (pkg.tier === "leaf") {
     names.push("submit_result", "ask_director");
@@ -168,7 +156,7 @@ export function canonicalToolNamesForDirector(
       `canonicalToolNamesForDirector(${pkg.id}): "${dupe}" mounted twice — the assembly drifted from src/subagent/run.ts`,
     );
   }
-  return names;
+  return names.map(advertisedToolName);
 }
 
 /** Assemble one director prompt exactly as run.ts does. */

@@ -7,9 +7,7 @@ describe("skywalkerPackage", () => {
     expect(skywalkerPackage.systemPrompt).toContain(
       "When asked your name, answer: Skywalker",
     );
-    expect(skywalkerPackage.systemPrompt).toContain(
-      "write_file/edit_file/delete_file",
-    );
+    expect(skywalkerPackage.systemPrompt).toContain("write/edit/delete");
     expect(skywalkerPackage.systemPrompt).toContain(
       "DIY tiny/single-file/one-route",
     );
@@ -160,7 +158,7 @@ describe("skywalkerPackage", () => {
   test("systemPrompt simple path skips explorer+critic for tiny work", () => {
     const p = skywalkerPackage.systemPrompt;
     expect(p).toContain("Skip spawn, skip explorer, skip plan, skip critic");
-    expect(p).toContain("write_file/edit_file");
+    expect(p).toContain("write/edit");
   });
 
   test("systemPrompt routes URL reads through web_fetch on primary", () => {

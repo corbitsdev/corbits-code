@@ -11,6 +11,7 @@ import {
   extractAffectedPaths,
   parseCodexApplyPatch,
 } from "./codex-apply-patch.js";
+import { canonicalToolName } from "./canonical-tool-name.js";
 
 export const PRODUCT_MUTATION_TOOLS = [
   "write_file",
@@ -24,7 +25,7 @@ const PRODUCT_MUTATION_TOOL_SET: ReadonlySet<string> = new Set(
 );
 
 export function isProductMutationTool(name: string): boolean {
-  return PRODUCT_MUTATION_TOOL_SET.has(name);
+  return PRODUCT_MUTATION_TOOL_SET.has(canonicalToolName(name));
 }
 
 /**
@@ -33,13 +34,14 @@ export function isProductMutationTool(name: string): boolean {
  * Malformed / missing apply_patch input yields [] (subjects refine when a proxy mounts).
  */
 export function productMutationPaths(name: string, args: unknown): string[] {
-  if (!isProductMutationTool(name)) return [];
+  const engine = canonicalToolName(name);
+  if (!isProductMutationTool(engine)) return [];
   const record =
     args !== null && typeof args === "object" && !Array.isArray(args)
       ? (args as Record<string, unknown>)
       : {};
 
-  if (name === "apply_patch") {
+  if (engine === "apply_patch") {
     const input = record.input;
     if (typeof input !== "string" || input.length === 0) return [];
     try {

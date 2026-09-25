@@ -12,6 +12,7 @@ import {
 } from "./tool-execution-watchdog.js";
 import { resolveRegisteredToolName } from "./resolve-registered-tool-name.js";
 import { stripTerminalControlSequences } from "../util/control-char-strip.js";
+import { prepareDispatchedToolCall } from "../agent/tool-aliases.js";
 
 // A tool runner whose set of tools can grow after construction. The static
 // createToolRunner freezes its name map at build time, which cannot accommodate
@@ -150,8 +151,16 @@ export function createDynamicToolRunner(
           isError: true,
         };
       }
-      const dispatchCall =
-        resolved === call.name ? call : { ...call, name: resolved };
+      let dispatchCall: ToolCall;
+      try {
+        dispatchCall = prepareDispatchedToolCall(call, resolved);
+      } catch (err) {
+        return {
+          callId: call.id,
+          content: err instanceof Error ? err.message : String(err),
+          isError: true,
+        };
+      }
       const executionTimeoutMs = resolveToolExecutionTimeoutMs(
         watchdogConfig,
         dispatchCall,

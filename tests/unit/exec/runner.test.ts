@@ -24,10 +24,6 @@ import {
 } from "../../../src/exec/mcp-handshake.js";
 import { submitOutputDefinition } from "../../../src/agent/director.js";
 import {
-  shellDefinition,
-  updatePlanDefinition,
-} from "../../../src/agent/codex-tool-proxies.js";
-import {
   advertisedToolNamesForSessionMode,
   createToolIndex,
   createToolSearchTool,
@@ -1029,7 +1025,7 @@ describe("exec tool call gate and promoter", () => {
     handler: async () => reply,
   });
 
-  function wireExecDiscovery(isCodex: boolean) {
+  function wireExecDiscovery() {
     const runner = createDynamicToolRunner([
       stringTool("read_file", "core", "read a file"),
       stringTool(
@@ -1044,8 +1040,6 @@ describe("exec tool call gate and promoter", () => {
       ),
       stringTool("plugin__notes__save", "noted", "Save granola notes"),
       stringTool(submitOutputDefinition.name, "submitted", "submit output"),
-      stringTool(shellDefinition.name, "sh", "run a shell command"),
-      stringTool(updatePlanDefinition.name, "planned", "update the plan"),
     ]);
     const { activated, isAdvertised, computeAdvertised, flushPromotions } =
       createAdvertisedToolset({
@@ -1053,7 +1047,7 @@ describe("exec tool call gate and promoter", () => {
         toolAvailability: { languageServerAvailable: false },
         getProvider: () => ({ providerName: "test", model: "test" }),
       });
-    runner.setCallGate(createExecToolCallGate(isAdvertised, { isCodex }));
+    runner.setCallGate(createExecToolCallGate(isAdvertised));
     let persistCount = 0;
     const promote = createExecToolPromoter({
       activate: (names) => activated.activate(names),
@@ -1093,7 +1087,7 @@ describe("exec tool call gate and promoter", () => {
 
   test("tool_search then MCP dispatch with the gate on", async () => {
     const { runner, search, persistCount, computeAdvertised } =
-      wireExecDiscovery(false);
+      wireExecDiscovery();
     const blocked = await dispatch(runner, "mcp__linear__save_issue");
     expect(blocked.isError).toBe(true);
     expect(blocked.content).toContain("tool_search");
@@ -1111,7 +1105,7 @@ describe("exec tool call gate and promoter", () => {
   });
 
   test("present and plugin names pass the gate after tool_search promote", async () => {
-    const { runner, search } = wireExecDiscovery(false);
+    const { runner, search } = wireExecDiscovery();
     expect((await dispatch(runner, "present")).isError).toBe(true);
     expect((await dispatch(runner, "plugin__notes__save")).isError).toBe(true);
 
@@ -1132,25 +1126,9 @@ describe("exec tool call gate and promoter", () => {
   });
 
   test("gate admits submit_output without activation", async () => {
-    const { runner } = wireExecDiscovery(false);
+    const { runner } = wireExecDiscovery();
     const result = await dispatch(runner, submitOutputDefinition.name);
     expect(result.content).toBe("submitted");
     expect(result.isError).toBeUndefined();
-  });
-
-  test("Codex gate admits shell and update_plan without activation", async () => {
-    const { runner } = wireExecDiscovery(true);
-    const shell = await dispatch(runner, shellDefinition.name);
-    expect(shell.content).toBe("sh");
-    expect(shell.isError).toBeUndefined();
-    const plan = await dispatch(runner, updatePlanDefinition.name);
-    expect(plan.content).toBe("planned");
-    expect(plan.isError).toBeUndefined();
-  });
-
-  test("non-Codex gate refuses shell until it is advertised", async () => {
-    const { runner } = wireExecDiscovery(false);
-    const blocked = await dispatch(runner, shellDefinition.name);
-    expect(blocked.isError).toBe(true);
   });
 });

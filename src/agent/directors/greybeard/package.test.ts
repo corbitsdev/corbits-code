@@ -13,7 +13,7 @@ describe("greybeardPackage", () => {
   test("systemPrompt frames value as analysis via Corbits read tools", () => {
     const p = greybeardPackage.systemPrompt;
     expect(p).toMatch(/value is analysis/i);
-    expect(p).toContain("read_file");
+    expect(p).toContain("targeted reads (read, grep)");
     expect(p).toContain("grep");
     expect(p).toContain("ask_director");
   });
