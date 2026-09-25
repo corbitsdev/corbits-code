@@ -74,7 +74,7 @@ describe("prompt-variance family rows", () => {
     expect(grokRow.residual).toContain("prefer the structured report");
     expect(grokRow.residual).toContain("re-open paths you already read");
     expect(grokRow.residual).toContain("done-definition is met");
-    expect(grokRow.residual).toContain("never run_shell");
+    expect(grokRow.residual).toContain("never bash");
   });
 
   test("each ceremony line appears exactly once in the grok row (P2 invariant)", () => {

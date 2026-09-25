@@ -70,7 +70,7 @@ test("agent identity is Skywalker orchestrator", () => {
 });
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
-  expect(HARNESS_FACTS).toContain("write_file/edit_file");
+  expect(HARNESS_FACTS).toContain("write/edit");
   expect(HARNESS_FACTS).toContain("tiny/single-file/one-route");
   expect(HARNESS_FACTS).toContain("Spawn builder");
   expect(HARNESS_FACTS).not.toContain(
@@ -81,7 +81,7 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
   expect(HARNESS_FACTS).toContain("no default timeout");
   expect(HARNESS_FACTS).toContain("find, rg, and grep -r");
   expect(HARNESS_FACTS).toMatch(/OOM the host/);
-  expect(HARNESS_FACTS).toMatch(/Prefer the bounded grep\/search_files tools/);
+  expect(HARNESS_FACTS).toMatch(/Prefer the bounded grep\/glob tools/);
   expect(HARNESS_FACTS).toMatch(
     /not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/,
   );
@@ -100,7 +100,7 @@ test("harness facts state only the non-derivable tool and safety rules", () => {
 });
 
 test("harness facts gate tool-output URI reads on a named truncation notice", () => {
-  expect(HARNESS_FACTS).toContain("read_file");
+  expect(HARNESS_FACTS).toContain("Only read a tool-output:// URI");
   expect(HARNESS_FACTS).toMatch(/filesystem path/i);
   expect(HARNESS_FACTS).toMatch(/tool-output:\/\//);
   expect(HARNESS_FACTS).toContain("truncation notice on that result named one");
@@ -109,9 +109,9 @@ test("harness facts gate tool-output URI reads on a named truncation notice", ()
   expect(HARNESS_FACTS).not.toMatch(/re-reading huge blobs/i);
 });
 
-test("read_file catalog summary gates tool-output URI reads on truncation", () => {
-  const listed = buildAvailableTools(["read_file"]);
-  expect(listed).toContain("read_file");
+test("read catalog summary gates tool-output URI reads on truncation", () => {
+  const listed = buildAvailableTools(["read"]);
+  expect(listed).toContain("read");
   expect(listed).toMatch(/tool-output:\/\//);
   expect(listed).toContain("truncation notice named one");
   expect(listed).toContain("cat/head/tail");
@@ -129,7 +129,7 @@ test("harness facts name skill_search as a resident catalog tool", () => {
 
 test("leaf harness facts advertise product write tools", () => {
   const facts = buildHarnessFacts({ subAgent: true, dynamicTools: false });
-  expect(facts).toContain("write_file/edit_file");
+  expect(facts).toContain("write/edit");
   expect(facts).not.toContain("not mounted on the primary Skywalker session");
 });
 
@@ -151,7 +151,7 @@ test("guidelines cover response style, tool choice, ask vs proceed, and scope", 
   expect(GUIDELINES).toContain("Tool choice:");
   expect(GUIDELINES).toContain("Ask vs proceed:");
   expect(GUIDELINES).toContain("Scope and conventions:");
-  expect(GUIDELINES).toContain("grep or search_files");
+  expect(GUIDELINES).toContain("grep or glob");
   expect(GUIDELINES).toContain("ask_operator only when permission blocks you");
   expect(GUIDELINES).toContain("skill_search when choosing");
   expect(GUIDELINES).toContain(
@@ -244,7 +244,7 @@ test("default session lists split fleet tools and search_agents", () => {
 });
 
 test("chat prompt advertises core tools but never enumerates MCP integrations", () => {
-  expect(CHAT_SYSTEM_PROMPT).toContain("read_file");
+  expect(CHAT_SYSTEM_PROMPT).toContain("- read:");
   expect(CHAT_SYSTEM_PROMPT).toContain("tool_search");
   expect(CHAT_SYSTEM_PROMPT).not.toContain("mcp__");
   // No static catalog dump — discovery is via tool_search, not a listed catalog.
@@ -387,10 +387,10 @@ test("buildEnvironmentContext reports a clean tree and a non-git directory", () 
 });
 
 test("buildAvailableTools lists exactly the tools it is given", () => {
-  const custom = ["read_file", "write_file"];
+  const custom = ["read", "write"];
   const listed = buildAvailableTools(custom);
-  expect(listed).toContain("read_file");
-  expect(listed).toContain("write_file");
+  expect(listed).toContain("read");
+  expect(listed).toContain("write");
   expect(listed).not.toContain("tool_search");
 });
 
@@ -484,11 +484,11 @@ test("sub-agent prompt does not advertise tool_search (it gets names only)", () 
 test("worker prompt does not advertise archive:///; primary chat prompt does", () => {
   expect(SUBAGENT_SYSTEM_PROMPT).not.toContain("archive:///");
   expect(CHAT_SYSTEM_PROMPT).toContain("archive:///");
+  expect(buildAvailableTools(["read", "grep", "glob"])).not.toContain(
+    "archive:///",
+  );
   expect(
-    buildAvailableTools(["read_file", "grep", "search_files"]),
-  ).not.toContain("archive:///");
-  expect(
-    buildAvailableTools(["read_file", "grep", "search_files"], {
+    buildAvailableTools(["read", "grep", "glob"], {
       advertiseArchive: true,
     }),
   ).toContain("archive:///");

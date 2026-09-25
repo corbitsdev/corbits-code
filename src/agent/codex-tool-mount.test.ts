@@ -1,13 +1,6 @@
 /**
- * Mount coverage for Codex tool proxies (apply_patch, shell, update_plan):
- * primary strip of apply_patch, allowlists, and build-shaped capability filter
- * retention.
- *
- * runSubAgent has no standalone toolset-factory export to import directly (the
- * mount is inline in runSubAgent's tool-assembly), so the subagent mount path
- * is covered here via the same allowDeleteFromCapabilities /
- * allowShellFromCapabilities calls runSubAgent makes against a leaf
- * capability filter, feeding createCodexToolProxies exactly as run.ts does.
+ * Mount coverage for Codex: no advertised apply_patch/shell/update_plan,
+ * engines stay posix-named, hidden aliases dispatch without dual-publish.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +14,7 @@ import {
   createCodexToolProxies,
 } from "./codex-tool-proxies.js";
 import { BUILD_TOOLS, DOCS_TOOLS } from "./directors/tool-sets.js";
-import { CORE_TOOL_NAMES } from "./tool-search.js";
+import { advertisedTools, CORE_TOOL_NAMES } from "./tool-search.js";
 
 afterEach(() => {
   spyOn(posixModule, "createPosixTools").mockRestore();
@@ -55,7 +48,7 @@ describe("Codex tool proxy mount", () => {
     await toolset.dispose();
   });
 
-  test("Codex createAgentToolset strips apply_patch on primary; keeps shell/update_plan", async () => {
+  test("Codex createAgentToolset does not advertise apply_patch/shell/update_plan", async () => {
     // Unstubbed createPosixTools: write_file / edit_file / delete_file come from
     // the real posix + delete-file plugin mount. An empty stub would hide them
     // and make the DIY-remains assertion meaningless.
@@ -74,19 +67,24 @@ describe("Codex tool proxy mount", () => {
     });
     const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
     expect(names).not.toContain("apply_patch");
-    // Primary DIY product writes remain mounted.
     expect(names).toContain("write_file");
     expect(names).toContain("edit_file");
     expect(names).toContain("delete_file");
-    // shell / update_plan are not product-mutation tools (same classification
-    // as run_shell / manage_tasks), so the primary apply_patch strip does not
-    // remove them — they stay mounted on primary, mirroring run_shell.
-    expect(names).toContain("shell");
-    expect(names).toContain("update_plan");
+    expect(names).toContain("run_shell");
+    expect(names).not.toContain("shell");
+    expect(names).not.toContain("update_plan");
+    const advertised = advertisedTools(
+      toolset.dynamicRunner.currentDefinitions(),
+    ).map((d) => d.name);
+    expect(advertised).toContain("bash");
+    expect(advertised).not.toContain("run_shell");
+    expect(advertised).not.toContain("shell");
+    expect(advertised).not.toContain("apply_patch");
+    expect(advertised).not.toContain("update_plan");
     await toolset.dispose();
   });
 
-  test("update_plan dispatches through the real mount without hitting posixTools", async () => {
+  test("update_plan hidden-dispatches through manage_tasks without a proxy mount", async () => {
     // Unstubbed createPosixTools (real temp dir): update_plan used to call
     // runTool("manage_tasks", ...), which forwards onto posixTools.run and
     // fails with "unknown tool: manage_tasks" — posixTools has no
@@ -120,13 +118,13 @@ describe("Codex tool proxy mount", () => {
     await toolset.dispose();
   });
 
-  test("BUILD_TOOLS and DOCS_TOOLS include apply_patch; CORE_TOOL_NAMES does not", () => {
-    expect(BUILD_TOOLS).toContain("apply_patch");
-    expect(DOCS_TOOLS).toContain("apply_patch");
+  test("BUILD_TOOLS and DOCS_TOOLS omit apply_patch; CORE_TOOL_NAMES does not list it", () => {
+    expect(BUILD_TOOLS).not.toContain("apply_patch");
+    expect(DOCS_TOOLS).not.toContain("apply_patch");
     expect(CORE_TOOL_NAMES).not.toContain("apply_patch");
   });
 
-  test("capability include-filter keeps proxies for build-shaped allowlists", () => {
+  test("capability include-filter no longer keeps Codex proxy names", () => {
     const proxies = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "ok" }),
@@ -141,46 +139,31 @@ describe("Codex tool proxy mount", () => {
 
     const allow = new Set<string>(BUILD_TOOLS);
     const kept = proxies.filter((t) => allow.has(t.definition.name));
-    expect(kept.map((t) => t.definition.name)).toEqual([
-      "apply_patch",
-      "shell",
-      "update_plan",
-    ]);
+    expect(kept).toEqual([]);
 
     const docsAllow = new Set<string>(DOCS_TOOLS);
     const docsKept = proxies.filter((t) => docsAllow.has(t.definition.name));
-    expect(docsKept.map((t) => t.definition.name)).toEqual([
-      "apply_patch",
-      "update_plan",
-    ]);
+    expect(docsKept).toEqual([]);
   });
 
-  test("runSubAgent-shaped mount: docs capability filter denies shell, keeps update_plan", () => {
-    // Mirrors run.ts: allowDelete / allowShell are derived from the leaf
-    // capability filter before createCodexToolProxies runs. update_plan is
-    // never gated by it (manage_tasks is unconditionally mounted for every
-    // sub-agent), so it stays regardless of the allowlist shape.
-    const docsCapabilities = { mode: "allow" as const, tools: DOCS_TOOLS };
+  test("runSubAgent-shaped allowlists do not keep Codex proxy names", () => {
+    const docsAllow = new Set<string>(DOCS_TOOLS);
     const proxies = createCodexToolProxies({
       isCodex: true,
       runTool: async () => ({ content: "ok" }),
       readRawFile: async () => ({ content: "ok" }),
       runManageTasks: async () => ({ content: "ok" }),
-      allowDelete: allowDeleteFromCapabilities(docsCapabilities),
-      allowShell: allowShellFromCapabilities(docsCapabilities),
+      allowDelete: allowDeleteFromCapabilities({
+        mode: "allow",
+        tools: DOCS_TOOLS,
+      }),
+      allowShell: allowShellFromCapabilities({
+        mode: "allow",
+        tools: DOCS_TOOLS,
+      }),
     });
-    expect(proxies.map((t) => t.definition.name)).toEqual([
-      "apply_patch",
-      "shell",
-      "update_plan",
-    ]);
-
-    const docsAllow = new Set<string>(DOCS_TOOLS);
     const docsKept = proxies.filter((t) => docsAllow.has(t.definition.name));
-    expect(docsKept.map((t) => t.definition.name)).toEqual([
-      "apply_patch",
-      "update_plan",
-    ]);
+    expect(docsKept).toEqual([]);
   });
 
   test("non-Codex runSubAgent-shaped mount produces no proxies at all", () => {
