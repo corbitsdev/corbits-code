@@ -331,6 +331,12 @@ const AUTO_ALLOWED_TOOLS = new Set([
   "search_agents",
   "spawn_agent",
   "wait_agents",
+  "list_agents",
+  "send_input",
+  "interrupt_agent",
+  "close_agent",
+  "resume_agent",
+  "read_agent_trace",
 ]);
 
 export interface PermissionGateOptions {
