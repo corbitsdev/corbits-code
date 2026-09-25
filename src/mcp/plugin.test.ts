@@ -273,18 +273,23 @@ describe("mcpClientToAgentTools", () => {
   });
 
   test("credential-shaped values inside structured content are redacted", async () => {
-    const secret = "sk-live-abcdefghij1234567890";
+    const rawToken = ["sk-", "live-", "k".repeat(24)].join("");
     const result = await runEnvelopeTool(
       {
         blocks: [],
-        structuredContent: { token: secret },
+        structuredContent: { token: rawToken },
       },
       "c-mcp-structured-secret",
     );
 
+    expect(result.detail).toEqual({ token: CREDENTIAL_REDACTION });
     expect(result.content).toContain(CREDENTIAL_REDACTION);
-    expect(result.content).not.toContain(secret);
-    expect(JSON.stringify(result.detail)).not.toContain(secret);
+    expect(result.content).not.toContain(rawToken);
+    expect(result.content).not.toContain("sk-live-");
+    const detailJson = JSON.stringify(result.detail);
+    expect(detailJson).toContain(CREDENTIAL_REDACTION);
+    expect(detailJson).not.toContain(rawToken);
+    expect(detailJson).not.toContain("sk-live-");
   });
 
   test("thrown transport failures still surface as error results", async () => {
