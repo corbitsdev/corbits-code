@@ -15,6 +15,7 @@ import {
   readFileBounded,
   readFileGuardPlugin,
 } from "./read-file-guard-plugin.js";
+import { resultTruncationPlugin } from "./result-truncation-plugin.js";
 
 const neverAbort = () => new AbortController().signal;
 
@@ -288,6 +289,234 @@ describe("readFileBounded", () => {
     expect(isError).toBe(true);
     expect(content).toContain("scan limit");
     expect(content).not.toContain("beyond end of file");
+  });
+});
+
+describe("CL-8979 large-file pagination", () => {
+  const BIG_LINES = 45_000;
+  const bigRow = (i: number): string => `L${i}-` + "p".repeat(243);
+
+  async function bigFixture(name: string): Promise<string> {
+    const rows = Array.from({ length: BIG_LINES }, (_, i) => bigRow(i));
+    return fixture(name, `${rows.join("\n")}\n`);
+  }
+
+  function continueOffset(content: string): number | null {
+    const match = /Use offset=(\d+) to continue/.exec(content);
+    return match === null ? null : Number(match[1]);
+  }
+
+  function bodyRows(content: string): string[] {
+    const body = content.split("\n\n")[0] ?? "";
+    return body
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => line.replace(/^\s*\d+\t/, ""));
+  }
+
+  function chainRunner(): (
+    id: string,
+    args: Record<string, unknown>,
+  ) => Promise<ToolResult> {
+    const plugin = readFileGuardPlugin(dir, {});
+    const middleware = plugin.middleware;
+    if (middleware === undefined) throw new Error("expected middleware");
+    const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: "FALLBACK",
+    });
+    return (id, args) =>
+      middleware(fallback)(
+        { id, name: "read_file", arguments: args },
+        neverAbort(),
+      );
+  }
+
+  function blobChainRunner(
+    readBlob: (key: string) => Promise<Uint8Array>,
+  ): (id: string, args: Record<string, unknown>) => Promise<ToolResult> {
+    const plugin = readFileGuardPlugin(dir, {
+      blobReader: createBlobReader({ readBlob }),
+    });
+    const middleware = plugin.middleware;
+    if (middleware === undefined) throw new Error("expected middleware");
+    const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: "FALLBACK",
+    });
+    return (id, args) =>
+      middleware(fallback)(
+        { id, name: "read_file", arguments: args },
+        neverAbort(),
+      );
+  }
+
+  test("reads a deep page of a file larger than the scan ceiling", async () => {
+    const p = await bigFixture("cl8979-big.txt");
+    const res = await readFileBounded(p, 43_000, 5, neverAbort());
+    expect(res.isError).toBeUndefined();
+    expect(String(res.content)).toContain(bigRow(43_000));
+    expect(String(res.content)).not.toContain("scan limit");
+  });
+
+  test(
+    "chains plain path+offset continuation on one path through to the last line",
+    async () => {
+      const name = "cl8979-chain.txt";
+      await bigFixture(name);
+      const run = chainRunner();
+      const collected: string[] = [];
+      let offset = 0;
+      let hops = 0;
+      for (;;) {
+        const result = await run(`chain-${hops}`, {
+          path: name,
+          limit: 200,
+          offset,
+        });
+        hops += 1;
+        const content = String(result.content);
+        expect(result.isError).toBeFalsy();
+        expect(content).not.toContain("scan limit");
+        collected.push(...bodyRows(content));
+        const next = continueOffset(content);
+        if (next === null) break;
+        offset = next;
+        expect(hops).toBeLessThan(2000);
+      }
+      expect(hops).toBeGreaterThan(1);
+      expect(collected.length).toBe(BIG_LINES);
+      expect(collected).toEqual(
+        Array.from({ length: BIG_LINES }, (_, i) => bigRow(i)),
+      );
+    },
+    120_000,
+  );
+
+  test(
+    "chains cursor resumption on a blob past the scan ceiling without re-scanning",
+    async () => {
+      const rows = Array.from({ length: BIG_LINES }, (_, i) => bigRow(i));
+      const bytes = new TextEncoder().encode(`${rows.join("\n")}\n`);
+      const run = blobChainRunner(async (key) => {
+        if (key === "cl8979-blob") return bytes;
+        throw new Error(`missing ${key}`);
+      });
+      const collected: string[] = [];
+      let path = "tool-output:///cl8979-blob";
+      let hops = 0;
+      let sawOffsetFooter = false;
+      let sawCursorAlias = false;
+      for (;;) {
+        const result = await run(`blob-${hops}`, { path, limit: 200 });
+        hops += 1;
+        const content = String(result.content);
+        expect(result.isError).toBeFalsy();
+        expect(content).not.toContain("scan limit");
+        collected.push(...bodyRows(content));
+        const cursor = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(content);
+        const offset = continueOffset(content);
+        if (offset !== null) {
+          sawOffsetFooter = true;
+          path = "tool-output:///cl8979-blob";
+        }
+        if (cursor !== null) {
+          sawCursorAlias = true;
+          path = cursor[1] as string;
+        }
+        if (offset === null && cursor === null) break;
+        expect(hops).toBeLessThan(2000);
+      }
+      expect(hops).toBeGreaterThan(1);
+      expect(sawOffsetFooter).toBe(true);
+      expect(sawCursorAlias).toBe(true);
+      expect(collected.length).toBe(BIG_LINES);
+      expect(collected[BIG_LINES - 1]).toBe(bigRow(BIG_LINES - 1));
+    },
+    120_000,
+  );
+
+  test("windows an overlong single file line so the tail is reachable", async () => {
+    const payload = `HEAD-${"y".repeat(100_000)}-TAIL`;
+    const p = await fixture("cl8979-giant.txt", `${payload}\nEND\n`);
+    let offset = 0;
+    let hops = 0;
+    let collected = "";
+    for (;;) {
+      const res = await readFileBounded(p, offset, 10, neverAbort());
+      hops += 1;
+      expect(res.isError).toBeUndefined();
+      const content = String(res.content);
+      expect(content).not.toContain("line truncated");
+      collected += `${content}\n`;
+      const rows = bodyRows(content);
+      expect(rows.length).toBeGreaterThan(1);
+      const next = continueOffset(content);
+      if (next === null) break;
+      offset = next;
+      expect(hops).toBeLessThan(100);
+    }
+    expect(collected).toContain("HEAD-");
+    expect(collected).toContain("-TAIL");
+    expect(collected).toContain("END");
+  });
+
+  test("a large-file page passes the result-truncation layer byte-identical", async () => {
+    const name = "cl8979-page.txt";
+    const rows = Array.from(
+      { length: 3_000 },
+      (_, i) => `cell-${i}-` + "v".repeat(50),
+    );
+    await fixture(name, `${rows.join("\n")}\n`);
+    const plugin = readFileGuardPlugin(dir, {});
+    const guardMiddleware = plugin.middleware;
+    if (guardMiddleware === undefined) throw new Error("expected middleware");
+    const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: "FALLBACK",
+    });
+    const guard = guardMiddleware(fallback);
+    const guardOnly = await guard(
+      { id: "page-1", name: "read_file", arguments: { path: name } },
+      neverAbort(),
+    );
+    expect(guardOnly.isError).toBeFalsy();
+    expect(String(guardOnly.content)).toContain("to continue");
+    const spilled = new Map<string, Uint8Array>();
+    const truncPlugin = resultTruncationPlugin({
+      getBlobWriter: () => async (key: string, payload: Uint8Array) => {
+        spilled.set(key, payload);
+      },
+    });
+    const truncMiddleware = truncPlugin.middleware;
+    if (truncMiddleware === undefined) throw new Error("expected middleware");
+    const composed = truncMiddleware(guard);
+    const res = await composed(
+      { id: "page-1", name: "read_file", arguments: { path: name } },
+      neverAbort(),
+    );
+    expect(String(res.content)).toBe(String(guardOnly.content));
+    expect(spilled.size).toBe(0);
+  });
+
+  test("an aborted read rejects with a timeout, not a fallback page", async () => {
+    const p = await fixture("cl8979-abort.txt", "x".repeat(1000));
+    const ctl = new AbortController();
+    ctl.abort();
+    const read = readFileBounded(p, 0, 2000, ctl.signal);
+    await expect(read).rejects.toThrow("[timed out before completing]");
+  });
+
+  test("a binary file still surfaces a refusal instead of a fallback page", async () => {
+    await fixture(
+      "cl8979-bin.dat",
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x00]),
+    );
+    const run = chainRunner();
+    const result = await run("bin-1", { path: "cl8979-bin.dat" });
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toMatch(/binary/);
+    expect(String(result.content)).not.toBe("FALLBACK");
   });
 });
 
