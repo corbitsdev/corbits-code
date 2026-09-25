@@ -182,6 +182,10 @@ export interface Settings {
   showPromptCost?: boolean;
   // User-global YOLO default; `/yolo` writes it.
   dangerouslySkipPermissions?: boolean;
+  // Experimental. When true, an expired Anthropic prompt cache stubs old tool
+  // results on the outgoing prompt only. Default off: sessions do not depend
+  // on that shrink.
+  anthropicCachePrompt?: boolean;
 }
 
 function modelRefKey(ref: ModelRef): string {
@@ -594,6 +598,7 @@ const SettingsSchema = type({
   "favoriteModels?": ModelRefSchema.array(),
   "showPromptCost?": "boolean",
   "dangerouslySkipPermissions?": "boolean",
+  "anthropicCachePrompt?": "boolean",
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -797,6 +802,7 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "recentModels",
   "favoriteModels",
   "dangerouslySkipPermissions",
+  "anthropicCachePrompt",
 ] as const satisfies readonly (keyof OptionalSettingsFields)[];
 
 /** Optional local settings keys the load path is required to consider. */
@@ -963,6 +969,10 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
     dangerouslySkipPermissions:
       s.dangerouslySkipPermissions !== undefined
         ? Boolean(s.dangerouslySkipPermissions)
+        : undefined,
+    anthropicCachePrompt:
+      s.anthropicCachePrompt !== undefined
+        ? Boolean(s.anthropicCachePrompt)
         : undefined,
   };
   return {

@@ -1,27 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { cacheTtlMsFor } from "./cache-ttl.js";
+import {
+  buildAnthropicSource,
+  buildGoSource,
+  buildZenSource,
+} from "../config/index.js";
+import {
+  anthropicCacheWriteAt,
+  cacheTtlMsFor,
+  resumeCacheWriteSeed,
+} from "./cache-ttl.js";
 
 const MINUTE_MS = 60_000;
 
 describe("cacheTtlMsFor", () => {
-  test("maps providers to their documented cache TTL windows", () => {
+  test("allows idle recompress only for the published Anthropic 5-minute window", () => {
     expect(cacheTtlMsFor("anthropic/claude-opus-4-6")).toBe(5 * MINUTE_MS);
-    expect(cacheTtlMsFor("openai-responses/gpt-5.6")).toBe(10 * MINUTE_MS);
-    expect(cacheTtlMsFor("codex-responses/gpt-5.6")).toBe(10 * MINUTE_MS);
-    expect(cacheTtlMsFor("openai-compatible/custom")).toBe(10 * MINUTE_MS);
-    expect(cacheTtlMsFor("xai/thegreataxios")).toBe(10 * MINUTE_MS);
-    expect(cacheTtlMsFor("gemini/gemini-3-pro")).toBe(15 * MINUTE_MS);
-    expect(cacheTtlMsFor("deepseek/deepseek-chat")).toBe(60 * MINUTE_MS);
-  });
-
-  test("covers Anthropic-protocol adapters with the 5-minute window", () => {
     expect(cacheTtlMsFor("zen-messages/claude-opus-4-6")).toBe(5 * MINUTE_MS);
     expect(cacheTtlMsFor("opencode-go-messages/claude-opus-4-6")).toBe(
       5 * MINUTE_MS,
     );
   });
 
-  test("disables idle recompress for local inference and missing model ids", () => {
+  test("disables providers whose expiry is unpublished or longer than 5 minutes", () => {
+    expect(cacheTtlMsFor("openai-responses/gpt-5.6")).toBeUndefined();
+    expect(cacheTtlMsFor("codex-responses/gpt-5.6")).toBeUndefined();
+    expect(cacheTtlMsFor("openai-compatible/custom")).toBeUndefined();
+    expect(cacheTtlMsFor("xai/thegreataxios")).toBeUndefined();
+    expect(cacheTtlMsFor("gemini/gemini-3-pro")).toBeUndefined();
+    expect(cacheTtlMsFor("deepseek/deepseek-chat")).toBeUndefined();
     expect(cacheTtlMsFor("ollama/llama3.1")).toBeUndefined();
     expect(cacheTtlMsFor(undefined)).toBeUndefined();
     expect(cacheTtlMsFor("")).toBeUndefined();
@@ -37,7 +43,7 @@ describe("cacheTtlMsFor", () => {
     ).toBeUndefined();
   });
 
-  test("maps bare LastCycleSource ids through provider and family", () => {
+  test("maps a bare Anthropic LastCycleSource and leaves Codex quiet", () => {
     expect(
       cacheTtlMsFor({
         provider: "anthropic",
@@ -49,25 +55,117 @@ describe("cacheTtlMsFor", () => {
         provider: "codex-responses",
         model: "gpt-5.6-luna",
       }),
-    ).toBe(10 * MINUTE_MS);
+    ).toBeUndefined();
   });
 
-  test("falls back to model family for unrecognized provider prefixes", () => {
-    expect(cacheTtlMsFor("proxy-acme/grok-4")).toBe(10 * MINUTE_MS);
-    expect(cacheTtlMsFor("proxy-acme/gemini-3-pro")).toBe(15 * MINUTE_MS);
-    expect(cacheTtlMsFor("proxy-acme/ollama-qwen")).toBeUndefined();
-    // An exact provider-segment match wins over the model family: an
-    // openai-compatible account fronting Claude keeps the generic window.
-    expect(cacheTtlMsFor("openai-compatible/claude-opus-4-6")).toBe(
-      10 * MINUTE_MS,
-    );
+  test("does not inherit a window from the model family or an unknown provider", () => {
+    expect(cacheTtlMsFor("proxy-acme/grok-4")).toBeUndefined();
+    expect(cacheTtlMsFor("proxy-acme/gemini-3-pro")).toBeUndefined();
+    expect(cacheTtlMsFor("proxy-acme/claude-opus-4-6")).toBeUndefined();
+    // The provider segment wins: an openai-compatible account fronting
+    // Claude is not the Anthropic messages protocol.
+    expect(cacheTtlMsFor("openai-compatible/claude-opus-4-6")).toBeUndefined();
+    expect(cacheTtlMsFor("bifrost/some-model")).toBeUndefined();
+    expect(cacheTtlMsFor("unknown-id")).toBeUndefined();
+  });
+});
+
+describe("anthropic cache-write stamp", () => {
+  test("stamps only Anthropic-protocol identities", () => {
+    expect(anthropicCacheWriteAt("anthropic:claude-opus-4-6", 10)).toBe(10);
+    expect(anthropicCacheWriteAt({ provider: "zen-messages" }, 10)).toBe(10);
+    expect(anthropicCacheWriteAt({ provider: "openai" }, 10)).toBeUndefined();
+    expect(anthropicCacheWriteAt(undefined, 10)).toBeUndefined();
   });
 
-  test("assumes OpenAI-style economics for unrecognized providers", () => {
-    expect(cacheTtlMsFor("bifrost/some-model")).toBe(10 * MINUTE_MS);
-    expect(cacheTtlMsFor("totally-new-provider/model-x")).toBe(10 * MINUTE_MS);
-    // A truly unknown id (no provider segment, no family substring) still
-    // gets the 10-minute default — not the local-inference disable.
-    expect(cacheTtlMsFor("unknown-id")).toBe(10 * MINUTE_MS);
+  test("resume seed requires both the stored model and the live provider", () => {
+    expect(
+      resumeCacheWriteSeed({
+        at: 10,
+        storedModel: "anthropic:claude-opus-4-6",
+        liveProvider: "anthropic",
+        liveProtocol: "anthropic",
+      }),
+    ).toEqual({ at: 10, model: "anthropic:claude-opus-4-6" });
+    expect(
+      resumeCacheWriteSeed({
+        at: 10,
+        storedModel: "openai:gpt-5.6",
+        liveProvider: "openai",
+        liveProtocol: "openai",
+      }),
+    ).toBeUndefined();
+    expect(
+      resumeCacheWriteSeed({
+        at: 10,
+        storedModel: "anthropic:claude-opus-4-6",
+        liveProvider: "openai",
+        liveProtocol: "openai",
+      }),
+    ).toBeUndefined();
+    expect(
+      resumeCacheWriteSeed({
+        at: undefined,
+        storedModel: "anthropic:claude-opus-4-6",
+        liveProvider: "anthropic",
+        liveProtocol: "anthropic",
+      }),
+    ).toBeUndefined();
+  });
+
+  test("catalog ids that speak the Anthropic protocol still return the stamp", () => {
+    const at = 10;
+    const sources = [
+      buildZenSource({
+        id: "zen",
+        model: "claude-opus-4-6",
+        sessionId: "sess-zen",
+      }),
+      buildGoSource({
+        id: "opencode-go",
+        model: "minimax-m3",
+        sessionId: "sess-go",
+      }),
+      buildAnthropicSource({
+        id: "acme",
+        baseURL: "https://example.invalid",
+        model: "claude-opus-4-6",
+      }),
+    ];
+    for (const source of sources) {
+      expect(source.id).not.toBe(source.provider);
+      const storedModel = `${source.id}:${source.model}`;
+      expect(
+        resumeCacheWriteSeed({
+          at,
+          storedModel,
+          liveProvider: source.id,
+          liveProtocol: source.provider,
+        }),
+      ).toEqual({ at, model: `${source.provider}:${source.model}` });
+    }
+
+    const gemini = buildZenSource({
+      id: "zen",
+      model: "gemini-3-flash",
+      sessionId: "sess-zen",
+    });
+    expect(
+      resumeCacheWriteSeed({
+        at,
+        storedModel: `${gemini.id}:${gemini.model}`,
+        liveProvider: gemini.id,
+        liveProtocol: gemini.provider,
+      }),
+    ).toBeUndefined();
+
+    expect(
+      resumeCacheWriteSeed({
+        at,
+        storedModel: "zen-messages:claude-opus-4-6",
+        liveProvider: "zen",
+        liveProtocol: "zen-messages",
+      }),
+    ).toEqual({ at, model: "zen-messages:claude-opus-4-6" });
   });
 });

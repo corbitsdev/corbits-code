@@ -14,6 +14,7 @@
 // unifying further would be abstraction for its own sake.
 
 import type { EventEmitter } from "node:events";
+import type { ReactorEmittedEvent } from "@intx/inference";
 import {
   createDirectorRegistry,
   defineAgent,
@@ -50,13 +51,18 @@ import {
 } from "../agent/tool-search.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
-import { stickyExtraInstructionsFromRecords } from "../agent/compaction.js";
+import {
+  stickyExtraInstructionsFromRecords,
+  lastCycleSourceFromRunModel,
+} from "../agent/compaction.js";
 import { createChatDirector, type ChatDirector } from "../agent/director.js";
 import { createDoomLoopCorrectiveNote } from "../agent/doom-loop-note.js";
 import type { AgentToolset } from "../agent/tools.js";
 import { createAgentWithLiveToolDispatch } from "../agent/live-tool-dispatch.js";
 import { createSessionStores } from "./optimized-context-store.js";
+import { getActiveRun } from "./active-run.js";
 import { createAttachmentRehydrateTransform } from "./attachment-store.js";
+import { createAnthropicCachePromptTransform } from "./anthropic-cache-prompt.js";
 import {
   applyRecordingPolicyToText,
   createCompactionArchive,
@@ -503,6 +509,15 @@ export interface ChatAgentWiring {
   getDefaultSource: () => string;
   /** Read at each build so a compaction-mode toggle is visible on rebuild. */
   getCompactor: () => Compactor;
+  /** Experimental Anthropic prompt shrink. Default off when omitted. */
+  anthropicCachePrompt?: () => boolean;
+  /**
+   * Present when a resumed run record has an Anthropic-protocol cache write
+   * and the provider about to be called is the same protocol. Read at each
+   * build so an interrupt rebuild of the same session still folds before the
+   * next infer. A new session omits it.
+   */
+  getCacheWriteSeed?: () => { at: number; model: string } | undefined;
   /** Assigns the runner's live agent/storage holders; keeps call sites unchanged. */
   onBuilt: (agent: Agent, storage: ContextStore) => void;
   /**
@@ -690,6 +705,17 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           createAttachmentRehydrateTransform((key) =>
             storageForAgent.readBlob(key),
           ),
+          createAnthropicCachePromptTransform({
+            nowMs: () => Date.now(),
+            cacheWriteAt: () => getActiveRun()?.lastCacheWriteAt,
+            enabled: () => wiring.anthropicCachePrompt?.() === true,
+            protocol: () => {
+              const sources = wiring.getSources();
+              const preferred = wiring.getDefaultSource();
+              const match = sources.find((source) => source.id === preferred);
+              return (match ?? sources[0])?.provider;
+            },
+          }),
         ],
       },
       audit,
@@ -718,6 +744,17 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
               ),
       },
     });
+    const seed = wiring.getCacheWriteSeed?.();
+    const source =
+      seed === undefined ? undefined : lastCycleSourceFromRunModel(seed.model);
+    if (seed !== undefined && source !== undefined) {
+      const loaded = await storage.load();
+      directorHolder.instance?.restoreCacheWrite({
+        at: seed.at,
+        source,
+        turns: loaded.turns,
+      });
+    }
     const admittedAgent =
       primaryArchive === undefined
         ? agent
@@ -742,7 +779,9 @@ export interface SessionLifecycleWiring {
   getSessionId: () => string;
   getSource: () => InferenceSource;
   initialTurnCount?: number | undefined;
-  onTurnBoundarySnapshot: () => void;
+  onTurnBoundarySnapshot: (
+    event: Extract<ReactorEmittedEvent, { type: "inference.done" }>,
+  ) => void;
   hookEnabled?: Record<string, boolean> | undefined;
   onHookEvent?: ((event: LifecycleHookEvent) => void) | undefined;
   resolveContextDir: () => string;

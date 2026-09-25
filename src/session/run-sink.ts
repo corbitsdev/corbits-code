@@ -57,7 +57,11 @@ export interface RunSinkArgs {
   // alongside the turn count it reports, rather than in a second
   // subscription to the same event stream in a renderer: the renderer has
   // already been swapped out from under this constraint three times.
-  onTurnBoundarySnapshot?: () => void;
+  // The event is the inference that just finished, so the snapshot can stamp
+  // an Anthropic cache write before the director's own bookkeeping runs.
+  onTurnBoundarySnapshot?: (
+    event: Extract<ReactorEmittedEvent, { type: "inference.done" }>,
+  ) => void;
 }
 
 export interface RunSink {
@@ -192,7 +196,7 @@ export function createRunSink(args: RunSinkArgs): RunSink {
       turnInFlight = false;
       pendingInferenceError = undefined;
       runError = undefined;
-      onTurnBoundarySnapshot?.();
+      onTurnBoundarySnapshot?.(event);
     }
     if (event.type === "reactor.error" && isReactorErrorFatal(event.data)) {
       const data = event.data as { error: string };

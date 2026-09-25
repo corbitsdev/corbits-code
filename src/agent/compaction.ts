@@ -11,7 +11,6 @@ import {
   compactionThresholdFor,
   contextTokensFromUsage,
 } from "../provider/context-window.js";
-import { cacheTtlMsFor } from "../provider/cache-ttl.js";
 import {
   COMPACTOR_KEEP_RECENT_TURNS,
   assistantTextIsCompactSpacerEcho,
@@ -103,6 +102,28 @@ export function compactFloorNoopNotice(instructions: string): string {
     : "Nothing to compact yet.";
 }
 
+/** Run-record `provider:model` (or slash form) as a LastCycleSource. */
+export function lastCycleSourceFromRunModel(
+  model: string | undefined,
+): LastCycleSource | undefined {
+  if (model === undefined || model.length === 0) return undefined;
+  const colon = model.indexOf(":");
+  if (colon > 0) {
+    const provider = model.slice(0, colon);
+    const rest = model.slice(colon + 1);
+    return {
+      sourceId: model,
+      provider,
+      model: rest.length > 0 ? rest : model,
+    };
+  }
+  const slash = model.indexOf("/");
+  if (slash > 0) {
+    return { sourceId: model, provider: model.slice(0, slash), model };
+  }
+  return { sourceId: model, provider: model, model };
+}
+
 /** Build the continuation re-entry action for a compacted governor cycle. */
 export function compactionContinuationAction(
   capabilities: ReactorCapabilities,
@@ -114,7 +135,7 @@ export function createCompactionGovernor(
   requestContinuation?: () => void,
   systemPrompt = "",
   toolDefinitions: readonly ToolDefinition[] = [],
-  now: () => number = Date.now,
+  _now: () => number = Date.now,
 ) {
   let pending = false;
   let idlePending = false;
@@ -140,30 +161,8 @@ export function createCompactionGovernor(
   // can flag the number as approximate instead of implying provider-grade
   // precision.
   let usingEstimate = false;
-  // Last-cycle source of the last inference.done, kept for live re-checks
-  // between inference cycles (see interceptActions) where the event carries
-  // no source. Threshold sizing still keys off `model`; TTL identity needs
-  // `sourceId` / `provider` as well — production LastCycleSource stamps a
-  // bare model, and Ollama is `openai-compatible` with id `ollama/…`.
   let lastModel: string | undefined;
-  let lastCycleSource: LastCycleSource | undefined;
   let turnCount = 0;
-  // Wall-clock of the last inference.done: the provider (re)wrote its prefix
-  // cache for this session on that turn, so the provider TTL window in
-  // provider/cache-ttl.ts is measured from here. Stamped on every
-  // inference.done — estimated-usage providers wrote a cache entry too.
-  let lastCacheWriteAt: number | undefined;
-  // Wall-clock of the last issued compact of any kind. A fresh fold rewrites
-  // the session prefix, so the TTL recompress must not fire again inside the
-  // same window even when its own cache write has not been observed yet (the
-  // summary call bypasses this governor).
-  let lastCompactAt: number | undefined;
-  // Tool calls issued by the last inference.done and not yet settled. A TTL
-  // recompress must never fold while a batch is outstanding — the stall ping
-  // that triggers it can arrive mid-work, and folding under it would rewrite
-  // turns the pending results still belong to. Assigned (not incremented) on
-  // every inference.done so the serial loop self-heals a miscount.
-  let outstandingToolCalls = 0;
   // Growth hysteresis after a compact that remained over the high watermark:
   // snapshot the post-compact infer's usage, then do not re-arm until usage
   // grows by resumeDelta. Cleared once usage drops back to or under high.
@@ -203,7 +202,6 @@ export function createCompactionGovernor(
 
   function noteCompactIssued(): void {
     awaitingPostCompactMeasurement = true;
-    lastCompactAt = now();
   }
 
   function atThresholdCompactCap(): boolean {
@@ -262,18 +260,7 @@ export function createCompactionGovernor(
       consecutiveThresholdCompacts = 0;
     }
     syncFromTurns(turns);
-    lastCycleSource = event.source;
     lastModel = event.source?.model;
-    lastCacheWriteAt = now();
-    // The terminal reply ends the previous tool batch (its results are
-    // already in the turns) and opens the batch the reply just issued. A TTL
-    // recompress must never fold while a batch is outstanding — the stall
-    // ping that triggers it can arrive mid-work, and folding under it would
-    // rewrite turns the pending results still belong to. Assigned, not
-    // incremented, so the serial loop self-heals a miscount.
-    outstandingToolCalls = event.turn.content.filter(
-      (block) => block.type === "tool_call",
-    ).length;
     const reportedTokens = contextTokensFromUsage(event.usage);
     usingEstimate = reportedTokens <= 0;
     const contextTokens = usingEstimate ? estimate.tokens : reportedTokens;
@@ -313,7 +300,6 @@ export function createCompactionGovernor(
     capabilities: ReactorCapabilities,
   ): ReactorAction[] | null {
     if (event.type !== "tool.done") return null;
-    if (outstandingToolCalls > 0) outstandingToolCalls -= 1;
     const operator = manualPending;
     if (
       !operator &&
@@ -368,37 +354,6 @@ export function createCompactionGovernor(
     return true;
   }
 
-  // Provider-aware idle recompress (CL-8745): the fold is a re-compress, not
-  // a cache play. Provider KV caches expire on their own schedule
-  // (provider/cache-ttl.ts); compressing after that expiry makes the next
-  // turn a cheaper write and later reads compound on the shrunk context. This
-  // fires on any live re-entry once `now - lastCacheWrite >= ttl`, including
-  // over-threshold sessions whose threshold path has disarmed (`pending` is
-  // false via growth hysteresis — the threshold path owns only armed
-  // over-threshold; the fold is still window- and cap-bounded). Guards, in
-  // order: threshold arming defers (pending), the fresh-tail floor (turns at
-  // or under it are all kept, so a fold would shrink nothing), the
-  // consecutive-compact cap (existing death-spiral bound, shared with the
-  // threshold path), providers with no TTL (undefined/empty model, local
-  // inference), no observed cache write yet, the TTL window itself, and one
-  // fire per window (a fresh fold rewrites the prefix; the summary call
-  // bypasses this governor so lastCacheWriteAt cannot observe it —
-  // lastCompactAt covers that). Never fires with a tool batch outstanding:
-  // the stall ping that triggers this can arrive mid-work.
-  function isTtlRecompressDue(nowMs: number): boolean {
-    if (pending) return false;
-    if (turnCount <= MIN_TURNS_TO_COMPACT) return false;
-    if (atThresholdCompactCap()) return false;
-    if (outstandingToolCalls > 0) return false;
-    const ttl = cacheTtlMsFor(lastCycleSource);
-    if (ttl === undefined) return false;
-    if (lastCacheWriteAt === undefined) return false;
-    if (nowMs - lastCacheWriteAt < ttl) return false;
-    if (lastCompactAt !== undefined && nowMs - lastCompactAt < ttl)
-      return false;
-    return true;
-  }
-
   function inboundText(event: ReactorInboundEvent): string {
     if (event.type !== "message.received") return "";
     return typeof event.message.content === "string"
@@ -450,19 +405,12 @@ export function createCompactionGovernor(
       }
       return issueIdleFold(content, capabilities, THRESHOLD_COMPACT_REASON);
     }
-    // Unarmed idle re-entry past the provider TTL: same fold, same
-    // keep-recent tail, same cap — but a "cache-ttl-recompress" reason so the
-    // fold is attributable. No arming: every live re-entry re-checks the
-    // window, so a sub-agent stall ping or operator message is the trigger.
-    // In-flight `/compact` (manualPending without idlePending) waits on
-    // interceptActions; do not steal that hop with a TTL fold.
-    if (manualPending) return null;
-    if (!isTtlRecompressDue(now())) return null;
-    return issueIdleFold(
-      inboundText(event),
-      capabilities,
-      "cache-ttl-recompress",
-    );
+    // Cache expiry is a prompt transform, not a fold. Compacting on an
+    // unarmed idle re-entry rewrites turns.jsonl and drops the history the
+    // transform is supposed to leave stored; the Anthropic prompt transform
+    // stubs tool bodies on the outgoing request instead. In-flight `/compact`
+    // (manualPending without idlePending) waits on interceptActions.
+    return null;
   }
 
   // A context-overflow inference error would otherwise terminate the loop
@@ -516,10 +464,6 @@ export function createCompactionGovernor(
   function notePostCompact(turns: readonly ConversationTurn[]): void {
     syncFromTurns(turns);
     usingEstimate = true;
-    // A fold rewrites the turns: results already applied vanish from the
-    // live set, and post-compact stall pings (empty continuations) carry no
-    // tool traffic. Reset so a stale count cannot pin the TTL window shut.
-    outstandingToolCalls = 0;
   }
 
   // True while the governor expects the host to answer a continuation emit.
@@ -559,6 +503,19 @@ export function createCompactionGovernor(
     const trimmed = value?.trim();
     if (trimmed === undefined || trimmed.length === 0) return;
     extraInstructions = trimmed;
+  }
+
+  // A new process has no in-memory turn count. Seed the stored turns so
+  // threshold and manual compact see the resumed history. The cache-write
+  // time lives on the run record for the prompt transform, not here.
+  function restoreCacheWrite(args: {
+    at: number;
+    source: LastCycleSource;
+    turns: readonly ConversationTurn[];
+  }): void {
+    void args.at;
+    syncFromTurns(args.turns);
+    lastModel = args.source.model;
   }
 
   // `/handoff` folds through the same operator pipeline as above, then starts
@@ -622,6 +579,7 @@ export function createCompactionGovernor(
     },
     requestManual,
     restoreExtraInstructions,
+    restoreCacheWrite,
     requestHandoff,
     cancelManual,
     syncFromTurns,

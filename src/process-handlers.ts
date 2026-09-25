@@ -132,6 +132,9 @@ async function finalizeActiveRun(
       ...(run.activatedTools !== undefined
         ? { activatedTools: run.activatedTools }
         : {}),
+      ...(run.lastCacheWriteAt !== undefined
+        ? { lastCacheWriteAt: run.lastCacheWriteAt }
+        : {}),
     });
   } catch (saveErr: unknown) {
     process.stderr.write(

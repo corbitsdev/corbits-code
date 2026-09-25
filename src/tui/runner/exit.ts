@@ -232,6 +232,9 @@ function createRunPersistence(state: RunnerState, services: RunnerServices) {
       model,
       mcpServers: state.connectedMcpServers,
       ...(activatedTools.length > 0 ? { activatedTools } : {}),
+      ...(services.activeRunHandle.lastCacheWriteAt !== undefined
+        ? { lastCacheWriteAt: services.activeRunHandle.lastCacheWriteAt }
+        : {}),
       ...extra,
     };
     if (clearsActiveRun(kind)) {
@@ -715,6 +718,8 @@ export async function createRunLifecycle(
           model: `${rotatedBundle.selected.id}:${rotatedBundle.selected.model}`,
           activatedTools: [],
         });
+        delete services.activeRunHandle.lastCacheWriteAt;
+        delete services.activeRunHandle.cacheWriteModel;
         services.emitter.emit(
           "session.title",
           state.runTaskTitle.trim().length > 0

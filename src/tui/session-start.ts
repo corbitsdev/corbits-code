@@ -47,6 +47,9 @@ export interface ResumeSeed {
   // tool_search-promoted tool names from the prior run, re-activated before
   // the first post-resume inference so the wire matches the transcript.
   activatedTools: string[];
+  // Present only when the prior run stamped an Anthropic-protocol cache write.
+  lastCacheWriteAt?: number;
+  cacheWriteModel?: string;
 }
 
 const FRESH_RESUME_SEED: ResumeSeed = {
@@ -69,6 +72,14 @@ export function resolveResumeSeed(pickedState: RunState | null): ResumeSeed {
     turnsUsed: pickedState.turnsUsed,
     mcpServers: pickedState.mcpServers ?? [],
     activatedTools: pickedState.activatedTools ?? [],
+    ...(pickedState.lastCacheWriteAt !== undefined
+      ? {
+          lastCacheWriteAt: pickedState.lastCacheWriteAt,
+          ...(pickedState.model !== undefined
+            ? { cacheWriteModel: pickedState.model }
+            : {}),
+        }
+      : {}),
   };
 }
 
@@ -122,6 +133,7 @@ export function createTUICrashGuard(
     // too to close that earlier window.
     const turnsUsed = getActiveRun()?.turnsUsed ?? 0;
     const activatedTools = getActiveRun()?.activatedTools;
+    const lastCacheWriteAt = getActiveRun()?.lastCacheWriteAt;
     clearActiveRun();
     clearActiveDisposeHost();
     await flushPartialOnCrash().catch((flushErr: unknown) => {
@@ -151,6 +163,7 @@ export function createTUICrashGuard(
       model: `${live.providerName}:${live.model}`,
       mcpServers: [],
       ...(activatedTools !== undefined ? { activatedTools } : {}),
+      ...(lastCacheWriteAt !== undefined ? { lastCacheWriteAt } : {}),
     }).catch((saveErr: unknown) => {
       const saveMessage =
         saveErr instanceof Error ? saveErr.message : String(saveErr);
@@ -294,6 +307,9 @@ export async function prepareTUISession(
     model: `${config.providerName}:${config.model}`,
     mcpServers: resumeSeed.mcpServers,
     activatedTools: resumeSeed.activatedTools,
+    ...(resumeSeed.lastCacheWriteAt !== undefined
+      ? { lastCacheWriteAt: resumeSeed.lastCacheWriteAt }
+      : {}),
   });
 
   // Registered the moment a run starts so the top-level uncaughtException /
@@ -311,6 +327,12 @@ export async function prepareTUISession(
     turnsUsed: resumeSeed.turnsUsed,
     model: `${config.providerName}:${config.model}`,
     activatedTools: resumeSeed.activatedTools,
+    ...(resumeSeed.lastCacheWriteAt !== undefined
+      ? { lastCacheWriteAt: resumeSeed.lastCacheWriteAt }
+      : {}),
+    ...(resumeSeed.cacheWriteModel !== undefined
+      ? { cacheWriteModel: resumeSeed.cacheWriteModel }
+      : {}),
   };
   setActiveRun(activeRunHandle);
 

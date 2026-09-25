@@ -1665,9 +1665,10 @@ describe("SubAgentDirector idle stall ping", () => {
     expect(folded.some((action) => action.type === "wait")).toBe(false);
   });
 
-  test("cache-ttl recompress still folds on an in-window empty ping", async () => {
-    // test-model takes the 10-minute default TTL. The stall window is longer
-    // so the due fold is still an in-window ping, not a stall nudge.
+  test("cache expiry does not fold on an in-window empty ping", async () => {
+    // test-model used to take the 10-minute default TTL. Cache expiry is now
+    // a prompt transform, not a fold: the in-window ping waits, and the stall
+    // nudge still fires off the original activity clock.
     const activityAt = 11_000_000;
     const cacheTtlMs = 10 * 60_000;
     const stallTimeoutMs = 15 * 60_000;
@@ -1687,29 +1688,15 @@ describe("SubAgentDirector idle stall ping", () => {
     await director.decide(inferenceDoneText("working"), longState, caps);
 
     now += cacheTtlMs + 1;
-    const folded = actions(
+    const ping = actions(
       await director.decide(messageReceived(""), longState, caps),
     );
-    expect(folded).toEqual([
-      {
-        type: "compact",
-        compactor: "pruning-compactor",
-        reason: "cache-ttl-recompress",
-      },
-    ]);
-    expect(continuations).toBe(1);
-    expect(folded.some((action) => action.type === "infer")).toBe(false);
-    expect(folded.some((action) => action.type === "wait")).toBe(false);
+    expect(ping).toEqual([{ type: "wait" }]);
+    expect(continuations).toBe(0);
+    expect(ping.some((action) => action.type === "infer")).toBe(false);
+    expect(ping.some((action) => action.type === "compact")).toBe(false);
 
-    // Meter-only resume of the empty fold. Same clock: still inside the
-    // stall window, and this wait must not count as activity either.
-    const resumed = actions(
-      await director.decide(messageReceived(""), longState, caps),
-    );
-    expect(resumed).toEqual([{ type: "wait" }]);
-    expect(resumed.some((action) => action.type === "infer")).toBe(false);
-
-    // The fold must not stamp lastActivityAt or clear stallNudgeAt. One
+    // The wait must not stamp lastActivityAt or clear stallNudgeAt. One
     // stall timeout from the original activity still nudges, once.
     now = activityAt + stallTimeoutMs;
     const nudge = actions(
