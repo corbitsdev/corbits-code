@@ -100,7 +100,13 @@ describe("buildWorkerContract", () => {
 describe("buildWorkerToolNames", () => {
   test("lists names only, no catalog summaries", () => {
     const listed = buildWorkerToolNames(["read_file", "ask_director"]);
-    expect(listed).toBe("Tools (names only): read_file, ask_director");
+    expect(listed).toBe("Tools (names only): read, ask_director");
     expect(listed).not.toContain("cat/head/tail");
+  });
+
+  test("projects mounted engine names onto advertised wire names", () => {
+    expect(
+      buildWorkerToolNames(["read_file", "run_shell", "search_files", "grep"]),
+    ).toBe("Tools (names only): read, bash, glob, grep");
   });
 });
