@@ -107,7 +107,10 @@ import {
 } from "./authority.js";
 
 import { formatSubAgentSpawnAuthFailureMessage } from "./inference-auth-failure.js";
-import { isResolvedProviderFailureError } from "../inference-error-message.js";
+import {
+  isRecoverableProviderFailureCategory,
+  isResolvedProviderFailureError,
+} from "../inference-error-message.js";
 import { errorMessage } from "../agent/error-message.js";
 import { isSubAgentCancelError } from "./dispose.js";
 import {
@@ -125,6 +128,8 @@ interface FleetRecord {
   error?: string;
   stopReason?: string;
   providerFailure?: true;
+  /** CL-8978: transient provider failure — the parent may spawn one successor. */
+  recoverableFailure?: true;
   /** Set once a wait_agents caller has been handed this result. */
   collected?: boolean;
   /** Set once a waiter or occupancy take handed report/error. */
@@ -158,6 +163,8 @@ interface FleetOverlay {
   tombstoned?: boolean;
   hint?: string;
   providerFailure?: true;
+  /** CL-8978: transient provider failure — the parent may spawn one successor. */
+  recoverableFailure?: true;
 }
 
 const RECOVERY_HINT =
@@ -263,6 +270,17 @@ class FleetMailbox {
     const existing = this.records.get(id);
     if (existing === undefined) return;
     existing.providerFailure = true;
+  }
+
+  /**
+   * CL-8978: stamp a transient (retryable/timeout/overload) provider failure
+   * alongside sessions.fail. Survives session eviction like providerFailure —
+   * snapshot projects it even once the payload is tombstoned.
+   */
+  markRecoverable(id: string): void {
+    const existing = this.records.get(id);
+    if (existing === undefined) return;
+    existing.recoverableFailure = true;
   }
 
   markQueued(id: string): void {
@@ -462,6 +480,9 @@ class FleetMailbox {
         : {}),
       ...(stopReason !== undefined ? { stopReason } : {}),
       ...(overlay.providerFailure === true ? { providerFailure: true } : {}),
+      ...(overlay.recoverableFailure === true
+        ? { recoverableFailure: true }
+        : {}),
       ...(ask !== undefined
         ? { question: ask.question, questionId: ask.questionId }
         : {}),
@@ -600,7 +621,10 @@ export const waitAgentsToolDefinition: ToolDefinition = {
     `slot), "running", and "awaiting_director". interrupt_agent unblocks this wait immediately with ` +
     `status "interrupted" (a parent-initiated pause — resume_agent, do not spawn_agent a successor against the still-live worker). ` +
     `close_agent also unblocks with status "interrupted" but is permanent. Terminal JSON includes stop_reason when the session recorded one ` +
-    `(interrupted, cancelled, incomplete-report, and similar). awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
+    `(interrupted, cancelled, incomplete-report, and similar). A "failed" entry with "continuable": true is a recoverable transient ` +
+    `provider failure (retryable/timeout/overload) — terminal, not a timeout and not a stall: do not re-wait it, and you may spawn at most ` +
+    `one successor with the same brief. "failed" without the marker (auth, quota, context-overflow, or other errors) is not continuable — ` +
+    `do not respawn it. awaiting_director is not terminal: re-wait while still pending re-delivers the same question. ` +
     `Answer with send_input (soft). Do not call this in a tight zero-progress loop: a timeout means the targets are still ` +
     `queued, running, or awaiting a director answer, not "try again right away" — do other work, reply to the operator, or change the brief. Calling again with the ` +
     `same targets is a real timed wait, not a spin, but wastes turns if nothing has changed. ` +
@@ -1529,6 +1553,17 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
               const failReason = authMessage ?? diagnosticMessage;
               if (isProviderFailure || providerFailureObserved) {
                 deps.fleetRecords.markProviderFailure(session.id);
+              }
+              // CL-8978: a classified transient failure stays wait-terminal
+              // failed, but carries a continuable marker so the parent can
+              // spawn one successor instead of stalling on the failure.
+              // Fatal categories (credential/quota/context-overflow) and
+              // unclassified throws never mark — no auto-retry is added here.
+              if (
+                isResolvedProviderFailureError(err) &&
+                isRecoverableProviderFailureCategory(err.category)
+              ) {
+                deps.fleetRecords.markRecoverable(session.id);
               }
               deps.sessions.fail(session.id, failReason);
             })
