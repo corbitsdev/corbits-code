@@ -465,6 +465,48 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(authURLCount).toBe(1);
   });
 
+  test("block-path caller abort does not cancel shared recovery for another call", async () => {
+    finishAuthError = undefined;
+    callbackGate = new Promise((resolve) => {
+      releaseCallback = resolve;
+    });
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    callFailuresLeft = 2;
+    const callBlocks = connected.client.callBlocks;
+    expect(callBlocks).toBeDefined();
+    if (callBlocks === undefined) return;
+    const firstAbort = new AbortController();
+    const first = callBlocks("first", {}, firstAbort.signal);
+    const second = callBlocks("second", {}, new AbortController().signal);
+    while (waitForCodeCalls === 0) await Promise.resolve();
+
+    let abortTimer: ReturnType<typeof setTimeout> | undefined;
+    const abortTimeout = new Promise<never>((_, reject) => {
+      abortTimer = setTimeout(
+        () => reject(new Error("timed out waiting for caller abort")),
+        1000,
+      );
+    });
+    try {
+      firstAbort.abort(new Error("caller stopped"));
+      await expect(Promise.race([first, abortTimeout])).rejects.toThrow(
+        "caller stopped",
+      );
+    } finally {
+      if (abortTimer !== undefined) clearTimeout(abortTimer);
+      releaseCallback?.();
+    }
+
+    await expect(second).resolves.toEqual([]);
+    expect(waitForCodeCalls).toBe(1);
+    expect(finishAuthCalls).toBe(1);
+    expect(authURLCount).toBe(1);
+  });
+
   test("aborted waiter still fires onAuthorized when background finishAuth succeeds", async () => {
     finishAuthError = undefined;
     callbackGate = new Promise((resolve) => {
@@ -506,6 +548,50 @@ describe("HTTP MCP re-auth loop prevention", () => {
       connected.client.call("ping", {}, new AbortController().signal),
     ).rejects.toThrow("retrying paused");
     expect(authURLCount).toBe(1 + MAX_BROWSER_AUTH_ATTEMPTS);
+  });
+
+  test("block-path aborted waiter still fires onAuthorized when background finishAuth succeeds", async () => {
+    finishAuthError = undefined;
+    callbackGate = new Promise((resolve) => {
+      releaseCallback = resolve;
+    });
+    const connected = await connectMCPServer(config, {
+      onAuthURL: () => (authURLCount += 1),
+      onAuthorized: () => (authorizedCount += 1),
+    });
+    expect(connected.ok).toBe(true);
+    if (!connected.ok) return;
+    const callBlocks = connected.client.callBlocks;
+    expect(callBlocks).toBeDefined();
+    if (callBlocks === undefined) return;
+    callFailuresLeft = 1;
+    const abort = new AbortController();
+    const call = callBlocks("ping", {}, abort.signal);
+    while (authURLCount === 0 || waitForCodeCalls === 0)
+      await Promise.resolve();
+
+    let abortTimer: ReturnType<typeof setTimeout> | undefined;
+    const abortTimeout = new Promise<never>((_, reject) => {
+      abortTimer = setTimeout(
+        () => reject(new Error("timed out waiting for caller abort")),
+        1000,
+      );
+    });
+    try {
+      abort.abort(new Error("caller stopped"));
+      await expect(Promise.race([call, abortTimeout])).rejects.toThrow(
+        "caller stopped",
+      );
+    } finally {
+      if (abortTimer !== undefined) clearTimeout(abortTimer);
+      releaseCallback?.();
+    }
+    expect(authorizedCount).toBe(0);
+    while (finishAuthCalls === 0) await Promise.resolve();
+    for (let tick = 0; tick < 20 && authorizedCount === 0; tick += 1)
+      await Promise.resolve();
+    expect(authorizedCount).toBe(1);
+    expect(finishAuthCalls).toBe(1);
   });
 
   test("refresh-only recovery clears prior browser-cap counts", async () => {
