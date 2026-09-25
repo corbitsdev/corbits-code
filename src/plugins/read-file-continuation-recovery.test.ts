@@ -99,15 +99,19 @@ describe("CL-8980 continuation recovery (file source)", () => {
 
     // A resumed session rebuilds the plugin: brand-new instance, empty
     // in-memory cursor map. Following the notice verbatim must still yield
-    // the next window, not a missing-blob dead end.
+    // the next window, not a missing-blob dead end. Same window size so the
+    // read stays paged and mints the next handle.
     const resumed = await freshGuard()({
       id: "r2",
       name: "read_file",
-      arguments: { path: handle },
+      arguments: { path: handle, limit: 4 },
     });
     expect(resumed.isError).toBeFalsy();
     expect(String(resumed.content)).toContain("resume-line-4");
-    expect(String(resumed.content)).not.toContain(absolutePath);
+    // CL-8980 keeps a plain path+offset fallback alongside the handle so a
+    // lost handle is never a dead end; verbatim follows still use the handle.
+    expect(String(resumed.content)).toContain(`path="${absolutePath}"`);
+    expect(String(resumed.content)).not.toMatch(/Use path="[^"]*resume\.txt"/);
     expectNotDeclined(String(resumed.content));
   });
 
@@ -123,7 +127,7 @@ describe("CL-8980 continuation recovery (file source)", () => {
     const second = await freshGuard()({
       id: "c2",
       name: "read_file",
-      arguments: { path: handle1 },
+      arguments: { path: handle1, limit: 4 },
     });
     expect(second.isError).toBeFalsy();
     expect(String(second.content)).toContain("chain-line-4");
@@ -133,7 +137,7 @@ describe("CL-8980 continuation recovery (file source)", () => {
     const third = await freshGuard()({
       id: "c3",
       name: "read_file",
-      arguments: { path: handle2 },
+      arguments: { path: handle2, limit: 4 },
     });
     expect(third.isError).toBeFalsy();
     expect(String(third.content)).toContain("chain-line-8");
@@ -168,7 +172,11 @@ describe("CL-8980 continuation recovery (file source)", () => {
     const plugin = readFileGuardPlugin(dir, {});
     const middleware = defined(plugin.middleware)(fallback);
     const first = await middleware(
-      { id: "s1", name: "read_file", arguments: { path: "spent.txt", limit: 4 } },
+      {
+        id: "s1",
+        name: "read_file",
+        arguments: { path: "spent.txt", limit: 4 },
+      },
       neverAbort(),
     );
     const handle = extractHandle(String(first.content));
@@ -198,12 +206,15 @@ describe("CL-8980 continuation recovery (blob source)", () => {
   const rows = Array.from({ length: 8_000 }, (_, i) => `row-${i}`).join("\n");
 
   test("verbatim follow after resume yields the next window without the old map", async () => {
-    const store = new Map<string, Uint8Array>([["spill-resume", enc.encode(rows)]]);
+    const store = new Map<string, Uint8Array>([
+      ["spill-resume", enc.encode(rows)],
+    ]);
     const opening = freshGuard({
       read: async (uri: string) => {
         const key = uri.slice("tool-output:///".length);
         const bytes = store.get(key);
-        if (bytes === undefined) throw new Error(`Blob not found for key: ${uri}`);
+        if (bytes === undefined)
+          throw new Error(`Blob not found for key: ${uri}`);
         return bytes;
       },
     });
@@ -220,7 +231,8 @@ describe("CL-8980 continuation recovery (blob source)", () => {
       read: async (uri: string) => {
         const key = uri.slice("tool-output:///".length);
         const bytes = store.get(key);
-        if (bytes === undefined) throw new Error(`Blob not found for key: ${uri}`);
+        if (bytes === undefined)
+          throw new Error(`Blob not found for key: ${uri}`);
         return bytes;
       },
     });
@@ -234,12 +246,15 @@ describe("CL-8980 continuation recovery (blob source)", () => {
   });
 
   test("dead spill handle names the spill URI and offset, never a bare missing blob", async () => {
-    const live = new Map<string, Uint8Array>([["spill-dead", enc.encode(rows)]]);
+    const live = new Map<string, Uint8Array>([
+      ["spill-dead", enc.encode(rows)],
+    ]);
     const opening = freshGuard({
       read: async (uri: string) => {
         const key = uri.slice("tool-output:///".length);
         const bytes = live.get(key);
-        if (bytes === undefined) throw new Error(`Blob not found for key: ${uri}`);
+        if (bytes === undefined)
+          throw new Error(`Blob not found for key: ${uri}`);
         return bytes;
       },
     });
@@ -265,7 +280,9 @@ describe("CL-8980 continuation recovery (blob source)", () => {
     const text = String(dead.content);
     expect(text).toContain("tool-output:///spill-dead");
     expect(text).toMatch(/offset=\d+\b/);
-    expect(text).not.toMatch(/Blob not found for key: tool-output:\/\/\/[0-9a-f-]+/);
+    expect(text).not.toMatch(
+      /Blob not found for key: tool-output:\/\/\/[0-9a-f-]+/,
+    );
     expectNotDeclined(text);
   });
 

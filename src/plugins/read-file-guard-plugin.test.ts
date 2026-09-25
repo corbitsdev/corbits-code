@@ -507,8 +507,15 @@ describe("readFileGuardPlugin", () => {
     );
     expect(result.content).not.toContain("Use offset=");
     expect(String(result.content)).toContain('Use path="tool-output:///');
-    // The literal source path never reappears as the thing to read next.
-    expect(String(result.content)).not.toContain("many-lines.txt");
+    // CL-8980 keeps a plain path+offset fallback alongside the handle so a
+    // lost handle is never a dead end — but the primary next call is the
+    // handle, never the original path.
+    expect(String(result.content)).toMatch(
+      /\(Fallback: read_file path="[^"]*many-lines\.txt" offset=4\.\)/,
+    );
+    expect(String(result.content)).not.toMatch(
+      /Use path="[^"]*many-lines\.txt"/,
+    );
   });
 
   test("following the minted cursor resumes and eventually reads a large file to completion without any repeat call on the original path (CL-6961)", async () => {

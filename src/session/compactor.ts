@@ -672,7 +672,25 @@ function buildResultStub(
     const spillHint = path.startsWith("tool-output://")
       ? " Re-read with read_file offset/limit or grep on that URI."
       : "";
-    return `[${name} ${path} — ${size} chars omitted from context; source unchanged.${spillHint}]`;
+    // A stubbed truncated read may carry the only working resume recipe for
+    // an unfinished large read (CL-8980): continuation handles and spill URIs
+    // live in the body being hollowed, so they ride the stub instead.
+    const bodyText = block.content
+      .filter((c) => c.type === "text")
+      .map((c) => c.text)
+      .join("\n");
+    const recipes = Array.from(
+      new Set(
+        Array.from(bodyText.matchAll(/tool-output:\/\/\/[^\s"\]]+/g)).map((m) =>
+          m[0].replace(/[.,;)\]]+$/, ""),
+        ),
+      ),
+    ).filter((recipe) => recipe.length > "tool-output:///".length);
+    const resume =
+      recipes.length > 0
+        ? ` Resume: ${recipes.map((recipe) => `Use path="${recipe}" (same tool, no offset needed).`).join(" ")}`
+        : "";
+    return `[${name} ${path} — ${size} chars omitted from context; source unchanged.${spillHint}${resume}]`;
   }
   return `[${name} — ${size} chars, omitted]`;
 }

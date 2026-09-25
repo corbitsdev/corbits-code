@@ -8,8 +8,11 @@ import type { ToolPlugin } from "@intx/tools-posix";
 import type { BlobReader } from "@intx/types/runtime";
 import {
   canonicalToolOutputUri,
+  decodeResumeCursor,
+  encodeResumeCursor,
   isToolOutputLike,
   TOOL_OUTPUT_URI_PREFIX,
+  type ResumeCursor,
 } from "../util/tool-output-uri.js";
 import { formatReadFileTimeoutMessage } from "./tool-time-budget.js";
 
@@ -58,6 +61,11 @@ export interface ReadFileGuardPluginOptions {
 // promise result-truncation-plugin.ts's comment forbids, since nothing here
 // claims discarded bytes are retrievable; it just remembers where to resume
 // a fresh bounded read.
+//
+// Handles are self-describing (CL-8980): the URI embeds the resume recipe,
+// so following it needs no in-memory record and survives session resume,
+// prune, and compaction. The per-instance map below only tracks which handles
+// this instance already served, to keep the single-use replay contract.
 type ReadCursor =
   | { kind: "file"; absolutePath: string; offset: number; consumed: boolean }
   | { kind: "blob"; uri: string; offset: number; consumed: boolean };
@@ -86,13 +94,24 @@ function mintCursor(
   source:
     | { kind: "file"; absolutePath: string }
     | { kind: "blob"; uri: string },
+  windowLimit: number,
 ): string {
   const match = CONTINUE_OFFSET_RE.exec(content);
   if (match === null) return content;
   const offset = Number(match[1]);
-  const cursorId = randomUUID();
+  const resume: ResumeCursor = {
+    source:
+      source.kind === "file"
+        ? { kind: "file", path: source.absolutePath }
+        : { kind: "blob", uri: source.uri },
+    offset,
+    limit: windowLimit,
+    nonce: randomUUID(),
+  };
+  const handle = encodeResumeCursor(resume);
+  const cursorKey = handle.slice(`${TOOL_OUTPUT_URI_PREFIX}///`.length);
   cursors.set(
-    cursorId,
+    cursorKey,
     source.kind === "file"
       ? {
           kind: "file",
@@ -103,9 +122,11 @@ function mintCursor(
       : { kind: "blob", uri: source.uri, offset, consumed: false },
   );
   pruneCursorHistory(cursors);
+  const fallbackSource =
+    source.kind === "file" ? source.absolutePath : source.uri;
   return content.replace(
     CONTINUE_OFFSET_RE,
-    `Use path="${TOOL_OUTPUT_URI_PREFIX}///${cursorId}" (same tool, no offset needed) to continue reading the remainder — a fresh, working handle, not the original path.]`,
+    `Use path="${handle}" (same tool, no offset needed) to continue reading the remainder — a fresh, working handle, not the original path. Safe to retry after any truncation warning. (Fallback: read_file path="${displaySource(fallbackSource)}" offset=${offset}.)]`,
   );
 }
 
@@ -130,6 +151,24 @@ function staleCursorMessage(cursor: ReadCursor): string {
   return (
     `this read_file continuation handle was already used (each cursor is single-use). ` +
     `Resume with read_file, path="${displaySource(source)}", offset=${cursor.offset}.`
+  );
+}
+
+/**
+ * Message for a continuation handle whose source can no longer be re-read
+ * (file deleted, spill pruned, no blob reader). Never a bare missing-blob:
+ * it names the original source and the exact offset so recovery stays one
+ * targeted call.
+ */
+function deadCursorMessage(
+  source: string,
+  offset: number,
+  cause: unknown,
+): string {
+  const detail = cause instanceof Error ? cause.message : String(cause);
+  return (
+    `this read_file continuation handle expired before its source could be re-read (${detail}). ` +
+    `Resume with read_file, path="${displaySource(source)}", offset=${offset}.`
   );
 }
 
@@ -456,9 +495,11 @@ export function readFileGuardPlugin(
   options: ReadFileGuardPluginOptions = {},
 ): ToolPlugin {
   const { blobReader } = options;
-  // Single-use resumption pointers minted by mintCursor(); scoped to this
-  // plugin instance (one per session/agent, per buildCorePosixToolPlugins), so
-  // it never outlives the session and never crosses sessions.
+  // Single-use resumption pointers minted by mintCursor(); the map is scoped
+  // to this plugin instance (one per session/agent, per
+  // buildCorePosixToolPlugins). The handles themselves are self-describing
+  // (CL-8980), so they outlive the session — the map only tracks which ones
+  // this instance already served, to keep the single-use replay contract.
   const cursors = new Map<string, ReadCursor>();
   const cursorUriPrefix = `${TOOL_OUTPUT_URI_PREFIX}///`;
   return {
@@ -513,10 +554,15 @@ export function readFileGuardPlugin(
                 ? { callId: call.id, content: res.content, isError: true }
                 : {
                     callId: call.id,
-                    content: mintCursor(res.content, cursors, {
-                      kind: "file",
-                      absolutePath: cursor.absolutePath,
-                    }),
+                    content: mintCursor(
+                      res.content,
+                      cursors,
+                      {
+                        kind: "file",
+                        absolutePath: cursor.absolutePath,
+                      },
+                      limit,
+                    ),
                   };
             }
             if (blobReader === undefined) {
@@ -538,15 +584,120 @@ export function readFileGuardPlugin(
               ? { callId: call.id, content: res.content, isError: true }
               : {
                   callId: call.id,
-                  content: mintCursor(res.content, cursors, {
-                    kind: "blob",
-                    uri: cursor.uri,
-                  }),
+                  content: mintCursor(
+                    res.content,
+                    cursors,
+                    {
+                      kind: "blob",
+                      uri: cursor.uri,
+                    },
+                    blobLimit,
+                  ),
                 };
           } catch (err) {
+            if (signal.aborted) {
+              return {
+                callId: call.id,
+                content: err instanceof Error ? err.message : String(err),
+                isError: true,
+              };
+            }
+            // The record survived but the source did not (file deleted, spill
+            // pruned): a dead handle, not a missing blob — name source+offset.
+            const knownSource =
+              cursor.kind === "file" ? cursor.absolutePath : cursor.uri;
             return {
               callId: call.id,
-              content: err instanceof Error ? err.message : String(err),
+              content: deadCursorMessage(knownSource, cursor.offset, err),
+              isError: true,
+            };
+          }
+        }
+
+        const resumed = decodeResumeCursor(uri);
+        if (resumed !== undefined) {
+          // Self-describing handle with no in-memory record here: a resumed
+          // session, a pruned map, or a compacted transcript. The recipe rides
+          // in the handle, so serve it exactly as a known cursor would — and
+          // mark it consumed on success so a verbatim re-follow is the same
+          // stale-cursor error as a spent handle, not a second serving.
+          const resumedSource =
+            resumed.source.kind === "file"
+              ? resumed.source.path
+              : resumed.source.uri;
+          const resumedKey = uri.slice(cursorUriPrefix.length);
+          try {
+            signal.throwIfAborted();
+            if (resumed.source.kind === "file") {
+              const res = await readFileBounded(
+                resumed.source.path,
+                resumed.offset,
+                limit,
+                signal,
+              );
+              if (res.isError) {
+                return { callId: call.id, content: res.content, isError: true };
+              }
+              cursors.set(resumedKey, {
+                kind: "file",
+                absolutePath: resumed.source.path,
+                offset: resumed.offset,
+                consumed: true,
+              });
+              pruneCursorHistory(cursors);
+              return {
+                callId: call.id,
+                content: mintCursor(
+                  res.content,
+                  cursors,
+                  {
+                    kind: "file",
+                    absolutePath: resumed.source.path,
+                  },
+                  limit,
+                ),
+              };
+            }
+            if (blobReader === undefined) {
+              throw new Error(
+                `cannot read ${resumedSource}: no blob reader is configured for tool-output spills`,
+              );
+            }
+            const bytes = await blobReader.read(resumed.source.uri);
+            const res = await readBytesBounded(
+              bytes,
+              resumed.offset,
+              blobLimit,
+              signal,
+              resumed.source.uri,
+            );
+            if (res.isError) {
+              return { callId: call.id, content: res.content, isError: true };
+            }
+            cursors.set(resumedKey, {
+              kind: "blob",
+              uri: resumed.source.uri,
+              offset: resumed.offset,
+              consumed: true,
+            });
+            pruneCursorHistory(cursors);
+            return {
+              callId: call.id,
+              content: mintCursor(
+                res.content,
+                cursors,
+                {
+                  kind: "blob",
+                  uri: resumed.source.uri,
+                },
+                blobLimit,
+              ),
+            };
+          } catch (err) {
+            if (signal.aborted) throw err;
+            return {
+              callId: call.id,
+              content: deadCursorMessage(resumedSource, resumed.offset, err),
               isError: true,
             };
           }
@@ -573,10 +724,15 @@ export function readFileGuardPlugin(
             ? { callId: call.id, content: res.content, isError: true }
             : {
                 callId: call.id,
-                content: mintCursor(res.content, cursors, {
-                  kind: "blob",
-                  uri,
-                }),
+                content: mintCursor(
+                  res.content,
+                  cursors,
+                  {
+                    kind: "blob",
+                    uri,
+                  },
+                  blobLimit,
+                ),
               };
         } catch (err) {
           return {
@@ -602,10 +758,15 @@ export function readFileGuardPlugin(
           ? { callId: call.id, content: res.content, isError: true }
           : {
               callId: call.id,
-              content: mintCursor(res.content, cursors, {
-                kind: "file",
-                absolutePath,
-              }),
+              content: mintCursor(
+                res.content,
+                cursors,
+                {
+                  kind: "file",
+                  absolutePath,
+                },
+                limit,
+              ),
             };
       } catch (err) {
         return {
