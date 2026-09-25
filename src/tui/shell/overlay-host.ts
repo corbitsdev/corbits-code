@@ -394,7 +394,10 @@ export function handleOverlayAnswerKey(
 }
 
 /** Close overlay/palette if open; restore prior focus (or prior overlay under palette). */
-export function closeInsetOverlay(shell: AppShell): void {
+export function closeInsetOverlay(
+  shell: AppShell,
+  opts?: { readonly suppressIdleNotify?: boolean },
+): void {
   if (!shell.overlayList) return;
   // Esc (or any other dismiss) must also drop the `/` and `@` popups' key claim.
   slashPopups.delete(shell);
@@ -477,7 +480,14 @@ export function closeInsetOverlay(shell: AppShell): void {
   relayout(shell, { overlayMode: "closed" });
   applyFocus(shell);
   if (bag) bag.overlayGeneration += 1;
-  if (isOverlayHostIdle(shell)) notifyOverlayClosed(shell);
+  // Keystroke-driven `/` re-parse dismisses (empty arg stage, multi-token
+  // tail) suppress this: the operator is mid-word, and the notify is what a
+  // queued permission/operator gate waits on to drain. The gate stays queued
+  // until the next genuine dismiss or submit. Deferred command surfaces still
+  // flush below — only the gate-draining notify is suppressed.
+  if (!opts?.suppressIdleNotify && isOverlayHostIdle(shell)) {
+    notifyOverlayClosed(shell);
+  }
   try {
     onDispose?.();
     onCancel?.();

@@ -30,6 +30,23 @@ const CATALOG: readonly PaletteCommand[] = [
   },
   { id: "mcp", label: "/mcp" },
   { id: "compact", label: "/compact" },
+  {
+    id: "release",
+    label: "/release",
+    description: "Tag a build",
+    keywords: ["release", "tag", "slash"],
+    argumentHint: "<id>",
+  },
+  {
+    id: "scale",
+    label: "/scale",
+    description: "Raise the bar",
+    keywords: ["scale", "slash"],
+    subcommands: [
+      { name: "high", description: "First rung" },
+      { name: "low", description: "Last rung" },
+    ],
+  },
 ];
 
 interface Ctx {
@@ -197,6 +214,87 @@ describe("slash command popup", () => {
       expect(shell.prompt.value).toBe("/p");
       expect(shell.overlayItems).toEqual(["(no matches)"]);
       expect(frame()).toContain("(no matches)");
+    });
+  });
+
+  test("Tab-accepting a hint then Enter dispatches bare, not the placeholder", async () => {
+    await withShell(async ({ shell, press }) => {
+      for (const ch of "/release") press(ch);
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      press("Tab");
+      // A param command completes the name and opens the hint row as stage two.
+      expect(shell.prompt.value).toBe("/release ");
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      press("Tab");
+      // The hint lands as text so it stays visible, carrying a selection.
+      expect(shell.prompt.value).toBe("/release <id>");
+      expect(isSlashPopupOpen(shell)).toBe(false);
+      expect(shell.prompt.hasSelection()).toBe(true);
+      // One arrow key drops the untouched selection without editing — collapse
+      // it the same way — and the shape is still the placeholder. Submitting
+      // it must dispatch the bare command, not the literal placeholder.
+      shell.prompt.setSelection(
+        shell.prompt.value.length,
+        shell.prompt.value.length,
+      );
+      expect(shell.prompt.hasSelection()).toBe(false);
+      // Past the un-bracketed-paste burst window, so Enter sends.
+      await Bun.sleep(30);
+      press("Enter");
+      expect(shell.prompt.value).toBe("");
+      expect(shell.sentHistory.sent).toEqual(["/release"]);
+    });
+  });
+
+  test("a second arg token dismisses the popup instead of holding it dead", async () => {
+    await withShell(async ({ shell, press }) => {
+      for (const ch of "/scale high") press(ch);
+      // A single-token tail still filters the subcommand rows in place.
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      expect(shell.paletteCommands.map((c) => c.id)).toEqual(["scale:high"]);
+      for (const ch of " --force") press(ch);
+      // The popup's filtering job is over — real arguments are being typed —
+      // so it dismisses and leaves the prompt alone.
+      expect(shell.prompt.value).toBe("/scale high --force");
+      expect(isSlashPopupOpen(shell)).toBe(false);
+      expect(shell.overlayList).toBeNull();
+    });
+  });
+
+  test("backspace out of the arg stage returns to the name stage", async () => {
+    await withShell(async ({ shell, press }) => {
+      for (const ch of "/release") press(ch);
+      press("Tab");
+      expect(shell.prompt.value).toBe("/release ");
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      press("Backspace");
+      expect(shell.prompt.value).toBe("/release");
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      expect(shell.paletteCommands.map((c) => c.id)).toEqual(["release"]);
+    });
+  });
+
+  test("Esc clears the popup so a later cycle opens fresh", async () => {
+    await withShell(async ({ shell, dispatched, press, render }) => {
+      for (const ch of "/release") press(ch);
+      press("Tab");
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      press("Escape");
+      await render();
+      await Bun.sleep(60);
+      expect(isSlashPopupOpen(shell)).toBe(false);
+      expect(shell.overlayList).toBeNull();
+      // The typed text survives; submitting it still sends cleanly. `release`
+      // is a catalog fixture, not a registry command, so the send — not a
+      // registry dispatch — is the signal.
+      press("Enter");
+      expect(shell.prompt.value).toBe("");
+      expect(shell.sentHistory.sent).toEqual(["/release"]);
+      // No stale popup entry survives: a fresh cycle claims keys and dispatches.
+      for (const ch of "/model") press(ch);
+      expect(isSlashPopupOpen(shell)).toBe(true);
+      press("Enter");
+      expect(dispatched).toEqual(["model"]);
     });
   });
 });

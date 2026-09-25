@@ -14,7 +14,11 @@ import {
   userRowText,
   type PendingImageAttachment,
 } from "../image-attachments.js";
-import { createSentHistoryBrowse } from "../sent-message-history.js";
+import {
+  createSentHistoryBrowse,
+  sentHistoryOnEdit,
+} from "../sent-message-history.js";
+import { stripUneditedSlashHint } from "../command-catalog.js";
 import {
   resolvePromptHighlightSpans,
   resolvePromptRecognitionMatcher,
@@ -48,6 +52,7 @@ import {
   paintPromptBorder,
   setStatusFlash,
 } from "./chrome.js";
+import { resolvePaletteCatalog } from "./palette.js";
 
 /** Queue an image for the next submit and reflect it on the notice row. */
 export function addPendingAttachment(
@@ -282,6 +287,20 @@ export function submitPrompt(
   shell: AppShell,
   kind: "queue" | "steer" | "reinject" = "queue",
 ): void {
+  // A Tab-accepted free-form hint sits in the prompt as placeholder text; bare
+  // Enter must dispatch the command, not submit the placeholder literal as
+  // its argument. The strip is shape-only: the untouched selection is lost to
+  // a single arrow key, so only the exact `/id <hint>` match strips — real
+  // arguments never equal the hint byte-for-byte.
+  const hintBase = stripUneditedSlashHint(
+    resolvePaletteCatalog(shell),
+    shell.prompt.value,
+  );
+  if (hintBase !== null) {
+    shell.prompt.value = hintBase;
+    shell.prompt.cursorOffset = hintBase.length;
+    shell.sentHistory = sentHistoryOnEdit(shell.sentHistory);
+  }
   const text = shell.prompt.value;
   const t = text.trim();
   const attachments = shell.pendingAttachments;

@@ -78,8 +78,8 @@ export interface CommandDefinition {
   pluginOrigin?: PluginOrigin;
   /**
    * Claude Code–compatible free-form arg guidance (frontmatter `argument-hint`).
-   * Shown greyed next to the command and after `/cmd ` until the operator types.
-   * Never inserted into the prompt on Tab.
+   * Shown greyed next to the command in the `/` popup; on Tab it is spliced
+   * into the prompt after `/cmd ` as selected text so typing replaces it.
    */
   argumentHint?: string;
   subcommands?: readonly SubcommandDefinition[];
