@@ -624,6 +624,9 @@ describe("pruning compactor verify pass", () => {
     const compactor = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 2000,
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       summarize: async () => "Work continues. Next: fix tests.",
     });
     const turns: ConversationTurn[] = [
@@ -641,6 +644,9 @@ describe("pruning compactor verify pass", () => {
     const compactor = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 2000,
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       summarize: async () => "Auth migration done. No errors remain.",
     });
     const turns: ConversationTurn[] = [
@@ -658,6 +664,9 @@ describe("pruning compactor verify pass", () => {
     const compactor = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 2000,
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       summarize: async () =>
         "Migrating auth to opaque tokens. Read src/auth.ts, ran bun run " +
         "test auth; the token refresh assertion failed. Fix the token " +
@@ -674,12 +683,174 @@ describe("pruning compactor verify pass", () => {
   });
 });
 
+describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
+  const BIG_HEAD = "BIG-OUTPUT-HEAD:";
+  const BIG_TAIL = ":BIG-OUTPUT-TAIL";
+  const BIG_OUTPUT = `${BIG_HEAD}${"x".repeat(59_970)}${BIG_TAIL}`;
+
+  function pairTurns(
+    id: string,
+    name: string,
+    args: Record<string, unknown>,
+    resultText: string,
+  ): ConversationTurn[] {
+    return [
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id, name, arguments: args }],
+        timestamp: Date.now(),
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            callId: id,
+            content: [{ type: "text", text: resultText }],
+          },
+        ],
+        timestamp: Date.now(),
+      },
+    ];
+  }
+
+  function tailSession(): ConversationTurn[] {
+    return [
+      textTurn(
+        "user",
+        "Migrate the auth module to opaque tokens in src/auth.ts",
+      ),
+      ...pairTurns(
+        "a",
+        "read_file",
+        { path: "src/a.ts" },
+        `a-result:${"a".repeat(4000)}`,
+      ),
+      ...pairTurns(
+        "b",
+        "read_file",
+        { path: "src/b.ts" },
+        `b-result:${"b".repeat(4000)}`,
+      ),
+      ...pairTurns(
+        "big",
+        "run_shell",
+        { command: "bun run test auth" },
+        BIG_OUTPUT,
+      ),
+      textTurn(
+        "user",
+        "newest ask: keep this newest user message whole verbatim",
+      ),
+      textTurn("assistant", "newest reply"),
+    ];
+  }
+
+  function tailCompactor() {
+    return createPruningCompactor({
+      keepRecentTurns: 2,
+      summaryMaxChars: 4000,
+      compactionShape: { tailBudgetTokens: 1000 },
+      summarize: async () =>
+        "Re-read src/a.ts and src/b.ts leftovers. Next: keep newest ask whole.",
+    });
+  }
+
+  function toolPairIds(turns: ConversationTurn[]): {
+    calls: string[];
+    results: string[];
+  } {
+    const calls: string[] = [];
+    const results: string[] = [];
+    for (const turn of turns) {
+      for (const block of turn.content) {
+        if (block.type === "tool_call") calls.push(block.id);
+        if (block.type === "tool_result") results.push(block.callId);
+      }
+    }
+    return { calls, results };
+  }
+
+  // allText above only sees top-level text blocks; tail excerpts live inside
+  // tool_result bodies, so the tail assertions read those too.
+  function liveResultText(turns: ConversationTurn[]): string {
+    return turns
+      .flatMap((t) =>
+        t.content.flatMap((b) => {
+          if (b.type === "text") return [b.text];
+          if (b.type === "tool_result")
+            return b.content.map((c) => (c.type === "text" ? c.text : ""));
+          return [];
+        }),
+      )
+      .join("\n");
+  }
+
+  test("large tool outputs in the tail are shortened rather than copied verbatim", async () => {
+    const result = await tailCompactor().apply(tailSession(), mockStrategyCtx);
+    expect(result.record.reason.startsWith("compacted")).toBe(true);
+    const live = liveResultText(result.output);
+    expect(live).not.toContain(BIG_OUTPUT);
+    expect(live).toContain(BIG_HEAD);
+    expect(live).toContain(BIG_TAIL);
+    expect(live).toContain("[tail-shortened");
+    expect(live).toContain(String(BIG_OUTPUT.length));
+    expect(result.record.decisions).toMatchObject({ shortenedToolOutputs: 1 });
+  });
+
+  test("the emitted tail fits the configured token budget", async () => {
+    const result = await tailCompactor().apply(tailSession(), mockStrategyCtx);
+    expect(result.record.decisions).toMatchObject({ tailBudgetTokens: 1000 });
+    const estimate = result.record.decisions.tailTokenEstimate;
+    expect(typeof estimate).toBe("number");
+    expect(estimate as number).toBeLessThanOrEqual(1000);
+  });
+
+  test("cut points never split a tool call from its result", async () => {
+    const result = await tailCompactor().apply(tailSession(), mockStrategyCtx);
+    const { calls, results } = toolPairIds(result.output);
+    expect([...calls].sort()).toEqual([...results].sort());
+    expect(calls).toContain("big");
+    expect(liveResultText(result.output)).toContain(
+      "newest ask: keep this newest user message whole verbatim",
+    );
+  });
+
+  test("the shape travels as one param object with safe pair/user defaults", async () => {
+    const result = await tailCompactor().apply(tailSession(), mockStrategyCtx);
+    expect(result.record.parameters).toMatchObject({
+      compactionShape: {
+        tailBudgetTokens: 1000,
+        maxTailToolOutputChars: 2048,
+        excerptHead: true,
+        excerptTail: true,
+        preserveWholeUserMessages: true,
+        pairSafe: true,
+      },
+    });
+  });
+
+  test("the default tail budget applies when no shape is given", async () => {
+    const compactor = createPruningCompactor({ keepRecentTurns: 2 });
+    const result = await compactor.apply(
+      [textTurn("user", "goal"), textTurn("assistant", "reply")],
+      mockStrategyCtx,
+    );
+    expect(result.record.parameters).toMatchObject({
+      compactionShape: { tailBudgetTokens: 7500, pairSafe: true },
+    });
+  });
+});
+
 describe("continuation facts survive many folds", () => {
   test("verify signal holds after five lossy folds", async () => {
     let priorFile: string | undefined;
     const compactor = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 4000,
+      // CL-9007: pin a tiny tail budget so each fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       summarize: async () => "Work continues. Next: fix tests.",
       readPriorHandoff: async () => priorFile,
     });
@@ -767,6 +938,9 @@ describe("completeness gate plus verify repair", () => {
     const inner = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 4000,
+      // CL-9007: pin a tiny tail budget so each fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       summarize: async () => "Work continues. Next: fix tests.",
       readPriorHandoff: async () => priorFile,
     });
