@@ -52,6 +52,7 @@ import {
   setEffortCycleHandler,
   setMentionSuggestionSource,
   setPromptRecognitionSource,
+  type AppShell,
 } from "../shell/internals.js";
 import {
   setPromptModelLabel,
@@ -77,12 +78,27 @@ import {
   type RunnerState,
 } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { savedSkipPermissionsWarning } from "../../permission/saved-skip-warning.js";
 import {
   buildFleetDryContinuationMessage,
   buildMailboxMailMessage,
 } from "../../session/runtime-assembly.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
+
+export function surfaceSavedSkipPermissionsWarning(
+  shell: AppShell,
+  config: Pick<
+    RunnerState["config"],
+    "globalSettingsPath" | "skipPermissionsFromSettings"
+  >,
+): void {
+  if (!config.skipPermissionsFromSettings) return;
+  surfaceSystemNotice(
+    shell,
+    savedSkipPermissionsWarning(config.globalSettingsPath),
+  );
+}
 
 /**
  * One tick of the periodic fleet stall poll.
@@ -590,12 +606,7 @@ export function wirePostStartup(
   // The persisted /yolo default is otherwise silent: nothing on screen would
   // otherwise tell the operator that permission prompts are off for a repo
   // they never ran --dangerously-skip-permissions or /yolo in.
-  if (state.config.skipPermissionsFromSettings) {
-    surfaceSystemNotice(
-      hostOf(state).shell,
-      "Permission prompts are disabled by your saved default (/yolo off to re-enable).",
-    );
-  }
+  surfaceSavedSkipPermissionsWarning(hostOf(state).shell, state.config);
 
   // Soft upgrade check: never blocks startup; offline / rate-limit is a quiet skip.
   // surfaceSystemNotice keeps the landing hero up and flushes into the transcript

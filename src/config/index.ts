@@ -579,9 +579,9 @@ export interface Config {
   // Experimental prompt shrink after an Anthropic cache expiry. Off unless
   // settings set anthropicCachePrompt.
   anthropicCachePrompt: boolean;
-  // True when dangerouslySkipPermissions came from the persisted global
-  // default rather than this invocation's CLI flag. Entry points use this to
-  // surface a startup notice since the persisted default is otherwise silent.
+  // True when dangerouslySkipPermissions came from the active settings source
+  // rather than this invocation's CLI flag. Entry points use this to surface a
+  // startup notice since the persisted value is otherwise silent.
   skipPermissionsFromSettings: boolean;
   auto: boolean;
   /**
@@ -594,6 +594,7 @@ export interface Config {
    * product agent path (`corbits exec "prompt"`). Same directors/tools/permissions.
    */
   command: "tui" | "exec";
+  /** Active settings source, including an explicit --config path. */
   globalSettingsPath: string;
   globalDefaultProvider?: string;
   // Every provider available to switch to at runtime. From the settings file
@@ -699,10 +700,12 @@ Flags:
   -p                          one-shot prompt (same as exec / run)
   --resume [<session-id>]     interactive picker, or reopen a session; with exec/-p the id is required
   --director <id>             exec-only: run as this director (default: skywalker)
-  --dangerously-skip-permissions
-                               skip permission prompts for this run only;
-                               /yolo in the TUI instead persists the default
-                               machine-wide in ~/.corbits/settings.json
+  --dangerously-skip-permissions, --yolo
+                               skip permission prompts for this process only (--yolo alias);
+                               --auto --yolo uses yolo mode (catastrophic denials remain);
+                               /yolo in the TUI persists the active settings file;
+                               the default settings file is machine-wide;
+                               --config selects another source
   --auto / --no-auto          auto mode on/off
   --help, -h                  show this help
 `;
@@ -734,7 +737,7 @@ export class CliUserError extends Error {
 }
 
 export interface LoadConfigOptions {
-  // Override the global settings file location (for tests / non-standard homes).
+  // Override the default settings source (for tests / non-standard homes).
   globalSettingsPath?: string;
   // Override the home directory used for project-key session roots (tests).
   // Production callers leave this unset so sessions resolve under ~/.corbits.
@@ -883,7 +886,7 @@ export async function loadConfig(
       continue;
     }
 
-    if (arg === "--dangerously-skip-permissions") {
+    if (arg === "--dangerously-skip-permissions" || arg === "--yolo") {
       dangerouslySkipPermissions = true;
       continue;
     }
@@ -950,8 +953,8 @@ export async function loadConfig(
     ...options.pricing,
   });
 
-  // Resolve both settings targets from the same effective global path. The
-  // local schema must never be read from or written to that global target.
+  // Resolve both settings targets from the same active source. The local schema
+  // must never be read from or written to the active global-schema target.
   const effectiveSettingsPath =
     configPath ?? options.globalSettingsPath ?? globalSettingsPath();
   const localSettingsFile = resolveLocalSettingsPath(
@@ -995,7 +998,7 @@ export async function loadConfig(
           { persist: true },
         );
 
-  // Track whether the effective value came from the persisted global default
+  // Track whether the effective value came from the active settings source
   // rather than this invocation's --dangerously-skip-permissions flag, so the
   // TUI/exec entry points can surface a startup notice for the silent case.
   const skipPermissionsFromSettings =

@@ -26,7 +26,7 @@ export interface CommandContext {
   beginFeedbackCapture?: () => void;
   /** Whether skip-permissions (yolo) is active for this session. */
   getSkipPermissions?: () => boolean;
-  /** Live-flip skip-permissions and persist `/yolo` as the user-global default. */
+  /** Live-flip skip-permissions and persist `/yolo` to the active settings source. */
   setSkipPermissions?: (value: boolean) => void;
   /**
    * Fold conversation context now, bypassing the occupancy governor.

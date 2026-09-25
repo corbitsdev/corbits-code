@@ -1,9 +1,10 @@
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 import type { AgentTool } from "@intx/agent";
 import type { InferenceSource } from "@intx/types/runtime";
-import type { Config } from "../../../src/config/index.js";
+import { loadConfig, type Config } from "../../../src/config/index.js";
 import {
   disposeExecRuntime,
   formatCaughtError,
@@ -351,7 +352,7 @@ describe("runExec", () => {
     }
   });
 
-  test("dispose failure after toolset exists is once-only and forces a nonzero exit", async () => {
+  test("dispose failure is once-only and warns with the settings source", async () => {
     const previous = getActiveRun();
     clearActiveRun();
     const { cwd, home, cleanup } = createTempDirs(
@@ -416,23 +417,68 @@ describe("runExec", () => {
               async () => {
                 const { runExec: runExecUnderMock } =
                   await import("../../../src/exec/runner.js");
+                const defaultSettingsPath = join(home, "settings.json");
                 const result = await runExecUnderMock({
                   ...bareConfig("do the thing"),
                   cwd,
                   sessionId,
                   director: "builder",
-                  globalSettingsPath: join(home, "settings.json"),
+                  globalSettingsPath: defaultSettingsPath,
                   providers: [],
+                  skipPermissionsFromSettings: true,
                 });
                 expect(result.exitCode).toBe(1);
                 expect(result.status).toBe("failed");
                 expect(result.error).toMatch(
                   /plugin dispose failed|runtime dispose failed/i,
                 );
-                expect(stderrChunks.join("")).toMatch(
-                  /runtime dispose failed/i,
+                const stderrOutput = stderrChunks.join("");
+                expect(stderrOutput).toContain(
+                  `Warning: permission prompts are disabled by saved settings at ${defaultSettingsPath}; edit that file to re-enable.\n`,
                 );
+                expect(stderrOutput).not.toContain("/yolo");
+                expect(stderrOutput).toMatch(/runtime dispose failed/i);
                 expect(disposeCalls).toBe(1);
+                expect(getActiveDisposeHost()).toBeNull();
+
+                stderrChunks.length = 0;
+                const customSettingsPath = join(home, "custom-settings.json");
+                await writeFile(
+                  customSettingsPath,
+                  JSON.stringify({
+                    defaultProvider: "test",
+                    providers: {
+                      test: {
+                        baseURL: "https://example.test/v1",
+                        apiKey: "test-key",
+                        models: ["test"],
+                      },
+                    },
+                    dangerouslySkipPermissions: true,
+                  }),
+                );
+                const customConfig = await loadConfig([
+                  "exec",
+                  "--cwd",
+                  cwd,
+                  "--config",
+                  customSettingsPath,
+                  "do the thing",
+                ]);
+                const customResult = await runExecUnderMock({
+                  ...customConfig,
+                  sessionId: `${sessionId}-custom`,
+                  director: "builder",
+                });
+                expect(customResult.exitCode).toBe(1);
+                const customStderrOutput = stderrChunks.join("");
+                expect(customStderrOutput).toContain(
+                  `Warning: permission prompts are disabled by saved settings at ${customSettingsPath}; edit that file to re-enable.\n`,
+                );
+                expect(customStderrOutput).not.toContain("machine-wide");
+                expect(customStderrOutput).not.toContain("TUI");
+                expect(customStderrOutput).not.toContain("/yolo");
+                expect(disposeCalls).toBe(2);
                 expect(getActiveDisposeHost()).toBeNull();
               },
             );
