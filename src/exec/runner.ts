@@ -657,6 +657,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       skillDirs,
       telemetry: liveTelemetry,
       isCodex: isCodexProviderName(config.providerName),
+      // CL-9386: the active settings source (including a --config override)
+      // is model-unreadable/unwritable, like the default settings file.
+      secretGuardExtraDeniedPaths: [config.globalSettingsPath],
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       ...(toolWatchdog !== undefined ? { toolWatchdog } : {}),
       ...(localSettingsForMode?.env !== undefined
@@ -1112,6 +1115,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
         resolveParkedCallId: (correlationId) =>
           resolveParkedCallIdFromStore(activeStorage, correlationId),
         gate: permissionGate,
+        cwd: config.cwd,
+        extraDeniedPaths: [config.globalSettingsPath],
         deliver: async (message, stillCurrent) => {
           if (!stillCurrent()) return;
           await approvalDeliverer.deliver(message);

@@ -52,6 +52,13 @@ export interface CorePosixToolPluginsArgs {
   getShellOutputFeeds?: () => ShellOutputFeedMap | undefined;
   /** Primary-only evidence archive; workers omit this getter. */
   getEvidenceArchive?: () => CompactionArchive | undefined;
+  /**
+   * CL-9386: runtime secret-guard denylist for the active --config path.
+   * Entry points pass [config.globalSettingsPath]; workers inherit their
+   * parent's list. Omitted (tests, ad-hoc stacks) keeps the static denylist
+   * only — the default settings file stays covered either way.
+   */
+  secretGuardExtraDeniedPaths?: readonly string[];
 }
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
@@ -91,6 +98,7 @@ export function buildCorePosixToolPlugins(
     getBackgroundShellRegistry,
     getShellOutputFeeds,
     getEvidenceArchive,
+    secretGuardExtraDeniedPaths,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
   // cwd are not hard-denied after the gate already auto-allows. Pass a live
@@ -101,6 +109,15 @@ export function buildCorePosixToolPlugins(
   // One shared workspace-roots provider for every bound in this stack, so
   // pathEscape and delete_file admit the same registered sibling worktrees.
   const rootsProvider = createWorktreeRootsProvider(cwd);
+  // CL-1187 finding 2: the gate's shell legs (segmentGuard, auto-allow, auto
+  // policy) must treat the extras-denied paths as sensitive exactly like the
+  // secret-guard plugin below does. The gate is built before this stack and
+  // shared across stacks, so forward the list here — the single funnel every
+  // entry point (exec, TUI) and worker flows through — rather than wiring
+  // each runner's gate construction separately.
+  if (secretGuardExtraDeniedPaths !== undefined) {
+    permissionGate.setSensitiveExtraDeniedPaths?.(secretGuardExtraDeniedPaths);
+  }
   const truncationOptions =
     getBlobWriter !== undefined ||
     getContextDir !== undefined ||
@@ -121,7 +138,11 @@ export function buildCorePosixToolPlugins(
     evidenceArchivePathGuardPlugin(),
     deleteFilePlugin(cwd, { allowOutside, rootsProvider }),
     toolOutputUriPlugin(),
-    secretGuardPlugin(),
+    secretGuardPlugin(
+      secretGuardExtraDeniedPaths !== undefined
+        ? { extraDeniedPaths: secretGuardExtraDeniedPaths }
+        : undefined,
+    ),
     permissionPlugin(permissionGate),
     shellGuardPlugin(cwd, shellTimeout, shellEnv, {
       allowOutsideCwd: allowOutside,
@@ -134,7 +155,7 @@ export function buildCorePosixToolPlugins(
       ? [evidenceArchiveSearchPlugin(getEvidenceArchive)]
       : []),
     readFileGuardPlugin(cwd, readFileGuard),
-    ripgrepPlugin(cwd),
+    ripgrepPlugin(cwd, {}, undefined, secretGuardExtraDeniedPaths ?? []),
     // Verify wraps the line-range short-circuit (composeMiddleware runs plugins
     // outer-to-inner in array order) so its before/after check still covers
     // start_line/end_line edits instead of only substring-mode edit_file calls.

@@ -27,6 +27,7 @@ import { hasCode } from "@intx/types";
 import { resolveWorkspacePath } from "../permission/path-restriction.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import {
+  createExtraDeniedPathMatcher,
   isSensitivePath,
   isSensitivePathResolved,
 } from "../plugins/secret-guard-plugin.js";
@@ -38,14 +39,17 @@ import { errorMessage } from "./error-message.js";
 export function createCodexReadRawFile(
   cwd: string,
   permissionGate: PermissionGate,
+  // CL-9386: the active --config path, denied exactly like the static list.
+  extraDeniedPaths?: readonly string[],
 ): CodexReadRawFile {
   const rootsProvider = createWorktreeRootsProvider(cwd);
   const allowOutside = (): boolean => permissionGate.getSkipPermissions();
+  const isExtraDenied = createExtraDeniedPathMatcher(extraDeniedPaths ?? []);
 
   return async (path) => {
     // Secret-file denylist first, on the raw path — this must hold regardless
     // of containment or yolo, exactly like secretGuardPlugin's hard deny.
-    if (isSensitivePath(path)) {
+    if (isSensitivePath(path) || isExtraDenied(path)) {
       return {
         content: `Access to sensitive file blocked by policy: ${path}`,
         isError: true,
@@ -71,7 +75,7 @@ export function createCodexReadRawFile(
     // Re-check after resolve — and realpath when the allowOutside branch left
     // a symlink unresolved — so a link can name something innocuous while
     // pointing at a sensitive real path.
-    if (isSensitivePathResolved(absolutePath)) {
+    if (isSensitivePathResolved(absolutePath) || isExtraDenied(absolutePath)) {
       return {
         content: `Access to sensitive file blocked by policy: ${path}`,
         isError: true,

@@ -218,6 +218,13 @@ export interface AgentToolsetArgs {
   getContextDir?: () => string | undefined;
   // Per-project settings.env, merged into the run_shell tool's spawn environment.
   shellEnv?: Record<string, string>;
+  /**
+   * CL-9386: runtime secret-guard denylist for the active --config path.
+   * Entry points pass [config.globalSettingsPath]; forwarded to the posix
+   * plugin stack and inherited by workers via the fleet deps below. Omitted
+   * keeps the static denylist only.
+   */
+  secretGuardExtraDeniedPaths?: readonly string[];
   // Called when a background run_shell (background: true) process exits. Hosts
   // deliver the exit as a system message so the reactor re-enters on a later
   // turn; omit it and background runs still start/collect but never notify.
@@ -431,6 +438,7 @@ export async function createAgentToolset(
     getEvidenceArchive,
     sessionMode = "orchestrator",
     shellEnv,
+    secretGuardExtraDeniedPaths,
     toolAvailability = { languageServerAvailable: true },
   } = args;
   let mcpServersSource = args.mcpServersSource ?? "none";
@@ -531,6 +539,9 @@ export async function createAgentToolset(
       permissionGate,
       ...(shellTimeout !== undefined ? { shellTimeout } : {}),
       extraToolPlugins,
+      ...(secretGuardExtraDeniedPaths !== undefined
+        ? { secretGuardExtraDeniedPaths }
+        : {}),
       ...(sessionBlobReader !== undefined
         ? { readFileGuard: { blobReader: sessionBlobReader } }
         : {}),
@@ -605,6 +616,9 @@ export async function createAgentToolset(
           gateAgentTools(inheritedMcpTools, gate),
         ...(shellTimeout !== undefined ? { shellTimeout } : {}),
         ...(shellEnv !== undefined ? { shellEnv } : {}),
+        ...(secretGuardExtraDeniedPaths !== undefined
+          ? { secretGuardExtraDeniedPaths }
+          : {}),
         ...(skillDirs.length > 0 ? { skillDirs } : {}),
         ...(extraToolPlugins.length > 0 ? { extraToolPlugins } : {}),
         cwd,
@@ -851,7 +865,11 @@ export async function createAgentToolset(
     ...createCodexToolProxies({
       isCodex: args.isCodex === true,
       runTool,
-      readRawFile: createCodexReadRawFile(cwd, permissionGate),
+      readRawFile: createCodexReadRawFile(
+        cwd,
+        permissionGate,
+        secretGuardExtraDeniedPaths,
+      ),
       runManageTasks,
     }),
   );

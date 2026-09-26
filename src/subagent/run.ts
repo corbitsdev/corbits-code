@@ -671,6 +671,9 @@ async function runSubAgentInner(
         ? { shellTimeout: params.shellTimeout }
         : {}),
       ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
+      ...(params.secretGuardExtraDeniedPaths !== undefined
+        ? { secretGuardExtraDeniedPaths: params.secretGuardExtraDeniedPaths }
+        : {}),
       readFileGuard: { blobReader: sessionBlobReader },
       getBackgroundShellRegistry: () =>
         backgroundCollectMounted ? backgroundShells : undefined,
@@ -771,7 +774,11 @@ async function runSubAgentInner(
       ...createCodexToolProxies({
         isCodex: isCodexProviderName(params.provider.providerName),
         runTool,
-        readRawFile: createCodexReadRawFile(params.cwd, permissionGate),
+        readRawFile: createCodexReadRawFile(
+          params.cwd,
+          permissionGate,
+          params.secretGuardExtraDeniedPaths,
+        ),
         runManageTasks,
         allowDelete: allowDeleteFromCapabilities(params.capabilities),
         allowShell: allowShellFromCapabilities(params.capabilities),
@@ -985,6 +992,9 @@ async function runSubAgentInner(
           ? { shellTimeout: nd.shellTimeout }
           : {}),
         ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
+        ...(nd.secretGuardExtraDeniedPaths !== undefined
+          ? { secretGuardExtraDeniedPaths: nd.secretGuardExtraDeniedPaths }
+          : {}),
         ...(nd.skillDirs !== undefined ? { skillDirs: nd.skillDirs } : {}),
         ...(nd.extraToolPlugins !== undefined
           ? { extraToolPlugins: nd.extraToolPlugins }
