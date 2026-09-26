@@ -214,8 +214,9 @@ export function isAtOrUnderCompactThreshold(
 /** Shared re-arm rule for a session latched above the threshold after a
  * compact (automatic, operator, or overflow recovery): growth alone never
  * re-arms — only a wide resume gap past the post-compact measurement does.
- * The proactive threshold path and the overflow path route through this single
- * predicate; the governor owns clearing the latch underneath it. */
+ * The proactive threshold path routes through this single predicate; the
+ * overflow path shares the reset rule (under-threshold folds restore the
+ * recovery budget) but fires on overflow errors regardless of this latch. */
 export function hasWideResumeGap(
   postCompactTokens: number,
   contextTokens: number,
