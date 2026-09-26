@@ -1607,6 +1607,11 @@ describe("createPermissionGate", () => {
   // auto-allows in auto mode, exactly like spawn_agent/wait_agents.
   test("auto mode auto-allows agentId-targeted fleet calls regardless of target worktree", async () => {
     let asked = 0;
+    // A registered worktree standing in for the restricted target worktree.
+    // Restriction is live in this gate — the session-state control write
+    // below still asks — so the fleet auto-allows prove worktree-independence
+    // instead of assuming it.
+    const worktree = mkdtempSync(join(tmpdir(), "corbits-restricted-wt-"));
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => {
@@ -1617,6 +1622,8 @@ describe("createPermissionGate", () => {
       skipPermissions: false,
       reactorGated: false,
       auto: true,
+      cwd: worktree,
+      rootsProvider: () => [realpathSync(worktree)],
     });
     const calls: ToolCall[] = [
       { id: "c", name: "close_agent", arguments: { target: "worker-1" } },
@@ -1626,12 +1633,31 @@ describe("createPermissionGate", () => {
         name: "send_input",
         arguments: { target: "worker-1", message: "continue" },
       },
+      {
+        id: "c",
+        name: "resume_agent",
+        arguments: { target: "worker-1", message: "continue" },
+      },
+      {
+        id: "c",
+        name: "read_agent_trace",
+        arguments: { target: "worker-1" },
+      },
     ];
     for (const call of calls) {
       const verdict = await gate.evaluate(call);
       expect(verdict.allowed).toBe(true);
     }
     expect(asked).toBe(0);
+    // Control: restriction is live in this gate — a session-state write
+    // through the same gate still asks (and is denied here).
+    const control = await gate.evaluate({
+      id: "c",
+      name: "write_file",
+      arguments: { path: ".agent-state/run.json" },
+    });
+    expect(control.allowed).toBe(false);
+    expect(asked).toBe(1);
     // The carve-out is intentional, not an oversight: even an isRestricted
     // that reports everything restricted (the target worktree is restricted)
     // does not flag these calls — they carry agent ids, not paths.
