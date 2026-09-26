@@ -52,6 +52,13 @@ export interface CorePosixToolPluginsArgs {
   getShellOutputFeeds?: () => ShellOutputFeedMap | undefined;
   /** Primary-only evidence archive; workers omit this getter. */
   getEvidenceArchive?: () => CompactionArchive | undefined;
+  /**
+   * CL-9386: runtime secret-guard denylist for the active --config path.
+   * Entry points pass [config.globalSettingsPath]; workers inherit their
+   * parent's list. Omitted (tests, ad-hoc stacks) keeps the static denylist
+   * only — the default settings file stays covered either way.
+   */
+  secretGuardExtraDeniedPaths?: readonly string[];
 }
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
@@ -91,6 +98,7 @@ export function buildCorePosixToolPlugins(
     getBackgroundShellRegistry,
     getShellOutputFeeds,
     getEvidenceArchive,
+    secretGuardExtraDeniedPaths,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
   // cwd are not hard-denied after the gate already auto-allows. Pass a live
@@ -121,7 +129,11 @@ export function buildCorePosixToolPlugins(
     evidenceArchivePathGuardPlugin(),
     deleteFilePlugin(cwd, { allowOutside, rootsProvider }),
     toolOutputUriPlugin(),
-    secretGuardPlugin(),
+    secretGuardPlugin(
+      secretGuardExtraDeniedPaths !== undefined
+        ? { extraDeniedPaths: secretGuardExtraDeniedPaths }
+        : undefined,
+    ),
     permissionPlugin(permissionGate),
     shellGuardPlugin(cwd, shellTimeout, shellEnv, {
       allowOutsideCwd: allowOutside,

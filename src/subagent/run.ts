@@ -644,6 +644,9 @@ async function runSubAgentInner(
         ? { shellTimeout: params.shellTimeout }
         : {}),
       ...(params.shellEnv !== undefined ? { shellEnv: params.shellEnv } : {}),
+      ...(params.secretGuardExtraDeniedPaths !== undefined
+        ? { secretGuardExtraDeniedPaths: params.secretGuardExtraDeniedPaths }
+        : {}),
       readFileGuard: { blobReader: sessionBlobReader },
       getBackgroundShellRegistry: () =>
         backgroundCollectMounted ? backgroundShells : undefined,
@@ -935,6 +938,9 @@ async function runSubAgentInner(
           ? { shellTimeout: nd.shellTimeout }
           : {}),
         ...(nd.shellEnv !== undefined ? { shellEnv: nd.shellEnv } : {}),
+        ...(nd.secretGuardExtraDeniedPaths !== undefined
+          ? { secretGuardExtraDeniedPaths: nd.secretGuardExtraDeniedPaths }
+          : {}),
         ...(nd.skillDirs !== undefined ? { skillDirs: nd.skillDirs } : {}),
         ...(nd.extraToolPlugins !== undefined
           ? { extraToolPlugins: nd.extraToolPlugins }

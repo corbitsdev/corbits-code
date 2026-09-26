@@ -50,6 +50,12 @@ export interface SubAgentSandboxDeps {
   /** Project settings.env, merged into the sub-agent's run_shell spawn environment. */
   shellEnv?: Record<string, string>;
   /**
+   * CL-9386: parent's secret-guard runtime denylist (the active --config
+   * path), so workers cannot silently read/write standing skip-permissions
+   * the primary itself is denied. Inherited down the dispatch chain.
+   */
+  secretGuardExtraDeniedPaths?: readonly string[];
+  /**
    * Plugin skill dirs, same list the primary passes to createUseSkillTool.
    * Workers resolve attached/optional skill bodies through these dirs.
    */
