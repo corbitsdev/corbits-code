@@ -527,7 +527,7 @@ export async function createSessionStores(
   const pendingBlobFilepaths = new Set<string>();
   const pendingSegmentPaths = new Set<string>();
   let writeTurnsSegmented = createSegmentedJSONLWriter(dir, TURNS_FILE);
-  const writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
+  let writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
   let liveTurnRefs: readonly ConversationTurn[] | null = null;
   let unpublishedRewrite: ConversationTurn[] | null = null;
 
@@ -604,6 +604,75 @@ export async function createSessionStores(
     }
     await writeSegmented(writeTurnsSegmented, turns);
     liveTurnRefs = [...turns];
+  }
+
+  function promptEqualsLiveTurns(
+    live: readonly ConversationTurn[],
+    prompt: readonly ConversationTurn[],
+  ): boolean {
+    if (live.length !== prompt.length) return false;
+    for (let index = 0; index < prompt.length; index++) {
+      if (live[index] === prompt[index]) continue;
+      if (JSON.stringify(live[index]) !== JSON.stringify(prompt[index]))
+        return false;
+    }
+    return true;
+  }
+
+  // The reactor checkpoints the materialized prompt every cycle, but most
+  // cycles run no transform that changes it — writing an identical snapshot
+  // next to turns.jsonl doubles disk and re-hash cost for zero information.
+  // load() never reads prompt.jsonl (base turns + TURNS_FILE extras only),
+  // so skipping the write leaves resume behavior unchanged; prompts that
+  // actually differ still write exactly as before.
+  async function writePromptIfDiffered(
+    turns: readonly ConversationTurn[],
+  ): Promise<void> {
+    let live: readonly ConversationTurn[] | null = null;
+    if (unpublishedRewrite !== null) live = unpublishedRewrite;
+    else if (liveTurnRefs !== null) live = liveTurnRefs;
+    else {
+      // Fresh instance with no writeTurns yet: recover live turns from disk
+      // the same way writeTurnsLiveOrStage does. Any failure falls through
+      // to a normal write — an unreadable baseline must not drop the snapshot.
+      try {
+        const extraTexts = await readExtraSegmentTexts(dir, TURNS_FILE);
+        let baseTurns: ConversationTurn[];
+        try {
+          baseTurns = (await base.load()).turns;
+        } catch {
+          baseTurns = await readBaseTurnsFromDisk(dir);
+        }
+        live =
+          extraTexts.length === 0
+            ? baseTurns
+            : await loadTurnsWithoutMalformedToolSequence(
+                baseTurns,
+                extraTexts,
+              );
+      } catch {
+        live = null;
+      }
+    }
+    if (live === null || !promptEqualsLiveTurns(live, turns)) {
+      await writeSegmented(writePromptSegmented, turns);
+      return;
+    }
+    // Identical to live turns: converge disk to no prompt segment so a stale
+    // snapshot from an earlier differing write cannot linger. Removals join
+    // pendingSegmentPaths so commit stages them out of the tree.
+    const highest = await highestSegmentIndex(dir, PROMPT_FILE);
+    let removed = false;
+    for (let index = 0; index <= highest; index++) {
+      const name = segmentFileName(PROMPT_FILE, index);
+      if (!(await pathExists(path.join(dir, name)))) continue;
+      await fs.promises.unlink(path.join(dir, name));
+      pendingSegmentPaths.add(name);
+      removed = true;
+    }
+    if (removed) {
+      writePromptSegmented = createSegmentedJSONLWriter(dir, PROMPT_FILE);
+    }
   }
 
   // Prefer the longest prefix of base + extras whose tool sequence the reactor
@@ -718,7 +787,9 @@ export async function createSessionStores(
       return [...baseTurns, ...parsedExtras.slice(0, keepExtras).flat()];
     },
     readBlob: (key, signal) => base.readBlob(key, signal),
-    writePrompt: (turns) => writeSegmented(writePromptSegmented, turns),
+    // Skipped identical snapshots fall back to live turns in load(), which
+    // never reads prompt.jsonl.
+    writePrompt: (turns) => writePromptIfDiffered(turns),
     writeResponse: (turn, signal) => base.writeResponse(turn, signal),
     writeManifest: (records, signal) => base.writeManifest(records, signal),
     writeTurns: (turns) => writeTurnsLiveOrStage(turns),
@@ -793,9 +864,10 @@ export async function createSessionStores(
           }
 
           const add = extraCommitPaths([...new Set(toAdd)]);
-          const remove = extraCommitPaths([...new Set(toRemove)]).filter(
-            (p) => !add.includes(p),
-          );
+          // extraCommitPaths strips vendor roots because base.commit() git.adds
+          // those that still exist. It does not git.remove missing ones, so an
+          // unlinked prompt.jsonl must stay in `remove`.
+          const remove = [...new Set(toRemove)].filter((p) => !add.includes(p));
           extraPaths = [...new Set([...add, ...remove])];
 
           for (const filepath of add) {
