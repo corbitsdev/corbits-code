@@ -256,11 +256,37 @@ function pathLikeTokens(command: string): string[] {
   return out;
 }
 
+// AgentId-addressed fleet continuation verbs (see the CL-9362 note on
+// callTargetsRestricted below).
+const AGENT_ID_TARGETED_FLEET_TOOLS = new Set([
+  "close_agent",
+  "interrupt_agent",
+  "send_input",
+  "resume_agent",
+  "read_agent_trace",
+]);
+
 export function callTargetsRestricted(
   call: ToolCall,
   isRestricted: (path: string, isWrite: boolean) => boolean,
 ): boolean {
   const name = canonicalToolName(call.name);
+  // Fleet verbs that address workers by opaque agent id (`target`), never by
+  // path (CL-9362). There is nothing path-shaped here for isRestricted to
+  // judge, so agentId-to-worktree resolution deliberately does not live in
+  // this function and the gate's auto-allow `!restricted` guard stays
+  // vacuous for these calls — intentionally, not by oversight. Path
+  // restriction is enforced where paths are actually touched: inside the
+  // target worker, whose own gate binds restriction judgments to its process
+  // cwd (bindRestrictedToProcessCwd in gate.ts). Resolving ids to worktrees
+  // here would duplicate that enforcement at a layer with no session access,
+  // so these calls always report "not restricted", exactly like
+  // spawn_agent/wait_agents. (The full fleet verb list lives in
+  // subagent/authority.ts as FLEET_VERBS; the five single-`target`
+  // agentId-addressed verbs are named above — spawn_agent, wait_agents,
+  // list_agents, and search_agents take no single-agent `target` argument
+  // and already fall through to false below.)
+  if (AGENT_ID_TARGETED_FLEET_TOOLS.has(name)) return false;
   if (name === "run_shell")
     return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
   if (name === "apply_patch") {
