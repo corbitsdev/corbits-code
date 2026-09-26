@@ -14,6 +14,7 @@ import { EventEmitter } from "node:events";
 import {
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
+  type MCPServerConfig,
 } from "../../config/settings.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
 import { peekSourceCredentialSecret } from "../../config/source-credentials.js";
@@ -126,6 +127,11 @@ import {
 } from "./state.js";
 import { createParkedOverlayAbortBinding } from "./parked-overlay-abort.js";
 import { createTUISettingsWriters } from "./settings-writers.js";
+import { formatMcpTrustQuestion } from "../../trust/project-trust.js";
+
+export function formatTuiMcpTrustQuestion(server: MCPServerConfig): string {
+  return formatMcpTrustQuestion(server);
+}
 
 export async function assembleTUISession(
   state: RunnerState,
@@ -406,13 +412,7 @@ export async function assembleTUISession(
         const timeout = approvalTimeout();
         const event: OperatorGateEvent = {
           id: randomUUID(),
-          question:
-            `Trust local MCP server "${server.name}" for this project?` +
-            (server.command !== undefined
-              ? `\nCommand: ${server.command}${(server.args ?? []).length > 0 ? ` ${(server.args ?? []).join(" ")}` : ""}`
-              : server.url !== undefined
-                ? `\nURL: ${server.url}`
-                : ""),
+          question: formatTuiMcpTrustQuestion(server),
           options: ["Trust and connect", "Deny"],
           resolve: finish,
           ...(timeout !== undefined ? timeout : {}),
