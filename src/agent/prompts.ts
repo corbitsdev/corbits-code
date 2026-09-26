@@ -217,7 +217,7 @@ const GUIDELINE_SUB_BLOCKS: Record<
         (ctx.waitAgentsMounted
           ? " or re-wait"
           : ", or idle for its mailbox mail") +
-        "; do not `spawn_agent` a successor against a still-live worker. Successor only if that session is no longer resumable. Operator-cancel (`stop_reason` cancelled): wait for the operator; do not auto-retry. Identical brief: refuse. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
+        "; do not `spawn_agent` a successor against a still-live worker. Successor only if that session is no longer resumable. Operator-cancel (`stop_reason` cancelled): wait for the operator; do not auto-retry. Identical brief: refuse. Recoverable/continuable child failure (`continuable: true`) MAY spawn one successor with the same brief; identical brief is still refused otherwise. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.",
       "- Use manage_tasks for your own coordination checklist; spawning workers is `spawn_agent`, not manage_tasks.",
       "- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.",
     ];
