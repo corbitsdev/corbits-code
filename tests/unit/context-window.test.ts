@@ -3,11 +3,13 @@ import type { TokenUsage } from "@intx/types/runtime";
 import {
   contextWindowFor,
   compactionThresholdFor,
-  compactionResumeDeltaFor,
+  compactionWideResumeDeltaFor,
+  hasWideResumeGap,
+  isAtOrUnderCompactThreshold,
   contextTokensFromUsage,
   contextMeterBand,
   COMPACTION_WINDOW_FRACTION,
-  COMPACTION_RESUME_FRACTION,
+  COMPACTION_WIDE_RESUME_FRACTION,
   CONTEXT_METER_DANGER_FRACTION,
   setModelContextWindows,
   setProviderContextWindowOverrides,
@@ -72,19 +74,54 @@ describe("compactionThresholdFor", () => {
   });
 });
 
-describe("compactionResumeDeltaFor", () => {
-  test("is 10 percent of the model window", () => {
-    expect(COMPACTION_RESUME_FRACTION).toBe(0.1);
-    expect(compactionResumeDeltaFor("claude-sonnet-4-6")).toBe(20_000);
+describe("compactionWideResumeDeltaFor", () => {
+  test("is a full warning band of the model window, danger-anchored", () => {
+    expect(COMPACTION_WIDE_RESUME_FRACTION).toBe(0.2);
+    expect(compactionWideResumeDeltaFor("claude-sonnet-4-6")).toBe(40_000);
   });
 
   test("uses models.dev window when available", () => {
     setModelContextWindows({ "small-model": 32_000 });
-    expect(compactionResumeDeltaFor("small-model")).toBe(3_200);
+    expect(compactionWideResumeDeltaFor("small-model")).toBe(6_400);
   });
 
   test("falls back to the default window when the model is unknown", () => {
-    expect(compactionResumeDeltaFor(undefined)).toBe(12_800);
+    expect(compactionWideResumeDeltaFor(undefined)).toBe(25_600);
+  });
+});
+
+describe("hasWideResumeGap", () => {
+  test("growth below the wide gap does not re-arm", () => {
+    const postCompact = compactionThresholdFor("m") + 1;
+    expect(
+      hasWideResumeGap(
+        postCompact,
+        postCompact + compactionWideResumeDeltaFor("m") - 1,
+        "m",
+      ),
+    ).toBe(false);
+  });
+
+  test("a wide gap past the post-compact measurement re-arms", () => {
+    const postCompact = compactionThresholdFor("m") + 1;
+    expect(
+      hasWideResumeGap(
+        postCompact,
+        postCompact + compactionWideResumeDeltaFor("m"),
+        "m",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("isAtOrUnderCompactThreshold", () => {
+  test("the threshold itself counts as fold evidence", () => {
+    expect(isAtOrUnderCompactThreshold(compactionThresholdFor("m"), "m")).toBe(
+      true,
+    );
+    expect(
+      isAtOrUnderCompactThreshold(compactionThresholdFor("m") + 1, "m"),
+    ).toBe(false);
   });
 });
 

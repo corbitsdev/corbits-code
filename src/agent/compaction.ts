@@ -7,9 +7,10 @@ import type {
   ToolDefinition,
 } from "@intx/types/runtime";
 import {
-  compactionResumeDeltaFor,
   compactionThresholdFor,
   contextTokensFromUsage,
+  hasWideResumeGap,
+  isAtOrUnderCompactThreshold,
 } from "../provider/context-window.js";
 import {
   COMPACTOR_KEEP_RECENT_TURNS,
@@ -32,10 +33,12 @@ const COMPACTOR_NAME = "pruning-compactor";
 const MIN_TURNS_TO_COMPACT = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
 const MAX_OVERFLOW_RECOVERIES = 2;
 // Last-ditch bound on compact→infer→compact when the post-compact infer never
-// occupies the loop. Reset on tool-call occupancy or when a post-compact
-// measurement lands at or under the high watermark (that infer is not itself
-// a compact). Do not reset merely because assistant text ≠ spacer. Overflow
-// recoveries (above) reset on any successful inference.done instead.
+// gets under the high watermark. Counts consecutive threshold compacts with no
+// under-watermark relief between them — tool-call occupancy does not reset it,
+// or every few tool messages would re-enable the loop. Cleared only when a
+// measurement lands at or under the high watermark. Overflow recoveries
+// (above) share that same under-watermark reset instead of clearing on any
+// successful inference.done.
 const MAX_CONSECUTIVE_THRESHOLD_COMPACTS = 2;
 
 // A compact action runs in its own reactor cycle, after which the reactor
@@ -163,10 +166,11 @@ export function createCompactionGovernor(
   let usingEstimate = false;
   let lastModel: string | undefined;
   let turnCount = 0;
-  // Growth hysteresis after a compact that remained over the high watermark:
-  // snapshot the post-compact infer's usage, then do not re-arm until usage
-  // grows by resumeDelta. Cleared once usage drops back to or under high.
-  // Overflow recovery ignores this and arms regardless.
+  // Latch after a compact that remained over the high watermark: snapshot the
+  // post-compact infer's usage, then do not re-arm on growth alone — only a
+  // wide resume gap past the snapshot (hasWideResumeGap) or usage back at or
+  // under the threshold clears it. Every compact sets this latch (threshold,
+  // operator, and overflow alike); only fold evidence moves past it.
   let tokensAtLastCompact: number | undefined;
   let awaitingPostCompactMeasurement = false;
 
@@ -192,10 +196,7 @@ export function createCompactionGovernor(
     const high = compactionThresholdFor(lastModel);
     if (contextTokens <= high) return false;
     if (tokensAtLastCompact !== undefined) {
-      return (
-        contextTokens >=
-        tokensAtLastCompact + compactionResumeDeltaFor(lastModel)
-      );
+      return hasWideResumeGap(tokensAtLastCompact, contextTokens, lastModel);
     }
     return true;
   }
@@ -255,10 +256,6 @@ export function createCompactionGovernor(
     event: Extract<ReactorInboundEvent, { type: "inference.done" }>,
     turns: readonly ConversationTurn[],
   ): void {
-    overflowRecoveries = 0;
-    if (event.turn.content.some((block) => block.type === "tool_call")) {
-      consecutiveThresholdCompacts = 0;
-    }
     syncFromTurns(turns);
     lastModel = event.source?.model;
     const reportedTokens = contextTokensFromUsage(event.usage);
@@ -270,9 +267,14 @@ export function createCompactionGovernor(
       tokensAtLastCompact = contextTokens;
       awaitingPostCompactMeasurement = false;
     }
-    if (contextTokens <= compactionThresholdFor(lastModel)) {
+    // Fold evidence: usage back at or under the threshold clears the latch
+    // and restores both rails (consecutive threshold compacts, overflow
+    // recoveries). Nothing else resets them — neither tool-call occupancy nor
+    // a still-over measurement — or compact→infer→compact would loop forever.
+    if (isAtOrUnderCompactThreshold(contextTokens, lastModel)) {
       tokensAtLastCompact = undefined;
       consecutiveThresholdCompacts = 0;
+      overflowRecoveries = 0;
     }
     // Assign, don't OR: an under-threshold follow-up must disarm a sticky
     // pending left from an earlier over-threshold turn (e.g. after the
