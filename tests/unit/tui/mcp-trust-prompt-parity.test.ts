@@ -4,7 +4,11 @@ import { formatExecMcpTrustQuestion } from "../../../src/exec/runner.js";
 import { formatTuiMcpTrustQuestion } from "../../../src/tui/runner/session.js";
 
 const parityCases: MCPServerConfig[] = [
-  { name: "plain-stdio", command: "node", args: ["server.js", "--port", "3000"] },
+  {
+    name: "plain-stdio",
+    command: "node",
+    args: ["server.js", "--port", "3000"],
+  },
   { name: "no-args", command: "node" },
   { name: "empty-args", command: "node", args: [] },
   { name: "spaced-path", command: "server", args: ["--dir", "/tmp/my work"] },

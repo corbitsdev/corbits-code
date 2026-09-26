@@ -298,6 +298,32 @@ export function mcpServerFingerprint(server: MCPServerConfig): string {
   return createHash("sha256").update(payload).digest("hex");
 }
 
+// Display-only argv quoting for the MCP trust prompt: an arg containing
+// whitespace (or a quote, or empty) renders double-quoted so ["a b"] and
+// ["a", "b"] never look alike. Approval identity still comes from
+// mcpServerFingerprint above, never from this rendering.
+function quoteMcpTrustArg(arg: string): string {
+  if (arg !== "" && !/[\s"]/.test(arg)) return arg;
+  return `"${arg.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function formatMcpSpawnCommand(command: string, args: string[]): string {
+  return args.length === 0
+    ? command
+    : `${command} ${args.map(quoteMcpTrustArg).join(" ")}`;
+}
+
+export function formatMcpTrustQuestion(server: MCPServerConfig): string {
+  return (
+    `Trust local MCP server "${server.name}" for this project?` +
+    (server.command !== undefined
+      ? `\nCommand: ${formatMcpSpawnCommand(server.command, server.args ?? [])}`
+      : server.url !== undefined
+        ? `\nURL: ${server.url}`
+        : "")
+  );
+}
+
 export function isMcpServerTrusted(
   store: ProjectTrustStore,
   server: MCPServerConfig,

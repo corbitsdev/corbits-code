@@ -20,6 +20,7 @@ import {
   registerSourceCredential,
 } from "../config/source-credentials.js";
 import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
+import { formatMcpTrustQuestion } from "../trust/project-trust.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import type { DirectorId, DirectorPackage } from "../agent/directors/types.js";
 import { submitOutputDefinition } from "../agent/director.js";
@@ -164,14 +165,7 @@ const logger = getLogger([LOG_NAMESPACE_ROOT, "exec"]);
 const SELECTED_PROVIDER_FAILURE = "SelectedProviderFailure";
 
 export function formatExecMcpTrustQuestion(server: MCPServerConfig): string {
-  return (
-    `Trust local MCP server "${server.name}" for this project?` +
-    (server.command !== undefined
-      ? `\nCommand: ${server.command}${(server.args ?? []).length > 0 ? ` ${(server.args ?? []).join(" ")}` : ""}`
-      : server.url !== undefined
-        ? `\nURL: ${server.url}`
-        : "")
-  );
+  return formatMcpTrustQuestion(server);
 }
 
 export async function refreshSelectedProviderCredential<T>(
