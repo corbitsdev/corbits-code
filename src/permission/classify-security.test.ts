@@ -105,6 +105,49 @@ describe("isAutoAllowedShellCall — sensitive-path arguments", () => {
   });
 });
 
+describe("nested interpreter secret reads", () => {
+  const nestedSecrets = [
+    'fish -c "cat .envrc"',
+    'fish -c "cat .env"',
+    'busybox sh -c "cat .envrc"',
+    'csh -c "cat .envrc"',
+    'tcsh -c "cat .envrc"',
+    'pwsh -c "cat .envrc"',
+  ];
+
+  test("does not auto-allow secret reads behind nested interpreters", () => {
+    for (const command of nestedSecrets) {
+      expect(isAutoAllowedShellCall(shellCall(command))).toBe(false);
+      expect(autoShellRuleForCall(shellCall(command))).toMatchObject({
+        name: "sensitive-path",
+        effect: "ask",
+      });
+    }
+  });
+
+  test("auto mode does not allow nested-interpreter secret reads", async () => {
+    for (const command of nestedSecrets) {
+      const gate = createPermissionGate({
+        approvals: [],
+        interactive: false,
+        skipPermissions: false,
+        reactorGated: false,
+        auto: true,
+      });
+      expect((await gate.evaluate(shellCall(command))).allowed).toBe(false);
+    }
+  });
+
+  test("templates behind nested interpreters stay unsensitive", () => {
+    expect(
+      autoShellRuleForCall(shellCall('fish -c "cat .env.example"'))?.name,
+    ).not.toBe("sensitive-path");
+    expect(
+      autoShellRuleForCall(shellCall('busybox sh -c "cat .env.sample"'))?.name,
+    ).not.toBe("sensitive-path");
+  });
+});
+
 describe("clustered shell command options", () => {
   test("classifies clustered command payloads like canonical command payloads", () => {
     for (const options of ["-c", "-lc", "-xec", "-cc", "-cache"]) {

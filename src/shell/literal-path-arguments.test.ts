@@ -180,6 +180,7 @@ const classificationCases: Record<
       "/usr/bin/env FILE=.flaskenv sh -c 'cat \"$FILE\"'",
       "env -i FILE=.envrc sh -c 'cat \"$FILE\"'",
       "command env FILE=.flaskenv sh -c 'cat \"$FILE\"'",
+      "/tmp/env FILE=.envrc echo ok",
       "grep --file=.envrc needle",
       "env grep --file=.envrc needle",
       "env -i grep --file=.flaskenv needle",
@@ -250,7 +251,6 @@ const classificationCases: Record<
       "awk -Ff.envrc input.txt",
       "echo dd if=.flaskenv",
       "echo env FILE=.envrc",
-      "/tmp/env FILE=.envrc echo ok",
       "echo 'env grep --file=.envrc'",
       "printf '%s' 'nice -n 5 grep --file=.envrc'",
       "echo '`cat .envrc`'",
@@ -473,6 +473,54 @@ describe("inspectShellSecretReference", () => {
       "awk -Ff.envrc input.txt",
       "grep -X needle file.txt",
       "printf '%s' '{' '}' '!'",
+    ]) {
+      expect(inspectShellSecretReference(command)).toEqual({
+        reference: undefined,
+        opaque: false,
+      });
+    }
+  });
+
+  test("peels nested interpreters so quoted secret payloads are visible", () => {
+    for (const command of [
+      'fish -c "cat .envrc"',
+      'fish -c "cat .env"',
+      'busybox sh -c "cat .envrc"',
+      'csh -c "cat .envrc"',
+      'tcsh -c "cat .envrc"',
+      'pwsh -c "cat .envrc"',
+    ]) {
+      expect(inspectShellSecretReference(command)).toMatchObject({
+        reference: expect.any(String),
+        opaque: false,
+      });
+    }
+  });
+
+  test("cmd dialect peels interpreter and cmd /c payloads", () => {
+    expect(
+      inspectShellSecretReference(
+        'bash -c "cat .envrc"',
+        process.cwd(),
+        () => false,
+        "cmd",
+      ),
+    ).toMatchObject({ reference: ".envrc", opaque: false });
+    expect(
+      inspectShellSecretReference(
+        'cmd /c "type .envrc"',
+        process.cwd(),
+        () => false,
+        "cmd",
+      ),
+    ).toMatchObject({ reference: ".envrc", opaque: false });
+  });
+
+  test("keeps nested-interpreter template reads unsensitive", () => {
+    for (const command of [
+      'fish -c "cat .env.example"',
+      'busybox sh -c "cat .env.template"',
+      'bash -c "cat .env.sample"',
     ]) {
       expect(inspectShellSecretReference(command)).toEqual({
         reference: undefined,

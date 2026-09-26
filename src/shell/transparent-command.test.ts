@@ -166,6 +166,12 @@ describe("peelTransparentCommand", () => {
       executableIndex: 2,
       wrapperIndexes: [0],
     },
+    {
+      name: "peels busybox so the applet is the executable",
+      tokens: ["busybox", "sh", "-c", "cat .envrc"],
+      executableIndex: 1,
+      wrapperIndexes: [0],
+    },
   ];
 
   for (const entry of cases) {

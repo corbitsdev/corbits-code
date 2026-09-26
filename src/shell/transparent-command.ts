@@ -391,7 +391,10 @@ export function peelTransparentCommand(
       index = parsed.executableIndex;
       continue;
     }
-    if (["builtin", "nohup"].includes(program)) {
+    if (
+      ["builtin", "nohup", "busybox"].includes(program) ||
+      program.toLowerCase() === "busybox.exe"
+    ) {
       wrapperIndexes.push(index);
       index++;
       continue;
