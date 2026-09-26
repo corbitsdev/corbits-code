@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { generateSessionId, sessionDir } from "../session/index.js";
 import { loadSeededApprovals } from "../session/runtime-assembly.js";
 import { normalizeSeededApprovals } from "./authz-grants.js";
@@ -266,5 +273,49 @@ describe("migratePersistedApprovalStores", () => {
       approvals: [{ tool: "run_shell", pattern: "npm *" }],
     });
     expect(await readJson(projectStorePath())).toEqual({ approvals: [] });
+  });
+
+  test("EACCES writing the backup leaves live bytes unchanged", async () => {
+    const path = sessionStorePath();
+    const original = {
+      approvals: [
+        { tool: "update_plan", pattern: "plan *" },
+        { tool: "run_shell", pattern: "npm *" },
+      ],
+    };
+    await writeFile(path, JSON.stringify(original));
+    const liveBytes = await readFile(path, "utf-8");
+    const dir = dirname(path);
+    await chmod(dir, 0o555);
+    try {
+      const result = await migratePersistedApprovalStores(cwd, sessionId, home);
+      expect(result.purged).toBe(0);
+      expect(result.backups).toEqual([]);
+      expect(await readFile(path, "utf-8")).toBe(liveBytes);
+    } finally {
+      await chmod(dir, 0o755);
+    }
+  });
+
+  test("existing torn .bak plus live update_plan still purges live", async () => {
+    const path = sessionStorePath();
+    const original = {
+      approvals: [
+        { tool: "update_plan", pattern: "plan *" },
+        { tool: "run_shell", pattern: "npm *" },
+      ],
+    };
+    await writeFile(path, JSON.stringify(original));
+    const torn = '{"approvals":[{"tool":"update_plan"';
+    await writeFile(backupPath(path), torn);
+
+    const result = await migratePersistedApprovalStores(cwd, sessionId, home);
+
+    expect(result.purged).toBe(1);
+    expect(result.backups).toEqual([backupPath(path)]);
+    expect(await readFile(backupPath(path), "utf-8")).toBe(torn);
+    expect(await readJson(path)).toEqual({
+      approvals: [{ tool: "run_shell", pattern: "npm *" }],
+    });
   });
 });
