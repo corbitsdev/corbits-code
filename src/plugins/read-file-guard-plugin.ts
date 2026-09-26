@@ -30,10 +30,8 @@ export const READ_FILE_MAX_SCAN_BYTES = 8 * 1024 * 1024;
 /** Refuse tool-output blobs larger than this before bounded paging. */
 export const READ_FILE_MAX_TOOL_OUTPUT_BYTES = READ_FILE_MAX_SCAN_BYTES;
 // Headroom reserved out of the byte budget for the continuation notice, so the
-// returned payload including the notice stays under READ_FILE_MAX_BYTES. Sized
-// for a dual footer: the plain `Use offset=` continuation plus the appended
-// single-use cursor alias on byte/scan-limit pages.
-const NOTICE_RESERVE_BYTES = 384;
+// returned payload including the notice stays under READ_FILE_MAX_BYTES.
+const NOTICE_RESERVE_BYTES = 256;
 
 const LINE_TRUNC_SUFFIX = ` ... [line truncated at ${READ_FILE_MAX_LINE_LENGTH} chars; full line remains in the file — use grep to match within the line]`;
 const TOOL_OUTPUT_CHUNK_BYTES = 64 * 1024;

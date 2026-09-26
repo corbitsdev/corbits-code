@@ -294,12 +294,11 @@ export async function applyToolResultTruncation(
 }
 
 // A read_file page already carries its own continuation contract (a plain
-// `Use offset=` footer, a single-use cursor alias, or both). Re-cutting it at
-// the 10k leisure cap would slice the footer off the page boundary and strand
-// the pagination chain, so footer-bearing read_file pages pass through intact.
+// `Use offset=` footer). Re-cutting it at the 10k leisure cap would slice the
+// footer off the page boundary and strand the pagination chain, so
+// footer-bearing read_file pages pass through intact.
 // Pages without a footer take the normal path.
-const READ_FILE_CONTINUATION_RE =
-  /Use offset=\d+ to continue\.|Use path="tool-output:\/\/\//;
+const READ_FILE_CONTINUATION_RE = /Use offset=\d+ to continue\./;
 
 function isPagedReadFilePage(
   toolName: string | undefined,

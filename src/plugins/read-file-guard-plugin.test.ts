@@ -389,7 +389,7 @@ describe("CL-8979 large-file pagination", () => {
     );
   }, 120_000);
 
-  test("chains cursor resumption on a blob past the scan ceiling without re-scanning", async () => {
+  test("chains same-URI+offset continuation on a blob past the scan ceiling without re-scanning", async () => {
     const rows = Array.from({ length: BIG_LINES }, (_, i) => bigRow(i));
     const bytes = new TextEncoder().encode(`${rows.join("\n")}\n`);
     const run = blobChainRunner(async (key) => {
@@ -397,33 +397,26 @@ describe("CL-8979 large-file pagination", () => {
       throw new Error(`missing ${key}`);
     });
     const collected: string[] = [];
-    let path = "tool-output:///cl8979-blob";
+    const path = "tool-output:///cl8979-blob";
+    let offset = 0;
     let hops = 0;
     let sawOffsetFooter = false;
-    let sawCursorAlias = false;
     for (;;) {
-      const result = await run(`blob-${hops}`, { path, limit: 200 });
+      const result = await run(`blob-${hops}`, { path, limit: 200, offset });
       hops += 1;
       const content = String(result.content);
       expect(result.isError).toBeFalsy();
       expect(content).not.toContain("scan limit");
       collected.push(...bodyRows(content));
-      const cursor = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(content);
-      const offset = continueOffset(content);
-      if (offset !== null) {
-        sawOffsetFooter = true;
-        path = "tool-output:///cl8979-blob";
-      }
-      if (cursor !== null) {
-        sawCursorAlias = true;
-        path = cursor[1] as string;
-      }
-      if (offset === null && cursor === null) break;
+      const next = continueOffset(content);
+      if (next === null) break;
+      sawOffsetFooter = true;
+      expect(next).toBeGreaterThan(offset);
+      offset = next;
       expect(hops).toBeLessThan(2000);
     }
     expect(hops).toBeGreaterThan(1);
     expect(sawOffsetFooter).toBe(true);
-    expect(sawCursorAlias).toBe(true);
     expect(collected.length).toBe(BIG_LINES);
     expect(collected[BIG_LINES - 1]).toBe(bigRow(BIG_LINES - 1));
   }, 120_000);
