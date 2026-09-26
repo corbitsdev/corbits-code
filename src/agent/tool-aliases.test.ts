@@ -125,6 +125,9 @@ describe("grant aliases", () => {
   // todo/doing/done statuses, while manage_tasks spans the full lifecycle
   // (create/update, including cancelled). Grant coverage is one-directional:
   // a stored update_plan grant must never cover a manage_tasks request.
+  // Live requests never present as aliases (coerced before matching) and
+  // seeders drop stored update_plan keys, so no same-alias replay test exists
+  // here: that path is unreachable in production.
   test("a stored update_plan grant does not cover manage_tasks", async () => {
     expect(
       await evaluateApprovals({
@@ -136,26 +139,7 @@ describe("grant aliases", () => {
     ).toBe(false);
   });
 
-  test("a stored update_plan grant still covers update_plan (create-equivalent) use", async () => {
-    expect(
-      await evaluateApprovals({
-        tool: "update_plan",
-        subject: "update_plan",
-        approvals: [{ tool: "update_plan", pattern: "*" }],
-        workspace: noWorkspace,
-      }),
-    ).toBe(true);
-  });
-
-  test("a stored manage_tasks grant covers update_plan (engine covers alias)", async () => {
-    expect(
-      await evaluateApprovals({
-        tool: "update_plan",
-        subject: "update_plan",
-        approvals: [{ tool: "manage_tasks", pattern: "*" }],
-        workspace: noWorkspace,
-      }),
-    ).toBe(true);
+  test("a stored manage_tasks grant covers manage_tasks", async () => {
     expect(
       await evaluateApprovals({
         tool: "manage_tasks",

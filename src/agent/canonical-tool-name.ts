@@ -32,7 +32,9 @@ export function canonicalToolName(requested: string): string {
 // a stored manage_tasks (engine) grant covers update_plan use, but a stored
 // update_plan grant covers only update_plan-presenting requests — never a
 // manage_tasks request, which may carry update/cancel payloads the operator
-// never approved.
+// never approved. The update_plan-presenting allowance is unreachable live
+// (requests are post-coercion and seeders drop stored update_plan keys); it
+// exists only so direct match-API callers keep narrow-narrow coverage.
 export function grantToolCovers(
   storedTool: string,
   requestTool: string,

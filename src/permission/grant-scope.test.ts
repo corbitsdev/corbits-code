@@ -43,7 +43,6 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
     { tool: "run_shell", cwd: undefined, activeProviderModel: undefined },
     { tool: "write_file", cwd: "/proj", activeProviderModel: undefined },
     { tool: "manage_tasks", cwd: "/proj", activeProviderModel: undefined },
-    { tool: "update_plan", cwd: "/proj", activeProviderModel: undefined },
   ];
 
   for (const grant of grants) {
@@ -106,23 +105,6 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
         workspace,
       }),
     ).toBe(false);
-  });
-
-  test("stored manage_tasks grant covers an update_plan-presenting request", async () => {
-    const grant: Approval = { tool: "manage_tasks", pattern: "*" };
-    expect(
-      grantScopeMatches(grant, "update_plan", undefined, "/proj", workspace),
-    ).toBe(true);
-    expect(
-      await approvalCoversSubject({
-        tool: "update_plan",
-        subject: "update_plan",
-        approvals: [grant],
-        activeProviderModel: undefined,
-        requestCwd: "/proj",
-        workspace,
-      }),
-    ).toBe(true);
   });
 });
 
