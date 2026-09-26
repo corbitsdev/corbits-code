@@ -55,4 +55,22 @@ describe("MCP trust prompt TTY/TUI parity", () => {
       expect(format(oneArg)).not.toBe(format(twoArgs));
     }
   });
+
+  test("both surfaces render tab/newline args escaped with no raw control characters", () => {
+    const server: MCPServerConfig = {
+      name: "s",
+      command: "run",
+      args: ["a\tb", "x\ny"],
+    };
+    for (const format of [
+      formatExecMcpTrustQuestion,
+      formatTuiMcpTrustQuestion,
+    ]) {
+      const rendered = format(server);
+      expect(rendered).toContain('"a\\tb"');
+      expect(rendered).toContain('"x\\ny"');
+      expect(rendered).not.toContain("\t");
+      expect(rendered.split("\n")).toHaveLength(2);
+    }
+  });
 });
