@@ -1,7 +1,13 @@
-import { globalSettingsPath as defaultGlobalSettingsPath } from "../config/settings.js";
+import {
+  globalSettingsPath as defaultGlobalSettingsPath,
+  isProgrammaticSettingsOverride,
+} from "../config/settings.js";
 
 function isDefaultSettingsSource(sourcePath: string): boolean {
-  return sourcePath === defaultGlobalSettingsPath();
+  return !isProgrammaticSettingsOverride(
+    sourcePath,
+    defaultGlobalSettingsPath(),
+  );
 }
 
 export function savedSkipPermissionsWarning(
