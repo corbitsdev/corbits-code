@@ -42,8 +42,8 @@ Your purpose is to review documentation (\`docs/PRODUCT.md\`, \`docs/ARCHITECTUR
 
 You review by reading and searching. Prefer:
 
-- \`read_file\`
-- \`search_files\` / \`list_dir\`
+- \`read\`
+- \`glob\` / \`list_dir\`
 - \`grep\`
 - \`lsp\` when symbol context helps the nit
 

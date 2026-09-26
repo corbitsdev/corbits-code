@@ -30,6 +30,7 @@ import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import {
   approvalCoversSubject,
   grantScopeMatches,
+  normalizeSeededApprovals,
   type GrantWorkspace,
 } from "./authz-grants.js";
 import {
@@ -48,6 +49,7 @@ import { DenialMemory, stableRequestId } from "./denial-memory.js";
 import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import { PRODUCT_MUTATION_TOOLS } from "../agent/product-mutation-tools.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import { prepareDispatchedToolCall } from "../agent/tool-aliases.js";
 
 import {
   createMcpToolPermissionRegistry,
@@ -511,6 +513,20 @@ function withCanonicalToolName(call: ToolCall): ToolCall {
   return name === call.name ? call : { ...call, name };
 }
 
+/** Coerce hidden Codex argv/workdir onto run_shell before policy, not after. */
+function coercePolicyCall(rawCall: ToolCall): ToolCall {
+  const named = withCanonicalToolName(rawCall);
+  return prepareDispatchedToolCall(named, named.name);
+}
+
+function callForIdentity(rawCall: ToolCall): ToolCall {
+  try {
+    return coercePolicyCall(rawCall);
+  } catch {
+    return withCanonicalToolName(rawCall);
+  }
+}
+
 export function createPermissionGate(
   options: PermissionGateOptions,
 ): PermissionGate {
@@ -538,7 +554,9 @@ export function createPermissionGate(
   let auto = options.auto;
   let skipPermissions = options.skipPermissions;
   // Own a private copy so evaluating a grant never mutates the caller's array.
-  const approvals: Approval[] = [...options.approvals];
+  // Seeded grants enter in native key space (pure renames collapsed, narrow
+  // update_plan keys dropped fail-closed).
+  const approvals: Approval[] = normalizeSeededApprovals(options.approvals);
   let activeProviderModel =
     providerName !== undefined && model !== undefined
       ? `${providerName}:${model}`
@@ -551,7 +569,9 @@ export function createPermissionGate(
   // scope-appropriate home: session grants stay in memory, everything else is
   // persisted. Both approval branches must mint identically — this is the
   // single place a grant comes into existence.
-  const mintGrant = (tool: string, outcome: ApprovalOutcome): void => {
+  const mintGrant = (requestedTool: string, outcome: ApprovalOutcome): void => {
+    // Mint in native key space; live requests are already post-coercion.
+    const tool = canonicalToolName(requestedTool);
     if (!outcome.persist || outcome.persist.pattern === null) return;
     const grant: GrantScope = outcome.persist.grant ?? "session";
     // A run_shell pattern may still carry a model-authored comment line (the
@@ -687,7 +707,15 @@ export function createPermissionGate(
       };
 
   const decide = async (rawCall: ToolCall): Promise<GateDecision> => {
-    const call = withCanonicalToolName(rawCall);
+    let call: ToolCall;
+    try {
+      call = coercePolicyCall(rawCall);
+    } catch (err) {
+      return {
+        kind: "deny",
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
     // Catastrophic shell commands are hard-denied here, at the top of the
     // single verdict path every entry (evaluate, authorizeCall,
     // executionVerdict) flows through — this is the owning enforcement point
@@ -1061,10 +1089,11 @@ export function createPermissionGate(
   const authorizeCall = async (call: ToolCall): Promise<AuthorizeVerdict> => {
     const verdict = mapAuthorizeVerdict(await decide(call));
     const identityCwd = getSubAgentIdentity()?.cwd ?? resolvedCwd;
+    const identityCall = callForIdentity(call);
     authorizedByCallId.set(call.id, {
-      name: canonicalToolName(call.name),
+      name: canonicalToolName(identityCall.name),
       arguments: identityArguments(
-        call.arguments,
+        identityCall.arguments,
         identityCwd,
         rootsProvider,
         trustedPluginRoots,
@@ -1079,12 +1108,13 @@ export function createPermissionGate(
   ): Promise<AuthorizeVerdict> => {
     const cached = authorizedByCallId.get(call.id);
     const identityCwd = getSubAgentIdentity()?.cwd ?? resolvedCwd;
+    const identityCall = callForIdentity(call);
     if (
       cached !== undefined &&
-      cached.name === canonicalToolName(call.name) &&
+      cached.name === canonicalToolName(identityCall.name) &&
       cached.arguments ===
         identityArguments(
-          call.arguments,
+          identityCall.arguments,
           identityCwd,
           rootsProvider,
           trustedPluginRoots,
@@ -1174,7 +1204,7 @@ export function createPermissionGate(
 
   const setSeededApprovals = (seeded: readonly Approval[]): void => {
     approvals.length = 0;
-    approvals.push(...seeded, ...sessionGrants);
+    approvals.push(...normalizeSeededApprovals(seeded), ...sessionGrants);
     // Re-seeded approvals can cover previously-denied requests — cached
     // denies must re-evaluate instead of serving stale reasons.
     denialMemory.clear();

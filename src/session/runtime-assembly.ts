@@ -38,6 +38,7 @@ import {
   type PluginModule,
 } from "../plugins/loader.js";
 import { isPluginModuleEnabled } from "../plugins/register.js";
+import { migratePersistedApprovalStores } from "../permission/approval-store-migration.js";
 import {
   formatPendingProjectApprovals,
   loadApprovals,
@@ -135,6 +136,18 @@ export async function loadSeededApprovals(
   home?: string,
   opts?: { onPendingProjectGrants?: ((text: string) => void) | undefined },
 ): Promise<Approval[]> {
+  // One-time migration: purge persisted update_plan keys (dropped at load by
+  // normalizeSeededApprovals but never rewritten) so removing the normalizer
+  // later cannot resurrect them. Best-effort and idempotent — a clean tree is
+  // a no-op, and the normalizer stays as defense-in-depth regardless. Guarded
+  // so a future throw can never break session start.
+  try {
+    await migratePersistedApprovalStores(cwd, sessionId, home);
+  } catch (err) {
+    persistLogger.warn("Skipping approval-store migration: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   const sessionApprovals = await loadApprovals(cwd, sessionId, home);
   const [
     projectApprovals,

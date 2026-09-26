@@ -117,11 +117,6 @@ import {
 } from "./lexical-rank.js";
 import { createSearchAgentsTool } from "./agent-search.js";
 import { createReadAgentTraceTool } from "../subagent/trace-tool.js";
-import {
-  createCodexToolProxies,
-  type CodexRunTool,
-} from "./codex-tool-proxies.js";
-import { createCodexReadRawFile } from "./codex-read-raw-file.js";
 import { errorMessage } from "./error-message.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
@@ -268,10 +263,8 @@ export interface AgentToolsetArgs {
     useWorktree?: boolean;
   };
   /**
-   * When true, mount Codex-only tool proxies (apply_patch, shell, update_plan)
-   * into baseTools. Primary then strips apply_patch so DIY stays on
-   * write_file/edit_file/delete_file; shell and update_plan stay mounted.
-   * Leaves keep apply_patch when their allowlist includes it.
+   * Retained so callers that still pass the Codex family flag do not break.
+   * Proxies are no longer mounted; hidden aliases dispatch onto engine tools.
    */
   isCodex?: boolean;
   /**
@@ -542,31 +535,6 @@ export async function createAgentToolset(
     }),
   });
 
-  // Codex apply_patch proxy forwards ops through posixTools.run so permission
-  // plugins (gate, path policy, etc.) still apply — same call shape as
-  // posix-tool-plugins.test.ts.
-  const runTool: CodexRunTool = async (name, args) => {
-    const result = await posixTools.run(
-      { id: "codex-proxy", name, arguments: args },
-      new AbortController().signal,
-    );
-    return {
-      content:
-        typeof result.content === "string"
-          ? result.content
-          : JSON.stringify(result.content),
-      ...(result.isError === true ? { isError: true } : {}),
-    };
-  };
-
-  // manage_tasks is not a posix tool — task state is owned by the director,
-  // which derives it from the manage_tasks tool_call it observes in the
-  // model's own output (see applyManageTasksToolCall in director.ts), not
-  // from this handler's return value. This handler only validates, so
-  // update_plan's proxy shares it rather than forwarding through posixTools
-  // (which has no manage_tasks handler to forward to).
-  const runManageTasks = createManageTasksRunner();
-
   // Align the advertised run_shell timeout with shell-guard (120s foreground
   // default; advertise settings.shell.timeoutMs when set).
   // Orchestrator tools (search / trace / fleet) are assembled once so the fleet
@@ -647,6 +615,8 @@ export async function createAgentToolset(
       }
     }
   }
+
+  const runManageTasks = createManageTasksRunner();
 
   const baseTools: AgentTool[] = [
     ...fromToolRunner(posixTools).map((tool) => {
@@ -845,19 +815,8 @@ export async function createAgentToolset(
     );
   }
 
-  // Codex apply_patch mounts when isCodex; primary strips it so Corbits DIY
-  // stays on write_file/edit_file/delete_file. Leaves keep it via BUILD/DOCS allowlists.
-  baseTools.push(
-    ...createCodexToolProxies({
-      isCodex: args.isCodex === true,
-      runTool,
-      readRawFile: createCodexReadRawFile(cwd, permissionGate),
-      runManageTasks,
-    }),
-  );
-
   const primaryTools = wrapAgentToolsWithResultTruncation(
-    baseTools.filter((tool) => tool.definition.name !== "apply_patch"),
+    baseTools,
     truncationOptions,
   );
 

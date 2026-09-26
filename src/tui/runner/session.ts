@@ -112,10 +112,6 @@ import {
   createChatDirector,
   submitOutputDefinition,
 } from "../../agent/director.js";
-import {
-  shellDefinition,
-  updatePlanDefinition,
-} from "../../agent/codex-tool-proxies.js";
 import { attachApprovalBudget } from "../request-approval.js";
 import { createGateRequestApproval } from "../request-approval.js";
 import { getActivePricingCache } from "../../cost/cost-visibility.js";
@@ -509,14 +505,8 @@ export async function assembleTUISession(
   // A registered tool the wire never advertised must error toward tool_search
   // instead of dispatching blind — the transcript would otherwise claim a call
   // the next infer does not declare. submit_output rides every infer via the
-  // director, and Codex's native proxies answer calls Codex models emit
-  // unaided; neither flows through the advertised set.
-  const unadvertisedCallable = new Set<string>([
-    submitOutputDefinition.name,
-    ...(isCodexProviderName(config.providerName)
-      ? [shellDefinition.name, updatePlanDefinition.name]
-      : []),
-  ]);
+  // director; hidden posix aliases dispatch when their engine is advertised.
+  const unadvertisedCallable = new Set<string>([submitOutputDefinition.name]);
   toolset.dynamicRunner.setCallGate(
     (name) => unadvertisedCallable.has(name) || isAdvertised(name),
     // A promoted-but-unmounted name (server dropped between search and call)

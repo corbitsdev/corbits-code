@@ -28,12 +28,7 @@ import { type } from "arktype";
 import { createPosixTools } from "@intx/tools-posix";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import type {
-  BlobReader,
-  ToolCall,
-  ToolDefinition,
-  ToolResult,
-} from "@intx/types/runtime";
+import type { BlobReader, ToolDefinition } from "@intx/types/runtime";
 
 import {
   buildBifrostSource,
@@ -56,15 +51,7 @@ import {
   wrapAgentToolsWithResultTruncation,
   type SpillBlobWriter,
 } from "../plugins/result-truncation-plugin.js";
-import {
-  allowDeleteFromCapabilities,
-  allowShellFromCapabilities,
-  createCodexToolProxies,
-  type CodexRunTool,
-} from "../agent/codex-tool-proxies.js";
-import { createCodexReadRawFile } from "../agent/codex-read-raw-file.js";
 
-import { isCodexProviderName } from "../config/codex-providers.js";
 import { isOpenCodeGoProvider } from "../../packages/opencode-go/src/index.js";
 import { createCompositeBlobReader } from "../agent/lazy-blob-reader.js";
 
@@ -78,6 +65,11 @@ import {
   type InterventionSink,
 } from "./intervention-log.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import {
+  advertisedToolName,
+  projectToolDefinitions,
+} from "../agent/tool-aliases.js";
 
 import {
   buildCompactionContinuationMessage,
@@ -377,11 +369,15 @@ function applyCapabilityFilter(
   tools: AgentTool[],
   capabilities: CapabilityFilter,
 ): AgentTool[] {
-  const nameSet = new Set(capabilities.tools);
+  const engines = new Set(
+    capabilities.tools.map((name) => canonicalToolName(name)),
+  );
   if (capabilities.mode === "exclude") {
-    return tools.filter((t) => !nameSet.has(t.definition.name));
+    return tools.filter(
+      (t) => !engines.has(canonicalToolName(t.definition.name)),
+    );
   }
-  return tools.filter((t) => nameSet.has(t.definition.name));
+  return tools.filter((t) => engines.has(canonicalToolName(t.definition.name)));
 }
 
 export interface SubAgentRunController {
@@ -539,30 +535,6 @@ const askDirectorDefinition: ToolDefinition = {
     required: ["question"],
   },
 };
-
-interface CodexProxyToolRunner {
-  run(call: ToolCall, signal: AbortSignal): Promise<ToolResult>;
-}
-
-export function createCodexProxyRunTool(
-  posixTools: CodexProxyToolRunner,
-): CodexRunTool {
-  let invocation = 0;
-  return async (name, args) => {
-    invocation += 1;
-    const result = await posixTools.run(
-      { id: `codex-proxy-${invocation}`, name, arguments: args },
-      new AbortController().signal,
-    );
-    return {
-      content:
-        typeof result.content === "string"
-          ? result.content
-          : JSON.stringify(result.content),
-      ...(result.isError === true ? { isError: true } : {}),
-    };
-  };
-}
 
 // Spin up an isolated, autonomous agent loop, hand it one task, and return
 // its final report. `params.cwd` is either the dispatcher's own cwd (shared
@@ -754,30 +726,7 @@ async function runSubAgentInner(
       tools = [...tools, ...inherited];
     }
 
-    // Codex apply_patch proxy: mount after posix+web(+mcp), before capability
-    // filter, so implement/docs allowlists can keep it when Codex. allowDelete
-    // follows whether delete_file is in the leaf capability include list (docs
-    // omits it; implement includes it).
-    const runTool = createCodexProxyRunTool(posixTools);
-    // manage_tasks is not a posix tool — task state here is owned by the
-    // director observing manage_tasks tool_calls in the model's own output,
-    // not by this handler's return value (see applyManageTasksToolCall in
-    // director.ts). This handler only validates, so update_plan's proxy shares
-    // it rather than forwarding through posixTools (which has no manage_tasks
-    // handler to forward to).
     const runManageTasks = createManageTasksRunner();
-    tools = [
-      ...tools,
-      ...createCodexToolProxies({
-        isCodex: isCodexProviderName(params.provider.providerName),
-        runTool,
-        readRawFile: createCodexReadRawFile(params.cwd, permissionGate),
-        runManageTasks,
-        allowDelete: allowDeleteFromCapabilities(params.capabilities),
-        allowShell: allowShellFromCapabilities(params.capabilities),
-      }),
-    ];
-
     // Worker skill mounts: every worker, including grok/kimi leaves, mounts
     // skill_search + use_skill. Scoped to the dispatch's allowedSkillNames
     // (union of pkg.attachedSkills and optionalSkills). Mounted before the
@@ -1059,7 +1008,7 @@ async function runSubAgentInner(
         : []),
       ...(attachedSection !== undefined ? [attachedSection] : []),
     ];
-    const toolNames = tools.map((t) => t.definition.name);
+    const toolNames = tools.map((t) => advertisedToolName(t.definition.name));
     const systemPrompt = buildSubAgentSystemPrompt(
       extensions.length > 0 ? extensions : undefined,
       environment,
@@ -1109,10 +1058,13 @@ async function runSubAgentInner(
       factory: (_config, _env, agentCtx) => {
         const director = new SubAgentDirector(
           agentCtx.systemPrompt,
-          normalizeToolDefinitionsForProvider([...agentCtx.toolDefinitions], {
-            providerName: params.provider.providerName,
-            model: params.provider.model,
-          }),
+          normalizeToolDefinitionsForProvider(
+            projectToolDefinitions([...agentCtx.toolDefinitions]),
+            {
+              providerName: params.provider.providerName,
+              model: params.provider.model,
+            },
+          ),
           requestContinuation,
           modelFamilyPolicy.subAgentStallTimeoutMs,
           Date.now,

@@ -24,10 +24,6 @@ import type { DirectorId, DirectorPackage } from "../agent/directors/types.js";
 import { submitOutputDefinition } from "../agent/director.js";
 import { handleChatDirectorEvent } from "../agent/chat-event-subscribers.js";
 import {
-  shellDefinition,
-  updatePlanDefinition,
-} from "../agent/codex-tool-proxies.js";
-import {
   CodexRefreshLockError,
   codexAuthFailureDiagnostic,
   getValidCodexToken,
@@ -372,15 +368,8 @@ export interface ExecResult {
 
 export function createExecToolCallGate(
   isAdvertised: (name: string) => boolean,
-  options: { isCodex: boolean },
 ): (name: string) => boolean {
-  const unadvertisedCallable = new Set<string>([
-    submitOutputDefinition.name,
-    ...(options.isCodex
-      ? [shellDefinition.name, updatePlanDefinition.name]
-      : []),
-  ]);
-  return (name) => unadvertisedCallable.has(name) || isAdvertised(name);
+  return (name) => name === submitOutputDefinition.name || isAdvertised(name);
 }
 
 export function createExecToolPromoter(args: {
@@ -830,9 +819,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     // Same wire contract as the TUI: a registered tool the model was never
     // shown errors toward tool_search instead of dispatching blind.
     agentToolset.dynamicRunner.setCallGate(
-      createExecToolCallGate(isAdvertised, {
-        isCodex: isCodexProviderName(config.providerName),
-      }),
+      createExecToolCallGate(isAdvertised),
       // Same promoted-but-unmounted contract as the TUI gate: an activated
       // name missing from the registry errors toward retry (see run() in
       // DynamicToolRunner).

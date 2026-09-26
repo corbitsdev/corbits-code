@@ -64,7 +64,7 @@ export const grokRow: PromptVarianceRow = {
     "- Once you can answer the dispatch brief, prefer the structured report over another speculative tool call.",
     "- If the next call would only re-open paths you already read, write the report instead.",
     "- When the dispatch brief's done-definition is met, write the report envelope instead of making one more search or micro-edit.",
-    "- Route file and web work through the dedicated tools, never run_shell — mining showed grok reaching for shell first when a typed tool already covered the job.",
+    "- Route file and web work through the dedicated tools, never bash — mining showed grok reaching for shell first when a typed tool already covered the job.",
     "- Never run git add, git commit, git stash, or any other state-changing git command unless the user asks.",
     "- Do not narrate a plan before acting on a small task; act, then report.",
     "- Verify with the test command once at the end, not after every edit.",

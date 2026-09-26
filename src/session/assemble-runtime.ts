@@ -49,6 +49,8 @@ import {
   type ActivatedToolTracker,
   type ToolAvailability,
 } from "../agent/tool-search.js";
+import { nameMatchesAdvertisedListing } from "../agent/tool-aliases.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
 import {
@@ -447,8 +449,14 @@ export function createAdvertisedToolset(args: {
     );
   };
   const isAdvertised = (name: string): boolean => {
-    if (deniedFor(args.getProvider()).includes(name)) return false;
-    return prefix.includes(name) || activated.has(name);
+    const denied = deniedFor(args.getProvider());
+    if (denied.includes(name) || denied.includes(canonicalToolName(name))) {
+      return false;
+    }
+    return nameMatchesAdvertisedListing(
+      name,
+      (n) => prefix.includes(n) || activated.has(n),
+    );
   };
   const flushPromotions = (): boolean => {
     let grew = false;

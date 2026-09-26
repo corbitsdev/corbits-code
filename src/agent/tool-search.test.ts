@@ -116,8 +116,9 @@ describe("createToolIndex", () => {
   });
 
   test("never returns a core tool (those are always loaded)", () => {
-    expect(CORE_TOOL_NAMES).toContain("read_file");
+    expect(CORE_TOOL_NAMES).toContain("read");
     expect(index.search("read a file")).not.toContain("read_file");
+    expect(index.search("read a file")).not.toContain("read");
   });
 
   test("orchestrator mode advertises split fleet tools and search_agents", () => {
@@ -188,7 +189,7 @@ describe("createToolIndex", () => {
   });
 
   test("primary CORE includes product mutation tools; CATALOG does not duplicate them", () => {
-    for (const name of ["write_file", "edit_file", "delete_file"] as const) {
+    for (const name of ["write", "edit", "delete"] as const) {
       expect(CORE_TOOL_NAMES).toContain(name);
       expect(CATALOG_TOOL_NAMES).not.toContain(name);
     }
@@ -623,16 +624,16 @@ describe("advertisedTools", () => {
     // advertisedTools only emits tools present in the registry; multi-agent
     // tools appear on the wire when createAgentToolset registers them.
     const names = advertisedTools(registry, [], prefix).map((d) => d.name);
-    expect(names).toContain("read_file");
+    expect(names).toContain("read");
     expect(names).not.toContain("mcp__linear__create_issue");
   });
 
   test("with no activation, advertises only the fixed built-in set, never MCP tools", () => {
     const names = advertisedTools(registry).map((d) => d.name);
-    expect(names).toContain("read_file");
+    expect(names).toContain("read");
     expect(names).toContain("grep");
-    // write_file is in CORE so the primary can DIY tiny/bounded edits.
-    expect(names).toContain("write_file");
+    // write is in CORE so the primary can DIY tiny/bounded edits.
+    expect(names).toContain("write");
     expect(names).not.toContain("mcp__linear__create_issue");
   });
 
