@@ -262,6 +262,8 @@ const AGENT_ID_TARGETED_FLEET_TOOLS = new Set([
   "close_agent",
   "interrupt_agent",
   "send_input",
+  "resume_agent",
+  "read_agent_trace",
 ]);
 
 export function callTargetsRestricted(
@@ -280,8 +282,10 @@ export function callTargetsRestricted(
   // here would duplicate that enforcement at a layer with no session access,
   // so these calls always report "not restricted", exactly like
   // spawn_agent/wait_agents. (The full fleet verb list lives in
-  // subagent/authority.ts as FLEET_VERBS; only the agentId-addressed
-  // continuation verbs need naming here.)
+  // subagent/authority.ts as FLEET_VERBS; the five single-`target`
+  // agentId-addressed verbs are named above — spawn_agent, wait_agents,
+  // list_agents, and search_agents take no single-agent `target` argument
+  // and already fall through to false below.)
   if (AGENT_ID_TARGETED_FLEET_TOOLS.has(name)) return false;
   if (name === "run_shell")
     return commandTargetsRestricted(stringArg(call, "command"), isRestricted);
