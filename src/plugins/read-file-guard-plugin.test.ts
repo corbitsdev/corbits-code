@@ -329,8 +329,8 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).toContain("     2\tl2");
     expect(result.content).toContain("     3\tl3");
     expect(result.content).not.toContain("     4\tl4");
-    expect(result.content).toContain('Use path="tool-output:///');
-    expect(result.content).not.toContain("Use offset=");
+    expect(result.content).toContain("Use offset=");
+    expect(result.content).not.toContain('Use path="tool-output:///');
   });
 
   test("rejects tool-output URIs when no blob reader is configured", async () => {
@@ -368,7 +368,7 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).not.toBe("FALLBACK");
   });
 
-  test("pages a giant one-line tool-output blob across byte windows and resumes via the minted cursor", async () => {
+  test("pages a giant one-line tool-output blob across byte windows on the same URI with rising offsets", async () => {
     const encoder = new TextEncoder();
     const payload = `HEAD-${"x".repeat(READ_FILE_MAX_BYTES)}-TAIL`;
     const blobReader = createBlobReader({
@@ -396,13 +396,19 @@ describe("readFileGuardPlugin", () => {
     expect(Buffer.byteLength(firstContent, "utf8")).toBeLessThanOrEqual(
       READ_FILE_MAX_BYTES,
     );
-    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(firstContent);
+    const match = /Use offset=(\d+) to continue/.exec(firstContent);
     expect(match).not.toBeNull();
-    const nextPath = (match as RegExpExecArray)[1] as string;
-    expect(nextPath).toMatch(/^tool-output:\/\/\//);
+    const nextOffset = Number((match as RegExpExecArray)[1]);
 
     const second = await middleware(
-      { id: "g2", name: "read_file", arguments: { path: nextPath } },
+      {
+        id: "g2",
+        name: "read_file",
+        arguments: {
+          path: "tool-output:///giant-line",
+          offset: nextOffset,
+        },
+      },
       neverAbort(),
     );
     expect(second.isError).toBeFalsy();
@@ -490,7 +496,7 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).toBe("FALLBACK");
   });
 
-  test("a truncated read never asks the model to re-read the same path (CL-6961)", async () => {
+  test("a truncated read names the same path with an explicit offset (CL-8980)", async () => {
     await fixture(
       "many-lines.txt",
       Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
@@ -505,19 +511,17 @@ describe("readFileGuardPlugin", () => {
       },
       neverAbort(),
     );
-    expect(result.content).not.toContain("Use offset=");
-    expect(String(result.content)).toContain('Use path="tool-output:///');
-    // The literal source path never reappears as the thing to read next.
-    expect(String(result.content)).not.toContain("many-lines.txt");
+    expect(String(result.content)).toMatch(/Use offset=(\d+) to continue/);
+    expect(String(result.content)).not.toContain('Use path="tool-output:///');
+    expect(String(result.content)).not.toContain("single-use");
   });
 
-  test("following the minted cursor resumes and eventually reads a large file to completion without any repeat call on the original path (CL-6961)", async () => {
+  test("following same-path offsets reads a large file to completion; every hop re-issues the original path with a rising offset (CL-8980)", async () => {
     const lines = Array.from({ length: 9_000 }, (_, i) => `line-${i} payload`);
     await fixture("huge.txt", lines.join("\n"));
     const plugin = readFileGuardPlugin(dir, {});
     const middleware = defined(plugin.middleware)(fallback);
 
-    const pathsRead: string[] = ["huge.txt"];
     let result = await middleware(
       { id: "c1", name: "read_file", arguments: { path: "huge.txt" } },
       neverAbort(),
@@ -526,35 +530,32 @@ describe("readFileGuardPlugin", () => {
     let guard = 0;
     for (;;) {
       guard++;
-      expect(guard).toBeLessThan(50); // fails loudly instead of hanging on a broken cursor chain
+      expect(guard).toBeLessThan(50); // fails loudly instead of hanging on a broken offset chain
       const content = String(result.content);
       const numbered = content.split("\n\n")[0] ?? "";
       seen += numbered.trimEnd().split("\n").length;
 
-      const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(content);
+      const match = /Use offset=(\d+) to continue/.exec(content);
       if (match === undefined || match === null) break;
-      const nextPath = match[1] as string;
-      expect(pathsRead).not.toContain(nextPath); // every hop targets a fresh, distinct path
-      pathsRead.push(nextPath);
+      const offset = Number(match[1] as string);
 
       result = await middleware(
         {
-          id: `c${pathsRead.length}`,
+          id: `c${guard + 1}`,
           name: "read_file",
-          arguments: { path: nextPath },
+          arguments: { path: "huge.txt", offset },
         },
         neverAbort(),
       );
+      expect(result.isError).toBeFalsy();
     }
 
     expect(seen).toBe(lines.length);
-    expect(pathsRead.length).toBeGreaterThan(1); // it actually paginated
-    // Never told to re-issue a call against the literal original path.
-    expect(pathsRead.filter((p) => p === "huge.txt").length).toBe(1);
+    expect(guard).toBeGreaterThan(1); // it actually paginated
   });
 
-  test("a stale (already-consumed) cursor names the original path and offset instead of a dead end", async () => {
-    const absolutePath = await fixture(
+  test("reusing a continuation offset after first use still yields the window — reads never expire", async () => {
+    await fixture(
       "stale.txt",
       Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
     );
@@ -568,31 +569,29 @@ describe("readFileGuardPlugin", () => {
       },
       neverAbort(),
     );
-    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(
-      String(first.content),
-    );
+    const match = /Use offset=(\d+) to continue/.exec(String(first.content));
     expect(match).not.toBeNull();
-    const cursorPath = (match as RegExpExecArray)[1] as string;
+    const offset = Number((match as RegExpExecArray)[1] as string);
 
-    await middleware(
-      { id: "s2", name: "read_file", arguments: { path: cursorPath } },
+    const second = await middleware(
+      { id: "s2", name: "read_file", arguments: { path: "stale.txt", offset } },
       neverAbort(),
     );
-    // Second use of the same, already-consumed cursor: distinct from a
-    // generic missing-blob error, this must name a followable next step —
-    // the original source and the offset to resume from — rather than
-    // leaving the model to re-read the whole file from scratch.
+    expect(second.isError).toBeFalsy();
+    expect(String(second.content)).toContain("line-4");
+    // Second use of the same offset: reads are idempotent, so the replay is
+    // byte-identical instead of a spent-handle error.
     const replay = await middleware(
-      { id: "s3", name: "read_file", arguments: { path: cursorPath } },
+      { id: "s3", name: "read_file", arguments: { path: "stale.txt", offset } },
       neverAbort(),
     );
-    expect(replay.isError).toBe(true);
-    expect(String(replay.content)).toContain("already used");
-    expect(String(replay.content)).toContain(absolutePath);
-    expect(String(replay.content)).toMatch(/offset=4\b/);
+    expect(replay.isError).toBeFalsy();
+    expect(String(replay.content)).toBe(String(second.content));
+    expect(String(replay.content)).not.toContain("already used");
+    expect(String(replay.content)).not.toContain("single-use");
   });
 
-  test("an unknown tool-output URI against a real blobReader gets the production 'blob not found' error, not a stale-cursor message", async () => {
+  test("an unknown tool-output URI against a real blobReader surfaces the blob store error", async () => {
     const blobReader = {
       async read(uri: string): Promise<Uint8Array> {
         throw new Error(`Blob not found for key: ${uri}`);
@@ -608,16 +607,14 @@ describe("readFileGuardPlugin", () => {
     );
     expect(result.isError).toBe(true);
     expect(String(result.content)).toContain("Blob not found for key");
-    // Never a cursor's own wording, since this ID was never one of ours.
+    // No handle machinery remains: there is no spent/cursor wording anywhere.
     expect(String(result.content)).not.toContain("already used");
+    expect(String(result.content)).not.toContain("single-use");
   });
 
-  test("a stale cursor short-circuits before reaching a real blobReader's production 'blob not found' error", async () => {
-    const encoder = new TextEncoder();
-    const body = Array.from({ length: 8_000 }, (_, i) => `row-${i}`).join("\n");
+  test("a replayed unknown tool-output URI surfaces the same blob error twice — no spent-handle state", async () => {
     const blobReader = {
       async read(uri: string): Promise<Uint8Array> {
-        if (uri === "tool-output:///spill-1") return encoder.encode(body);
         throw new Error(`Blob not found for key: ${uri}`);
       },
     };
@@ -628,31 +625,156 @@ describe("readFileGuardPlugin", () => {
       {
         id: "b1",
         name: "read_file",
-        arguments: { path: "tool-output:///spill-1", limit: 5 },
+        arguments: { path: "tool-output:///gone", limit: 5 },
       },
       neverAbort(),
     );
-    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(
-      String(first.content),
-    );
-    expect(match).not.toBeNull();
-    const cursorPath = (match as RegExpExecArray)[1] as string;
-
-    await middleware(
-      { id: "b2", name: "read_file", arguments: { path: cursorPath } },
-      neverAbort(),
-    );
-    // Replaying the consumed cursor must not fall through to blobReader.read()
-    // (which would throw the opaque "Blob not found" error naming only the
-    // random cursor UUID) -- it must short-circuit to the actionable message
-    // naming the real spill URI and the offset to resume from.
+    expect(first.isError).toBe(true);
+    expect(String(first.content)).toContain("Blob not found for key");
     const replay = await middleware(
-      { id: "b3", name: "read_file", arguments: { path: cursorPath } },
+      {
+        id: "b2",
+        name: "read_file",
+        arguments: { path: "tool-output:///gone", limit: 5 },
+      },
       neverAbort(),
     );
     expect(replay.isError).toBe(true);
-    expect(String(replay.content)).toContain("already used");
-    expect(String(replay.content)).toContain("tool-output:///spill-1");
-    expect(String(replay.content)).not.toContain("Blob not found");
+    expect(String(replay.content)).toBe(String(first.content));
+  });
+});
+
+describe("CL-8980 single-way path+offset resume", () => {
+  const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+    callId: call.id,
+    content: "FALLBACK",
+  });
+
+  function freshRunner(blobReader?: ReturnType<typeof createBlobReader>) {
+    const plugin = readFileGuardPlugin(
+      dir,
+      blobReader !== undefined ? { blobReader } : {},
+    );
+    const middleware = defined(plugin.middleware)(fallback);
+    return (id: string, args: Record<string, unknown>) =>
+      middleware({ id, name: "read_file", arguments: args }, neverAbort());
+  }
+
+  function noticeOffset(content: string): number {
+    const match = /Use offset=(\d+) to continue/.exec(content);
+    expect(match).not.toBeNull();
+    return Number((match as RegExpExecArray)[1]);
+  }
+
+  test("a truncated read emits same-path + explicit offset and no handle", async () => {
+    await fixture(
+      "single-way.txt",
+      Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
+    );
+    const content = String(
+      (await freshRunner()("w1", { path: "single-way.txt", limit: 4 })).content,
+    );
+    expect(content).toMatch(/Use offset=(\d+) to continue/);
+    expect(content).not.toMatch(/Use path="tool-output:\/\/\//);
+    expect(content).not.toContain("single-use");
+    expect(content).not.toContain("continuation handle");
+  });
+
+  test("following the notice verbatim yields the next window on a fresh instance; replay and re-read are identical", async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => `row-${i}`);
+    await fixture("chain.txt", rows.join("\n"));
+    const first = await freshRunner()("c1", { path: "chain.txt", limit: 4 });
+    expect(first.isError).toBeFalsy();
+    const offset = noticeOffset(String(first.content));
+
+    // Session resume is a fresh plugin instance: no cursor map survives, so
+    // the verbatim same-path + offset follow must still yield the next window.
+    const run = freshRunner();
+    const second = await run("c2", { path: "chain.txt", offset, limit: 4 });
+    expect(second.isError).toBeFalsy();
+    const secondContent = String(second.content);
+    expect(secondContent).toContain("row-4");
+    expect(secondContent).not.toContain("row-3");
+    expect(secondContent).toMatch(/Use offset=(\d+) to continue/);
+
+    const replay = await run("c3", { path: "chain.txt", offset, limit: 4 });
+    expect(replay.isError).toBeFalsy();
+    expect(String(replay.content)).toBe(secondContent);
+
+    const reread = await run("c4", { path: "chain.txt", offset: 0, limit: 4 });
+    expect(reread.isError).toBeFalsy();
+    expect(String(reread.content)).toBe(String(first.content));
+  });
+
+  test("a dead file offset names the file and the valid range", async () => {
+    const absolutePath = await fixture(
+      "dead-offset.txt",
+      Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
+    );
+    const result = await freshRunner()("d1", {
+      path: "dead-offset.txt",
+      offset: 500,
+      limit: 4,
+    });
+    expect(result.isError).toBe(true);
+    const content = String(result.content);
+    expect(content).toContain("beyond end of file");
+    expect(content).toContain(absolutePath);
+    expect(content).toContain("10 lines");
+    expect(content).not.toContain("Blob not found");
+  });
+
+  test("a dead blob offset names the spill URI and the valid range", async () => {
+    const encoder = new TextEncoder();
+    const body = Array.from({ length: 100 }, (_, i) => `brow-${i}`).join("\n");
+    const blobReader = createBlobReader({
+      async readBlob(key) {
+        if (key === "dead-blob") return encoder.encode(body);
+        throw new Error(`missing ${key}`);
+      },
+    });
+    const result = await freshRunner(blobReader)("d2", {
+      path: "tool-output:///dead-blob",
+      offset: 500,
+      limit: 4,
+    });
+    expect(result.isError).toBe(true);
+    const content = String(result.content);
+    expect(content).toContain("beyond end of file");
+    expect(content).toContain("tool-output:///dead-blob");
+    expect(content).toContain("100 lines");
+  });
+
+  test("a spilled blob pages forward on the same URI with rising offsets; replay is identical", async () => {
+    const encoder = new TextEncoder();
+    const body = Array.from({ length: 100 }, (_, i) => `srow-${i}`).join("\n");
+    const blobReader = createBlobReader({
+      async readBlob(key) {
+        if (key === "chain-blob") return encoder.encode(body);
+        throw new Error(`missing ${key}`);
+      },
+    });
+    const run = freshRunner(blobReader);
+    const first = await run("e1", {
+      path: "tool-output:///chain-blob",
+      offset: 0,
+      limit: 10,
+    });
+    expect(first.isError).toBeFalsy();
+    const offset = noticeOffset(String(first.content));
+    const second = await run("e2", {
+      path: "tool-output:///chain-blob",
+      offset,
+      limit: 10,
+    });
+    expect(second.isError).toBeFalsy();
+    expect(String(second.content)).toContain("srow-10");
+    expect(String(second.content)).not.toContain("srow-9");
+    const replay = await run("e3", {
+      path: "tool-output:///chain-blob",
+      offset,
+      limit: 10,
+    });
+    expect(String(replay.content)).toBe(String(second.content));
   });
 });

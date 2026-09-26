@@ -588,7 +588,7 @@ export function buildShellBackgroundMessage(exit: {
   }
   if (exit.spillUri !== undefined) {
     lines.push(
-      `Full output was spilled to ${exit.spillUri} (readable via read_file).`,
+      `Full output was spilled to ${exit.spillUri} — use read_file with that URI (offset/limit supported) to see the rest.`,
     );
   }
   return {
