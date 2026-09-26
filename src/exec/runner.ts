@@ -611,7 +611,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     if (config.skipPermissionsFromSettings) {
       stderr.write(
-        `${savedSkipPermissionsWarning(config.globalSettingsPath)}\n`,
+        `${savedSkipPermissionsWarning(config.globalSettingsPath, "exec")}\n`,
       );
     }
 
