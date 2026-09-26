@@ -13,6 +13,7 @@ import { realpathSync } from "node:fs";
 import { createBlobReader, type BlobReader } from "@intx/types/runtime";
 import { createPosixTools, composeMiddleware } from "./index";
 import type { PosixTools, ToolHandler, ToolPlugin } from "./index";
+import { TOOL_DEFINITIONS } from "./registry";
 import { matchGlob, shouldSkip } from "./glob-match";
 
 let tmpDir: string;
@@ -1265,5 +1266,14 @@ describe("plugin wiring", () => {
     expect(() => createPosixTools({ cwd: "/nonexistent/path" })).toThrow(
       "cwd does not exist",
     );
+  });
+});
+
+describe("read_file registry contract", () => {
+  test("documents the offset/limit page-and-continue contract", () => {
+    const def = TOOL_DEFINITIONS.find((entry) => entry.name === "read_file");
+    expect(def).toBeDefined();
+    expect(def?.description ?? "").toMatch(/Use offset=/);
+    expect(def?.description ?? "").toMatch(/page/i);
   });
 });

@@ -3,8 +3,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createSizeCapTransform } from "@intx/inference";
 import { createBlobReader } from "@intx/types/runtime";
-import type { ToolCall, ToolResult } from "@intx/types/runtime";
+import type {
+  StrategyContext,
+  ToolCall,
+  ToolResult,
+} from "@intx/types/runtime";
 import {
   READ_FILE_DEFAULT_MAX_LINES,
   READ_FILE_MAX_BYTES,
@@ -15,6 +20,7 @@ import {
   readFileBounded,
   readFileGuardPlugin,
 } from "./read-file-guard-plugin.js";
+import { resultTruncationPlugin } from "./result-truncation-plugin.js";
 
 const neverAbort = () => new AbortController().signal;
 
@@ -99,6 +105,8 @@ describe("readFileBounded", () => {
     expect(isError).toBe(true);
     expect(content).toContain("beyond end of file");
     expect(content).toContain("(2 lines)");
+    expect(content).toContain(p);
+    expect(content).toContain("valid offsets 0-1");
   });
 
   test("truncates an overlong single line", async () => {
@@ -164,7 +172,7 @@ describe("readFileBounded", () => {
     expect(content).not.toContain("continue");
   });
 
-  test("a newline-less file past the scan ceiling returns content, not empty", async () => {
+  test("a newline-less file past the scan ceiling returns a windowed page, not empty", async () => {
     const giant = "a".repeat(READ_FILE_MAX_SCAN_BYTES + 1024);
     const p = await fixture("giant-line.txt", giant);
     const { content, isError } = await readFileBounded(
@@ -176,7 +184,21 @@ describe("readFileBounded", () => {
     expect(isError).toBeUndefined();
     expect(content.length).toBeGreaterThan(0);
     expect(content).toContain("     1\t");
-    expect(content).toContain("scan limit");
+    // The scan-capped remainder is windowed like a smaller overlong line, so
+    // the footer offers a deliverable offset page instead of a truncated line
+    // under a scan notice whose tail is unreachable.
+    expect(content).not.toContain("line truncated");
+    expect(content).not.toContain("scan limit");
+    expect(content).toContain("output limit");
+    expect(content).toContain("Use offset=");
+    const body = content.split("\n\n")[0] ?? "";
+    const numbered = body.trimEnd().split("\n");
+    expect(numbered.length).toBeGreaterThan(1);
+    for (const line of numbered) {
+      expect(line.replace(/^\s*\d+\t/, "").length).toBeLessThanOrEqual(
+        READ_FILE_MAX_LINE_LENGTH,
+      );
+    }
   });
 
   test("abort rejects with read_file timeout guidance", async () => {
@@ -271,9 +293,10 @@ describe("readFileBounded", () => {
     );
   });
 
-  test("offset past the scan ceiling reports the scan limit, not a fake EOF", async () => {
-    // Many short lines totaling more than the scan ceiling; a huge offset can
-    // never be reached within one scan pass.
+  test("a dead offset on a file larger than the scan ceiling reports beyond-EOF with path and valid range", async () => {
+    // Skip bytes are not scanned, so an offset past true EOF on a >8MB file
+    // still reaches the end of the file. Report the real line count and valid
+    // range, not a scan-limit that would hide a reachable EOF.
     const line = `${"y".repeat(80)}\n`;
     const count = Math.ceil(
       (READ_FILE_MAX_SCAN_BYTES + 1_000_000) / line.length,
@@ -286,8 +309,309 @@ describe("readFileBounded", () => {
       neverAbort(),
     );
     expect(isError).toBe(true);
-    expect(content).toContain("scan limit");
-    expect(content).not.toContain("beyond end of file");
+    expect(content).toContain("beyond end of file");
+    expect(content).toContain(`(${count} lines)`);
+    expect(content).toContain(p);
+    expect(content).toContain(`valid offsets 0-${count - 1}`);
+    expect(content).not.toContain("scan limit");
+  });
+});
+
+describe("CL-8979 large-file pagination", () => {
+  const BIG_LINES = 45_000;
+  const bigRow = (i: number): string => `L${i}-` + "p".repeat(243);
+
+  async function bigFixture(name: string): Promise<string> {
+    const rows = Array.from({ length: BIG_LINES }, (_, i) => bigRow(i));
+    return fixture(name, `${rows.join("\n")}\n`);
+  }
+
+  function continueOffset(content: string): number | null {
+    const match = /Use offset=(\d+) to continue/.exec(content);
+    return match === null ? null : Number(match[1]);
+  }
+
+  function bodyRows(content: string): string[] {
+    const body = content.split("\n\n")[0] ?? "";
+    return body
+      .split("\n")
+      .filter((line) => line.trim().length > 0)
+      .map((line) => line.replace(/^\s*\d+\t/, ""));
+  }
+
+  function chainRunner(): (
+    id: string,
+    args: Record<string, unknown>,
+  ) => Promise<ToolResult> {
+    const plugin = readFileGuardPlugin(dir, {});
+    const middleware = plugin.middleware;
+    if (middleware === undefined) throw new Error("expected middleware");
+    const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: "FALLBACK",
+    });
+    return (id, args) =>
+      middleware(fallback)(
+        { id, name: "read_file", arguments: args },
+        neverAbort(),
+      );
+  }
+
+  function blobChainRunner(
+    readBlob: (key: string) => Promise<Uint8Array>,
+  ): (id: string, args: Record<string, unknown>) => Promise<ToolResult> {
+    const plugin = readFileGuardPlugin(dir, {
+      blobReader: createBlobReader({ readBlob }),
+    });
+    const middleware = plugin.middleware;
+    if (middleware === undefined) throw new Error("expected middleware");
+    const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: "FALLBACK",
+    });
+    return (id, args) =>
+      middleware(fallback)(
+        { id, name: "read_file", arguments: args },
+        neverAbort(),
+      );
+  }
+
+  test("reads a deep page of a file larger than the scan ceiling", async () => {
+    const p = await bigFixture("cl8979-big.txt");
+    const res = await readFileBounded(p, 43_000, 5, neverAbort());
+    expect(res.isError).toBeUndefined();
+    expect(String(res.content)).toContain(bigRow(43_000));
+    expect(String(res.content)).not.toContain("scan limit");
+  });
+
+  test("chains plain path+offset continuation on one path through to the last line", async () => {
+    const name = "cl8979-chain.txt";
+    await bigFixture(name);
+    const run = chainRunner();
+    const collected: string[] = [];
+    let offset = 0;
+    let hops = 0;
+    for (;;) {
+      const result = await run(`chain-${hops}`, {
+        path: name,
+        limit: 200,
+        offset,
+      });
+      hops += 1;
+      const content = String(result.content);
+      expect(result.isError).toBeFalsy();
+      expect(content).not.toContain("scan limit");
+      collected.push(...bodyRows(content));
+      const next = continueOffset(content);
+      if (next === null) break;
+      offset = next;
+      expect(hops).toBeLessThan(2000);
+    }
+    expect(hops).toBeGreaterThan(1);
+    expect(collected.length).toBe(BIG_LINES);
+    expect(collected).toEqual(
+      Array.from({ length: BIG_LINES }, (_, i) => bigRow(i)),
+    );
+  }, 120_000);
+
+  test("chains same-URI+offset continuation on a blob past the scan ceiling without re-scanning", async () => {
+    const rows = Array.from({ length: BIG_LINES }, (_, i) => bigRow(i));
+    const bytes = new TextEncoder().encode(`${rows.join("\n")}\n`);
+    const run = blobChainRunner(async (key) => {
+      if (key === "cl8979-blob") return bytes;
+      throw new Error(`missing ${key}`);
+    });
+    const collected: string[] = [];
+    const path = "tool-output:///cl8979-blob";
+    let offset = 0;
+    let hops = 0;
+    let sawOffsetFooter = false;
+    for (;;) {
+      const result = await run(`blob-${hops}`, { path, limit: 200, offset });
+      hops += 1;
+      const content = String(result.content);
+      expect(result.isError).toBeFalsy();
+      expect(content).not.toContain("scan limit");
+      collected.push(...bodyRows(content));
+      const next = continueOffset(content);
+      if (next === null) break;
+      sawOffsetFooter = true;
+      expect(next).toBeGreaterThan(offset);
+      offset = next;
+      expect(hops).toBeLessThan(2000);
+    }
+    expect(hops).toBeGreaterThan(1);
+    expect(sawOffsetFooter).toBe(true);
+    expect(collected.length).toBe(BIG_LINES);
+    expect(collected[BIG_LINES - 1]).toBe(bigRow(BIG_LINES - 1));
+  }, 120_000);
+
+  test("windows an overlong single file line so the tail is reachable", async () => {
+    const payload = `HEAD-${"y".repeat(100_000)}-TAIL`;
+    const p = await fixture("cl8979-giant.txt", `${payload}\nEND\n`);
+    let offset = 0;
+    let hops = 0;
+    let collected = "";
+    for (;;) {
+      const res = await readFileBounded(p, offset, 10, neverAbort());
+      hops += 1;
+      expect(res.isError).toBeUndefined();
+      const content = String(res.content);
+      expect(content).not.toContain("line truncated");
+      collected += `${content}\n`;
+      const rows = bodyRows(content);
+      expect(rows.length).toBeGreaterThan(1);
+      const next = continueOffset(content);
+      if (next === null) break;
+      offset = next;
+      expect(hops).toBeLessThan(100);
+    }
+    expect(collected).toContain("HEAD-");
+    expect(collected).toContain("-TAIL");
+    expect(collected).toContain("END");
+  });
+
+  test("windows a single file line past the scan ceiling with exact reassembly", async () => {
+    const filler = "0123456789ABCDEF".repeat(
+      Math.ceil((READ_FILE_MAX_SCAN_BYTES + 4096) / 16),
+    );
+    const payload = `HEAD-${filler}-TAIL`;
+    expect(payload.length).toBeGreaterThan(READ_FILE_MAX_SCAN_BYTES);
+    const p = await fixture("cl8979-scan-giant.txt", `${payload}\nEND\n`);
+    const rows: string[] = [];
+    let offset = 0;
+    let hops = 0;
+    for (;;) {
+      const res = await readFileBounded(p, offset, 2000, neverAbort());
+      hops += 1;
+      expect(res.isError).toBeUndefined();
+      const content = String(res.content);
+      // No silent tail loss: every scanned byte is windowed, never truncated,
+      // and no footer promises continuation it cannot deliver.
+      expect(content).not.toContain("line truncated");
+      expect(content).not.toContain("scan limit");
+      rows.push(...bodyRows(content));
+      const next = continueOffset(content);
+      if (next === null) break;
+      expect(next).toBeGreaterThan(offset);
+      offset = next;
+      expect(hops).toBeLessThan(500);
+    }
+    expect(hops).toBeGreaterThan(1);
+    expect(rows[rows.length - 1]).toBe("END");
+    expect(rows.slice(0, -1).join("")).toBe(payload);
+  }, 180_000);
+
+  test("a large-file page passes the result-truncation layer byte-identical", async () => {
+    const name = "cl8979-page.txt";
+    const rows = Array.from(
+      { length: 3_000 },
+      (_, i) => `cell-${i}-` + "v".repeat(50),
+    );
+    await fixture(name, `${rows.join("\n")}\n`);
+    const plugin = readFileGuardPlugin(dir, {});
+    const guardMiddleware = plugin.middleware;
+    if (guardMiddleware === undefined) throw new Error("expected middleware");
+    const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: "FALLBACK",
+    });
+    const guard = guardMiddleware(fallback);
+    const guardOnly = await guard(
+      { id: "page-1", name: "read_file", arguments: { path: name } },
+      neverAbort(),
+    );
+    expect(guardOnly.isError).toBeFalsy();
+    expect(String(guardOnly.content)).toContain("to continue");
+    const spilled = new Map<string, Uint8Array>();
+    const truncPlugin = resultTruncationPlugin({
+      getBlobWriter: () => async (key: string, payload: Uint8Array) => {
+        spilled.set(key, payload);
+      },
+    });
+    const truncMiddleware = truncPlugin.middleware;
+    if (truncMiddleware === undefined) throw new Error("expected middleware");
+    const composed = truncMiddleware(guard);
+    const res = await composed(
+      { id: "page-1", name: "read_file", arguments: { path: name } },
+      neverAbort(),
+    );
+    expect(String(res.content)).toBe(String(guardOnly.content));
+    expect(spilled.size).toBe(0);
+  });
+
+  test("a large-file page keeps Use offset= through leisure and the reactor 10k size-cap", async () => {
+    const name = "cl8979-reactor-page.txt";
+    const rows = Array.from(
+      { length: 3_000 },
+      (_, i) => `cell-${i}-` + "v".repeat(50),
+    );
+    await fixture(name, `${rows.join("\n")}\n`);
+    const plugin = readFileGuardPlugin(dir, {});
+    const guardMiddleware = plugin.middleware;
+    if (guardMiddleware === undefined) throw new Error("expected middleware");
+    const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: "FALLBACK",
+    });
+    const guard = guardMiddleware(fallback);
+    const spilled = new Map<string, Uint8Array>();
+    const truncPlugin = resultTruncationPlugin({
+      getBlobWriter: () => async (key: string, payload: Uint8Array) => {
+        spilled.set(key, payload);
+      },
+    });
+    const truncMiddleware = truncPlugin.middleware;
+    if (truncMiddleware === undefined) throw new Error("expected middleware");
+    const leisure = truncMiddleware(guard);
+    const leisurePage = await leisure(
+      { id: "page-cap", name: "read_file", arguments: { path: name } },
+      neverAbort(),
+    );
+    const leisureContent = String(leisurePage.content);
+    expect(leisurePage.isError).toBeFalsy();
+    expect(leisureContent).toContain("Use offset=");
+    expect(leisureContent.length).toBeGreaterThan(10_000);
+
+    const reactorCap = createSizeCapTransform({
+      maxChars: 10_000,
+      contextStore: {
+        writeBlob: async (key: string, payload: Uint8Array) => {
+          spilled.set(key, payload);
+        },
+      },
+    });
+    const capped = await reactorCap.apply(
+      {
+        call: { id: "page-cap", name: "read_file", arguments: { path: name } },
+        result: leisurePage,
+      },
+      {} as StrategyContext,
+    );
+    const modelFacing = String(capped.output.content);
+    expect(modelFacing).toContain("Use offset=");
+    expect(modelFacing).toBe(leisureContent);
+    expect(modelFacing).not.toContain("Tool output truncated");
+  });
+
+  test("an aborted read rejects with a timeout, not a fallback page", async () => {
+    const p = await fixture("cl8979-abort.txt", "x".repeat(1000));
+    const ctl = new AbortController();
+    ctl.abort();
+    const read = readFileBounded(p, 0, 2000, ctl.signal);
+    await expect(read).rejects.toThrow("[timed out before completing]");
+  });
+
+  test("a binary file still surfaces a refusal instead of a fallback page", async () => {
+    await fixture(
+      "cl8979-bin.dat",
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x00]),
+    );
+    const run = chainRunner();
+    const result = await run("bin-1", { path: "cl8979-bin.dat" });
+    expect(result.isError).toBe(true);
+    expect(String(result.content)).toMatch(/binary/);
+    expect(String(result.content)).not.toBe("FALLBACK");
   });
 });
 
@@ -329,8 +653,8 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).toContain("     2\tl2");
     expect(result.content).toContain("     3\tl3");
     expect(result.content).not.toContain("     4\tl4");
-    expect(result.content).toContain('Use path="tool-output:///');
-    expect(result.content).not.toContain("Use offset=");
+    expect(result.content).toContain("Use offset=");
+    expect(result.content).not.toContain('Use path="tool-output:///');
   });
 
   test("rejects tool-output URIs when no blob reader is configured", async () => {
@@ -368,7 +692,7 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).not.toBe("FALLBACK");
   });
 
-  test("pages a giant one-line tool-output blob across byte windows and resumes via the minted cursor", async () => {
+  test("pages a giant one-line tool-output blob across byte windows on the same URI with rising offsets", async () => {
     const encoder = new TextEncoder();
     const payload = `HEAD-${"x".repeat(READ_FILE_MAX_BYTES)}-TAIL`;
     const blobReader = createBlobReader({
@@ -396,13 +720,19 @@ describe("readFileGuardPlugin", () => {
     expect(Buffer.byteLength(firstContent, "utf8")).toBeLessThanOrEqual(
       READ_FILE_MAX_BYTES,
     );
-    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(firstContent);
+    const match = /Use offset=(\d+) to continue/.exec(firstContent);
     expect(match).not.toBeNull();
-    const nextPath = (match as RegExpExecArray)[1] as string;
-    expect(nextPath).toMatch(/^tool-output:\/\/\//);
+    const nextOffset = Number((match as RegExpExecArray)[1]);
 
     const second = await middleware(
-      { id: "g2", name: "read_file", arguments: { path: nextPath } },
+      {
+        id: "g2",
+        name: "read_file",
+        arguments: {
+          path: "tool-output:///giant-line",
+          offset: nextOffset,
+        },
+      },
       neverAbort(),
     );
     expect(second.isError).toBeFalsy();
@@ -490,7 +820,7 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).toBe("FALLBACK");
   });
 
-  test("a truncated read never asks the model to re-read the same path (CL-6961)", async () => {
+  test("a truncated read names the same path with an explicit offset (CL-8980)", async () => {
     await fixture(
       "many-lines.txt",
       Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
@@ -505,19 +835,17 @@ describe("readFileGuardPlugin", () => {
       },
       neverAbort(),
     );
-    expect(result.content).not.toContain("Use offset=");
-    expect(String(result.content)).toContain('Use path="tool-output:///');
-    // The literal source path never reappears as the thing to read next.
-    expect(String(result.content)).not.toContain("many-lines.txt");
+    expect(String(result.content)).toMatch(/Use offset=(\d+) to continue/);
+    expect(String(result.content)).not.toContain('Use path="tool-output:///');
+    expect(String(result.content)).not.toContain("single-use");
   });
 
-  test("following the minted cursor resumes and eventually reads a large file to completion without any repeat call on the original path (CL-6961)", async () => {
+  test("following same-path offsets reads a large file to completion; every hop re-issues the original path with a rising offset (CL-8980)", async () => {
     const lines = Array.from({ length: 9_000 }, (_, i) => `line-${i} payload`);
     await fixture("huge.txt", lines.join("\n"));
     const plugin = readFileGuardPlugin(dir, {});
     const middleware = defined(plugin.middleware)(fallback);
 
-    const pathsRead: string[] = ["huge.txt"];
     let result = await middleware(
       { id: "c1", name: "read_file", arguments: { path: "huge.txt" } },
       neverAbort(),
@@ -526,35 +854,32 @@ describe("readFileGuardPlugin", () => {
     let guard = 0;
     for (;;) {
       guard++;
-      expect(guard).toBeLessThan(50); // fails loudly instead of hanging on a broken cursor chain
+      expect(guard).toBeLessThan(50); // fails loudly instead of hanging on a broken offset chain
       const content = String(result.content);
       const numbered = content.split("\n\n")[0] ?? "";
       seen += numbered.trimEnd().split("\n").length;
 
-      const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(content);
+      const match = /Use offset=(\d+) to continue/.exec(content);
       if (match === undefined || match === null) break;
-      const nextPath = match[1] as string;
-      expect(pathsRead).not.toContain(nextPath); // every hop targets a fresh, distinct path
-      pathsRead.push(nextPath);
+      const offset = Number(match[1] as string);
 
       result = await middleware(
         {
-          id: `c${pathsRead.length}`,
+          id: `c${guard + 1}`,
           name: "read_file",
-          arguments: { path: nextPath },
+          arguments: { path: "huge.txt", offset },
         },
         neverAbort(),
       );
+      expect(result.isError).toBeFalsy();
     }
 
     expect(seen).toBe(lines.length);
-    expect(pathsRead.length).toBeGreaterThan(1); // it actually paginated
-    // Never told to re-issue a call against the literal original path.
-    expect(pathsRead.filter((p) => p === "huge.txt").length).toBe(1);
+    expect(guard).toBeGreaterThan(1); // it actually paginated
   });
 
-  test("a stale (already-consumed) cursor names the original path and offset instead of a dead end", async () => {
-    const absolutePath = await fixture(
+  test("reusing a continuation offset after first use still yields the window — reads never expire", async () => {
+    await fixture(
       "stale.txt",
       Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
     );
@@ -568,31 +893,29 @@ describe("readFileGuardPlugin", () => {
       },
       neverAbort(),
     );
-    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(
-      String(first.content),
-    );
+    const match = /Use offset=(\d+) to continue/.exec(String(first.content));
     expect(match).not.toBeNull();
-    const cursorPath = (match as RegExpExecArray)[1] as string;
+    const offset = Number((match as RegExpExecArray)[1] as string);
 
-    await middleware(
-      { id: "s2", name: "read_file", arguments: { path: cursorPath } },
+    const second = await middleware(
+      { id: "s2", name: "read_file", arguments: { path: "stale.txt", offset } },
       neverAbort(),
     );
-    // Second use of the same, already-consumed cursor: distinct from a
-    // generic missing-blob error, this must name a followable next step —
-    // the original source and the offset to resume from — rather than
-    // leaving the model to re-read the whole file from scratch.
+    expect(second.isError).toBeFalsy();
+    expect(String(second.content)).toContain("line-4");
+    // Second use of the same offset: reads are idempotent, so the replay is
+    // byte-identical instead of a spent-handle error.
     const replay = await middleware(
-      { id: "s3", name: "read_file", arguments: { path: cursorPath } },
+      { id: "s3", name: "read_file", arguments: { path: "stale.txt", offset } },
       neverAbort(),
     );
-    expect(replay.isError).toBe(true);
-    expect(String(replay.content)).toContain("already used");
-    expect(String(replay.content)).toContain(absolutePath);
-    expect(String(replay.content)).toMatch(/offset=4\b/);
+    expect(replay.isError).toBeFalsy();
+    expect(String(replay.content)).toBe(String(second.content));
+    expect(String(replay.content)).not.toContain("already used");
+    expect(String(replay.content)).not.toContain("single-use");
   });
 
-  test("an unknown tool-output URI against a real blobReader gets the production 'blob not found' error, not a stale-cursor message", async () => {
+  test("an unknown tool-output URI against a real blobReader surfaces the blob store error", async () => {
     const blobReader = {
       async read(uri: string): Promise<Uint8Array> {
         throw new Error(`Blob not found for key: ${uri}`);
@@ -608,16 +931,14 @@ describe("readFileGuardPlugin", () => {
     );
     expect(result.isError).toBe(true);
     expect(String(result.content)).toContain("Blob not found for key");
-    // Never a cursor's own wording, since this ID was never one of ours.
+    // No handle machinery remains: there is no spent/cursor wording anywhere.
     expect(String(result.content)).not.toContain("already used");
+    expect(String(result.content)).not.toContain("single-use");
   });
 
-  test("a stale cursor short-circuits before reaching a real blobReader's production 'blob not found' error", async () => {
-    const encoder = new TextEncoder();
-    const body = Array.from({ length: 8_000 }, (_, i) => `row-${i}`).join("\n");
+  test("a replayed unknown tool-output URI surfaces the same blob error twice — no spent-handle state", async () => {
     const blobReader = {
       async read(uri: string): Promise<Uint8Array> {
-        if (uri === "tool-output:///spill-1") return encoder.encode(body);
         throw new Error(`Blob not found for key: ${uri}`);
       },
     };
@@ -628,31 +949,21 @@ describe("readFileGuardPlugin", () => {
       {
         id: "b1",
         name: "read_file",
-        arguments: { path: "tool-output:///spill-1", limit: 5 },
+        arguments: { path: "tool-output:///gone", limit: 5 },
       },
       neverAbort(),
     );
-    const match = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(
-      String(first.content),
-    );
-    expect(match).not.toBeNull();
-    const cursorPath = (match as RegExpExecArray)[1] as string;
-
-    await middleware(
-      { id: "b2", name: "read_file", arguments: { path: cursorPath } },
-      neverAbort(),
-    );
-    // Replaying the consumed cursor must not fall through to blobReader.read()
-    // (which would throw the opaque "Blob not found" error naming only the
-    // random cursor UUID) -- it must short-circuit to the actionable message
-    // naming the real spill URI and the offset to resume from.
+    expect(first.isError).toBe(true);
+    expect(String(first.content)).toContain("Blob not found for key");
     const replay = await middleware(
-      { id: "b3", name: "read_file", arguments: { path: cursorPath } },
+      {
+        id: "b2",
+        name: "read_file",
+        arguments: { path: "tool-output:///gone", limit: 5 },
+      },
       neverAbort(),
     );
     expect(replay.isError).toBe(true);
-    expect(String(replay.content)).toContain("already used");
-    expect(String(replay.content)).toContain("tool-output:///spill-1");
-    expect(String(replay.content)).not.toContain("Blob not found");
+    expect(String(replay.content)).toBe(String(first.content));
   });
 });

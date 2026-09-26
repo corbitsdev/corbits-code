@@ -119,12 +119,14 @@ describe("buildCorePosixToolPlugins", () => {
         new AbortController().signal,
       );
       expect(allowed.isError).not.toBe(true);
-      // The read-file guard caps the read before result-truncation would run,
-      // so a 90KB single line comes back line-truncated and bounded.
-      expect(String(allowed.content)).toContain("line truncated at 2000 chars");
-      expect(Buffer.byteLength(String(allowed.content), "utf8")).toBeLessThan(
-        4096,
-      );
+      // The read-file guard windows the overlong line into a bounded page, so
+      // a 90KB single line comes back pageable: the tail stays reachable by
+      // path+offset continuation, not only by grep.
+      expect(String(allowed.content)).not.toContain("line truncated");
+      expect(String(allowed.content)).toContain("to continue");
+      expect(
+        Buffer.byteLength(String(allowed.content), "utf8"),
+      ).toBeLessThanOrEqual(50 * 1024);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

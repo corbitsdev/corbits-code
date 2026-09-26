@@ -293,10 +293,29 @@ export async function applyToolResultTruncation(
   return result;
 }
 
+// A read_file page already carries its own continuation contract (a plain
+// `Use offset=` footer). Re-cutting it at the 10k leisure cap would slice the
+// footer off the page boundary and strand the pagination chain, so
+// footer-bearing read_file pages pass through intact.
+// Pages without a footer take the normal path.
+const READ_FILE_CONTINUATION_RE = /Use offset=\d+ to continue\./;
+
+function isPagedReadFilePage(
+  toolName: string | undefined,
+  result: ToolResult,
+): boolean {
+  return (
+    toolName === "read_file" &&
+    typeof result.content === "string" &&
+    READ_FILE_CONTINUATION_RE.test(result.content)
+  );
+}
+
 async function archiveThenTruncate(
   result: ToolResult,
   callId: string,
   options: ResultTruncationPluginOptions,
+  toolName?: string,
 ): Promise<ToolResult> {
   const archive = options.getEvidenceArchive?.();
   try {
@@ -320,6 +339,7 @@ async function archiveThenTruncate(
   }
 
   const before = result.content;
+  if (isPagedReadFilePage(toolName, result)) return result;
   const truncated = await applyToolResultTruncation(
     result,
     spillOptionsForCall(callId, options),
@@ -368,7 +388,12 @@ export function wrapAgentToolResultTruncation(
     return {
       ...tool,
       handler: async (call: ToolCall, signal: AbortSignal) =>
-        archiveThenTruncate(await inner(call, signal), call.id, options),
+        archiveThenTruncate(
+          await inner(call, signal),
+          call.id,
+          options,
+          tool.definition.name,
+        ),
     };
   }
   const inner = tool.handler;
@@ -380,6 +405,7 @@ export function wrapAgentToolResultTruncation(
         { callId: call.id, content: await inner(call.arguments, signal) },
         call.id,
         options,
+        tool.definition.name,
       ),
   };
 }
@@ -397,7 +423,7 @@ export function resultTruncationPlugin(
   return {
     middleware: (next) => async (call, signal) => {
       const result = await next(call, signal);
-      return archiveThenTruncate(result, call.id, options);
+      return archiveThenTruncate(result, call.id, options, call.name);
     },
   };
 }

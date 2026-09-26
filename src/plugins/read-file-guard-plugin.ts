@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -9,7 +8,6 @@ import type { BlobReader } from "@intx/types/runtime";
 import {
   canonicalToolOutputUri,
   isToolOutputLike,
-  TOOL_OUTPUT_URI_PREFIX,
 } from "../util/tool-output-uri.js";
 import { formatReadFileTimeoutMessage } from "./tool-time-budget.js";
 
@@ -23,8 +21,11 @@ import { formatReadFileTimeoutMessage } from "./tool-time-budget.js";
 export const READ_FILE_MAX_BYTES = 50 * 1024;
 export const READ_FILE_DEFAULT_MAX_LINES = 2000;
 export const READ_FILE_MAX_LINE_LENGTH = 2000;
-// Absolute ceiling on bytes scanned from disk, so a deep offset into a huge file
-// stays time-bounded even though memory is already bounded by the streaming read.
+// Absolute ceiling on bytes scanned from disk past the requested offset, so an
+// emission window stays time-bounded even though memory is already bounded by
+// the streaming read. Bytes skipped to reach a nonzero offset do not count:
+// continuation past the ceiling must read through to the end, not dead-end
+// with a scan limit while unread content remains.
 export const READ_FILE_MAX_SCAN_BYTES = 8 * 1024 * 1024;
 /** Refuse tool-output blobs larger than this before bounded paging. */
 export const READ_FILE_MAX_TOOL_OUTPUT_BYTES = READ_FILE_MAX_SCAN_BYTES;
@@ -46,92 +47,14 @@ export interface ReadFileGuardPluginOptions {
   blobReader?: BlobReader;
 }
 
-// A truncated read used to tell the model "Use offset=N to continue" against
-// the identical path -- exactly the same-path pagination fan-out CL-6961
-// measured (97% of 4+-reads-per-path clusters were legitimate chunked reads
-// of one large file, penalized by detectors that only see "same path, many
-// calls"). Each truncated result instead mints a single-use tool-output://
-// cursor pointing at the exact resumption point (source + next offset) and
-// tells the model to pass THAT as `path`. Every follow-up read therefore
-// targets a distinct path, so pagination no longer looks like a same-path
-// loop, and the cursor is a real, resolvable handle -- not the "see the blob"
-// promise result-truncation-plugin.ts's comment forbids, since nothing here
-// claims discarded bytes are retrievable; it just remembers where to resume
-// a fresh bounded read.
-type ReadCursor =
-  | { kind: "file"; absolutePath: string; offset: number; consumed: boolean }
-  | { kind: "blob"; uri: string; offset: number; consumed: boolean };
-
-// A cursor is single-use, but the record survives consumption (bounded by
-// MAX_CURSOR_HISTORY below) so a stale replay -- consumed already, or a
-// second process/turn racing the first -- can be told exactly where to
-// resume instead of hitting an opaque "blob not found" dead end that names
-// neither the file nor an offset and leaves re-reading from scratch (the
-// original path, no offset) as the model's only move.
-const MAX_CURSOR_HISTORY = 200;
-
-const CONTINUE_OFFSET_RE = /Use offset=(\d+) to continue\.\]$/;
-
-function pruneCursorHistory(cursors: Map<string, ReadCursor>): void {
-  while (cursors.size > MAX_CURSOR_HISTORY) {
-    const oldest = cursors.keys().next().value;
-    if (oldest === undefined) break;
-    cursors.delete(oldest);
-  }
-}
-
-function mintCursor(
-  content: string,
-  cursors: Map<string, ReadCursor>,
-  source:
-    | { kind: "file"; absolutePath: string }
-    | { kind: "blob"; uri: string },
-): string {
-  const match = CONTINUE_OFFSET_RE.exec(content);
-  if (match === null) return content;
-  const offset = Number(match[1]);
-  const cursorId = randomUUID();
-  cursors.set(
-    cursorId,
-    source.kind === "file"
-      ? {
-          kind: "file",
-          absolutePath: source.absolutePath,
-          offset,
-          consumed: false,
-        }
-      : { kind: "blob", uri: source.uri, offset, consumed: false },
-  );
-  pruneCursorHistory(cursors);
-  return content.replace(
-    CONTINUE_OFFSET_RE,
-    `Use path="${TOOL_OUTPUT_URI_PREFIX}///${cursorId}" (same tool, no offset needed) to continue reading the remainder — a fresh, working handle, not the original path.]`,
-  );
-}
-
-// Bound the source shown in a stale-cursor message: an adversarial or
-// pathological path must not blow past a reasonable notice size.
-const STALE_CURSOR_SOURCE_MAX = 300;
-
-function displaySource(source: string): string {
-  return source.length > STALE_CURSOR_SOURCE_MAX
-    ? `${source.slice(0, STALE_CURSOR_SOURCE_MAX)}…`
-    : source;
-}
-
-/**
- * Message for a cursor that is known but already used (or is being replayed
- * from a stale/compacted turn). Distinct from "blob not found": it names the
- * original source and the exact offset to resume from, so recovery is a
- * single new call rather than a re-read from scratch of the whole file.
- */
-function staleCursorMessage(cursor: ReadCursor): string {
-  const source = cursor.kind === "file" ? cursor.absolutePath : cursor.uri;
-  return (
-    `this read_file continuation handle was already used (each cursor is single-use). ` +
-    `Resume with read_file, path="${displaySource(source)}", offset=${cursor.offset}.`
-  );
-}
+// A truncated read tells the model to continue with the same path and the
+// explicit next offset from the notice ("Use offset=N to continue"). There is
+// no continuation handle: every read is a stateless, idempotent ranged read,
+// so following a notice verbatim works on first use, on replay, and on a fresh
+// plugin instance after compaction or session resume — and re-reading any
+// earlier window behaves identically. Chunked same-path reads carry rising
+// offsets, so detectors that key on the full call (including arguments) see
+// one ranged read per window, not a same-path loop.
 
 function numArg(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
@@ -160,7 +83,14 @@ function mapFilesystemStreamError(
  * skipping `offset` lines (zero-based). Never splits the full decoded text in one pass.
  * When `wrapLongLines` is set, overlong lines are split into successive numbered
  * windows instead of being truncated and dropped — so a giant JSON line can be
- * paged through with the same offset/cursor protocol as a multi-line file.
+ * paged through with the same offset protocol as a multi-line file.
+ * When `windowHugeLines` is set instead, only single lines that on their own
+ * exceed the output budget are windowed; ordinary lines keep their numbers, so
+ * plain path+offset pagination stays line-aligned.
+ * The scan ceiling counts only bytes past the requested offset: bytes skipped
+ * to reach a nonzero offset never trip it, so continuation on a large file
+ * reads through to the end instead of dead-ending with a scan limit while
+ * unread content remains.
  */
 function readStreamBounded(
   stream: Readable,
@@ -171,10 +101,15 @@ function readStreamBounded(
   options: {
     mapStreamError?: (err: NodeJS.ErrnoException) => Error;
     wrapLongLines?: boolean;
+    windowHugeLines?: boolean;
   } = {},
 ): Promise<BoundedRead> {
   return new Promise<BoundedRead>((resolveP, rejectP) => {
-    const { mapStreamError, wrapLongLines = false } = options;
+    const {
+      mapStreamError,
+      wrapLongLines = false,
+      windowHugeLines = false,
+    } = options;
     const decoder = new StringDecoder("utf8");
     const contentBudget = READ_FILE_MAX_BYTES - NOTICE_RESERVE_BYTES;
 
@@ -183,6 +118,7 @@ function readStreamBounded(
     let firstChunk = true;
     let lineNo = 0;
     let scanned = 0;
+    let skipDone = offset <= 0;
     let outBytes = 0;
     let emitted = 0;
     let lastEmittedLine = 0;
@@ -216,6 +152,7 @@ function readStreamBounded(
     const handleLine = (raw: string, overflow: boolean): boolean => {
       lineNo++;
       if (lineNo <= offset) return true;
+      skipDone = true;
       if (emitted >= limit) {
         truncReason = "lines";
         return false;
@@ -254,10 +191,13 @@ function readStreamBounded(
         const nl = pending.indexOf("\n");
         if (nl === -1) {
           if (wrapLongLines) return emitWrapped(pending, false);
-          if (pending.length > READ_FILE_MAX_LINE_LENGTH) {
+          if (pending.length > READ_FILE_MAX_LINE_LENGTH && !windowHugeLines) {
             pending = pending.slice(0, READ_FILE_MAX_LINE_LENGTH);
             pendingOverflow = true;
           }
+          // windowHugeLines keeps the full pending: the scan trip ends the
+          // stream, and flushRemainder windows the remainder so every scanned
+          // byte stays reachable through offset continuation.
           return true;
         }
         const line = pending.slice(0, nl);
@@ -267,7 +207,9 @@ function readStreamBounded(
         } else {
           const overflow = pendingOverflow;
           pendingOverflow = false;
-          if (!handleLine(line, overflow)) return false;
+          if (!overflow && windowHugeLines && line.length > contentBudget) {
+            if (!emitWrapped(line, true)) return false;
+          } else if (!handleLine(line, overflow)) return false;
         }
       }
     };
@@ -275,6 +217,17 @@ function readStreamBounded(
     const flushRemainder = (): void => {
       if (pending.length === 0) return;
       if (wrapLongLines) {
+        emitWrapped(pending, true);
+        return;
+      }
+      // Windowed even when scan-capped: every window burns a line number,
+      // so the footer's offset resumes at the next window instead of promising
+      // continuation that skips the unshown middle of an overlong line.
+      if (
+        !pendingOverflow &&
+        windowHugeLines &&
+        pending.length > contentBudget
+      ) {
         emitWrapped(pending, true);
         return;
       }
@@ -287,9 +240,12 @@ function readStreamBounded(
           done({ content: "" });
           return;
         }
+        // Skip bytes are not scanned, so a dead offset on a file larger than
+        // the ceiling still reaches EOF. Report the true range, not a scan
+        // limit that would hide a reachable end of file.
         if (endReached) {
           done({
-            content: `[offset ${offset} is beyond end of file (${lineNo} lines)]`,
+            content: `[offset ${offset} is beyond end of file ${displayPath} (${lineNo} lines); valid offsets 0-${lineNo - 1}]`,
             isError: true,
           });
         } else {
@@ -322,7 +278,7 @@ function readStreamBounded(
           return;
         }
       }
-      scanned += chunk.length;
+      if (skipDone) scanned += chunk.length;
       pending += decoder.write(chunk);
       if (!drainPending()) {
         finishOk();
@@ -372,6 +328,7 @@ export function readFileBounded(
     signal,
     {
       mapStreamError: (err) => mapFilesystemStreamError(absolutePath, err),
+      windowHugeLines: true,
     },
   );
 }
@@ -456,11 +413,6 @@ export function readFileGuardPlugin(
   options: ReadFileGuardPluginOptions = {},
 ): ToolPlugin {
   const { blobReader } = options;
-  // Single-use resumption pointers minted by mintCursor(); scoped to this
-  // plugin instance (one per session/agent, per buildCorePosixToolPlugins), so
-  // it never outlives the session and never crosses sessions.
-  const cursors = new Map<string, ReadCursor>();
-  const cursorUriPrefix = `${TOOL_OUTPUT_URI_PREFIX}///`;
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name !== "read_file") return next(call, signal);
@@ -482,76 +434,6 @@ export function readFileGuardPlugin(
           return next(call, signal);
         }
 
-        const cursorId = uri.startsWith(cursorUriPrefix)
-          ? uri.slice(cursorUriPrefix.length)
-          : "";
-        const cursor = cursorId.length > 0 ? cursors.get(cursorId) : undefined;
-        if (cursor !== undefined && cursor.consumed) {
-          // Known cursor, already used -- distinct from a genuine missing
-          // blob: name the original source and offset so recovery is one
-          // targeted call, not a from-scratch re-read of the whole file.
-          return {
-            callId: call.id,
-            content: staleCursorMessage(cursor),
-            isError: true,
-          };
-        }
-        if (cursor !== undefined) {
-          // A cursor is authoritative on position: the model passes only the
-          // handle (and optionally a limit), never an offset back into it.
-          cursor.consumed = true;
-          try {
-            signal.throwIfAborted();
-            if (cursor.kind === "file") {
-              const res = await readFileBounded(
-                cursor.absolutePath,
-                cursor.offset,
-                limit,
-                signal,
-              );
-              return res.isError
-                ? { callId: call.id, content: res.content, isError: true }
-                : {
-                    callId: call.id,
-                    content: mintCursor(res.content, cursors, {
-                      kind: "file",
-                      absolutePath: cursor.absolutePath,
-                    }),
-                  };
-            }
-            if (blobReader === undefined) {
-              return {
-                callId: call.id,
-                content: `cannot read ${rawPath}: no blob reader is configured for tool-output spills`,
-                isError: true,
-              };
-            }
-            const bytes = await blobReader.read(cursor.uri);
-            const res = await readBytesBounded(
-              bytes,
-              cursor.offset,
-              blobLimit,
-              signal,
-              cursor.uri,
-            );
-            return res.isError
-              ? { callId: call.id, content: res.content, isError: true }
-              : {
-                  callId: call.id,
-                  content: mintCursor(res.content, cursors, {
-                    kind: "blob",
-                    uri: cursor.uri,
-                  }),
-                };
-          } catch (err) {
-            return {
-              callId: call.id,
-              content: err instanceof Error ? err.message : String(err),
-              isError: true,
-            };
-          }
-        }
-
         if (blobReader === undefined) {
           return {
             callId: call.id,
@@ -571,13 +453,7 @@ export function readFileGuardPlugin(
           );
           return res.isError
             ? { callId: call.id, content: res.content, isError: true }
-            : {
-                callId: call.id,
-                content: mintCursor(res.content, cursors, {
-                  kind: "blob",
-                  uri,
-                }),
-              };
+            : { callId: call.id, content: res.content };
         } catch (err) {
           return {
             callId: call.id,
@@ -600,13 +476,7 @@ export function readFileGuardPlugin(
         const res = await readFileBounded(absolutePath, offset, limit, signal);
         return res.isError
           ? { callId: call.id, content: res.content, isError: true }
-          : {
-              callId: call.id,
-              content: mintCursor(res.content, cursors, {
-                kind: "file",
-                absolutePath,
-              }),
-            };
+          : { callId: call.id, content: res.content };
       } catch (err) {
         return {
           callId: call.id,
