@@ -575,6 +575,7 @@ revisit point is the next vendored sync (see `docs/VENDORING.md`).
 | state-ts-deep-freeze-turns-revision | Make `ReactorState.snapshot().turns` a lazy, revision-tracked getter | Alexander Guy <alexander.guy@pm.me> | This ledger (#state-ts-deep-freeze-turns-revision) | Next vendored sync |
 | inference-ts-cl-7783-truncated-tool-call | Surface `stop_reason`/`finish_reason` on usage events; fail the turn instead of dispatching unparseable tool calls at end-of-stream finalization | Alexander Guy <alexander.guy@pm.me> | This ledger (#inference-ts-cl-7783-truncated-tool-call) | Next vendored sync |
 | google-genai-files-ts-body-init-cast | Widen `BodyInit` to accept Node's `Uint8Array` typing so the cast can be removed | Alexander Guy <alexander.guy@pm.me> | This ledger (#google-genai-files-ts-body-init-cast) | Next vendored sync |
+| size-cap-ts-paged-read-file | Skip `createSizeCapTransform` for footer-bearing `read_file` pages so `Use offset=` survives the default 10k cap | Alexander Guy <alexander.guy@pm.me> | This ledger (#size-cap-ts-paged-read-file) | Next vendored sync |
 
 Contact basis: identified from the read-only upstream clone
 (`faremeter/interchange`); Alexander Guy <alexander.guy@pm.me> is the
@@ -604,6 +605,21 @@ trivially. Risk: upstream may grow its own adaptive-models list; reconcile
 the two on next sync, and consider restoring the dropped guard suite.
 **Removal path:**
 Upstream adding `claude-fable-5-1` to its own `ADAPTIVE_THINKING_MODELS`.
+
+## size-cap-ts-paged-read-file
+
+`transforms/size-cap.ts` — Footer-bearing `read_file` pages already carry a
+plain `Use offset=N to continue.` contract and are sized to the 50KB page
+budget. The default 10k size-cap would slice the body and drop the footer,
+stranding pagination. Pass those pages through unchanged (no spill). Other
+`read_file` results, and any other tool, still cap as before.
+
+**Disposition:** Promotion candidate. Requires upstream to skip size-cap when
+a `read_file` result already names the next offset. Downstream users that
+never emit that footer are unaffected.
+**Removal path:** Upstream PR to `@intx/inference` exempting footer-bearing
+`read_file` pages from `createSizeCapTransform`.
+**Re-carry:** isolated predicate at the start of `apply`; low merge risk.
 
 ---
 

@@ -8,6 +8,8 @@
 //
 // Within-cap results pass through unchanged (no blob is written) but still
 // produce a `TransformRecord` so the manifest captures every invocation.
+// Locally patched — see vendor/intx-inference/PATCHES.md#size-cap-ts-paged-read-file:
+// footer-bearing `read_file` pages also pass through, even when over `maxChars`.
 
 import type {
   ContextStore,
@@ -19,11 +21,21 @@ import type {
 
 const SIZE_CAP_VERSION = "1";
 const SIZE_CAP_NAME = "size-cap";
+// Locally patched — see vendor/intx-inference/PATCHES.md#size-cap-ts-paged-read-file
+const READ_FILE_CONTINUATION_RE = /Use offset=\d+ to continue\./;
 
 export type SizeCapTransformOptions = {
   maxChars: number;
   contextStore: Pick<ContextStore, "writeBlob">;
 };
+
+function isPagedReadFilePage(toolName: string, result: ToolResult): boolean {
+  return (
+    toolName === "read_file" &&
+    typeof result.content === "string" &&
+    READ_FILE_CONTINUATION_RE.test(result.content)
+  );
+}
 
 /**
  * Create a `ToolResultTransform` that caps inline tool result content at
@@ -53,6 +65,20 @@ export function createSizeCapTransform(
         typeof result.content === "string"
           ? result.content
           : JSON.stringify(result.content);
+
+      // Locally patched — see vendor/intx-inference/PATCHES.md#size-cap-ts-paged-read-file
+      if (isPagedReadFilePage(call.name, result)) {
+        return {
+          output: result,
+          record: {
+            strategy: SIZE_CAP_NAME,
+            version: SIZE_CAP_VERSION,
+            parameters: { maxChars },
+            reason: "paged-read-file",
+            decisions: { callId: call.id, length: text.length },
+          },
+        };
+      }
 
       if (text.length <= maxChars) {
         return {

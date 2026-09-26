@@ -169,4 +169,56 @@ describe("createSizeCapTransform", () => {
     }
     expect(thrown?.message).toContain("positive finite");
   });
+
+  test("passes a footer-bearing read_file page through even when over maxChars", async () => {
+    const { store, calls } = recordingWriteBlob();
+    const transform = createSizeCapTransform({
+      maxChars: 10_000,
+      contextStore: store,
+    });
+
+    const body = Array.from(
+      { length: 3000 },
+      (_, i) =>
+        `${String(i + 1).padStart(6, " ")}\tcell-${String(i)}-${"v".repeat(50)}`,
+    ).join("\n");
+    const page =
+      `${body}\n\n[Showing lines 1-3000; stopped at the 50KB output limit. ` +
+      `Use offset=3000 to continue.]`;
+    expect(page.length).toBeGreaterThan(10_000);
+    expect(page).toContain("Use offset=");
+
+    const result: ToolResult = { callId: "rf1", content: page };
+    const out = await transform.apply(
+      { call: call("rf1", "read_file"), result },
+      emptyContext(),
+    );
+
+    expect(out.output).toBe(result);
+    expect(out.output.content).toBe(page);
+    expect(String(out.output.content)).toContain("Use offset=");
+    expect(out.record.reason).toBe("paged-read-file");
+    expect(out.blobs).toBeUndefined();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("still caps oversize read_file results that lack a continuation footer", async () => {
+    const { store, calls } = recordingWriteBlob();
+    const transform = createSizeCapTransform({
+      maxChars: 10_000,
+      contextStore: store,
+    });
+
+    const full = "x".repeat(12_000);
+    const result: ToolResult = { callId: "rf2", content: full };
+    const out = await transform.apply(
+      { call: call("rf2", "read_file"), result },
+      emptyContext(),
+    );
+
+    expect(out.record.reason).toBe("exceeded-cap");
+    expect(String(out.output.content)).toContain("Tool output truncated");
+    expect(String(out.output.content)).not.toContain("Use offset=");
+    expect(calls).toHaveLength(1);
+  });
 });
