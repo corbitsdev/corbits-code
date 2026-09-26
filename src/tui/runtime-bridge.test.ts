@@ -3170,6 +3170,68 @@ describe("CL-7802 gated tool elapsed starts at grant", () => {
     );
   });
 
+  test("ungated in-flight sibling does not rebase when a later gate settles", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        let nowMs = 0;
+        let tick: (() => void) | undefined;
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+          schedule: (fn) => {
+            tick = fn;
+            return () => {
+              tick = undefined;
+            };
+          },
+        });
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "grep", callId: "sibling", arguments: "needle" },
+          });
+          const siblingIndex = streamRowCount(shell) - 1;
+          const siblingStat = () =>
+            defined(shell.streamLog[siblingIndex], "sibling row").stat;
+
+          nowMs = 60_000;
+          tick?.();
+          await h.renderOnce();
+          expect(siblingStat()).toBe("1:00");
+
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "run_shell", callId: "gated", arguments: "sleep 30" },
+          });
+          const gatedIndex = streamRowCount(shell) - 1;
+          const gatedStat = () =>
+            defined(shell.streamLog[gatedIndex], "gated row").stat;
+
+          bridge.gateOpened();
+          bridge.gateClosed();
+          await h.renderOnce();
+          expect(siblingStat()).toBe("1:00");
+          expect(gatedStat()).toBe("0:00");
+
+          nowMs = 65_000;
+          tick?.();
+          await h.renderOnce();
+          expect(siblingStat()).toBe("1:05");
+          expect(gatedStat()).toBe("0:05");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("diff rows keep their +/- stat through a gate cycle", async () => {
     await withTestRenderer(
       async (h) => {

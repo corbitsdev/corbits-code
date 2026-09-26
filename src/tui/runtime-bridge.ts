@@ -599,11 +599,13 @@ export interface BridgeBag {
    */
   toolCallStartedAt: Map<string, number>;
   /**
-   * In-flight ordinary calls announced before (or while) a decision gate
-   * stood open. `gateClosed` re-syncs their elapsed clocks to the settle so
-   * post-grant stats read time-since-grant, not time-since-announcement.
-   * `spawn_agent` ids are never rebased — the session clock owns those rows.
-   * Results and rollbacks drop their ids so the set cannot leak.
+   * In-flight ordinary calls waiting on a decision gate. `gateClosed` re-syncs
+   * their elapsed clocks to the settle so post-grant stats read
+   * time-since-grant, not time-since-announcement. Auto-allowed siblings that
+   * already carry a live elapsed clock are executing, not waiting, and stay
+   * out of the set. `spawn_agent` ids are never rebased — the session clock
+   * owns those rows. Results and rollbacks drop their ids so the set cannot
+   * leak.
    */
   gatedToolCalls: Set<string>;
   /**
@@ -1265,6 +1267,19 @@ function rebaseGatedElapsed(
     if (row.stat === grant) continue;
     rowUpdates.scheduleRowUpdate(bag, index, { ...row, stat: grant });
   }
+}
+
+/** `clockLabel` trailer already painted on an in-flight ordinary-tool row. */
+function hasPaintedElapsedClock(
+  shell: AppShell,
+  bag: BridgeBag,
+  callId: string,
+): boolean {
+  const index = bag.toolRows.get(callId);
+  if (index === undefined) return false;
+  const row = bag.pendingRowUpdates.get(index) ?? streamRowAt(shell, index);
+  const stat = row?.stat;
+  return typeof stat === "string" && /^\d+:\d{2}$/.test(stat);
 }
 
 /**
@@ -2103,9 +2118,11 @@ export function attachSessionBridge(
   const gateOpened = (): void => {
     if (bag.disposed) return;
     bag.turn = turnStateGateOpened(bag.turn);
-    // Snapshot every timed call: each one waits out this gate, so the settle
-    // re-syncs their clocks (see gateClosed).
+    // Snapshot calls waiting on this gate. An auto-allowed sibling that
+    // already carries a live elapsed clock is executing, not waiting — leave
+    // its startedAt at announcement so post-grant stats stay honest.
     for (const callId of bag.toolCallStartedAt.keys()) {
+      if (hasPaintedElapsedClock(shell, bag, callId)) continue;
       bag.gatedToolCalls.add(callId);
     }
     paintPhase();
