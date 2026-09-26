@@ -417,7 +417,11 @@ describe("runExec", () => {
               async () => {
                 const { runExec: runExecUnderMock } =
                   await import("../../../src/exec/runner.js");
-                const defaultSettingsPath = join(home, "settings.json");
+                const defaultSettingsPath = join(
+                  home,
+                  ".corbits",
+                  "settings.json",
+                );
                 const result = await runExecUnderMock({
                   ...bareConfig("do the thing"),
                   cwd,
@@ -434,9 +438,8 @@ describe("runExec", () => {
                 );
                 const stderrOutput = stderrChunks.join("");
                 expect(stderrOutput).toContain(
-                  `Warning: permission prompts are disabled by saved settings at ${defaultSettingsPath}; edit that file to re-enable.\n`,
+                  `Warning: permission prompts are disabled by saved settings at ${defaultSettingsPath}; edit that file to re-enable (/yolo off to re-enable).\n`,
                 );
-                expect(stderrOutput).not.toContain("/yolo");
                 expect(stderrOutput).toMatch(/runtime dispose failed/i);
                 expect(disposeCalls).toBe(1);
                 expect(getActiveDisposeHost()).toBeNull();
