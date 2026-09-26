@@ -438,8 +438,9 @@ describe("runExec", () => {
                 );
                 const stderrOutput = stderrChunks.join("");
                 expect(stderrOutput).toContain(
-                  `Warning: permission prompts are disabled by saved settings at ${defaultSettingsPath}; edit that file to re-enable (/yolo off to re-enable).\n`,
+                  `Warning: permission prompts are disabled by saved settings at ${defaultSettingsPath}; edit that file to re-enable.\n`,
                 );
+                expect(stderrOutput).not.toContain("/yolo");
                 expect(stderrOutput).toMatch(/runtime dispose failed/i);
                 expect(disposeCalls).toBe(1);
                 expect(getActiveDisposeHost()).toBeNull();

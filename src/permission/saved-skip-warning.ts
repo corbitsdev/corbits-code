@@ -12,9 +12,10 @@ function isDefaultSettingsSource(sourcePath: string): boolean {
 
 export function savedSkipPermissionsWarning(
   globalSettingsPath: string,
+  surface: "tui" | "exec",
 ): string {
   const base = `Warning: permission prompts are disabled by saved settings at ${globalSettingsPath}; edit that file to re-enable`;
-  if (isDefaultSettingsSource(globalSettingsPath)) {
+  if (surface === "tui" && isDefaultSettingsSource(globalSettingsPath)) {
     return `${base} (/yolo off to re-enable).`;
   }
   return `${base}.`;
