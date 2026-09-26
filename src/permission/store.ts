@@ -105,14 +105,21 @@ async function readObjectFile(path: string): Promise<Record<string, unknown>> {
 // Serialize the full read-modify-write per path so concurrent grants to the same
 // file (a global and a provider-model grant resolving together both touch the
 // global file) never lose an update, and rename atomically so a reader never
-// observes a torn file.
-function chainObjectWrite(
+// observes a torn file. Returning undefined from mutate skips the write, which
+// keeps migrations that find nothing to purge byte-identical no-ops.
+export function chainObjectWrite(
   path: string,
-  mutate: (current: Record<string, unknown>) => Record<string, unknown>,
+  mutate: (
+    current: Record<string, unknown>,
+  ) =>
+    | Record<string, unknown>
+    | undefined
+    | Promise<Record<string, unknown> | undefined>,
 ): Promise<void> {
   const tmp = `${path}.${process.pid}.tmp`;
   const run = async (): Promise<void> => {
-    const next = mutate(await readObjectFile(path));
+    const next = await mutate(await readObjectFile(path));
+    if (next === undefined) return;
     await mkdir(dirname(path), { recursive: true });
     await writeFile(tmp, JSON.stringify(next, null, 2));
     await rename(tmp, path);

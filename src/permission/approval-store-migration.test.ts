@@ -6,6 +6,7 @@ import { generateSessionId, sessionDir } from "../session/index.js";
 import { loadSeededApprovals } from "../session/runtime-assembly.js";
 import { normalizeSeededApprovals } from "./authz-grants.js";
 import { migratePersistedApprovalStores } from "./approval-store-migration.js";
+import { saveGlobalApproval } from "./store.js";
 
 let cwd = "";
 let home = "";
@@ -165,6 +166,74 @@ describe("migratePersistedApprovalStores", () => {
       }
     ).approvals.map((approval) => approval.tool);
     expect(remaining).toEqual(["manage_tasks", "run_shell"]);
+  });
+
+  test("a grant minted while the migration runs is not lost and the file stays valid", async () => {
+    await mkdir(join(home, ".corbits"), { recursive: true });
+    await writeFile(
+      globalStorePath(),
+      JSON.stringify({
+        approvals: [
+          { tool: "update_plan", pattern: "plan *" },
+          { tool: "run_shell", pattern: "git *" },
+        ],
+      }),
+    );
+
+    const minted = { tool: "run_shell", pattern: "npm *" };
+    const [result] = await Promise.all([
+      migratePersistedApprovalStores(cwd, sessionId, home),
+      saveGlobalApproval(minted, home),
+    ]);
+
+    expect(result.purged).toBe(1);
+    const final = (await readJson(globalStorePath())) as {
+      approvals: { tool: string; pattern: string }[];
+    };
+    expect(
+      final.approvals.some((approval) => approval.tool === "update_plan"),
+    ).toBe(false);
+    expect(final.approvals).toContainEqual({
+      tool: "run_shell",
+      pattern: "git *",
+    });
+    expect(final.approvals).toContainEqual(minted);
+    const backup = (await readJson(backupPath(globalStorePath()))) as {
+      approvals: { tool: string; pattern: string }[];
+    };
+    expect(backup.approvals).toContainEqual({
+      tool: "update_plan",
+      pattern: "plan *",
+    });
+  });
+
+  test("a storm of concurrent grants around the migration loses nothing", async () => {
+    await mkdir(join(home, ".corbits"), { recursive: true });
+    await writeFile(
+      globalStorePath(),
+      JSON.stringify({
+        approvals: [{ tool: "update_plan", pattern: "plan *" }],
+      }),
+    );
+
+    const minted = Array.from({ length: 10 }, (_, i) => ({
+      tool: "run_shell",
+      pattern: `storm-${i} *`,
+    }));
+    await Promise.all([
+      migratePersistedApprovalStores(cwd, sessionId, home),
+      ...minted.map((approval) => saveGlobalApproval(approval, home)),
+    ]);
+
+    const final = (await readJson(globalStorePath())) as {
+      approvals: { tool: string; pattern: string }[];
+    };
+    expect(
+      final.approvals.some((approval) => approval.tool === "update_plan"),
+    ).toBe(false);
+    for (const approval of minted) {
+      expect(final.approvals).toContainEqual(approval);
+    }
   });
 
   test("seed loading purges on-disk update_plan keys while the normalizer still drops them in memory", async () => {
