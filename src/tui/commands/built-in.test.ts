@@ -1,5 +1,13 @@
 import { describe, it, expect } from "bun:test";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { defined } from "../../../tests/helpers/defined.js";
+import { loadConfig } from "../../config/index.js";
+import { globalSettingsPath } from "../../config/settings.js";
+import { createCommandLayer } from "../runner/commands.js";
+import { createTUISettingsWriters } from "../runner/settings-writers.js";
+import type { RunnerServices, RunnerState } from "../runner/state.js";
 import { getCommand } from "./registry.js";
 import type { CommandContext } from "./registry.js";
 import { registerBuiltInCommands } from "./built-in.js";
@@ -108,6 +116,76 @@ describe("removed approval command", () => {
 describe("/yolo command", () => {
   it("is registered", () => {
     expect(getCommand("yolo")).toBeDefined();
+  });
+
+  it("persists through the command layer to the active custom settings file", async () => {
+    const home = await mkdtemp(join(tmpdir(), "corbits-yolo-command-"));
+    const customSettingsPath = join(home, "custom-settings.json");
+    const defaultSettingsPath = globalSettingsPath(home);
+    const defaultBytes =
+      '{\n  "providers": {},\n  "showPromptCost": false\n}\n';
+    let skipPermissions = false;
+
+    try {
+      await writeFile(
+        customSettingsPath,
+        JSON.stringify({
+          defaultProvider: "test",
+          providers: {
+            test: {
+              baseURL: "https://example.test/v1",
+              apiKey: "test-key",
+              models: ["test-model"],
+            },
+          },
+        }),
+      );
+      await mkdir(dirname(defaultSettingsPath), { recursive: true });
+      await writeFile(defaultSettingsPath, defaultBytes);
+      const config = await loadConfig(
+        ["--cwd", home, "--config", customSettingsPath],
+        {
+          globalSettingsPath: defaultSettingsPath,
+          pricing: {
+            fetchImpl: (() =>
+              Promise.reject(new Error("offline"))) as unknown as typeof fetch,
+          },
+        },
+      );
+      expect(config.globalSettingsPath).toBe(customSettingsPath);
+      const { globalSettingsWriter } = createTUISettingsWriters(config);
+      const state = {
+        config,
+        host: { shell: { modelLabel: "test · test-model · yolo" } },
+      } as unknown as RunnerState;
+      const services = {
+        globalSettingsWriter,
+        permissionGate: {
+          getSkipPermissions: () => skipPermissions,
+          setSkipPermissions: (value: boolean) => {
+            skipPermissions = value;
+          },
+        },
+      } as unknown as RunnerServices;
+      const { commandContext } = createCommandLayer(state, services);
+
+      expect(
+        defined(getCommand("yolo"), "yolo").handler("on", commandContext),
+      ).toEqual({
+        type: "message",
+        text: "Yolo mode on — permission prompts skipped. Saved as the default.",
+      });
+      await globalSettingsWriter.enqueue(async () => undefined);
+
+      expect(
+        JSON.parse(await readFile(customSettingsPath, "utf8")),
+      ).toMatchObject({
+        dangerouslySkipPermissions: true,
+      });
+      expect(await readFile(defaultSettingsPath, "utf8")).toBe(defaultBytes);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   it("toggles skip-permissions when invoked bare", () => {

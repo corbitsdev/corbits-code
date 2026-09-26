@@ -12,16 +12,11 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import {
-  localSettingsPath,
   shellTimeoutFromSettings,
   toolWatchdogFromSettings,
 } from "../../config/settings.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
 import { peekSourceCredentialSecret } from "../../config/source-credentials.js";
-import {
-  createGlobalSettingsWriter,
-  createLocalSettingsWriter,
-} from "../../mcp/add-server.js";
 import { getProcessAdmissionQueue } from "../../subagent/admission.js";
 import { createSubAgentSessionStore } from "../../subagent/index.js";
 import {
@@ -130,6 +125,7 @@ import {
   type TUIStart,
 } from "./state.js";
 import { createParkedOverlayAbortBinding } from "./parked-overlay-abort.js";
+import { createTUISettingsWriters } from "./settings-writers.js";
 
 export async function assembleTUISession(
   state: RunnerState,
@@ -138,12 +134,8 @@ export async function assembleTUISession(
 ): Promise<RunnerServices> {
   const config = state.config;
   const emitter = new EventEmitter();
-  const globalSettingsWriter = createGlobalSettingsWriter(
-    config.globalSettingsPath,
-  );
-  const localSettingsWriter = createLocalSettingsWriter(
-    localSettingsPath(config.cwd),
-  );
+  const { globalSettingsWriter, localSettingsWriter } =
+    createTUISettingsWriters(config);
   const initialHookEnabled: Record<string, boolean> = Object.fromEntries(
     Object.entries(config.settings?.hooks ?? {}).map(([id, v]) => [
       id,

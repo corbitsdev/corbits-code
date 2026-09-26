@@ -67,6 +67,7 @@ import type {
   ApprovalOutcome,
   PermissionRequest,
 } from "../permission/types.js";
+import { savedSkipPermissionsWarning } from "../permission/saved-skip-warning.js";
 import {
   createAgentToolset,
   type AgentToolset,
@@ -598,7 +599,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
 
     if (config.skipPermissionsFromSettings) {
       stderr.write(
-        "Warning: permission prompts are disabled by your saved default (/yolo off to re-enable).\n",
+        `${savedSkipPermissionsWarning(config.globalSettingsPath)}\n`,
       );
     }
 

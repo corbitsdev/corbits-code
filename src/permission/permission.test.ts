@@ -2401,6 +2401,28 @@ describe("createPermissionGate", () => {
     expect(asked).toBe(0);
   });
 
+  test("skipPermissions overrides auto shell policy but not catastrophic denial", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: true,
+      reactorGated: false,
+      auto: true,
+    });
+
+    expect((await gate.evaluate(shellCall("echo hi > src/a.ts"))).allowed).toBe(
+      true,
+    );
+    expect((await gate.evaluate(shellCall("cat .env"))).allowed).toBe(true);
+    expect((await gate.evaluate(shellCall("rm -rf /"))).allowed).toBe(false);
+    expect(asked).toBe(0);
+  });
+
   // SECURITY: headless (interactive=false, no requestApproval) with an unapproved
   // ask-tier tool must produce a hard denial. Silent allow would be catastrophic
   // because automated pipelines often run headless and must not silently gain
@@ -3614,15 +3636,16 @@ describe("createPermissionGate restricted paths", () => {
     expect(asked).toBe(0);
   });
 
-  // Auto-allowing gitignored reads at the gate does not widen what the model can
-  // see via path-keyed tools: the secret-guard plugin hard-blocks sensitive-file
-  // reads/writes independent of any gate decision. Shell commands that mention
-  // those paths are ask-gated instead (see classify-security tests).
-  test(".env reads are still hard-blocked by the secret-guard plugin even though the gate auto-allows gitignored reads", async () => {
-    const gate = restrictedGate(() => {
-      throw new Error(
-        "the plugin should block before the gate is ever consulted for approval",
-      );
+  // Skip mode does not widen what the model can see via path-keyed tools: the
+  // secret-guard plugin hard-blocks sensitive-file reads/writes independent of
+  // the gate decision.
+  test(".env path reads remain hard-blocked by the secret-guard plugin under skipPermissions", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      cwd,
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
     });
     const gateVerdict = await gate.evaluate({
       id: "c",

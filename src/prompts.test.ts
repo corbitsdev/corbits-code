@@ -194,6 +194,9 @@ test("primary chat prompt classifies fail-path successor vs interrupt resume vs 
   expect(guidelines).toContain("wait for the operator");
   expect(guidelines).toContain("do not auto-retry");
   expect(guidelines).toContain("Identical brief: refuse");
+  expect(guidelines).toContain("continuable");
+  expect(guidelines).toContain("MAY spawn one successor with the same brief");
+  expect(guidelines).toContain("identical brief is still refused otherwise");
   expect(guidelines).toContain("resume_agent");
   expect(guidelines).toContain("still-live worker");
   expect(guidelines).not.toContain("interrupted-incomplete");
