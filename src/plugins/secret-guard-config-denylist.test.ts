@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { createPosixTools } from "@intx/tools-posix";
 import { createPermissionGate } from "../permission/gate.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import { createCodexReadRawFile } from "../agent/codex-read-raw-file.js";
+import { createExtraDeniedPathMatcher } from "./secret-guard-plugin.js";
 
 /**
  * CL-9386: an operator-chosen --config path inside the workspace is
@@ -59,19 +61,17 @@ function runner(
     auto: false,
     cwd,
   });
-  const args = { cwd, permissionGate: gate };
-  if (activeConfigPath !== undefined) {
-    // CL-9386 seam: entry points thread the active --config path into the tool
-    // stack here. Until the option exists this assignment is ignored and the
-    // custom-config tests below fail (red).
-    (args as { secretGuardExtraDeniedPaths?: string[] })
-      .secretGuardExtraDeniedPaths = [activeConfigPath];
-  }
   return {
     gate,
     tools: createPosixTools({
       cwd,
-      plugins: buildCorePosixToolPlugins(args),
+      plugins: buildCorePosixToolPlugins({
+        cwd,
+        permissionGate: gate,
+        ...(activeConfigPath !== undefined
+          ? { secretGuardExtraDeniedPaths: [activeConfigPath] }
+          : {}),
+      }),
     }),
   };
 }
@@ -170,5 +170,53 @@ describe("CL-9386 runtime-denylist the active --config path holding skip", () =>
       expect(result.isError !== true).toBe(true);
       expect(String(result.content)).toContain("ordinary workspace file");
     });
+  });
+
+  test("yolo: active custom --config is blocked for apply_patch raw read", async () => {
+    await withFixture(async ({ cwd, customConfig }) => {
+      const { gate } = runner(cwd, true, customConfig);
+      const readRawFile = createCodexReadRawFile(cwd, gate, [customConfig]);
+      const result = await readRawFile("operator-config.json");
+      expect(result.isError).toBe(true);
+      expect(String(result.content)).toMatch(/sensitive file/i);
+      expect(String(result.content)).not.toContain(
+        "dangerouslySkipPermissions",
+      );
+    });
+  });
+});
+
+describe("CL-9386 createExtraDeniedPathMatcher", () => {
+  test("empty list never matches", () => {
+    expect(createExtraDeniedPathMatcher([])("/any/path.json")).toBe(false);
+  });
+
+  test("exact and dot-segment-normalized paths match; others do not", () => {
+    const root = join(tmpdir(), "cl9386-normalize");
+    const isDenied = createExtraDeniedPathMatcher([
+      `${root}/sub/../custom.json`,
+    ]);
+    expect(isDenied(`${root}/custom.json`)).toBe(true);
+    expect(isDenied(`${root}/sub/../custom.json`)).toBe(true);
+    expect(isDenied(`${root}/sub/../other.json`)).toBe(false);
+    expect(isDenied(`${root}/custom.json.bak`)).toBe(false);
+  });
+
+  test("symlink name resolves to the denied target; sibling links do not", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "cl9386-matcher-"));
+    try {
+      const target = join(parent, "operator-config.json");
+      await writeFile(target, `${SKIP_PAYLOAD}\n`);
+      const link = join(parent, "looks-safe.txt");
+      await symlink(target, link);
+      const other = join(parent, "other.txt");
+      await writeFile(other, "other\n");
+      const isDenied = createExtraDeniedPathMatcher([target]);
+      expect(isDenied(link)).toBe(true);
+      expect(isDenied(target)).toBe(true);
+      expect(isDenied(other)).toBe(false);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
   });
 });

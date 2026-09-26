@@ -115,6 +115,48 @@ export function isSensitivePathResolved(value: string): boolean {
   return real !== UNRESOLVABLE && isSensitivePath(real);
 }
 
+// CL-9386: the active --config path is an operator-chosen settings source that
+// can live anywhere — including inside the workspace, where the static
+// .corbits/settings.json patterns above never match — while carrying standing
+// skip-permissions (/yolo persists the active settings source). Static
+// patterns cannot cover an arbitrary runtime path, so entry points thread the
+// resolved active path in here and path-keyed tools hard-deny it exactly like
+// the default settings file: reads and writes, lexical and realpath legs,
+// even under --dangerously-skip-permissions.
+export interface SecretGuardPluginOptions {
+  extraDeniedPaths?: readonly string[];
+}
+
+// Exact-path matcher over runtime-denied paths. Mirrors
+// isSensitivePathResolved's two legs: the lexical form (covers a value passed
+// as the identical string, including a target that does not exist yet) and
+// the realpath form (covers access through a symlink name, the CL-6971
+// floor). Relative entries match lexically only — production entries are
+// absolute (--config is resolved at parse; globalSettingsPath() is absolute).
+export function createExtraDeniedPathMatcher(
+  extraDeniedPaths: readonly string[],
+): (value: string) => boolean {
+  const lexical = new Set<string>();
+  const resolved = new Set<string>();
+  for (const entry of extraDeniedPaths) {
+    const normalized = entry.replace(/\\/g, "/");
+    lexical.add(normalized);
+    if (isAbsolute(entry)) {
+      const absolute = resolvePath(entry).replace(/\\/g, "/");
+      lexical.add(absolute);
+      const real = realpathNearestOr(entry);
+      if (real !== UNRESOLVABLE) resolved.add(real.replace(/\\/g, "/"));
+    }
+  }
+  if (lexical.size === 0) return () => false;
+  return (value: string) => {
+    if (lexical.has(value.replace(/\\/g, "/"))) return true;
+    if (!isAbsolute(value)) return false;
+    const real = realpathNearestOr(value);
+    return real !== UNRESOLVABLE && resolved.has(real.replace(/\\/g, "/"));
+  };
+}
+
 // Break a shell command into the bare path-like tokens it references so each can
 // be matched against the secret-file denylist. Quote, backtick and backslash
 // characters are stripped first so split obfuscations (`.e''nv`, `'.env'`,
@@ -276,14 +318,19 @@ export function commandReferencesSensitivePath(
 // Path-arg hard deny runs before the permission plugin, so it holds even under
 // --dangerously-skip-permissions. Symlink resolution is part of that floor
 // (CL-6971): yolo must not let an innocuous link name defeat the denylist.
-export function secretGuardPlugin(): ToolPlugin {
+export function secretGuardPlugin(
+  options?: SecretGuardPluginOptions,
+): ToolPlugin {
+  const isExtraDenied = createExtraDeniedPathMatcher(
+    options?.extraDeniedPaths ?? [],
+  );
   return {
     middleware: (next) => async (call, signal) => {
       for (const [key, value] of Object.entries(call.arguments)) {
         if (
           typeof value === "string" &&
           looksLikePath(key) &&
-          isSensitivePathResolved(value)
+          (isSensitivePathResolved(value) || isExtraDenied(value))
         ) {
           return {
             callId: call.id,
@@ -293,7 +340,7 @@ export function secretGuardPlugin(): ToolPlugin {
         }
       }
       for (const path of productMutationPaths(call.name, call.arguments)) {
-        if (isSensitivePathResolved(path)) {
+        if (isSensitivePathResolved(path) || isExtraDenied(path)) {
           return {
             callId: call.id,
             content: `Access to sensitive file blocked by policy: ${path}`,
