@@ -30,6 +30,7 @@ import { matchesPattern, escapeGlobLiteral } from "./matcher.js";
 import {
   approvalCoversSubject,
   grantScopeMatches,
+  normalizeSeededApprovals,
   type GrantWorkspace,
 } from "./authz-grants.js";
 import {
@@ -553,7 +554,9 @@ export function createPermissionGate(
   let auto = options.auto;
   let skipPermissions = options.skipPermissions;
   // Own a private copy so evaluating a grant never mutates the caller's array.
-  const approvals: Approval[] = [...options.approvals];
+  // Seeded grants enter in native key space (pure renames collapsed, narrow
+  // update_plan keys dropped fail-closed).
+  const approvals: Approval[] = normalizeSeededApprovals(options.approvals);
   let activeProviderModel =
     providerName !== undefined && model !== undefined
       ? `${providerName}:${model}`
@@ -566,7 +569,9 @@ export function createPermissionGate(
   // scope-appropriate home: session grants stay in memory, everything else is
   // persisted. Both approval branches must mint identically — this is the
   // single place a grant comes into existence.
-  const mintGrant = (tool: string, outcome: ApprovalOutcome): void => {
+  const mintGrant = (requestedTool: string, outcome: ApprovalOutcome): void => {
+    // Mint in native key space; live requests are already post-coercion.
+    const tool = canonicalToolName(requestedTool);
     if (!outcome.persist || outcome.persist.pattern === null) return;
     const grant: GrantScope = outcome.persist.grant ?? "session";
     // A run_shell pattern may still carry a model-authored comment line (the
@@ -1199,7 +1204,7 @@ export function createPermissionGate(
 
   const setSeededApprovals = (seeded: readonly Approval[]): void => {
     approvals.length = 0;
-    approvals.push(...seeded, ...sessionGrants);
+    approvals.push(...normalizeSeededApprovals(seeded), ...sessionGrants);
     // Re-seeded approvals can cover previously-denied requests — cached
     // denies must re-evaluate instead of serving stale reasons.
     denialMemory.clear();

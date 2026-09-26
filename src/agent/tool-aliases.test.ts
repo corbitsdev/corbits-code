@@ -101,6 +101,71 @@ describe("grant aliases", () => {
     ).toBe(true);
   });
 
+  test("pure renames stay bidirectional: read covers read_file and vice versa", async () => {
+    expect(
+      await evaluateApprovals({
+        tool: "read_file",
+        subject: "src/a.ts",
+        approvals: [{ tool: "read", pattern: "src/*" }],
+        workspace: noWorkspace,
+      }),
+    ).toBe(true);
+    expect(
+      await evaluateApprovals({
+        tool: "read",
+        subject: "src/a.ts",
+        approvals: [{ tool: "read_file", pattern: "src/*" }],
+        workspace: noWorkspace,
+      }),
+    ).toBe(true);
+  });
+
+  // update_plan hidden-dispatches onto manage_tasks but is NOT
+  // capability-identical: it only ever translates to action:"create" with
+  // todo/doing/done statuses, while manage_tasks spans the full lifecycle
+  // (create/update, including cancelled). Grant coverage is one-directional:
+  // a stored update_plan grant must never cover a manage_tasks request.
+  test("a stored update_plan grant does not cover manage_tasks", async () => {
+    expect(
+      await evaluateApprovals({
+        tool: "manage_tasks",
+        subject: "manage_tasks",
+        approvals: [{ tool: "update_plan", pattern: "*" }],
+        workspace: noWorkspace,
+      }),
+    ).toBe(false);
+  });
+
+  test("a stored update_plan grant still covers update_plan (create-equivalent) use", async () => {
+    expect(
+      await evaluateApprovals({
+        tool: "update_plan",
+        subject: "update_plan",
+        approvals: [{ tool: "update_plan", pattern: "*" }],
+        workspace: noWorkspace,
+      }),
+    ).toBe(true);
+  });
+
+  test("a stored manage_tasks grant covers update_plan (engine covers alias)", async () => {
+    expect(
+      await evaluateApprovals({
+        tool: "update_plan",
+        subject: "update_plan",
+        approvals: [{ tool: "manage_tasks", pattern: "*" }],
+        workspace: noWorkspace,
+      }),
+    ).toBe(true);
+    expect(
+      await evaluateApprovals({
+        tool: "manage_tasks",
+        subject: "manage_tasks",
+        approvals: [{ tool: "manage_tasks", pattern: "*" }],
+        workspace: noWorkspace,
+      }),
+    ).toBe(true);
+  });
+
   test("canonicalToolName maps wire and hidden aliases onto engines", () => {
     expect(canonicalToolName("bash")).toBe("run_shell");
     expect(canonicalToolName("shell")).toBe("run_shell");
