@@ -24,6 +24,25 @@ const parityCases: MCPServerConfig[] = [
     env: { API_TOKEN: "super-secret" },
   },
   { name: "http-server", type: "http", url: "https://mcp.example.test/api" },
+  {
+    name: "http-wins-no-type",
+    command: "run",
+    args: ["a"],
+    url: "https://mcp.example.test/api",
+  },
+  {
+    name: "http-typed-with-command",
+    type: "http",
+    command: "run",
+    url: "https://mcp.example.test/api",
+  },
+  { name: 'inject\nCommand: evil"', command: "run", args: ["a"] },
+  {
+    name: "url-newline",
+    type: "http",
+    url: "https://mcp.example.test/api\nCommand: evil",
+  },
+  { name: "unicode-break", command: "run", args: ["x\u2028y", "a\u0085b"] },
   { name: "bare-name" },
 ];
 
