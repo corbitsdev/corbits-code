@@ -21,14 +21,19 @@ import { formatReadFileTimeoutMessage } from "./tool-time-budget.js";
 export const READ_FILE_MAX_BYTES = 50 * 1024;
 export const READ_FILE_DEFAULT_MAX_LINES = 2000;
 export const READ_FILE_MAX_LINE_LENGTH = 2000;
-// Absolute ceiling on bytes scanned from disk, so a deep offset into a huge file
-// stays time-bounded even though memory is already bounded by the streaming read.
+// Absolute ceiling on bytes scanned from disk past the requested offset, so an
+// emission window stays time-bounded even though memory is already bounded by
+// the streaming read. Bytes skipped to reach a nonzero offset do not count:
+// continuation past the ceiling must read through to the end, not dead-end
+// with a scan limit while unread content remains.
 export const READ_FILE_MAX_SCAN_BYTES = 8 * 1024 * 1024;
 /** Refuse tool-output blobs larger than this before bounded paging. */
 export const READ_FILE_MAX_TOOL_OUTPUT_BYTES = READ_FILE_MAX_SCAN_BYTES;
 // Headroom reserved out of the byte budget for the continuation notice, so the
-// returned payload including the notice stays under READ_FILE_MAX_BYTES.
-const NOTICE_RESERVE_BYTES = 256;
+// returned payload including the notice stays under READ_FILE_MAX_BYTES. Sized
+// for a dual footer: the plain `Use offset=` continuation plus the appended
+// single-use cursor alias on byte/scan-limit pages.
+const NOTICE_RESERVE_BYTES = 384;
 
 const LINE_TRUNC_SUFFIX = ` ... [line truncated at ${READ_FILE_MAX_LINE_LENGTH} chars; full line remains in the file — use grep to match within the line]`;
 const TOOL_OUTPUT_CHUNK_BYTES = 64 * 1024;
@@ -81,6 +86,13 @@ function mapFilesystemStreamError(
  * When `wrapLongLines` is set, overlong lines are split into successive numbered
  * windows instead of being truncated and dropped — so a giant JSON line can be
  * paged through with the same offset protocol as a multi-line file.
+ * When `windowHugeLines` is set instead, only single lines that on their own
+ * exceed the output budget are windowed; ordinary lines keep their numbers, so
+ * plain path+offset pagination stays line-aligned.
+ * The scan ceiling counts only bytes past the requested offset: bytes skipped
+ * to reach a nonzero offset never trip it, so continuation on a large file
+ * reads through to the end instead of dead-ending with a scan limit while
+ * unread content remains.
  */
 function readStreamBounded(
   stream: Readable,
@@ -91,10 +103,12 @@ function readStreamBounded(
   options: {
     mapStreamError?: (err: NodeJS.ErrnoException) => Error;
     wrapLongLines?: boolean;
+    windowHugeLines?: boolean;
   } = {},
 ): Promise<BoundedRead> {
   return new Promise<BoundedRead>((resolveP, rejectP) => {
-    const { mapStreamError, wrapLongLines = false } = options;
+    const { mapStreamError, wrapLongLines = false, windowHugeLines = false } =
+      options;
     const decoder = new StringDecoder("utf8");
     const contentBudget = READ_FILE_MAX_BYTES - NOTICE_RESERVE_BYTES;
 
@@ -103,12 +117,17 @@ function readStreamBounded(
     let firstChunk = true;
     let lineNo = 0;
     let scanned = 0;
+    let skipDone = offset <= 0;
     let outBytes = 0;
     let emitted = 0;
     let lastEmittedLine = 0;
     let truncReason: TruncReason | undefined;
     let endReached = false;
     let settled = false;
+    // Set when the scan ceiling trips: the trailing partial is reported
+    // truncated (never windowed), so a line longer than one scan pass keeps
+    // the scan-limit notice instead of a byte-limit page.
+    let scanCapped = false;
 
     const out: string[] = [];
 
@@ -136,6 +155,7 @@ function readStreamBounded(
     const handleLine = (raw: string, overflow: boolean): boolean => {
       lineNo++;
       if (lineNo <= offset) return true;
+      skipDone = true;
       if (emitted >= limit) {
         truncReason = "lines";
         return false;
@@ -174,7 +194,13 @@ function readStreamBounded(
         const nl = pending.indexOf("\n");
         if (nl === -1) {
           if (wrapLongLines) return emitWrapped(pending, false);
-          if (pending.length > READ_FILE_MAX_LINE_LENGTH) {
+          if (pending.length > READ_FILE_MAX_LINE_LENGTH && !windowHugeLines) {
+            pending = pending.slice(0, READ_FILE_MAX_LINE_LENGTH);
+            pendingOverflow = true;
+          } else if (
+            windowHugeLines &&
+            pending.length > READ_FILE_MAX_SCAN_BYTES
+          ) {
             pending = pending.slice(0, READ_FILE_MAX_LINE_LENGTH);
             pendingOverflow = true;
           }
@@ -187,7 +213,9 @@ function readStreamBounded(
         } else {
           const overflow = pendingOverflow;
           pendingOverflow = false;
-          if (!handleLine(line, overflow)) return false;
+          if (!overflow && windowHugeLines && line.length > contentBudget) {
+            if (!emitWrapped(line, true)) return false;
+          } else if (!handleLine(line, overflow)) return false;
         }
       }
     };
@@ -195,6 +223,10 @@ function readStreamBounded(
     const flushRemainder = (): void => {
       if (pending.length === 0) return;
       if (wrapLongLines) {
+        emitWrapped(pending, true);
+        return;
+      }
+      if (!pendingOverflow && !scanCapped && windowHugeLines && pending.length > contentBudget) {
         emitWrapped(pending, true);
         return;
       }
@@ -207,6 +239,9 @@ function readStreamBounded(
           done({ content: "" });
           return;
         }
+        // Skip bytes are not scanned, so a dead offset on a file larger than
+        // the ceiling still reaches EOF. Report the true range, not a scan
+        // limit that would hide a reachable end of file.
         if (endReached) {
           done({
             content: `[offset ${offset} is beyond end of file ${displayPath} (${lineNo} lines); valid offsets 0-${lineNo - 1}]`,
@@ -242,13 +277,14 @@ function readStreamBounded(
           return;
         }
       }
-      scanned += chunk.length;
+      if (skipDone) scanned += chunk.length;
       pending += decoder.write(chunk);
       if (!drainPending()) {
         finishOk();
         return;
       }
       if (scanned >= READ_FILE_MAX_SCAN_BYTES) {
+        scanCapped = true;
         flushRemainder();
         if (truncReason === undefined) truncReason = "scan";
         finishOk();
@@ -292,6 +328,7 @@ export function readFileBounded(
     signal,
     {
       mapStreamError: (err) => mapFilesystemStreamError(absolutePath, err),
+      windowHugeLines: true,
     },
   );
 }

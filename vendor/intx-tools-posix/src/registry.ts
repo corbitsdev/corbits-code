@@ -42,7 +42,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: TOOL_NAMES.READ_FILE,
     description:
-      "Read a file and return its content with line numbers. The path argument accepts either a filesystem path or a tool-output URI of the form tool-output:///{callId} that references a prior tool result.",
+      "Read a file and return its content with line numbers. The path argument accepts either a filesystem path or a tool-output URI of the form tool-output:///{callId} that references a prior tool result. Large files are returned one page at a time: pass offset and limit to page through the file, then follow the `Use offset=N to continue.` footer to read the next page through to the end.",
     inputSchema: {
       type: "object",
       properties: {
