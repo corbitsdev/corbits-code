@@ -124,9 +124,9 @@ describe("buildCorePosixToolPlugins", () => {
       // path+offset continuation, not only by grep.
       expect(String(allowed.content)).not.toContain("line truncated");
       expect(String(allowed.content)).toContain("to continue");
-      expect(Buffer.byteLength(String(allowed.content), "utf8")).toBeLessThanOrEqual(
-        50 * 1024,
-      );
+      expect(
+        Buffer.byteLength(String(allowed.content), "utf8"),
+      ).toBeLessThanOrEqual(50 * 1024);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

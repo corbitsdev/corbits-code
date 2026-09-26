@@ -118,7 +118,11 @@ function mintCursor(
   // survives downstream layers byte-identical. Consumed cursors stay retired:
   // only the stale-replay message may name them.
   for (const [id, cursor] of cursors) {
-    if (!cursor.consumed && cursor.offset === offset && sameCursorSource(cursor, source)) {
+    if (
+      !cursor.consumed &&
+      cursor.offset === offset &&
+      sameCursorSource(cursor, source)
+    ) {
       const alias = cursorAlias(id);
       if (LINE_LIMIT_NOTICE_RE.test(content)) {
         return content.replace(CONTINUE_OFFSET_RE, alias);
@@ -219,8 +223,11 @@ function readStreamBounded(
   } = {},
 ): Promise<BoundedRead> {
   return new Promise<BoundedRead>((resolveP, rejectP) => {
-    const { mapStreamError, wrapLongLines = false, windowHugeLines = false } =
-      options;
+    const {
+      mapStreamError,
+      wrapLongLines = false,
+      windowHugeLines = false,
+    } = options;
     const decoder = new StringDecoder("utf8");
     const contentBudget = READ_FILE_MAX_BYTES - NOTICE_RESERVE_BYTES;
 
@@ -339,7 +346,12 @@ function readStreamBounded(
         emitWrapped(pending, true);
         return;
       }
-      if (!pendingOverflow && !scanCapped && windowHugeLines && pending.length > contentBudget) {
+      if (
+        !pendingOverflow &&
+        !scanCapped &&
+        windowHugeLines &&
+        pending.length > contentBudget
+      ) {
         emitWrapped(pending, true);
         return;
       }

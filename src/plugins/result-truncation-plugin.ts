@@ -298,7 +298,8 @@ export async function applyToolResultTruncation(
 // the 10k leisure cap would slice the footer off the page boundary and strand
 // the pagination chain, so footer-bearing read_file pages pass through intact.
 // Pages without a footer take the normal path.
-const READ_FILE_CONTINUATION_RE = /Use offset=\d+ to continue\.|Use path="tool-output:\/\/\//;
+const READ_FILE_CONTINUATION_RE =
+  /Use offset=\d+ to continue\.|Use path="tool-output:\/\/\//;
 
 function isPagedReadFilePage(
   toolName: string | undefined,

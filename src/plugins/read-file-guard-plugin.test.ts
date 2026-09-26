@@ -359,82 +359,74 @@ describe("CL-8979 large-file pagination", () => {
     expect(String(res.content)).not.toContain("scan limit");
   });
 
-  test(
-    "chains plain path+offset continuation on one path through to the last line",
-    async () => {
-      const name = "cl8979-chain.txt";
-      await bigFixture(name);
-      const run = chainRunner();
-      const collected: string[] = [];
-      let offset = 0;
-      let hops = 0;
-      for (;;) {
-        const result = await run(`chain-${hops}`, {
-          path: name,
-          limit: 200,
-          offset,
-        });
-        hops += 1;
-        const content = String(result.content);
-        expect(result.isError).toBeFalsy();
-        expect(content).not.toContain("scan limit");
-        collected.push(...bodyRows(content));
-        const next = continueOffset(content);
-        if (next === null) break;
-        offset = next;
-        expect(hops).toBeLessThan(2000);
-      }
-      expect(hops).toBeGreaterThan(1);
-      expect(collected.length).toBe(BIG_LINES);
-      expect(collected).toEqual(
-        Array.from({ length: BIG_LINES }, (_, i) => bigRow(i)),
-      );
-    },
-    120_000,
-  );
-
-  test(
-    "chains cursor resumption on a blob past the scan ceiling without re-scanning",
-    async () => {
-      const rows = Array.from({ length: BIG_LINES }, (_, i) => bigRow(i));
-      const bytes = new TextEncoder().encode(`${rows.join("\n")}\n`);
-      const run = blobChainRunner(async (key) => {
-        if (key === "cl8979-blob") return bytes;
-        throw new Error(`missing ${key}`);
+  test("chains plain path+offset continuation on one path through to the last line", async () => {
+    const name = "cl8979-chain.txt";
+    await bigFixture(name);
+    const run = chainRunner();
+    const collected: string[] = [];
+    let offset = 0;
+    let hops = 0;
+    for (;;) {
+      const result = await run(`chain-${hops}`, {
+        path: name,
+        limit: 200,
+        offset,
       });
-      const collected: string[] = [];
-      let path = "tool-output:///cl8979-blob";
-      let hops = 0;
-      let sawOffsetFooter = false;
-      let sawCursorAlias = false;
-      for (;;) {
-        const result = await run(`blob-${hops}`, { path, limit: 200 });
-        hops += 1;
-        const content = String(result.content);
-        expect(result.isError).toBeFalsy();
-        expect(content).not.toContain("scan limit");
-        collected.push(...bodyRows(content));
-        const cursor = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(content);
-        const offset = continueOffset(content);
-        if (offset !== null) {
-          sawOffsetFooter = true;
-          path = "tool-output:///cl8979-blob";
-        }
-        if (cursor !== null) {
-          sawCursorAlias = true;
-          path = cursor[1] as string;
-        }
-        if (offset === null && cursor === null) break;
-        expect(hops).toBeLessThan(2000);
+      hops += 1;
+      const content = String(result.content);
+      expect(result.isError).toBeFalsy();
+      expect(content).not.toContain("scan limit");
+      collected.push(...bodyRows(content));
+      const next = continueOffset(content);
+      if (next === null) break;
+      offset = next;
+      expect(hops).toBeLessThan(2000);
+    }
+    expect(hops).toBeGreaterThan(1);
+    expect(collected.length).toBe(BIG_LINES);
+    expect(collected).toEqual(
+      Array.from({ length: BIG_LINES }, (_, i) => bigRow(i)),
+    );
+  }, 120_000);
+
+  test("chains cursor resumption on a blob past the scan ceiling without re-scanning", async () => {
+    const rows = Array.from({ length: BIG_LINES }, (_, i) => bigRow(i));
+    const bytes = new TextEncoder().encode(`${rows.join("\n")}\n`);
+    const run = blobChainRunner(async (key) => {
+      if (key === "cl8979-blob") return bytes;
+      throw new Error(`missing ${key}`);
+    });
+    const collected: string[] = [];
+    let path = "tool-output:///cl8979-blob";
+    let hops = 0;
+    let sawOffsetFooter = false;
+    let sawCursorAlias = false;
+    for (;;) {
+      const result = await run(`blob-${hops}`, { path, limit: 200 });
+      hops += 1;
+      const content = String(result.content);
+      expect(result.isError).toBeFalsy();
+      expect(content).not.toContain("scan limit");
+      collected.push(...bodyRows(content));
+      const cursor = /Use path="(tool-output:\/\/\/[^"]+)"/.exec(content);
+      const offset = continueOffset(content);
+      if (offset !== null) {
+        sawOffsetFooter = true;
+        path = "tool-output:///cl8979-blob";
       }
-      expect(hops).toBeGreaterThan(1);
-      expect(sawOffsetFooter).toBe(true);
-      expect(sawCursorAlias).toBe(true);
-      expect(collected.length).toBe(BIG_LINES);
-      expect(collected[BIG_LINES - 1]).toBe(bigRow(BIG_LINES - 1));
-    },
-    120_000,
-  );
+      if (cursor !== null) {
+        sawCursorAlias = true;
+        path = cursor[1] as string;
+      }
+      if (offset === null && cursor === null) break;
+      expect(hops).toBeLessThan(2000);
+    }
+    expect(hops).toBeGreaterThan(1);
+    expect(sawOffsetFooter).toBe(true);
+    expect(sawCursorAlias).toBe(true);
+    expect(collected.length).toBe(BIG_LINES);
+    expect(collected[BIG_LINES - 1]).toBe(bigRow(BIG_LINES - 1));
+  }, 120_000);
 
   test("windows an overlong single file line so the tail is reachable", async () => {
     const payload = `HEAD-${"y".repeat(100_000)}-TAIL`;
