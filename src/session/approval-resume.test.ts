@@ -1,4 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Agent, SendResult } from "@intx/agent";
 import type {
   ApprovalSnapshot,
@@ -50,17 +53,24 @@ function timeoutTurn(callId: string): ConversationTurn {
   };
 }
 
-function suspension(
-  correlationId: string,
-  command: string,
-): Extract<SendResult, { type: "suspended" }> {
-  const snapshot: ApprovalSnapshot = {
+function shellSnapshot(command: string): ApprovalSnapshot {
+  return {
     name: "run_shell",
     description: "run a shell command",
     inputSchema: {},
     arguments: { command },
   };
-  return { type: "suspended", correlationId, approvalSnapshot: snapshot };
+}
+
+function suspension(
+  correlationId: string,
+  command: string,
+): Extract<SendResult, { type: "suspended" }> {
+  return {
+    type: "suspended",
+    correlationId,
+    approvalSnapshot: shellSnapshot(command),
+  };
 }
 
 function setup(args: {
@@ -134,6 +144,73 @@ describe("requestFromApprovalSnapshot aliased file tools", () => {
       "src/*",
     ]);
     expect(aliased).toEqual(write);
+  });
+});
+
+describe("requestFromApprovalSnapshot secret shell scopes", () => {
+  for (const command of [
+    "echo ok; FILE=.envrc cat $FILE",
+    'bash -c "grep --file=.envrc needle"',
+    'echo "$(cat .envrc)"',
+    "awk -f.flaskenv input.txt",
+    "sed -nf.envrc input.txt",
+    "sed --fil=.envrc input.txt",
+    "egrep -Jf.envrc needle",
+    "grep -2f.flaskenv needle",
+    "sed -anf.envrc input.txt",
+    "{ awk -f.flaskenv input.txt; }",
+    "! grep -Tf.envrc needle",
+    "grep -Xf.envrc needle",
+    "grep -uf.envrc needle",
+    "cat $'.envrc'",
+    "bash -c \"cat \\$'.envrc'\"",
+    "bash -lc \"cat \\$'.envrc'\"",
+    "bash -lc \"cat \\$'.flaskenv'\"",
+    "zsh -yc \"cat \\$'.envrc'\"",
+    "dash -Vc \"cat \\$'.flaskenv'\"",
+    "ksh -Gc \"cat \\$'.envrc'\"",
+    `bash -c "cat "'.envrc'`,
+    `sh -cc "cat "'.flaskenv'`,
+    "cat $'notes\\cQ'",
+    'bash -c "$CMD"',
+  ]) {
+    test(`does not persist guarded shell: ${command}`, () => {
+      const request = requestFromApprovalSnapshot(
+        shellSnapshot(command),
+        "corr-secret",
+      );
+
+      expect(request?.scopes).toEqual([]);
+    });
+  }
+
+  test("retains persistent scopes for an ordinary command", () => {
+    const request = requestFromApprovalSnapshot(
+      shellSnapshot("echo ok && cat README.md"),
+      "corr-ordinary",
+    );
+
+    expect(request?.scopes.length).toBeGreaterThan(0);
+  });
+
+  test("uses the gate cwd to guard a benign symlink after reconstruction", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "approval-resume-cwd-"));
+    try {
+      writeFileSync(join(cwd, ".envrc"), "SECRET=value\n");
+      symlinkSync(join(cwd, ".envrc"), join(cwd, "notes"));
+
+      const request = requestFromApprovalSnapshot(
+        shellSnapshot("cat notes"),
+        "corr-symlink",
+        cwd,
+      );
+
+      expect(cwd).not.toBe(process.cwd());
+      expect(request?.cwd).toBe(cwd);
+      expect(request?.scopes).toEqual([]);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
 

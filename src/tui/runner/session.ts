@@ -536,6 +536,7 @@ export async function assembleTUISession(
   });
   const approvalResume = createApprovalResume({
     getAgent: () => state.currentAgent,
+    cwd: config.cwd,
     resolveParkedCallId: (correlationId) => {
       const storage = state.currentStorage;
       if (storage === null)

@@ -3,6 +3,10 @@
 
 import { splitChainedCommand, tokenize } from "../permission/command.js";
 import {
+  FILE_OPTION_GRAMMARS,
+  firstShortValueOption,
+} from "./file-option-grammar.js";
+import {
   peelTransparentCommand,
   programBasename,
   skipEnvArguments,
@@ -257,6 +261,47 @@ function fileOperandCount(args: string[], valueFlags: Set<string>): number {
   return count;
 }
 
+function grepOperandSummary(args: string[]): {
+  count: number;
+  suppliesPatternViaFlag: boolean;
+} {
+  const grammar = FILE_OPTION_GRAMMARS.grep;
+  if (grammar === undefined) {
+    return {
+      count: fileOperandCount(args, GREP_VALUE_FLAGS),
+      suppliesPatternViaFlag: false,
+    };
+  }
+
+  let count = 0;
+  let suppliesPatternViaFlag = false;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (arg === "--") continue;
+    if (arg === "--regexp" || arg === "--file") {
+      suppliesPatternViaFlag = true;
+      index++;
+      continue;
+    }
+    if (arg.startsWith("--regexp=") || arg.startsWith("--file=")) {
+      suppliesPatternViaFlag = true;
+      continue;
+    }
+    const valueOption = firstShortValueOption(arg, grammar);
+    if (valueOption !== undefined) {
+      if (valueOption.option === "e" || valueOption.option === "f") {
+        suppliesPatternViaFlag = true;
+      }
+      if (valueOption.attachedValue === undefined) index++;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    count++;
+  }
+  return { count, suppliesPatternViaFlag };
+}
+
 function readsStdinWithoutInput(head: string): boolean {
   const tokens = tokenizeSegment(head);
   const exec = tokens[0];
@@ -265,17 +310,10 @@ function readsStdinWithoutInput(head: string): boolean {
   if (exec === "grep" || exec === "egrep" || exec === "fgrep") {
     // grep reads stdin unless given a file in addition to the pattern; a `-e`
     // or `-f` flag supplies the pattern, so then a single operand is the file.
-    const suppliesPatternViaFlag = args.some(
-      (a) =>
-        a === "-e" ||
-        a === "-f" ||
-        a === "--regexp" ||
-        a === "--file" ||
-        a.startsWith("-f") ||
-        a.startsWith("--file="),
-    );
-    const operands = fileOperandCount(args, GREP_VALUE_FLAGS);
-    return suppliesPatternViaFlag ? operands < 1 : operands < 2;
+    const summary = grepOperandSummary(args);
+    return summary.suppliesPatternViaFlag
+      ? summary.count < 1
+      : summary.count < 2;
   }
   if (STDIN_READERS.has(exec)) {
     const valueFlags =
@@ -322,9 +360,24 @@ const ENV_ASSIGNMENT = /^\w+=/;
 const RM_WRAPPER = /^(sudo|command|env|exec|builtin|time|nice|nohup)$/;
 const RECURSIVE_FLAG = /^(--recursive|-[A-Za-z]*[rR][A-Za-z]*)$/;
 
-// Interpreters whose `-c` / `--command` payload is an independent shell subject.
-// Exported so tests and callers share one explicit list with the peeler.
-export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+// Interpreters whose `-c` / `--command` / cmd `/c` payload is an independent
+// shell subject. Exported so tests and callers share one explicit list with
+// the peeler. Matching is basename-based and ignores Windows executable
+// suffixes (`cmd.exe` → `cmd`).
+export const SHELL_INTERPRETERS = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "ksh",
+  "ash",
+  "fish",
+  "csh",
+  "tcsh",
+  "pwsh",
+  "powershell",
+  "cmd",
+]);
 // Max recursive peel depth for nested wrappers. Exported so the depth cap is a
 // named policy knob tests can assert against, not a magic number.
 export const MAX_PEEL_DEPTH = 4;
@@ -435,10 +488,30 @@ function isSafeShellPositional(token: string): boolean {
   return SAFE_REJOIN_TOKEN.test(token);
 }
 
+const INTERPRETER_SUFFIX = /\.(?:exe|cmd|com|bat)$/i;
+const CMD_INTERPRETERS = new Set(["cmd"]);
+const PWSH_INTERPRETERS = new Set(["pwsh", "powershell"]);
+
+function shellInterpreterName(token: string): string {
+  return programBasename(token).replace(INTERPRETER_SUFFIX, "").toLowerCase();
+}
+
+function isInterpreterCommandSwitch(
+  interpreter: string,
+  token: string,
+): boolean {
+  if (token === "-c" || token === "--command") return true;
+  if (CMD_INTERPRETERS.has(interpreter) && /^\/[ck]$/i.test(token)) return true;
+  if (PWSH_INTERPRETERS.has(interpreter) && /^-command$/i.test(token))
+    return true;
+  return false;
+}
+
 // `\bash` / `\sh` — tokenize artifact from peeling through an escaped quote.
 function isBackslashInterpreterToken(token: string): boolean {
   const base = programBasename(token);
-  return base.startsWith("\\") && SHELL_INTERPRETERS.has(base.slice(1));
+  if (!base.startsWith("\\")) return false;
+  return SHELL_INTERPRETERS.has(shellInterpreterName(base.slice(1)));
 }
 
 function shellPayloadReferencesPositional(payload: string): boolean {
@@ -556,6 +629,7 @@ function peelShellDashC(
   tokens: string[],
   start: number,
   rawSegment: string,
+  interpreter: string,
 ): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
@@ -565,7 +639,7 @@ function peelShellDashC(
       i++;
       break;
     }
-    if (t === "-c" || t === "--command") {
+    if (isInterpreterCommandSwitch(interpreter, t)) {
       const tokenPayload = tokens[i + 1];
       if (tokenPayload === undefined) return { kind: "opaque" };
       const optionOccurrence = tokens
@@ -897,7 +971,7 @@ function peelOnce(segment: string): PeelOutcome {
   const current = tokens[i];
   if (current === undefined)
     return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
-  const prog = programBasename(current);
+  const prog = shellInterpreterName(current);
   if (SHELL_INTERPRETERS.has(prog)) {
     // A backtick or `$(` anywhere in the raw segment means the -c payload may
     // contain command substitution. tokenize() surfaces substitution content as
@@ -908,7 +982,7 @@ function peelOnce(segment: string): PeelOutcome {
     // wrapper as opaque rather than risk peeling a truncated, misleading payload.
     if (segment.includes("`") || segment.includes("$("))
       return { kind: "opaque" };
-    const shellPeel = peelShellDashC(tokens, i + 1, segment);
+    const shellPeel = peelShellDashC(tokens, i + 1, segment, prog);
     if (shellPeel.kind !== "none") return shellPeel;
     // Interpreter without -c (e.g. `bash script.sh`) — not a peelable wrapper.
     return { kind: "none" };
@@ -941,8 +1015,9 @@ export interface ShellExpandResult {
 }
 
 // Expand a shell command into subjects the auto-shell policy, hard-deny, and
-// recursive-rm checks should scan. Peels bash/sh/zsh/dash/ksh -c, xargs
-// utility tails, env -S/--split-string payloads, and transparent prefixes
+// recursive-rm checks should scan. Peels nested interpreters (`bash`/`fish`/
+// `cmd` `/c` and the rest of SHELL_INTERPRETERS), xargs utility tails, env
+// -S/--split-string payloads, busybox applets, and transparent prefixes
 // (env/nice/timeout/…), recursing with a depth cap so nested wrappers cannot
 // hide a dangerous payload.
 //
@@ -1217,27 +1292,45 @@ export function runShellAuthzSegmentBlockReason(
   return openEndedSearchReason(trimmed);
 }
 
-export function runShellAuthzBlockReason(command: string): string | undefined {
+export interface RunShellAuthzBlock {
+  kind: "destructive" | "open-ended" | "never-terminating" | "stdin";
+  reason: string;
+}
+
+export function runShellAuthzBlock(
+  command: string,
+): RunShellAuthzBlock | undefined {
   // Destructive / open-ended / never-terminating / stdin all expand subjects so
   // env -S and shell -c payloads cannot hide a blocked program.
   if (isDestructive(command)) {
-    return `Destructive command blocked by policy: ${command}`;
+    return {
+      kind: "destructive",
+      reason: `Destructive command blocked by policy: ${command}`,
+    };
   }
   const openEnded = openEndedSearchReason(command);
-  if (openEnded !== undefined) return openEnded;
+  if (openEnded !== undefined) return { kind: "open-ended", reason: openEnded };
   if (subjectsHit(command, isNeverTerminating)) {
-    return (
-      `Never-terminating command blocked — follow/pager/watch commands (tail -f, watch, ` +
-      `top, less, more) never exit under the agent and hang the run. Use a bounded ` +
-      `alternative (e.g. tail -n 50 file). Command: ${command}`
-    );
+    return {
+      kind: "never-terminating",
+      reason:
+        `Never-terminating command blocked — follow/pager/watch commands (tail -f, watch, ` +
+        `top, less, more) never exit under the agent and hang the run. Use a bounded ` +
+        `alternative (e.g. tail -n 50 file). Command: ${command}`,
+    };
   }
   if (subjectsHit(command, blocksOnStdin)) {
-    return (
-      `Command reads standard input with no file operand and would hang, since stdin is ` +
-      `not connected. Pass a file operand (e.g. tail -n 50 file.log, grep pattern file). ` +
-      `Command: ${command}`
-    );
+    return {
+      kind: "stdin",
+      reason:
+        `Command reads standard input with no file operand and would hang, since stdin is ` +
+        `not connected. Pass a file operand (e.g. tail -n 50 file.log, grep pattern file). ` +
+        `Command: ${command}`,
+    };
   }
   return undefined;
+}
+
+export function runShellAuthzBlockReason(command: string): string | undefined {
+  return runShellAuthzBlock(command)?.reason;
 }

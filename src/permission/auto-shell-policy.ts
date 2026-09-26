@@ -3,7 +3,10 @@ import {
   commandHasRecursiveRm,
   expandShellSubjects,
 } from "../shell/run-shell-authz.js";
-import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  inspectShellSecretReference,
+  shellSecretInspectionRequiresApproval,
+} from "../plugins/secret-guard-plugin.js";
 import {
   commandHasUnboundedDirectoryListing,
   commandTargetsRestricted,
@@ -509,7 +512,7 @@ export function autoShellRuleForCall(
   const command = call.arguments.command;
   if (typeof command !== "string") return undefined;
 
-  // Peel bash/sh/zsh -c, xargs, env -S/--split-string, and transparent
+  // Peel nested interpreters, xargs, env -S/--split-string, and transparent
   // prefixes so rules see the real payload. `stripQuoted` alone would delete
   // a quoted -c body and miss every rule. Content inside an -S payload is
   // scanned here exactly as if written plainly — never a weaker tier.
@@ -532,9 +535,12 @@ export function autoShellRuleForCall(
     matched = preferRule(matched, ENV_ASSIGNMENT_ASK_RULE);
   }
 
-  for (const subject of subjects) {
-    if (commandReferencesSensitivePath(subject, cwd) !== undefined)
-      return SENSITIVE_PATH_ASK_RULE;
+  const secretInspection = inspectShellSecretReference(command, cwd);
+  if (
+    shellSecretInspectionRequiresApproval(secretInspection) &&
+    (secretInspection.reference !== undefined || !opaque)
+  ) {
+    return SENSITIVE_PATH_ASK_RULE;
   }
 
   // Even inside the workspace: unbounded listing must ask so auto mode cannot OOM.
