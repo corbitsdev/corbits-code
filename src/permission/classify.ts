@@ -394,6 +394,7 @@ export function isAutoAllowedShellSegment(
   segment: string,
   cwd: string = process.cwd(),
   rootsProvider: RootsProvider = NO_ROOTS,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): boolean {
   const trimmed = segment.trim();
   // Empty is not auto-allowed as a "command"; full-line comments and pure shell
@@ -401,18 +402,19 @@ export function isAutoAllowedShellSegment(
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
   if (runShellAuthzSegmentBlockReason(trimmed) !== undefined) return false;
-  return isAutoAllowedSegment(segment, cwd, rootsProvider);
+  return isAutoAllowedSegment(segment, cwd, rootsProvider, isExtraDenied);
 }
 
 function isAutoAllowedSegment(
   segment: string,
   cwd: string,
   rootsProvider: RootsProvider,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): boolean {
   const trimmed = segment.trim();
   if (trimmed.length === 0) return false;
   if (isShellCommentOnly(trimmed) || isShellNoOp(trimmed)) return true;
-  if (commandReferencesSensitivePath(trimmed, cwd)) return false;
+  if (commandReferencesSensitivePath(trimmed, cwd, isExtraDenied)) return false;
   // Same metacharacter gate as isAutoAllowedShellCommand: this classifier also
   // runs standalone per pipeline/chain segment (see isAutoAllowedShellSegment),
   // so a segment carrying its own command substitution or redirect must not
@@ -440,7 +442,11 @@ function isAutoAllowedSegment(
   // symlink into a secret file (notes.txt -> .env) asks exactly like the
   // secret name itself. Pure name-listings skip the resolve leg: `ls
   // notes.txt` lists freely (CL-5420), and an impure listing fails above.
-  if (args.some((token) => isSensitiveShellToken(token, cwd, !pureListing)))
+  if (
+    args.some((token) =>
+      isSensitiveShellToken(token, cwd, !pureListing, isExtraDenied),
+    )
+  )
     return false;
   // Pure directory listing may target outside-workspace paths (names only).
   // Content readers must stay inside the workspace.
@@ -457,6 +463,7 @@ export function isAutoAllowedShellCommand(
   command: string,
   cwd: string = process.cwd(),
   rootsProvider: RootsProvider = NO_ROOTS,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): boolean {
   const trimmed = command.trim();
   if (trimmed.length === 0) return false;
@@ -469,7 +476,7 @@ export function isAutoAllowedShellCommand(
     (isShellCommentOnly(trimmed) || isShellNoOp(trimmed))
   )
     return true;
-  if (commandReferencesSensitivePath(trimmed, cwd)) return false;
+  if (commandReferencesSensitivePath(trimmed, cwd, isExtraDenied)) return false;
   // Never auto-allow a command the authz layer would hard-deny at execution.
   if (runShellAuthzBlockReason(trimmed) !== undefined) return false;
   // Reject anything with metacharacters that compose or redirect (& ; < > ` $ etc).
@@ -478,19 +485,23 @@ export function isAutoAllowedShellCommand(
 
   // Split on pipe and require every segment to be a safe read-only program.
   const segments = trimmed.split("|");
-  return segments.every((seg) => isAutoAllowedSegment(seg, cwd, rootsProvider));
+  return segments.every((seg) =>
+    isAutoAllowedSegment(seg, cwd, rootsProvider, isExtraDenied),
+  );
 }
 
 export function isAutoAllowedShellCall(
   call: ToolCall,
   cwd: string = process.cwd(),
   rootsProvider: RootsProvider = NO_ROOTS,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): boolean {
   if (canonicalToolName(call.name) !== "run_shell") return false;
   return isAutoAllowedShellCommand(
     stringArg(call, "command"),
     cwd,
     rootsProvider,
+    isExtraDenied,
   );
 }
 

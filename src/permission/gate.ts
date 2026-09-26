@@ -20,7 +20,10 @@ import {
   safeWorktreeCommand,
   isWorktreeForceFlag,
 } from "./auto-shell-policy.js";
-import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  commandReferencesSensitivePath,
+  createExtraDeniedPathMatcher,
+} from "../plugins/secret-guard-plugin.js";
 import {
   normalizePathArguments,
   pathEscapeBlockReason,
@@ -131,8 +134,9 @@ function segmentGuard(
   isRestricted: (path: string, isWrite: boolean) => boolean,
   cwd?: string,
   rootsProvider?: RootsProvider,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): SegmentGuard | undefined {
-  if (commandReferencesSensitivePath(segment, cwd) !== undefined)
+  if (commandReferencesSensitivePath(segment, cwd, isExtraDenied) !== undefined)
     return { kind: "secret" };
   if (
     cwd !== undefined &&
@@ -221,6 +225,7 @@ export function preGrantGuardReason(
   request: PermissionRequest,
   isRestricted: (path: string, isWrite: boolean) => boolean,
   rootsProvider?: RootsProvider,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): string | undefined {
   if (request.tool !== "run_shell") return undefined;
   const fullCommand = request.subject;
@@ -237,7 +242,13 @@ export function preGrantGuardReason(
       ? bindRestrictedToProcessCwd(isRestricted, request.cwd)
       : isRestricted;
   for (const segment of segments) {
-    const guard = segmentGuard(segment, restricted, request.cwd, rootsProvider);
+    const guard = segmentGuard(
+      segment,
+      restricted,
+      request.cwd,
+      rootsProvider,
+      isExtraDenied,
+    );
     if (guard !== undefined) {
       return guard.kind === "secret"
         ? `${segment} references a sensitive path`
@@ -266,6 +277,7 @@ export function isRequestCoveredByGrant(
   isRestricted: (path: string, isWrite: boolean) => boolean,
   workspace: GrantWorkspace,
   rootsProvider?: RootsProvider,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): boolean {
   return isRequestCoveredByApprovals(
     request,
@@ -274,6 +286,7 @@ export function isRequestCoveredByGrant(
     isRestricted,
     workspace,
     rootsProvider,
+    isExtraDenied,
   );
 }
 
@@ -288,6 +301,7 @@ function isRequestCoveredByApprovals(
   isRestricted: (path: string, isWrite: boolean) => boolean,
   workspace: GrantWorkspace,
   rootsProvider?: RootsProvider,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): boolean {
   const scoped = approvals.filter((a) =>
     grantScopeMatches(
@@ -302,7 +316,10 @@ function isRequestCoveredByApprovals(
   if (request.tool !== "run_shell") {
     return scoped.some((a) => matchesPattern(request.subject, a.pattern));
   }
-  if (preGrantGuardReason(request, isRestricted, rootsProvider) !== undefined)
+  if (
+    preGrantGuardReason(request, isRestricted, rootsProvider, isExtraDenied) !==
+    undefined
+  )
     return false;
   const segments = splitChainedCommand(request.subject).filter(
     (s) => !isShellCommentOnly(s),
@@ -311,7 +328,12 @@ function isRequestCoveredByApprovals(
   const cwd = request.cwd ?? workspace.resolvedCwd;
   return segments.every((segment) => {
     if (scoped.some((a) => matchesPattern(segment, a.pattern))) return true;
-    return isAutoAllowedShellSegment(segment, cwd, rootsProvider);
+    return isAutoAllowedShellSegment(
+      segment,
+      cwd,
+      rootsProvider,
+      isExtraDenied,
+    );
   });
 }
 
@@ -374,6 +396,13 @@ export interface PermissionGateOptions {
   // Writes and deletes remain path-escape denies; plugin trust is not write
   // consent.
   trustedPluginRoots?: RootsProvider;
+  // Extras-denied config paths the shell legs treat as sensitive (CL-9386):
+  // the active settings source, including a --config override. Mirrors the
+  // secret-guard plugin's extraDeniedPaths so a custom config path asks in
+  // shell commands exactly like the default settings file. May also be set
+  // after construction via setSensitiveExtraDeniedPaths when the paths are
+  // learned later (the toolset builder forwards them).
+  sensitiveExtraDeniedPaths?: readonly string[];
   // Tiers learned from connected MCP servers (tools/list annotations). Tests may
   // inject a shared registry; production gates create one when omitted.
   mcpTiers?: McpToolPermissionRegistry;
@@ -480,6 +509,11 @@ export interface PermissionGate {
   // posix plugin stack reads this so authorize-time and execution-time
   // containment share one list.
   getTrustedPluginRoots: () => readonly string[];
+  // Replace the extras-denied config paths the shell legs treat as sensitive
+  // (CL-9386). The toolset builder calls this to forward the active settings
+  // source after gate construction, so the gate and the secret-guard plugin
+  // share one list. Optional so test doubles of this interface keep compiling.
+  setSensitiveExtraDeniedPaths?: (paths: readonly string[]) => void;
 }
 
 // True when splitChainedCommand can be trusted to yield only real segments for
@@ -546,6 +580,14 @@ export function createPermissionGate(
   // Session grants live only in this array; persisted grants are seeded in via
   // options.approvals and re-routed to a store by the persist callback.
   const sessionGrants: Approval[] = [];
+  // CL-9386: the extras-denied config paths (the active settings source) the
+  // shell legs consult, mirrored from the secret-guard plugin's own matcher so
+  // both agree on what "denied" means. Mutable via
+  // setSensitiveExtraDeniedPaths because the toolset builder learns the paths
+  // after the gate is constructed.
+  let isExtraDenied = createExtraDeniedPathMatcher(
+    options.sensitiveExtraDeniedPaths ?? [],
+  );
 
   // Record an operator-granted approval in the live list and route it to the
   // scope-appropriate home: session grants stay in memory, everything else is
@@ -612,6 +654,7 @@ export function createPermissionGate(
           isRestricted,
           grantWorkspace(),
           rootsProvider,
+          isExtraDenied,
         ),
       );
     }
@@ -764,14 +807,15 @@ export function createPermissionGate(
     // segment mentions a secret path.
     const shellReferencesSecret =
       shellCmd !== undefined &&
-      commandReferencesSensitivePath(shellCmd, effectiveCwd) !== undefined;
+      commandReferencesSensitivePath(shellCmd, effectiveCwd, isExtraDenied) !==
+        undefined;
     if (!restricted && classifyTool(call.name, mcpTiers) === "allow") {
       return { kind: "allow" };
     }
     if (
       !restricted &&
       !shellReferencesSecret &&
-      isAutoAllowedShellCall(call, effectiveCwd, rootsProvider)
+      isAutoAllowedShellCall(call, effectiveCwd, rootsProvider, isExtraDenied)
     ) {
       return { kind: "allow" };
     }
@@ -787,6 +831,7 @@ export function createPermissionGate(
           isRestrictedHere,
           effectiveCwd,
           rootsProvider,
+          isExtraDenied,
         );
         if (shellRule?.effect === "deny") {
           recordAutoDecision(call.name, shellRule.name, "auto-deny");
@@ -842,6 +887,7 @@ export function createPermissionGate(
             isRestrictedHere,
             effectiveCwd,
             rootsProvider,
+            isExtraDenied,
           );
           if (guard !== undefined) {
             if (guard.kind === "secret") anySecret = true;
@@ -878,7 +924,14 @@ export function createPermissionGate(
           }
           // Safe pipeline tails (`| sort`) and pure no-ops (`|| true`) skip.
           // Containment is judged against the process cwd, not the session cwd.
-          if (isAutoAllowedShellSegment(segment, effectiveCwd, rootsProvider)) {
+          if (
+            isAutoAllowedShellSegment(
+              segment,
+              effectiveCwd,
+              rootsProvider,
+              isExtraDenied,
+            )
+          ) {
             continue;
           }
           needsOperator = true;
@@ -1105,8 +1158,11 @@ export function createPermissionGate(
   ) => {
     const anySecret =
       request.tool === "run_shell" &&
-      commandReferencesSensitivePath(request.subject, request.cwd) !==
-        undefined;
+      commandReferencesSensitivePath(
+        request.subject,
+        request.cwd,
+        isExtraDenied,
+      ) !== undefined;
     const decision = {
       kind: "ask" as const,
       request,
@@ -1220,5 +1276,10 @@ export function createPermissionGate(
     registerMcpClient,
     unregisterMcpServer,
     getTrustedPluginRoots: () => trustedPluginRoots(),
+    setSensitiveExtraDeniedPaths: (paths: readonly string[]) => {
+      isExtraDenied = createExtraDeniedPathMatcher(paths);
+      // The denied set changed — cached denies re-evaluate.
+      denialMemory.clear();
+    },
   };
 }

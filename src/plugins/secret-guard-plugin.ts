@@ -269,17 +269,32 @@ function isBareProbeCandidate(token: string): boolean {
 // Pass resolveSymlinks=false for pure name-listings: listing a name is not
 // dumping its contents (CL-5420), so `ls notes.txt` still lists freely while
 // `cat notes.txt` asks.
+//
+// `isExtraDenied` extends both legs to the extras-denied config paths
+// (CL-9386): the custom config path asks in shell commands exactly like the
+// default settings file. The listing leg resolves cwd-relative tokens because
+// extras entries are exact paths, not name patterns — a lexical match alone
+// would miss `ls operator-config.json` while catching the absolute form.
 export function isSensitiveShellToken(
   token: string,
   cwd: string = process.cwd(),
   resolveSymlinks = true,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): boolean {
   const expanded = expandHome(token);
   if (isSensitivePath(expanded)) return true;
-  if (!resolveSymlinks) return false;
+  if (isExtraDenied(expanded)) return true;
+  if (!resolveSymlinks) {
+    if (!isBareProbeCandidate(expanded)) return false;
+    return isExtraDenied(
+      isAbsolute(expanded) ? expanded : resolvePath(cwd, expanded),
+    );
+  }
   if (isPathLikeShellToken(expanded)) {
-    if (isAbsolute(expanded)) return isSensitivePathResolved(expanded);
-    return isSensitivePathResolved(resolvePath(cwd, expanded));
+    if (isAbsolute(expanded))
+      return isSensitivePathResolved(expanded) || isExtraDenied(expanded);
+    const abs = resolvePath(cwd, expanded);
+    return isSensitivePathResolved(abs) || isExtraDenied(abs);
   }
   if (!isBareProbeCandidate(expanded)) return false;
   const abs = isAbsolute(expanded) ? expanded : resolvePath(cwd, expanded);
@@ -288,12 +303,13 @@ export function isSensitiveShellToken(
   } catch {
     return false;
   }
-  return isSensitivePathResolved(abs);
+  return isSensitivePathResolved(abs) || isExtraDenied(abs);
 }
 
 export function commandReferencesSensitivePath(
   command: string,
   cwd: string = process.cwd(),
+  isExtraDenied: (value: string) => boolean = () => false,
 ): string | undefined {
   const tokens = shellPathTokens(command);
   // Dump vs list: a lone name-listing never dumps file contents, so only the
@@ -305,7 +321,8 @@ export function commandReferencesSensitivePath(
     PURE_DIRECTORY_LISTING_PROGRAMS.has(program) &&
     !/[;&|()<>\n]/.test(command);
   for (const token of tokens) {
-    if (isSensitiveShellToken(token, cwd, !listingOnly)) return token;
+    if (isSensitiveShellToken(token, cwd, !listingOnly, isExtraDenied))
+      return token;
   }
   return undefined;
 }
