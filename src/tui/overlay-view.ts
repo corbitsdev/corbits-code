@@ -435,5 +435,5 @@ export function createOverlayView(ctx: RenderContext) {
     );
   }
 
-  return { host, title, body, paintTitle, paintList, clearBody };
+  return { host, title, body, paintTitle, paintList, clearBody, detachList };
 }
