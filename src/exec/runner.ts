@@ -1105,6 +1105,8 @@ export async function runExec(config: Config): Promise<ExecResult> {
         resolveParkedCallId: (correlationId) =>
           resolveParkedCallIdFromStore(activeStorage, correlationId),
         gate: permissionGate,
+        cwd: config.cwd,
+        extraDeniedPaths: [config.globalSettingsPath],
         deliver: async (message, stillCurrent) => {
           if (!stillCurrent()) return;
           await approvalDeliverer.deliver(message);

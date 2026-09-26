@@ -1,4 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Agent, SendResult } from "@intx/agent";
 import type {
   ApprovalSnapshot,
@@ -10,6 +13,7 @@ import type {
 
 import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
 import type { PermissionGate } from "../permission/gate.js";
+import { createExtraDeniedPathMatcher } from "../plugins/secret-guard-plugin.js";
 import {
   APPROVAL_DROPPED_NOTICE,
   createApprovalResume,
@@ -134,6 +138,69 @@ describe("requestFromApprovalSnapshot aliased file tools", () => {
       "src/*",
     ]);
     expect(aliased).toEqual(write);
+  });
+});
+
+function shellSnapshot(command: string): ApprovalSnapshot {
+  return {
+    name: "run_shell",
+    description: "run a shell command",
+    inputSchema: {},
+    arguments: { command },
+  };
+}
+
+describe("requestFromApprovalSnapshot secret persist scopes", () => {
+  test("static secret shell strips persist scopes without extras", () => {
+    const request = requestFromApprovalSnapshot(
+      shellSnapshot("cat .env"),
+      "corr-env",
+    );
+    expect(request?.tool).toBe("run_shell");
+    expect(request?.scopes).toEqual([]);
+  });
+
+  test("non-secret shell keeps persist scopes", () => {
+    const request = requestFromApprovalSnapshot(
+      shellSnapshot("cat README.md"),
+      "corr-readme",
+    );
+    expect(request?.tool).toBe("run_shell");
+    expect(request?.scopes.length).toBeGreaterThan(0);
+  });
+
+  test("extras-secret shell strips persist scopes", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "cl9386-resume-extras-"));
+    const cwd = join(parent, "ws");
+    const customConfig = join(cwd, "operator-config.json");
+    try {
+      await mkdir(cwd, { recursive: true });
+      await writeFile(
+        customConfig,
+        `${JSON.stringify({ dangerouslySkipPermissions: true }, null, 2)}\n`,
+      );
+      const request = requestFromApprovalSnapshot(
+        shellSnapshot("cat operator-config.json"),
+        "corr-extras",
+        {
+          cwd,
+          isExtraDenied: createExtraDeniedPathMatcher([customConfig]),
+        },
+      );
+      expect(request?.tool).toBe("run_shell");
+      expect(request?.scopes).toEqual([]);
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("pin: custom config path without extras keeps persist scopes", () => {
+    const request = requestFromApprovalSnapshot(
+      shellSnapshot("cat operator-config.json"),
+      "corr-no-extras",
+    );
+    expect(request?.tool).toBe("run_shell");
+    expect(request?.scopes.length).toBeGreaterThan(0);
   });
 });
 

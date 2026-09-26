@@ -541,6 +541,8 @@ export async function assembleTUISession(
       });
     },
     gate: permissionGate,
+    cwd: config.cwd,
+    extraDeniedPaths: [config.globalSettingsPath],
   });
   state.enqueueAgentDeliver = (
     deliverToLiveAgent: () => void,

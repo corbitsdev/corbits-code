@@ -23,7 +23,10 @@ import { getLogger } from "@intx/log";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
-import { commandReferencesSensitivePath } from "../plugins/secret-guard-plugin.js";
+import {
+  commandReferencesSensitivePath,
+  createExtraDeniedPathMatcher,
+} from "../plugins/secret-guard-plugin.js";
 import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
 import { buildRequests } from "../permission/classify.js";
 import type { PermissionGate } from "../permission/gate.js";
@@ -59,6 +62,10 @@ export interface ApprovalResume {
 export function requestFromApprovalSnapshot(
   snapshot: ApprovalSnapshot,
   correlationId: string,
+  extras: {
+    cwd?: string;
+    isExtraDenied?: (value: string) => boolean;
+  } = {},
 ): PermissionRequest | null {
   const parsed = ApprovalSnapshotShape(snapshot);
   if (parsed instanceof type.errors) return null;
@@ -71,7 +78,11 @@ export function requestFromApprovalSnapshot(
   if (request === undefined) return null;
   const anySecret =
     request.tool === "run_shell" &&
-    commandReferencesSensitivePath(request.subject) !== undefined;
+    commandReferencesSensitivePath(
+      request.subject,
+      extras.cwd ?? process.cwd(),
+      extras.isExtraDenied ?? (() => false),
+    ) !== undefined;
   return anySecret ? { ...request, scopes: [] } : request;
 }
 
@@ -184,7 +195,16 @@ export function createApprovalResume(args: {
     correlationId: string,
   ) => string | undefined | Promise<string | undefined>;
   gate: PermissionGate;
+  // Workspace the parked shell ran in, and extras-denied config paths the live
+  // decide()/resolveSuspended secret check already consults. Resume rebuilds
+  // persistable scopes from the snapshot and must apply the same extras so
+  // Always/Project are not offered for extras-secret shell.
+  cwd?: string;
+  extraDeniedPaths?: readonly string[];
 }): ApprovalResume {
+  const isExtraDenied = createExtraDeniedPathMatcher(
+    args.extraDeniedPaths ?? [],
+  );
   // Retry re-await wiring: correlation ids whose decision was handed to the
   // reactor reuse that acceptance. A retry after an observed acceptance
   // returns without opening the gate or delivering again, so the parked call
@@ -254,7 +274,10 @@ export function createApprovalResume(args: {
       const request =
         approvalSnapshot === undefined
           ? null
-          : requestFromApprovalSnapshot(approvalSnapshot, correlationId);
+          : requestFromApprovalSnapshot(approvalSnapshot, correlationId, {
+              ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
+              isExtraDenied,
+            });
       if (request === null) {
         args.registerParkedCancel?.(undefined);
         await deliverDecision(
