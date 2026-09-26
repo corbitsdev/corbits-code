@@ -191,4 +191,82 @@ describe("integration — late MCP dispatch", () => {
       }
     },
   );
+
+  test.serial(
+    "tool_search promotion preserves required and optional MCP arguments",
+    async () => {
+      const session = await openIntegrationSession({
+        permissionGate: permissionGate(),
+        createAgentFn: createAgentWithLiveToolDispatch,
+      });
+      let receivedArgs: Record<string, unknown> | undefined;
+      const schema = {
+        type: "object" as const,
+        properties: {
+          limit: { type: "integer" },
+          team: { type: "string" },
+          customView: { type: "string" },
+        },
+        required: ["limit"],
+      };
+
+      try {
+        const client: MCPClient = {
+          serverName: "linear",
+          tools: [
+            {
+              name: "list_issues",
+              description: "list issues",
+              inputSchema: schema,
+            },
+          ],
+          async call(toolName, args) {
+            if (toolName === "list_issues") {
+              receivedArgs = args;
+            }
+            return "ISSUE-1";
+          },
+          async close() {
+            return undefined;
+          },
+        };
+        session.toolset.dynamicRunner.addTools(mcpClientTools(client));
+        session.toolset.setToolPromoter(() => {
+          session.updateToolDefinitions(
+            session.toolset.dynamicRunner.currentDefinitions(),
+          );
+        });
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [
+            { name: "tool_search", args: { query: "linear list issues" } },
+          ],
+        });
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [{ name: LATE_MCP, args: { limit: 1 } }],
+        });
+        session.harness.scenario.replyOnce("anthropic", { text: "listed" });
+
+        const { events } = await runUntilDone(session, "list one linear issue");
+        const bodies = await Promise.all(
+          session.harness.scenario
+            .matchedRequests()
+            .map(
+              async (request) =>
+                JSON.parse(
+                  await (request.clone() as unknown as Request).text(),
+                ) as AnthropicRequestBody,
+            ),
+        );
+        const publishedTool = bodies
+          .flatMap((body) => body.tools ?? [])
+          .find((tool) => tool.name === LATE_MCP);
+
+        expect(publishedTool?.input_schema).toEqual(schema);
+        expect(receivedArgs).toEqual({ limit: 1 });
+        expect(toolDoneContents(events)).toContain("ISSUE-1");
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
 });
