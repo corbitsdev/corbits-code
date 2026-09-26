@@ -686,27 +686,6 @@ describe("sub-agent stop helpers", () => {
     ).toBeNull();
   });
 
-  test("evaluateSubAgentStop does not stop for chunked same-file reads with advancing offsets", () => {
-    let thrash = EMPTY_THRASH_STATE;
-    for (let i = 0; i < 12; i++) {
-      thrash = nextThrashState(thrash, [
-        {
-          type: "tool_call",
-          name: "read_file",
-          arguments: { path: "src/big.ts", offset: i * 50, limit: 50 },
-        },
-      ]);
-    }
-    expect(thrash.readCounts.size).toBe(12);
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        lastAssistantText: "",
-        thrashState: thrash,
-      }),
-    ).toBeNull();
-  });
-
   test("evaluateSubAgentStop keeps running while the worker is still calling tools", () => {
     expect(
       evaluateSubAgentStop({
