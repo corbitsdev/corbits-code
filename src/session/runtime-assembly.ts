@@ -139,8 +139,15 @@ export async function loadSeededApprovals(
   // One-time migration: purge persisted update_plan keys (dropped at load by
   // normalizeSeededApprovals but never rewritten) so removing the normalizer
   // later cannot resurrect them. Best-effort and idempotent — a clean tree is
-  // a no-op, and the normalizer stays as defense-in-depth regardless.
-  await migratePersistedApprovalStores(cwd, sessionId, home);
+  // a no-op, and the normalizer stays as defense-in-depth regardless. Guarded
+  // so a future throw can never break session start.
+  try {
+    await migratePersistedApprovalStores(cwd, sessionId, home);
+  } catch (err) {
+    persistLogger.warn("Skipping approval-store migration: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   const sessionApprovals = await loadApprovals(cwd, sessionId, home);
   const [
     projectApprovals,

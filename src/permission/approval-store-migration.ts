@@ -1,12 +1,13 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import { getLogger } from "@intx/log";
 
 import { canonicalGrantTool } from "../agent/canonical-tool-name.js";
 import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 import { sessionDir } from "../session/index.js";
+import { chainObjectWrite } from "./store.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "permission", "approval-migration"]);
 
@@ -64,75 +65,78 @@ function isFileExistsError(err: unknown): boolean {
 // Purge update_plan keys from one approvals file (session, project, or
 // global store shape: an `approvals` array plus, for the global file, a
 // `providerModels` map of arrays). Backup-then-rewrite: the pre-migration
-// bytes are saved to `<path>.bak` first (an existing backup is kept, so the
+// state is saved to `<path>.bak` first (an existing backup is kept, so the
 // first backup always holds the true original), and a file with nothing to
-// left untouched (no backup, byte-identical) so re-runs are no-ops. Entries
-// that are not positive update_plan matches are kept verbatim — pure renames
-// are never collapsed here; that stays the load-time normalizer's job.
-// Missing, unreadable, or corrupt files are no-ops; write failures propagate.
+// purge is left untouched (no backup, byte-identical) so re-runs are no-ops.
+// Entries that are not positive update_plan matches are kept verbatim — pure
+// renames are never collapsed here; that stays the load-time normalizer's
+// job. Missing, unreadable, or corrupt files are no-ops; write failures
+// propagate. The rewrite goes through chainObjectWrite, so a concurrent grant
+// mint to the same file serializes with the migration instead of losing an
+// update, and the tmp+rename lands atomically so a reader never sees a torn
+// file.
 export async function migrateApprovalStoreFile(
   path: string,
 ): Promise<ApprovalStoreMigrationFileResult> {
-  let raw: string;
-  try {
-    raw = await readFile(path, "utf-8");
-  } catch {
-    return { path, purged: 0 };
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw) as unknown;
-  } catch {
-    return { path, purged: 0 };
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return { path, purged: 0 };
-  }
-  const record = parsed as Record<string, unknown>;
-  const next: Record<string, unknown> = { ...record };
-  let purged = 0;
-  const onPurge = (): void => {
-    purged += 1;
-  };
-  if (Array.isArray(record.approvals)) {
-    const { kept, changed } = purgeList(record.approvals, onPurge);
-    if (changed) next.approvals = kept;
-  }
-  const providerModels = record.providerModels;
-  if (
-    typeof providerModels === "object" &&
-    providerModels !== null &&
-    !Array.isArray(providerModels)
-  ) {
-    const map = providerModels as Record<string, unknown>;
-    const nextMap: Record<string, unknown> = {};
-    let mapChanged = false;
-    for (const [key, list] of Object.entries(map)) {
-      const { kept, changed } = purgeList(list, onPurge);
-      if (changed) {
-        nextMap[key] = kept;
-        mapChanged = true;
-      } else {
-        nextMap[key] = list;
-      }
-    }
-    if (mapChanged) next.providerModels = nextMap;
-  }
-  if (purged === 0) return { path, purged: 0 };
   const backupPath = `${path}.bak`;
+  let purged = 0;
+  let rewrote = false;
   try {
-    await writeFile(backupPath, raw, { flag: "wx" });
+    await chainObjectWrite(path, async (current) => {
+      const next: Record<string, unknown> = { ...current };
+      let changed = 0;
+      const onPurge = (): void => {
+        changed += 1;
+      };
+      if (Array.isArray(current.approvals)) {
+        const { kept, changed: listChanged } = purgeList(
+          current.approvals,
+          onPurge,
+        );
+        if (listChanged) next.approvals = kept;
+      }
+      const providerModels = current.providerModels;
+      if (
+        typeof providerModels === "object" &&
+        providerModels !== null &&
+        !Array.isArray(providerModels)
+      ) {
+        const map = providerModels as Record<string, unknown>;
+        const nextMap: Record<string, unknown> = {};
+        let mapChanged = false;
+        for (const [key, list] of Object.entries(map)) {
+          const { kept, changed: listChanged } = purgeList(list, onPurge);
+          nextMap[key] = listChanged ? kept : list;
+          mapChanged = mapChanged || listChanged;
+        }
+        if (mapChanged) next.providerModels = nextMap;
+      }
+      if (changed === 0) return undefined;
+      try {
+        await writeFile(backupPath, JSON.stringify(current, null, 2), {
+          flag: "wx",
+        });
+      } catch (err) {
+        if (!isFileExistsError(err)) {
+          log.warn("Skipping approval-store migration for {path}: {error}", {
+            path,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return undefined;
+        }
+      }
+      purged = changed;
+      rewrote = true;
+      return next;
+    });
   } catch (err) {
-    if (!isFileExistsError(err)) {
-      log.warn("Skipping approval-store migration for {path}: {error}", {
-        path,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return { path, purged: 0 };
-    }
+    log.warn("Skipping approval-store migration for {path}: {error}", {
+      path,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { path, purged: 0 };
   }
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(next, null, 2));
+  if (!rewrote) return { path, purged: 0 };
   return { path, purged, backupPath };
 }
 
