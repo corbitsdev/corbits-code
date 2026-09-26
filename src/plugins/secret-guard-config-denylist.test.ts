@@ -51,6 +51,23 @@ async function withFixture<T>(
   }
 }
 
+async function withNamedConfig<T>(
+  name: string,
+  run: (paths: { cwd: string; customConfig: string }) => Promise<T>,
+): Promise<T> {
+  const parent = await mkdtemp(join(tmpdir(), "cl9386-dated-config-"));
+  const cwd = join(parent, "ws");
+  await mkdir(cwd, { recursive: true });
+  const customConfig = join(cwd, name);
+  await writeFile(customConfig, `${SKIP_PAYLOAD}\n`);
+  await writeFile(join(cwd, "scratch.txt"), "ordinary workspace file\n");
+  try {
+    return await run({ cwd, customConfig });
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
+}
+
 function runner(
   cwd: string,
   skipPermissions: boolean,
@@ -159,6 +176,32 @@ describe("CL-9386 runtime-denylist the active --config path holding skip", () =>
       });
     });
 
+    for (const datedName of [
+      "2026-09-26-config.json",
+      "gpt-4-1.json",
+    ] as const) {
+      test(`${mode}: dir-scoped grep does not surface extras-denied ${datedName}`, async () => {
+        await withNamedConfig(datedName, async ({ cwd, customConfig }) => {
+          const { tools } = runner(cwd, skipPermissions, customConfig);
+          const result = await tools.run(
+            {
+              id: "1",
+              name: "grep",
+              arguments: {
+                pattern: "dangerouslySkipPermissions",
+                path: ".",
+              },
+            },
+            new AbortController().signal,
+          );
+          expect(result.isError !== true).toBe(true);
+          expect(String(result.content)).not.toContain(
+            "dangerouslySkipPermissions",
+          );
+        });
+      });
+    }
+
     test(`${mode}: dir-scoped search_files does not surface extras-denied names`, async () => {
       await withFixture(async ({ cwd, customConfig }) => {
         const { tools } = runner(cwd, skipPermissions, customConfig);
@@ -254,6 +297,29 @@ describe("CL-9386 runtime-denylist the active --config path holding skip", () =>
       );
     });
   });
+
+  for (const datedName of ["2026-09-26-config.json", "gpt-4-1.json"] as const) {
+    test(`rg missing: fallback grep does not surface extras-denied ${datedName}`, async () => {
+      await withNamedConfig(datedName, async ({ cwd, customConfig }) => {
+        const tools = createPosixTools({
+          cwd,
+          plugins: [ripgrepPlugin(cwd, {}, rgMissingSpawn, [customConfig])],
+        });
+        const result = await tools.run(
+          {
+            id: "1",
+            name: "grep",
+            arguments: { pattern: "dangerouslySkipPermissions", path: cwd },
+          },
+          new AbortController().signal,
+        );
+        expect(result.isError !== true).toBe(true);
+        expect(String(result.content)).not.toContain(
+          "dangerouslySkipPermissions",
+        );
+      });
+    });
+  }
 
   test("rg missing: fallback search_files does not surface extras-denied names", async () => {
     await withFixture(async ({ cwd, customConfig }) => {

@@ -109,16 +109,24 @@ export function ripgrepPlugin(
   const maxBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
   const isExtraDenied = createExtraDeniedPathMatcher(extraDeniedPaths);
 
-  // The file a `file:line:match` grep line came from, resolved so it can be
-  // tested against the extras-denied set. Context separators (`--`) and our
-  // own `...` notice lines carry no file and are never matches.
+  // The file a `file:line:match` (or context `file-line-`) grep line came from,
+  // resolved so it can be tested against the extras-denied set. Context
+  // separators (`--`) and our own `...` notice lines carry no file and are
+  // never matches.
+  //
+  // rg's separator is `:-digits-:` / `:digits:`. A non-greedy first match
+  // treats `-<digits>-` inside a dated or versioned path (`2026-09-26-config.json`,
+  // `gpt-4-1.json`) as the line-number field and tests the wrong prefix. Every
+  // separator is a candidate so a hyphen-digit path is still extras-denied, and
+  // a later `:digits:` in the match text cannot un-deny the real file.
   const grepLineDeniedFile = (line: string, rgCwd: string): boolean => {
     if (line.startsWith("...") || line === "--") return false;
-    const match = /^(.*?)[:-]\d+[:-]/.exec(line);
-    if (match?.[1] === undefined) return false;
-    const candidate = match[1].replace(/^\.\//, "");
-    if (candidate.length === 0) return false;
-    return isExtraDenied(resolvePath(rgCwd, candidate));
+    for (const match of line.matchAll(/[:-]\d+[:-]/g)) {
+      const candidate = line.slice(0, match.index).replace(/^\.\//, "");
+      if (candidate.length === 0) continue;
+      if (isExtraDenied(resolvePath(rgCwd, candidate))) return true;
+    }
+    return false;
   };
 
   // Drop extras-denied matches from grep output (both legs). Filtering before
