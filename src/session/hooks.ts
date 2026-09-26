@@ -501,10 +501,24 @@ function truncateToolResultForHookPayload(result: ToolResult): ToolResult {
     callId: result.callId,
     content,
     ...(result.isError !== undefined ? { isError: result.isError } : {}),
+    ...(hookPayloadDetailWithinBudget(result.detail)
+      ? { detail: result.detail }
+      : {}),
     ...(result.pendingMarker !== undefined
       ? { pendingMarker: result.pendingMarker }
       : {}),
   };
+}
+
+function hookPayloadDetailWithinBudget(detail: unknown): boolean {
+  if (detail === undefined) return false;
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(detail) ?? String(detail);
+  } catch {
+    return false;
+  }
+  return serialized.length <= HOOK_PAYLOAD_TOOL_RESULT_CHARS;
 }
 
 function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {

@@ -1,5 +1,9 @@
 import { defined } from "../../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ToolResult } from "@intx/types/runtime";
 import { mcpClientToAgentTools } from "./plugin.js";
 import { createPermissionGate } from "../permission/gate.js";
 import {
@@ -8,7 +12,50 @@ import {
 } from "../plugins/result-truncation-plugin.js";
 import { toolOutputAbsolutePath } from "../plugins/tool-result-materialize.js";
 import { CREDENTIAL_REDACTION } from "../plugins/tool-result-secret-scrub.js";
-import type { MCPClient } from "./client.js";
+import { createCompactionArchive } from "../session/compaction-archive.js";
+import type { MCPClient, MCPContentBlock } from "./client.js";
+
+interface ScriptedMcpEnvelope {
+  blocks: MCPContentBlock[];
+  isError?: boolean;
+  structuredContent?: Record<string, unknown>;
+}
+
+function fakeEnvelopeClient(envelope: ScriptedMcpEnvelope): MCPClient {
+  const client: MCPClient = {
+    serverName: "acme",
+    tools: [
+      {
+        name: "fetch_secret",
+        description: "returns a value",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ],
+    call: async () => "",
+    callBlocks: async () => envelope.blocks,
+    close: async () => undefined,
+  };
+  // callResult is the new envelope channel (GREEN); absent on RED code.
+  Object.assign(client, {
+    callResult: async () => envelope,
+  });
+  return client;
+}
+
+async function runEnvelopeTool(
+  envelope: ScriptedMcpEnvelope,
+  callId: string,
+  spillOptions?: Parameters<typeof mcpClientToAgentTools>[2],
+) {
+  const gate = skipGate();
+  const client = fakeEnvelopeClient(envelope);
+  const [tool] = mcpClientToAgentTools(client, gate, spillOptions);
+  if (tool?.kind !== "full") throw new Error("expected full tool");
+  return tool.handler(
+    { id: callId, name: "mcp__acme__fetch_secret", arguments: {} },
+    new AbortController().signal,
+  );
+}
 
 function fakeClient(reply: string): MCPClient {
   return {
@@ -34,6 +81,39 @@ function fakeBlobStore() {
       blobs.set(key, { bytes, contentType });
     },
   };
+}
+
+function memoryEvidenceArchive() {
+  const blobs = new Map<string, Uint8Array>();
+  const archive = createCompactionArchive({
+    sessionId: "mcp-plugin-test",
+    contextDir: mkdtempSync(join(tmpdir(), "mcp-plugin-archive-")),
+    writeBlob: async (key, bytes) => {
+      blobs.set(key, bytes);
+    },
+    readBlob: async (key) => {
+      const bytes = blobs.get(key);
+      if (bytes === undefined) throw new Error(`missing archive blob ${key}`);
+      return bytes;
+    },
+  });
+  return { archive, blobs };
+}
+
+function serializePersistedToolResultTurn(result: ToolResult): string {
+  return JSON.stringify({
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        callId: result.callId,
+        content: [{ type: "text", text: String(result.content) }],
+        ...(result.detail !== undefined ? { detail: result.detail } : {}),
+        ...(result.isError !== undefined ? { isError: result.isError } : {}),
+      },
+    ],
+    timestamp: 0,
+  });
 }
 
 function skipGate() {
@@ -178,5 +258,381 @@ describe("mcpClientToAgentTools", () => {
     expect(result.content).toContain(
       toolOutputAbsolutePath(contextDir, key, "text/plain"),
     );
+  });
+
+  test("tool-level failure surfaces as an error result with text preserved", async () => {
+    const result = await runEnvelopeTool(
+      {
+        blocks: [{ type: "text", text: "tool failed: bad input" }],
+        isError: true,
+      },
+      "c-mcp-iserror-text",
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("tool failed: bad input");
+  });
+
+  test("tool-level failure with empty content still yields a failure message", async () => {
+    const result = await runEnvelopeTool(
+      { blocks: [], isError: true },
+      "c-mcp-iserror-empty",
+    );
+
+    expect(result.isError).toBe(true);
+    expect(typeof result.content).toBe("string");
+    expect((result.content as string).length).toBeGreaterThan(0);
+  });
+
+  test("structured-only result surfaces a scrubbed JSON string, not empty text", async () => {
+    const result = await runEnvelopeTool(
+      { blocks: [], structuredContent: { answer: 42 } },
+      "c-mcp-structured-only",
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(typeof result.content).toBe("string");
+    expect(result.content).toContain("42");
+    expect(result.detail).toEqual({ answer: 42 });
+  });
+
+  test("text plus structured content keeps the text and preserves structured detail", async () => {
+    const result = await runEnvelopeTool(
+      {
+        blocks: [{ type: "text", text: "hello from tool" }],
+        structuredContent: { answer: 42 },
+      },
+      "c-mcp-text-plus-structured",
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain("hello from tool");
+    expect(result.detail).toEqual({ answer: 42 });
+  });
+
+  test("credential-shaped values inside structured content are redacted", async () => {
+    const rawToken = ["sk-", "live-", "k".repeat(24)].join("");
+    const result = await runEnvelopeTool(
+      {
+        blocks: [],
+        structuredContent: { token: rawToken },
+      },
+      "c-mcp-structured-secret",
+    );
+
+    expect(result.detail).toEqual({ token: CREDENTIAL_REDACTION });
+    expect(result.content).toContain(CREDENTIAL_REDACTION);
+    expect(result.content).not.toContain(rawToken);
+    expect(result.content).not.toContain("sk-live-");
+    const detailJson = JSON.stringify(result.detail);
+    expect(detailJson).toContain(CREDENTIAL_REDACTION);
+    expect(detailJson).not.toContain(rawToken);
+    expect(detailJson).not.toContain("sk-live-");
+  });
+
+  test("scrubs short credential-keyed values from every retained surface", async () => {
+    const { archive, blobs } = memoryEvidenceArchive();
+    const result = await runEnvelopeTool(
+      {
+        blocks: [{ type: "resource", authorization: "block-short" }],
+        isError: false,
+        structuredContent: {
+          apiKey: "top-short",
+          nested: { auth: "nested-short", access_token: "access-short" },
+        },
+      },
+      "c-mcp-short-credential-values",
+      { getEvidenceArchive: () => archive },
+    );
+
+    const surfaces = [
+      JSON.stringify(result.detail),
+      String(result.content),
+      serializePersistedToolResultTurn(result),
+      ...[...blobs.values()].map((bytes) => new TextDecoder().decode(bytes)),
+    ];
+    for (const surface of surfaces) {
+      expect(surface).toContain(CREDENTIAL_REDACTION);
+      expect(surface).not.toContain("top-short");
+      expect(surface).not.toContain("nested-short");
+      expect(surface).not.toContain("access-short");
+      expect(surface).not.toContain("block-short");
+    }
+  });
+
+  test("preserves special structured keys without prototype mutation", async () => {
+    const { archive } = memoryEvidenceArchive();
+    const structuredContent = JSON.parse(
+      '{"__proto__":"top","constructor":"ctor","nested":{"__proto__":"nested"}}',
+    ) as Record<string, unknown>;
+    const result = await runEnvelopeTool(
+      { blocks: [], structuredContent },
+      "c-mcp-special-keys",
+      { getEvidenceArchive: () => archive },
+    );
+
+    const detail = result.detail as Record<string, unknown>;
+    const nested = detail.nested as Record<string, unknown>;
+    expect(Object.getPrototypeOf(detail)).toBeNull();
+    expect(Object.getPrototypeOf(nested)).toBeNull();
+    expect(JSON.stringify(detail)).toBe(JSON.stringify(structuredContent));
+    expect(({} as Record<string, unknown>).top).toBeUndefined();
+
+    const [occurrence] = await archive.listOccurrences();
+    if (occurrence === undefined) throw new Error("missing archive occurrence");
+    expect(
+      await archive.readAuthorizedPayload(occurrence.occurrenceId),
+    ).toContain('"__proto__":"top"');
+  });
+
+  test("scrubs structured keys from detail, archive bytes, and model content", async () => {
+    const topLevelKey = ["sk-", "live-", "a".repeat(24)].join("");
+    const nestedKey = ["sk-", "live-", "b".repeat(24)].join("");
+    const { archive, blobs } = memoryEvidenceArchive();
+    const result = await runEnvelopeTool(
+      {
+        blocks: [{ type: "resource", [topLevelKey]: "block-value" }],
+        isError: false,
+        structuredContent: {
+          [topLevelKey]: "top-level",
+          nested: { [nestedKey]: "nested" },
+        },
+      },
+      "c-mcp-structured-key-secret",
+      { getEvidenceArchive: () => archive },
+    );
+
+    const detail = JSON.stringify(result.detail);
+    const modelTurn = serializePersistedToolResultTurn(result);
+    const archiveBytes = [...blobs.values()].map((bytes) =>
+      new TextDecoder().decode(bytes),
+    );
+    const surfaces = [
+      detail,
+      String(result.content),
+      modelTurn,
+      ...archiveBytes,
+    ];
+    for (const surface of surfaces) {
+      expect(surface).not.toContain(topLevelKey);
+      expect(surface).not.toContain(nestedKey);
+    }
+    expect(detail).toContain(CREDENTIAL_REDACTION);
+    expect(String(result.content)).toContain(CREDENTIAL_REDACTION);
+    expect(modelTurn).toContain(CREDENTIAL_REDACTION);
+    expect(archiveBytes.join("\n")).toContain(CREDENTIAL_REDACTION);
+  });
+
+  test("keeps oversized structured content full only in the evidence archive", async () => {
+    const { archive } = memoryEvidenceArchive();
+    const store = fakeBlobStore();
+    const hugeValue = "x".repeat(MAX_RESULT_CHARS * 4);
+    const callId = "c-mcp-oversized-detail";
+    const result = await runEnvelopeTool(
+      {
+        blocks: [],
+        isError: false,
+        structuredContent: { hugeValue },
+      },
+      callId,
+      {
+        getEvidenceArchive: () => archive,
+        getBlobWriter: () => store.writeBlob,
+      },
+    );
+
+    expect(result.detail).toBeUndefined();
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(
+      MAX_RESULT_CHARS + 256,
+    );
+    expect(store.blobs.has(spillBlobKey(callId))).toBe(false);
+    expect(result.content).not.toContain("tool-output:///");
+    const serializedTurn = serializePersistedToolResultTurn(result);
+    expect(serializedTurn.length).toBeLessThanOrEqual(MAX_RESULT_CHARS + 512);
+    expect(serializedTurn).not.toContain(hugeValue);
+
+    const [occurrence] = await archive.listOccurrences();
+    if (occurrence === undefined) throw new Error("missing archive occurrence");
+    const archived = JSON.parse(
+      await archive.readAuthorizedPayload(occurrence.occurrenceId),
+    ) as { structuredContent: { hugeValue: string } };
+    expect(archived.structuredContent.hugeValue).toBe(hugeValue);
+  });
+
+  test("spills oversized structured content when the evidence archive fails", async () => {
+    const { archive } = memoryEvidenceArchive();
+    const failingArchive = {
+      ...archive,
+      recordAuthorizedPayload: async () => {
+        throw new Error("archive unavailable");
+      },
+    };
+    const store = fakeBlobStore();
+    const hugeValue = "y".repeat(MAX_RESULT_CHARS * 4);
+    const callId = "c-mcp-oversized-archive-failure";
+
+    const result = await runEnvelopeTool(
+      { blocks: [], structuredContent: { hugeValue } },
+      callId,
+      {
+        getEvidenceArchive: () => failingArchive,
+        getBlobWriter: () => store.writeBlob,
+      },
+    );
+
+    const spill = store.blobs.get(spillBlobKey(callId));
+    expect(spill).toBeDefined();
+    expect(new TextDecoder().decode(defined(spill).bytes)).toContain(hugeValue);
+    expect(result.content).toContain(`tool-output:///${spillBlobKey(callId)}`);
+    expect(result.detail).toBeUndefined();
+  });
+
+  test("rejects non-JSON structured values without invoking hooks or leaking", async () => {
+    const leakMarker = "short-private-marker";
+    let accessorReads = 0;
+    let toJSONCalls = 0;
+    const accessor = Object.defineProperty({}, "value", {
+      enumerable: true,
+      get: () => {
+        accessorReads++;
+        return leakMarker;
+      },
+    });
+    const customJSON = {
+      toJSON: () => {
+        toJSONCalls++;
+        return { leaked: leakMarker };
+      },
+    };
+    const cycle: Record<string, unknown> = {};
+    cycle.self = cycle;
+    const invalidValues: unknown[] = [
+      accessor,
+      customJSON,
+      { value: () => leakMarker },
+      { value: Symbol(leakMarker) },
+      { value: 1n },
+      cycle,
+    ];
+
+    for (const [index, structuredContent] of invalidValues.entries()) {
+      const { archive, blobs } = memoryEvidenceArchive();
+      const result = await runEnvelopeTool(
+        {
+          blocks: [{ type: "text", text: "usable text" }],
+          structuredContent: structuredContent as Record<string, unknown>,
+        },
+        `c-mcp-invalid-structured-${index}`,
+        { getEvidenceArchive: () => archive },
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.detail).toBeUndefined();
+      expect(result.content).toBe("Tool result is not JSON-safe");
+      expect(JSON.stringify(result)).not.toContain(leakMarker);
+      for (const bytes of blobs.values()) {
+        expect(new TextDecoder().decode(bytes)).not.toContain(leakMarker);
+      }
+    }
+    expect(accessorReads).toBe(0);
+    expect(toJSONCalls).toBe(0);
+  });
+
+  test("archives identical success and failure payloads with distinct isError", async () => {
+    const { archive } = memoryEvidenceArchive();
+    const envelope = {
+      blocks: [{ type: "text", text: "same payload" }],
+      structuredContent: { answer: 42 },
+    };
+
+    await runEnvelopeTool(
+      { ...envelope, isError: false },
+      "c-mcp-archive-success",
+      { getEvidenceArchive: () => archive },
+    );
+    await runEnvelopeTool(
+      { ...envelope, isError: true },
+      "c-mcp-archive-failure",
+      { getEvidenceArchive: () => archive },
+    );
+
+    const occurrences = await archive.listOccurrences();
+    expect(occurrences).toHaveLength(2);
+    const payloads = await Promise.all(
+      occurrences.map(async (occurrence) =>
+        JSON.parse(
+          await archive.readAuthorizedPayload(occurrence.occurrenceId),
+        ),
+      ),
+    );
+    expect(payloads.map((payload) => payload.isError)).toEqual([false, true]);
+  });
+
+  test("falls back to legacy call when block and envelope methods are absent", async () => {
+    let calls = 0;
+    const client: MCPClient = {
+      serverName: "legacy",
+      tools: [
+        {
+          name: "echo",
+          description: "returns legacy text",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      call: async () => {
+        calls++;
+        return "legacy response";
+      },
+      close: async () => undefined,
+    };
+    const [tool] = mcpClientToAgentTools(client, skipGate());
+    if (tool?.kind !== "full") throw new Error("expected full tool");
+
+    const result = await tool.handler(
+      { id: "c-mcp-legacy", name: "mcp__legacy__echo", arguments: {} },
+      new AbortController().signal,
+    );
+
+    expect(calls).toBe(1);
+    expect(result).toEqual({
+      callId: "c-mcp-legacy",
+      content: "legacy response",
+    });
+  });
+
+  test("thrown transport failures still surface as error results", async () => {
+    const gate = skipGate();
+    const client: MCPClient = {
+      serverName: "acme",
+      tools: [
+        {
+          name: "fetch_secret",
+          description: "returns a value",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      call: async () => {
+        throw new Error("transport exploded");
+      },
+      callBlocks: async () => {
+        throw new Error("transport exploded");
+      },
+      close: async () => undefined,
+    };
+    Object.assign(client, {
+      callResult: async () => {
+        throw new Error("transport exploded");
+      },
+    });
+    const [tool] = mcpClientToAgentTools(client, gate);
+    if (tool?.kind !== "full") throw new Error("expected full tool");
+
+    const result = await tool.handler(
+      { id: "c-mcp-throw", name: "mcp__acme__fetch_secret", arguments: {} },
+      new AbortController().signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("transport exploded");
   });
 });

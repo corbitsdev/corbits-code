@@ -76,21 +76,113 @@ export function scrubSecretShapedContent(text: string): string {
   return result;
 }
 
+const JSON_SAFE_ERROR = "Tool result is not JSON-safe";
+const CREDENTIAL_FIELD =
+  /^(?:api[_ -]?key|access[_ -]?token|token|password|secret|credential|authorization|auth)$/i;
+
 /**
- * Structure-preserving scrub for validated JSON-shaped tool results. String
- * leaves are scrubbed in place; objects/arrays keep their shape. Never
- * stringifies a Record into the result content.
+ * Returns a detached JSON-safe value without invoking input accessors or custom
+ * serialization. Records use a null prototype so every JSON key remains data.
  */
 export function scrubSecretShapedValue(value: unknown): unknown {
-  if (typeof value === "string") return scrubSecretShapedContent(value);
-  if (Array.isArray(value))
-    return value.map((item) => scrubSecretShapedValue(item));
-  if (value !== null && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(value)) {
-      out[key] = scrubSecretShapedValue(child);
-    }
-    return out;
+  try {
+    return normalizeJSONValue(value, new Set<object>());
+  } catch {
+    throw new TypeError(JSON_SAFE_ERROR);
   }
-  return value;
+}
+
+function normalizeJSONValue(value: unknown, ancestors: Set<object>): unknown {
+  if (value === null) return null;
+  if (typeof value === "string") return scrubSecretShapedContent(value);
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError(JSON_SAFE_ERROR);
+    return value;
+  }
+  if (typeof value !== "object") throw new TypeError(JSON_SAFE_ERROR);
+  if (ancestors.has(value)) throw new TypeError(JSON_SAFE_ERROR);
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) return normalizeJSONArray(value, ancestors);
+    return normalizeJSONObject(value, ancestors);
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function normalizeJSONArray(
+  value: unknown[],
+  ancestors: Set<object>,
+): unknown[] {
+  if (Object.getPrototypeOf(value) !== Array.prototype) {
+    throw new TypeError(JSON_SAFE_ERROR);
+  }
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") throw new TypeError(JSON_SAFE_ERROR);
+    if (key === "length") continue;
+    const index = Number(key);
+    if (!Number.isInteger(index) || index < 0 || String(index) !== key) {
+      throw new TypeError(JSON_SAFE_ERROR);
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      throw new TypeError(JSON_SAFE_ERROR);
+    }
+  }
+
+  return Array.from({ length: value.length }, (_, index) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (descriptor === undefined) return null;
+    if (!("value" in descriptor)) throw new TypeError(JSON_SAFE_ERROR);
+    return normalizeJSONValue(descriptor.value, ancestors);
+  });
+}
+
+function normalizeJSONObject(
+  value: object,
+  ancestors: Set<object>,
+): Record<string, unknown> {
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError(JSON_SAFE_ERROR);
+  }
+
+  const out: Record<string, unknown> = Object.create(null) as Record<
+    string,
+    unknown
+  >;
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== "string") throw new TypeError(JSON_SAFE_ERROR);
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (
+      descriptor === undefined ||
+      !("value" in descriptor) ||
+      descriptor.enumerable !== true
+    ) {
+      throw new TypeError(JSON_SAFE_ERROR);
+    }
+    const normalized = normalizeJSONValue(descriptor.value, ancestors);
+    const scrubbedKey = uniqueScrubbedKey(out, scrubSecretShapedContent(key));
+    Object.defineProperty(out, scrubbedKey, {
+      value: CREDENTIAL_FIELD.test(key) ? CREDENTIAL_REDACTION : normalized,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return out;
+}
+
+function uniqueScrubbedKey(
+  target: Record<string, unknown>,
+  scrubbedKey: string,
+): string {
+  if (!Object.hasOwn(target, scrubbedKey)) return scrubbedKey;
+  let collisionIndex = 2;
+  while (Object.hasOwn(target, `${scrubbedKey} [${collisionIndex}]`)) {
+    collisionIndex++;
+  }
+  return `${scrubbedKey} [${collisionIndex}]`;
 }

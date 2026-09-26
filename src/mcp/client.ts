@@ -27,6 +27,23 @@ export interface MCPContentBlock {
   [key: string]: unknown;
 }
 
+/**
+ * Scope lock (CL-8992): the pinned @modelcontextprotocol/sdk v1 CallToolResult
+ * is `{ content: blocks[] (default []), structuredContent?: Record<string,
+ * unknown>, isError?: boolean }` — a tool-level failure still succeeds at the
+ * protocol layer. The envelope carries all three so the plugin can surface
+ * failures as errors and structured-only payloads as readable text.
+ * `structuredContent` reaches the model JSON-serialized into the content
+ * string under MCP_STRUCTURED_CONTENT_MARKER (see plugin.ts). Small
+ * policy-scrubbed records are preserved under ToolResult `detail`; the full
+ * scrubbed record is retained in the evidence archive — never raw.
+ */
+export interface MCPToolResultEnvelope {
+  blocks: MCPContentBlock[];
+  isError: boolean;
+  structuredContent?: Record<string, unknown>;
+}
+
 export interface MCPClient {
   serverName: string;
   tools: MCPTool[];
@@ -41,6 +58,12 @@ export interface MCPClient {
     args: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<MCPContentBlock[]>;
+  /** Full tool-result envelope: blocks plus tool-level isError/structuredContent. */
+  callResult?(
+    toolName: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<MCPToolResultEnvelope>;
   close(): Promise<void>;
 }
 
@@ -566,6 +589,29 @@ async function finishClient(
   return {
     serverName,
     tools,
+    async callResult(toolName, args, signal) {
+      const context =
+        authContext === undefined ? undefined : { ...authContext, signal };
+      const result = await withHTTPAuthorizationRecovery(context, () =>
+        client.callTool({ name: toolName, arguments: args }, undefined, {
+          signal,
+        }),
+      );
+      const envelope: MCPToolResultEnvelope = {
+        blocks: validateMcpContentBlocks(result.content),
+        isError: result.isError === true,
+      };
+      if (
+        result.structuredContent !== null &&
+        typeof result.structuredContent === "object"
+      ) {
+        envelope.structuredContent = result.structuredContent as Record<
+          string,
+          unknown
+        >;
+      }
+      return envelope;
+    },
     async callBlocks(toolName, args, signal) {
       const context =
         authContext === undefined ? undefined : { ...authContext, signal };
