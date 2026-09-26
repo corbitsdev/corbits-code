@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { globalSettingsPath } from "../../config/settings.js";
 import { createAppShell } from "../shell/index.js";
 import { shellInternals } from "../shell/internals.js";
 import { withTestRenderer } from "../harness.js";
@@ -34,12 +35,12 @@ describe("saved skip-permissions startup warning", () => {
     expect(warning).not.toMatch(/machine-wide|saved default|\/yolo off/i);
   });
 
-  test("identifies the default settings path", async () => {
-    const warning = await surfacedWarning(
-      "/home/operator/.corbits/settings.json",
-    );
+  test("appends the /yolo off hint for the default settings path", async () => {
+    const source = globalSettingsPath();
+    const warning = await surfacedWarning(source);
 
-    expect(warning).toContain("/home/operator/.corbits/settings.json");
+    expect(warning).toContain(source);
     expect(warning).toContain("edit that file to re-enable");
+    expect(warning).toContain("/yolo off");
   });
 });
