@@ -174,28 +174,32 @@ function restorePrimaryFrame(
 }
 
 /**
- * Kinds opened through `openCommandSurface` (`CommandSurfaceKind` in
- * ../command-surfaces.ts, restated here to keep shell/ import-clean). Only
- * these yield to a decision gate. Inline popups (mentions, palette, pickers)
- * keep their stacking contracts — suspending one would strand its owner, the
- * CL-6698 mention-refresh stall — so a gate arriving behind them stays queued.
+ * Command surfaces that occupy the shared host and can yield to a decision
+ * gate. Kinds are the live `PrimaryOverlayKind` values those surfaces open
+ * with (`model_picker` / `add_provider`, not the command-surface aliases
+ * `models` / `add-provider`). Inline popups (mentions, palette, pickers that
+ * stack) keep their stacking contracts — suspending one would strand its
+ * owner, the CL-6698 mention-refresh stall — so a gate arriving behind them
+ * stays queued.
  */
-const GATE_PREEMPTABLE_SURFACE_KINDS: ReadonlySet<string> = new Set([
-  "help",
-  "settings",
-  "permissions",
-  "plugins",
-  "hooks",
-  "mcp",
-  "models",
-  "add-provider",
-]);
+const GATE_PREEMPTABLE_SURFACE_KINDS: ReadonlySet<PrimaryOverlayKind> = new Set(
+  [
+    "help",
+    "settings",
+    "permissions",
+    "plugins",
+    "hooks",
+    "mcp",
+    "model_picker",
+    "add_provider",
+  ],
+);
 
 /**
  * Suspend the live replaceable command surface so a decision gate can take
  * the host; the surface returns after the gate settles (see
- * `resumeSuspendedCommandSurface`). Live gates and non-surface popups
- * (palette, mentions, pickers) keep their contracts: arrivals behind them
+ * `resumeSuspendedCommandSurface`). Live gates and stacked popups
+ * (palette, mentions) keep their contracts: arrivals behind them
  * stay queued. Never loses a surface: a second suspend is a no-op while one
  * is held.
  */
@@ -209,6 +213,14 @@ export function suspendReplaceableOverlay(shell: AppShell): void {
   const frame = capturePrimaryFrame(shell, bag);
   if (frame === null) return;
   bag.suspendedCommandSurface = frame;
+  // Suspend is not dismiss: keep the captured onCancel/onDispose for restore.
+  // closeInsetOverlay would otherwise run both — MCP's onDispose unsubscribes
+  // without a matching onOpened on restore, and remove-confirm onCancel would
+  // reopen a list onto the empty host and steal it from the arriving gate.
+  bag.primaryBindings.onCancel = null;
+  bag.primaryBindings.onDispose = null;
+  // Restore reuses this SelectRenderable; clearBody would destroy it.
+  shell.overlayView.detachList(frame.list);
   // Unsuspended close: idle-notify lets an older queued gate take the host
   // first (FIFO); the caller opens its gate only if the host is still free.
   closeInsetOverlay(shell);

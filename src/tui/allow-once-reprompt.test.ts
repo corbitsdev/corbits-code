@@ -34,6 +34,7 @@ import { createAppShell } from "./shell/index.js";
 import type { AppShell } from "./shell/internals.js";
 import {
   acceptOverlaySelection,
+  closeInsetOverlay,
   openListOverlay,
 } from "./shell/overlay-host.js";
 import { moveOverlaySelection } from "./shell/overlay-list.js";
@@ -41,6 +42,7 @@ import { streamRowCount } from "./shell/transcript.js";
 import { wireGates } from "./gate-wire.js";
 import type { PermissionGateEvent } from "./gate-events.js";
 import { createGateRequestApproval } from "./request-approval.js";
+import { openAddProviderOverlay, openModelPickerOverlay } from "./overlays.js";
 
 const shellCall = (command: string): ToolCall => ({
   id: "c",
@@ -473,5 +475,150 @@ describe("CL-8792 elapsed: pending tool row freezes while a gate is outstanding 
       },
       { width: 80, height: 24 },
     );
+  });
+});
+
+describe("CL-8792 overlay host: suspend preserves the surface instead of dismissing it", () => {
+  test("suspend does not fire onCancel or onDispose", async () => {
+    await withWiredWorld(async ({ shell, emitter }) => {
+      const events: string[] = [];
+      openListOverlay(shell, {
+        kind: "help",
+        title: "Slash",
+        items: ["Help"],
+        onCancel: () => events.push("cancel"),
+        onDispose: () => events.push("dispose"),
+      });
+      expect(shell.overlayKind).toBe("help");
+
+      let resolved: unknown;
+      emitter.emit("permission.gate", {
+        id: "req-suspend-hooks",
+        request: destructiveRequest("rm -rf /tmp/cl8792-suspend-hooks"),
+        resolve: (outcome: unknown) => {
+          resolved = outcome;
+        },
+      });
+      expect(shell.overlayKind).toBe("permissions");
+      expect(events).toEqual([]);
+
+      acceptChoice(shell, 1);
+      expect(resolved).toEqual({ allow: true });
+      expect(shell.overlayKind).toBe("help");
+      expect(events).toEqual([]);
+
+      closeInsetOverlay(shell);
+      expect(events).toEqual(["dispose", "cancel"]);
+    });
+  });
+
+  test("restored SelectRenderable is live and parented in overlayView.body", async () => {
+    await withWiredWorld(async ({ shell, emitter }) => {
+      openSlash(shell);
+      const list = defined(shell.overlayList, "slash list");
+      expect(list.select.isDestroyed).toBe(false);
+      expect(list.select.parent).toBe(shell.overlayView.body);
+
+      let resolved: unknown;
+      emitter.emit("permission.gate", {
+        id: "req-restore-list",
+        request: destructiveRequest("rm -rf /tmp/cl8792-restore-list"),
+        resolve: (outcome: unknown) => {
+          resolved = outcome;
+        },
+      });
+      expect(shell.overlayKind).toBe("permissions");
+
+      acceptChoice(shell, 1);
+      expect(resolved).toEqual({ allow: true });
+      expect(shell.overlayKind).toBe("help");
+      expect(shell.overlayList).toBe(list);
+      expect(list.select.isDestroyed).toBe(false);
+      expect(list.select.parent).toBe(shell.overlayView.body);
+      expect(shell.overlayView.body.getChildren()).toContain(list.select);
+    });
+  });
+
+  test.each([
+    {
+      kind: "model_picker" as const,
+      open: (shell: AppShell) =>
+        openModelPickerOverlay(shell, { items: ["grok-3"] }),
+    },
+    {
+      kind: "add_provider" as const,
+      open: (shell: AppShell) =>
+        openAddProviderOverlay(shell, {
+          items: ["custom"],
+          itemIds: ["custom"],
+        }),
+    },
+  ])(
+    "$kind yields to a newly raised gate and returns after settle",
+    async ({ kind, open }) => {
+      await withWiredWorld(async ({ shell, emitter }) => {
+        open(shell);
+        expect(shell.overlayKind).toBe(kind);
+
+        let resolved: unknown;
+        emitter.emit("permission.gate", {
+          id: `req-yield-${kind}`,
+          request: destructiveRequest(`rm -rf /tmp/cl8792-yield-${kind}`),
+          resolve: (outcome: unknown) => {
+            resolved = outcome;
+          },
+        });
+        expect(shell.overlayKind).toBe("permissions");
+
+        acceptChoice(shell, 1);
+        expect(resolved).toEqual({ allow: true });
+        expect(shell.overlayKind).toBe(kind);
+      });
+    },
+  );
+
+  test("MCP onCancel during suspend does not steal the host from a queued gate while a deferred slash occupies idle", async () => {
+    await withWiredWorld(async ({ shell, emitter }) => {
+      let cancelOpens = 0;
+      openListOverlay(shell, {
+        kind: "mcp",
+        title: `remove stolen`,
+        items: ["Remove stolen", "Cancel"],
+        onCancel: () => {
+          cancelOpens += 1;
+          openListOverlay(shell, {
+            kind: "mcp",
+            title: "mcp",
+            items: ["stolen-server"],
+          });
+        },
+      });
+      expect(shell.overlayKind).toBe("mcp");
+
+      openSlash(shell);
+      expect(shell.overlayKind).toBe("mcp");
+
+      let resolved: unknown;
+      emitter.emit("permission.gate", {
+        id: "req-mcp-cancel-steal",
+        request: destructiveRequest("rm -rf /tmp/cl8792-mcp-steal"),
+        resolve: (outcome: unknown) => {
+          resolved = outcome;
+        },
+      });
+      expect(cancelOpens).toBe(0);
+      expect(shell.overlayKind).toBe("permissions");
+      expect(shell.overlayItems).toContain("Accept once");
+
+      acceptChoice(shell, 1);
+      expect(resolved).toEqual({ allow: true });
+      expect(cancelOpens).toBe(0);
+      expect(shell.overlayKind).toBe("mcp");
+      expect(shell.overlayItems).toEqual(["Remove stolen", "Cancel"]);
+
+      await Promise.resolve();
+      expect(shell.overlayKind).toBe("mcp");
+      expect(shell.overlayItems).not.toEqual(["Help"]);
+    });
   });
 });

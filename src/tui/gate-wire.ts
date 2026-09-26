@@ -305,8 +305,8 @@ export function wireGates(
     if (shell.overlayList !== null) {
       // A replaceable command surface yields to the decision gate and is
       // restored after the gate settles. The suspend is a no-op for live
-      // gates and non-surface popups (palette, mentions, pickers — they keep
-      // their stacking contracts), so those arrivals simply stay queued.
+      // gates and stacked popups (palette, mentions — they keep their
+      // stacking contracts), so those arrivals simply stay queued.
       pending.push(open);
       suspendReplaceableOverlay(shell);
       // The suspend-close's idle-notify may already have opened an older
