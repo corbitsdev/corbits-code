@@ -504,6 +504,7 @@ export function autoShellRuleForCall(
   isRestricted: (path: string, isWrite: boolean) => boolean = () => false,
   cwd: string = process.cwd(),
   rootsProvider: RootsProvider = NO_ROOTS,
+  isExtraDenied: (value: string) => boolean = () => false,
 ): AutoShellRule | undefined {
   if (call.name !== "run_shell") return undefined;
   const command = call.arguments.command;
@@ -533,7 +534,9 @@ export function autoShellRuleForCall(
   }
 
   for (const subject of subjects) {
-    if (commandReferencesSensitivePath(subject, cwd) !== undefined)
+    if (
+      commandReferencesSensitivePath(subject, cwd, isExtraDenied) !== undefined
+    )
       return SENSITIVE_PATH_ASK_RULE;
   }
 

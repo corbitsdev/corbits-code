@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { dirname, basename } from "node:path";
+import { dirname, basename, resolve as resolvePath } from "node:path";
 import type { ToolPlugin } from "@intx/tools-posix";
 
 import {
@@ -14,6 +14,7 @@ import {
   type RgLimits,
   type SpawnRg,
 } from "./rg-run.js";
+import { createExtraDeniedPathMatcher } from "./secret-guard-plugin.js";
 
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
 // directory (node_modules, build output, the lot) before searching, which stalls
@@ -97,8 +98,51 @@ export function ripgrepPlugin(
   cwd: string,
   limits: RgLimits = {},
   spawnChild?: SpawnRg,
+  // Extras-denied config paths (CL-9386, CL-1187 finding 1): the active
+  // settings source, including a --config override. The secret-guard plugin
+  // denies single-file grep of these paths, but a directory-scoped grep would
+  // still print their matches — both the rg and fallback legs below drop
+  // matches under denied paths so directory scope cannot exfiltrate them.
+  // Empty by default, which keeps every existing behavior unchanged.
+  extraDeniedPaths: readonly string[] = [],
 ): ToolPlugin {
   const maxBytes = limits.maxOutputBytes ?? MAX_OUTPUT_BYTES;
+  const isExtraDenied = createExtraDeniedPathMatcher(extraDeniedPaths);
+
+  // The file a `file:line:match` grep line came from, resolved so it can be
+  // tested against the extras-denied set. Context separators (`--`) and our
+  // own `...` notice lines carry no file and are never matches.
+  const grepLineDeniedFile = (line: string, rgCwd: string): boolean => {
+    if (line.startsWith("...") || line === "--") return false;
+    const match = /^(.*?)[:-]\d+[:-]/.exec(line);
+    if (match?.[1] === undefined) return false;
+    const candidate = match[1].replace(/^\.\//, "");
+    if (candidate.length === 0) return false;
+    return isExtraDenied(resolvePath(rgCwd, candidate));
+  };
+
+  // Drop extras-denied matches from grep output (both legs). Filtering before
+  // the caps keeps the "showing first N" counts honest.
+  const filterGrepStdout = (stdout: string, rgCwd: string): string =>
+    stdout
+      .split("\n")
+      .filter((line) => line.length > 0 && !grepLineDeniedFile(line, rgCwd))
+      .join("\n");
+
+  // Drop extras-denied paths from search_files output (both legs). Filtering
+  // the name as well as the content: confirming the file's existence is part
+  // of what the denial withholds.
+  const filterSearchStdout = (stdout: string, rgCwd: string): string =>
+    stdout
+      .split("\n")
+      .filter(
+        (line) =>
+          line.length > 0 &&
+          !line.startsWith("...") &&
+          !isExtraDenied(resolvePath(rgCwd, line.replace(/^\.\//, ""))),
+      )
+      .join("\n");
+
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name === "grep") {
@@ -130,7 +174,11 @@ export function ripgrepPlugin(
             const content = await runBoundedGrep(boundedArgs, signal, rgCwd);
             return {
               callId: call.id,
-              content: boundedContent(content, maxResults, maxBytes),
+              content: boundedContent(
+                filterGrepStdout(content, rgCwd),
+                maxResults,
+                maxBytes,
+              ),
             };
           } catch (err) {
             return {
@@ -149,12 +197,16 @@ export function ripgrepPlugin(
         if (result.kind === "partial") {
           return {
             callId: call.id,
-            content: partialContent(result.stdout, maxResults, result.notice),
+            content: partialContent(
+              filterGrepStdout(result.stdout, rgCwd),
+              maxResults,
+              result.notice,
+            ),
           };
         }
         return {
           callId: call.id,
-          content: capLines(result.stdout, maxResults),
+          content: capLines(filterGrepStdout(result.stdout, rgCwd), maxResults),
         };
       }
 
@@ -171,6 +223,7 @@ export function ripgrepPlugin(
           rgCwd,
           signal,
           limits,
+          spawnChild,
         );
         if (result.kind === "unavailable") {
           try {
@@ -181,7 +234,11 @@ export function ripgrepPlugin(
             );
             return {
               callId: call.id,
-              content: boundedContent(content, maxResults, maxBytes),
+              content: boundedContent(
+                filterSearchStdout(content, rgCwd),
+                maxResults,
+                maxBytes,
+              ),
             };
           } catch (err) {
             return {
@@ -200,12 +257,19 @@ export function ripgrepPlugin(
         if (result.kind === "partial") {
           return {
             callId: call.id,
-            content: partialContent(result.stdout, maxResults, result.notice),
+            content: partialContent(
+              filterSearchStdout(result.stdout, rgCwd),
+              maxResults,
+              result.notice,
+            ),
           };
         }
         return {
           callId: call.id,
-          content: capLines(result.stdout, maxResults),
+          content: capLines(
+            filterSearchStdout(result.stdout, rgCwd),
+            maxResults,
+          ),
         };
       }
 
