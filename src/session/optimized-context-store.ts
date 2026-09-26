@@ -864,9 +864,10 @@ export async function createSessionStores(
           }
 
           const add = extraCommitPaths([...new Set(toAdd)]);
-          const remove = extraCommitPaths([...new Set(toRemove)]).filter(
-            (p) => !add.includes(p),
-          );
+          // extraCommitPaths strips vendor roots because base.commit() git.adds
+          // those that still exist. It does not git.remove missing ones, so an
+          // unlinked prompt.jsonl must stay in `remove`.
+          const remove = [...new Set(toRemove)].filter((p) => !add.includes(p));
           extraPaths = [...new Set([...add, ...remove])];
 
           for (const filepath of add) {

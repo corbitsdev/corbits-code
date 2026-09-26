@@ -1061,4 +1061,61 @@ describe("createOptimizedContextStore prompt dedupe (CL-9026)", () => {
     expect(await gitLsTree(dir)).not.toContain(PROMPT_FILE);
     expect(turnTexts((await store.load()).turns)).toEqual(["a", "b"]);
   });
+
+  test("committed then identical writePrompt drops prompt.jsonl from HEAD", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const live = [turn("a"), turn("b")];
+    await store.writeTurns([...live]);
+    await store.writePrompt([turn("a")]);
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "differing prompt" });
+    expect(await gitLsTree(dir)).toContain(PROMPT_FILE);
+
+    await store.writePrompt(cloneTurns(live));
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const afterIdentical = await store.commit({ message: "identical prompt" });
+    expect(await gitLsTree(dir)).not.toContain(PROMPT_FILE);
+    expect(turnTexts((await store.load()).turns)).toEqual(["a", "b"]);
+
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    const empty = await store.commit({ message: "empty checkpoint" });
+    expect(empty.hash).toBe(afterIdentical.hash);
+  });
+
+  test("identical writePrompt after multi-segment differing prompt drops all prompt files from HEAD", async () => {
+    const dir = tempDir();
+    const store = await createOptimizedContextStore(dir);
+    const live: ConversationTurn[] = [];
+    const big = "x".repeat(20_000);
+    for (let i = 0; i < 18; i++) {
+      live.push(turn(`${i}-${big}`));
+    }
+    await store.writeTurns([...live]);
+
+    const differing: ConversationTurn[] = [];
+    for (let i = 0; i < 18; i++) {
+      differing.push(turn(`p-${i}-${big}`));
+    }
+    await store.writePrompt(differing);
+    const extraPrompt = segmentFileName(PROMPT_FILE, 1);
+    expect(fs.existsSync(path.join(dir, PROMPT_FILE))).toBe(true);
+    expect(fs.existsSync(path.join(dir, extraPrompt))).toBe(true);
+
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "multi-segment prompt" });
+    const treeAfterDiffering = await gitLsTree(dir);
+    expect(treeAfterDiffering).toContain(PROMPT_FILE);
+    expect(treeAfterDiffering).toContain(extraPrompt);
+
+    await store.writePrompt(cloneTurns(live));
+    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
+    await store.commit({ message: "identical drops prompt segments" });
+    const tree = await gitLsTree(dir);
+    expect(tree).not.toContain(PROMPT_FILE);
+    expect(tree).not.toContain(extraPrompt);
+    expect(turnTexts((await store.load()).turns)).toEqual(
+      live.map((t) => (t.content[0] as { text: string }).text),
+    );
+  });
 });
