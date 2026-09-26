@@ -92,11 +92,16 @@ describe("integration — late MCP dispatch", () => {
         session.harness.scenario.replyOnce("anthropic", { text: "listed" });
 
         const { events } = await runUntilDone(session, "list linear issues");
-        expect(
-          toolDoneContents(events).some((content) =>
-            content.includes(`unknown tool: ${LATE_MCP}`),
-          ),
-        ).toBe(true);
+        const loud = events.find(
+          (
+            event,
+          ): event is Extract<ReactorEmittedEvent, { type: "tool.done" }> =>
+            event.type === "tool.done" &&
+            typeof event.data.result.content === "string" &&
+            event.data.result.content.includes(`unknown tool: ${LATE_MCP}`),
+        );
+        expect(loud).toBeDefined();
+        expect(loud?.data.result.isError).toBe(true);
       } finally {
         await closeIntegrationSession(session);
       }
@@ -131,6 +136,96 @@ describe("integration — late MCP dispatch", () => {
   );
 
   test.serial(
+    "unadvertised MCP tool dispatch fails loudly instead of altering results",
+    async () => {
+      const session = await openIntegrationSession({
+        permissionGate: permissionGate(),
+        createAgentFn: createAgentWithLiveToolDispatch,
+      });
+
+      try {
+        session.toolset.dynamicRunner.addTools(lateMcpTools());
+        const missing = "mcp__linear__no_such_tool";
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [{ name: missing, args: {} }],
+        });
+        session.harness.scenario.replyOnce("anthropic", { text: "refused" });
+
+        const { events } = await runUntilDone(session, "delete everything");
+        const loud = events.find(
+          (
+            event,
+          ): event is Extract<ReactorEmittedEvent, { type: "tool.done" }> =>
+            event.type === "tool.done" &&
+            typeof event.data.result.content === "string" &&
+            event.data.result.content.includes(`unknown tool: ${missing}`),
+        );
+        expect(loud).toBeDefined();
+        expect(loud?.data.result.isError).toBe(true);
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
+
+  test.serial(
+    "out-of-scope MCP arguments fail loudly with an actionable error",
+    async () => {
+      const session = await openIntegrationSession({
+        permissionGate: permissionGate(),
+        createAgentFn: createAgentWithLiveToolDispatch,
+      });
+
+      try {
+        const client: MCPClient = {
+          serverName: "linear",
+          tools: [
+            {
+              name: "list_issues",
+              description: "list issues",
+              inputSchema: LATE_MCP_SCHEMA,
+            },
+          ],
+          async call(toolName, args) {
+            if (toolName === "list_issues" && args.team === "rogue") {
+              throw new Error(
+                'scope denied: team "rogue" is not in scope for this connection',
+              );
+            }
+            return "ISSUE-1";
+          },
+          async close() {
+            return undefined;
+          },
+        };
+        session.toolset.dynamicRunner.addTools(mcpClientTools(client));
+        session.harness.scenario.replyOnce("anthropic", {
+          toolCalls: [{ name: LATE_MCP, args: { limit: 1, team: "rogue" } }],
+        });
+        session.harness.scenario.replyOnce("anthropic", { text: "refused" });
+
+        const { events } = await runUntilDone(
+          session,
+          "list rogue team issues",
+        );
+        const loud = events.find(
+          (
+            event,
+          ): event is Extract<ReactorEmittedEvent, { type: "tool.done" }> =>
+            event.type === "tool.done" &&
+            typeof event.data.result.content === "string" &&
+            event.data.result.content.includes("scope denied"),
+        );
+        expect(loud).toBeDefined();
+        expect(loud?.data.result.isError).toBe(true);
+        expect(loud?.data.result.content).toContain("not in scope");
+      } finally {
+        await closeIntegrationSession(session);
+      }
+    },
+  );
+
+  test.serial(
     "tool_search promotion preserves optional MCP arguments",
     async () => {
       const session = await openIntegrationSession({
@@ -147,6 +242,7 @@ describe("integration — late MCP dispatch", () => {
         });
         expect(tools).toHaveLength(1);
         expect(tools[0]?.kind).toBe("full");
+        const expectedSchema = structuredClone(LATE_MCP_SCHEMA);
         session.toolset.dynamicRunner.addTools(tools);
         session.toolset.setToolPromoter(() => {
           session.updateToolDefinitions(
@@ -159,7 +255,7 @@ describe("integration — late MCP dispatch", () => {
           ],
         });
         session.harness.scenario.replyOnce("anthropic", {
-          toolCalls: [{ name: LATE_MCP, args: { limit: 1 } }],
+          toolCalls: [{ name: LATE_MCP, args: { limit: 1, team: "eng" } }],
         });
         session.harness.scenario.replyOnce("anthropic", { text: "listed" });
 
@@ -179,12 +275,12 @@ describe("integration — late MCP dispatch", () => {
           .find((tool) => tool.name === LATE_MCP);
 
         expect(publishedTool?.input_schema.properties).toEqual(
-          LATE_MCP_SCHEMA.properties,
+          expectedSchema.properties,
         );
         expect(
           Object.hasOwn(publishedTool?.input_schema ?? {}, "required"),
         ).toBe(false);
-        expect(receivedArgs).toEqual({ limit: 1 });
+        expect(receivedArgs).toEqual({ limit: 1, team: "eng" });
         expect(toolDoneContents(events)).toContain("ISSUE-1");
       } finally {
         await closeIntegrationSession(session);
@@ -230,6 +326,7 @@ describe("integration — late MCP dispatch", () => {
             return undefined;
           },
         };
+        const expectedSchema = structuredClone(schema);
         session.toolset.dynamicRunner.addTools(mcpClientTools(client));
         session.toolset.setToolPromoter(() => {
           session.updateToolDefinitions(
@@ -242,7 +339,12 @@ describe("integration — late MCP dispatch", () => {
           ],
         });
         session.harness.scenario.replyOnce("anthropic", {
-          toolCalls: [{ name: LATE_MCP, args: { limit: 1 } }],
+          toolCalls: [
+            {
+              name: LATE_MCP,
+              args: { limit: 1, team: "eng", customView: "mine" },
+            },
+          ],
         });
         session.harness.scenario.replyOnce("anthropic", { text: "listed" });
 
@@ -261,8 +363,12 @@ describe("integration — late MCP dispatch", () => {
           .flatMap((body) => body.tools ?? [])
           .find((tool) => tool.name === LATE_MCP);
 
-        expect(publishedTool?.input_schema).toEqual(schema);
-        expect(receivedArgs).toEqual({ limit: 1 });
+        expect(publishedTool?.input_schema).toEqual(expectedSchema);
+        expect(receivedArgs).toEqual({
+          limit: 1,
+          team: "eng",
+          customView: "mine",
+        });
         expect(toolDoneContents(events)).toContain("ISSUE-1");
       } finally {
         await closeIntegrationSession(session);
