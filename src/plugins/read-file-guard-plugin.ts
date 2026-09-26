@@ -126,10 +126,6 @@ function readStreamBounded(
     let truncReason: TruncReason | undefined;
     let endReached = false;
     let settled = false;
-    // Set when the scan ceiling trips: the trailing partial is reported
-    // truncated (never windowed), so a line longer than one scan pass keeps
-    // the scan-limit notice instead of a byte-limit page.
-    let scanCapped = false;
 
     const out: string[] = [];
 
@@ -199,13 +195,10 @@ function readStreamBounded(
           if (pending.length > READ_FILE_MAX_LINE_LENGTH && !windowHugeLines) {
             pending = pending.slice(0, READ_FILE_MAX_LINE_LENGTH);
             pendingOverflow = true;
-          } else if (
-            windowHugeLines &&
-            pending.length > READ_FILE_MAX_SCAN_BYTES
-          ) {
-            pending = pending.slice(0, READ_FILE_MAX_LINE_LENGTH);
-            pendingOverflow = true;
           }
+          // windowHugeLines keeps the full pending: the scan trip ends the
+          // stream, and flushRemainder windows the remainder so every scanned
+          // byte stays reachable through offset continuation.
           return true;
         }
         const line = pending.slice(0, nl);
@@ -228,9 +221,11 @@ function readStreamBounded(
         emitWrapped(pending, true);
         return;
       }
+      // Windowed even when scan-capped: every window burns a line number,
+      // so the footer's offset resumes at the next window instead of promising
+      // continuation that skips the unshown middle of an overlong line.
       if (
         !pendingOverflow &&
-        !scanCapped &&
         windowHugeLines &&
         pending.length > contentBudget
       ) {
@@ -293,7 +288,6 @@ function readStreamBounded(
         return;
       }
       if (scanned >= READ_FILE_MAX_SCAN_BYTES) {
-        scanCapped = true;
         flushRemainder();
         if (truncReason === undefined) truncReason = "scan";
         finishOk();

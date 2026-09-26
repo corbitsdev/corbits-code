@@ -165,7 +165,7 @@ describe("readFileBounded", () => {
     expect(content).not.toContain("continue");
   });
 
-  test("a newline-less file past the scan ceiling returns content, not empty", async () => {
+  test("a newline-less file past the scan ceiling returns a windowed page, not empty", async () => {
     const giant = "a".repeat(READ_FILE_MAX_SCAN_BYTES + 1024);
     const p = await fixture("giant-line.txt", giant);
     const { content, isError } = await readFileBounded(
@@ -177,7 +177,21 @@ describe("readFileBounded", () => {
     expect(isError).toBeUndefined();
     expect(content.length).toBeGreaterThan(0);
     expect(content).toContain("     1\t");
-    expect(content).toContain("scan limit");
+    // The scan-capped remainder is windowed like a smaller overlong line, so
+    // the footer offers a deliverable offset page instead of a truncated line
+    // under a scan notice whose tail is unreachable.
+    expect(content).not.toContain("line truncated");
+    expect(content).not.toContain("scan limit");
+    expect(content).toContain("output limit");
+    expect(content).toContain("Use offset=");
+    const body = content.split("\n\n")[0] ?? "";
+    const numbered = body.trimEnd().split("\n");
+    expect(numbered.length).toBeGreaterThan(1);
+    for (const line of numbered) {
+      expect(line.replace(/^\s*\d+\t/, "").length).toBeLessThanOrEqual(
+        READ_FILE_MAX_LINE_LENGTH,
+      );
+    }
   });
 
   test("abort rejects with read_file timeout guidance", async () => {
@@ -445,6 +459,37 @@ describe("CL-8979 large-file pagination", () => {
     expect(collected).toContain("-TAIL");
     expect(collected).toContain("END");
   });
+
+  test("windows a single file line past the scan ceiling with exact reassembly", async () => {
+    const filler = "0123456789ABCDEF".repeat(
+      Math.ceil((READ_FILE_MAX_SCAN_BYTES + 4096) / 16),
+    );
+    const payload = `HEAD-${filler}-TAIL`;
+    expect(payload.length).toBeGreaterThan(READ_FILE_MAX_SCAN_BYTES);
+    const p = await fixture("cl8979-scan-giant.txt", `${payload}\nEND\n`);
+    const rows: string[] = [];
+    let offset = 0;
+    let hops = 0;
+    for (;;) {
+      const res = await readFileBounded(p, offset, 2000, neverAbort());
+      hops += 1;
+      expect(res.isError).toBeUndefined();
+      const content = String(res.content);
+      // No silent tail loss: every scanned byte is windowed, never truncated,
+      // and no footer promises continuation it cannot deliver.
+      expect(content).not.toContain("line truncated");
+      expect(content).not.toContain("scan limit");
+      rows.push(...bodyRows(content));
+      const next = continueOffset(content);
+      if (next === null) break;
+      expect(next).toBeGreaterThan(offset);
+      offset = next;
+      expect(hops).toBeLessThan(500);
+    }
+    expect(hops).toBeGreaterThan(1);
+    expect(rows[rows.length - 1]).toBe("END");
+    expect(rows.slice(0, -1).join("")).toBe(payload);
+  }, 180_000);
 
   test("a large-file page passes the result-truncation layer byte-identical", async () => {
     const name = "cl8979-page.txt";
