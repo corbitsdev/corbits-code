@@ -96,7 +96,7 @@ export function surfaceSavedSkipPermissionsWarning(
   if (!config.skipPermissionsFromSettings) return;
   surfaceSystemNotice(
     shell,
-    savedSkipPermissionsWarning(config.globalSettingsPath),
+    savedSkipPermissionsWarning(config.globalSettingsPath, "tui"),
   );
 }
 

@@ -417,7 +417,11 @@ describe("runExec", () => {
               async () => {
                 const { runExec: runExecUnderMock } =
                   await import("../../../src/exec/runner.js");
-                const defaultSettingsPath = join(home, "settings.json");
+                const defaultSettingsPath = join(
+                  home,
+                  ".corbits",
+                  "settings.json",
+                );
                 const result = await runExecUnderMock({
                   ...bareConfig("do the thing"),
                   cwd,
