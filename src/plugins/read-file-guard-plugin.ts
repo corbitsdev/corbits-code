@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -9,7 +8,6 @@ import type { BlobReader } from "@intx/types/runtime";
 import {
   canonicalToolOutputUri,
   isToolOutputLike,
-  TOOL_OUTPUT_URI_PREFIX,
 } from "../util/tool-output-uri.js";
 import { formatReadFileTimeoutMessage } from "./tool-time-budget.js";
 
@@ -32,10 +30,8 @@ export const READ_FILE_MAX_SCAN_BYTES = 8 * 1024 * 1024;
 /** Refuse tool-output blobs larger than this before bounded paging. */
 export const READ_FILE_MAX_TOOL_OUTPUT_BYTES = READ_FILE_MAX_SCAN_BYTES;
 // Headroom reserved out of the byte budget for the continuation notice, so the
-// returned payload including the notice stays under READ_FILE_MAX_BYTES. Sized
-// for a dual footer: the plain `Use offset=` continuation plus the appended
-// single-use cursor alias on byte/scan-limit pages.
-const NOTICE_RESERVE_BYTES = 384;
+// returned payload including the notice stays under READ_FILE_MAX_BYTES.
+const NOTICE_RESERVE_BYTES = 256;
 
 const LINE_TRUNC_SUFFIX = ` ... [line truncated at ${READ_FILE_MAX_LINE_LENGTH} chars; full line remains in the file — use grep to match within the line]`;
 const TOOL_OUTPUT_CHUNK_BYTES = 64 * 1024;
@@ -51,128 +47,14 @@ export interface ReadFileGuardPluginOptions {
   blobReader?: BlobReader;
 }
 
-// A truncated read used to tell the model "Use offset=N to continue" against
-// the identical path -- exactly the same-path pagination fan-out CL-6961
-// measured (97% of 4+-reads-per-path clusters were legitimate chunked reads
-// of one large file, penalized by detectors that only see "same path, many
-// calls"). Line-limit pages still mint only a single-use tool-output://
-// cursor pointing at the exact resumption point (source + next offset) and
-// tell the model to pass THAT as `path`, so small-file pagination never looks
-// like a same-path loop. Byte/scan-limit pages (large files) keep the plain
-// `Use offset=` continuation -- the first-class, fresh-instance-resumable
-// path -- and append the cursor alias alongside it, so the tail stays
-// reachable by path+offset alone. The cursor is a real, resolvable handle --
-// not the "see the blob" promise result-truncation-plugin.ts's comment
-// forbids, since nothing here claims discarded bytes are retrievable; it just
-// remembers where to resume a fresh bounded read.
-type ReadCursor =
-  | { kind: "file"; absolutePath: string; offset: number; consumed: boolean }
-  | { kind: "blob"; uri: string; offset: number; consumed: boolean };
-
-// A cursor is single-use, but the record survives consumption (bounded by
-// MAX_CURSOR_HISTORY below) so a stale replay -- consumed already, or a
-// second process/turn racing the first -- can be told exactly where to
-// resume instead of hitting an opaque "blob not found" dead end that names
-// neither the file nor an offset and leaves re-reading from scratch (the
-// original path, no offset) as the model's only move.
-const MAX_CURSOR_HISTORY = 200;
-
-const CONTINUE_OFFSET_RE = /Use offset=(\d+) to continue\.\]/;
-const LINE_LIMIT_NOTICE_RE = /stopped at the \d+-line limit\./;
-
-function pruneCursorHistory(cursors: Map<string, ReadCursor>): void {
-  while (cursors.size > MAX_CURSOR_HISTORY) {
-    const oldest = cursors.keys().next().value;
-    if (oldest === undefined) break;
-    cursors.delete(oldest);
-  }
-}
-
-function sameCursorSource(
-  cursor: ReadCursor,
-  source:
-    | { kind: "file"; absolutePath: string }
-    | { kind: "blob"; uri: string },
-): boolean {
-  return source.kind === "file"
-    ? cursor.kind === "file" && cursor.absolutePath === source.absolutePath
-    : cursor.kind === "blob" && cursor.uri === source.uri;
-}
-
-function cursorAlias(id: string): string {
-  return `Use path="${TOOL_OUTPUT_URI_PREFIX}///${id}" (same tool, no offset needed) to continue reading the remainder — a fresh, working handle, not the original path.]`;
-}
-
-function mintCursor(
-  content: string,
-  cursors: Map<string, ReadCursor>,
-  source:
-    | { kind: "file"; absolutePath: string }
-    | { kind: "blob"; uri: string },
-): string {
-  const match = CONTINUE_OFFSET_RE.exec(content);
-  if (match === null) return content;
-  const offset = Number(match[1]);
-  // Re-reading an unconsumed resumption point reuses its live cursor, so two
-  // independent reads of the same page carry the same handle and the page
-  // survives downstream layers byte-identical. Consumed cursors stay retired:
-  // only the stale-replay message may name them.
-  for (const [id, cursor] of cursors) {
-    if (
-      !cursor.consumed &&
-      cursor.offset === offset &&
-      sameCursorSource(cursor, source)
-    ) {
-      const alias = cursorAlias(id);
-      if (LINE_LIMIT_NOTICE_RE.test(content)) {
-        return content.replace(CONTINUE_OFFSET_RE, alias);
-      }
-      return `${content.slice(0, -1)} Or ${alias}`;
-    }
-  }
-  const cursorId = randomUUID();
-  cursors.set(
-    cursorId,
-    source.kind === "file"
-      ? {
-          kind: "file",
-          absolutePath: source.absolutePath,
-          offset,
-          consumed: false,
-        }
-      : { kind: "blob", uri: source.uri, offset, consumed: false },
-  );
-  pruneCursorHistory(cursors);
-  const alias = cursorAlias(cursorId);
-  if (LINE_LIMIT_NOTICE_RE.test(content)) {
-    return content.replace(CONTINUE_OFFSET_RE, alias);
-  }
-  return `${content.slice(0, -1)} Or ${alias}`;
-}
-
-// Bound the source shown in a stale-cursor message: an adversarial or
-// pathological path must not blow past a reasonable notice size.
-const STALE_CURSOR_SOURCE_MAX = 300;
-
-function displaySource(source: string): string {
-  return source.length > STALE_CURSOR_SOURCE_MAX
-    ? `${source.slice(0, STALE_CURSOR_SOURCE_MAX)}…`
-    : source;
-}
-
-/**
- * Message for a cursor that is known but already used (or is being replayed
- * from a stale/compacted turn). Distinct from "blob not found": it names the
- * original source and the exact offset to resume from, so recovery is a
- * single new call rather than a re-read from scratch of the whole file.
- */
-function staleCursorMessage(cursor: ReadCursor): string {
-  const source = cursor.kind === "file" ? cursor.absolutePath : cursor.uri;
-  return (
-    `this read_file continuation handle was already used (each cursor is single-use). ` +
-    `Resume with read_file, path="${displaySource(source)}", offset=${cursor.offset}.`
-  );
-}
+// A truncated read tells the model to continue with the same path and the
+// explicit next offset from the notice ("Use offset=N to continue"). There is
+// no continuation handle: every read is a stateless, idempotent ranged read,
+// so following a notice verbatim works on first use, on replay, and on a fresh
+// plugin instance after compaction or session resume — and re-reading any
+// earlier window behaves identically. Chunked same-path reads carry rising
+// offsets, so detectors that key on the full call (including arguments) see
+// one ranged read per window, not a same-path loop.
 
 function numArg(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
@@ -201,7 +83,7 @@ function mapFilesystemStreamError(
  * skipping `offset` lines (zero-based). Never splits the full decoded text in one pass.
  * When `wrapLongLines` is set, overlong lines are split into successive numbered
  * windows instead of being truncated and dropped — so a giant JSON line can be
- * paged through with the same offset/cursor protocol as a multi-line file.
+ * paged through with the same offset protocol as a multi-line file.
  * When `windowHugeLines` is set instead, only single lines that on their own
  * exceed the output budget are windowed; ordinary lines keep their numbers, so
  * plain path+offset pagination stays line-aligned.
@@ -540,11 +422,6 @@ export function readFileGuardPlugin(
   options: ReadFileGuardPluginOptions = {},
 ): ToolPlugin {
   const { blobReader } = options;
-  // Single-use resumption pointers minted by mintCursor(); scoped to this
-  // plugin instance (one per session/agent, per buildCorePosixToolPlugins), so
-  // it never outlives the session and never crosses sessions.
-  const cursors = new Map<string, ReadCursor>();
-  const cursorUriPrefix = `${TOOL_OUTPUT_URI_PREFIX}///`;
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name !== "read_file") return next(call, signal);
@@ -566,76 +443,6 @@ export function readFileGuardPlugin(
           return next(call, signal);
         }
 
-        const cursorId = uri.startsWith(cursorUriPrefix)
-          ? uri.slice(cursorUriPrefix.length)
-          : "";
-        const cursor = cursorId.length > 0 ? cursors.get(cursorId) : undefined;
-        if (cursor !== undefined && cursor.consumed) {
-          // Known cursor, already used -- distinct from a genuine missing
-          // blob: name the original source and offset so recovery is one
-          // targeted call, not a from-scratch re-read of the whole file.
-          return {
-            callId: call.id,
-            content: staleCursorMessage(cursor),
-            isError: true,
-          };
-        }
-        if (cursor !== undefined) {
-          // A cursor is authoritative on position: the model passes only the
-          // handle (and optionally a limit), never an offset back into it.
-          cursor.consumed = true;
-          try {
-            signal.throwIfAborted();
-            if (cursor.kind === "file") {
-              const res = await readFileBounded(
-                cursor.absolutePath,
-                cursor.offset,
-                limit,
-                signal,
-              );
-              return res.isError
-                ? { callId: call.id, content: res.content, isError: true }
-                : {
-                    callId: call.id,
-                    content: mintCursor(res.content, cursors, {
-                      kind: "file",
-                      absolutePath: cursor.absolutePath,
-                    }),
-                  };
-            }
-            if (blobReader === undefined) {
-              return {
-                callId: call.id,
-                content: `cannot read ${rawPath}: no blob reader is configured for tool-output spills`,
-                isError: true,
-              };
-            }
-            const bytes = await blobReader.read(cursor.uri);
-            const res = await readBytesBounded(
-              bytes,
-              cursor.offset,
-              blobLimit,
-              signal,
-              cursor.uri,
-            );
-            return res.isError
-              ? { callId: call.id, content: res.content, isError: true }
-              : {
-                  callId: call.id,
-                  content: mintCursor(res.content, cursors, {
-                    kind: "blob",
-                    uri: cursor.uri,
-                  }),
-                };
-          } catch (err) {
-            return {
-              callId: call.id,
-              content: err instanceof Error ? err.message : String(err),
-              isError: true,
-            };
-          }
-        }
-
         if (blobReader === undefined) {
           return {
             callId: call.id,
@@ -655,13 +462,7 @@ export function readFileGuardPlugin(
           );
           return res.isError
             ? { callId: call.id, content: res.content, isError: true }
-            : {
-                callId: call.id,
-                content: mintCursor(res.content, cursors, {
-                  kind: "blob",
-                  uri,
-                }),
-              };
+            : { callId: call.id, content: res.content };
         } catch (err) {
           return {
             callId: call.id,
@@ -684,13 +485,7 @@ export function readFileGuardPlugin(
         const res = await readFileBounded(absolutePath, offset, limit, signal);
         return res.isError
           ? { callId: call.id, content: res.content, isError: true }
-          : {
-              callId: call.id,
-              content: mintCursor(res.content, cursors, {
-                kind: "file",
-                absolutePath,
-              }),
-            };
+          : { callId: call.id, content: res.content };
       } catch (err) {
         return {
           callId: call.id,
