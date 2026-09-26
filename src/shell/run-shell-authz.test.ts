@@ -101,6 +101,121 @@ describe("recursive rm detection", () => {
   });
 });
 
+describe("clustered shell command options", () => {
+  const payload = `cat $'.envrc'`;
+
+  for (const [shell, options] of [
+    ["zsh", "-yc"],
+    ["dash", "-Vc"],
+    ["ksh", "-Gc"],
+  ] as const) {
+    test.skipIf(Bun.which(shell) === null)(
+      `${shell} ${options} executes the following argument as a payload`,
+      () => {
+        const result = Bun.spawnSync([shell, options, "printf clustered-ok"]);
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout.toString()).toBe("clustered-ok");
+      },
+    );
+  }
+
+  test("reconstructs double-quoted payloads with canonical and clustered options", () => {
+    for (const options of ["-c", "-lc", "-xec", "-cc", "-cache"]) {
+      const command = `bash ${options} "cat \\$'.envrc'"`;
+      expect(expandShellSubjects(command)).toEqual({
+        subjects: [command, payload],
+        opaque: false,
+      });
+    }
+  });
+
+  test("supports repeated command options for sh-compatible interpreters", () => {
+    for (const shell of ["bash", "sh", "zsh", "dash", "ksh"]) {
+      const command = `${shell} -cc "find /"`;
+      expect(expandShellSubjects(command).subjects).toContain("find /");
+      expect(runShellAuthzBlockReason(command)).toMatch(
+        /Open-ended shell search blocked/,
+      );
+    }
+  });
+
+  test("inspects interpreter-specific and conservative alphabetic clusters", () => {
+    for (const [shell, options] of [
+      ["zsh", "-yc"],
+      ["dash", "-Vc"],
+      ["ksh", "-Gc"],
+      ["bash", "-zc"],
+      ["bash", "-lc"],
+      ["sh", "-ec"],
+    ]) {
+      const openEnded = `${shell} ${options} "find /"`;
+      expect(expandShellSubjects(openEnded).subjects).toContain("find /");
+      expect(runShellAuthzBlockReason(openEnded)).toMatch(
+        /Open-ended shell search blocked/,
+      );
+      expect(
+        runShellAuthzBlockReason(`${shell} ${options} "rm -rf /"`),
+      ).toMatch(/Destructive command blocked/);
+    }
+  });
+
+  test("reconstructs the complete shell word from adjacent fragments", () => {
+    const cases = [
+      { command: `bash -c "rm "'-rf /'`, payload: "rm -rf /" },
+      { command: `bash -lc 'rm '"-rf /"`, payload: "rm -rf /" },
+      { command: `bash -xec "fi"'nd /'`, payload: "find /" },
+      { command: `bash -cc fi"nd /"`, payload: "find /" },
+      {
+        command: `env -u -c bash -c "fi"'nd /'`,
+        payload: "find /",
+      },
+    ];
+
+    for (const { command, payload: expectedPayload } of cases) {
+      expect(expandShellSubjects(command)).toEqual({
+        subjects: [command, expectedPayload],
+        opaque: false,
+      });
+    }
+  });
+
+  test("does not treat true lookalikes as command options", () => {
+    for (const command of [
+      `bash script-c "find /"`,
+      `bash --rcfile "find /"`,
+      `bash -y+c "find /"`,
+      `bash -c1 "find /"`,
+      `bash script.sh -c "find /"`,
+    ]) {
+      expect(expandShellSubjects(command)).toEqual({
+        subjects: [command],
+        opaque: false,
+      });
+    }
+  });
+
+  test("hard-denies complete adjacent-fragment payloads", () => {
+    for (const command of [
+      `bash -c "rm "'-rf /'`,
+      `bash -lc 'rm '"-rf /"`,
+      `bash -xec "fi"'nd /'`,
+      `bash -cc fi"nd /"`,
+    ]) {
+      expect(runShellAuthzBlockReason(command)).toMatch(
+        /Destructive command blocked|Open-ended shell search blocked/,
+      );
+    }
+  });
+
+  test("hard-denies clustered command payloads like canonical command payloads", () => {
+    for (const options of ["-c", "-lc", "-xec", "-cc", "-cache"]) {
+      expect(runShellAuthzBlockReason(`bash ${options} "find /"`)).toMatch(
+        /Open-ended shell search blocked/,
+      );
+    }
+  });
+});
+
 describe("stdin-blocking with quote-aware tokenizeSegment", () => {
   test("unquoted readers with no file operand are blocked", () => {
     expect(runShellAuthzBlockReason("cat")).toMatch(/standard input/);
@@ -388,6 +503,35 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     );
   });
 
+  test("split payloads own trailing terminal-looking arguments", () => {
+    const cases = [
+      {
+        command: `env -S "find ." --help`,
+        subject: "find . --help",
+        reason: openEnded,
+      },
+      {
+        command: `env -S "rm -rf /" --version`,
+        subject: "rm -rf / --version",
+        reason: destructive,
+      },
+      {
+        command: `env -S "npm install left-pad" --help`,
+        subject: "npm install left-pad --help",
+      },
+    ];
+
+    for (const { command, subject, reason } of cases) {
+      expect(expandShellSubjects(command)).toEqual({
+        subjects: [command, subject],
+        opaque: false,
+      });
+      if (reason !== undefined) {
+        expect(runShellAuthzBlockReason(command)).toMatch(reason);
+      }
+    }
+  });
+
   test("G7: soft-allow non-catastrophic rm inside -S is not hard-denied", () => {
     expect(
       runShellAuthzBlockReason(`env -S "rm -rf node_modules"`),
@@ -433,6 +577,71 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     );
   });
 
+  test("transparent time options and end-of-options expose hard-denied utilities", () => {
+    expect(runShellAuthzBlockReason(`time -p find .`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`time -- find .`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`/usr/bin/time -o report find .`)).toMatch(
+      openEnded,
+    );
+    expect(runShellAuthzBlockReason(`/usr/bin/time -ao report find .`)).toMatch(
+      openEnded,
+    );
+    expect(runShellAuthzBlockReason(`time -f %e find .`)).toMatch(openEnded);
+  });
+
+  test("clustered env and timeout value options expose hard-denied utilities", () => {
+    expect(runShellAuthzBlockReason(`env -iu PATH find .`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`timeout -vs KILL 1 find .`)).toMatch(
+      openEnded,
+    );
+  });
+
+  test("valid GNU timeout durations expose hard-denied utilities", () => {
+    for (const duration of [
+      ".5s",
+      "1",
+      "1e3",
+      "1e3s",
+      "0x1p4",
+      "2m",
+      "3h",
+      "4d",
+      "inf",
+      "infinity",
+    ]) {
+      expect(runShellAuthzBlockReason(`timeout ${duration} find .`)).toMatch(
+        openEnded,
+      );
+    }
+  });
+
+  test("env value operands are parsed before terminal modes", () => {
+    expect(runShellAuthzBlockReason(`env -u --help find .`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -C --version find .`)).toMatch(
+      openEnded,
+    );
+  });
+
+  test("env continues assignment parsing after end-of-options", () => {
+    expect(runShellAuthzBlockReason(`env -- FILE=x find .`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -i -- FILE=x find .`)).toMatch(
+      openEnded,
+    );
+  });
+
+  test("terminal wrapper modes do not peel their operands as commands", () => {
+    for (const command of [
+      "command --help find .",
+      "command -p -v find",
+      "command -pv find",
+      "env --help find",
+      "nice --help find",
+      "timeout --help find",
+    ]) {
+      expect(runShellAuthzBlockReason(command)).toBeUndefined();
+    }
+  });
+
   test("G13: empty/whitespace -S payload with trailing utility is hard-denied", () => {
     // Runtime still executes the trailing utility; do not opaque-drop it.
     expect(runShellAuthzBlockReason(`env -S " " find /`)).toMatch(openEnded);
@@ -461,6 +670,22 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(runShellAuthzBlockReason(`env -S '-i find /'`)).toMatch(openEnded);
     expect(runShellAuthzBlockReason(`env -S -v rm -rf /`)).toMatch(destructive);
     expect(runShellAuthzBlockReason(`env -S -v cat`)).toMatch(stdinHang);
+  });
+
+  test("G15b: clustered env value shorts inside -S consume the flag operand", () => {
+    expect(runShellAuthzBlockReason(`env -S "-iu PATH find /"`)).toMatch(
+      openEnded,
+    );
+    expect(runShellAuthzBlockReason(`env -S "-iu PATH rm -rf /"`)).toMatch(
+      destructive,
+    );
+    expect(runShellAuthzBlockReason(`env -S "-iC /tmp find /"`)).toMatch(
+      openEnded,
+    );
+    expect(runShellAuthzBlockReason(`env -iu PATH find /`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -S "-i -u PATH find /"`)).toMatch(
+      openEnded,
+    );
   });
 
   test("G16: env -S quoted rm flags still hard-deny catastrophic targets", () => {
