@@ -13,6 +13,7 @@ import { normalizeMCPServerURL } from "./auth-store.js";
 import type { ResolvedMCPServerConfig } from "./exa.js";
 import type { McpToolAnnotations } from "./tool-permissions.js";
 import { buildStdioMcpProcessEnv } from "./stdio-env.js";
+import { isHttpServer } from "./is-http-server.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
 
 export interface MCPTool {
@@ -70,13 +71,6 @@ export interface MCPConnectOptions {
   // learns the transport died under a live client. Never fired for
   // intentional teardown — close() disarms it before closing the transport.
   onDisconnect?: () => void;
-}
-
-function isHttpServer(config: ResolvedMCPServerConfig): boolean {
-  return (
-    config.type === "http" ||
-    (config.type === undefined && config.url !== undefined)
-  );
 }
 
 export function unwrapToolContent(content: unknown): string {

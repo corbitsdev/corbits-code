@@ -123,6 +123,57 @@ describe("exec MCP trust prompt", () => {
   });
 });
 
+describe("exec MCP trust prompt argv boundaries", () => {
+  test("quotes an arg containing whitespace", () => {
+    expect(
+      formatExecMcpTrustQuestion({
+        name: "notes",
+        command: "server",
+        args: ["--dir", "/tmp/my work"],
+      }),
+    ).toBe(
+      'Trust local MCP server "notes" for this project?\nCommand: server --dir "/tmp/my work"',
+    );
+  });
+
+  test("renders one spaced arg distinctly from two args", () => {
+    const one = formatExecMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["a b"],
+    });
+    const two = formatExecMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["a", "b"],
+    });
+    expect(one).toContain('"a b"');
+    expect(one).not.toBe(two);
+  });
+
+  test("quotes empty args so they stay visible", () => {
+    const question = formatExecMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: [""],
+    });
+    expect(question).toContain('""');
+    expect(question).not.toBe(
+      formatExecMcpTrustQuestion({ name: "s", command: "run", args: [] }),
+    );
+  });
+
+  test("escapes quotes inside a quoted arg", () => {
+    expect(
+      formatExecMcpTrustQuestion({
+        name: "s",
+        command: "run",
+        args: ['say "hi"'],
+      }),
+    ).toContain('"say \\"hi\\""');
+  });
+});
+
 describe("formatCaughtError", () => {
   test("prefers Error.message and stringifies other values", () => {
     expect(formatCaughtError(new Error("disk full"))).toBe("disk full");

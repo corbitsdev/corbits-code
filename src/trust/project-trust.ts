@@ -7,6 +7,7 @@ import { type } from "arktype";
 import { getLogger } from "@intx/log";
 import type { MCPServerConfig } from "../config/settings.js";
 import { isBuiltinExaMCPServer } from "../mcp/exa.js";
+import { isHttpServer } from "../mcp/is-http-server.js";
 import { LOG_NAMESPACE_ROOT, SETTINGS_DIR_NAME } from "../branding.js";
 
 const logger = getLogger([LOG_NAMESPACE_ROOT, "trust"]);
@@ -296,6 +297,72 @@ export function mcpServerFingerprint(server: MCPServerConfig): string {
     env: server.env !== undefined ? Object.keys(server.env).sort() : [],
   });
   return createHash("sha256").update(payload).digest("hex");
+}
+
+// Display-only quoting for the MCP trust prompt: argv, name, and url all pass
+// through the same escape so a newline, quote, or Unicode/C1 line break cannot
+// spoof extra prompt lines. An arg containing whitespace (or a quote, or empty)
+// renders double-quoted so ["a b"] and ["a", "b"] never look alike. Approval
+// identity still comes from mcpServerFingerprint above, never from this rendering.
+function isTrustPromptControlChar(code: number): boolean {
+  return (
+    code <= 0x1f ||
+    code === 0x7f ||
+    (code >= 0x80 && code <= 0x9f) ||
+    code === 0x2028 ||
+    code === 0x2029
+  );
+}
+
+function escapeMcpTrustText(value: string): string {
+  const named = value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t");
+  let escaped = "";
+  for (const ch of named) {
+    const code = ch.charCodeAt(0);
+    if (!isTrustPromptControlChar(code)) {
+      escaped += ch;
+      continue;
+    }
+    escaped +=
+      code <= 0xff
+        ? `\\x${code.toString(16).toUpperCase().padStart(2, "0")}`
+        : `\\u${code.toString(16).toUpperCase().padStart(4, "0")}`;
+  }
+  return escaped;
+}
+
+function quoteMcpTrustArg(arg: string): string {
+  const needsQuotes =
+    arg === "" ||
+    /[\s"]/.test(arg) ||
+    [...arg].some((ch) => isTrustPromptControlChar(ch.charCodeAt(0)));
+  if (!needsQuotes) return arg;
+  return `"${escapeMcpTrustText(arg)}"`;
+}
+
+function formatMcpSpawnCommand(command: string, args: string[]): string {
+  const head = quoteMcpTrustArg(command);
+  return args.length === 0
+    ? head
+    : `${head} ${args.map(quoteMcpTrustArg).join(" ")}`;
+}
+
+export function formatMcpTrustQuestion(server: MCPServerConfig): string {
+  const header = `Trust local MCP server "${escapeMcpTrustText(server.name)}" for this project?`;
+  if (isHttpServer(server)) {
+    return server.url !== undefined
+      ? `${header}\nURL: ${quoteMcpTrustArg(server.url)}`
+      : header;
+  }
+  if (server.command !== undefined) {
+    return `${header}\nCommand: ${formatMcpSpawnCommand(server.command, server.args ?? [])}`;
+  }
+  return header;
 }
 
 export function isMcpServerTrusted(

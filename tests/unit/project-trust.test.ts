@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   filterMcpServersForConnect,
+  formatMcpTrustQuestion,
   isMcpServerTrusted,
   isPluginTrusted,
   loadProjectTrust,
@@ -356,6 +357,199 @@ describe("project-trust", () => {
     } finally {
       await cleanup();
     }
+  });
+
+  test("trust question quotes whitespace args so argv boundaries stay visible", () => {
+    const one = formatMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["a b"],
+    });
+    const two = formatMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["a", "b"],
+    });
+    expect(one).toBe(
+      'Trust local MCP server "s" for this project?\nCommand: run "a b"',
+    );
+    expect(one).not.toBe(two);
+  });
+
+  test("trust question escapes control characters so args stay single-line", () => {
+    const question = formatMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["x\nTrust local MCP server evil", "a\tb", "c\rd"],
+    });
+    // Only the structural header/Command separator newline may remain.
+    const lines = question.split("\n");
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      for (const ch of line) {
+        const code = ch.charCodeAt(0);
+        expect(code > 0x1f && code !== 0x7f).toBe(true);
+      }
+    }
+    expect(question).toContain('"x\\nTrust local MCP server evil"');
+    expect(question).toContain('"a\\tb"');
+    expect(question).toContain('"c\\rd"');
+  });
+
+  test("trust question quotes a spaced binary path so the command is unambiguous", () => {
+    expect(
+      formatMcpTrustQuestion({
+        name: "s",
+        command: "/tmp/my tool/server",
+        args: ["--dir", "/tmp/work"],
+      }),
+    ).toBe(
+      'Trust local MCP server "s" for this project?\nCommand: "/tmp/my tool/server" --dir /tmp/work',
+    );
+    expect(
+      formatMcpTrustQuestion({ name: "s", command: "/tmp/my tool/server" }),
+    ).toBe(
+      'Trust local MCP server "s" for this project?\nCommand: "/tmp/my tool/server"',
+    );
+  });
+
+  test("trust question leaves plain args unquoted and hides secrets", () => {
+    expect(
+      formatMcpTrustQuestion({
+        name: "filesystem",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/work"],
+      }),
+    ).toBe(
+      'Trust local MCP server "filesystem" for this project?\nCommand: npx -y @modelcontextprotocol/server-filesystem /tmp/work',
+    );
+    const question = formatMcpTrustQuestion({
+      name: "private",
+      command: "private-server",
+      env: { API_TOKEN: "super-secret" },
+    });
+    expect(question).toBe(
+      'Trust local MCP server "private" for this project?\nCommand: private-server',
+    );
+    expect(question).not.toContain("super-secret");
+  });
+
+  test("trust question shows an HTTP server URL", () => {
+    expect(
+      formatMcpTrustQuestion({
+        name: "remote",
+        type: "http",
+        url: "https://mcp.example.test/api",
+      }),
+    ).toBe(
+      'Trust local MCP server "remote" for this project?\nURL: https://mcp.example.test/api',
+    );
+  });
+
+  test("trust question shows URL not Command when command, args, and url are set without type", () => {
+    const question = formatMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["--secret"],
+      url: "https://mcp.example.test/api",
+    });
+    expect(question).toContain("\nURL: https://mcp.example.test/api");
+    expect(question).not.toContain("Command:");
+    expect(question).not.toContain("run");
+  });
+
+  test("trust question shows URL when type is http even if command is also set", () => {
+    const question = formatMcpTrustQuestion({
+      name: "s",
+      type: "http",
+      command: "run",
+      url: "https://mcp.example.test/api",
+    });
+    expect(question).toContain("\nURL: https://mcp.example.test/api");
+    expect(question).not.toContain("Command:");
+  });
+
+  test("trust question still shows Command when type is stdio even if url is set", () => {
+    const question = formatMcpTrustQuestion({
+      name: "s",
+      type: "stdio",
+      command: "run",
+      args: ["a"],
+      url: "https://mcp.example.test/api",
+    });
+    expect(question).toContain("\nCommand: run a");
+    expect(question).not.toContain("URL:");
+  });
+
+  test("trust question escapes name so a newline or quote cannot inject extra Command lines", () => {
+    const question = formatMcpTrustQuestion({
+      name: 's"\nCommand: evil',
+      command: "run",
+      args: ["a"],
+    });
+    const lines = question.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]?.startsWith("Trust local MCP server")).toBe(true);
+    expect(lines[1]).toBe("Command: run a");
+    expect(question).not.toContain("\nCommand: evil");
+    expect(question).toContain("\\n");
+    expect(question).toContain('\\"');
+  });
+
+  test("trust question escapes url so an embedded newline stays single-line", () => {
+    const question = formatMcpTrustQuestion({
+      name: "remote",
+      type: "http",
+      url: "https://mcp.example.test/api\nCommand: evil",
+    });
+    const lines = question.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[1]?.startsWith("URL:")).toBe(true);
+    expect(question).not.toContain("\nCommand:");
+    expect(question).toContain("\\n");
+  });
+
+  test("trust question escapes Unicode line breaks and C1 controls in args", () => {
+    const question = formatMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["x\u2028y", "a\u0085b"],
+    });
+    expect(question.split("\n")).toHaveLength(2);
+    expect(question).not.toContain("\u2028");
+    expect(question).not.toContain("\u0085");
+    for (const line of question.split("\n")) {
+      for (const ch of line) {
+        const code = ch.charCodeAt(0);
+        expect(
+          code > 0x1f &&
+            code !== 0x7f &&
+            !(code >= 0x80 && code <= 0x9f) &&
+            code !== 0x2028 &&
+            code !== 0x2029,
+        ).toBe(true);
+      }
+    }
+  });
+
+  test("mcp fingerprint still hashes command and url together", () => {
+    const mixed: MCPServerConfig = {
+      name: "s",
+      command: "run",
+      args: ["a"],
+      url: "https://evil.test",
+    };
+    expect(mcpServerFingerprint(mixed)).toBe(
+      "d06726e3489e2513056178f392b492a77aef02b239c8922c5a6cdca0b4fd886d",
+    );
+    expect(
+      mcpServerFingerprint({
+        name: "s",
+        type: "http",
+        command: "run",
+        url: "https://mcp.example.test",
+      }),
+    ).toBe("75b80b4878d818362a918027917cd149c0d948d509b8c0c08b7406fd69de53b9");
   });
 
   test("readProjectTrustStore: malformed file with wrong types, missing fields, and extra fields drops bad entries and ignores unknown keys", async () => {
