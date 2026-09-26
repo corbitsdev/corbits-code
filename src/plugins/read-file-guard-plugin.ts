@@ -118,7 +118,6 @@ function readStreamBounded(
     let firstChunk = true;
     let lineNo = 0;
     let scanned = 0;
-    let diskBytes = 0;
     let skipDone = offset <= 0;
     let outBytes = 0;
     let emitted = 0;
@@ -241,20 +240,19 @@ function readStreamBounded(
           done({ content: "" });
           return;
         }
-        // An offset never reached after more than one scan pass of the source
-        // is unlocatable in a single pass: report the scan limit, not a
-        // beyond-EOF count. Offsets reached within the pass read through even
-        // when the skipped prefix alone exceeds the ceiling.
-        if (!endReached || diskBytes > READ_FILE_MAX_SCAN_BYTES) {
+        // Skip bytes are not scanned, so a dead offset on a file larger than
+        // the ceiling still reaches EOF. Report the true range, not a scan
+        // limit that would hide a reachable end of file.
+        if (endReached) {
           done({
-            content: `[reached the ${
-              READ_FILE_MAX_SCAN_BYTES / (1024 * 1024)
-            }MB scan limit before offset ${offset}; the file is larger than read_file scans in one pass. Use a smaller offset or grep to locate content.]`,
+            content: `[offset ${offset} is beyond end of file ${displayPath} (${lineNo} lines); valid offsets 0-${lineNo - 1}]`,
             isError: true,
           });
         } else {
           done({
-            content: `[offset ${offset} is beyond end of file (${lineNo} lines)]`,
+            content: `[reached the ${
+              READ_FILE_MAX_SCAN_BYTES / (1024 * 1024)
+            }MB scan limit before offset ${offset}; the file is larger than read_file scans in one pass. Use a smaller offset or grep to locate content.]`,
             isError: true,
           });
         }
@@ -281,7 +279,6 @@ function readStreamBounded(
         }
       }
       if (skipDone) scanned += chunk.length;
-      diskBytes += chunk.length;
       pending += decoder.write(chunk);
       if (!drainPending()) {
         finishOk();

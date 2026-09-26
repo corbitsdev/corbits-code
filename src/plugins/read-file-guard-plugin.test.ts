@@ -3,8 +3,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createSizeCapTransform } from "@intx/inference";
 import { createBlobReader } from "@intx/types/runtime";
-import type { ToolCall, ToolResult } from "@intx/types/runtime";
+import type {
+  StrategyContext,
+  ToolCall,
+  ToolResult,
+} from "@intx/types/runtime";
 import {
   READ_FILE_DEFAULT_MAX_LINES,
   READ_FILE_MAX_BYTES,
@@ -100,6 +105,8 @@ describe("readFileBounded", () => {
     expect(isError).toBe(true);
     expect(content).toContain("beyond end of file");
     expect(content).toContain("(2 lines)");
+    expect(content).toContain(p);
+    expect(content).toContain("valid offsets 0-1");
   });
 
   test("truncates an overlong single line", async () => {
@@ -286,9 +293,10 @@ describe("readFileBounded", () => {
     );
   });
 
-  test("offset past the scan ceiling reports the scan limit, not a fake EOF", async () => {
-    // Many short lines totaling more than the scan ceiling; a huge offset can
-    // never be reached within one scan pass.
+  test("a dead offset on a file larger than the scan ceiling reports beyond-EOF with path and valid range", async () => {
+    // Skip bytes are not scanned, so an offset past true EOF on a >8MB file
+    // still reaches the end of the file. Report the real line count and valid
+    // range, not a scan-limit that would hide a reachable EOF.
     const line = `${"y".repeat(80)}\n`;
     const count = Math.ceil(
       (READ_FILE_MAX_SCAN_BYTES + 1_000_000) / line.length,
@@ -301,8 +309,11 @@ describe("readFileBounded", () => {
       neverAbort(),
     );
     expect(isError).toBe(true);
-    expect(content).toContain("scan limit");
-    expect(content).not.toContain("beyond end of file");
+    expect(content).toContain("beyond end of file");
+    expect(content).toContain(`(${count} lines)`);
+    expect(content).toContain(p);
+    expect(content).toContain(`valid offsets 0-${count - 1}`);
+    expect(content).not.toContain("scan limit");
   });
 });
 
@@ -527,6 +538,60 @@ describe("CL-8979 large-file pagination", () => {
     );
     expect(String(res.content)).toBe(String(guardOnly.content));
     expect(spilled.size).toBe(0);
+  });
+
+  test("a large-file page keeps Use offset= through leisure and the reactor 10k size-cap", async () => {
+    const name = "cl8979-reactor-page.txt";
+    const rows = Array.from(
+      { length: 3_000 },
+      (_, i) => `cell-${i}-` + "v".repeat(50),
+    );
+    await fixture(name, `${rows.join("\n")}\n`);
+    const plugin = readFileGuardPlugin(dir, {});
+    const guardMiddleware = plugin.middleware;
+    if (guardMiddleware === undefined) throw new Error("expected middleware");
+    const fallback = async (call: ToolCall): Promise<ToolResult> => ({
+      callId: call.id,
+      content: "FALLBACK",
+    });
+    const guard = guardMiddleware(fallback);
+    const spilled = new Map<string, Uint8Array>();
+    const truncPlugin = resultTruncationPlugin({
+      getBlobWriter: () => async (key: string, payload: Uint8Array) => {
+        spilled.set(key, payload);
+      },
+    });
+    const truncMiddleware = truncPlugin.middleware;
+    if (truncMiddleware === undefined) throw new Error("expected middleware");
+    const leisure = truncMiddleware(guard);
+    const leisurePage = await leisure(
+      { id: "page-cap", name: "read_file", arguments: { path: name } },
+      neverAbort(),
+    );
+    const leisureContent = String(leisurePage.content);
+    expect(leisurePage.isError).toBeFalsy();
+    expect(leisureContent).toContain("Use offset=");
+    expect(leisureContent.length).toBeGreaterThan(10_000);
+
+    const reactorCap = createSizeCapTransform({
+      maxChars: 10_000,
+      contextStore: {
+        writeBlob: async (key: string, payload: Uint8Array) => {
+          spilled.set(key, payload);
+        },
+      },
+    });
+    const capped = await reactorCap.apply(
+      {
+        call: { id: "page-cap", name: "read_file", arguments: { path: name } },
+        result: leisurePage,
+      },
+      {} as StrategyContext,
+    );
+    const modelFacing = String(capped.output.content);
+    expect(modelFacing).toContain("Use offset=");
+    expect(modelFacing).toBe(leisureContent);
+    expect(modelFacing).not.toContain("Tool output truncated");
   });
 
   test("an aborted read rejects with a timeout, not a fallback page", async () => {
