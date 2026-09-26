@@ -1,6 +1,10 @@
 import { evaluateGrants, type GrantRule } from "@intx/authz";
 
-import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import {
+  canonicalGrantTool,
+  canonicalToolName,
+  grantToolCovers,
+} from "../agent/canonical-tool-name.js";
 import type { Approval } from "./types.js";
 import { matchesPattern } from "./matcher.js";
 import { realpathOr } from "./worktree-roots.js";
@@ -68,6 +72,22 @@ export function cwdMatchesGrant(
   return workspace.roots.includes(realpathOr(requestCwd));
 }
 
+// Seeded grants enter the gate in native key space: pure renames collapse
+// onto the engine id, and narrow update_plan keys (which no native key can
+// represent without overclaiming capability) are dropped fail-closed. Fresh
+// array; the gate owns it.
+export function normalizeSeededApprovals(
+  seeded: readonly Approval[],
+): Approval[] {
+  const out: Approval[] = [];
+  for (const approval of seeded) {
+    const tool = canonicalGrantTool(approval.tool);
+    if (tool === null) continue;
+    out.push(tool === approval.tool ? approval : { ...approval, tool });
+  }
+  return out;
+}
+
 // The single place that decides whether a grant's tool/providerModel/cwd
 // scope covers a request, independent of whether the grant's pattern matches
 // the request's subject. Every live call site that needs to know "does this
@@ -82,7 +102,7 @@ export function grantScopeMatches(
   workspace: GrantWorkspace,
 ): boolean {
   return (
-    canonicalToolName(approval.tool) === canonicalToolName(tool) &&
+    grantToolCovers(approval.tool, tool) &&
     (approval.providerModel === undefined ||
       approval.providerModel === activeProviderModel) &&
     cwdMatchesGrant(approval.cwd, requestCwd, workspace)
@@ -117,8 +137,13 @@ export async function approvalCoversSubject(
     workspace,
   } = input;
   const action = canonicalToolName(tool);
+  // Scope-matching sees the raw request name: grantToolCovers is directional
+  // for the update_plan/manage_tasks pair (a stored update_plan grant covers
+  // only update_plan-presenting requests), so pre-canonicalizing here would
+  // erase the alias and wrongly deny same-alias replay. The @intx/authz call
+  // below still uses the canonical action on both sides.
   const scoped = approvals.filter((a) =>
-    grantScopeMatches(a, action, activeProviderModel, requestCwd, workspace),
+    grantScopeMatches(a, tool, activeProviderModel, requestCwd, workspace),
   );
   if (scoped.length === 0) return false;
 

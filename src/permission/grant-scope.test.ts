@@ -5,6 +5,7 @@ import {
   approvalCoversSubject,
   evaluateApprovals,
   grantScopeMatches,
+  normalizeSeededApprovals,
   cwdMatchesGrant,
   type GrantWorkspace,
 } from "./authz-grants.js";
@@ -27,6 +28,8 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
     { tool: "run_shell", pattern: "npm test", providerModel: "openai:gpt-5" },
     { tool: "run_shell", pattern: "npm test", cwd: "/proj" },
     { tool: "write_file", pattern: "npm test" },
+    { tool: "update_plan", pattern: "npm test" },
+    { tool: "manage_tasks", pattern: "npm test" },
   ];
 
   const requests: {
@@ -39,6 +42,8 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
     { tool: "run_shell", cwd: "/other", activeProviderModel: "openai:gpt-5" },
     { tool: "run_shell", cwd: undefined, activeProviderModel: undefined },
     { tool: "write_file", cwd: "/proj", activeProviderModel: undefined },
+    { tool: "manage_tasks", cwd: "/proj", activeProviderModel: undefined },
+    { tool: "update_plan", cwd: "/proj", activeProviderModel: undefined },
   ];
 
   for (const grant of grants) {
@@ -85,6 +90,86 @@ describe("grant tool/providerModel/cwd scoping agrees across call sites", () => 
       });
     }
   }
+
+  test("stored update_plan grant never covers a manage_tasks request", async () => {
+    const grant: Approval = { tool: "update_plan", pattern: "*" };
+    expect(
+      grantScopeMatches(grant, "manage_tasks", undefined, "/proj", workspace),
+    ).toBe(false);
+    expect(
+      await approvalCoversSubject({
+        tool: "manage_tasks",
+        subject: "manage_tasks",
+        approvals: [grant],
+        activeProviderModel: undefined,
+        requestCwd: "/proj",
+        workspace,
+      }),
+    ).toBe(false);
+  });
+
+  test("stored manage_tasks grant covers an update_plan-presenting request", async () => {
+    const grant: Approval = { tool: "manage_tasks", pattern: "*" };
+    expect(
+      grantScopeMatches(grant, "update_plan", undefined, "/proj", workspace),
+    ).toBe(true);
+    expect(
+      await approvalCoversSubject({
+        tool: "update_plan",
+        subject: "update_plan",
+        approvals: [grant],
+        activeProviderModel: undefined,
+        requestCwd: "/proj",
+        workspace,
+      }),
+    ).toBe(true);
+  });
+});
+
+// Seeded grants enter the gate in native key space. Pure renames collapse onto
+// the engine id (capability-identical, behavior-preserving); a stored
+// update_plan key has no native representation that preserves its narrow
+// create-only capability, so it is dropped fail-closed instead of widening
+// onto manage_tasks.
+describe("normalizeSeededApprovals", () => {
+  test("collapses pure renames onto the engine id, preserving other fields", () => {
+    expect(
+      normalizeSeededApprovals([
+        {
+          tool: "bash",
+          pattern: "npm test",
+          providerModel: "openai:gpt-5",
+          cwd: "/proj",
+        },
+        { tool: "read", pattern: "README.md" },
+      ]),
+    ).toEqual([
+      {
+        tool: "run_shell",
+        pattern: "npm test",
+        providerModel: "openai:gpt-5",
+        cwd: "/proj",
+      },
+      { tool: "read_file", pattern: "README.md" },
+    ]);
+  });
+
+  test("keeps native keys as-is", () => {
+    const seeded: Approval[] = [
+      { tool: "run_shell", pattern: "*" },
+      { tool: "manage_tasks", pattern: "*" },
+    ];
+    expect(normalizeSeededApprovals(seeded)).toEqual(seeded);
+  });
+
+  test("drops update_plan keys fail-closed", () => {
+    expect(
+      normalizeSeededApprovals([
+        { tool: "update_plan", pattern: "*" },
+        { tool: "manage_tasks", pattern: "*" },
+      ]),
+    ).toEqual([{ tool: "manage_tasks", pattern: "*" }]);
+  });
 });
 
 // Grant minting decomposes a multi-segment chain scope into one grant per
