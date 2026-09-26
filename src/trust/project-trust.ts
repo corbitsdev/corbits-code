@@ -300,17 +300,41 @@ export function mcpServerFingerprint(server: MCPServerConfig): string {
 
 // Display-only argv quoting for the MCP trust prompt: an arg containing
 // whitespace (or a quote, or empty) renders double-quoted so ["a b"] and
-// ["a", "b"] never look alike. Approval identity still comes from
-// mcpServerFingerprint above, never from this rendering.
+// ["a", "b"] never look alike. Control characters render as visible escape
+// sequences (\n, \r, \t, \xNN) so a newline-bearing arg cannot spoof extra
+// prompt lines — output is always single-line per token. Approval identity
+// still comes from mcpServerFingerprint above, never from this rendering.
+function isTrustPromptControlChar(code: number): boolean {
+  return code <= 0x1f || code === 0x7f;
+}
+
 function quoteMcpTrustArg(arg: string): string {
-  if (arg !== "" && !/[\s"]/.test(arg)) return arg;
-  return `"${arg.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  const needsQuotes =
+    arg === "" ||
+    /[\s"]/.test(arg) ||
+    [...arg].some((ch) => isTrustPromptControlChar(ch.charCodeAt(0)));
+  if (!needsQuotes) return arg;
+  const named = arg
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t");
+  let escaped = "";
+  for (const ch of named) {
+    const code = ch.charCodeAt(0);
+    escaped += isTrustPromptControlChar(code)
+      ? `\\x${code.toString(16).toUpperCase().padStart(2, "0")}`
+      : ch;
+  }
+  return `"${escaped}"`;
 }
 
 function formatMcpSpawnCommand(command: string, args: string[]): string {
+  const head = quoteMcpTrustArg(command);
   return args.length === 0
-    ? command
-    : `${command} ${args.map(quoteMcpTrustArg).join(" ")}`;
+    ? head
+    : `${head} ${args.map(quoteMcpTrustArg).join(" ")}`;
 }
 
 export function formatMcpTrustQuestion(server: MCPServerConfig): string {

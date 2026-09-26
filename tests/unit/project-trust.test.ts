@@ -376,6 +376,43 @@ describe("project-trust", () => {
     expect(one).not.toBe(two);
   });
 
+  test("trust question escapes control characters so args stay single-line", () => {
+    const question = formatMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["x\nTrust local MCP server evil", "a\tb", "c\rd"],
+    });
+    // Only the structural header/Command separator newline may remain.
+    const lines = question.split("\n");
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      for (const ch of line) {
+        const code = ch.charCodeAt(0);
+        expect(code > 0x1f && code !== 0x7f).toBe(true);
+      }
+    }
+    expect(question).toContain('"x\\nTrust local MCP server evil"');
+    expect(question).toContain('"a\\tb"');
+    expect(question).toContain('"c\\rd"');
+  });
+
+  test("trust question quotes a spaced binary path so the command is unambiguous", () => {
+    expect(
+      formatMcpTrustQuestion({
+        name: "s",
+        command: "/tmp/my tool/server",
+        args: ["--dir", "/tmp/work"],
+      }),
+    ).toBe(
+      'Trust local MCP server "s" for this project?\nCommand: "/tmp/my tool/server" --dir /tmp/work',
+    );
+    expect(
+      formatMcpTrustQuestion({ name: "s", command: "/tmp/my tool/server" }),
+    ).toBe(
+      'Trust local MCP server "s" for this project?\nCommand: "/tmp/my tool/server"',
+    );
+  });
+
   test("trust question leaves plain args unquoted and hides secrets", () => {
     expect(
       formatMcpTrustQuestion({
