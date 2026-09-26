@@ -107,8 +107,11 @@ function readStreamBounded(
   } = {},
 ): Promise<BoundedRead> {
   return new Promise<BoundedRead>((resolveP, rejectP) => {
-    const { mapStreamError, wrapLongLines = false, windowHugeLines = false } =
-      options;
+    const {
+      mapStreamError,
+      wrapLongLines = false,
+      windowHugeLines = false,
+    } = options;
     const decoder = new StringDecoder("utf8");
     const contentBudget = READ_FILE_MAX_BYTES - NOTICE_RESERVE_BYTES;
 
@@ -226,7 +229,12 @@ function readStreamBounded(
         emitWrapped(pending, true);
         return;
       }
-      if (!pendingOverflow && !scanCapped && windowHugeLines && pending.length > contentBudget) {
+      if (
+        !pendingOverflow &&
+        !scanCapped &&
+        windowHugeLines &&
+        pending.length > contentBudget
+      ) {
         emitWrapped(pending, true);
         return;
       }
