@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   filterMcpServersForConnect,
+  formatMcpTrustQuestion,
   isMcpServerTrusted,
   isPluginTrusted,
   loadProjectTrust,
@@ -356,6 +357,56 @@ describe("project-trust", () => {
     } finally {
       await cleanup();
     }
+  });
+
+  test("trust question quotes whitespace args so argv boundaries stay visible", () => {
+    const one = formatMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["a b"],
+    });
+    const two = formatMcpTrustQuestion({
+      name: "s",
+      command: "run",
+      args: ["a", "b"],
+    });
+    expect(one).toBe(
+      'Trust local MCP server "s" for this project?\nCommand: run "a b"',
+    );
+    expect(one).not.toBe(two);
+  });
+
+  test("trust question leaves plain args unquoted and hides secrets", () => {
+    expect(
+      formatMcpTrustQuestion({
+        name: "filesystem",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/work"],
+      }),
+    ).toBe(
+      'Trust local MCP server "filesystem" for this project?\nCommand: npx -y @modelcontextprotocol/server-filesystem /tmp/work',
+    );
+    const question = formatMcpTrustQuestion({
+      name: "private",
+      command: "private-server",
+      env: { API_TOKEN: "super-secret" },
+    });
+    expect(question).toBe(
+      'Trust local MCP server "private" for this project?\nCommand: private-server',
+    );
+    expect(question).not.toContain("super-secret");
+  });
+
+  test("trust question shows an HTTP server URL", () => {
+    expect(
+      formatMcpTrustQuestion({
+        name: "remote",
+        type: "http",
+        url: "https://mcp.example.test/api",
+      }),
+    ).toBe(
+      'Trust local MCP server "remote" for this project?\nURL: https://mcp.example.test/api',
+    );
   });
 
   test("readProjectTrustStore: malformed file with wrong types, missing fields, and extra fields drops bad entries and ignores unknown keys", async () => {
