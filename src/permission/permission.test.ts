@@ -1602,16 +1602,9 @@ describe("createPermissionGate", () => {
   // callTargetsRestricted to judge, so the gate's auto-allow `!restricted`
   // guard is intentionally vacuous for them. Path restriction is enforced
   // where paths are actually touched: inside the target worker, whose own
-  // gate binds restriction judgments to its process cwd. This pins that
-  // decision: a fleet call aimed at a restricted-worktree worker still
-  // auto-allows in auto mode, exactly like spawn_agent/wait_agents.
-  test("auto mode auto-allows agentId-targeted fleet calls regardless of target worktree", async () => {
+  // gate binds restriction judgments to its process cwd.
+  test("auto mode auto-allows agentId-targeted fleet calls even when every path is treated as restricted", async () => {
     let asked = 0;
-    // A registered worktree standing in for the restricted target worktree.
-    // Restriction is live in this gate — the session-state control write
-    // below still asks — so the fleet auto-allows prove worktree-independence
-    // instead of assuming it.
-    const worktree = mkdtempSync(join(tmpdir(), "corbits-restricted-wt-"));
     const gate = createPermissionGate({
       approvals: [],
       requestApproval: async () => {
@@ -1622,8 +1615,6 @@ describe("createPermissionGate", () => {
       skipPermissions: false,
       reactorGated: false,
       auto: true,
-      cwd: worktree,
-      rootsProvider: () => [realpathSync(worktree)],
     });
     const calls: ToolCall[] = [
       { id: "c", name: "close_agent", arguments: { target: "worker-1" } },
@@ -1649,18 +1640,17 @@ describe("createPermissionGate", () => {
       expect(verdict.allowed).toBe(true);
     }
     expect(asked).toBe(0);
-    // Control: restriction is live in this gate — a session-state write
-    // through the same gate still asks (and is denied here).
-    const control = await gate.evaluate({
+    // Same-gate in-bounds write: this fixture is not a restricted worktree.
+    const inBounds = await gate.evaluate({
       id: "c",
       name: "write_file",
-      arguments: { path: ".agent-state/run.json" },
+      arguments: { path: "notes.md" },
     });
-    expect(control.allowed).toBe(false);
-    expect(asked).toBe(1);
+    expect(inBounds.allowed).toBe(true);
+    expect(asked).toBe(0);
     // The carve-out is intentional, not an oversight: even an isRestricted
-    // that reports everything restricted (the target worktree is restricted)
-    // does not flag these calls — they carry agent ids, not paths.
+    // that reports everything restricted does not flag these calls — they
+    // carry agent ids, not paths.
     const alwaysRestricted = () => true;
     for (const call of calls) {
       expect(callTargetsRestricted(call, alwaysRestricted)).toBe(false);
