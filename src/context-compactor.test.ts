@@ -59,6 +59,9 @@ function hasConsecutiveSameRole(turns: ConversationTurn[]): boolean {
 describe("createPruningCompactor", () => {
   test("returns turns unchanged when under the keep threshold", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 5,
       summaryMaxChars: 500,
     });
@@ -78,16 +81,28 @@ describe("createPruningCompactor", () => {
     // compactorNoOpFloor accordingly breaks that guarantee silently.
     const keepRecentTurns = 3;
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns,
       summaryMaxChars: 500,
     });
     const floor = compactorNoOpFloor(keepRecentTurns);
 
+    // Bodies exceed the pinned tail budget, so past-floor always has a folded
+    // region while at-floor still no-ops on the count check alone.
+    const body = (i: number): string => `body ${i} ` + "x".repeat(100);
     const atFloor = Array.from({ length: floor }, (_, i) =>
-      makeTurn({ role: i % 2 === 0 ? "user" : "assistant" }),
+      makeTurn({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: [{ type: "text", text: body(i) }],
+      }),
     );
     const pastFloor = Array.from({ length: floor + 1 }, (_, i) =>
-      makeTurn({ role: i % 2 === 0 ? "user" : "assistant" }),
+      makeTurn({
+        role: i % 2 === 0 ? "user" : "assistant",
+        content: [{ type: "text", text: body(i) }],
+      }),
     );
 
     expect(
@@ -100,6 +115,9 @@ describe("createPruningCompactor", () => {
 
   test("compacts old turns and preserves recent ones", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 2,
       summaryMaxChars: 500,
     });
@@ -150,6 +168,9 @@ describe("createPruningCompactor", () => {
 
   test("preserves tool_call and tool_result blocks in recent turns", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 1,
       summaryMaxChars: 500,
     });
@@ -183,6 +204,9 @@ describe("createPruningCompactor", () => {
 describe("createPruningCompactor — initiating task preservation", () => {
   test("keeps the initiating task verbatim even when it is far outside the recent window", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 2,
       maxAnchorTurns: 1,
       summaryMaxChars: 500,
@@ -232,6 +256,9 @@ describe("createPruningCompactor — initiating task preservation", () => {
 
   test("emits the compaction summary as a user turn, never system", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a one-token tail budget — only the mandatory floor stays
+      // live, so this tiny fixture still folds the same older region.
+      compactionShape: { tailBudgetTokens: 1 },
       keepRecentTurns: 1,
       summaryMaxChars: 500,
     });
@@ -247,6 +274,9 @@ describe("createPruningCompactor — initiating task preservation", () => {
 
   test("never emits consecutive same-role turns, even with adjacent user anchors", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a one-token tail budget — only the mandatory floor stays
+      // live, so this tiny fixture still folds the same older region.
+      compactionShape: { tailBudgetTokens: 1 },
       keepRecentTurns: 2,
       summaryMaxChars: 500,
     });
@@ -270,6 +300,9 @@ describe("createPruningCompactor — initiating task preservation", () => {
 
   test("keeps alternating roles when a tool_result user turn abuts a plain user turn", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 1,
       maxAnchorTurns: 3,
       summaryMaxChars: 500,
@@ -338,6 +371,9 @@ describe("createPruningCompactor — image aging", () => {
 
   test("strips image bytes from an anchored (aged) turn but keeps its text", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 2,
       maxAnchorTurns: 1,
       summaryMaxChars: 500,
@@ -405,6 +441,9 @@ describe("createPruningCompactor — image aging", () => {
 
   test("keeps an image intact when its turn is still within the recent window", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 3,
       summaryMaxChars: 500,
     });
@@ -437,6 +476,9 @@ describe("createPruningCompactor — image aging", () => {
     // With few turns, full pruning is a no-op, but images outside keepRecentTurns
     // must still spill so they are not resent as base64 forever.
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 2,
       summaryMaxChars: 500,
     });
@@ -478,6 +520,9 @@ describe("createPruningCompactor — image aging", () => {
 
   test("records the number of turns aged out in the transform record", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 1,
       maxAnchorTurns: 1,
       summaryMaxChars: 500,
@@ -540,6 +585,9 @@ describe("createPruningCompactor — error anchoring (CL-6906)", () => {
       ...padding(8, "after"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 8,
       summaryMaxChars: 2000,
@@ -587,6 +635,9 @@ describe("createPruningCompactor — error anchoring (CL-6906)", () => {
       ...padding(8, "after"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 8,
       summaryMaxChars: 2000,
@@ -648,6 +699,9 @@ describe("createPruningCompactor — error anchoring (CL-6906)", () => {
       ...padding(8, "after"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 8,
       summaryMaxChars: 2000,
@@ -734,6 +788,9 @@ describe("createPruningCompactor — maxAnchorTurns caps pairing pulls (CL-6906)
 
     const maxAnchorTurns = 4;
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns,
       summaryMaxChars: 2000,
@@ -755,6 +812,9 @@ describe("createPruningCompactor — summarize receives the workflow context (CL
     let capturedCtx: unknown = "not called";
     const workflowCtx = { workflow: { name: "build", stepIndex: 2, total: 7 } };
     const compactor = createPruningCompactor({
+      // CL-9007: pin a one-token tail budget — only the mandatory floor stays
+      // live, so this tiny fixture still folds the same older region.
+      compactionShape: { tailBudgetTokens: 1 },
       keepRecentTurns: 1,
       summaryMaxChars: 500,
       summaryContext: () => workflowCtx,
@@ -776,6 +836,9 @@ describe("createPruningCompactor — summarize receives the workflow context (CL
 describe("createPruningCompactor — operator extra instructions", () => {
   test("stores extra instructions on the compact record", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 1,
       summaryMaxChars: 500,
       summaryContext: () => ({ extraInstructions: "keep the auth discussion" }),
@@ -799,6 +862,9 @@ describe("createPruningCompactor — operator extra instructions", () => {
       makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
     ];
     const written = await createPruningCompactor({
+      // CL-9007: pin a one-token tail budget — only the mandatory floor stays
+      // live, so this tiny fixture still folds the same older region.
+      compactionShape: { tailBudgetTokens: 1 },
       keepRecentTurns: 1,
       summaryMaxChars: 500,
       summaryContext: () => ({ extraInstructions: "keep the auth discussion" }),
@@ -812,6 +878,9 @@ describe("createPruningCompactor — operator extra instructions", () => {
 
     let captured: { extraInstructions?: string } | undefined;
     const next = await createPruningCompactor({
+      // CL-9007: pin a one-token tail budget — only the mandatory floor stays
+      // live, so this tiny fixture still folds the same older region.
+      compactionShape: { tailBudgetTokens: 1 },
       keepRecentTurns: 1,
       summaryMaxChars: 500,
       summaryContext: () => {
@@ -860,6 +929,9 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
 
   test("second apply replaces the prior summary instead of accumulating", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 2,
       summaryMaxChars: 500,
     });
@@ -880,6 +952,9 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
 
   test("second apply keeps the initiating task as its own user turn", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 2,
       maxAnchorTurns: 1,
       summaryMaxChars: 500,
@@ -941,6 +1016,9 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
 
   test("harness spacer is stamped with the reserved producer id and a visible sentinel", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 2,
       summaryMaxChars: 500,
     });
@@ -983,6 +1061,9 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
 
   test("empty-fold keep-set returns the input unchanged", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 1,
       maxAnchorTurns: 8,
       summaryMaxChars: 500,
@@ -1028,6 +1109,9 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
       },
     });
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 2,
       summaryMaxChars: 500,
       summarize,
@@ -1248,6 +1332,9 @@ describe("buildLLMTurnSummary", () => {
 describe("buildTurnSummary via createPruningCompactor", () => {
   test("summarizes tool_call and tool_result blocks in compacted turns", async () => {
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 1,
       summaryMaxChars: 2000,
     });
@@ -1319,6 +1406,9 @@ describe("buildTurnSummary via createPruningCompactor", () => {
   test("a truncated lying spine aborts instead of shipping", async () => {
     const maxChars = 20;
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 1,
       summaryMaxChars: maxChars,
     });

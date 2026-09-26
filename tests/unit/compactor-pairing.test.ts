@@ -53,6 +53,9 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -74,6 +77,9 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -117,6 +123,9 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -168,6 +177,9 @@ describe("pruning compactor preserves tool_call/tool_result pairing", () => {
       userText("g"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -270,6 +282,9 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
       userText("e"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -302,6 +317,9 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
       userText("e"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -330,6 +348,9 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
     ];
     // keep=3 → recent is kept call + kept result + end; the older pair summarizes.
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 3,
       maxAnchorTurns: 0,
     });
@@ -376,6 +397,9 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
       userText("e"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -423,6 +447,9 @@ describe("pruning compactor stubs superseded file reads (CL-4374)", () => {
       userText("e"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -468,6 +495,9 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("e"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -496,6 +526,9 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("e"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -521,6 +554,9 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("e"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -545,6 +581,9 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("e"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });
@@ -573,6 +612,9 @@ describe("pruning compactor extends superseded-result stubbing to query tools (C
       userText("e"),
     ];
     const compactor = createPruningCompactor({
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       keepRecentTurns: 6,
       maxAnchorTurns: 2,
     });

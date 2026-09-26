@@ -1035,6 +1035,9 @@ describe("wrapCompactorWithCompletenessGate", () => {
       keepRecentTurns: 2,
       maxAnchorTurns: 0,
       summaryMaxChars: 500,
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
     });
     const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
     const turns: import("@intx/types/runtime").ConversationTurn[] = [
@@ -1108,6 +1111,9 @@ describe("wrapCompactorWithCompletenessGate", () => {
       keepRecentTurns: 2,
       maxAnchorTurns: 0,
       summaryMaxChars: 500,
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
     });
     const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
     const turns: import("@intx/types/runtime").ConversationTurn[] = [
@@ -1143,5 +1149,99 @@ describe("wrapCompactorWithCompletenessGate", () => {
     expect(spine?.type).toBe("text");
     if (spine?.type !== "text") throw new Error("unreachable");
     expect(spine.text.startsWith(COMPACTED_PREFIX)).toBe(true);
+  });
+
+  test("CL-9007 tail excerpts stay certified while full bytes stay retrievable", async () => {
+    const { wrapCompactorWithCompletenessGate, recordAdoptedHandoff } =
+      await import("./compaction-archive.js");
+    const { createPruningCompactor } = await import("./compactor.js");
+    const { COMPACTED_PREFIX } = await import("./compaction-handoff.js");
+    const { archive } = memoryArchive();
+    const FULL = `decisive-fact-99:${"y".repeat(20_000)}`;
+    const FILLER = `f1:${"x".repeat(4000)}`;
+    await archive.recordAuthorizedPayload({
+      kind: "tool_args",
+      payload: { name: "read_file", arguments: { path: "src/f1.ts" } },
+      callId: "f1",
+    });
+    await archive.recordAuthorizedPayload({
+      kind: "tool_result",
+      payload: FILLER,
+      callId: "f1",
+    });
+    const bigOcc = await archive.recordAuthorizedPayload({
+      kind: "tool_result",
+      payload: FULL,
+      callId: "big-1",
+    });
+    const inner = createPruningCompactor({
+      keepRecentTurns: 2,
+      summaryMaxChars: 4000,
+      compactionShape: { tailBudgetTokens: 1000 },
+      summarize: async () =>
+        "Re-read src/f1.ts leftovers. Next: keep newest ask whole.",
+    });
+    const wrapped = wrapCompactorWithCompletenessGate(inner, archive);
+    type Turn = import("@intx/types/runtime").ConversationTurn;
+    const pair = (
+      id: string,
+      name: string,
+      args: Record<string, unknown>,
+      resultText: string,
+    ): Turn[] => [
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id, name, arguments: args }],
+        timestamp: Date.now(),
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            callId: id,
+            content: [{ type: "text", text: resultText }],
+          },
+        ],
+        timestamp: Date.now(),
+      },
+    ];
+    const text = (role: Turn["role"], content: string): Turn => ({
+      role,
+      content: [{ type: "text", text: content }],
+      timestamp: Date.now(),
+    });
+    const turns: Turn[] = [
+      text("user", "Migrate the auth module to opaque tokens in src/auth.ts"),
+      ...pair("f1", "read_file", { path: "src/f1.ts" }, FILLER),
+      ...pair("big-1", "run_shell", { command: "bun run test auth" }, FULL),
+      text("user", "newest ask: keep this newest user message whole verbatim"),
+      text("assistant", "newest reply"),
+    ];
+    const result = await wrapped.apply(turns, ctx);
+    expect(result.record.reason).not.toBe("incomplete-evidence-archive");
+    expect(result.record.reason.startsWith("compacted")).toBe(true);
+    // Tail excerpts live inside tool_result bodies, not top-level text blocks.
+    const live = result.output
+      .flatMap((t) =>
+        t.content.flatMap((b) => {
+          if (b.type === "text") return [b.text];
+          if (b.type === "tool_result")
+            return b.content.map((c) => (c.type === "text" ? c.text : ""));
+          return [];
+        }),
+      )
+      .join("\n");
+    expect(live).not.toContain(FULL);
+    expect(live).toContain("decisive-fact-99:");
+    expect(live).toContain("[tail-shortened");
+    expect(await archive.readAuthorizedPayload(bigOcc.occurrenceId)).toBe(FULL);
+    const adopted = await recordAdoptedHandoff(
+      archive,
+      `${COMPACTED_PREFIX} Goal: carry me retrievable`,
+    );
+    expect(await archive.readAuthorizedPayload(adopted.occurrenceId)).toContain(
+      "carry me retrievable",
+    );
   });
 });

@@ -30,6 +30,7 @@
 
 import { ArkErrors, type } from "arktype";
 import type { ConversationTurn, StrategyBlob } from "@intx/types/runtime";
+import { VERIFY_REPAIR_HEADING } from "./compaction-verify.js";
 
 // Canonical home of the fold marker. compactor.ts re-exports it so existing
 // importers keep working; this module owns the literal.
@@ -483,11 +484,25 @@ export function extractHandoffArtifact(
   const nonEmptyUserTexts = freshUserTexts.filter(
     (text) => text.trim().length > 0,
   );
+  // CL-9007: the budgeted tail can lift every user turn out of the folded
+  // region (anchored initiating task, whole newest messages), leaving no fresh
+  // user text to name the goal. Fall back to the fold's own summary narrative
+  // — the model's statement of what the region was about — before Unknown, so
+  // the next fold's "update this" context still names the work (e.g. src/a.ts)
+  // instead of dropping it. The verify-repair appendix is stripped first: it
+  // carries exact file lists that stay in the fat file by design (CL-8744) and
+  // must not leak into the thin spine.
+  const narrativeGoal = oneLine(
+    narrative.split(VERIFY_REPAIR_HEADING)[0] ?? "",
+    MAX_GOAL_CHARS,
+  );
   const extractedGoal =
     carried.goal ??
     (nonEmptyUserTexts.length > 0
       ? oneLine(nonEmptyUserTexts[0] ?? "", MAX_GOAL_CHARS)
-      : "Unknown (no user message in folded turns)");
+      : narrativeGoal.length > 0
+        ? narrativeGoal
+        : "Unknown (no user message in folded turns)");
   const goalFromFreshIndex = carried.goal === undefined ? 0 : -1;
   const fileGoal = preferFull(priorFile.goal, extractedGoal);
 

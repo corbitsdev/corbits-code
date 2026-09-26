@@ -890,6 +890,9 @@ describe("createPruningCompactor — handoff fold (CL-8744)", () => {
     const compactor = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 500,
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
     });
     const turns: ConversationTurn[] = [
       userTurn("Ship the widget. Never rename src/widget.ts."),
@@ -953,6 +956,9 @@ describe("createPruningCompactor — handoff fold (CL-8744)", () => {
     const compactor = createPruningCompactor({
       keepRecentTurns: 2,
       summaryMaxChars: 500,
+      // CL-9007: pin a tiny tail budget so each fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       readPriorHandoff: async () => latest,
     });
     const firstTurns: ConversationTurn[] = [
@@ -987,5 +993,155 @@ describe("createPruningCompactor — handoff fold (CL-8744)", () => {
     const filesSection = secondFile.split("## Files")[1]?.split("## ")[0] ?? "";
     expect(filesSection).toContain("src/widget.ts");
     expect(filesSection).toContain("diagnostic.log");
+  });
+});
+
+describe("CL-9007 tail attachments stay whole", () => {
+  const PNG_B64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  test("a recent image attachment and its user text survive the fold whole", async () => {
+    const userText =
+      "screenshot ask: keep this newest user message whole verbatim";
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 2,
+      summaryMaxChars: 4000,
+      compactionShape: { tailBudgetTokens: 1000 },
+      summarize: async () => "Re-read src/a.ts. Next: review the screenshot.",
+    });
+    const turns: ConversationTurn[] = [
+      userTurn("Migrate the auth module to opaque tokens in src/auth.ts"),
+      ...fileReadTurns("a", "src/a.ts", `a-result:${"a".repeat(4000)}`),
+      ...fileReadTurns("b", "src/b.ts", `b-result:${"b".repeat(4000)}`),
+      makeTurn({
+        role: "user",
+        content: [
+          { type: "text", text: userText },
+          {
+            type: "image",
+            source: { kind: "base64", mimeType: "image/png", data: PNG_B64 },
+          },
+        ],
+      }),
+      makeTurn({
+        role: "assistant",
+        content: [{ type: "text", text: "newest reply" }],
+      }),
+    ];
+    const result = await compactor.apply(turns, mockStrategyCtx);
+    expect(result.record.reason.startsWith("compacted")).toBe(true);
+    const live = result.output
+      .flatMap((t) => t.content)
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    expect(live).toContain(userText);
+    const image = result.output
+      .flatMap((t) => t.content)
+      .find((b) => b.type === "image");
+    expect(image).toEqual({
+      type: "image",
+      source: { kind: "base64", mimeType: "image/png", data: PNG_B64 },
+    });
+  });
+});
+
+describe("CL-9007 repeated compactions update the summary", () => {
+  const TAIL_MARK = "newest ask: carry this tail string forward";
+
+  function firstSession(): ConversationTurn[] {
+    return [
+      userTurn("Migrate the auth module to opaque tokens in src/auth.ts"),
+      ...fileReadTurns("a", "src/a.ts", `a-result:${"a".repeat(4000)}`),
+      ...fileReadTurns("b", "src/b.ts", `b-result:${"b".repeat(4000)}`),
+      userTurn(TAIL_MARK),
+      makeTurn({
+        role: "assistant",
+        content: [{ type: "text", text: "newest reply" }],
+      }),
+    ];
+  }
+
+  function countSpines(turns: ConversationTurn[]): number {
+    return turns
+      .flatMap((t) => t.content)
+      .filter((b) => b.type === "text" && b.text.includes(COMPACTED_PREFIX))
+      .length;
+  }
+
+  function countMarkers(turns: ConversationTurn[]): number {
+    // Markers live inside tool_result bodies, not top-level text blocks.
+    return turns
+      .flatMap((t) =>
+        t.content.flatMap((b) => {
+          if (b.type === "text") return [b.text];
+          if (b.type === "tool_result")
+            return b.content.map((c) => (c.type === "text" ? c.text : ""));
+          return [];
+        }),
+      )
+      .reduce((sum, text) => sum + text.split("[tail-shortened").length - 1, 0);
+  }
+
+  function liveText(turns: ConversationTurn[]): string {
+    return turns
+      .flatMap((t) => t.content)
+      .filter((b) => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+  }
+
+  test("a second fold updates the prior summary and carries the tail forward", async () => {
+    let priorFile: string | undefined;
+    let seenPrior: string | undefined;
+    let calls = 0;
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 2,
+      summaryMaxChars: 4000,
+      compactionShape: { tailBudgetTokens: 1000 },
+      readPriorHandoff: async () => priorFile,
+      summarize: async (_turns, ctx) => {
+        calls += 1;
+        if (calls === 2) seenPrior = ctx?.priorSummary;
+        return calls === 1
+          ? "Re-read src/a.ts. Next: keep newest ask whole."
+          : "Migrating auth to opaque tokens via src/a.ts. Next: keep newest ask whole.";
+      },
+    });
+
+    const first = await compactor.apply(firstSession(), mockStrategyCtx);
+    expect(first.record.reason.startsWith("compacted")).toBe(true);
+    expect(countSpines(first.output)).toBe(1);
+    priorFile = new TextDecoder().decode(
+      defined(defined(first.blobs)[0]).bytes,
+    );
+    expect(priorFile).toContain("src/a.ts");
+
+    const second = await compactor.apply(
+      [
+        ...first.output,
+        // New tool activity after the first fold: the second tail holds this
+        // fresh excerpt while the first fold's excerpt is summarized from its
+        // shortened text — never re-summarized raw, never duplicated live.
+        ...fileReadTurns("c", "src/c.ts", `c-result:${"c".repeat(4000)}`),
+        userTurn("follow-up ask"),
+        makeTurn({
+          role: "assistant",
+          content: [{ type: "text", text: "follow-up reply" }],
+        }),
+      ],
+      mockStrategyCtx,
+    );
+    expect(second.record.reason.startsWith("compacted")).toBe(true);
+    expect(countSpines(second.output)).toBe(1);
+    expect(seenPrior).toContain(COMPACTED_PREFIX);
+    expect(seenPrior).toContain("src/a.ts");
+    expect(liveText(second.output)).toContain(TAIL_MARK);
+    expect(countMarkers(second.output)).toBe(countMarkers(first.output));
+    const secondFile = new TextDecoder().decode(
+      defined(defined(second.blobs)[0]).bytes,
+    );
+    expect(secondFile).toContain("src/a.ts");
+    expect(secondFile).not.toBe(priorFile);
   });
 });
