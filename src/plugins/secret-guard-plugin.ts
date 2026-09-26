@@ -477,10 +477,6 @@ export function inspectShellSecretReference(
   cwd: string = process.cwd(),
   dialect: ShellDialect = nativeShellDialect(process.platform),
 ): ShellSecretInspection {
-  if (dialect === "cmd") {
-    return subjectReferencesSensitivePath(command, cwd, dialect);
-  }
-
   const expanded = expandShellSubjects(command);
   let opaque = expanded.opaque;
   for (const subject of expanded.subjects) {

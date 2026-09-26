@@ -512,7 +512,7 @@ export function autoShellRuleForCall(
   const command = call.arguments.command;
   if (typeof command !== "string") return undefined;
 
-  // Peel bash/sh/zsh -c, xargs, env -S/--split-string, and transparent
+  // Peel nested interpreters, xargs, env -S/--split-string, and transparent
   // prefixes so rules see the real payload. `stripQuoted` alone would delete
   // a quoted -c body and miss every rule. Content inside an -S payload is
   // scanned here exactly as if written plainly — never a weaker tier.

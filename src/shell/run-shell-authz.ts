@@ -359,9 +359,24 @@ const ENV_ASSIGNMENT = /^\w+=/;
 const RM_WRAPPER = /^(sudo|command|env|exec|builtin|time|nice|nohup)$/;
 const RECURSIVE_FLAG = /^(--recursive|-[A-Za-z]*[rR][A-Za-z]*)$/;
 
-// Interpreters whose `-c` / `--command` payload is an independent shell subject.
-// Exported so tests and callers share one explicit list with the peeler.
-export const SHELL_INTERPRETERS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+// Interpreters whose `-c` / `--command` / cmd `/c` payload is an independent
+// shell subject. Exported so tests and callers share one explicit list with
+// the peeler. Matching is basename-based and ignores Windows executable
+// suffixes (`cmd.exe` → `cmd`).
+export const SHELL_INTERPRETERS = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "ksh",
+  "ash",
+  "fish",
+  "csh",
+  "tcsh",
+  "pwsh",
+  "powershell",
+  "cmd",
+]);
 // Max recursive peel depth for nested wrappers. Exported so the depth cap is a
 // named policy knob tests can assert against, not a magic number.
 export const MAX_PEEL_DEPTH = 4;
@@ -472,10 +487,30 @@ function isSafeShellPositional(token: string): boolean {
   return SAFE_REJOIN_TOKEN.test(token);
 }
 
+const INTERPRETER_SUFFIX = /\.(?:exe|cmd|com|bat)$/i;
+const CMD_INTERPRETERS = new Set(["cmd"]);
+const PWSH_INTERPRETERS = new Set(["pwsh", "powershell"]);
+
+function shellInterpreterName(token: string): string {
+  return programBasename(token).replace(INTERPRETER_SUFFIX, "").toLowerCase();
+}
+
+function isInterpreterCommandSwitch(
+  interpreter: string,
+  token: string,
+): boolean {
+  if (token === "-c" || token === "--command") return true;
+  if (CMD_INTERPRETERS.has(interpreter) && /^\/[ck]$/i.test(token)) return true;
+  if (PWSH_INTERPRETERS.has(interpreter) && /^-command$/i.test(token))
+    return true;
+  return false;
+}
+
 // `\bash` / `\sh` — tokenize artifact from peeling through an escaped quote.
 function isBackslashInterpreterToken(token: string): boolean {
   const base = programBasename(token);
-  return base.startsWith("\\") && SHELL_INTERPRETERS.has(base.slice(1));
+  if (!base.startsWith("\\")) return false;
+  return SHELL_INTERPRETERS.has(shellInterpreterName(base.slice(1)));
 }
 
 function shellPayloadReferencesPositional(payload: string): boolean {
@@ -593,6 +628,7 @@ function peelShellDashC(
   tokens: string[],
   start: number,
   rawSegment: string,
+  interpreter: string,
 ): PeelOutcome {
   let i = start;
   while (i < tokens.length) {
@@ -602,7 +638,7 @@ function peelShellDashC(
       i++;
       break;
     }
-    if (t === "-c" || t === "--command") {
+    if (isInterpreterCommandSwitch(interpreter, t)) {
       const tokenPayload = tokens[i + 1];
       if (tokenPayload === undefined) return { kind: "opaque" };
       const optionOccurrence = tokens
@@ -955,7 +991,7 @@ function peelOnce(segment: string): PeelOutcome {
   const current = tokens[i];
   if (current === undefined)
     return strippedPrefix ? { kind: "opaque" } : { kind: "none" };
-  const prog = programBasename(current);
+  const prog = shellInterpreterName(current);
   if (SHELL_INTERPRETERS.has(prog)) {
     // A backtick or `$(` anywhere in the raw segment means the -c payload may
     // contain command substitution. tokenize() surfaces substitution content as
@@ -966,7 +1002,7 @@ function peelOnce(segment: string): PeelOutcome {
     // wrapper as opaque rather than risk peeling a truncated, misleading payload.
     if (segment.includes("`") || segment.includes("$("))
       return { kind: "opaque" };
-    const shellPeel = peelShellDashC(tokens, i + 1, segment);
+    const shellPeel = peelShellDashC(tokens, i + 1, segment, prog);
     if (shellPeel.kind !== "none") return shellPeel;
     // Interpreter without -c (e.g. `bash script.sh`) — not a peelable wrapper.
     return { kind: "none" };
@@ -990,8 +1026,9 @@ export interface ShellExpandResult {
 }
 
 // Expand a shell command into subjects the auto-shell policy, hard-deny, and
-// recursive-rm checks should scan. Peels bash/sh/zsh/dash/ksh -c, xargs
-// utility tails, env -S/--split-string payloads, and transparent prefixes
+// recursive-rm checks should scan. Peels nested interpreters (`bash`/`fish`/
+// `cmd` `/c` and the rest of SHELL_INTERPRETERS), xargs utility tails, env
+// -S/--split-string payloads, busybox applets, and transparent prefixes
 // (env/nice/timeout/…), recursing with a depth cap so nested wrappers cannot
 // hide a dangerous payload.
 //

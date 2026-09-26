@@ -194,6 +194,24 @@ describe("clustered shell command options", () => {
     }
   });
 
+  test("peels nested interpreters including busybox applets and cmd /c", () => {
+    expect(expandShellSubjects('fish -c "cat .envrc"').subjects).toContain(
+      "cat .envrc",
+    );
+    expect(
+      expandShellSubjects('busybox sh -c "cat .envrc"').subjects,
+    ).toContain("cat .envrc");
+    expect(expandShellSubjects('csh -c "cat .envrc"').subjects).toContain(
+      "cat .envrc",
+    );
+    expect(expandShellSubjects('pwsh -c "cat .envrc"').subjects).toContain(
+      "cat .envrc",
+    );
+    expect(expandShellSubjects('cmd /c "type .envrc"').subjects).toContain(
+      "type .envrc",
+    );
+  });
+
   test("hard-denies complete adjacent-fragment payloads", () => {
     for (const command of [
       `bash -c "rm "'-rf /'`,

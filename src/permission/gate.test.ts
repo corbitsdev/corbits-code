@@ -146,6 +146,12 @@ describe("expanded secret wrapper guards", () => {
       "ksh -Gc \"cat \\$'.envrc'\"",
       `bash -c "cat "'.envrc'`,
       `sh -cc "cat "'.flaskenv'`,
+      'fish -c "cat .envrc"',
+      'fish -c "cat .env"',
+      'busybox sh -c "cat .envrc"',
+      'csh -c "cat .envrc"',
+      'tcsh -c "cat .envrc"',
+      'pwsh -c "cat .envrc"',
       "cat $'notes\\cQ'",
     ]) {
       const gate = createPermissionGate({
@@ -159,6 +165,23 @@ describe("expanded secret wrapper guards", () => {
       expect(verdict.effect).toBe("ask");
       if (verdict.effect !== "ask") throw new Error("expected ask");
       expect(verdict.request.scopes).toEqual([]);
+    }
+  });
+
+  test("star grants do not cover nested-interpreter secret reads", async () => {
+    for (const command of [
+      'fish -c "cat .envrc"',
+      'fish -c "cat .env"',
+      'busybox sh -c "cat .envrc"',
+    ]) {
+      const gate = createPermissionGate({
+        approvals: [{ tool: "run_shell", pattern: "*" }],
+        interactive: false,
+        skipPermissions: false,
+        reactorGated: false,
+        auto: true,
+      });
+      expect((await gate.evaluate(shellCall(command))).allowed).toBe(false);
     }
   });
 
