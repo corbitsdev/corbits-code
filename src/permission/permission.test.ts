@@ -25,6 +25,7 @@ import {
   classifyTool,
   buildRequests,
   isAutoAllowedShellCall,
+  callTargetsRestricted,
 } from "./classify.js";
 import { createPermissionGate } from "./gate.js";
 import { APPROVAL_TIMEOUT_RESULT_TEXT } from "./decline-markers.js";
@@ -1594,6 +1595,50 @@ describe("createPermissionGate", () => {
       expect(verdict.allowed).toBe(approval);
     }
     expect(asked).toBe(tools.length);
+  });
+
+  // CL-9362: agentId-targeted fleet calls address workers by opaque session
+  // id (`target`), never by path — there is nothing path-shaped for
+  // callTargetsRestricted to judge, so the gate's auto-allow `!restricted`
+  // guard is intentionally vacuous for them. Path restriction is enforced
+  // where paths are actually touched: inside the target worker, whose own
+  // gate binds restriction judgments to its process cwd. This pins that
+  // decision: a fleet call aimed at a restricted-worktree worker still
+  // auto-allows in auto mode, exactly like spawn_agent/wait_agents.
+  test("auto mode auto-allows agentId-targeted fleet calls regardless of target worktree", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      auto: true,
+    });
+    const calls: ToolCall[] = [
+      { id: "c", name: "close_agent", arguments: { target: "worker-1" } },
+      { id: "c", name: "interrupt_agent", arguments: { target: "worker-1" } },
+      {
+        id: "c",
+        name: "send_input",
+        arguments: { target: "worker-1", message: "continue" },
+      },
+    ];
+    for (const call of calls) {
+      const verdict = await gate.evaluate(call);
+      expect(verdict.allowed).toBe(true);
+    }
+    expect(asked).toBe(0);
+    // The carve-out is intentional, not an oversight: even an isRestricted
+    // that reports everything restricted (the target worktree is restricted)
+    // does not flag these calls — they carry agent ids, not paths.
+    const alwaysRestricted = () => true;
+    for (const call of calls) {
+      expect(callTargetsRestricted(call, alwaysRestricted)).toBe(false);
+    }
   });
 
   // manage_tasks's handler has no side effect — the task list is mutated
