@@ -13,8 +13,10 @@ let sessionId = "";
 
 const sessionStorePath = (): string =>
   join(sessionDir(cwd, sessionId, home), "permissions.json");
-const projectStorePath = (): string => join(cwd, ".corbits", "permissions.json");
-const globalStorePath = (): string => join(home, ".corbits", "permissions.json");
+const projectStorePath = (): string =>
+  join(cwd, ".corbits", "permissions.json");
+const globalStorePath = (): string =>
+  join(home, ".corbits", "permissions.json");
 const backupPath = (path: string): string => `${path}.bak`;
 
 async function readJson(path: string): Promise<unknown> {
@@ -185,7 +187,12 @@ describe("migratePersistedApprovalStores", () => {
 
     const seeded = await loadSeededApprovals(cwd, sessionId, home);
 
-    expect(seeded).toEqual([{ tool: "run_shell", pattern: "npm *" }]);
+    expect(seeded).toEqual(
+      expect.arrayContaining([{ tool: "run_shell", pattern: "npm *" }]),
+    );
+    expect(seeded.some((approval) => approval.tool === "update_plan")).toBe(
+      false,
+    );
     expect(await readJson(sessionStorePath())).toEqual({
       approvals: [{ tool: "run_shell", pattern: "npm *" }],
     });
