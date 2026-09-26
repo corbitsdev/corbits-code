@@ -445,7 +445,12 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
     });
   });
 
-  test("live gate plus queued gate plus stacked /help does not arm the queued timeout", async () => {
+  // CL-8792: the single-slot host drains queued gates before deferred
+  // command surfaces. Denying the live gate opens the queued card (arming its
+  // timer only now that it is shown); the deferred /help waits until no gate
+  // is outstanding. While the queued card is still hidden its timer stays
+  // unarmed even past its deadline.
+  test("queued gate takes the host before a deferred /help after the live gate settles", async () => {
     await withShell(async ({ shell }) => {
       const emitter = new EventEmitter();
       const dispose = wireGates(emitter, shell);
@@ -478,19 +483,26 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
         acceptOverlaySelection(shell);
         expect(shell.overlayKind).toBe("permissions");
 
+        // Past the queued card's deadline while it is still hidden: the timer
+        // must not have run.
+        await Bun.sleep(20);
+        expect(shell.overlayKind).toBe("permissions");
+        expect(queuedResolved).toBeUndefined();
+
+        // Denying the live gate opens the queued card before the deferred
+        // /help surface.
         acceptOverlaySelection(shell);
         await Promise.resolve();
-        expect(shell.overlayKind).toBe("help");
+        expect(shell.overlayKind).toBe("permissions");
         expect(liveResolved).toEqual({ allow: false });
         expect(queuedResolved).toBeUndefined();
 
-        await Bun.sleep(20);
+        // Settling the queued card hands the host to the deferred /help.
+        acceptOverlaySelection(shell);
+        await Promise.resolve();
+        await Promise.resolve();
         expect(shell.overlayKind).toBe("help");
-        expect(queuedResolved).toBeUndefined();
-
-        closeInsetOverlay(shell);
-        expect(shell.overlayKind).toBe("permissions");
-        expect(queuedResolved).toBeUndefined();
+        expect(queuedResolved).toEqual({ allow: false });
       } finally {
         dispose();
       }
@@ -832,7 +844,10 @@ describe("overlay host occupancy and opt-in deferral", () => {
     });
   });
 
-  test("accepting plugins from settings while a gate is queued opens plugins", async () => {
+  // CL-8792: a gate arriving over settings preempts it (settings is
+  // suspended, not lost) and settling the gate returns settings, from where
+  // plugins accept still works.
+  test("a gate preempts settings and settling it returns settings for plugins accept", async () => {
     const hanging = hangingSettingsList();
     await withShell(async ({ shell }) => {
       const emitter = new EventEmitter();
@@ -877,8 +892,14 @@ describe("overlay host occupancy and opt-in deferral", () => {
         emitPermissionGate(emitter, (outcome) => {
           resolved = outcome;
         });
-        expect(shell.overlayKind).toBe("settings");
+        expect(shell.overlayKind).toBe("permissions");
         expect(resolved).toBeUndefined();
+
+        acceptOverlaySelection(shell);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(resolved).toEqual({ allow: false });
+        expect(shell.overlayKind).toBe("settings");
 
         const pluginsIdx = shell.overlayItems.findIndex((row) =>
           row.includes("plugins"),
@@ -887,7 +908,6 @@ describe("overlay host occupancy and opt-in deferral", () => {
         for (let i = 0; i < pluginsIdx; i++) moveOverlaySelection(shell, 1);
         acceptOverlaySelection(shell);
         expect(shell.overlayKind).toBe("plugins");
-        expect(resolved).toBeUndefined();
       } finally {
         dispose();
       }
@@ -1021,7 +1041,10 @@ describe("overlay host occupancy and opt-in deferral", () => {
     );
   });
 
-  test("re-opening help while a gate is queued does not drain the gate", async () => {
+  // CL-8792: a replaceable command surface yields to a newly raised
+  // decision gate and returns after that gate settles. Re-opening help while
+  // the gate holds the host must neither settle the gate nor lose the surface.
+  test("a new gate preempts help and help returns after the gate settles", async () => {
     await withShell(async ({ shell }) => {
       const emitter = new EventEmitter();
       const dispose = wireGates(emitter, shell);
@@ -1034,14 +1057,19 @@ describe("overlay host occupancy and opt-in deferral", () => {
         emitPermissionGate(emitter, (outcome) => {
           resolved = outcome;
         });
-        expect(shell.overlayKind).toBe("help");
+        expect(shell.overlayKind).toBe("permissions");
         expect(isOverlayHostIdle(shell)).toBe(false);
         expect(resolved).toBeUndefined();
 
         openHelpOverlay(shell);
-        expect(shell.overlayKind).toBe("help");
+        expect(shell.overlayKind).toBe("permissions");
         expect(isOverlayHostIdle(shell)).toBe(false);
         expect(resolved).toBeUndefined();
+
+        acceptOverlaySelection(shell);
+        await Promise.resolve();
+        expect(resolved).toEqual({ allow: false });
+        expect(shell.overlayKind).toBe("help");
       } finally {
         dispose();
       }

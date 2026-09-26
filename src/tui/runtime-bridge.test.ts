@@ -1,5 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { mailboxMailWakeLine } from "../subagent/mailbox-mail-drive.js";
+import type { PermissionRequest } from "../permission/types.js";
 import { defined } from "../../tests/helpers/defined.js";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { buildShellBackgroundMessage } from "../session/runtime-assembly.js";
@@ -13,10 +15,13 @@ import {
 import { DEFAULT_STALL_MS } from "./agent-progress";
 import { appendStreamRow, paintChrome } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
-import { getShellBridgeHooks } from "./shell/internals";
+import { getShellBridgeHooks, type AppShell } from "./shell/internals";
 import { streamRowCount } from "./shell/transcript";
 import { STEER_WAIT_NOTICE_MS } from "./notice-line";
 import { withTestRenderer } from "./harness";
+import { wireGates } from "./gate-wire.js";
+import { acceptOverlaySelection } from "./shell/overlay-host.js";
+import { moveOverlaySelection } from "./shell/overlay-list.js";
 import { badgeCount } from "./delivery-queue";
 import { LIVE_ACTIVITY_WORDS } from "./chrome-state";
 
@@ -2963,6 +2968,365 @@ describe("in-flight tool row elapsed time", () => {
           nowMs = 65_000;
           tick?.();
           expect(defined(shell.streamLog[index], "diff row").stat).toBe(before);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+});
+
+describe("CL-7802 gated tool elapsed starts at grant", () => {
+  function acceptOnce(shell: AppShell): void {
+    moveOverlaySelection(shell, 1);
+    acceptOverlaySelection(shell);
+  }
+
+  function destructiveRequest(subject: string): PermissionRequest {
+    return {
+      tool: "run_shell",
+      action: "Run shell command",
+      subject,
+      scopes: [],
+    };
+  }
+
+  test("R1 hidden-gate grant: post-grant stat reads time-since-grant, not time-since-announce", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        let nowMs = 0;
+        let tick: (() => void) | undefined;
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+          schedule: (fn) => {
+            tick = fn;
+            return () => {
+              tick = undefined;
+            };
+          },
+        });
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "run_shell", callId: "c1", arguments: "sleep 30" },
+          });
+          const index = streamRowCount(shell) - 1;
+          const stat = () => defined(shell.streamLog[index], "tool row").stat;
+
+          bridge.gateOpened();
+          nowMs = 120_000;
+          tick?.();
+          await h.renderOnce();
+          expect(stat()).toBeUndefined();
+
+          bridge.gateClosed();
+          await h.renderOnce();
+          expect(stat()).toBe("0:00");
+
+          nowMs = 125_000;
+          tick?.();
+          await h.renderOnce();
+          expect(stat()).toBe("0:05");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("R2 gated deny: final row carries the answer stat, no m:ss leftover", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        let nowMs = 0;
+        let tick: (() => void) | undefined;
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+          schedule: (fn) => {
+            tick = fn;
+            return () => {
+              tick = undefined;
+            };
+          },
+        });
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "run_shell", callId: "c1", arguments: "sleep 30" },
+          });
+          const index = streamRowCount(shell) - 1;
+
+          bridge.gateOpened();
+          nowMs = 120_000;
+          tick?.();
+          await h.renderOnce();
+          bridge.gateClosed();
+          bridge.handle({
+            type: "tool.done",
+            data: {
+              result: {
+                callId: "c1",
+                name: "run_shell",
+                content: "Denied by operator",
+                isError: true,
+              },
+            },
+          });
+          await h.renderOnce();
+          expect(
+            defined(shell.streamLog[index], "tool row").stat ?? "",
+          ).not.toMatch(/^\d+:\d\d$/);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("R3 shown-gate grant: the wait clock rebases to time-since-grant", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        const emitter = new EventEmitter();
+        const disposeGates = wireGates(emitter, shell);
+        let nowMs = 0;
+        let tick: (() => void) | undefined;
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+          schedule: (fn) => {
+            tick = fn;
+            return () => {
+              tick = undefined;
+            };
+          },
+        });
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "run_shell",
+              callId: "c1",
+              arguments: "rm -rf /tmp/cl7802",
+            },
+          });
+          const index = streamRowCount(shell) - 1;
+          const stat = () => defined(shell.streamLog[index], "tool row").stat;
+
+          bridge.gateOpened();
+          let resolved: unknown;
+          emitter.emit("permission.gate", {
+            id: "req-g",
+            request: destructiveRequest("rm -rf /tmp/cl7802"),
+            resolve: (outcome: unknown) => {
+              resolved = outcome;
+            },
+          });
+          expect(shell.overlayKind).toBe("permissions");
+
+          nowMs = 120_000;
+          tick?.();
+          await h.renderOnce();
+          expect(stat()).toBe("2:00");
+
+          acceptOnce(shell);
+          expect(resolved).toEqual({ allow: true });
+          bridge.gateClosed();
+          await h.renderOnce();
+          expect(stat()).toBe("0:00");
+
+          nowMs = 125_000;
+          tick?.();
+          await h.renderOnce();
+          expect(stat()).toBe("0:05");
+        } finally {
+          bridge.dispose();
+          disposeGates();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("ungated in-flight sibling does not rebase when a later gate settles", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        let nowMs = 0;
+        let tick: (() => void) | undefined;
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+          schedule: (fn) => {
+            tick = fn;
+            return () => {
+              tick = undefined;
+            };
+          },
+        });
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "grep", callId: "sibling", arguments: "needle" },
+          });
+          const siblingIndex = streamRowCount(shell) - 1;
+          const siblingStat = () =>
+            defined(shell.streamLog[siblingIndex], "sibling row").stat;
+
+          nowMs = 60_000;
+          tick?.();
+          await h.renderOnce();
+          expect(siblingStat()).toBe("1:00");
+
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: { name: "run_shell", callId: "gated", arguments: "sleep 30" },
+          });
+          const gatedIndex = streamRowCount(shell) - 1;
+          const gatedStat = () =>
+            defined(shell.streamLog[gatedIndex], "gated row").stat;
+
+          bridge.gateOpened();
+          bridge.gateClosed();
+          await h.renderOnce();
+          expect(siblingStat()).toBe("1:00");
+          expect(gatedStat()).toBe("0:00");
+
+          nowMs = 65_000;
+          tick?.();
+          await h.renderOnce();
+          expect(siblingStat()).toBe("1:05");
+          expect(gatedStat()).toBe("0:05");
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("diff rows keep their +/- stat through a gate cycle", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        let nowMs = 0;
+        let tick: (() => void) | undefined;
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+          schedule: (fn) => {
+            tick = fn;
+            return () => {
+              tick = undefined;
+            };
+          },
+        });
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "write_file",
+              callId: "c1",
+              arguments: JSON.stringify({ path: "a.txt", content: "hi\n" }),
+            },
+          });
+          const index = streamRowCount(shell) - 1;
+          const before = defined(shell.streamLog[index], "diff row").stat;
+          expect(before).toContain("+");
+
+          bridge.gateOpened();
+          nowMs = 120_000;
+          tick?.();
+          await h.renderOnce();
+          bridge.gateClosed();
+          nowMs = 125_000;
+          tick?.();
+          await h.renderOnce();
+          expect(defined(shell.streamLog[index], "diff row").stat).toBe(before);
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
+  test("spawn_agent rows keep their session clock through a gate cycle", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "busy",
+        });
+        let nowMs = 0;
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          now: () => nowMs,
+        });
+        try {
+          bridge.handle({ type: "inference.start", data: {} });
+          bridge.handle({
+            type: "inference.tool_call.end",
+            data: {
+              name: "spawn_agent",
+              callId: "task-1",
+              arguments: { description: "Review permission gate" },
+            },
+          });
+          const index = streamRowCount(shell) - 1;
+          nowMs = 120_000;
+          bridge.syncAgentProgress([
+            {
+              id: "task-1",
+              status: "running",
+              currentToolName: "grep",
+              currentToolPreview: null,
+              currentToolStartedAt: null,
+              startedAt: 0,
+              lastActivityAt: nowMs,
+            },
+          ]);
+          await h.renderOnce();
+          const before = defined(shell.streamLog[index], "progress row").stat;
+
+          bridge.gateOpened();
+          bridge.gateClosed();
+          await h.renderOnce();
+          expect(defined(shell.streamLog[index], "progress row").stat).toBe(
+            before,
+          );
         } finally {
           bridge.dispose();
           shell.dispose();

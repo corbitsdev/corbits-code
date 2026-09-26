@@ -19,7 +19,9 @@ import {
   closeInsetOverlay,
   isOverlayHostIdle,
   onOverlayClosed,
+  resumeSuspendedCommandSurface,
   setOverlayBody,
+  suspendReplaceableOverlay,
 } from "./shell/overlay-host.js";
 import { EXPAND_KEY } from "./stream.js";
 import {
@@ -258,6 +260,7 @@ export function wireGates(
   // nothing on screen to answer — so a gate that arrives while another overlay
   // is up waits here and opens as soon as the host frees up.
   const pending: (() => void)[] = [];
+  let disposed = false;
   // Owns queued-approval reconciliation (see src/permission/queue.ts): this
   // host only enqueues requests and renders whatever settle calls the queue
   // hands back — it never decides which grant covers which request.
@@ -295,11 +298,45 @@ export function wireGates(
   }
 
   function openOrQueue(open: () => void): void {
-    if (!isOverlayHostIdle(shell)) {
-      pending.push(open);
+    if (isOverlayHostIdle(shell)) {
+      openHost(open);
       return;
     }
-    openHost(open);
+    if (shell.overlayList !== null) {
+      // A replaceable command surface yields to the decision gate and is
+      // restored after the gate settles. The suspend is a no-op for live
+      // gates and non-surface popups (palette, mentions, pickers — they keep
+      // their stacking contracts), so those arrivals simply stay queued.
+      pending.push(open);
+      suspendReplaceableOverlay(shell);
+      // The suspend-close's idle-notify may already have opened an older
+      // queued gate (FIFO): drain here only if the host is still free, so a
+      // close-notify drain is never doubled.
+      if (shell.overlayList === null) {
+        const next = pending.shift();
+        if (next !== undefined) openHost(next);
+      }
+      return;
+    }
+    pending.push(open);
+  }
+
+  /**
+   * Open the next queued gate, else return a suspended command surface to
+   * the host. Every gate settle path runs this after resolving. Skipped past
+   * teardown so a late settle cannot paint onto a dead shell.
+   */
+  function drainPendingOrResume(): void {
+    if (disposed || shell.disposed) return;
+    // A close-notify drain may already have taken the host (Esc / timeout
+    // while displayed): never double-open, and never tear down a live gate.
+    if (shell.overlayList !== null) return;
+    const next = pending.shift();
+    if (next !== undefined) {
+      openHost(next);
+      return;
+    }
+    resumeSuspendedCommandSurface(shell);
   }
 
   function unqueue(open: () => void): void {
@@ -351,6 +388,9 @@ export function wireGates(
         closeInsetOverlay(shell);
       }
       resolve(outcome);
+      // The next queued gate takes the host before any deferred surface;
+      // a suspended command surface returns only when no gate is waiting.
+      drainPendingOrResume();
     });
 
     const onToggleExpand = (): void => {
@@ -496,11 +536,7 @@ export function wireGates(
         // ask — or the overlay's generic accept echo — into the transcript.
         echoChoice: false,
         onAccept: (sel: OverlaySelection) => {
-          if (settled) return;
-          settled = true;
-          clearTimers();
-          operatorTeardowns.delete(teardown);
-          resolve(
+          settleOnce(
             operatorResultFromSelection(choices, {
               index: sel.index,
               ...(sel.id !== undefined ? { id: sel.id } : {}),
@@ -510,11 +546,7 @@ export function wireGates(
         // The ask_operator contract offers a free-form answer, so the overlay
         // must be able to send one back rather than only an option index.
         onTextAnswer: (text: string) => {
-          if (settled) return;
-          settled = true;
-          clearTimers();
-          operatorTeardowns.delete(teardown);
-          resolve(operatorCustomResult(text));
+          settleOnce(operatorCustomResult(text));
         },
         // Esc must settle the awaited promise (as a cancel), not abandon it —
         // an unresolved gate hangs the run until the process is killed.
@@ -523,11 +555,7 @@ export function wireGates(
         // closeInsetOverlay itself; doing so would reenter this same
         // onCancel (see the permission gate's identical note on `settle`).
         onCancel: () => {
-          if (settled) return;
-          settled = true;
-          clearTimers();
-          operatorTeardowns.delete(teardown);
-          resolve(operatorCancelResult());
+          settleOnce(operatorCancelResult());
         },
         isGate: true,
       });
@@ -544,6 +572,9 @@ export function wireGates(
         closeInsetOverlay(shell);
       }
       resolve(result);
+      // The next queued gate takes the host before any deferred surface;
+      // a suspended command surface returns only when no gate is waiting.
+      drainPendingOrResume();
     };
     const autoCancel = (): void => {
       settleOnce(operatorCancelResult());
@@ -568,6 +599,7 @@ export function wireGates(
   emitter.on("operator.gate", onOperator);
 
   return () => {
+    disposed = true;
     emitter.off("permission.gate", onPermission);
     emitter.off("operator.gate", onOperator);
     disposeReconciliation();
