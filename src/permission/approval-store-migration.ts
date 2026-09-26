@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { link, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -62,6 +62,25 @@ function isFileExistsError(err: unknown): boolean {
   );
 }
 
+// Exclusive atomic backup: fully write a sibling tmp, then link it onto
+// `.bak` so the rollback copy never appears torn. rename would replace a
+// pre-existing bak and lose first-original-wins; a direct wx write of `.bak`
+// can crash mid-write and leave a truncated file that a later start treats as
+// EEXIST success. link is exclusive (EEXIST if the name is taken) and the
+// destination inode is complete at the moment it appears.
+async function writeBackupExclusive(
+  backupPath: string,
+  body: string,
+): Promise<void> {
+  const tmp = `${backupPath}.${process.pid}.tmp`;
+  try {
+    await writeFile(tmp, body);
+    await link(tmp, backupPath);
+  } finally {
+    await unlink(tmp).catch(() => undefined);
+  }
+}
+
 // Purge update_plan keys from one approvals file (session, project, or
 // global store shape: an `approvals` array plus, for the global file, a
 // `providerModels` map of arrays). Backup-then-rewrite: the pre-migration
@@ -74,7 +93,8 @@ function isFileExistsError(err: unknown): boolean {
 // propagate. The rewrite goes through chainObjectWrite, so a concurrent grant
 // mint to the same file serializes with the migration instead of losing an
 // update, and the tmp+rename lands atomically so a reader never sees a torn
-// file.
+// file. The backup uses the same tmp-then-place atomicity, exclusive so a
+// pre-existing `.bak` wins.
 export async function migrateApprovalStoreFile(
   path: string,
 ): Promise<ApprovalStoreMigrationFileResult> {
@@ -113,9 +133,10 @@ export async function migrateApprovalStoreFile(
       }
       if (changed === 0) return undefined;
       try {
-        await writeFile(backupPath, JSON.stringify(current, null, 2), {
-          flag: "wx",
-        });
+        await writeBackupExclusive(
+          backupPath,
+          JSON.stringify(current, null, 2),
+        );
       } catch (err) {
         if (!isFileExistsError(err)) {
           log.warn("Skipping approval-store migration for {path}: {error}", {
