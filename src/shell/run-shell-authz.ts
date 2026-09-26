@@ -5,6 +5,7 @@ import { splitChainedCommand, tokenize } from "../permission/command.js";
 import {
   peelTransparentCommand,
   programBasename,
+  skipEnvArguments,
 } from "./transparent-command.js";
 
 export { programBasename } from "./transparent-command.js";
@@ -651,8 +652,10 @@ function peelXargs(tokens: string[], start: number): PeelOutcome {
 // (payload is the rest of the same token).
 const ENV_BOOL_SHORT = new Set(["i", "0", "v"]);
 
-// Env flags that consume the following argv token as a value. Shared by the
-// -S peel walker and the transparent-prefix skip so they cannot drift.
+// Env flags that consume the following argv token as a value. The -S locator
+// uses exact-token matches to walk up to -S. After the payload is extracted,
+// peelEnvSplitUtility uses skipEnvArguments so clustered value shorts
+// (`-iu NAME`) cannot drift from the transparent prefix skip.
 const ENV_VALUE_FLAGS = new Set([
   "-u",
   "--unset",
@@ -737,17 +740,20 @@ function expandEnvSplitSeparators(payload: string): string | null {
 }
 
 // After folding the -S payload with any trailing utility tokens, re-parse the
-// result the way env does: expand `\_`, tokenize (dequote), skip env flags /
-// assignments / end-of-options, and land on the real program hard-deny matchers
-// expect (`env -S -v find /` → `find /`, `env -S "rm '-rf' '/'"` → `rm -rf /`).
+// result the way env does: expand `\_`, tokenize (dequote), then skip flags /
+// assignments / end-of-options with skipEnvArguments so clustered value shorts
+// (`-iu NAME`) match the transparent prefix skip, and land on the program
+// hard-deny matchers expect (`env -S -v find /` → `find /`,
+// `env -S "rm '-rf' '/'"` → `rm -rf /`).
 function peelEnvSplitUtility(command: string): PeelOutcome {
   const expanded = expandEnvSplitSeparators(command);
   if (expanded === null || isOpaquePayload(expanded)) return { kind: "opaque" };
   const tokens = tokenize(expanded);
-  let i = 0;
-  i = skipMatching(tokens, i, (t) => ENV_ASSIGNMENT.test(t));
+  const parsed = skipEnvArguments(tokens, 0, []);
+  if (parsed.terminal) return { kind: "opaque" };
+  let i = parsed.executableIndex;
+  if (i < 0) return { kind: "opaque" };
   while (i < tokens.length && (tokens[i] === "--" || tokens[i] === "-")) i++;
-  i = skipEnvFlagsAndAssignments(tokens, i);
   if (i >= tokens.length) return { kind: "opaque" };
   const utility = rejoinTokens(tokens.slice(i));
   if (utility === null) return { kind: "opaque" };
@@ -872,32 +878,6 @@ function peelEnvSplitString(tokens: string[], start: number): PeelOutcome {
   return { kind: "none" };
 }
 
-// Skip env's own flags and NAME=value arguments so a transparent
-// `env -i FOO=bar cmd` peel lands on `cmd`, not on the `-i` flag token.
-function skipEnvFlagsAndAssignments(tokens: string[], start: number): number {
-  let i = start;
-  while (i < tokens.length) {
-    const t = tokens[i];
-    if (t === undefined) break;
-    if (t === "--") return i + 1;
-    if (ENV_ASSIGNMENT.test(t)) {
-      i++;
-      continue;
-    }
-    const afterValue = advancePastEnvValueFlag(tokens, i);
-    if (afterValue !== null) {
-      i = afterValue;
-      continue;
-    }
-    if (t.startsWith("-") && t !== "-") {
-      i++;
-      continue;
-    }
-    break;
-  }
-  return i;
-}
-
 // Peel one layer of transparent prefix / shell -c / xargs / env -S from a
 // single segment.
 function peelOnce(segment: string): PeelOutcome {
@@ -935,9 +915,18 @@ function peelOnce(segment: string): PeelOutcome {
   }
   if (prog === "xargs") return peelXargs(tokens, i + 1);
 
-  // Prefix-only peel: `env FOO=1 rm -rf build` → `rm -rf build`.
+  // Prefix-only peel: `env FOO=1 rm -rf build` → `FOO=1 rm -rf build`.
+  // Rejoin keeps NAME=value tokens skipEnvArguments collected so
+  // `env -u HOME FOO=bar ls` still surfaces the assignment to auto-mode ask.
   if (strippedPrefix) {
-    const command = rejoinTokens(tokens.slice(i));
+    const innerTokens =
+      transparent.assignmentValues.length === 0
+        ? tokens.slice(i)
+        : [
+            ...tokens.slice(0, i).filter((t) => ENV_ASSIGNMENT.test(t)),
+            ...tokens.slice(i),
+          ];
+    const command = rejoinTokens(innerTokens);
     if (command === null) return { kind: "opaque" };
     return { kind: "inner", command };
   }

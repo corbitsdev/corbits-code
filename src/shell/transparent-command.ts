@@ -97,7 +97,7 @@ function envSplitPayloadIndex(
     : undefined;
 }
 
-function skipEnvArguments(
+export function skipEnvArguments(
   tokens: readonly string[],
   start: number,
   assignmentValues: string[],

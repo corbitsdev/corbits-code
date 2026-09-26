@@ -672,6 +672,22 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(runShellAuthzBlockReason(`env -S -v cat`)).toMatch(stdinHang);
   });
 
+  test("G15b: clustered env value shorts inside -S consume the flag operand", () => {
+    expect(runShellAuthzBlockReason(`env -S "-iu PATH find /"`)).toMatch(
+      openEnded,
+    );
+    expect(runShellAuthzBlockReason(`env -S "-iu PATH rm -rf /"`)).toMatch(
+      destructive,
+    );
+    expect(runShellAuthzBlockReason(`env -S "-iC /tmp find /"`)).toMatch(
+      openEnded,
+    );
+    expect(runShellAuthzBlockReason(`env -iu PATH find /`)).toMatch(openEnded);
+    expect(runShellAuthzBlockReason(`env -S "-i -u PATH find /"`)).toMatch(
+      openEnded,
+    );
+  });
+
   test("G16: env -S quoted rm flags still hard-deny catastrophic targets", () => {
     expect(runShellAuthzBlockReason(`env -S "rm '-rf' '/'"`)).toMatch(
       destructive,

@@ -755,6 +755,19 @@ describe("env-assignment shell commands force ask in auto mode", () => {
     expect(
       autoShellRuleForCall(shellCall("env -i FOO=bar npm start"))?.name,
     ).toBe("env-assignment");
+    expect(autoShellRuleForCall(shellCall("env -i FOO=bar ls"))?.name).toBe(
+      "env-assignment",
+    );
+  });
+
+  test("env -u HOME with a following assignment still asks", () => {
+    expect(
+      autoShellRuleForCall(shellCall("env -u HOME FOO=bar ls"))?.name,
+    ).toBe("env-assignment");
+    expect(
+      autoShellRuleForCall(shellCall("env -u HOME LD_PRELOAD=./evil.so ls"))
+        ?.name,
+    ).toBe("env-assignment");
   });
 
   test("stacked short flags (env -iS) with an embedded assignment ask", () => {
