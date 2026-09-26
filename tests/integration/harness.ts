@@ -27,6 +27,7 @@ import type {
   ContextTransform,
   ContextStore,
   InferenceSource,
+  ToolDefinition,
 } from "@intx/types/runtime";
 import { type } from "arktype";
 
@@ -82,6 +83,7 @@ export interface IntegrationSession {
   workdir: string;
   agent: Agent;
   toolset: Awaited<ReturnType<typeof createAgentToolset>>;
+  updateToolDefinitions: (definitions: ToolDefinition[]) => void;
 }
 
 export interface OpenIntegrationSessionOpts {
@@ -127,6 +129,8 @@ export async function openIntegrationSession(
         }
       : {}),
   });
+  let updateToolDefinitions = (_definitions: ToolDefinition[]): void =>
+    undefined;
 
   const chatDirectorDef = defineDirector({
     id: `${ID_PREFIX}/chat`,
@@ -140,6 +144,8 @@ export async function openIntegrationSession(
         },
       );
       d.setClearDenials(() => opts.permissionGate.clearDenials());
+      updateToolDefinitions = (definitions) =>
+        d.updateToolDefinitions(definitions);
       return d;
     },
   });
@@ -262,7 +268,15 @@ export async function openIntegrationSession(
       ? innerAgent
       : createPrimaryDeliveryAdmission(innerAgent, primaryArchive);
 
-  return { harness, cwd, workdir, agent, toolset, storage: storageForAgent };
+  return {
+    harness,
+    cwd,
+    workdir,
+    agent,
+    toolset,
+    storage: storageForAgent,
+    updateToolDefinitions,
+  };
 }
 
 export async function closeIntegrationSession(

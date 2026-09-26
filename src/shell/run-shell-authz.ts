@@ -98,7 +98,7 @@ const BLOCKED_QUOTED_PAYLOAD_PATTERNS: RegExp[] = [
 // Open-ended tree walks via the shell OOM the host: `find | tail` still forces
 // the full stream through the collector, and recursive grep/rg walks huge trees
 // before any pipe limit applies. Hard-deny those shapes for host safety; the
-// bounded grep/search_files tools remain practical alternatives (timeout +
+// bounded grep/glob tools remain practical alternatives (timeout +
 // output caps). (`git log | tail` and similar non-walk pipes are fine — the
 // 512KB shell output cap is the backstop for those.)
 const OPEN_ENDED_SEARCH_PATTERNS: RegExp[] = [
@@ -1168,7 +1168,7 @@ function openEndedSearchReason(command: string): string | undefined {
   // and would otherwise look like sanctioned ways to do the same thing.
   return (
     `Open-ended shell search blocked — shell find, head-position rg, and recursive ` +
-    `grep -r can walk huge trees and OOM the host. Prefer the bounded grep/search_files ` +
+    `grep -r can walk huge trees and OOM the host. Prefer the bounded grep/glob ` +
     `tools (timeout + output caps). Do not substitute another unbounded walk ` +
     `(fd, ls -R, scripted os.walk). Command: ${command}`
   );

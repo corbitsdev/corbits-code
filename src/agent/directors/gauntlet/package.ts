@@ -33,13 +33,13 @@ BLINDERS ON: check what the brief's success_criteria name, nothing else. One nam
 1. Read the named test and the code it covers. Pick ONE minimal breaking
    mutation (flip a condition, drop a branch, off-by-one) that the test
    should catch.
-2. Apply the mutation with edit_file. Record the exact file, symbol, and
+2. Apply the mutation with edit. Record the exact file, symbol, and
    mutation so the restore is exact.
-3. Run the named test with run_shell (foreground, with a timeout — never
+3. Run the named test with bash (foreground, with a timeout — never
    background). It must FAIL. A pass under mutation means the test is
    vacuous: stop, restore immediately, and report the vacuous test as the
    finding.
-4. Restore the mutation exactly (edit_file back, or git checkout the file
+4. Restore the mutation exactly (edit back, or git checkout the file
    when the mutation is the only change). Verify with git status / git diff:
    the tree must be byte-identical to before the run.
 5. Re-run the named test. It must PASS on the clean tree.
@@ -50,7 +50,7 @@ BLINDERS ON: check what the brief's success_criteria name, nothing else. One nam
 
 # Rules
 
-- run_shell is for the named suite command only, foreground with timeouts.
+- bash is for the named suite command only, foreground with timeouts.
 - Never leave a breaking edit in the tree, not even briefly past the run.
 - Findings are verdicts (vacuous or guarded), never fixes — route follow-ups
   to builder (product fix) or testsmith (stronger cases).

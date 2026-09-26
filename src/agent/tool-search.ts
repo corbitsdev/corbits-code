@@ -11,6 +11,8 @@ import {
 } from "./lexical-rank.js";
 import type { SessionMode } from "../config/session-mode.js";
 import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
+import { advertisedToolName, projectToolDefinition } from "./tool-aliases.js";
+import { canonicalToolName } from "./canonical-tool-name.js";
 
 // Tools whose full schema is always advertised to the model. Everything else is
 // registered but discovered on demand via tool_search, which promotes matches
@@ -22,19 +24,18 @@ import { sessionModeEnablesSubAgents } from "../config/session-mode.js";
 // advertised prefix — the model finds it via tool_search when a session
 // actually needs it.
 //
-// Product mutation tools (write_file / edit_file / delete_file) sit in CORE so
+// Product mutation tools (write / edit / delete) sit in CORE so
 // the primary Skywalker session can DIY tiny/bounded edits without a
 // tool_search round-trip. Substantial work still spawns build / docs
 // directors — that is a prompt judgment call, not a toolset strip.
-// Codex `apply_patch` is mounted only when isCodex and kept on build/docs
-// leaves — it is intentionally absent from CORE/CATALOG.
+// Codex natives (apply_patch / shell / update_plan) are not advertised.
 export const CORE_TOOL_NAMES: readonly string[] = [
-  "read_file",
-  "write_file",
-  "edit_file",
-  "delete_file",
+  "read",
+  "write",
+  "edit",
+  "delete",
   "lsp",
-  "run_shell",
+  "bash",
   "shell_collect",
   "ask_operator",
   "manage_tasks",
@@ -117,15 +118,15 @@ export function advertisedToolNamesForSessionMode(
 // Built-in file/search/web tools advertised alongside the core set. They carry full
 // schemas on the wire so the model can call them directly; MCP tools are not
 // listed at all — they are discovered blind via tool_search.
-// write_file / edit_file / delete_file live in CORE (not here) so they are
-// advertised without a tool_search round-trip.
+// write / edit / delete live in CORE (not here) so they are
+// advertised without a tool_search round-trip. list_dir stays mounted
+// but unadvertised and is excluded from tool_search (use glob).
 // web_fetch / web_search are catalog (not deferred): URL reads and search are
 // first-class primary work; requiring tool_search before web_fetch caused
 // thrash on web-bait and contradicted the skywalker "already mounted" rule.
 export const CATALOG_TOOL_NAMES: readonly string[] = [
-  "search_files",
+  "glob",
   "grep",
-  "list_dir",
   "web_fetch",
   "web_search",
   "skill_search",
@@ -146,6 +147,22 @@ export const ADVERTISED_TOOL_NAMES: readonly string[] = [
   ...CATALOG_TOOL_NAMES,
 ];
 
+function isAlreadyAdvertised(
+  defName: string,
+  advertisedNames: readonly string[],
+): boolean {
+  const engine = canonicalToolName(defName);
+  const wire = advertisedToolName(engine);
+  return (
+    advertisedNames.includes(defName) ||
+    advertisedNames.includes(engine) ||
+    advertisedNames.includes(wire)
+  );
+}
+
+// Mounted built-ins that stay off the advertised prefix and off tool_search.
+const UNADVERTISED_MOUNTED_BUILTINS = new Set(["list_dir"]);
+
 // Project the live tool registry onto the advertised set: the fixed built-in
 // prefix (its order never changes — this is what keeps the provider cache
 // prefix stable across no-discovery turns) followed by wire-committed tools
@@ -161,17 +178,26 @@ export function advertisedTools(
   activated: readonly string[] = [],
   builtInPrefix: readonly string[] = ADVERTISED_TOOL_NAMES,
 ): ToolDefinition[] {
-  const byName = new Map(all.map((def) => [def.name, def]));
+  const byName = new Map<string, ToolDefinition>();
+  for (const def of all) {
+    byName.set(def.name, def);
+    const engine = canonicalToolName(def.name);
+    if (!byName.has(engine)) byName.set(engine, def);
+    const wire = advertisedToolName(engine);
+    if (!byName.has(wire)) byName.set(wire, def);
+  }
   const seen = new Set<string>();
   const orderedNames = [
     ...builtInPrefix,
     ...activated.filter((name) => !builtInPrefix.includes(name)),
   ];
   return orderedNames.flatMap((name) => {
-    if (seen.has(name)) return [];
-    seen.add(name);
-    const def = byName.get(name);
-    return def !== undefined ? [def] : [];
+    const def = byName.get(name) ?? byName.get(canonicalToolName(name));
+    if (def === undefined) return [];
+    const projected = projectToolDefinition(def);
+    if (seen.has(projected.name)) return [];
+    seen.add(projected.name);
+    return [projected];
   });
 }
 
@@ -217,7 +243,7 @@ export function createActivatedToolTracker(): ActivatedToolTracker {
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are not on the wire until this search promotes them onto the next inference. Core tools (read_file, run_shell, web_fetch, web_search, spawn_agent, …) are already on the wire — do not tool_search for them. wait_agents is mounted on exec-primary runs only, so it is not on the wire elsewhere and this search cannot promote it there. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get a ranked handful of matching names and short descriptions. Matched tools join the next inference tool list — call them on the next turn, not from this result.",
+    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are not on the wire until this search promotes them onto the next inference. Core tools (read, bash, web_fetch, web_search, spawn_agent, …) are already on the wire — do not tool_search for them. wait_agents is mounted on exec-primary runs only, so it is not on the wire elsewhere and this search cannot promote it there. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get a ranked handful of matching names and short descriptions. Matched tools join the next inference tool list — call them on the next turn, not from this result.",
   inputSchema: {
     type: "object",
     properties: {
@@ -266,8 +292,17 @@ export function createToolIndex(
       const queryTokens = tokenizeLexical(query);
       if (queryTokens.length === 0) return [];
       const candidates = getDefs()
-        .filter((def) => !advertisedNames.includes(def.name))
-        .filter((def) => allow === undefined || allow.includes(def.name));
+        .filter((def) => !isAlreadyAdvertised(def.name, advertisedNames))
+        .filter((def) => !UNADVERTISED_MOUNTED_BUILTINS.has(def.name))
+        .filter(
+          (def) =>
+            allow === undefined ||
+            allow.includes(def.name) ||
+            allow.some(
+              (allowed) =>
+                canonicalToolName(allowed) === canonicalToolName(def.name),
+            ),
+        );
       return rankAndCut(
         candidates,
         (def) => score(def, queryTokens, rawQuery),

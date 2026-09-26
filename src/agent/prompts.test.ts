@@ -20,10 +20,10 @@ const REGISTERED_TOOL_NAMES = new Set([
 ]);
 
 const REFERENCED_TOOL_NAMES = [
-  "read_file",
-  "edit_file",
-  "write_file",
-  "run_shell",
+  "read",
+  "edit",
+  "write",
+  "bash",
   "web_fetch",
   "web_search",
 ];
@@ -72,7 +72,7 @@ describe("buildPromptDisciplineBlock", () => {
   it("contains the load-bearing prohibitions", () => {
     const block = PROMPT_DISCIPLINE_BLOCK;
     // Dedicated tools over shell.
-    expect(block).toContain("run_shell");
+    expect(block).toContain("bash");
     expect(block).toContain("cat/head/tail");
     expect(block).toContain("heredoc/echo");
     // Environment.
@@ -199,9 +199,9 @@ Response style:
 
 Tool choice:
 - Prefer spawn_agent(agent=…) then idle for substantial product implementation, exploration, review, and docs — mailbox mail arrives as inbound; do not poll. Spawn remains default for substantial work, not a tool ban.
-- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.
-- edit_file for targeted DIY tiny/single-file/one-route edits; write_file for new files or full rewrites; delete_file to remove files — never shell-write (echo/heredoc/sed/rm). Spawn builder (or a docs director) for substantial/multi-file/parallel/specialist work.
-- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.
+- read for file contents; grep or glob to locate code; lsp for symbols, types, references, or call flow before opening large files.
+- edit for targeted DIY tiny/single-file/one-route edits; write for new files or full rewrites; delete to remove files — never shell-write (echo/heredoc/sed/rm). Spawn builder (or a docs director) for substantial/multi-file/parallel/specialist work.
+- bash for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.
 - tool_search before assuming a plugin or MCP tool exists; skill_search when choosing among listed skills, use_skill to load a body.
 
 Ask vs proceed:
@@ -361,7 +361,7 @@ describe("grok finish-bias residual gating (extends existing provider-family tes
 
   it("reinforces tool routing (dedicated tools over shell) for grok, not just finish bias", () => {
     const note = buildGrokLeafAntiThrashNote();
-    expect(note).toMatch(/run_shell/);
+    expect(note).toMatch(/bash/);
   });
 
   it("has no kimi residual — the seam is intentionally left unfilled", () => {

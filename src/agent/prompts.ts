@@ -29,11 +29,12 @@ import { SETTINGS_DIR_NAME } from "../branding.js";
 // Fallback tool list for worker prompts when the caller does not pass the
 // installed set. Matches the worker install (posix + manage_tasks + ask_director).
 const defaultChatTools = [
-  "read_file",
-  "write_file",
-  "edit_file",
-  "run_shell",
-  "search_files",
+  "read",
+  "write",
+  "edit",
+  "delete",
+  "bash",
+  "glob",
   "grep",
   "list_dir",
   "lsp",
@@ -81,16 +82,16 @@ export function buildHarnessFacts(
     "Harness facts:",
     ...(subAgent
       ? [
-          "- Change files with write_file/edit_file and remove files with delete_file; shell file-writes and deletions are blocked.",
+          "- Change files with write/edit and remove files with delete; shell file-writes and deletions are blocked.",
         ]
       : [
-          "- Change files with write_file/edit_file and remove files with delete_file for tiny/single-file/one-route bounded edits. Spawn builder for substantial/multi-file/parallel/specialist work. Docs/design still spawn shakespeare/bruckheimer/rand except one-line fixes.",
+          "- Change files with write/edit and remove files with delete for tiny/single-file/one-route bounded edits. Spawn builder for substantial/multi-file/parallel/specialist work. Docs/design still spawn shakespeare/bruckheimer/rand except one-line fixes.",
           "- Shell file-writes and deletions are blocked; never use echo/heredoc/sed/rm as a substitute for product tools. Path tools are the DIY surface.",
         ]),
     "- Use the provided tools for file reads/searches instead of shelling out as a substitute.",
-    "- read_file accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one. Only read_file a tool-output:// URI if the truncation notice on that result named one; do not re-read a complete inline result.",
-    "- run_shell defaults to a 120s foreground timeout; pass timeout to override with no ceiling. Prefer background:true for builds, test suites, and dev servers: it returns a shell_id at once, the result is delivered when the process finishes (foreground runs hold steers; background runs do not), and shell_collect collects or cancels later. background does not change the retained shell cwd and has no default timeout.",
-    "- Shell find, rg, and grep -r are blocked — they can walk huge trees and OOM the host. Prefer the bounded grep/search_files tools, and do not substitute another unbounded walk (fd, ls -R, scripted os.walk).",
+    "- read accepts a filesystem path or a tool-output:///{callId} URI from a prior tool result when the harness exposes one. Only read a tool-output:// URI if the truncation notice on that result named one; do not re-read a complete inline result.",
+    "- bash defaults to a 120s foreground timeout; pass timeout to override with no ceiling. Prefer background:true for builds, test suites, and dev servers: it returns a shell_id at once, the result is delivered when the process finishes (foreground runs hold steers; background runs do not), and shell_collect collects or cancels later. background does not change the retained shell cwd and has no default timeout.",
+    "- Shell find, rg, and grep -r are blocked — they can walk huge trees and OOM the host. Prefer the bounded grep/glob tools, and do not substitute another unbounded walk (fd, ls -R, scripted os.walk).",
     ...(subAgent
       ? [
           "- You share the parent session's permission gate: matching persisted grants and auto mode proceed without a new prompt; other consequential actions may require operator approval (interactive) or are denied (headless).",
@@ -162,11 +163,11 @@ const GUIDELINE_SUB_BLOCKS: Record<
               : "mailbox mail arrives as inbound; do not poll.") +
             " Spawn remains default for substantial work, not a tool ban.",
         ]),
-    "- read_file for file contents; grep or search_files to locate code; lsp for symbols, types, references, or call flow before opening large files.",
+    "- read for file contents; grep or glob to locate code; lsp for symbols, types, references, or call flow before opening large files.",
     ctx.subAgent
-      ? "- edit_file for targeted changes; write_file for new files or full rewrites; delete_file to remove files — never echo, heredoc, sed, or rm in the shell for those jobs."
-      : "- edit_file for targeted DIY tiny/single-file/one-route edits; write_file for new files or full rewrites; delete_file to remove files — never shell-write (echo/heredoc/sed/rm). Spawn builder (or a docs director) for substantial/multi-file/parallel/specialist work.",
-    "- run_shell for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
+      ? "- edit for targeted changes; write for new files or full rewrites; delete to remove files — never echo, heredoc, sed, or rm in the shell for those jobs."
+      : "- edit for targeted DIY tiny/single-file/one-route edits; write for new files or full rewrites; delete to remove files — never shell-write (echo/heredoc/sed/rm). Spawn builder (or a docs director) for substantial/multi-file/parallel/specialist work.",
+    "- bash for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.",
     ...(ctx.subAgent
       ? []
       : [
@@ -262,8 +263,8 @@ export function buildPromptDisciplineBlock(
 ): string {
   const subAgent = opts.subAgent ?? false;
   const toolsOverShell = subAgent
-    ? "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes."
-    : "- Never use run_shell to read, edit, or write files — use read_file, edit_file, write_file for tiny/bounded DIY; spawn builder/docs directors for substantial work; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
+    ? "- Never use bash to read, edit, or write files — use read, edit, write; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes."
+    : "- Never use bash to read, edit, or write files — use read, edit, write for tiny/bounded DIY; spawn builder/docs directors for substantial work; cat/head/tail, sed/awk/perl -i, and heredoc/echo redirection are prohibited substitutes.";
   return [
     "Prompt discipline:",
     "",
@@ -279,7 +280,7 @@ export function buildPromptDisciplineBlock(
     "- Never hand-roll a web query — use web_search.",
     "",
     "Command shape:",
-    "- Never chain unrelated operations into one run_shell call — one logical operation per call, no multi-line scripts; a pipeline that performs one job is one operation.",
+    "- Never chain unrelated operations into one bash call — one logical operation per call, no multi-line scripts; a pipeline that performs one job is one operation.",
     "- Every command must be legible to the operator reviewing it before it runs.",
     "",
     "Turn semantics:",
@@ -295,16 +296,12 @@ export function buildPromptDisciplineBlock(
 }
 
 const TOOL_SUMMARIES: Record<string, string> = {
-  read_file:
-    "read a file or tool-output:///{callId} from a prior tool result (prefer over cat/head/tail in the shell). Only read_file a tool-output:// URI if the truncation notice named one",
-  write_file: "create or overwrite a file (never shell redirects or heredocs)",
-  edit_file:
-    "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read_file's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",
-  delete_file: "delete one file with an explicit outcome (never shell rm)",
-  run_shell:
-    "run a shell command (builds, tests, git; pass timeout ms to bound long commands; never to read/write/delete files, search trees, or talk to the user)",
-  search_files:
-    "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find)",
+  read: "read a file or tool-output:///{callId} from a prior tool result (prefer over cat/head/tail in the shell). Only read a tool-output:// URI if the truncation notice named one",
+  write: "create or overwrite a file (never shell redirects or heredocs)",
+  edit: "make a surgical edit (exact old_string match, or start_line/end_line line-range mode; never include read's NNNNNN\\t line prefix; substring failures include nearby file text; prefer over sed/awk in the shell)",
+  delete: "delete one file with an explicit outcome (never shell rm)",
+  bash: "run a shell command (builds, tests, git; pass timeout ms to bound long commands; never to read/write/delete files, search trees, or talk to the user)",
+  glob: "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find)",
   grep: "search file contents (bounded; timeout + output caps — safer than open-ended shell grep -r/rg)",
   list_dir: "list a directory's entries (bounded listing)",
   lsp: "resolve symbols — goToDefinition, findReferences, hover (prefer before reading huge files)",
@@ -336,10 +333,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
 };
 
 const ARCHIVE_TOOL_SUMMARIES: Partial<Record<string, string>> = {
-  read_file:
-    "read a file, tool-output:///{callId} from a prior tool result, or archive:///{occurrenceId} (prefer over cat/head/tail in the shell). Only read_file a tool-output:// URI if the truncation notice named one",
-  search_files:
-    "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find); path archive:/// lists evidence-archive refs",
+  read: "read a file, tool-output:///{callId} from a prior tool result, or archive:///{occurrenceId} (prefer over cat/head/tail in the shell). Only read a tool-output:// URI if the truncation notice named one",
+  glob: "find files by name or pattern (bounded; timeout + output caps — safer than open-ended shell find); path archive:/// lists evidence-archive refs",
   grep: "search file contents (bounded; timeout + output caps — safer than open-ended shell grep -r/rg); path archive:/// searches this session's evidence archive",
 };
 

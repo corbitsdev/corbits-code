@@ -255,8 +255,7 @@ describe("director prompt size budget", () => {
         expect(new Set(names).size, `${directorId} [${family}]`).toBe(
           names.length,
         );
-        // No fixture family is Codex, so the Codex proxies
-        // (createCodexToolProxies returns [] when !isCodex) must be absent,
+        // Hidden Codex aliases (apply_patch/shell/update_plan) are not advertised,
         // as must list_dir, which no subagent mount installs.
         for (const phantom of [
           "list_dir",

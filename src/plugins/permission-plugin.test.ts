@@ -341,13 +341,13 @@ describe("gateToolCall", () => {
     const dir = mkdtempSync(join(tmpdir(), "approval-log-reactor-"));
     const cwd = mkdtempSync(join(tmpdir(), "gate-cwd-"));
     const { gate, log } = approvalGate(dir, cwd, {
-      approvals: [{ tool: "shell", pattern: "shell" }],
+      approvals: [{ tool: "mcp__acme__do", pattern: "mcp__acme__do" }],
       requestApproval: refuseApproval,
     });
     const outer: ToolCall = {
       id: "codex-proxy",
-      name: "shell",
-      arguments: { command: "echo x | tee src/a.ts" },
+      name: "mcp__acme__do",
+      arguments: {},
     };
     const inner: ToolCall = {
       id: "codex-proxy",

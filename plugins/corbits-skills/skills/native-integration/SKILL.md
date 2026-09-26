@@ -16,7 +16,7 @@ Do not delete Corbits-only skills (`plan`, `git-worktrees`, `idiot-proof`). They
 
 Corbits tests use `bun:test` (`bun test`, `bun run test`), not GaaS `tap` (`import t from "tap"`). When the typescript skill shows tap examples, map them to bun:test (`import { expect, test } from "bun:test"`). Do not fork the typescript skill body.
 
-GaaS opsh scripts are bash (`#!/usr/bin/env opsh`, `lib::import`) and use TAP via `prove` (`test-harness`). That harness is not Corbits `bun:test`. Write scripts with `write_file`/`edit_file`; agent commands use `run_shell`. Do not fork the GaaS opsh body.
+GaaS opsh scripts are bash (`#!/usr/bin/env opsh`, `lib::import`) and use TAP via `prove` (`test-harness`). That harness is not Corbits `bun:test`. Write scripts with `write`/`edit`; agent commands use `bash`. Do not fork the GaaS opsh body.
 
 ## Tool mapping
 
@@ -32,14 +32,14 @@ When a GaaS skill names a Claude/GaaS tool, use the Corbits equivalent. Do not c
 | `@critic` / `@critique` | `spawn_agent(agent="critic")`                      |
 | `@intern`               | `spawn_agent(agent="intern")`                      |
 | `@explorer`             | `spawn_agent(agent="explorer")`                    |
-| Read / Write / Edit     | `read_file` / `write_file` / `edit_file`           |
-| Glob / Grep             | `search_files` / `grep`                            |
-| Bash                    | `run_shell`                                        |
+| Read / Write / Edit     | `read` / `write` / `edit`                          |
+| Glob / Grep             | `glob` / `grep`                                    |
+| Bash                    | `bash`                                             |
 | WebFetch / WebSearch    | `web_fetch` / `web_search`                         |
 
 `intent="general"` is not a Corbits spawn. Use a closed director id.
 
-GaaS ast-grep invokes `sg` as a CLI. Corbits extras: run `sg` via `run_shell`. Do not fork the GaaS ast-grep body.
+GaaS ast-grep invokes `sg` as a CLI. Corbits extras: run `sg` via `bash`. Do not fork the GaaS ast-grep body.
 
 Slash names that differ from GaaS skill ids: `/review` is GaaS `code-review`; `/create-issue` is GaaS `linear-create`. Keep those Corbits names.
 
@@ -67,7 +67,7 @@ GaaS linear-issue-workflow inlines `git worktree add` and marks In Progress afte
 
 GaaS `style` refuses to operate outside a git repo. Corbits does not: a folder without `.git` is a valid working directory (scratch, unpacked tarball, new project). Git-using skills (`implement`, `review`, `git-rebase`, `pull-request-review`) still no-op or ask when they need a repo. Do not invent a git repo to satisfy those skills.
 
-When GaaS git-rebase writes `/tmp` editor scripts, Corbits still plans on the primary and intern executes sequenced git via `run_shell`; intern may use inline `GIT_SEQUENCE_EDITOR` instead of write_file editor scripts. Do not fork the GaaS git-rebase body.
+When GaaS git-rebase writes `/tmp` editor scripts, Corbits still plans on the primary and intern executes sequenced git via `bash`; intern may use inline `GIT_SEQUENCE_EDITOR` instead of write editor scripts. Do not fork the GaaS git-rebase body.
 
 ## Tracker-agnostic issues
 

@@ -342,7 +342,7 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
     expect(reason).toMatch(openEnded);
     expect(reason).toMatch(/OOM the host/);
     expect(reason).toMatch(/walk huge trees/);
-    expect(reason).toMatch(/Prefer the bounded grep\/search_files tools/);
+    expect(reason).toMatch(/Prefer the bounded grep\/glob tools/);
     expect(reason).toMatch(
       /not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/,
     );
