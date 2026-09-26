@@ -946,6 +946,9 @@ function estimateTextTokens(chars: number): number {
 // rides unchanged (summarized from its shortened text, never re-expanded raw
 // and never re-shortened into nested sentinels).
 const TAIL_EXCERPT_SENTINEL = "[tail-shortened ";
+// Match the stamped marker (`[tail-shortened N→`), not a raw prefix: a body
+// that happens to mention the substring must still be excerpted.
+const TAIL_EXCERPT_MARKER = /\[tail-shortened \d+→/;
 
 // Shorten one oversized text part of a tail tool result to a head+tail
 // excerpt. The excerpt carries a sentinel, the original length, and the kept
@@ -957,7 +960,7 @@ function excerptTailText(
 ): { text: string; shortened: boolean } {
   if (
     text.length <= shape.maxTailToolOutputChars ||
-    text.includes(TAIL_EXCERPT_SENTINEL)
+    TAIL_EXCERPT_MARKER.test(text)
   )
     return { text, shortened: false };
   const headChars = shape.excerptHead
@@ -1301,13 +1304,17 @@ export function createPruningCompactor(
         ...carriedSpines,
       ];
 
-      // Keep-set covered everything foldable: nothing to replace. Leave the
-      // input untouched rather than rewriting the head with an empty summary —
-      // but return the image-aged turns (plus their spill blobs), not the raw
-      // input, so eager aging outside the tail is not silently dropped.
+      // Keep-set covered everything foldable: nothing to replace. Do not
+      // invent an empty summary — but still emit the excerpted live copies
+      // selectTail already paid for (plus image-aged turns and their spill
+      // blobs). Returning the unexcerpted aged turns would keep the occupancy
+      // that armed the compact on a short-but-bulky first fold.
       if (summarizedTurns.length === 0) {
         return {
-          output: aged.turns,
+          output:
+            tail.excerpted.size === 0
+              ? aged.turns
+              : aged.turns.map((turn, idx) => tail.excerpted.get(idx) ?? turn),
           record: {
             strategy: this.name,
             version: this.version,

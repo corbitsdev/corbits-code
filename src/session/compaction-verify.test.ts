@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createPruningCompactor } from "./compactor.js";
 import { condenseTurns } from "./summarizer.js";
-import { HANDOFF_LATEST_KEY } from "./compaction-handoff.js";
+import { COMPACTED_PREFIX, HANDOFF_LATEST_KEY } from "./compaction-handoff.js";
 import {
   createCompactionArchive,
   wrapCompactorWithCompletenessGate,
@@ -786,6 +786,27 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
       .join("\n");
   }
 
+  function liveTokenEstimate(turns: ConversationTurn[]): number {
+    let chars = 0;
+    for (const turn of turns) {
+      for (const block of turn.content) {
+        if (block.type === "text") chars += block.text.length;
+        else if (block.type === "tool_call")
+          chars += JSON.stringify(block.arguments).length;
+        else if (block.type === "tool_result") {
+          for (const part of block.content) {
+            if (part.type === "text") chars += part.text.length;
+          }
+        }
+      }
+    }
+    return Math.ceil(chars / 4);
+  }
+
+  function countStructuredTailExcerpts(text: string): number {
+    return text.match(/\[tail-shortened \d+→/g)?.length ?? 0;
+  }
+
   test("large tool outputs in the tail are shortened rather than copied verbatim", async () => {
     const result = await tailCompactor().apply(tailSession(), mockStrategyCtx);
     expect(result.record.reason.startsWith("compacted")).toBe(true);
@@ -839,6 +860,57 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
     expect(result.record.parameters).toMatchObject({
       compactionShape: { tailBudgetTokens: 7500, pairSafe: true },
     });
+  });
+
+  test("budget-swallow still emits excerpted tail copies; live tokens ≤ budget; shortenedToolOutputs matches live sentinels", async () => {
+    const dump = "z".repeat(12_000);
+    const turns: ConversationTurn[] = [
+      textTurn("user", "do the work"),
+      ...pairTurns("a", "read_file", { path: "src/a.ts" }, dump),
+      ...pairTurns("b", "read_file", { path: "src/b.ts" }, dump),
+      ...pairTurns("c", "read_file", { path: "src/c.ts" }, dump),
+      textTurn("user", "newest ask"),
+      textTurn("assistant", "newest reply"),
+    ];
+    const result = await createPruningCompactor({
+      keepRecentTurns: 2,
+      compactionShape: { tailBudgetTokens: 7500 },
+      summarize: async () => {
+        throw new Error("must not invent a summary on the budget-swallow path");
+      },
+    }).apply(turns, mockStrategyCtx);
+
+    expect(result.record.reason).toBe("no compaction needed");
+    expect(allText(result.output)).not.toContain(COMPACTED_PREFIX);
+    const live = liveResultText(result.output);
+    expect(live).not.toContain(dump);
+    expect(result.record.decisions).toMatchObject({ shortenedToolOutputs: 3 });
+    expect(countStructuredTailExcerpts(live)).toBe(3);
+    expect(liveTokenEstimate(result.output)).toBeLessThanOrEqual(7500);
+  });
+
+  test("a body containing the substring but not the structured marker is still excerpted", async () => {
+    const bait = "[tail-shortened ";
+    const body = `${bait}in the docs\n${"z".repeat(8000)}`;
+    expect(body.includes(bait)).toBe(true);
+    expect(/\[tail-shortened \d+→/.test(body)).toBe(false);
+
+    const turns: ConversationTurn[] = [
+      textTurn("user", "goal"),
+      ...pairTurns("bait", "read_file", { path: "src/bait.ts" }, body),
+      textTurn("user", "newest ask"),
+      textTurn("assistant", "newest reply"),
+    ];
+    const result = await createPruningCompactor({
+      keepRecentTurns: 2,
+      compactionShape: { tailBudgetTokens: 7500 },
+    }).apply(turns, mockStrategyCtx);
+
+    const live = liveResultText(result.output);
+    expect(live).toMatch(/\[tail-shortened \d+→/);
+    expect(live).not.toContain("z".repeat(8000));
+    expect(result.record.decisions).toMatchObject({ shortenedToolOutputs: 1 });
+    expect(countStructuredTailExcerpts(live)).toBe(1);
   });
 });
 
