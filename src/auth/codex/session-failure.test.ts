@@ -2,7 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { errorMessage } from "../../agent/error-message.js";
 import { saveCodexProfile } from "../../config/oauth-stores.js";
+import { formatSubAgentSpawnAuthFailureMessage } from "../../subagent/inference-auth-failure.js";
 import {
   codexAuthFailureDiagnostic,
   CodexAuthError,
@@ -55,7 +57,7 @@ describe("codex auth failure surface", () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ error: "invalid_grant" }), {
         status: 400,
-      })) as unknown as typeof fetch;
+      })) as unknown as unknown as typeof fetch;
     try {
       let failure: unknown;
       try {
@@ -66,6 +68,55 @@ describe("codex auth failure surface", () => {
       expect(failure).toBeInstanceOf(CodexAuthError);
       expect((failure as CodexAuthError).reason).toBe("refresh-failed");
       expect((failure as CodexAuthError).message).toContain("Log in again");
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("a token endpoint cannot reflect the stored refresh credential", async () => {
+    const home = await tempHome();
+    const now = Date.now();
+    const refresh = "opaque refresh value / with spaces?!";
+    await saveCodexProfile(
+      {
+        name: "shared",
+        createdAt: now,
+        tokens: {
+          access: "access-1",
+          refresh,
+          expiresAt: now - 300_000,
+        },
+      },
+      home,
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(`grant rejected for ${refresh}`, {
+        status: 400,
+      })) as unknown as typeof fetch;
+    try {
+      const failure = await getValidCodexToken("shared", now, home).catch(
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(CodexAuthError);
+      const auth = failure as CodexAuthError;
+      const surfaced = JSON.stringify({
+        auth: String(auth),
+        retry: {
+          type: "inference.retry",
+          data: { previousError: { message: auth.message } },
+        },
+        terminal: {
+          type: "inference.error",
+          data: { error: { message: auth.message } },
+        },
+        log: errorMessage(auth),
+        guidance: formatSubAgentSpawnAuthFailureMessage("auth task", auth),
+      });
+      expect(surfaced).not.toContain(refresh);
+      expect(surfaced).toContain("grant rejected");
+      expect(surfaced).toContain("Re-authenticate");
     } finally {
       globalThis.fetch = originalFetch;
       await rm(home, { recursive: true, force: true });
@@ -91,7 +142,7 @@ describe("codex auth failure surface", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
       throw new Error("network must not be touched for fresh tokens");
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
     try {
       const access = await getValidCodexToken("shared", now, home);
       expect(access.access).toBe("access-1");

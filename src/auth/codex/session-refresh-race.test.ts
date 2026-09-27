@@ -2,7 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { saveCodexProfile } from "../../config/oauth-stores.js";
+import {
+  loadCodexProfile,
+  saveCodexProfile,
+} from "../../config/oauth-stores.js";
 import { createCodexTokenSession } from "./session.js";
 
 // Two concurrent headless runs share one Codex credential: two independent
@@ -12,6 +15,64 @@ import { createCodexTokenSession } from "./session.js";
 // invalid_grant. Both callers must resolve with the rotated access token and
 // the endpoint must see a single grant.
 describe("codex shared-credential refresh race", () => {
+  test("a concurrent winner without accountId replaces the loser exactly", async () => {
+    const home = await mkdtemp(join(tmpdir(), "cl9347-codex-winner-"));
+    const now = Date.now();
+    await saveCodexProfile(
+      {
+        name: "shared",
+        createdAt: now,
+        tokens: {
+          access: "access-old",
+          refresh: "refresh-old",
+          expiresAt: now - 300_000,
+          accountId: "old-account",
+        },
+      },
+      home,
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      await saveCodexProfile(
+        {
+          name: "shared",
+          createdAt: now,
+          tokens: {
+            access: "access-winner",
+            refresh: "refresh-winner",
+            expiresAt: now + 3_600_000,
+          },
+        },
+        home,
+      );
+      return Response.json({
+        access_token: "access-loser",
+        refresh_token: "refresh-loser",
+        expires_in: 3600,
+      });
+    }) as unknown as typeof fetch;
+
+    try {
+      const access = await createCodexTokenSession(home).getValidToken(
+        "shared",
+        now,
+      );
+      expect(access).toEqual({ access: "access-winner" });
+      expect(await loadCodexProfile("shared", home)).toEqual({
+        name: "shared",
+        createdAt: now,
+        tokens: {
+          access: "access-winner",
+          refresh: "refresh-winner",
+          expiresAt: now + 3_600_000,
+        },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("concurrent refreshes on one shared store both resolve with one grant", async () => {
     const home = await mkdtemp(join(tmpdir(), "cl8628-race-"));
     const now = Date.now();
@@ -61,7 +122,7 @@ describe("codex shared-credential refresh race", () => {
         refresh_token: "refresh-2",
         expires_in: 3600,
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     try {
       const first = createCodexTokenSession(home);

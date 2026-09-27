@@ -12,6 +12,10 @@ import {
 } from "@corbits/xai-provider";
 
 import { loadXaiProfile, updateXaiTokens } from "../../config/oauth-stores.js";
+import {
+  replaceMutableTokens,
+  sanitizedRefreshFailure,
+} from "../token-session-boundary.js";
 
 export class XaiAuthError extends Error {
   readonly profile: string;
@@ -54,12 +58,11 @@ function wrapXaiAuthError(name: string, err: unknown): never {
 
 const sessions = new Map<string, TokenSession<XaiTokens, XaiAccess>>();
 
-function sessionFor(home?: string): TokenSession<XaiTokens, XaiAccess> {
-  const key = home ?? "";
-  const existing = sessions.get(key);
-  if (existing !== undefined) return existing;
+export function createXaiTokenSession(
+  home?: string,
+): TokenSession<XaiTokens, XaiAccess> {
   const refreshBasis = new WeakMap<XaiTokens, string>();
-  const created = createTokenSession<XaiTokens, XaiAccess>({
+  const inner = createTokenSession<XaiTokens, XaiAccess>({
     skewMs: XAI_REFRESH_SKEW_MS,
     loadProfile: (name) => loadXaiProfile(name, home),
     updateTokens: async (name, tokens) => {
@@ -70,15 +73,46 @@ function sessionFor(home?: string): TokenSession<XaiTokens, XaiAccess> {
         refreshBasis.get(tokens),
       );
       if (winner === undefined) throw new OAuthProfileNotFoundError(name);
-      Object.assign(tokens, winner.tokens);
+      replaceMutableTokens(tokens, winner.tokens);
     },
     refreshTokens: async (refreshToken, now) => {
-      const refreshed = await refreshXaiTokens(refreshToken, now);
-      refreshBasis.set(refreshed, refreshToken);
-      return refreshed;
+      try {
+        const refreshed = await refreshXaiTokens(refreshToken, now);
+        refreshBasis.set(refreshed, refreshToken);
+        return refreshed;
+      } catch (error) {
+        throw sanitizedRefreshFailure(error, refreshToken);
+      }
     },
     toAccess: (tokens) => ({ access: tokens.access }),
   });
+  return {
+    isExpired: inner.isExpired,
+    getValidToken: async (name, now = Date.now()) => {
+      const basis = await loadXaiProfile(name, home);
+      try {
+        return await inner.getValidToken(name, now);
+      } catch (error) {
+        if (error instanceof OAuthRefreshFailedError && basis !== undefined) {
+          const winner = await loadXaiProfile(name, home);
+          if (
+            winner !== undefined &&
+            winner.tokens.refresh !== basis.tokens.refresh &&
+            !inner.isExpired(winner.tokens, now)
+          )
+            return { access: winner.tokens.access };
+        }
+        throw error;
+      }
+    },
+  };
+}
+
+function sessionFor(home?: string): TokenSession<XaiTokens, XaiAccess> {
+  const key = home ?? "";
+  const existing = sessions.get(key);
+  if (existing !== undefined) return existing;
+  const created = createXaiTokenSession(home);
   sessions.set(key, created);
   return created;
 }
@@ -104,7 +138,12 @@ export async function refreshStagedXaiTokens(
   now: number = Date.now(),
 ): Promise<XaiTokens> {
   if (!isXaiTokenExpired(tokens, now)) return tokens;
-  const refreshed = await refreshXaiTokens(tokens.refresh, now);
-  Object.assign(tokens, refreshed);
+  let refreshed: XaiTokens;
+  try {
+    refreshed = await refreshXaiTokens(tokens.refresh, now);
+  } catch (error) {
+    throw sanitizedRefreshFailure(error, tokens.refresh);
+  }
+  replaceMutableTokens(tokens, refreshed);
   return tokens;
 }

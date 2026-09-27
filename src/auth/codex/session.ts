@@ -18,6 +18,10 @@ import {
 } from "../../config/oauth-stores.js";
 import type { InferenceErrorLike } from "../../inference-gateway-error.js";
 import {
+  replaceMutableTokens,
+  sanitizedRefreshFailure,
+} from "../token-session-boundary.js";
+import {
   CodexRefreshLockTimeoutError,
   withCodexRefreshLock,
 } from "./refresh-lock.js";
@@ -122,18 +126,22 @@ export function createCodexTokenSession(
         refreshBasis.get(tokens),
       );
       if (winner === undefined) throw new OAuthProfileNotFoundError(name);
-      Object.assign(tokens, winner.tokens);
+      replaceMutableTokens(tokens, winner.tokens);
     },
     // createTokenSession only passes (refresh, now). The package refresh
     // helper needs prior tokens to keep chatgpt-account-id; mergeRefreshed
     // supplies that after this stub call.
     refreshTokens: async (refreshToken, now) => {
-      const refreshed = await refreshCodexTokensForStore(refreshToken, now, {
-        access: "",
-        refresh: refreshToken,
-      });
-      refreshBasis.set(refreshed, refreshToken);
-      return refreshed;
+      try {
+        const refreshed = await refreshCodexTokensForStore(refreshToken, now, {
+          access: "",
+          refresh: refreshToken,
+        });
+        refreshBasis.set(refreshed, refreshToken);
+        return refreshed;
+      } catch (error) {
+        throw sanitizedRefreshFailure(error, refreshToken);
+      }
     },
     toAccess: (tokens) => ({
       access: tokens.access,
@@ -243,6 +251,6 @@ export async function refreshStagedCodexTokens(
     now,
     tokens,
   );
-  Object.assign(tokens, refreshed);
+  replaceMutableTokens(tokens, refreshed);
   return tokens;
 }
