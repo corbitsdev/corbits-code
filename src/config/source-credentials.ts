@@ -26,17 +26,6 @@ export function registerSourceCredentialRecord(
   cell.set(credentialId, record);
 }
 
-export function registerSourceCredential(
-  credentialId: string,
-  secret: string,
-): void {
-  const current = cell.get(credentialId);
-  cell.set(credentialId, {
-    provenance: current?.provenance ?? { kind: "api-key" },
-    material: { ...current?.material, secret },
-  });
-}
-
 export function rotateSourceCredentialMaterialIfCurrent(
   credentialId: string,
   expected: SourceCredentialRecord,

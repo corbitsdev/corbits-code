@@ -39,7 +39,7 @@ import {
 import { OPERATOR_ORIGINATED_FLAG } from "../../src/agent/message-provenance.js";
 import {
   readSourceCredentialMaterial,
-  registerSourceCredential,
+  registerSourceCredentialRecord,
 } from "../../src/config/source-credentials.js";
 import { createAgentToolset } from "../../src/agent/tools.js";
 import { ID_PREFIX } from "../../src/branding.js";
@@ -117,7 +117,10 @@ export async function openIntegrationSession(
   opts: OpenIntegrationSessionOpts,
 ): Promise<IntegrationSession> {
   const harness = setupHarness();
-  registerSourceCredential(INTEGRATION_SOURCE.id, INTEGRATION_SECRET);
+  registerSourceCredentialRecord(INTEGRATION_SOURCE.id, {
+    provenance: { kind: "api-key" },
+    material: { secret: INTEGRATION_SECRET },
+  });
   const cwd = mkdtempSync(join(tmpdir(), "corbits-integration-cwd-"));
   const workdir = join(cwd, ".agent-state", "integration-session");
   const evidenceArchiveHolder: { current: CompactionArchive | undefined } = {

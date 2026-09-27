@@ -26,7 +26,7 @@ import {
 import { CODEX_RESPONSES_PATH } from "../../src/auth/codex/constants.js";
 import {
   readSourceCredentialMaterial,
-  registerSourceCredential,
+  registerSourceCredentialRecord,
 } from "../../src/config/source-credentials.js";
 
 const CODEX_URL = `https://chatgpt.com/backend-api${CODEX_RESPONSES_PATH}`;
@@ -94,7 +94,10 @@ async function runCodexTurn(
     scheduler: createDefaultScheduler(),
   };
   let seq = 0;
-  registerSourceCredential(CODEX_SOURCE.credentialId, "test-token");
+  registerSourceCredentialRecord(CODEX_SOURCE.credentialId, {
+    provenance: { kind: "api-key" },
+    material: { secret: "test-token" },
+  });
   return collect(
     runInference({
       turns: [userTurn("hi")],

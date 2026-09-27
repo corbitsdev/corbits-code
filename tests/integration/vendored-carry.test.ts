@@ -19,7 +19,7 @@ import { type } from "arktype";
 import { ID_PREFIX } from "../../src/branding.js";
 import {
   readSourceCredentialMaterial,
-  registerSourceCredential,
+  registerSourceCredentialRecord,
 } from "../../src/config/source-credentials.js";
 import { createPermissionGate } from "../../src/permission/gate.js";
 import { createOptimizedContextStore } from "../../src/session/optimized-context-store.js";
@@ -152,7 +152,10 @@ describe("integration — vendored feature carry", () => {
       });
 
       const storage = await createOptimizedContextStore(workdir);
-      registerSourceCredential(INTEGRATION_SOURCE.id, "integration-test-key");
+      registerSourceCredentialRecord(INTEGRATION_SOURCE.id, {
+        provenance: { kind: "api-key" },
+        material: { secret: "integration-test-key" },
+      });
       const agent = await createAgent(def, {
         sources: [INTEGRATION_SOURCE],
         defaultSource: INTEGRATION_SOURCE.id,

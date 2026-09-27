@@ -8,7 +8,7 @@ import {
   DEFAULT_SUMMARIZER_TIMEOUT_MS,
 } from "../../src/session/summarizer.js";
 import type { Telemetry, TelemetryEvent } from "../../src/telemetry/index.js";
-import { registerSourceCredential } from "../../src/config/source-credentials.js";
+import { registerSourceCredentialRecord } from "../../src/config/source-credentials.js";
 
 const source: InferenceSource = {
   id: "test",
@@ -204,7 +204,10 @@ test("summarizer timeout is honoured independently of the director total timeout
   try {
     // The stream parks forever; only the summarizer's own timer can end the call.
     harness.scenario.stall();
-    registerSourceCredential("anthropic", "k");
+    registerSourceCredentialRecord("anthropic", {
+      provenance: { kind: "api-key" },
+      material: { secret: "k" },
+    });
     const summarize = createModelSummarizer({
       getSource: () => ({
         id: "anthropic",
