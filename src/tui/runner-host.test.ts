@@ -15,6 +15,7 @@ import {
   runOverlayAction,
 } from "./shell/overlay-list.js";
 import { resolvePaletteCatalog } from "./shell/palette.js";
+import { setShellRunState } from "./shell/chrome.js";
 import {
   mountRunnerHost,
   observeSessionFromSubAgents,
@@ -181,6 +182,53 @@ describe("mountRunnerHost session bridge", () => {
         "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)",
       );
       expect(host.shell.session.run).toBe("busy");
+    } finally {
+      host.dispose();
+      harness.destroy();
+    }
+  });
+
+  test("opens credential recovery only after the shell is idle", async () => {
+    const harness = await createHarness({ width: 80, height: 24 });
+    const host = await mountRunnerHost({
+      title: "test",
+      eventEmitter: new EventEmitter(),
+      send: () => undefined,
+      interrupt: () => undefined,
+      deliver: () => undefined,
+      providers: {},
+      onModelSelect: () => undefined,
+      commands: [],
+      onCommand: () => undefined,
+      chrome: () => ({ agents: [] }),
+      subscribeChrome: () => () => undefined,
+      subAgentSessions: () => [],
+      createRenderer: async () => harness.renderer,
+    });
+    const accepted: string[] = [];
+    const args = {
+      alternatives: [
+        {
+          id: "backup:model-a",
+          label: "model-a * [backup]",
+          provider: "backup",
+          model: "model-a",
+        },
+      ],
+      onAccept: (id: string) => accepted.push(id),
+      onCancel: () => undefined,
+    };
+    try {
+      host.bridge.beginSystemContinuation("busy");
+      expect(host.openCredentialRecovery(args)).toBe(false);
+      expect(host.shell.overlayKind).toBeNull();
+
+      setShellRunState(host.shell, "idle");
+      expect(host.openCredentialRecovery(args)).toBe(true);
+      expect(host.shell.overlayKind).toBe("model_picker");
+      expect(host.shell.overlayItems).toEqual(["model-a * [backup]"]);
+      acceptOverlaySelection(host.shell);
+      expect(accepted).toEqual(["backup:model-a"]);
     } finally {
       host.dispose();
       harness.destroy();

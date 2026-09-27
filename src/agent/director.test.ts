@@ -135,6 +135,55 @@ describe("toolSetDigest", () => {
   });
 });
 
+describe("ChatDirector credential recovery continuation", () => {
+  const continuation = (generation: number): ReactorInboundEvent =>
+    ({
+      type: "message.received",
+      message: {
+        ref: { uid: 0, mailbox: "system" },
+        headers: {
+          from: "user@local",
+          to: ["agent@local"],
+          date: "2026-09-26T00:00:00.000Z",
+          messageId: `credential-recovery-${generation}@local`,
+          interchangeType: "system.credential.refresh",
+          interchangeCorrelationId: String(generation),
+        },
+        flags: [],
+        content: "",
+        signatureStatus: "missing",
+      },
+    }) as ReactorInboundEvent;
+
+  test("consumes one matching armed continuation and rejects stale or repeated delivery", async () => {
+    const director = createChatDirector("system", [], {});
+    const capabilities = makeCapabilities();
+
+    expect(
+      actionsArray(
+        await director.decide(continuation(4), mockState, capabilities),
+      ),
+    ).toEqual([{ type: "reply", content: "" }]);
+
+    director.armCredentialRecoveryContinuation(5);
+    expect(
+      actionsArray(
+        await director.decide(continuation(4), mockState, capabilities),
+      ),
+    ).toEqual([{ type: "reply", content: "" }]);
+    expect(
+      actionsArray(
+        await director.decide(continuation(5), mockState, capabilities),
+      ).map((action) => action.type),
+    ).toEqual(["infer"]);
+    expect(
+      actionsArray(
+        await director.decide(continuation(5), mockState, capabilities),
+      ),
+    ).toEqual([{ type: "reply", content: "" }]);
+  });
+});
+
 describe("ChatDirector tool-only loop protection", () => {
   const providerlessPolicy = { providerName: "test-provider" };
 

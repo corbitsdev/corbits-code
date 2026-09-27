@@ -457,6 +457,8 @@ function applyManageTasksToolCall(
 // (inference., tool., reactor., fork.).
 export const CHAT_TASKS_CHANGED_EVENT = "custom.chat.tasks.changed";
 export const CHAT_TOOLS_ACTIVATE_EVENT = "custom.chat.tools.activate";
+export const CREDENTIAL_RECOVERY_INTERCHANGE_TYPE =
+  "system.credential.refresh" as const;
 export const ChatTasksChangedDataSchema = type({
   tasks: TaskSchema.array(),
 });
@@ -591,6 +593,7 @@ class ChatDirectorImpl extends DefaultDirector {
   // preserves the queue for the next successful turn instead of desyncing
   // the host from already-mutated director state.
   private coordinatorRethrowNoted = false;
+  private credentialRecoveryGeneration: number | undefined;
 
   constructor(
     systemPrompt: string,
@@ -773,6 +776,16 @@ class ChatDirectorImpl extends DefaultDirector {
 
   setClearDenials(clear: (() => void) | undefined): void {
     this.clearDenials = clear;
+  }
+
+  armCredentialRecoveryContinuation(generation: number): void {
+    this.credentialRecoveryGeneration = generation;
+  }
+
+  cancelCredentialRecoveryContinuation(generation: number): void {
+    if (this.credentialRecoveryGeneration === generation) {
+      this.credentialRecoveryGeneration = undefined;
+    }
   }
 
   updateToolDefinitions(toolDefinitions: ToolDefinition[]): void {
@@ -990,6 +1003,23 @@ class ChatDirectorImpl extends DefaultDirector {
     if (idleCompact !== null) return idleCompact;
     const recovery = this.compaction.interceptOverflow(event, capabilities);
     if (recovery !== null) return recovery;
+
+    if (
+      event.type === "message.received" &&
+      event.message.ref?.mailbox === "system" &&
+      event.message.headers?.interchangeType ===
+        CREDENTIAL_RECOVERY_INTERCHANGE_TYPE
+    ) {
+      const generation = Number(event.message.headers.interchangeCorrelationId);
+      if (
+        Number.isSafeInteger(generation) &&
+        generation === this.credentialRecoveryGeneration
+      ) {
+        this.credentialRecoveryGeneration = undefined;
+        return capabilities.infer();
+      }
+      return capabilities.wait();
+    }
 
     // A forged or replayed compaction continuation arrives as an empty
     // message.received with no outstanding compact state (the legit resume
@@ -1437,6 +1467,8 @@ export interface ChatDirector extends ReactorDirector {
   setWorkflowCoordinator(coordinator: WorkflowCoordinator | undefined): void;
   setAllowIdleWithFleet(value: boolean): void;
   setClearDenials(clear: (() => void) | undefined): void;
+  armCredentialRecoveryContinuation(generation: number): void;
+  cancelCredentialRecoveryContinuation(generation: number): void;
   getTasks(): Task[];
   restoreTasks(tasks: Task[]): void;
   getContextEstimate(): { tokens: number; isEstimate: boolean };

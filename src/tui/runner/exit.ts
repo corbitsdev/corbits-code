@@ -316,6 +316,14 @@ export async function createRunLifecycle(
       providerFailureAttempts.advanceToNextMessage();
     }
     services.correlationAcceptance.observe(event);
+    const providerAttempt = providerFailureAttempts.current();
+    const recoveryAttempt =
+      providerAttempt === undefined
+        ? undefined
+        : state.credentialRecoveryAttempts.get(providerAttempt);
+    if (recoveryAttempt !== undefined) {
+      state.credentialRecovery.observe(recoveryAttempt, event);
+    }
     if (event.type === "inference.start" || event.type === "inference.done") {
       providerFailureAttempts.reset();
     } else if (event.type === "inference.error") {
@@ -580,6 +588,7 @@ export async function createRunLifecycle(
   // Close it, drain the old stream, and rebuild a fresh agent so the next send
   // works.
   const interrupt = (): void => {
+    state.credentialRecovery?.clear();
     // CL-8220 gate: an in-flight compact runs inline on the vendored reactor
     // with no abort hop of its own, so an interrupt that merely queues behind
     // it parks until the summary call returns. Abort the compact first — the
@@ -651,6 +660,7 @@ export async function createRunLifecycle(
   // abort handles → child agent.close) before clearing the session store so
   // /clear does not leave orphaned child reactors burning tokens.
   const newSession = (): void => {
+    state.credentialRecovery?.clear();
     // CL-8220: rotation must not park behind an in-flight compact either.
     state.compactionLifecycle?.abortCompaction("session rotation");
     const cancelledWorkers = resetSessionForRotation(state, services);

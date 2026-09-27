@@ -35,6 +35,11 @@ import type { PendingImageAttachment } from "../image-attachments.js";
 import type { AgentDeliveryResult } from "../delivery-queue.js";
 import type { CompactionLifecycle } from "../../session/compaction-lifecycle.js";
 import type { SubmitOutcome } from "./submit.js";
+import {
+  createCredentialRecoveryState,
+  type CredentialRecoveryAttempt,
+  type PendingCredentialRecovery,
+} from "./credential-recovery.js";
 import type { mountRunnerHost } from "./host.js";
 import { EventEmitter } from "node:events";
 
@@ -257,8 +262,14 @@ export interface RunnerState {
   stampProvider: { fn: ((id: string | undefined) => void) | undefined };
   // Permission-gate persist notices surface through the shell once it exists.
   approvalPersistNotice: { notify?: (text: string) => void };
+  credentialRecovery: ReturnType<typeof createCredentialRecoveryState>;
+  credentialRecoveryAttempts: WeakMap<
+    ProviderFailureAttempt,
+    CredentialRecoveryAttempt
+  >;
 
   // Late-wired cross-module callbacks, in original wiring order.
+  presentCredentialRecovery?: (pending: PendingCredentialRecovery) => void;
   enqueueAgentDeliver?: (
     deliverToLiveAgent: () => void,
     onSettle?: (result: AgentDeliveryResult) => void,
@@ -393,6 +404,8 @@ export function createRunnerState(start: TUIStart): RunnerState {
     host: undefined,
     stampProvider: { fn: undefined },
     approvalPersistNotice: {},
+    credentialRecovery: createCredentialRecoveryState(),
+    credentialRecoveryAttempts: new WeakMap(),
   };
   // Saved through onboarding's "save anyway" bypass without a passing
   // connection test — warn now instead of a bare adapter error on first send.

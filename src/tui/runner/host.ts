@@ -60,6 +60,8 @@ import { pushToolCall, pushToolResult } from "../tool-rows.js";
 import type { StreamRow } from "../stream.js";
 import type { QueueKind } from "../delivery-queue.js";
 import type { ShellOutputFeed } from "../../session/shell-output-feed.js";
+import { openModelPickerOverlay } from "../overlays.js";
+import type { CredentialRecoveryAlternative } from "./credential-recovery.js";
 
 export interface RunnerHostDeps {
   readonly title: string;
@@ -182,6 +184,11 @@ export type RunnerHost = ProductHost & {
   ) => void;
   /** Re-reads `showPromptCost` and cost/context state, repainting the border immediately. */
   readonly refreshCostContext: () => void;
+  readonly openCredentialRecovery: (args: {
+    alternatives: readonly CredentialRecoveryAlternative[];
+    onAccept: (id: string) => void;
+    onCancel: () => void;
+  }) => boolean;
 };
 
 /** Map a subagent transcript entry to a stream row. */
@@ -432,6 +439,24 @@ export async function mountRunnerHost(
     notify: (text) => surfaceSystemNotice(host.shell, text),
   };
 
+  const openCredentialRecovery: RunnerHost["openCredentialRecovery"] = (
+    args,
+  ) => {
+    if (host.shell.session.run !== "idle" || args.alternatives.length === 0) {
+      return false;
+    }
+    openModelPickerOverlay(host.shell, {
+      items: args.alternatives.map((alternative) => alternative.label),
+      itemIds: args.alternatives.map((alternative) => alternative.id),
+      typeToFilter: true,
+      onCancel: args.onCancel,
+      onAccept: (selection) => {
+        if (selection.id !== undefined) args.onAccept(selection.id);
+      },
+    });
+    return true;
+  };
+
   const refreshModels = (
     recentModels: readonly ModelCatalogRef[],
     favoriteModels: readonly ModelCatalogRef[],
@@ -452,5 +477,6 @@ export async function mountRunnerHost(
     openSurface: (kind) => openCommandSurface(host.shell, kind, surfaceDeps),
     refreshModels,
     refreshCostContext: pushCostContext,
+    openCredentialRecovery,
   };
 }

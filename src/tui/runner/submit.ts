@@ -51,6 +51,7 @@ import {
   type RunnerState,
 } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
+import { buildCredentialRecoveryAlternatives } from "./credential-recovery.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -292,6 +293,11 @@ export function createSubmitPath(
   ): Promise<AgentDeliveryResult> => {
     const attempt = live.attemptIdentity();
     const providerFailure = services.providerFailureAttempts.begin(attempt);
+    const recoveryAttempt = state.credentialRecovery.begin(
+      message,
+      attempt.providerId,
+    );
+    state.credentialRecoveryAttempts.set(providerFailure, recoveryAttempt);
     try {
       await runWhileAgentBusy(state, async () => {
         const result = await send(message);
@@ -316,6 +322,15 @@ export function createSubmitPath(
         detail: error instanceof Error ? error.message : String(error),
       };
     } finally {
+      const pending = state.credentialRecovery.settle(
+        recoveryAttempt,
+        buildCredentialRecoveryAlternatives(
+          state.config,
+          state.sessionId,
+          recoveryAttempt.failedProvider,
+        ),
+      );
+      if (pending !== null) state.presentCredentialRecovery?.(pending);
       services.providerFailureAttempts.sendSettled(providerFailure);
     }
   };

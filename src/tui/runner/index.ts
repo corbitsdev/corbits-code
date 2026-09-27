@@ -35,7 +35,8 @@ import {
 } from "./submit.js";
 import { wireMcp } from "./mcp.js";
 import { wirePostStartup } from "./wiring.js";
-import { createRunnerState } from "./state.js";
+import { createRunnerState, liveAgent } from "./state.js";
+import { applyCredentialRecoverySelection } from "./credential-recovery.js";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
@@ -220,6 +221,34 @@ export async function runTUI(initialConfig: Config): Promise<number> {
     });
     state.host = host;
     services.hostHolder.instance = host;
+    state.presentCredentialRecovery = (pending) => {
+      const opened = host.openCredentialRecovery({
+        alternatives: pending.alternatives,
+        onCancel: () => {
+          state.credentialRecovery.cancel(pending.generation);
+        },
+        onAccept: (id) => {
+          const director = services.directorHolder.instance;
+          if (director === undefined) {
+            state.credentialRecovery.cancel(pending.generation);
+            return;
+          }
+          applyCredentialRecoverySelection({
+            state: state.credentialRecovery,
+            generation: pending.generation,
+            alternativeId: id,
+            switchAlternative: (alternative) =>
+              settings.onModelSelect(alternative.id),
+            armContinuation: (generation) =>
+              director.armCredentialRecoveryContinuation(generation),
+            cancelContinuation: (generation) =>
+              director.cancelCredentialRecoveryContinuation(generation),
+            deliverContinuation: (message) => liveAgent(state).deliver(message),
+          });
+        },
+      });
+      if (!opened) state.credentialRecovery.cancel(pending.generation);
+    };
 
     wirePostStartup(state, services, mcp.mcpConnectCallbacks);
 
