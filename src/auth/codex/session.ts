@@ -114,8 +114,16 @@ export function createCodexTokenSession(
   const inner = createTokenSession<CodexTokens, CodexAccess>({
     skewMs: CODEX_REFRESH_SKEW_MS,
     loadProfile: (name) => loadCodexProfile(name, home),
-    updateTokens: (name, tokens) =>
-      updateCodexTokens(name, tokens, home, refreshBasis.get(tokens)),
+    updateTokens: async (name, tokens) => {
+      const winner = await updateCodexTokens(
+        name,
+        tokens,
+        home,
+        refreshBasis.get(tokens),
+      );
+      if (winner === undefined) throw new OAuthProfileNotFoundError(name);
+      Object.assign(tokens, winner.tokens);
+    },
     // createTokenSession only passes (refresh, now). The package refresh
     // helper needs prior tokens to keep chatgpt-account-id; mergeRefreshed
     // supplies that after this stub call.

@@ -62,8 +62,16 @@ function sessionFor(home?: string): TokenSession<XaiTokens, XaiAccess> {
   const created = createTokenSession<XaiTokens, XaiAccess>({
     skewMs: XAI_REFRESH_SKEW_MS,
     loadProfile: (name) => loadXaiProfile(name, home),
-    updateTokens: (name, tokens) =>
-      updateXaiTokens(name, tokens, home, refreshBasis.get(tokens)),
+    updateTokens: async (name, tokens) => {
+      const winner = await updateXaiTokens(
+        name,
+        tokens,
+        home,
+        refreshBasis.get(tokens),
+      );
+      if (winner === undefined) throw new OAuthProfileNotFoundError(name);
+      Object.assign(tokens, winner.tokens);
+    },
     refreshTokens: async (refreshToken, now) => {
       const refreshed = await refreshXaiTokens(refreshToken, now);
       refreshBasis.set(refreshed, refreshToken);

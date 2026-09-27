@@ -6,6 +6,8 @@ import { describe, expect, test } from "bun:test";
 import {
   loadCodexProfile,
   loadXaiProfile,
+  removeCodexProfile,
+  removeXaiProfile,
   saveCodexProfile,
   saveXaiProfile,
   updateCodexTokens,
@@ -29,6 +31,7 @@ describe("OAuth profile refresh compare-and-swap", () => {
         },
         home,
       );
+      await removeCodexProfile("work", home);
       await saveCodexProfile(
         {
           name: "work",
@@ -43,7 +46,7 @@ describe("OAuth profile refresh compare-and-swap", () => {
         home,
       );
 
-      await updateCodexTokens(
+      const winner = await updateCodexTokens(
         "work",
         {
           access: "stale-access",
@@ -55,6 +58,16 @@ describe("OAuth profile refresh compare-and-swap", () => {
         "refresh-a",
       );
 
+      expect(winner).toEqual({
+        name: "work",
+        createdAt: 2,
+        tokens: {
+          access: "access-b",
+          refresh: "refresh-b",
+          expiresAt: 2,
+          accountId: "account-b",
+        },
+      });
       expect(await loadCodexProfile("work", home)).toEqual({
         name: "work",
         createdAt: 2,
@@ -85,6 +98,7 @@ describe("OAuth profile refresh compare-and-swap", () => {
         },
         home,
       );
+      await removeXaiProfile("work", home);
       await saveXaiProfile(
         {
           name: "work",
@@ -98,7 +112,7 @@ describe("OAuth profile refresh compare-and-swap", () => {
         home,
       );
 
-      await updateXaiTokens(
+      const winner = await updateXaiTokens(
         "work",
         {
           access: "stale-access",
@@ -109,6 +123,15 @@ describe("OAuth profile refresh compare-and-swap", () => {
         "refresh-a",
       );
 
+      expect(winner).toEqual({
+        name: "work",
+        createdAt: 2,
+        tokens: {
+          access: "access-b",
+          refresh: "refresh-b",
+          expiresAt: 2,
+        },
+      });
       expect(await loadXaiProfile("work", home)).toEqual({
         name: "work",
         createdAt: 2,
