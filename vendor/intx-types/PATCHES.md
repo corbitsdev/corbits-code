@@ -21,7 +21,8 @@ rewrite.
 `mediated-credential.ts` and `runtime.ts` — credential material can atomically
 carry provider identity headers with its bearer secret. Retry situations carry
 the immutable call-start source plus per-call credential-failure ordinal and
-history; abort decisions may replace the surfaced classified error.
+history; retry policies may expose an error normalizer, and abort decisions may
+replace the surfaced classified error.
 
 **Disposition:** Promotion candidate. **Removal path:** upstream equivalent
 credential rotation and retry-context contracts, then drop this entry.

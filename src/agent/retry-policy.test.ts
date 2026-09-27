@@ -1,4 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { createDefaultScheduler, runInference } from "@intx/inference";
+import { createInferenceDependencies } from "../provider/inference-dependencies.js";
+import type {
+  ConversationTurn,
+  InferenceEvent,
+  InferenceSource,
+} from "@intx/types/runtime";
 import type { AdmissionQueue } from "../subagent/admission.js";
 import {
   createCorbitsRetryPolicy,
@@ -69,6 +76,92 @@ describe("createCorbitsRetryPolicy", () => {
         }),
       ).toEqual({ kind: "retry", delayMs: 0 });
       expect(refreshes).toBe(1);
+    } finally {
+      clearSourceCredentials();
+    }
+  });
+
+  test("raw Codex 404 invalid_token refreshes once and surfaces normalized credential failure", async () => {
+    const source: InferenceSource = {
+      id: "codex/work",
+      provider: "codex-responses",
+      baseURL: "https://chatgpt.com/backend-api/codex",
+      credentialId: "codex/work",
+      model: "gpt-5",
+    };
+    registerSourceCredentialRecord(source.credentialId, {
+      provenance: { kind: "oauth", provider: "codex", profile: "work" },
+      material: { secret: "access-token" },
+    });
+    let sends = 0;
+    let refreshes = 0;
+    const retryPolicy = policy({
+      providerId: source.id,
+      refreshCredential: async (refreshedSource, provenance) => {
+        refreshes++;
+        expect(refreshedSource.id).toBe(source.id);
+        expect(provenance).toEqual({
+          kind: "oauth",
+          provider: "codex",
+          profile: "work",
+        });
+      },
+    });
+    const baseDeps = await createInferenceDependencies();
+    const deps = {
+      ...baseDeps,
+      scheduler: createDefaultScheduler(),
+      fetch: async () => {
+        sends++;
+        return Response.json(
+          {
+            error: {
+              code: "invalid_token",
+              message: "The access token has been revoked",
+              type: "invalid_request_error",
+            },
+          },
+          { status: 404 },
+        );
+      },
+    };
+    const turns: ConversationTurn[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+        timestamp: 0,
+      },
+    ];
+    const events: InferenceEvent[] = [];
+    let seq = 0;
+    try {
+      for await (const event of runInference({
+        turns,
+        source,
+        nextSeq: () => ++seq,
+        deps,
+        readMaterial: () => ({ secret: "access-token" }),
+        inferenceOptions: { retryPolicy },
+      }))
+        events.push(event);
+
+      expect(sends).toBe(2);
+      expect(refreshes).toBe(1);
+      const retries = events.filter(
+        (event) => event.type === "inference.retry",
+      );
+      expect(retries).toHaveLength(1);
+      if (retries[0]?.type !== "inference.retry")
+        throw new Error("expected inference.retry");
+      expect(retries[0].data.previousError.category).toBe("credential_failure");
+      const terminal = events.findLast(
+        (event) => event.type === "inference.error",
+      );
+      if (terminal?.type !== "inference.error")
+        throw new Error("expected terminal inference.error");
+      expect(terminal.data.error.category).toBe("credential_failure");
+      expect(terminal.data.error.message).toContain('Codex profile "work"');
+      expect(terminal.data.error.message).toContain("/connect");
     } finally {
       clearSourceCredentials();
     }

@@ -31,9 +31,11 @@ die with it).
 **Promotion candidate.** `auth.ts`, `harness.ts`, and `reactor.ts` atomically
 inject credential-derived identity headers with the live bearer secret, shallow
 snapshot the complete source once per call, and expose per-call credential
-failure ordinal/history to retry policies. A policy may preserve a classified
-refresh diagnostic on abort. After same-source recovery is exhausted,
-`credential_failure` is terminal and never enters automatic source failover.
+failure ordinal/history to retry policies. A policy may normalize an attempt
+error before the harness computes that ordinal/history, retries, or surfaces the
+terminal event, and may preserve a classified refresh diagnostic on abort. After
+same-source recovery is exhausted, `credential_failure` is terminal and never
+enters automatic source failover.
 
 **Re-carry:** preserve the exact `isCommitting` boundary and immutable call
 snapshot. Companion to `runtime-ts-auth-recovery-context` in `@intx/types`.

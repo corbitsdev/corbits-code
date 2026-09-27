@@ -1662,7 +1662,8 @@ export async function* runInference(
       return;
     }
 
-    const terminalError = failure.error;
+    const terminalError =
+      policy.normalizeError?.(failure.error) ?? failure.error;
     const credentialFailureOrdinal =
       terminalError.category === "credential_failure"
         ? credentialFailureHistory.length + 1
@@ -1714,7 +1715,14 @@ export async function* runInference(
           },
         };
       } else {
-        yield { ...failure.event, seq: opts.nextSeq() };
+        yield {
+          type: "inference.error",
+          seq: opts.nextSeq(),
+          data: {
+            error: terminalError,
+            partial: failure.event.data.partial,
+          },
+        };
       }
       return;
     }

@@ -190,9 +190,9 @@ describe("terminalProviderFailureMessage", () => {
     expect(message).toContain('Codex profile "work"');
     expect(message).toContain("Not Found");
     expect(message).not.toContain("/model");
-    // One re-login hint, not a stutter: the branded diagnostic dedups via
-    // the shared carriesCodexReLoginHint predicate.
-    expect(message.toLowerCase().match(/log in again/g)).toHaveLength(1);
+    expect(message).toContain("/connect");
+    expect(message).toContain("Codex");
+    expect(message).not.toMatch(/log in again|sign in again/i);
   });
 
   test("terminal bare Codex 404 without an auth signal keeps switch-models guidance", () => {

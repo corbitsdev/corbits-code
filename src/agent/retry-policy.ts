@@ -1,5 +1,6 @@
 import { createDefaultRetryPolicy } from "@intx/inference";
 import type {
+  InferenceError,
   RetryDecision,
   RetryPolicy,
   RetrySituation,
@@ -12,12 +13,9 @@ import {
   getProcessAdmissionQueue,
   type AdmissionQueue,
 } from "../subagent/admission.js";
-import { getValidCodexToken } from "../auth/codex/session.js";
-import { getValidXaiToken } from "../auth/xai/session.js";
-import { xaiUserIdFromAccessToken } from "@corbits/xai-provider";
+import { refreshSourceCredentialByProvenance } from "../auth/refresh-source-credential.js";
 import {
   readSourceCredentialRecord,
-  rotateSourceCredentialMaterial,
   type SourceCredentialProvenance,
 } from "../config/source-credentials.js";
 import type { InferenceSource } from "@intx/types/runtime";
@@ -47,29 +45,6 @@ export interface CorbitsRetryPolicyOptions {
   ) => Promise<void>;
 }
 
-async function refreshOAuthCredential(
-  source: Readonly<InferenceSource>,
-  provenance: Extract<SourceCredentialProvenance, { kind: "oauth" }>,
-): Promise<void> {
-  if (provenance.provider === "codex") {
-    const fresh = await getValidCodexToken(provenance.profile);
-    rotateSourceCredentialMaterial(source.credentialId, {
-      secret: fresh.access,
-      ...(fresh.accountId !== undefined
-        ? { headers: { "chatgpt-account-id": fresh.accountId } }
-        : {}),
-    });
-    return;
-  }
-
-  const fresh = await getValidXaiToken(provenance.profile);
-  const userId = xaiUserIdFromAccessToken(fresh.access);
-  rotateSourceCredentialMaterial(source.credentialId, {
-    secret: fresh.access,
-    ...(userId !== undefined ? { headers: { "x-grok-user-id": userId } } : {}),
-  });
-}
-
 /**
  * Corbits retry policy. When `providerId` is set, merges it onto the error
  * before `normalizeInferenceErrorForRetry` so known-provider remappers (xAI
@@ -82,17 +57,20 @@ export function createCorbitsRetryPolicy(
   const defaultPolicy = createDefaultRetryPolicy();
   const admission = options?.admission ?? getProcessAdmissionQueue();
   const now = options?.now ?? Date.now;
-  return (
-    situation: RetrySituation,
-  ): RetryDecision | Promise<RetryDecision> => {
+  const normalizeError = (incoming: InferenceError): InferenceError => {
     const raw = options?.providerId;
     const stampedProviderId = typeof raw === "function" ? raw() : raw;
-    const incoming = situation.error as InferenceErrorWithGoContext;
+    const contextual = incoming as InferenceErrorWithGoContext;
     const withProvider: InferenceErrorWithGoContext =
-      stampedProviderId !== undefined && incoming.providerId === undefined
-        ? { ...incoming, providerId: stampedProviderId }
-        : incoming;
-    const error = normalizeInferenceErrorForRetry(withProvider);
+      stampedProviderId !== undefined && contextual.providerId === undefined
+        ? { ...contextual, providerId: stampedProviderId }
+        : contextual;
+    return normalizeInferenceErrorForRetry(withProvider);
+  };
+  const policy = (
+    situation: RetrySituation,
+  ): RetryDecision | Promise<RetryDecision> => {
+    const error = normalizeError(situation.error);
     if (
       error.category === "credential_failure" &&
       situation.credentialFailureOrdinal === 1 &&
@@ -107,8 +85,14 @@ export function createCorbitsRetryPolicy(
         return { kind: "abort" };
       }
       if (provenance.kind === "oauth") {
-        const refresh = options?.refreshCredential ?? refreshOAuthCredential;
-        return refresh(situation.source, provenance).then(
+        const refresh = options?.refreshCredential;
+        const pending =
+          refresh !== undefined
+            ? refresh(situation.source, provenance)
+            : refreshSourceCredentialByProvenance(
+                situation.source.credentialId,
+              ).then(() => undefined);
+        return pending.then(
           () => ({ kind: "retry", delayMs: 0 }),
           (cause: unknown) => ({
             kind: "abort",
@@ -126,8 +110,13 @@ export function createCorbitsRetryPolicy(
         error.retryAfterMs ?? DEFAULT_PRESSURE_PAUSE_MS,
         MAX_BLIND_WAIT_MS,
       );
+      const configuredProvider = options?.providerId;
       const provider =
-        withProvider.providerId ?? stampedProviderId ?? "unknown";
+        (situation.error as InferenceErrorWithGoContext).providerId ??
+        (typeof configuredProvider === "function"
+          ? configuredProvider()
+          : configuredProvider) ??
+        "unknown";
       admission.notePressure(provider, now() + pauseMs);
       // The vendored default retries `retryable` on a fixed 500/1000ms
       // schedule and ignores Retry-After. A 429 carries the server's pacing
@@ -157,4 +146,5 @@ export function createCorbitsRetryPolicy(
     }
     return defaultPolicy({ ...situation, error });
   };
+  return Object.assign(policy, { normalizeError });
 }

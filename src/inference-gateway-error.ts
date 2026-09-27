@@ -582,7 +582,7 @@ function looksLikeCodexModelDeprecation(error: InferenceErrorLike): boolean {
  * terminal-guidance dedup checks with it, so the two cannot drift.
  */
 export function carriesCodexReLoginHint(text: string): boolean {
-  return /log in again|sign in again/i.test(text);
+  return /\/connect/i.test(text) && /codex profile/i.test(text);
 }
 
 /** Branded re-login line for a Codex credential 404, diagnostic appended. */
@@ -590,7 +590,7 @@ function formatCodexCredential404Message(
   profile: string,
   originalDiagnostic: string,
 ): string {
-  const branded = `Codex profile "${profile}" is not authorized. Log in again.`;
+  const branded = `Codex profile "${profile}" is not authorized. Run /connect, choose Codex, and reconnect profile "${profile}".`;
   const oneLine = originalDiagnostic.replace(/\s+/g, " ").trim();
   if (oneLine.length === 0 || branded.includes(oneLine)) return branded;
   const clipped = oneLine.length > 200 ? `${oneLine.slice(0, 199)}…` : oneLine;

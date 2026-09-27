@@ -2610,9 +2610,11 @@ export type RetrySituation = {
  *
  * (INFERENCE.md § Providers › Streaming Harness)
  */
-export type RetryPolicy = (
+export type RetryPolicy = ((
   situation: RetrySituation,
-) => RetryDecision | Promise<RetryDecision>;
+) => RetryDecision | Promise<RetryDecision>) & {
+  readonly normalizeError?: (error: InferenceError) => InferenceError;
+};
 
 /**
  * Options for a single inference call. Override the defaults from the agent
