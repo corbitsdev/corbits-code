@@ -209,7 +209,11 @@ describe("createAuthStore", () => {
         "Timed out waiting for OAuth credential lock",
       );
       await rm(lockPath, { force: true });
-      await expect(second).resolves.toBeUndefined();
+      await expect(second).resolves.toEqual({
+        name: "work",
+        tokens: { access: "second", refresh: "r2", expiresAt: 3 },
+        createdAt: 1,
+      });
 
       expect((await store.loadProfile("work", home))?.tokens.access).toBe(
         "second",
@@ -318,7 +322,7 @@ describe("createAuthStore", () => {
 
       await expect(
         store.updateTokens("work", profile.tokens, home),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual(profile);
     } finally {
       await rm(home, { recursive: true, force: true });
     }
