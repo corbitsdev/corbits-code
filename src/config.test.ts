@@ -1885,6 +1885,7 @@ describe("buildXaiSource", () => {
   test("omits reasoning_effort when effort is absent", () => {
     const source = buildXaiSource({
       id: "xai/work",
+      profile: "work",
       apiKey: "tok",
       model: "grok-4.6",
       sessionId: "sess-1",
@@ -1898,6 +1899,7 @@ describe("buildXaiSource", () => {
   test("sets providerOptions.reasoning_effort when effort is present", () => {
     const source = buildXaiSource({
       id: "xai/work",
+      profile: "work",
       apiKey: "tok",
       model: "grok-4.6",
       sessionId: "sess-1",
@@ -1911,6 +1913,7 @@ describe("buildXaiSource", () => {
   test("does not invent high when effort is absent", () => {
     const source = buildXaiSource({
       id: "xai/work",
+      profile: "work",
       apiKey: "tok",
       model: "grok-4.6",
       sessionId: "sess-1",
@@ -1923,6 +1926,7 @@ describe("buildXaiSource", () => {
   test("stashes the session id for the adapter's prompt_cache_key", () => {
     const source = buildXaiSource({
       id: "xai/work",
+      profile: "work",
       apiKey: "tok",
       model: "grok-4.6",
       sessionId: "sess-1",

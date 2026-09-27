@@ -24,6 +24,8 @@
 /** The current secret material behind a credential, read fresh at each use. */
 export interface CredentialMaterial {
   readonly secret: string;
+  /** Credential-derived provider headers installed atomically with the secret. */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 /**

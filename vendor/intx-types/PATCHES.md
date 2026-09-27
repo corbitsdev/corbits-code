@@ -16,6 +16,16 @@ usage emission. Upstream deleted `packages/types/src/sidecar-placement.ts`;
 no entry lived there. Unaffected by upstream's `credentialId` auth-model
 rewrite.
 
+## runtime-ts-auth-recovery-context
+
+`mediated-credential.ts` and `runtime.ts` — credential material can atomically
+carry provider identity headers with its bearer secret. Retry situations carry
+the immutable call-start source plus per-call credential-failure ordinal and
+history; abort decisions may replace the surfaced classified error.
+
+**Disposition:** Promotion candidate. **Removal path:** upstream equivalent
+credential rotation and retry-context contracts, then drop this entry.
+
 ## runtime-ts-audit-store-load-errors
 
 `runtime.ts` — `AuditStore` grows `loadErrors(sessionId, signal?)` so a

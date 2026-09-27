@@ -13,7 +13,10 @@ import {
 } from "../provider/context-window.js";
 import { createOpenAICompatibleAdapter } from "../provider/openai-compatible-adapter.js";
 import { createInferenceDependencies } from "../provider/inference-dependencies.js";
-import { clearSourceCredentials } from "./source-credentials.js";
+import {
+  clearSourceCredentials,
+  readSourceCredentialRecord,
+} from "./source-credentials.js";
 import { OPENAI_RESPONSES_PROVIDER } from "../provider/openai-responses.js";
 import { ZEN_MESSAGES_PROVIDER } from "../provider/anthropic-session-adapter.js";
 import { firstClassProviderById } from "../../packages/first-class-providers/src/index.js";
@@ -83,6 +86,59 @@ afterEach(() => {
   setProviderContextWindowOverrides(undefined);
   globalThis.fetch = originalFetch;
   clearSourceCredentials();
+});
+
+describe("source credential provenance", () => {
+  test("OAuth provenance comes from catalog profile markers", () => {
+    const source = buildInferenceSourceForRef(
+      { provider: "codex/work", model: "gpt-5" },
+      {
+        sessionId: "sess-oauth",
+        catalog: [
+          {
+            name: "codex/work",
+            baseURL: "https://chatgpt.com/backend-api/codex",
+            apiKey: "oauth-token",
+            models: ["gpt-5"],
+            codexProfile: "work",
+            codexAccountId: "account-1",
+          },
+        ],
+      },
+      undefined,
+    );
+
+    if (source === null) throw new Error("expected Codex source");
+    expect(readSourceCredentialRecord(source.credentialId).provenance).toEqual({
+      kind: "oauth",
+      provider: "codex",
+      profile: "work",
+    });
+  });
+
+  test("namespaced API-key rows are not inferred as OAuth", () => {
+    const source = buildInferenceSourceForRef(
+      { provider: "codex/shadow", model: "relay-model" },
+      {
+        sessionId: "sess-key",
+        catalog: [
+          {
+            name: "codex/shadow",
+            baseURL: "https://relay.example/v1",
+            apiKey: "explicit-key",
+            models: ["relay-model"],
+          },
+        ],
+      },
+      undefined,
+    );
+
+    if (source === null) throw new Error("expected API-key source");
+    expect(source.provider).toBe("openai-compatible");
+    expect(readSourceCredentialRecord(source.credentialId).provenance).toEqual({
+      kind: "api-key",
+    });
+  });
 });
 
 describe("contextWindow / maxTokens split (CL-7784)", () => {

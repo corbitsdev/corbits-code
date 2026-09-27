@@ -49,24 +49,20 @@ export function injectCredentials(
   source: InferenceSource,
   readMaterial: CredentialMaterialResolver,
 ): Record<string, string> {
-  // Resolve the source's secret lazily and once: only when a header actually
-  // carries a sentinel, so a request with no credential sentinel never touches
-  // the cell, and the fail-closed read (revoked/absent credential) surfaces only
-  // when the secret is genuinely needed.
-  let cachedSecret: string | undefined;
-  const secret = (): string => {
-    cachedSecret ??= readMaterial(source.credentialId).secret;
-    return cachedSecret;
+  let material: ReturnType<CredentialMaterialResolver> | undefined;
+  const resolveMaterial = (): ReturnType<CredentialMaterialResolver> => {
+    material ??= readMaterial(source.credentialId);
+    return material;
   };
   const result: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {
     if (value === CREDENTIAL_SENTINEL) {
-      result[name] = secret();
+      result[name] = resolveMaterial().secret;
     } else if (value === BEARER_CREDENTIAL_SENTINEL) {
-      result[name] = `Bearer ${secret()}`;
+      result[name] = `Bearer ${resolveMaterial().secret}`;
     } else {
       result[name] = value;
     }
   }
-  return result;
+  return { ...result, ...material?.headers };
 }

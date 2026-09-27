@@ -58,6 +58,30 @@ describe("injectCredentials", () => {
     expect(out["content-type"]).toBe("application/json");
   });
 
+  test("injects bearer and provider identity from one material snapshot", () => {
+    let reads = 0;
+    const out = injectCredentials(
+      {
+        authorization: BEARER_CREDENTIAL_SENTINEL,
+        "chatgpt-account-id": "stale-account",
+      },
+      SOURCE,
+      () => {
+        reads++;
+        return {
+          secret: "fresh-token",
+          headers: { "chatgpt-account-id": "fresh-account" },
+        };
+      },
+    );
+
+    expect(out).toEqual({
+      authorization: "Bearer fresh-token",
+      "chatgpt-account-id": "fresh-account",
+    });
+    expect(reads).toBe(1);
+  });
+
   test("non-sentinel values pass through unchanged", () => {
     const out = injectCredentials(
       {

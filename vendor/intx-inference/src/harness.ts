@@ -1575,6 +1575,8 @@ export async function* runInference(
   const scheduler = opts.deps.scheduler;
   const startedAtMs = scheduler.now();
   const signal = opts.signal;
+  const callStartSource = Object.freeze({ ...opts.source });
+  const credentialFailureHistory: InferenceError[] = [];
 
   for (let attempt = 1; ; attempt++) {
     // Metadata an attempt emits before it commits (see `isCommitting`):
@@ -1587,7 +1589,12 @@ export async function* runInference(
     // Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts-commitment-boundary-streaming
     const preCommit: InferenceEvent[] = [];
     let committed = false;
-    let failure: { event: InferenceEvent; error: InferenceError } | undefined;
+    let failure:
+      | {
+          event: Extract<InferenceEvent, { type: "inference.error" }>;
+          error: InferenceError;
+        }
+      | undefined;
 
     // Per-attempt private allocator. `runSingleAttempt` allocates a
     // seq for every event it yields; if the attempt is discarded on
@@ -1599,6 +1606,7 @@ export async function* runInference(
     let attemptSeq = 0;
     const attemptOpts: InferenceHarnessOptions = {
       ...opts,
+      source: callStartSource,
       nextSeq: () => attemptSeq++,
     };
     for await (const event of runSingleAttempt(attemptOpts)) {
@@ -1654,6 +1662,10 @@ export async function* runInference(
     }
 
     const terminalError = failure.error;
+    const credentialFailureOrdinal =
+      terminalError.category === "credential_failure"
+        ? credentialFailureHistory.length + 1
+        : 0;
 
     // Consult the policy. Sync throws and Promise rejections both
     // resolve to an abort decision; the original inference.error
@@ -1668,11 +1680,20 @@ export async function* runInference(
           error: terminalError,
           attempt,
           elapsedMs: scheduler.now() - startedAtMs,
+          source: callStartSource,
+          credentialFailureOrdinal,
+          credentialFailureHistory: Object.freeze([
+            ...credentialFailureHistory,
+          ]),
         }),
       );
     } catch (cause) {
       logger.warn`Retry policy threw at attempt ${String(attempt)}; treating as abort. error=${cause instanceof Error ? cause.message : String(cause)}`;
       decision = { kind: "abort" };
+    }
+
+    if (terminalError.category === "credential_failure") {
+      credentialFailureHistory.push(terminalError);
     }
 
     if (decision.kind === "abort") {
@@ -1682,7 +1703,18 @@ export async function* runInference(
       for (const buffered of preCommit) {
         yield { ...buffered, seq: opts.nextSeq() };
       }
-      yield { ...failure.event, seq: opts.nextSeq() };
+      if (decision.error !== undefined) {
+        yield {
+          type: "inference.error",
+          seq: opts.nextSeq(),
+          data: {
+            error: decision.error,
+            partial: failure.event.data.partial,
+          },
+        };
+      } else {
+        yield { ...failure.event, seq: opts.nextSeq() };
+      }
       return;
     }
 

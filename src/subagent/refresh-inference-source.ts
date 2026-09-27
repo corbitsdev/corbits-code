@@ -1,33 +1,38 @@
+import { xaiUserIdFromAccessToken } from "@corbits/xai-provider";
 import type { InferenceSource } from "@intx/types/runtime";
 
 import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
-import { registerSourceCredential } from "../config/source-credentials.js";
-import { codexProfileFromProviderName } from "../config/codex-providers.js";
-import { xaiProfileFromProviderName } from "../config/xai-providers.js";
+import {
+  readSourceCredentialRecord,
+  rotateSourceCredentialMaterial,
+} from "../config/source-credentials.js";
 
-// Sub-agents run their own reactor loop and do not inherit the TUI runner's
-// refreshCodexBeforeSend hook. Refresh OAuth access tokens immediately before
-// the first inference call so stale catalog snapshots do not surface as 401s.
 export async function ensureFreshInferenceSource(
   source: InferenceSource,
-  catalog: readonly ProviderCatalogEntry[] | undefined,
+  _catalog: readonly ProviderCatalogEntry[] | undefined,
 ): Promise<InferenceSource> {
-  const entry = catalog?.find((e) => e.name === source.id);
-  const codexProfile =
-    entry?.codexProfile ?? codexProfileFromProviderName(source.id);
-  if (codexProfile !== undefined) {
-    const { access } = await getValidCodexToken(codexProfile);
-    registerSourceCredential(source.credentialId, access);
+  const record = readSourceCredentialRecord(source.credentialId);
+  if (record.provenance.kind !== "oauth") return source;
+
+  if (record.provenance.provider === "codex") {
+    const fresh = await getValidCodexToken(record.provenance.profile);
+    rotateSourceCredentialMaterial(source.credentialId, {
+      secret: fresh.access,
+      ...(fresh.accountId !== undefined
+        ? { headers: { "chatgpt-account-id": fresh.accountId } }
+        : {}),
+    });
     return source;
   }
-  const xaiProfile = entry?.xaiProfile ?? xaiProfileFromProviderName(source.id);
-  if (xaiProfile !== undefined) {
-    const { access } = await getValidXaiToken(xaiProfile);
-    registerSourceCredential(source.credentialId, access);
-    return source;
-  }
+
+  const fresh = await getValidXaiToken(record.provenance.profile);
+  const userId = xaiUserIdFromAccessToken(fresh.access);
+  rotateSourceCredentialMaterial(source.credentialId, {
+    secret: fresh.access,
+    ...(userId !== undefined ? { headers: { "x-grok-user-id": userId } } : {}),
+  });
   return source;
 }
 

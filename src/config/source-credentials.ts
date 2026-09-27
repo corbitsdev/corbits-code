@@ -1,48 +1,75 @@
-// First-party credential cell backing the vendored inference auth model.
-//
-// Since the 1ad0104 re-vendor, `InferenceSource` carries no inline secret:
-// it names a `credentialId` and every send resolves the secret through a
-// `CredentialMaterialResolver` ("credential cell" in upstream terms — read
-// `CredentialMaterialResolver`'s doc comment in the vendored
-// `@intx/types`). This module is that cell for first-party API-key and
-// OAuth access-token sources: each `buildXSource` in `./index.ts` registers
-// the secret it was built with under the source id, and the inference entry
-// points (`assemble-runtime`, subagent run, summarizer fallback) hand
-// `readSourceCredentialMaterial` to the vendored trees as their resolver.
-//
-// Keyed by source id because ids are unique per live source within a
-// process. The map lives at module scope so sources built in one layer
-// (config) resolve in another (agent env, reactor options) without threading
-// secrets through every intermediate shape.
-import type { CredentialMaterialResolver } from "@intx/types";
+import type {
+  CredentialMaterial,
+  CredentialMaterialResolver,
+} from "@intx/types";
 
-const cell = new Map<string, string>();
+export type SourceCredentialProvenance =
+  | {
+      readonly kind: "oauth";
+      readonly provider: "codex" | "xai";
+      readonly profile: string;
+    }
+  | { readonly kind: "api-key" }
+  | { readonly kind: "keyless" };
+
+export interface SourceCredentialRecord {
+  readonly provenance: SourceCredentialProvenance;
+  readonly material: CredentialMaterial;
+}
+
+const cell = new Map<string, SourceCredentialRecord>();
+
+export function registerSourceCredentialRecord(
+  credentialId: string,
+  record: SourceCredentialRecord,
+): void {
+  cell.set(credentialId, record);
+}
 
 export function registerSourceCredential(
   credentialId: string,
   secret: string,
 ): void {
-  cell.set(credentialId, secret);
+  const current = cell.get(credentialId);
+  cell.set(credentialId, {
+    provenance: current?.provenance ?? { kind: "api-key" },
+    material: { ...current?.material, secret },
+  });
 }
 
-/** The resolver handed to vendored inference calls. Fails closed. */
+export function rotateSourceCredentialMaterial(
+  credentialId: string,
+  material: CredentialMaterial,
+): void {
+  const current = cell.get(credentialId);
+  if (current === undefined) {
+    throw new Error(
+      `Cannot rotate unknown inference credential "${credentialId}".`,
+    );
+  }
+  cell.set(credentialId, { provenance: current.provenance, material });
+}
+
+export function readSourceCredentialRecord(
+  credentialId: string,
+): SourceCredentialRecord {
+  const record = cell.get(credentialId);
+  if (record === undefined) {
+    throw new Error(`Unknown inference credential "${credentialId}".`);
+  }
+  return record;
+}
+
 export const readSourceCredentialMaterial: CredentialMaterialResolver = (
   credentialId: string,
-) => {
-  const secret = cell.get(credentialId);
-  if (secret === undefined)
-    throw new Error(`Unknown inference credential "${credentialId}".`);
-  return { secret };
-};
+) => readSourceCredentialRecord(credentialId).material;
 
-/** Non-throwing read for "did the token change?" comparisons. */
 export function peekSourceCredentialSecret(
   credentialId: string,
 ): string | undefined {
-  return cell.get(credentialId);
+  return cell.get(credentialId)?.material.secret;
 }
 
-/** Test seam: empties the cell between cases. */
 export function clearSourceCredentials(): void {
   cell.clear();
 }

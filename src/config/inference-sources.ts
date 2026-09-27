@@ -93,6 +93,7 @@ export function buildInferenceSourceForRef(
   if (entry?.codexProfile !== undefined) {
     return buildCodexSource({
       id: ref.provider,
+      profile: entry.codexProfile,
       apiKey: entry.apiKey ?? "",
       model: ref.model,
       sessionId: ctx.sessionId,
@@ -105,6 +106,7 @@ export function buildInferenceSourceForRef(
   if (entry?.xaiProfile !== undefined) {
     return buildXaiSource({
       id: ref.provider,
+      profile: entry.xaiProfile,
       apiKey: entry.apiKey ?? "",
       model: ref.model,
       sessionId: ctx.sessionId,

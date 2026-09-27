@@ -10,14 +10,10 @@ import {
   toolWatchdogFromSettings,
   type MCPServerConfig,
 } from "../config/settings.js";
-import {
-  codexProfileFromProviderName,
-  isCodexProviderName,
-} from "../config/codex-providers.js";
-import { xaiProfileFromProviderName } from "../config/xai-providers.js";
+import { isCodexProviderName } from "../config/codex-providers.js";
 import {
   peekSourceCredentialSecret,
-  registerSourceCredential,
+  readSourceCredentialRecord,
 } from "../config/source-credentials.js";
 import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
@@ -31,9 +27,7 @@ import {
 import {
   CodexRefreshLockError,
   codexAuthFailureDiagnostic,
-  getValidCodexToken,
 } from "../auth/codex/session.js";
-import { getValidXaiToken } from "../auth/xai/session.js";
 import {
   type ActivatedToolTracker,
   type ToolAvailability,
@@ -767,35 +761,24 @@ export async function runExec(config: Config): Promise<ExecResult> {
         })
       ).systemPrompt;
 
-    const initialCodexProfile = codexProfileFromProviderName(
-      config.providerName,
-    );
-    const initialXaiProfile = xaiProfileFromProviderName(config.providerName);
     const initialBundle = resolveLiveSessionSources(config, sessionId);
     const liveSources = initialBundle.sources;
     const liveDefaultSource = initialBundle.defaultSource;
     const selectedSource = initialBundle.selected;
+    const initialProvenance = readSourceCredentialRecord(
+      selectedSource.credentialId,
+    ).provenance;
     let liveSource: InferenceSource = selectedSource;
 
     // Refresh OAuth tokens before first inference when starting on codex/xai.
-    if (initialCodexProfile !== undefined) {
-      const { access } = await refreshSelectedProviderCredential(() =>
-        getValidCodexToken(initialCodexProfile),
+    if (initialProvenance.kind === "oauth") {
+      await refreshSelectedProviderCredential(() =>
+        ensureFreshInferenceSource(liveSource, config.providers),
       );
-      registerSourceCredential(liveSource.credentialId, access);
+      const access = peekSourceCredentialSecret(liveSource.credentialId);
       liveSubAgentProvider.current = {
         ...liveSubAgentProvider.current,
-        apiKey: access,
-      };
-    }
-    if (initialXaiProfile !== undefined) {
-      const { access } = await refreshSelectedProviderCredential(() =>
-        getValidXaiToken(initialXaiProfile),
-      );
-      registerSourceCredential(liveSource.credentialId, access);
-      liveSubAgentProvider.current = {
-        ...liveSubAgentProvider.current,
-        apiKey: access,
+        ...(access !== undefined ? { apiKey: access } : {}),
       };
     }
 
@@ -1095,17 +1078,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
     let sinkStatus: ReturnType<typeof liveSink.getStatus> = "cancelled";
     try {
       // Final OAuth refresh immediately before send (token may have aged during MCP).
-      if (initialCodexProfile !== undefined) {
-        const { access } = await getValidCodexToken(initialCodexProfile);
-        if (access !== peekSourceCredentialSecret(liveSource.credentialId)) {
-          registerSourceCredential(liveSource.credentialId, access);
-          setAgentSourceUnlessClosed(activeAgent, liveSource);
-        }
-      }
-      if (initialXaiProfile !== undefined) {
-        const { access } = await getValidXaiToken(initialXaiProfile);
-        if (access !== peekSourceCredentialSecret(liveSource.credentialId)) {
-          registerSourceCredential(liveSource.credentialId, access);
+      if (initialProvenance.kind === "oauth") {
+        const before = peekSourceCredentialSecret(liveSource.credentialId);
+        await ensureFreshInferenceSource(liveSource, config.providers);
+        if (peekSourceCredentialSecret(liveSource.credentialId) !== before) {
           setAgentSourceUnlessClosed(activeAgent, liveSource);
         }
       }

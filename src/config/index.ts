@@ -29,7 +29,10 @@ import {
 import type { CodexProfile } from "../auth/codex/store.js";
 import type { XaiProfile } from "../auth/xai/store.js";
 import { listCodexProfiles, listXaiProfiles } from "./oauth-stores.js";
-import { registerSourceCredential } from "./source-credentials.js";
+import {
+  registerSourceCredentialRecord,
+  type SourceCredentialProvenance,
+} from "./source-credentials.js";
 import {
   codexProfilesToCatalogEntries,
   codexProvidersAsSettings,
@@ -117,11 +120,21 @@ export const KEYLESS_API_KEY = "keyless";
 // ./source-credentials.ts), falling back to the keyless sentinel when no key
 // was configured. Every buildXSource below calls this so the vendored
 // credentialId auth model resolves the secret at send time.
-function registerSourceSecret(id: string, apiKey: string | undefined): void {
-  registerSourceCredential(
-    id,
-    apiKey !== undefined && apiKey.length > 0 ? apiKey : KEYLESS_API_KEY,
-  );
+function registerSourceSecret(
+  id: string,
+  apiKey: string | undefined,
+  provenance?: SourceCredentialProvenance,
+  headers?: Readonly<Record<string, string>>,
+): void {
+  const hasSecret = apiKey !== undefined && apiKey.length > 0;
+  registerSourceCredentialRecord(id, {
+    provenance:
+      provenance ?? (hasSecret ? { kind: "api-key" } : { kind: "keyless" }),
+    material: {
+      secret: hasSecret ? apiKey : KEYLESS_API_KEY,
+      ...(headers !== undefined ? { headers } : {}),
+    },
+  });
 }
 
 function applyPersistedOAuthDefaults(
@@ -333,6 +346,7 @@ export type ProviderCatalogEntry = Omit<
 // harness resolves it as the bearer credential at send time.
 export function buildCodexSource(fields: {
   id: string;
+  profile: string;
   apiKey: string;
   model: string;
   sessionId: string;
@@ -346,7 +360,14 @@ export function buildCodexSource(fields: {
     providerOptions[CODEX_ACCOUNT_ID_OPTION] = fields.accountId;
   if (fields.reasoningEffort !== undefined)
     providerOptions["reasoning_effort"] = fields.reasoningEffort;
-  registerSourceSecret(fields.id, fields.apiKey);
+  registerSourceSecret(
+    fields.id,
+    fields.apiKey,
+    { kind: "oauth", provider: "codex", profile: fields.profile },
+    fields.accountId !== undefined
+      ? { "chatgpt-account-id": fields.accountId }
+      : undefined,
+  );
   return {
     id: fields.id,
     provider: CODEX_RESPONSES_PROVIDER,
@@ -366,6 +387,7 @@ export function buildCodexSource(fields: {
 // thread routes to the same cache shard (store:false has no other signal).
 export function buildXaiSource(fields: {
   id: string;
+  profile: string;
   apiKey: string;
   model: string;
   sessionId: string;
@@ -378,7 +400,12 @@ export function buildXaiSource(fields: {
   if (userId !== undefined) providerOptions[GROK_USER_ID_OPTION] = userId;
   if (fields.reasoningEffort !== undefined)
     providerOptions["reasoning_effort"] = fields.reasoningEffort;
-  registerSourceSecret(fields.id, fields.apiKey);
+  registerSourceSecret(
+    fields.id,
+    fields.apiKey,
+    { kind: "oauth", provider: "xai", profile: fields.profile },
+    userId !== undefined ? { "x-grok-user-id": userId } : undefined,
+  );
   return {
     id: fields.id,
     provider: GROK_RESPONSES_PROVIDER,

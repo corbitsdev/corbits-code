@@ -6386,24 +6386,24 @@ describe("createReactor — source failover", () => {
     return { ...handle, attemptedSourceIds };
   }
 
-  test("fails over to the next source on a credential failure", async () => {
+  test("does not fail over after credential recovery is exhausted", async () => {
     const { reactor, events, waitFor, attemptedSourceIds } = multiSourceReactor(
       {
         sourceIds: ["s0", "s1"],
-        resultFor: (id) =>
-          id === "s0"
-            ? { category: "credential_failure", message: "bad key" }
-            : "done",
+        resultFor: () => ({
+          category: "credential_failure",
+          message: "bad key",
+        }),
       },
     );
     reactor.start();
     reactor.deliver(makeInboundMessage());
     await waitFor("reactor.done");
 
-    // s0 failed on a source-specific error -> immediate failover -> s1.
-    expect(attemptedSourceIds).toEqual(["s0", "s1"]);
-    const done = getEvent(events, "inference.done");
-    expect(done.data.source.sourceId).toBe("s1");
+    expect(attemptedSourceIds).toEqual(["s0"]);
+    expect(getEvent(events, "inference.error").data.error.category).toBe(
+      "credential_failure",
+    );
   });
 
   test("fails over on quota exhaustion already retried by the harness", async () => {
@@ -6490,8 +6490,8 @@ describe("createReactor — source failover", () => {
       {
         sourceIds: ["s0", "s1"],
         resultFor: () => ({
-          category: "credential_failure",
-          message: "bad key",
+          category: "retryable",
+          message: "gateway unavailable",
         }),
       },
     );
@@ -6502,7 +6502,7 @@ describe("createReactor — source failover", () => {
     // Both sources fail over; the terminal error is surfaced.
     expect(attemptedSourceIds).toEqual(["s0", "s1"]);
     expect(getEvent(events, "inference.error").data.error.category).toBe(
-      "credential_failure",
+      "retryable",
     );
   });
 });

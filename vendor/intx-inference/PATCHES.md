@@ -26,6 +26,18 @@ Re-carryable, "Kill candidate" = Droppable, and "Companion" entries are
 Re-carryable but ride their primary patch's disposition (they ship out or
 die with it).
 
+## harness-ts-auth-recovery
+
+**Promotion candidate.** `auth.ts`, `harness.ts`, and `reactor.ts` atomically
+inject credential-derived identity headers with the live bearer secret, shallow
+snapshot the complete source once per call, and expose per-call credential
+failure ordinal/history to retry policies. A policy may preserve a classified
+refresh diagnostic on abort. After same-source recovery is exhausted,
+`credential_failure` is terminal and never enters automatic source failover.
+
+**Re-carry:** preserve the exact `isCommitting` boundary and immutable call
+snapshot. Companion to `runtime-ts-auth-recovery-context` in `@intx/types`.
+
 ## reactor-ts-atomic-approval-acceptance
 
 **Promotion candidate.** `reactor.ts` classifies native `approval.granted` /

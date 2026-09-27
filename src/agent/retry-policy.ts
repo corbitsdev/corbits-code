@@ -12,6 +12,15 @@ import {
   getProcessAdmissionQueue,
   type AdmissionQueue,
 } from "../subagent/admission.js";
+import { getValidCodexToken } from "../auth/codex/session.js";
+import { getValidXaiToken } from "../auth/xai/session.js";
+import { xaiUserIdFromAccessToken } from "@corbits/xai-provider";
+import {
+  readSourceCredentialRecord,
+  rotateSourceCredentialMaterial,
+  type SourceCredentialProvenance,
+} from "../config/source-credentials.js";
+import type { InferenceSource } from "@intx/types/runtime";
 
 // Providers that enforce long-window quotas (e.g. monthly limits) set
 // Retry-After to days or weeks. The default policy trusts that value and
@@ -32,6 +41,33 @@ export interface CorbitsRetryPolicyOptions {
   /** Process admission controller. Tests inject a stub; production omits. */
   admission?: AdmissionQueue;
   now?: () => number;
+  refreshCredential?: (
+    source: Readonly<InferenceSource>,
+    provenance: Extract<SourceCredentialProvenance, { kind: "oauth" }>,
+  ) => Promise<void>;
+}
+
+async function refreshOAuthCredential(
+  source: Readonly<InferenceSource>,
+  provenance: Extract<SourceCredentialProvenance, { kind: "oauth" }>,
+): Promise<void> {
+  if (provenance.provider === "codex") {
+    const fresh = await getValidCodexToken(provenance.profile);
+    rotateSourceCredentialMaterial(source.credentialId, {
+      secret: fresh.access,
+      ...(fresh.accountId !== undefined
+        ? { headers: { "chatgpt-account-id": fresh.accountId } }
+        : {}),
+    });
+    return;
+  }
+
+  const fresh = await getValidXaiToken(provenance.profile);
+  const userId = xaiUserIdFromAccessToken(fresh.access);
+  rotateSourceCredentialMaterial(source.credentialId, {
+    secret: fresh.access,
+    ...(userId !== undefined ? { headers: { "x-grok-user-id": userId } } : {}),
+  });
 }
 
 /**
@@ -57,6 +93,34 @@ export function createCorbitsRetryPolicy(
         ? { ...incoming, providerId: stampedProviderId }
         : incoming;
     const error = normalizeInferenceErrorForRetry(withProvider);
+    if (
+      error.category === "credential_failure" &&
+      situation.credentialFailureOrdinal === 1 &&
+      situation.source !== undefined
+    ) {
+      let provenance: SourceCredentialProvenance;
+      try {
+        provenance = readSourceCredentialRecord(
+          situation.source.credentialId,
+        ).provenance;
+      } catch {
+        return { kind: "abort" };
+      }
+      if (provenance.kind === "oauth") {
+        const refresh = options?.refreshCredential ?? refreshOAuthCredential;
+        return refresh(situation.source, provenance).then(
+          () => ({ kind: "retry", delayMs: 0 }),
+          (cause: unknown) => ({
+            kind: "abort",
+            error: {
+              category: "credential_failure",
+              providerId: situation.source?.id,
+              message: `${provenance.provider} profile "${provenance.profile}" could not be refreshed${cause instanceof Error ? `: ${cause.message}` : ""}. Run /connect, choose ${provenance.provider}, and reconnect profile "${provenance.profile}".`,
+            },
+          }),
+        );
+      }
+    }
     if (error.category === "retryable" && error.statusCode === 429) {
       const pauseMs = Math.min(
         error.retryAfterMs ?? DEFAULT_PRESSURE_PAUSE_MS,

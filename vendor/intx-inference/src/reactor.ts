@@ -934,14 +934,16 @@ export function createReactor(config: ReactorConfig): Reactor {
           return;
         }
 
-        // Any remaining error (quota, credential, protocol mismatch,
-        // retryable, timeout) is source-specific. The harness wrapper owns
-        // mechanical retry and has already exhausted it against this source
-        // by the time the reactor sees the error, including honoring a
-        // provider Retry-After for quota, so re-running the same source
-        // would only retry-compound. Fail over to the next source instead.
-        // A pacing delay the leaving source asked for must not gate the
-        // next source.
+        if (err.category === "credential_failure") {
+          pendingPacingDelayMs = 0;
+          enqueue({ type: "inference.error", error: err, partial });
+          return;
+        }
+
+        // Any remaining error (quota, protocol mismatch, retryable, timeout)
+        // is source-specific. The harness wrapper owns mechanical retry and
+        // has already exhausted it against this source by the time the reactor
+        // sees the error. Fail over to the next source instead.
         pendingPacingDelayMs = 0;
         if (failOverToNextSource()) {
           logger.warn`Failing over to next inference source after ${err.category}`;

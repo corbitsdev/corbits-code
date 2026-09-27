@@ -4,6 +4,10 @@ import {
   createCorbitsRetryPolicy,
   type CorbitsRetryPolicyOptions,
 } from "./retry-policy.js";
+import {
+  clearSourceCredentials,
+  registerSourceCredentialRecord,
+} from "../config/source-credentials.js";
 
 const HTML_503 = `<!DOCTYPE html><html><body>503 Service Unavailable Cloudflare</body></html>`;
 
@@ -21,6 +25,87 @@ function policy(opts: CorbitsRetryPolicyOptions = {}) {
 }
 
 describe("createCorbitsRetryPolicy", () => {
+  test("refreshes the first credential failure after a transient retry", async () => {
+    registerSourceCredentialRecord("codex/work", {
+      provenance: { kind: "oauth", provider: "codex", profile: "work" },
+      material: {
+        secret: "old",
+        headers: { "chatgpt-account-id": "old-account" },
+      },
+    });
+    try {
+      let refreshes = 0;
+      const decide = policy({
+        refreshCredential: async () => {
+          refreshes++;
+        },
+      });
+      const source = {
+        id: "codex/work",
+        provider: "codex-responses",
+        baseURL: "https://chatgpt.com/backend-api/codex",
+        credentialId: "codex/work",
+        model: "gpt-5",
+      };
+
+      expect(
+        await decide({
+          attempt: 1,
+          elapsedMs: 0,
+          source,
+          credentialFailureOrdinal: 0,
+          credentialFailureHistory: [],
+          error: { category: "retryable", message: "gateway unavailable" },
+        }),
+      ).toEqual({ kind: "retry", delayMs: 500 });
+      expect(
+        await decide({
+          attempt: 2,
+          elapsedMs: 500,
+          source,
+          credentialFailureOrdinal: 1,
+          credentialFailureHistory: [],
+          error: { category: "credential_failure", message: "expired" },
+        }),
+      ).toEqual({ kind: "retry", delayMs: 0 });
+      expect(refreshes).toBe(1);
+    } finally {
+      clearSourceCredentials();
+    }
+  });
+
+  test("does not recover namespaced API-key credentials", async () => {
+    registerSourceCredentialRecord("xai/shadow", {
+      provenance: { kind: "api-key" },
+      material: { secret: "explicit-key" },
+    });
+    try {
+      let refreshes = 0;
+      const decision = await policy({
+        refreshCredential: async () => {
+          refreshes++;
+        },
+      })({
+        attempt: 1,
+        elapsedMs: 0,
+        source: {
+          id: "xai/shadow",
+          provider: "openai-compatible",
+          baseURL: "https://relay.example/v1",
+          credentialId: "xai/shadow",
+          model: "relay-model",
+        },
+        credentialFailureOrdinal: 1,
+        credentialFailureHistory: [],
+        error: { category: "credential_failure", message: "bad key" },
+      });
+      expect(decision).toEqual({ kind: "abort" });
+      expect(refreshes).toBe(0);
+    } finally {
+      clearSourceCredentials();
+    }
+  });
+
   test("retries protocol_mismatch when the body is an HTML 503 gateway page", async () => {
     const decision = await policy()({
       attempt: 1,
