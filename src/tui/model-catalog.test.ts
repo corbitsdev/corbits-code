@@ -55,8 +55,8 @@ describe("buildModelCatalog", () => {
 });
 
 describe("modelOptionId", () => {
-  test("provider:model", () => {
-    expect(modelOptionId("xai", "grok-4")).toBe("xai:grok-4");
+  test("is collision-free when provider and model names contain colons", () => {
+    expect(modelOptionId("a:b", "c")).not.toBe(modelOptionId("a", "b:c"));
   });
 });
 

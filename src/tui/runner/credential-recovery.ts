@@ -84,7 +84,7 @@ export function createCredentialRecoveryState() {
       message: InboundMessage,
       failedProvider: string,
     ): CredentialRecoveryAttempt {
-      pending = null;
+      if (isOperatorOriginated(message.flags)) pending = null;
       return {
         generation: ++nextGeneration,
         failedProvider,

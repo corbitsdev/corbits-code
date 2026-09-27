@@ -6,9 +6,10 @@
  * the Go-on-Zen billing predicate are also plain data — callers own settings
  * and config loading.
  *
- * Identity is `provider:model` (matches runner active-model string).
+ * Identity is opaque and collision-free across provider/model pairs.
  */
 
+import { type } from "arktype";
 import { isGoModelOnZenPath as defaultIsGoModelOnZenPath } from "../provider/billing-product.js";
 import { getActivePricingCache } from "../cost/cost-visibility.js";
 import {
@@ -99,9 +100,37 @@ export function buildModelCatalog(
   return out;
 }
 
-/** Stable id for a provider+model pair (`provider:model`). */
+const ModelOptionIdentity = type(["string", "string"]);
+
+/** Stable opaque id for one exact provider/model pair. */
 export function modelOptionId(provider: string, model: string): string {
-  return `${provider}:${model}`;
+  if (!provider.includes(":") && !model.includes(":"))
+    return `${provider}:${model}`;
+  return JSON.stringify([provider, model]);
+}
+
+export function modelOptionRef(id: string): ModelCatalogRef | null {
+  if (id.startsWith("[")) {
+    try {
+      const parsed = ModelOptionIdentity(JSON.parse(id));
+      if (
+        !(parsed instanceof type.errors) &&
+        parsed[0].length > 0 &&
+        parsed[1].length > 0
+      )
+        return { provider: parsed[0], model: parsed[1] };
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  const separator = id.indexOf(":");
+  if (separator <= 0 || separator === id.length - 1) return null;
+  return {
+    provider: id.slice(0, separator),
+    model: id.slice(separator + 1),
+  };
 }
 
 /** Picker row: `model * [providerLabel]`. */
@@ -307,7 +336,9 @@ export function describeModelCatalogOption(
     readonly pricing?: PricingCache | null;
   },
 ): ItemDescription | null {
-  const model = option.id.slice(option.id.indexOf(":") + 1);
+  const identity = modelOptionRef(option.id);
+  const provider = identity?.provider ?? option.id;
+  const model = identity?.model ?? option.id;
   const pricing =
     args?.pricing !== undefined ? args.pricing : getActivePricingCache();
 
@@ -322,13 +353,7 @@ export function describeModelCatalogOption(
 
   return {
     what: whatLine(model),
-    impact: pricingImpact(
-      pricing,
-      // Exact provider parse: slice(0, indexOf(":")) drops the last
-      // character of a colon-less id (indexOf returns -1).
-      option.id.split(":")[0] ?? option.id,
-      model,
-    ),
+    impact: pricingImpact(pricing, provider, model),
     tone: "plain",
   };
 }

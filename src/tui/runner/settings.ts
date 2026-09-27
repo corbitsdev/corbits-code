@@ -37,7 +37,7 @@ import pkg from "../../../package.json" with { type: "json" };
 import type { GrantScope } from "../../permission/types.js";
 import { connectProviderInline } from "../provider/connect.js";
 import { persistConnectedSelection } from "../provider/submit.js";
-import { modelOptionId } from "../model-catalog.js";
+import { modelOptionId, modelOptionRef } from "../model-catalog.js";
 import {
   prefetchGoModels,
   prefetchZenModels,
@@ -385,10 +385,9 @@ export async function wireSettings(
   };
 
   const onModelSelect = (id: string): void => {
-    const sep = id.indexOf(":");
-    if (sep <= 0) return;
-    const provider = id.slice(0, sep);
-    const model = id.slice(sep + 1);
+    const identity = modelOptionRef(id);
+    if (identity === null) return;
+    const { provider, model } = identity;
     applyLiveModelSwitch(
       { providerName: provider, model },
       {
@@ -446,12 +445,8 @@ export async function wireSettings(
   };
 
   const onFavoriteToggle = (id: string): void => {
-    const sep = id.indexOf(":");
-    if (sep <= 0) return;
-    const ref: ModelRef = {
-      provider: id.slice(0, sep),
-      model: id.slice(sep + 1),
-    };
+    const ref = modelOptionRef(id);
+    if (ref === null) return;
     void (async () => {
       let next: Settings | undefined;
       const result = await services.globalSettingsWriter.mutateAt(
@@ -477,12 +472,8 @@ export async function wireSettings(
   };
 
   const onSetDefault = (id: string): void => {
-    const sep = id.indexOf(":");
-    if (sep <= 0) return;
-    const ref: ModelRef = {
-      provider: id.slice(0, sep),
-      model: id.slice(sep + 1),
-    };
+    const ref = modelOptionRef(id);
+    if (ref === null) return;
     void (async () => {
       let next: Settings | undefined;
       const result = await services.globalSettingsWriter.mutateAt(

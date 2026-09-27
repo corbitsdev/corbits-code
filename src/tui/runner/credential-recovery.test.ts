@@ -6,6 +6,7 @@ import {
   buildCredentialRecoveryContinuationMessage,
   createCredentialRecoveryState,
 } from "./credential-recovery.js";
+import { modelOptionId, modelOptionRef } from "../model-catalog.js";
 
 function operatorMessage(): InboundMessage {
   return {
@@ -71,6 +72,38 @@ describe("credential recovery alternatives", () => {
     ).toEqual([
       { id: "backup:model-a", provider: "backup", model: "model-a" },
       { id: "backup:model-b", provider: "backup", model: "model-b" },
+    ]);
+  });
+
+  test("keeps colon-bearing provider and model identities distinct", () => {
+    const alternatives = buildCredentialRecoveryAlternatives(
+      {
+        providers: [
+          providers[0],
+          {
+            name: "backup:west",
+            baseURL: "https://west.test/v1",
+            apiKey: "west-key",
+            models: ["model:fast"],
+          },
+          {
+            name: "backup",
+            baseURL: "https://backup.test/v1",
+            apiKey: "backup-key",
+            models: ["west:model:fast"],
+          },
+        ],
+        providerName: "failed",
+        model: "same",
+      } as never,
+      "session-colons",
+      "failed",
+    );
+
+    expect(alternatives).toHaveLength(2);
+    expect(alternatives.map((alternative) => alternative.id)).toEqual([
+      modelOptionId("backup:west", "model:fast"),
+      modelOptionId("backup", "west:model:fast"),
     ]);
   });
 });
@@ -293,6 +326,17 @@ describe("generation-scoped credential recovery", () => {
       kind: "stale",
     });
   });
+
+  test("a background continuation preserves an actionable operator selection", () => {
+    const { state, pending } = pendingRecovery();
+
+    state.begin(buildCredentialRecoveryContinuationMessage(99), "failed");
+
+    expect(state.accept(pending.generation, "backup:model-a")).toMatchObject({
+      kind: "accepted",
+      replay: true,
+    });
+  });
 });
 
 function pendingRecovery(committed = false) {
@@ -325,6 +369,48 @@ function pendingRecovery(committed = false) {
 }
 
 describe("credential recovery selection effects", () => {
+  test("applies the exact colon-bearing pair and replays once", () => {
+    const state = createCredentialRecoveryState();
+    const attempt = state.begin(operatorMessage(), "failed");
+    state.observe(attempt, {
+      type: "inference.retry",
+      data: { previousError: { category: "credential_failure" } },
+    });
+    state.observe(attempt, {
+      type: "inference.error",
+      data: { error: { category: "credential_failure" } },
+    });
+    const id = modelOptionId("backup:west", "model:fast");
+    const alternative = {
+      id,
+      label: "model:fast * [backup:west]",
+      provider: "backup:west",
+      model: "model:fast",
+    };
+    const pending = required(state.settle(attempt, [alternative]), "pending");
+    const switched: (typeof alternative)[] = [];
+    const delivered: InboundMessage[] = [];
+
+    expect(
+      applyCredentialRecoverySelection({
+        state,
+        generation: pending.generation,
+        alternativeId: id,
+        switchAlternative: (selected) => switched.push(selected),
+        armContinuation: () => undefined,
+        cancelContinuation: () => undefined,
+        deliverContinuation: (message) => delivered.push(message),
+      }),
+    ).toBe("continued");
+    expect(switched).toEqual([alternative]);
+    expect(modelOptionRef(switched[0]?.id ?? "")).toEqual({
+      provider: "backup:west",
+      model: "model:fast",
+    });
+    expect(delivered).toHaveLength(1);
+    expect(state.accept(pending.generation, id)).toEqual({ kind: "stale" });
+  });
+
   test("switches and continues an uncommitted input exactly once", () => {
     const { state, pending } = pendingRecovery();
     const switches: string[] = [];
