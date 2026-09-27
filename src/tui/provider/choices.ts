@@ -21,7 +21,7 @@ import {
   selectableZenModelIds,
 } from "../../provider/model-catalogs.js";
 import { isZenProviderId } from "../../../packages/zen/src/index.js";
-import { buildModelsFirstCatalog } from "../model-catalog.js";
+import { buildModelsFirstCatalog, modelOptionRef } from "../model-catalog.js";
 import type { ResidualCatalogEntry } from "../residuals.js";
 import type { CliRenderer } from "@opentui/core";
 import { createOverlayList } from "../shell/overlay-list.js";
@@ -325,10 +325,15 @@ export function modelChoiceRows(
   ];
 }
 
-/** `provider:model` → `model`, for a row id produced by the model catalog. */
+/** Decode a row id produced by the model catalog for the expected provider. */
 export function modelFromRowId(providerId: string, rowId: string): string {
-  const prefix = `${providerId}:`;
-  return rowId.startsWith(prefix) ? rowId.slice(prefix.length) : rowId;
+  if (rowId === TYPE_MODEL_ID) return rowId;
+  const identity = modelOptionRef(rowId);
+  if (identity === null || identity.provider !== providerId)
+    throw new Error(
+      `Invalid model option identity for provider "${providerId}".`,
+    );
+  return identity.model;
 }
 
 /**

@@ -442,7 +442,9 @@ describe("flat type-to-filter model picker", () => {
       expect(grokIndex).toBeGreaterThanOrEqual(0);
       moveOverlaySelection(host.shell, grokIndex);
       acceptOverlaySelection(host.shell);
-      expect(selected).toEqual(["xai/thegreataxios:grok-4.5"]);
+      expect(selected).toEqual([
+        modelOptionId("xai/thegreataxios", "grok-4.5"),
+      ]);
     } finally {
       host.dispose();
       harness.destroy();
@@ -459,7 +461,9 @@ describe("flat type-to-filter model picker", () => {
       expect(grokIndex).toBeGreaterThanOrEqual(0);
       moveOverlaySelection(host.shell, grokIndex);
       acceptOverlaySelection(host.shell);
-      expect(selected).toEqual(["xai/thegreataxios:grok-4.5"]);
+      expect(selected).toEqual([
+        modelOptionId("xai/thegreataxios", "grok-4.5"),
+      ]);
     } finally {
       host.dispose();
       harness.destroy();
@@ -597,7 +601,9 @@ describe("flat type-to-filter model picker", () => {
       await harness.renderOnce();
       // Accept whatever is focused after filter (should be the sole match).
       acceptOverlaySelection(host.shell);
-      expect(selected).toEqual(["xai/thegreataxios:grok-4.5"]);
+      expect(selected).toEqual([
+        modelOptionId("xai/thegreataxios", "grok-4.5"),
+      ]);
     } finally {
       host.dispose();
       harness.destroy();
@@ -642,7 +648,7 @@ describe("flat type-to-filter model picker", () => {
       host.openModels?.();
       await harness.renderOnce();
       expect(runOverlayAction(host.shell, altD)).toBe(true);
-      expect(defaults).toEqual(["codex/abk-labs:gpt-5.5"]);
+      expect(defaults).toEqual([modelOptionId("codex/abk-labs", "gpt-5.5")]);
       expect(host.shell.overlayKind).toBe("model_picker");
     } finally {
       host.dispose();
@@ -667,7 +673,7 @@ describe("flat type-to-filter model picker", () => {
       } as KeyEvent;
       expect(handleListFilterKey(host.shell, composed)).toBe(false);
       expect(runOverlayAction(host.shell, composed)).toBe(true);
-      expect(defaults).toEqual(["codex/abk-labs:gpt-5.5"]);
+      expect(defaults).toEqual([modelOptionId("codex/abk-labs", "gpt-5.5")]);
       expect(host.shell.overlayItems).not.toEqual(["(no matches)"]);
     } finally {
       host.dispose();
@@ -1240,7 +1246,7 @@ describe("flat type-to-filter model picker", () => {
   test("openModels(focusId) preselects the given row instead of the top of the list", async () => {
     const { harness, host } = await mountPicker();
     try {
-      host.openModels?.("codex/abk-labs:gpt-5.6-sol");
+      host.openModels?.(modelOptionId("codex/abk-labs", "gpt-5.6-sol"));
       await harness.renderOnce();
       const idx = host.shell.overlayItems.findIndex((label) =>
         label.includes("gpt-5.6-sol"),
@@ -1263,8 +1269,14 @@ describe("flat type-to-filter model picker", () => {
       ).toBe(false);
 
       host.setModels?.([
-        { id: "codex/abk-labs:gpt-5.5", label: "gpt-5.5 * [codex/abk-labs]" },
-        { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
+        {
+          id: modelOptionId("codex/abk-labs", "gpt-5.5"),
+          label: "gpt-5.5 * [codex/abk-labs]",
+        },
+        {
+          id: modelOptionId("opencode-go", "live-1"),
+          label: "live-1 * [opencode-go]",
+        },
       ]);
       await harness.renderOnce();
 
@@ -1291,12 +1303,18 @@ describe("flat type-to-filter model picker", () => {
       expect(host.shell.overlayList?.activeIndex).toBe(grokIndex);
 
       host.setModels?.([
-        { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
         {
-          id: "xai/thegreataxios:grok-4.5",
+          id: modelOptionId("opencode-go", "live-1"),
+          label: "live-1 * [opencode-go]",
+        },
+        {
+          id: modelOptionId("xai/thegreataxios", "grok-4.5"),
           label: "grok-4.5 * [xai/thegreataxios]",
         },
-        { id: "opencode-go:live-2", label: "live-2 * [opencode-go]" },
+        {
+          id: modelOptionId("opencode-go", "live-2"),
+          label: "live-2 * [opencode-go]",
+        },
       ]);
       await harness.renderOnce();
 
@@ -1327,7 +1345,10 @@ describe("flat type-to-filter model picker", () => {
       expect(host.shell.overlayKind).toBe("add_provider");
 
       host.setModels?.([
-        { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
+        {
+          id: modelOptionId("opencode-go", "live-1"),
+          label: "live-1 * [opencode-go]",
+        },
       ]);
       await harness.renderOnce();
 
@@ -1354,11 +1375,17 @@ describe("flat type-to-filter model picker", () => {
 
       host.setModels?.([
         {
-          id: "xai/thegreataxios:grok-4.5",
+          id: modelOptionId("xai/thegreataxios", "grok-4.5"),
           label: "grok-4.5 * [xai/thegreataxios]",
         },
-        { id: "opencode-go:grok-live", label: "grok-live * [opencode-go]" },
-        { id: "opencode-go:live-1", label: "live-1 * [opencode-go]" },
+        {
+          id: modelOptionId("opencode-go", "grok-live"),
+          label: "grok-live * [opencode-go]",
+        },
+        {
+          id: modelOptionId("opencode-go", "live-1"),
+          label: "live-1 * [opencode-go]",
+        },
       ]);
       await harness.renderOnce();
 

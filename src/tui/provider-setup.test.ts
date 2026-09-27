@@ -16,6 +16,7 @@ import {
   saveLocalSettings,
 } from "../config/settings.js";
 import { createHarness as createRawHarness, type Harness } from "./harness.js";
+import { modelOptionId } from "./model-catalog.js";
 import {
   addProviderSelectorChoices,
   connectedAccountCount,
@@ -333,9 +334,13 @@ describe("provider setup pure helpers", () => {
     expect(openai).toBeDefined();
     if (openai === undefined) return;
     const rows = modelChoiceRows(openai);
-    expect(rows.map((r) => r.id)).toContain(`openai:${openai.defaultModel}`);
+    expect(rows.map((r) => r.id)).toContain(
+      modelOptionId("openai", openai.defaultModel),
+    );
     expect(rows.at(-1)?.id).toBe(TYPE_MODEL_ID);
-    expect(modelFromRowId("openai", "openai:gpt-5.4")).toBe("gpt-5.4");
+    expect(modelFromRowId("openai", modelOptionId("openai", "gpt-5.4"))).toBe(
+      "gpt-5.4",
+    );
   });
 
   test("step headline names the step and how many remain", () => {

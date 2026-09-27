@@ -210,7 +210,7 @@ describe("mountRunnerHost session bridge", () => {
     const args = {
       alternatives: [
         {
-          id: "backup:model-a",
+          id: modelOptionId("backup", "model-a"),
           label: "model-a * [backup]",
           provider: "backup",
           model: "model-a",
@@ -229,7 +229,7 @@ describe("mountRunnerHost session bridge", () => {
       expect(host.shell.overlayKind).toBe("model_picker");
       expect(host.shell.overlayItems).toEqual(["model-a * [backup]"]);
       acceptOverlaySelection(host.shell);
-      expect(accepted).toEqual(["backup:model-a"]);
+      expect(accepted).toEqual([modelOptionId("backup", "model-a")]);
     } finally {
       host.dispose();
       harness.destroy();
