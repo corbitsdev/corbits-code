@@ -108,11 +108,22 @@ verbatim (including the two upstream deletions,
 a ledger entry), and the second re-applies each `PATCHES.md` entry with an
 as-is / adapt / subsumed triage recorded in the ledgers. No entry was
 subsumed upstream. Upstream replaced inline provider `apiKey` plumbing
-with a `credentialId` + credential-cell model; no ledger entry touches
-auth so the vendored trees needed no migration, but first-party callers
-were migrated to the new model (each built source registers its secret
-in `src/config/source-credentials.ts`, handed to the vendored trees as
-their resolver).
+with a `credentialId` + credential-cell model. At sync time no existing
+ledger entry touched auth, so the pristine trees needed no auth-patch
+migration; first-party callers were migrated to the new model (each built
+source registers its secret in `src/config/source-credentials.ts`, handed
+to the vendored trees as their resolver).
+
+CL-9347 subsequently adds the coupled `harness-ts-auth-recovery` entry in
+`vendor/intx-inference/PATCHES.md` and `runtime-ts-auth-recovery-context` in
+`vendor/intx-types/PATCHES.md`; it does not change the upstream pin or
+retrieval metadata. Together they atomically resolve bearer material and
+credential-derived identity headers, freeze the exact call-start source,
+expose per-call credential-failure history to the retry policy, preserve a
+classified refresh diagnostic on abort, and make an exhausted credential
+failure terminal to automatic source failover. Re-syncs must carry or replace
+both entries together so retry identity cannot drift from the credential
+material used by the attempt.
 
 `vendor/intx-workflow-host/workflow-definition-loader.ts` is new in this
 sync: a second partial-tree path alongside `adapters/`, carrying

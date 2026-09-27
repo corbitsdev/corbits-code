@@ -572,6 +572,12 @@ pair as the default (global `defaultProvider` + that provider's `defaultModel`
   active, bare `j`/`k` type into the filter rather than moving the highlight —
   use arrow keys (or the filtered list's navigation) to move.
 
+After an operator-originated send fails authentication, Corbits first attempts one silent OAuth refresh and retry against the same named profile. If that retry also ends in a terminal credential failure, the shell waits until it is idle and may open a dedicated model/provider picker containing only assemblable models from providers other than the failed provider. It does not appear for API-key failures, the first failure before recovery is attempted, non-credential terminal errors, sends not originated by the operator, or when no alternate is available. Escape consumes the recovery offer without changing provider or replaying input.
+
+Each recovery offer belongs to the failed send's generation. Enter accepts a displayed provider/model identity once; stale, malformed, duplicate, interrupted, cleared, or superseded acceptance is inert. The selected provider/model becomes live. If the failed attempt emitted no assistant text, tool activity, or other committing inference event, Corbits continues the preserved original operator message once on the selected provider. If anything committed, it **never replays the message**: selection only switches the live provider for the next operator action. The internal option IDs that preserve arbitrary provider/model names are opaque implementation details and are never shown as user-facing syntax.
+
+The terminal failure remains visible and names `/connect` as the path to reauthorize a profile. `/connect` refreshes the provider catalog after successful authorization; `/model` remains available to switch explicitly to any connected provider/model. Neither command retroactively replays committed work.
+
 `/mcp` uses the same longest-first overlay-hint footer as the model picker:
 **Alt+A** add (omitted while local MCP settings shadow global), **Alt+D**
 disable, **Alt+R** remove — never bare letters. A remove confirm drops those
