@@ -18,6 +18,8 @@ import {
   readSourceCredentialRecord,
 } from "./source-credentials.js";
 import { OPENAI_RESPONSES_PROVIDER } from "../provider/openai-responses.js";
+import { CODEX_ACCOUNT_ID_OPTION } from "../provider/codex-responses.js";
+import { GROK_USER_ID_OPTION } from "../provider/grok-responses.js";
 import { ZEN_MESSAGES_PROVIDER } from "../provider/anthropic-session-adapter.js";
 import { firstClassProviderById } from "../../packages/first-class-providers/src/index.js";
 import {
@@ -109,11 +111,41 @@ describe("source credential provenance", () => {
     );
 
     if (source === null) throw new Error("expected Codex source");
+    expect(source.defaults?.providerOptions).not.toHaveProperty(
+      CODEX_ACCOUNT_ID_OPTION,
+    );
     expect(readSourceCredentialRecord(source.credentialId).provenance).toEqual({
       kind: "oauth",
       provider: "codex",
       profile: "work",
     });
+  });
+
+  test("xAI identity lives only in mutable credential material", () => {
+    const source = buildInferenceSourceForRef(
+      { provider: "xai/work", model: "grok-code-fast-1" },
+      {
+        sessionId: "sess-oauth",
+        catalog: [
+          {
+            name: "xai/work",
+            baseURL: "https://api.x.ai/v1",
+            apiKey: "header.eyJzdWIiOiJ1c2VyLWEifQ.signature",
+            models: ["grok-code-fast-1"],
+            xaiProfile: "work",
+          },
+        ],
+      },
+      undefined,
+    );
+
+    if (source === null) throw new Error("expected xAI source");
+    expect(source.defaults?.providerOptions).not.toHaveProperty(
+      GROK_USER_ID_OPTION,
+    );
+    expect(
+      readSourceCredentialRecord(source.credentialId).material.headers,
+    ).toEqual({ "x-grok-user-id": "user-a" });
   });
 
   test("namespaced API-key rows are not inferred as OAuth", () => {

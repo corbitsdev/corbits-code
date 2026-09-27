@@ -50,6 +50,16 @@ export function rotateSourceCredentialMaterial(
   cell.set(credentialId, { provenance: current.provenance, material });
 }
 
+export function rotateSourceCredentialMaterialIfCurrent(
+  credentialId: string,
+  expected: SourceCredentialRecord,
+  material: CredentialMaterial,
+): boolean {
+  if (cell.get(credentialId) !== expected) return false;
+  cell.set(credentialId, { provenance: expected.provenance, material });
+  return true;
+}
+
 export function readSourceCredentialRecord(
   credentialId: string,
 ): SourceCredentialRecord {

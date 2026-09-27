@@ -110,26 +110,37 @@ async function refreshCodexTokensForStore(
 export function createCodexTokenSession(
   home?: string,
 ): TokenSession<CodexTokens, CodexAccess> {
+  const refreshBasis = new WeakMap<CodexTokens, string>();
   const inner = createTokenSession<CodexTokens, CodexAccess>({
     skewMs: CODEX_REFRESH_SKEW_MS,
     loadProfile: (name) => loadCodexProfile(name, home),
-    updateTokens: (name, tokens) => updateCodexTokens(name, tokens, home),
+    updateTokens: (name, tokens) =>
+      updateCodexTokens(name, tokens, home, refreshBasis.get(tokens)),
     // createTokenSession only passes (refresh, now). The package refresh
     // helper needs prior tokens to keep chatgpt-account-id; mergeRefreshed
     // supplies that after this stub call.
-    refreshTokens: (refreshToken, now) =>
-      refreshCodexTokensForStore(refreshToken, now, {
+    refreshTokens: async (refreshToken, now) => {
+      const refreshed = await refreshCodexTokensForStore(refreshToken, now, {
         access: "",
         refresh: refreshToken,
-      }),
+      });
+      refreshBasis.set(refreshed, refreshToken);
+      return refreshed;
+    },
     toAccess: (tokens) => ({
       access: tokens.access,
       accountId: tokens.accountId,
     }),
-    mergeRefreshed: (refreshed, previous) =>
-      refreshed.accountId === undefined && previous.accountId !== undefined
-        ? { ...refreshed, accountId: previous.accountId }
-        : refreshed,
+    mergeRefreshed: (refreshed, previous) => {
+      const merged =
+        refreshed.accountId === undefined && previous.accountId !== undefined
+          ? { ...refreshed, accountId: previous.accountId }
+          : refreshed;
+      const expectedRefreshToken = refreshBasis.get(refreshed);
+      if (expectedRefreshToken !== undefined)
+        refreshBasis.set(merged, expectedRefreshToken);
+      return merged;
+    },
   });
   return {
     isExpired: inner.isExpired,

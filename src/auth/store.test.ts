@@ -249,6 +249,30 @@ describe("createAuthStore", () => {
       expect(updated?.tokens.access).toBe("a2");
       expect(updated?.createdAt).toBe(10);
 
+      await store.saveProfile(
+        {
+          name: "work",
+          tokens: {
+            access: "replacement",
+            refresh: "new-refresh",
+            expiresAt: 3,
+          },
+          createdAt: 20,
+        },
+        home,
+      );
+      await store.updateTokens(
+        "work",
+        { access: "stale-refresh", refresh: "rotated-old", expiresAt: 4 },
+        home,
+        "r2",
+      );
+      expect(await store.loadProfile("work", home)).toEqual({
+        name: "work",
+        tokens: { access: "replacement", refresh: "new-refresh", expiresAt: 3 },
+        createdAt: 20,
+      });
+
       await store.updateTokens(
         "gone",
         { access: "x", refresh: "x", expiresAt: 0 },

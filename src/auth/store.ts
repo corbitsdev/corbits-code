@@ -29,7 +29,12 @@ export interface AuthStore<TTokens extends BaseTokens> {
     home?: string,
   ) => Promise<AuthProfile<TTokens> | undefined>;
   saveProfile: (profile: AuthProfile<TTokens>, home?: string) => Promise<void>;
-  updateTokens: (name: string, tokens: TTokens, home?: string) => Promise<void>;
+  updateTokens: (
+    name: string,
+    tokens: TTokens,
+    home?: string,
+    expectedRefreshToken?: string,
+  ) => Promise<void>;
   // Remove one profile, or all profiles when `name` is undefined. Returns the
   // names removed.
   removeProfile: (name: string | undefined, home?: string) => Promise<string[]>;
@@ -227,11 +232,17 @@ export function createAuthStore<TTokens extends BaseTokens>(
       name: string,
       tokens: TTokens,
       home: string = homedir(),
+      expectedRefreshToken?: string,
     ): Promise<void> {
       await enqueueAuthFileOp(home, async () => {
         const file = await readAuthFile(home);
         const existing = file.profiles[name];
         if (existing === undefined) return;
+        if (
+          expectedRefreshToken !== undefined &&
+          existing.tokens.refresh !== expectedRefreshToken
+        )
+          return;
         file.profiles[name] = { ...existing, tokens };
         await writeAuthFile(file, home);
       });

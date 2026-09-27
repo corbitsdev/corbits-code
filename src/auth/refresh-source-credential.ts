@@ -1,0 +1,49 @@
+import { xaiUserIdFromAccessToken } from "@corbits/xai-provider";
+import type { CredentialMaterial } from "@intx/types";
+
+import {
+  findSourceCredentialRecord,
+  rotateSourceCredentialMaterialIfCurrent,
+  type SourceCredentialProvenance,
+} from "../config/source-credentials.js";
+import { getValidCodexToken } from "./codex/session.js";
+import { getValidXaiToken } from "./xai/session.js";
+
+export type OAuthCredentialProvenance = Extract<
+  SourceCredentialProvenance,
+  { kind: "oauth" }
+>;
+
+async function resolveOAuthCredentialMaterial(
+  provenance: OAuthCredentialProvenance,
+): Promise<CredentialMaterial> {
+  if (provenance.provider === "codex") {
+    const fresh = await getValidCodexToken(provenance.profile);
+    return {
+      secret: fresh.access,
+      ...(fresh.accountId !== undefined
+        ? { headers: { "chatgpt-account-id": fresh.accountId } }
+        : {}),
+    };
+  }
+
+  const fresh = await getValidXaiToken(provenance.profile);
+  const userId = xaiUserIdFromAccessToken(fresh.access);
+  return {
+    secret: fresh.access,
+    ...(userId !== undefined ? { headers: { "x-grok-user-id": userId } } : {}),
+  };
+}
+
+export async function refreshSourceCredentialByProvenance(
+  credentialId: string,
+): Promise<boolean> {
+  const record = findSourceCredentialRecord(credentialId);
+  if (record?.provenance.kind !== "oauth") return false;
+  const material = await resolveOAuthCredentialMaterial(record.provenance);
+  return rotateSourceCredentialMaterialIfCurrent(
+    credentialId,
+    record,
+    material,
+  );
+}

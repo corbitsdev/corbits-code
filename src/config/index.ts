@@ -50,13 +50,11 @@ import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import { XAI_BASE_URL } from "../auth/xai/constants.js";
 import {
   CODEX_RESPONSES_PROVIDER,
-  CODEX_ACCOUNT_ID_OPTION,
   CODEX_SESSION_ID_OPTION,
 } from "../provider/codex-responses.js";
 import {
   GROK_RESPONSES_PROVIDER,
   GROK_SESSION_ID_OPTION,
-  GROK_USER_ID_OPTION,
 } from "../provider/grok-responses.js";
 import { BIFROST_PROVIDER } from "../provider/bifrost-adapter.js";
 import { isOllamaProviderId, ollamaOpenAIBaseURL } from "../provider/ollama.js";
@@ -340,10 +338,9 @@ export type ProviderCatalogEntry = Omit<
 
 // Build the InferenceSource for a Codex OAuth profile. Routes to the
 // "codex-responses" adapter (the Codex backend speaks the Responses API, not
-// Chat Completions) and carries the account id + a session id through
-// providerOptions, where the adapter lifts them into request headers. The
-// access token is registered in the credential cell under the source id; the
-// harness resolves it as the bearer credential at send time.
+// Chat Completions) and carries the session id through providerOptions. The
+// access token and account id are registered together in the credential cell;
+// the harness resolves both at send time.
 export function buildCodexSource(fields: {
   id: string;
   profile: string;
@@ -356,8 +353,6 @@ export function buildCodexSource(fields: {
   const providerOptions: Record<string, unknown> = {
     [CODEX_SESSION_ID_OPTION]: fields.sessionId,
   };
-  if (fields.accountId !== undefined)
-    providerOptions[CODEX_ACCOUNT_ID_OPTION] = fields.accountId;
   if (fields.reasoningEffort !== undefined)
     providerOptions["reasoning_effort"] = fields.reasoningEffort;
   registerSourceSecret(
@@ -397,7 +392,6 @@ export function buildXaiSource(fields: {
   const providerOptions: Record<string, unknown> = {
     [GROK_SESSION_ID_OPTION]: fields.sessionId,
   };
-  if (userId !== undefined) providerOptions[GROK_USER_ID_OPTION] = userId;
   if (fields.reasoningEffort !== undefined)
     providerOptions["reasoning_effort"] = fields.reasoningEffort;
   registerSourceSecret(

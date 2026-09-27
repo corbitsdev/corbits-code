@@ -46,6 +46,7 @@ import {
   buildSubagentSources,
 } from "../config/inference-sources.js";
 import { readSourceCredentialMaterial } from "../config/source-credentials.js";
+import { sanitizeDiagnosticValue } from "../diagnostic-sanitize.js";
 import { assembleInferenceBase } from "../session/assemble-runtime.js";
 import { advertiseShellGuardTimeout } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
@@ -1238,6 +1239,11 @@ async function runSubAgentInner(
             params.catalog,
             params.settings,
           );
+    const workerSource =
+      bundle.sources.find((source) => source.id === bundle.defaultSource) ??
+      bundle.sources[0];
+    if (workerSource === undefined)
+      throw new Error("sub-agent source bundle is empty");
     agent = await createAgentWithLiveToolDispatch(def, {
       sources: bundle.sources,
       defaultSource: bundle.defaultSource,
@@ -1304,8 +1310,11 @@ async function runSubAgentInner(
     // turn boundary has completed yet to carry it.
     const cycleRecorder = createCycleTextRecorder(() => workdir);
     const runSettlement = createRunEventSettlement();
-    const streamSink = (event: ReactorEmittedEvent): void => {
-      runSettlement.handleEvent(event);
+    const streamSink = (rawEvent: ReactorEmittedEvent): void => {
+      runSettlement.handleEvent(rawEvent);
+      const event = sanitizeDiagnosticValue(rawEvent, [
+        readSourceCredentialMaterial(workerSource.credentialId).secret,
+      ]) as ReactorEmittedEvent;
       const name = subAgentToolName(event);
       if (name !== null) {
         toolNamesUsed.push(name);

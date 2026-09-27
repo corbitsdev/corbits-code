@@ -46,7 +46,9 @@ import { MAILBOX_MAIL_WAKE_PREFIX } from "../../subagent/mailbox-mail-drive.js";
 import {
   hostOf,
   liveAgent,
+  recordRunError,
   runWhileAgentBusy,
+  sanitizeRunnerDiagnostic,
   type RunnerServices,
   type RunnerState,
 } from "./state.js";
@@ -268,15 +270,18 @@ export function createSubmitPath(
     captureAuthFailure(getTelemetry(), failure);
     if (!shouldSettleUiAfterSendFailure(failure.kind)) return;
     if (failure.kind === "abort") return;
-    state.runError = err instanceof Error ? err.message : String(err);
+    recordRunError(state, err);
     if (presentNotice && !providerFailure.presented) {
       systemNotice(
-        tuiSendFailureMessage(
-          err,
-          failure.kind,
-          providerFailure.observed,
-          attempt,
-          providerFailure.error,
+        sanitizeRunnerDiagnostic(
+          state,
+          tuiSendFailureMessage(
+            err,
+            failure.kind,
+            providerFailure.observed,
+            attempt,
+            providerFailure.error,
+          ),
         ),
       );
       services.providerFailureAttempts.markPresented(providerFailure);

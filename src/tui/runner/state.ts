@@ -15,8 +15,8 @@ import type {
   InferenceSource,
 } from "@intx/types/runtime";
 import type { Config } from "../../config/index.js";
-import { codexProfileFromProviderName } from "../../config/codex-providers.js";
-import { xaiProfileFromProviderName } from "../../config/xai-providers.js";
+import { peekSourceCredentialSecret } from "../../config/source-credentials.js";
+import { sanitizeDiagnosticText } from "../../diagnostic-sanitize.js";
 import type {
   MCPServerConfig,
   MCPServerSettingsEntry,
@@ -233,12 +233,6 @@ export interface RunnerState {
   liveSource: InferenceSource;
   liveSources: InferenceSource[];
   liveDefaultSource: string;
-  // The active Codex/xAI source, tracked whenever an OAuth profile source is
-  // selected so its access token can be refreshed before each send.
-  activeCodexSource: { profile: string; source: InferenceSource } | undefined;
-  activeXaiSource: { profile: string; source: InferenceSource } | undefined;
-  initialCodexProfile: string | undefined;
-  initialXaiProfile: string | undefined;
   // MCP servers connected so far, keyed by name so a reconnect after a
   // failure replaces rather than duplicates the entry.
   connectedMcpServers: ConnectedMcpServer[];
@@ -319,8 +313,18 @@ export interface RunnerState {
   withFleetPublicationSuspended?: (reset: () => void) => void;
 }
 
+export function sanitizeRunnerDiagnostic(
+  state: Pick<RunnerState, "liveSource">,
+  message: string,
+): string {
+  return sanitizeDiagnosticText(message, [
+    peekSourceCredentialSecret(state.liveSource.credentialId),
+  ]);
+}
+
 export function recordRunError(state: RunnerState, err: unknown): void {
-  state.runError = err instanceof Error ? err.message : String(err);
+  const message = err instanceof Error ? err.message : String(err);
+  state.runError = sanitizeRunnerDiagnostic(state, message);
 }
 
 /** The live agent; every rebuild swaps the binding this reads. */
@@ -391,10 +395,6 @@ export function createRunnerState(start: TUIStart): RunnerState {
     liveSource: initialBundle.selected,
     liveSources: initialBundle.sources,
     liveDefaultSource: initialBundle.defaultSource,
-    activeCodexSource: undefined,
-    activeXaiSource: undefined,
-    initialCodexProfile: codexProfileFromProviderName(config.providerName),
-    initialXaiProfile: xaiProfileFromProviderName(config.providerName),
     connectedMcpServers: start.resumeSeed.mcpServers,
     configuredMcpEntries: [...config.mcpServerEntries],
     liveHookConfig: { ...(config.settings?.hooks ?? {}) },

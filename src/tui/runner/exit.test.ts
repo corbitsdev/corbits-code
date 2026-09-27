@@ -5,6 +5,11 @@ import { getLogger } from "@intx/log";
 import type { InferenceSource } from "@intx/types/runtime";
 
 import * as codexSession from "../../auth/codex/session.js";
+import * as xaiSession from "../../auth/xai/session.js";
+import {
+  readSourceCredentialMaterial,
+  registerSourceCredentialRecord,
+} from "../../config/source-credentials.js";
 import { createChatDirector } from "../../agent/director.js";
 import * as sessionIndex from "../../session/index.js";
 import { createSubAgentSessionStore } from "../../subagent/session-store.js";
@@ -334,6 +339,10 @@ function stubSendLifecycle(agent: Agent): {
   state: RunnerState;
   services: RunnerServices;
 } {
+  registerSourceCredentialRecord(liveSource.credentialId, {
+    provenance: { kind: "oauth", provider: "codex", profile: "work" },
+    material: { secret: "stale-token" },
+  });
   const state = {
     runTaskTitle: "keep-title",
     liveSource,
@@ -344,8 +353,6 @@ function stubSendLifecycle(agent: Agent): {
     inFlight: 0,
     fatalBuildError: null,
     sendAborted: false,
-    initialCodexProfile: "work",
-    initialXaiProfile: undefined,
     stampProvider: { fn: undefined },
   } as unknown as RunnerState;
   const services = {
@@ -432,6 +439,61 @@ describe("agentProxy.send vs /clear", () => {
       hung.spy.mockRestore();
     }
   });
+
+  for (const provider of ["codex", "xai"] as const) {
+    test(`${provider}/shadow API-key send never resolves same-slug OAuth`, async () => {
+      const sends: string[] = [];
+      const { state, services } = stubSendLifecycle(recordingAgent(sends));
+      const source: InferenceSource = {
+        id: `${provider}/shadow`,
+        provider: "openai-compatible",
+        baseURL: "https://relay.example/v1",
+        credentialId: `${provider}/shadow`,
+        model: "relay-model",
+      };
+      state.liveSource = source;
+      state.config = {
+        ...state.config,
+        providers: [
+          {
+            name: `${provider}/shadow`,
+            baseURL: "https://oauth.example/v1",
+            apiKey: "oauth-token",
+            models: ["relay-model"],
+            ...(provider === "codex"
+              ? { codexProfile: "shadow" }
+              : { xaiProfile: "shadow" }),
+          },
+        ],
+      };
+      registerSourceCredentialRecord(source.credentialId, {
+        provenance: { kind: "api-key" },
+        material: { secret: "explicit-api-key" },
+      });
+      const codexResolver = spyOn(
+        codexSession,
+        "getValidCodexToken",
+      ).mockRejectedValue(new Error("must not resolve Codex OAuth"));
+      const xaiResolver = spyOn(
+        xaiSession,
+        "getValidXaiToken",
+      ).mockRejectedValue(new Error("must not resolve xAI OAuth"));
+
+      try {
+        const { agentProxy } = await createRunLifecycle(state, services);
+        await agentProxy.send("use explicit authorization");
+        expect(sends).toEqual(["use explicit authorization"]);
+        expect(codexResolver).not.toHaveBeenCalled();
+        expect(xaiResolver).not.toHaveBeenCalled();
+        expect(readSourceCredentialMaterial(source.credentialId).secret).toBe(
+          "explicit-api-key",
+        );
+      } finally {
+        codexResolver.mockRestore();
+        xaiResolver.mockRestore();
+      }
+    });
+  }
 });
 
 const rebuildMockState: ReactorState = {} as unknown as ReactorState;

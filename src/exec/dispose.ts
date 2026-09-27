@@ -35,6 +35,7 @@ export function disposeExecRuntime(args: {
   agent: { close: () => Promise<unknown> } | null;
   toolset: { dispose: () => Promise<unknown> } | null;
   subAgentSessions: Pick<SubAgentSessionStore, "cancelAll"> | null;
+  sanitizeDiagnostic?: (message: string) => string;
 }): Promise<void> {
   const key = args.toolset ?? args.agent ?? args.subAgentSessions;
   if (key !== null) {
@@ -51,6 +52,7 @@ async function runExecDispose(args: {
   agent: { close: () => Promise<unknown> } | null;
   toolset: { dispose: () => Promise<unknown> } | null;
   subAgentSessions: Pick<SubAgentSessionStore, "cancelAll"> | null;
+  sanitizeDiagnostic?: (message: string) => string;
 }): Promise<void> {
   const failures: unknown[] = [];
   if (args.toolset !== null) {
@@ -58,7 +60,7 @@ async function runExecDispose(args: {
       await args.toolset.dispose();
     } catch (err: unknown) {
       logger.debug("toolset.dispose during exec finally failed: {error}", {
-        error: formatCaughtError(err),
+        error: (args.sanitizeDiagnostic ?? String)(formatCaughtError(err)),
       });
       failures.push(err);
     }
@@ -73,7 +75,7 @@ async function runExecDispose(args: {
       await awaitCloseWithoutHidingLeftover(args.agent.close(), failures[0]);
     } catch (err: unknown) {
       logger.debug("agent.close during exec finally failed: {error}", {
-        error: formatCaughtError(err),
+        error: (args.sanitizeDiagnostic ?? String)(formatCaughtError(err)),
       });
       failures.push(err);
     }

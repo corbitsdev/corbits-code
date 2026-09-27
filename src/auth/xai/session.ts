@@ -58,11 +58,17 @@ function sessionFor(home?: string): TokenSession<XaiTokens, XaiAccess> {
   const key = home ?? "";
   const existing = sessions.get(key);
   if (existing !== undefined) return existing;
+  const refreshBasis = new WeakMap<XaiTokens, string>();
   const created = createTokenSession<XaiTokens, XaiAccess>({
     skewMs: XAI_REFRESH_SKEW_MS,
     loadProfile: (name) => loadXaiProfile(name, home),
-    updateTokens: (name, tokens) => updateXaiTokens(name, tokens, home),
-    refreshTokens: refreshXaiTokens,
+    updateTokens: (name, tokens) =>
+      updateXaiTokens(name, tokens, home, refreshBasis.get(tokens)),
+    refreshTokens: async (refreshToken, now) => {
+      const refreshed = await refreshXaiTokens(refreshToken, now);
+      refreshBasis.set(refreshed, refreshToken);
+      return refreshed;
+    },
     toAccess: (tokens) => ({ access: tokens.access }),
   });
   sessions.set(key, created);
