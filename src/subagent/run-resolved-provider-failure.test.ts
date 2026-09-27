@@ -23,15 +23,15 @@ import { unlimitedAdmissionQueue } from "./admission.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 
-const RAW_DIAGNOSTIC =
-  "\u001b[31mPOST https://provider.invalid returned\n secret response body\u001b[0m";
-const NORMALIZED_DIAGNOSTIC =
-  "POST https://provider.invalid returned secret response body";
+const OPAQUE_SECRET = "opaque credential with spaces?!";
+const RAW_DIAGNOSTIC = `\u001b[31mPOST https://provider.invalid returned\n credential ${OPAQUE_SECRET} in response body\u001b[0m`;
+const NORMALIZED_DIAGNOSTIC = `POST https://provider.invalid returned credential ${OPAQUE_SECRET} in response body`;
 const SAFE_MESSAGE =
   'test-provider Provider failed (fatal). Try again or switch models with "/model".';
 const provider = {
   providerName: "test-provider",
   baseURL: "http://localhost",
+  apiKey: OPAQUE_SECRET,
   model: "test-model",
 };
 const testPermissionGate = createPermissionGate({
@@ -286,13 +286,18 @@ describe("resolved sub-agent provider failures", () => {
     expect((caught as ResolvedProviderFailureError).category).toBe("fatal");
     expect(JSON.stringify(caught)).not.toContain(RAW_DIAGNOSTIC);
     expect(JSON.stringify(caught)).not.toContain(NORMALIZED_DIAGNOSTIC);
-    expect(
-      observed.some(
-        (event) =>
-          event.type === "inference.error" &&
-          event.data.error.message === RAW_DIAGNOSTIC,
-      ),
-    ).toBe(true);
+    const observedError = observed.find(
+      (event) => event.type === "inference.error",
+    );
+    if (observedError?.type !== "inference.error")
+      throw new Error("expected sanitized inference.error");
+    expect(observedError.data.error.message).toContain(
+      "POST https://provider.invalid returned",
+    );
+    expect(observedError.data.error.message).toContain("in response body");
+    expect(observedError.data.error.message).not.toContain(OPAQUE_SECRET);
+    expect(observedError.data.error.message).not.toContain("\u001b");
+    expect(JSON.stringify(observed)).not.toContain(RAW_DIAGNOSTIC);
   });
 
   test("split spawn_agent and wait_agents return only the safe message", async () => {
