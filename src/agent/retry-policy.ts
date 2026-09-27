@@ -31,9 +31,8 @@ const RATE_LIMIT_HANG_MS = 86_400_000;
 
 export interface CorbitsRetryPolicyOptions {
   /**
-   * Catalog provider id (e.g. xai/thegreataxios) stamped onto errors before
-   * normalize. Pass a getter when the live provider can change mid-session
-   * (e.g. `/model`); it is resolved on each retry decision.
+   * Fallback catalog provider id for callers that do not supply a source in
+   * RetrySituation. Harness calls use the frozen call-start source instead.
    */
   providerId?: string | (() => string | undefined);
   /** Process admission controller. Tests inject a stub; production omits. */
@@ -57,9 +56,16 @@ export function createCorbitsRetryPolicy(
   const defaultPolicy = createDefaultRetryPolicy();
   const admission = options?.admission ?? getProcessAdmissionQueue();
   const now = options?.now ?? Date.now;
-  const normalizeError = (incoming: InferenceError): InferenceError => {
-    const raw = options?.providerId;
-    const stampedProviderId = typeof raw === "function" ? raw() : raw;
+  const normalizeError = (
+    incoming: InferenceError,
+    source?: Readonly<InferenceSource>,
+  ): InferenceError => {
+    const configuredProvider = options?.providerId;
+    const stampedProviderId =
+      source?.id ??
+      (typeof configuredProvider === "function"
+        ? configuredProvider()
+        : configuredProvider);
     const contextual = incoming as InferenceErrorWithGoContext;
     const withProvider: InferenceErrorWithGoContext =
       stampedProviderId !== undefined && contextual.providerId === undefined
@@ -70,7 +76,7 @@ export function createCorbitsRetryPolicy(
   const policy = (
     situation: RetrySituation,
   ): RetryDecision | Promise<RetryDecision> => {
-    const error = normalizeError(situation.error);
+    const error = normalizeError(situation.error, situation.source);
     if (
       error.category === "credential_failure" &&
       situation.credentialFailureOrdinal === 1 &&
@@ -113,6 +119,7 @@ export function createCorbitsRetryPolicy(
       const configuredProvider = options?.providerId;
       const provider =
         (situation.error as InferenceErrorWithGoContext).providerId ??
+        situation.source?.id ??
         (typeof configuredProvider === "function"
           ? configuredProvider()
           : configuredProvider) ??

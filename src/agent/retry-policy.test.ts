@@ -93,12 +93,16 @@ describe("createCorbitsRetryPolicy", () => {
       provenance: { kind: "oauth", provider: "codex", profile: "work" },
       material: { secret: "access-token" },
     });
+    const oldSecret = "opaque old credential with spaces";
+    const replacementSecret = "opaque replacement credential with spaces";
+    let liveSecret = oldSecret;
     let sends = 0;
     let refreshes = 0;
     const retryPolicy = policy({
-      providerId: source.id,
+      providerId: () => "xai/previous",
       refreshCredential: async (refreshedSource, provenance) => {
         refreshes++;
+        liveSecret = replacementSecret;
         expect(refreshedSource.id).toBe(source.id);
         expect(provenance).toEqual({
           kind: "oauth",
@@ -111,13 +115,14 @@ describe("createCorbitsRetryPolicy", () => {
     const deps = {
       ...baseDeps,
       scheduler: createDefaultScheduler(),
-      fetch: async () => {
+      fetch: async (_input: string | URL | Request, init?: RequestInit) => {
         sends++;
+        const authorization = new Headers(init?.headers).get("authorization");
         return Response.json(
           {
             error: {
               code: "invalid_token",
-              message: "The access token has been revoked",
+              message: `The access token ${authorization} has been revoked`,
               type: "invalid_request_error",
             },
           },
@@ -140,11 +145,13 @@ describe("createCorbitsRetryPolicy", () => {
         source,
         nextSeq: () => ++seq,
         deps,
-        readMaterial: () => ({ secret: "access-token" }),
+        readMaterial: () => ({ secret: liveSecret }),
         inferenceOptions: { retryPolicy },
       }))
         events.push(event);
 
+      expect(JSON.stringify(events)).not.toContain(oldSecret);
+      expect(JSON.stringify(events)).not.toContain(replacementSecret);
       expect(sends).toBe(2);
       expect(refreshes).toBe(1);
       const retries = events.filter(

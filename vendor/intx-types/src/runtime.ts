@@ -2613,7 +2613,10 @@ export type RetrySituation = {
 export type RetryPolicy = ((
   situation: RetrySituation,
 ) => RetryDecision | Promise<RetryDecision>) & {
-  readonly normalizeError?: (error: InferenceError) => InferenceError;
+  readonly normalizeError?: (
+    error: InferenceError,
+    source?: Readonly<InferenceSource>,
+  ) => InferenceError;
 };
 
 /**
