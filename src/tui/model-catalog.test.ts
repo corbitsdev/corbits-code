@@ -4,6 +4,7 @@ import {
   buildModelsFirstCatalog,
   describeModelCatalogOption,
   modelOptionId,
+  modelOptionRef,
   type ModelCatalogProvider,
 } from "./model-catalog";
 
@@ -14,9 +15,9 @@ describe("buildModelCatalog", () => {
       { name: "openai", models: ["gpt-5.6"] },
     ]);
     expect(options).toEqual([
-      { id: "xai:grok-4", label: "grok-4 * [xAI]" },
-      { id: "xai:grok-3", label: "grok-3 * [xAI]" },
-      { id: "openai:gpt-5.6", label: "gpt-5.6 * [openai]" },
+      { id: modelOptionId("xai", "grok-4"), label: "grok-4 * [xAI]" },
+      { id: modelOptionId("xai", "grok-3"), label: "grok-3 * [xAI]" },
+      { id: modelOptionId("openai", "gpt-5.6"), label: "gpt-5.6 * [openai]" },
     ]);
   });
 
@@ -26,9 +27,12 @@ describe("buildModelCatalog", () => {
       zen: { models: ["claude-sonnet-4-5"], label: "Zen" },
     });
     expect(options).toEqual([
-      { id: "fp:fp-small", label: "fp-small * [fp]" },
-      { id: "fp:fp-large", label: "fp-large * [fp]" },
-      { id: "zen:claude-sonnet-4-5", label: "claude-sonnet-4-5 * [Zen]" },
+      { id: modelOptionId("fp", "fp-small"), label: "fp-small * [fp]" },
+      { id: modelOptionId("fp", "fp-large"), label: "fp-large * [fp]" },
+      {
+        id: modelOptionId("zen", "claude-sonnet-4-5"),
+        label: "claude-sonnet-4-5 * [Zen]",
+      },
     ]);
   });
 
@@ -38,14 +42,18 @@ describe("buildModelCatalog", () => {
         { name: "empty", models: [] },
         { name: "blank", models: ["  ", "keep"] },
       ]),
-    ).toEqual([{ id: "blank:keep", label: "keep * [blank]" }]);
+    ).toEqual([
+      { id: modelOptionId("blank", "keep"), label: "keep * [blank]" },
+    ]);
   });
 
   test("dedupes by provider:model id", () => {
     const options = buildModelCatalog([
       { name: "xai", models: ["grok-4", "grok-4"] },
     ]);
-    expect(options).toEqual([{ id: "xai:grok-4", label: "grok-4 * [xai]" }]);
+    expect(options).toEqual([
+      { id: modelOptionId("xai", "grok-4"), label: "grok-4 * [xai]" },
+    ]);
   });
 
   test("empty input yields empty catalog", () => {
@@ -55,8 +63,41 @@ describe("buildModelCatalog", () => {
 });
 
 describe("modelOptionId", () => {
-  test("is collision-free when provider and model names contain colons", () => {
-    expect(modelOptionId("a:b", "c")).not.toBe(modelOptionId("a", "b:c"));
+  test("round-trips representative legal identities", () => {
+    const values = [
+      "plain",
+      "leading[bracket",
+      "colon:value",
+      'quote"value',
+      '["encoded","looking"]',
+    ];
+    for (const provider of values) {
+      for (const model of values) {
+        expect(modelOptionRef(modelOptionId(provider, model))).toEqual({
+          provider,
+          model,
+        });
+      }
+    }
+  });
+
+  test("is unique across provider and model domains", () => {
+    const pairs = [
+      ["a:b", "c"],
+      ["a", "b:c"],
+      ['["a","b"]', "c"],
+      ["a", '["b","c"]'],
+      ["[a", 'b:c"'],
+    ] as const;
+    expect(
+      new Set(pairs.map(([provider, model]) => modelOptionId(provider, model)))
+        .size,
+    ).toBe(pairs.length);
+  });
+
+  test("rejects malformed and non-canonical identities", () => {
+    for (const id of ["", "a:b", "[]", '["a"]', '["a","b","c"]'])
+      expect(modelOptionRef(id)).toBeNull();
   });
 });
 
@@ -89,10 +130,10 @@ describe("buildModelsFirstCatalog", () => {
     });
 
     expect(list.map((r) => `${r.section}:${r.id}`)).toEqual([
-      "recent:zen:claude-sonnet-4-5",
-      "favorites:xai:grok-4",
-      "provider:xai:grok-3",
-      "provider:zen:kimi-k2.7-code",
+      `recent:${modelOptionId("zen", "claude-sonnet-4-5")}`,
+      `favorites:${modelOptionId("xai", "grok-4")}`,
+      `provider:${modelOptionId("xai", "grok-3")}`,
+      `provider:${modelOptionId("zen", "kimi-k2.7-code")}`,
     ]);
   });
 
@@ -107,7 +148,7 @@ describe("buildModelsFirstCatalog", () => {
     });
 
     expect(list.filter((r) => r.section === "recent").map((r) => r.id)).toEqual(
-      ["xai:grok-4"],
+      [modelOptionId("xai", "grok-4")],
     );
   });
 
@@ -118,7 +159,9 @@ describe("buildModelsFirstCatalog", () => {
       favorites: [{ provider: "xai", model: "grok-4" }],
     });
 
-    expect(list.filter((r) => r.id === "xai:grok-4")).toHaveLength(1);
+    expect(
+      list.filter((r) => r.id === modelOptionId("xai", "grok-4")),
+    ).toHaveLength(1);
     expect(list[0]?.section).toBe("recent");
   });
 
@@ -172,7 +215,9 @@ describe("buildModelsFirstCatalog", () => {
     expect(recent?.warning).toMatch(/Go model on Zen path/);
     expect(recent?.label).not.toContain("Go model on Zen path");
 
-    const goRow = list.find((r) => r.id === "opencode-go:kimi-k2.7-code");
+    const goRow = list.find(
+      (r) => r.id === modelOptionId("opencode-go", "kimi-k2.7-code"),
+    );
     expect(goRow?.warning).toBeUndefined();
   });
 
@@ -183,7 +228,9 @@ describe("buildModelsFirstCatalog", () => {
       favorites: [],
     });
 
-    const row = list.find((r) => r.id === "zen:kimi-k2.7-code");
+    const row = list.find(
+      (r) => r.id === modelOptionId("zen", "kimi-k2.7-code"),
+    );
     expect(row?.warning).toMatch(/Go model on Zen path/);
   });
 
@@ -201,7 +248,7 @@ describe("describeModelCatalogOption", () => {
   test("surfaces the Go-on-Zen billing warning as a consequence-toned impact, not the label", () => {
     const description = describeModelCatalogOption(
       {
-        id: "zen:kimi-k2.7-code",
+        id: modelOptionId("zen", "kimi-k2.7-code"),
         label: "kimi-k2.7-code * [OpenCode Zen]",
         warning: "Go model on Zen path",
       },
@@ -213,7 +260,7 @@ describe("describeModelCatalogOption", () => {
 
   test("reports pricing as unknown rather than inventing a number", () => {
     const description = describeModelCatalogOption(
-      { id: "xai:grok-4", label: "grok-4 * [xAI]" },
+      { id: modelOptionId("xai", "grok-4"), label: "grok-4 * [xAI]" },
       { pricing: null },
     );
     expect(description?.impact).toMatch(/pricing unknown/i);
@@ -224,7 +271,7 @@ describe("describeModelCatalogOption", () => {
     // misreads as metered billing with a missing rate.
     const description = describeModelCatalogOption(
       {
-        id: "codex/default:gpt-5.1-codex-max",
+        id: modelOptionId("codex/default", "gpt-5.1-codex-max"),
         label: "gpt-5.1-codex-max * [Codex default]",
       },
       { pricing: null },
@@ -236,7 +283,7 @@ describe("describeModelCatalogOption", () => {
   test("connected Grok rows state plan billing plainly instead of unknown pricing (CL-5606)", () => {
     const description = describeModelCatalogOption(
       {
-        id: "xai/work:grok-4",
+        id: modelOptionId("xai/work", "grok-4"),
         label: "grok-4 * [xAI work]",
       },
       { pricing: null },

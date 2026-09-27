@@ -70,8 +70,16 @@ describe("credential recovery alternatives", () => {
         "failed",
       ).map(({ id, provider, model }) => ({ id, provider, model })),
     ).toEqual([
-      { id: "backup:model-a", provider: "backup", model: "model-a" },
-      { id: "backup:model-b", provider: "backup", model: "model-b" },
+      {
+        id: modelOptionId("backup", "model-a"),
+        provider: "backup",
+        model: "model-a",
+      },
+      {
+        id: modelOptionId("backup", "model-b"),
+        provider: "backup",
+        model: "model-b",
+      },
     ]);
   });
 
@@ -127,7 +135,7 @@ describe("generation-scoped credential recovery", () => {
 
     const pending = state.settle(attempt, [
       {
-        id: "backup:model-a",
+        id: modelOptionId("backup", "model-a"),
         label: "model-a * [backup]",
         provider: "backup",
         model: "model-a",
@@ -160,7 +168,7 @@ describe("generation-scoped credential recovery", () => {
     expect(
       state.settle(otherFailure, [
         {
-          id: "backup:model-a",
+          id: modelOptionId("backup", "model-a"),
           label: "backup",
           provider: "backup",
           model: "model-a",
@@ -185,7 +193,7 @@ describe("generation-scoped credential recovery", () => {
     const pending = required(
       state.settle(attempt, [
         {
-          id: "backup:model-a",
+          id: modelOptionId("backup", "model-a"),
           label: "backup",
           provider: "backup",
           model: "model-a",
@@ -194,7 +202,9 @@ describe("generation-scoped credential recovery", () => {
       "pending recovery",
     );
     expect(state.cancel(pending.generation)).toBe(true);
-    expect(state.accept(pending.generation, "backup:model-a")).toEqual({
+    expect(
+      state.accept(pending.generation, modelOptionId("backup", "model-a")),
+    ).toEqual({
       kind: "stale",
     });
   });
@@ -215,7 +225,7 @@ describe("generation-scoped credential recovery", () => {
     const pending = required(
       state.settle(first, [
         {
-          id: "backup:model-a",
+          id: modelOptionId("backup", "model-a"),
           label: "backup",
           provider: "backup",
           model: "model-a",
@@ -224,16 +234,22 @@ describe("generation-scoped credential recovery", () => {
       "pending recovery",
     );
 
-    expect(state.accept(pending.generation + 1, "backup:model-a")).toEqual({
+    expect(
+      state.accept(pending.generation + 1, modelOptionId("backup", "model-a")),
+    ).toEqual({
       kind: "stale",
     });
-    expect(state.accept(pending.generation, "backup:model-a")).toEqual({
+    expect(
+      state.accept(pending.generation, modelOptionId("backup", "model-a")),
+    ).toEqual({
       kind: "accepted",
       alternative: required(pending.alternatives[0] ?? null, "alternative"),
       replay: true,
       generation: pending.generation,
     });
-    expect(state.accept(pending.generation, "backup:model-a")).toEqual({
+    expect(
+      state.accept(pending.generation, modelOptionId("backup", "model-a")),
+    ).toEqual({
       kind: "stale",
     });
 
@@ -255,7 +271,7 @@ describe("generation-scoped credential recovery", () => {
     const committedPending = required(
       state.settle(committed, [
         {
-          id: "backup:model-a",
+          id: modelOptionId("backup", "model-a"),
           label: "backup",
           provider: "backup",
           model: "model-a",
@@ -264,7 +280,10 @@ describe("generation-scoped credential recovery", () => {
       "committed pending recovery",
     );
     expect(
-      state.accept(committedPending.generation, "backup:model-a"),
+      state.accept(
+        committedPending.generation,
+        modelOptionId("backup", "model-a"),
+      ),
     ).toMatchObject({ kind: "accepted", replay: false });
   });
 
@@ -284,7 +303,7 @@ describe("generation-scoped credential recovery", () => {
     const oldPending = required(
       state.settle(old, [
         {
-          id: "backup:model-a",
+          id: modelOptionId("backup", "model-a"),
           label: "backup",
           provider: "backup",
           model: "model-a",
@@ -293,7 +312,9 @@ describe("generation-scoped credential recovery", () => {
       "old pending recovery",
     );
     state.begin(operatorMessage(), "failed");
-    expect(state.accept(oldPending.generation, "backup:model-a")).toEqual({
+    expect(
+      state.accept(oldPending.generation, modelOptionId("backup", "model-a")),
+    ).toEqual({
       kind: "stale",
     });
 
@@ -311,7 +332,7 @@ describe("generation-scoped credential recovery", () => {
     const pending = required(
       state.settle(current, [
         {
-          id: "backup:model-a",
+          id: modelOptionId("backup", "model-a"),
           label: "backup",
           provider: "backup",
           model: "model-a",
@@ -319,10 +340,14 @@ describe("generation-scoped credential recovery", () => {
       ]),
       "current pending recovery",
     );
-    expect(state.accept(pending.generation, "missing:model")).toEqual({
+    expect(
+      state.accept(pending.generation, modelOptionId("missing", "model")),
+    ).toEqual({
       kind: "invalid",
     });
-    expect(state.accept(pending.generation, "backup:model-a")).toEqual({
+    expect(
+      state.accept(pending.generation, modelOptionId("backup", "model-a")),
+    ).toEqual({
       kind: "stale",
     });
   });
@@ -332,7 +357,9 @@ describe("generation-scoped credential recovery", () => {
 
     state.begin(buildCredentialRecoveryContinuationMessage(99), "failed");
 
-    expect(state.accept(pending.generation, "backup:model-a")).toMatchObject({
+    expect(
+      state.accept(pending.generation, modelOptionId("backup", "model-a")),
+    ).toMatchObject({
       kind: "accepted",
       replay: true,
     });
@@ -358,7 +385,7 @@ function pendingRecovery(committed = false) {
   });
   const pending = state.settle(attempt, [
     {
-      id: "backup:model-a",
+      id: modelOptionId("backup", "model-a"),
       label: "backup",
       provider: "backup",
       model: "model-a",
@@ -419,7 +446,7 @@ describe("credential recovery selection effects", () => {
     const args = {
       state,
       generation: pending.generation,
-      alternativeId: "backup:model-a",
+      alternativeId: modelOptionId("backup", "model-a"),
       switchAlternative: (alternative: { id: string }) =>
         switches.push(alternative.id),
       armContinuation: (generation: number) => arms.push(generation),
@@ -430,7 +457,7 @@ describe("credential recovery selection effects", () => {
 
     expect(applyCredentialRecoverySelection(args)).toBe("continued");
     expect(applyCredentialRecoverySelection(args)).toBe("stale");
-    expect(switches).toEqual(["backup:model-a"]);
+    expect(switches).toEqual([modelOptionId("backup", "model-a")]);
     expect(arms).toEqual([pending.generation]);
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0]?.content).toBe("");
@@ -444,7 +471,7 @@ describe("credential recovery selection effects", () => {
       applyCredentialRecoverySelection({
         state,
         generation: pending.generation,
-        alternativeId: "backup:model-a",
+        alternativeId: modelOptionId("backup", "model-a"),
         switchAlternative: () => switches++,
         armContinuation: () => {
           throw new Error("must not arm");
@@ -464,7 +491,7 @@ describe("credential recovery selection effects", () => {
       applyCredentialRecoverySelection({
         state: failedSwitch.state,
         generation: failedSwitch.pending.generation,
-        alternativeId: "backup:model-a",
+        alternativeId: modelOptionId("backup", "model-a"),
         switchAlternative: () => {
           throw new Error("unavailable");
         },
@@ -483,7 +510,7 @@ describe("credential recovery selection effects", () => {
       applyCredentialRecoverySelection({
         state: failedDelivery.state,
         generation: failedDelivery.pending.generation,
-        alternativeId: "backup:model-a",
+        alternativeId: modelOptionId("backup", "model-a"),
         switchAlternative: () => undefined,
         armContinuation: () => undefined,
         cancelContinuation: (generation) => cancelled.push(generation),
@@ -496,9 +523,30 @@ describe("credential recovery selection effects", () => {
     expect(
       failedDelivery.state.accept(
         failedDelivery.pending.generation,
-        "backup:model-a",
+        modelOptionId("backup", "model-a"),
       ),
     ).toEqual({ kind: "stale" });
+  });
+
+  test("an invalid identity cannot switch or arm continuation", () => {
+    const { state, pending } = pendingRecovery();
+    let switches = 0;
+    let arms = 0;
+    expect(
+      applyCredentialRecoverySelection({
+        state,
+        generation: pending.generation,
+        alternativeId: "not-an-option-id",
+        switchAlternative: () => switches++,
+        armContinuation: () => arms++,
+        cancelContinuation: () => undefined,
+        deliverContinuation: () => {
+          throw new Error("must not deliver");
+        },
+      }),
+    ).toBe("invalid");
+    expect(switches).toBe(0);
+    expect(arms).toBe(0);
   });
 });
 

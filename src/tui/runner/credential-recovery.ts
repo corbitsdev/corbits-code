@@ -3,7 +3,11 @@ import type { Config } from "../../config/index.js";
 import { buildMainSessionSources } from "../../config/inference-sources.js";
 import { isOperatorOriginated } from "../../agent/message-provenance.js";
 import { CREDENTIAL_RECOVERY_INTERCHANGE_TYPE } from "../../agent/director.js";
-import { formatModelPickerLabel, modelOptionId } from "../model-catalog.js";
+import {
+  formatModelPickerLabel,
+  modelOptionId,
+  modelOptionRef,
+} from "../model-catalog.js";
 
 export interface CredentialRecoveryAlternative {
   readonly id: string;
@@ -147,8 +151,13 @@ export function createCredentialRecoveryState() {
       if (pending?.generation !== generation) return { kind: "stale" };
       const claimed = pending;
       pending = null;
+      const identity = modelOptionRef(alternativeId);
+      if (identity === null) return { kind: "invalid" };
       const alternative = claimed.alternatives.find(
-        (candidate) => candidate.id === alternativeId,
+        (candidate) =>
+          candidate.id === alternativeId &&
+          candidate.provider === identity.provider &&
+          candidate.model === identity.model,
       );
       if (alternative === undefined) return { kind: "invalid" };
       return {

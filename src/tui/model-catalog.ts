@@ -102,35 +102,30 @@ export function buildModelCatalog(
 
 const ModelOptionIdentity = type(["string", "string"]);
 
+const MODEL_OPTION_ID_PREFIX = "model:";
+
 /** Stable opaque id for one exact provider/model pair. */
 export function modelOptionId(provider: string, model: string): string {
-  if (!provider.includes(":") && !model.includes(":"))
-    return `${provider}:${model}`;
-  return JSON.stringify([provider, model]);
+  return `${MODEL_OPTION_ID_PREFIX}${JSON.stringify([provider, model])}`;
 }
 
 export function modelOptionRef(id: string): ModelCatalogRef | null {
-  if (id.startsWith("[")) {
-    try {
-      const parsed = ModelOptionIdentity(JSON.parse(id));
-      if (
-        !(parsed instanceof type.errors) &&
-        parsed[0].length > 0 &&
-        parsed[1].length > 0
-      )
-        return { provider: parsed[0], model: parsed[1] };
-    } catch {
+  if (!id.startsWith(MODEL_OPTION_ID_PREFIX)) return null;
+  try {
+    const parsed = ModelOptionIdentity(
+      JSON.parse(id.slice(MODEL_OPTION_ID_PREFIX.length)),
+    );
+    if (
+      parsed instanceof type.errors ||
+      parsed[0].length === 0 ||
+      parsed[1].length === 0 ||
+      modelOptionId(parsed[0], parsed[1]) !== id
+    )
       return null;
-    }
+    return { provider: parsed[0], model: parsed[1] };
+  } catch {
     return null;
   }
-
-  const separator = id.indexOf(":");
-  if (separator <= 0 || separator === id.length - 1) return null;
-  return {
-    provider: id.slice(0, separator),
-    model: id.slice(separator + 1),
-  };
 }
 
 /** Picker row: `model * [providerLabel]`. */
