@@ -37,19 +37,6 @@ export function registerSourceCredential(
   });
 }
 
-export function rotateSourceCredentialMaterial(
-  credentialId: string,
-  material: CredentialMaterial,
-): void {
-  const current = cell.get(credentialId);
-  if (current === undefined) {
-    throw new Error(
-      `Cannot rotate unknown inference credential "${credentialId}".`,
-    );
-  }
-  cell.set(credentialId, { provenance: current.provenance, material });
-}
-
 export function rotateSourceCredentialMaterialIfCurrent(
   credentialId: string,
   expected: SourceCredentialRecord,
