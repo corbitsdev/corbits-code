@@ -86,17 +86,28 @@ describe("inferenceErrorMessage", () => {
     expect(line.toLowerCase()).not.toContain("usage limit reached");
   });
 
-  test("credential_failure tells the user to log in again", () => {
+  test("credential_failure tells the user to run /connect", () => {
     const line = inferenceErrorMessage({
       category: "credential_failure",
       message: '{"error":{"code":401}}',
     });
-    expect(line.toLowerCase()).not.toContain("re-authenticating");
-    expect(line.toLowerCase()).toMatch(/log in again|sign in again/);
+    expect(line).toContain("/connect");
+    expect(line.toLowerCase()).not.toMatch(/log in again|sign in again/);
   });
 });
 
 describe("terminalProviderFailureMessage", () => {
+  test("preserves full sanitized recovery URLs without a user-facing clamp", () => {
+    const recoveryURL = `https://auth.example/connect?state=${"s".repeat(260)}&profile=work`;
+    const message = terminalProviderFailureMessage("codex/work", {
+      category: "credential_failure",
+      message: `Reconnect with ${recoveryURL}; Authorization: Bearer secret-token-1234567890`,
+    });
+
+    expect(message).toContain(recoveryURL);
+    expect(message).not.toContain("secret-token-1234567890");
+  });
+
   test("surfaces a retryable HTTP failure with safe retry guidance", () => {
     expect(
       terminalProviderFailureMessage(
@@ -148,7 +159,7 @@ describe("terminalProviderFailureMessage", () => {
     );
   });
 
-  test("tells the user to log in again after a credential failure", () => {
+  test("tells the user to run /connect after a credential failure", () => {
     expect(
       terminalProviderFailureMessage("custom-provider", {
         category: "credential_failure",
@@ -156,7 +167,7 @@ describe("terminalProviderFailureMessage", () => {
         statusCode: 401,
       }),
     ).toBe(
-      "custom-provider Provider failed (credential_failure): HTTP 401 Unauthorized. Authentication failed — log in again.",
+      "custom-provider Provider failed (credential_failure): HTTP 401 Unauthorized. Authentication failed — run /connect to reconnect the provider profile.",
     );
   });
 
@@ -296,13 +307,14 @@ describe("terminalProviderFailureMessage", () => {
     expect(message).not.toContain("\u001b");
   });
 
-  test("bounds provider-controlled display text", () => {
+  test("preserves full provider diagnostics", () => {
+    const diagnostic = "x".repeat(1_000);
     const message = terminalProviderFailureMessage("custom-provider", {
       category: "fatal",
-      message: "x".repeat(1_000),
+      message: diagnostic,
     });
 
-    expect(message).toContain(`${"x".repeat(239)}…`);
-    expect(message).not.toContain("x".repeat(241));
+    expect(message).toContain(diagnostic);
+    expect(message).not.toContain("…");
   });
 });

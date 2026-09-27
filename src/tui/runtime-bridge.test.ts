@@ -935,7 +935,7 @@ describe("failed sends", () => {
           });
 
           const safeMessage =
-            "Codex Provider failed (credential_failure): upstream 401: secret response body. Authentication failed — log in again.";
+            "Codex Provider failed (credential_failure): upstream 401: secret response body. Authentication failed — run /connect to reconnect the provider profile.";
           expect(
             shell.streamLog.filter((row) => row.text === safeMessage),
           ).toHaveLength(1);

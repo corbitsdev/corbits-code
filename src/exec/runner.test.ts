@@ -365,8 +365,8 @@ describe("exec credential failure surface", () => {
     );
   });
 
-  test("the credential failure message itself carries the re-login hint", () => {
-    expect(CREDENTIAL_FAILURE_USER_MESSAGE).toMatch(/log in again/i);
+  test("the credential failure message itself carries the /connect path", () => {
+    expect(CREDENTIAL_FAILURE_USER_MESSAGE).toContain("/connect");
   });
 
   test("a codex refresh lock failure keeps its own message with the lock path", async () => {

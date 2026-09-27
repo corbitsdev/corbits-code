@@ -159,7 +159,9 @@ describe("selected provider refresh failures", () => {
     } catch (err) {
       expect(formatCaughtError(err)).toBe(rawDiagnostic);
       const userMessage = execUserFailureMessage(config, err, false);
-      expect(userMessage).toBe("Authentication failed — log in again.");
+      expect(userMessage).toBe(
+        "Authentication failed — run /connect to reconnect the provider profile.",
+      );
       expect(userMessage).not.toContain(rawDiagnostic);
     }
   });
@@ -195,7 +197,7 @@ describe("selected provider refresh failures", () => {
         message: "HTTP 401",
       }),
     ).toBe(
-      "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — log in again.",
+      "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — run /connect to reconnect the provider profile.",
     );
   });
 });

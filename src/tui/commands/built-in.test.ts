@@ -8,7 +8,11 @@ import { globalSettingsPath } from "../../config/settings.js";
 import { createCommandLayer } from "../runner/commands.js";
 import { createTUISettingsWriters } from "../runner/settings-writers.js";
 import type { RunnerServices, RunnerState } from "../runner/state.js";
-import { getCommand } from "./registry.js";
+import { getCommand, listCommands } from "./registry.js";
+import {
+  commandItemsFromRegistry,
+  filterPaletteCommands,
+} from "../command-catalog.js";
 import type { CommandContext } from "./registry.js";
 import { registerBuiltInCommands } from "./built-in.js";
 import { buildCostSummary } from "../../cost/cost-summary.js";
@@ -62,6 +66,15 @@ describe("/connect command", () => {
       type: "overlay",
       overlay: "add-provider",
     });
+  });
+
+  it("is discoverable by auth recovery terms", () => {
+    const catalog = commandItemsFromRegistry(listCommands());
+    for (const query of ["auth", "login", "reauth", "credential"]) {
+      expect(
+        filterPaletteCommands(query, catalog).map((item) => item.id),
+      ).toContain("connect");
+    }
   });
 });
 

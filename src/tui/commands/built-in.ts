@@ -59,7 +59,8 @@ export function registerBuiltInCommands(): void {
   // standalone /login; OAuth sign-in is still reached only through this flow.
   registerCommand({
     name: "connect",
-    description: "Add a provider account",
+    description:
+      "Connect or reauthenticate a provider account (auth, login, credentials)",
     handler: () => ({ type: "overlay", overlay: "add-provider" }),
   });
 

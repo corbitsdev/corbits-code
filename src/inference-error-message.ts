@@ -26,7 +26,7 @@ import {
 
 /** Committed auth death — do not claim a refresh is in flight. */
 export const CREDENTIAL_FAILURE_USER_MESSAGE =
-  "Authentication failed — log in again.";
+  "Authentication failed — run /connect to reconnect the provider profile.";
 
 const FRIENDLY_BY_CATEGORY: Record<string, string> = {
   credential_failure: CREDENTIAL_FAILURE_USER_MESSAGE,
@@ -123,14 +123,13 @@ function codexUsageLimitLine(error: InferenceErrorLike): string | undefined {
   });
 }
 
-const TERMINAL_DIAGNOSTIC_MAX_CHARS = 240;
 const TERMINAL_PROVIDER_LABEL_MAX_CHARS = 80;
 
-function safeDisplayText(text: string, maxChars: number): string {
+function safeDisplayText(text: string, maxChars?: number): string {
   const oneLine = scrubSecretShapedContent(stripTerminalControlSequences(text))
     .replace(/\s+/g, " ")
     .trim();
-  return oneLine.length > maxChars
+  return maxChars !== undefined && oneLine.length > maxChars
     ? `${oneLine.slice(0, maxChars - 1)}…`
     : oneLine;
 }
@@ -163,10 +162,7 @@ export function terminalProviderFailureMessage(
 ): string {
   const label = terminalProviderFailureLabel(providerId, displayLabel);
   const category = terminalProviderFailureCategory(error);
-  const message = safeDisplayText(
-    error.message ?? "",
-    TERMINAL_DIAGNOSTIC_MAX_CHARS,
-  );
+  const message = safeDisplayText(error.message ?? "");
   const diagnostic = message.length > 0 ? message : "inference error";
   const diagnosticSentence = /[.!?]$/.test(diagnostic)
     ? diagnostic
@@ -278,10 +274,7 @@ export function inferenceErrorMessage(error: InferenceErrorLike): string {
     if (codexLine !== undefined) return codexLine;
   }
 
-  const fallback = safeDisplayText(
-    error.message ?? "",
-    TERMINAL_DIAGNOSTIC_MAX_CHARS,
-  );
+  const fallback = safeDisplayText(error.message ?? "");
   return (
     FRIENDLY_BY_CATEGORY[category] ??
     (fallback.length > 0 ? fallback : "inference error")

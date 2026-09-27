@@ -632,7 +632,7 @@ describe("inference.error text", () => {
     expect(out).toEqual([
       {
         type: "assistant",
-        text: "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — log in again.",
+        text: "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — run /connect to reconnect the provider profile.",
       },
     ]);
   });

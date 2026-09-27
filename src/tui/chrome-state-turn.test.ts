@@ -335,8 +335,12 @@ describe("sendFailureText", () => {
   });
 
   test("a classified credential_failure line is not rewritten as generic other", () => {
-    expect(sendFailureText("Authentication failed — log in again.")).toBe(
-      "Authentication failed — log in again.",
+    expect(
+      sendFailureText(
+        "Authentication failed — run /connect to reconnect the provider profile.",
+      ),
+    ).toBe(
+      "Authentication failed — run /connect to reconnect the provider profile.",
     );
   });
 });

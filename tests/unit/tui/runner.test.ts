@@ -88,11 +88,11 @@ test("TUI send failures prefer an explicitly reported provider", () => {
       },
     ),
   ).toBe(
-    "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — log in again.",
+    "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — run /connect to reconnect the provider profile.",
   );
 });
 
-test("TUI auth failures tell the user to log in again instead of switching models", () => {
+test("TUI auth failures tell the user to run /connect instead of switching models", () => {
   expect(
     tuiSendFailureMessage(
       new Error("401 refresh token rejected"),
@@ -103,7 +103,9 @@ test("TUI auth failures tell the user to log in again instead of switching model
         displayLabel: "Codex",
       },
     ),
-  ).toBe("Authentication failed — log in again.");
+  ).toBe(
+    "Authentication failed — run /connect to reconnect the provider profile.",
+  );
 });
 
 test("loadLocalSettingsWriteBase distinguishes absent from unreadable", async () => {
