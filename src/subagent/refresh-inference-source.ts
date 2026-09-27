@@ -5,7 +5,7 @@ import { getValidCodexToken } from "../auth/codex/session.js";
 import { getValidXaiToken } from "../auth/xai/session.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
 import {
-  readSourceCredentialRecord,
+  findSourceCredentialRecord,
   rotateSourceCredentialMaterial,
 } from "../config/source-credentials.js";
 
@@ -13,8 +13,8 @@ export async function ensureFreshInferenceSource(
   source: InferenceSource,
   _catalog: readonly ProviderCatalogEntry[] | undefined,
 ): Promise<InferenceSource> {
-  const record = readSourceCredentialRecord(source.credentialId);
-  if (record.provenance.kind !== "oauth") return source;
+  const record = findSourceCredentialRecord(source.credentialId);
+  if (record?.provenance.kind !== "oauth") return source;
 
   if (record.provenance.provider === "codex") {
     const fresh = await getValidCodexToken(record.provenance.profile);

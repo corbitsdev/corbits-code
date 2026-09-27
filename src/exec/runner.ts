@@ -12,8 +12,8 @@ import {
 } from "../config/settings.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import {
+  findSourceCredentialRecord,
   peekSourceCredentialSecret,
-  readSourceCredentialRecord,
 } from "../config/source-credentials.js";
 import { formatDirectorSystemPrompt } from "../agent/directors/identity.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
@@ -765,13 +765,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
     const liveSources = initialBundle.sources;
     const liveDefaultSource = initialBundle.defaultSource;
     const selectedSource = initialBundle.selected;
-    const initialProvenance = readSourceCredentialRecord(
+    const initialProvenance = findSourceCredentialRecord(
       selectedSource.credentialId,
-    ).provenance;
+    )?.provenance;
     let liveSource: InferenceSource = selectedSource;
 
     // Refresh OAuth tokens before first inference when starting on codex/xai.
-    if (initialProvenance.kind === "oauth") {
+    if (initialProvenance?.kind === "oauth") {
       await refreshSelectedProviderCredential(() =>
         ensureFreshInferenceSource(liveSource, config.providers),
       );
@@ -1078,7 +1078,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
     let sinkStatus: ReturnType<typeof liveSink.getStatus> = "cancelled";
     try {
       // Final OAuth refresh immediately before send (token may have aged during MCP).
-      if (initialProvenance.kind === "oauth") {
+      if (initialProvenance?.kind === "oauth") {
         const before = peekSourceCredentialSecret(liveSource.credentialId);
         await ensureFreshInferenceSource(liveSource, config.providers);
         if (peekSourceCredentialSecret(liveSource.credentialId) !== before) {

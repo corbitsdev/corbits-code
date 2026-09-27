@@ -1575,6 +1575,7 @@ export async function* runInference(
   const scheduler = opts.deps.scheduler;
   const startedAtMs = scheduler.now();
   const signal = opts.signal;
+  // Locally patched — see vendor/intx-inference/PATCHES.md#harness-ts-auth-recovery
   const callStartSource = Object.freeze({ ...opts.source });
   const credentialFailureHistory: InferenceError[] = [];
 

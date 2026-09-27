@@ -6,6 +6,7 @@ import type { InferenceSource } from "@intx/types/runtime";
 import {
   clearSourceCredentials,
   peekSourceCredentialSecret,
+  registerSourceCredentialRecord,
 } from "../config/source-credentials.js";
 
 const baseSource = (id: string): InferenceSource => ({
@@ -30,6 +31,10 @@ describe("refresh-inference-source", () => {
     const { ensureFreshInferenceSource } =
       await import("./refresh-inference-source.js");
     const source = baseSource("codex/default");
+    registerSourceCredentialRecord(source.credentialId, {
+      provenance: { kind: "oauth", provider: "codex", profile: "default" },
+      material: { secret: "stale-codex-token" },
+    });
     const out = await ensureFreshInferenceSource(source, []);
     expect(out).toBe(source);
     expect(peekSourceCredentialSecret(source.credentialId)).toBe(

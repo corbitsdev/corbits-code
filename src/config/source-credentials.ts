@@ -60,6 +60,12 @@ export function readSourceCredentialRecord(
   return record;
 }
 
+export function findSourceCredentialRecord(
+  credentialId: string,
+): SourceCredentialRecord | undefined {
+  return cell.get(credentialId);
+}
+
 export const readSourceCredentialMaterial: CredentialMaterialResolver = (
   credentialId: string,
 ) => readSourceCredentialRecord(credentialId).material;

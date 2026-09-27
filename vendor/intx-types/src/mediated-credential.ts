@@ -21,7 +21,11 @@
 // (resolve a credential row, authorize, decrypt) lives on the delivery side and
 // is never the plugin's decision.
 
-/** The current secret material behind a credential, read fresh at each use. */
+/**
+ * The current secret material behind a credential, read fresh at each use.
+ *
+ * Locally patched — see vendor/intx-types/PATCHES.md#runtime-ts-auth-recovery-context
+ */
 export interface CredentialMaterial {
   readonly secret: string;
   /** Credential-derived provider headers installed atomically with the secret. */
