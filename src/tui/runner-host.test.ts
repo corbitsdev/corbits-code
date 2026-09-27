@@ -6,6 +6,7 @@ import type { KeyEvent } from "@opentui/core";
 import type { CostSummary } from "../cost/cost-summary.js";
 import type { SubAgentSession } from "../subagent/session-store.js";
 import { createHarness } from "./harness.js";
+import { modelOptionId, modelOptionRef } from "./model-catalog.js";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
@@ -467,7 +468,7 @@ describe("mountRunnerHost model picker", () => {
         option: true,
       } as KeyEvent;
       expect(runOverlayAction(host.shell, fKey)).toBe(true);
-      expect(toggled).toEqual(["xai:grok-4"]);
+      expect(toggled).toEqual([modelOptionId("xai", "grok-4")]);
     } finally {
       host.dispose();
       harness.destroy();
@@ -502,7 +503,7 @@ describe("mountRunnerHost model picker", () => {
         option: true,
       } as KeyEvent;
       expect(runOverlayAction(host.shell, dKey)).toBe(true);
-      expect(setDefault).toEqual(["xai:grok-4"]);
+      expect(setDefault).toEqual([modelOptionId("xai", "grok-4")]);
     } finally {
       host.dispose();
       harness.destroy();
@@ -692,9 +693,8 @@ describe("bottom border cost run", () => {
         "codex/abk-labs": { models: ["gpt-5.5"] },
       },
       onModelSelect: (id) => {
-        const sep = id.indexOf(":");
-        if (sep <= 0) return;
-        provider = id.slice(0, sep);
+        const identity = modelOptionRef(id);
+        if (identity !== null) provider = identity.provider;
       },
       commands: [],
       onCommand: () => undefined,
@@ -746,9 +746,8 @@ describe("bottom border cost run", () => {
         xai: { models: ["grok-4"] },
       },
       onModelSelect: (id) => {
-        const sep = id.indexOf(":");
-        if (sep <= 0) return;
-        provider = id.slice(0, sep);
+        const identity = modelOptionRef(id);
+        if (identity !== null) provider = identity.provider;
       },
       commands: [],
       onCommand: () => undefined,
