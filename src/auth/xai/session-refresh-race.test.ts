@@ -2,6 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import {
+  OAuthRefreshFailedError,
+  OAuthTokenEndpointError,
+} from "@corbits/oauth-core";
 import { errorMessage } from "../../agent/error-message.js";
 import { loadXaiProfile, saveXaiProfile } from "../../config/oauth-stores.js";
 import { formatSubAgentSpawnAuthFailureMessage } from "../../subagent/inference-auth-failure.js";
@@ -130,6 +134,58 @@ describe("xAI shared-credential refresh race", () => {
     }
   });
 
+  test("independent sessions return a committed non-rotating winner", async () => {
+    const home = await mkdtemp(join(tmpdir(), "cl9347-xai-static-race-"));
+    const now = Date.now();
+    await saveExpiredProfile(home, now);
+    const originalFetch = globalThis.fetch;
+    let grants = 0;
+    let resolveSecond!: () => void;
+    const secondArrived = new Promise<void>((resolve) => {
+      resolveSecond = resolve;
+    });
+    globalThis.fetch = (async () => {
+      grants += 1;
+      if (grants === 1) {
+        await secondArrived;
+        return Response.json({
+          access_token: "access-2",
+          expires_in: 3600,
+        });
+      }
+      resolveSecond();
+      while (
+        (await loadXaiProfile("shared", home))?.tokens.access !== "access-2"
+      )
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      return new Response(JSON.stringify({ error: "invalid_grant" }), {
+        status: 400,
+      });
+    }) as unknown as typeof fetch;
+
+    try {
+      const first = createXaiTokenSession(home);
+      const second = createXaiTokenSession(home);
+      expect(
+        await Promise.all([
+          first.getValidToken("shared", now),
+          second.getValidToken("shared", now),
+        ]),
+      ).toEqual([{ access: "access-2" }, { access: "access-2" }]);
+      expect(grants).toBe(2);
+      expect(await loadXaiProfile("shared", home)).toMatchObject({
+        tokens: {
+          access: "access-2",
+          refresh: "refresh-1",
+          expiresAt: now + 3_600_000,
+        },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("invalid_grant without a newer winner remains actionable", async () => {
     const home = await mkdtemp(join(tmpdir(), "cl9347-xai-invalid-"));
     const now = Date.now();
@@ -196,6 +252,50 @@ describe("xAI shared-credential refresh race", () => {
       expect(surfaced).not.toContain(refresh);
       expect(surfaced).toContain("grant rejected");
       expect(surfaced).toContain("Re-authenticate");
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("real endpoint errors retain classification without stack credentials", async () => {
+    const home = await mkdtemp(join(tmpdir(), "cl9347-xai-stack-"));
+    const now = Date.now();
+    const refresh = "opaque xai refresh / reflected?!";
+    await saveXaiProfile(
+      {
+        name: "shared",
+        createdAt: now,
+        tokens: {
+          access: "access-1",
+          refresh,
+          expiresAt: now - 300_000,
+        },
+      },
+      home,
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(`grant rejected for ${refresh}`, {
+        status: 403,
+      })) as unknown as typeof fetch;
+    try {
+      const failure = await createXaiTokenSession(home)
+        .getValidToken("shared", now)
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(OAuthRefreshFailedError);
+      const cause = (failure as OAuthRefreshFailedError).cause;
+      expect(cause).toBeInstanceOf(OAuthTokenEndpointError);
+      expect(cause).toMatchObject({ status: 403 });
+
+      let current: unknown = failure;
+      while (current instanceof Error) {
+        expect(current.message).not.toContain(refresh);
+        expect(current.stack).not.toContain(refresh);
+        if (current instanceof OAuthTokenEndpointError)
+          expect(current.detail).not.toContain(refresh);
+        current = current.cause;
+      }
     } finally {
       globalThis.fetch = originalFetch;
       await rm(home, { recursive: true, force: true });

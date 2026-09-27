@@ -21,6 +21,11 @@ export function sanitizedRefreshFailure(
     configurable: true,
     value: sanitizeDiagnosticText(error.message, [refreshToken]),
   });
+  if (typeof error.stack === "string")
+    Object.defineProperty(error, "stack", {
+      configurable: true,
+      value: sanitizeDiagnosticText(error.stack, [refreshToken]),
+    });
   if ("detail" in error && typeof error.detail === "string")
     Object.defineProperty(error, "detail", {
       configurable: true,

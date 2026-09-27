@@ -135,7 +135,7 @@ export interface ProductHostConfig {
   /** Model/provider rows for the picker (id applied on select). */
   readonly models?: readonly ProductHostModelOption[];
   /**
-   * Row id (`provider:model`) of the model the session is actually running,
+   * Opaque model option id of the model the session is actually running,
    * read live on every picker open so it tracks selections made outside the
    * picker (e.g. `defaultProvider` at startup). Marks that row "(current)"
    * instead of guessing from the recents list.

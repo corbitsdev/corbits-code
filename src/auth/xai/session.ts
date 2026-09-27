@@ -97,8 +97,9 @@ export function createXaiTokenSession(
           const winner = await loadXaiProfile(name, home);
           if (
             winner !== undefined &&
-            winner.tokens.refresh !== basis.tokens.refresh &&
-            !inner.isExpired(winner.tokens, now)
+            !inner.isExpired(winner.tokens, now) &&
+            (winner.tokens.access !== basis.tokens.access ||
+              winner.tokens.expiresAt !== basis.tokens.expiresAt)
           )
             return { access: winner.tokens.access };
         }

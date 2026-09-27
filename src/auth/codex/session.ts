@@ -246,11 +246,12 @@ export async function refreshStagedCodexTokens(
   now: number = Date.now(),
 ): Promise<CodexTokens> {
   if (!isCodexTokenExpired(tokens, now)) return tokens;
-  const refreshed = await refreshCodexTokensForStore(
-    tokens.refresh,
-    now,
-    tokens,
-  );
+  let refreshed: CodexTokens;
+  try {
+    refreshed = await refreshCodexTokensForStore(tokens.refresh, now, tokens);
+  } catch (error) {
+    throw sanitizedRefreshFailure(error, tokens.refresh);
+  }
   replaceMutableTokens(tokens, refreshed);
   return tokens;
 }
