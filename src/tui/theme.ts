@@ -160,10 +160,119 @@ export function onThemeChange(listener: (theme: Theme) => void): void {
   listener(UI);
 }
 
-/** Switch the live `UI` binding to the named theme, keeping the reference. */
-export function setTheme(name: ThemeName | string): Theme {
-  const next = resolveThemeName(name);
-  Object.assign(UI, next);
+let activeTheme: Theme = corbitsDark;
+let transparentBackgroundEnabled = false;
+
+function publishTheme(): Theme {
+  Object.assign(UI, activeTheme, {
+    ground: transparentBackgroundEnabled
+      ? TRANSPARENT_BACKGROUND
+      : activeTheme.ground,
+  });
   for (const listener of themeChangeListeners) listener(UI);
   return UI;
+}
+
+/** Switch the live `UI` binding to the named theme, keeping the reference. */
+export function setTheme(name: ThemeName | string): Theme {
+  activeTheme = resolveThemeName(name);
+  return publishTheme();
+}
+
+export const TRANSPARENT_BACKGROUND = "transparent";
+
+const TRANSPARENT_BG_ENV_VAR = "CORBITS_TRANSPARENT_BACKGROUND";
+
+/** Terminals whose compositing path is known to show the host background. */
+const TRANSPARENT_BG_PROGRAMS = new Set([
+  "iterm.app",
+  "wezterm",
+  "kitty",
+  "ghostty",
+  "alacritty",
+  "foot",
+]);
+
+const TRANSPARENT_BG_TERM_HINTS = [
+  "kitty",
+  "ghostty",
+  "wezterm",
+  "alacritty",
+  "foot",
+];
+
+export interface TransparentBackgroundEnv {
+  readonly [key: string]: string | undefined;
+  readonly CORBITS_TRANSPARENT_BACKGROUND?: string;
+  readonly COLORTERM?: string;
+  readonly TERM?: string;
+  readonly TERM_PROGRAM?: string;
+}
+
+type TransparentFallbackLog = (message: string) => void;
+
+let transparentFallbackLogged = false;
+
+/** Re-arm the one-time fallback log; tests only. */
+export function resetTransparentBackgroundLogForTests(): void {
+  transparentFallbackLogged = false;
+}
+
+export function isTransparentBackgroundRequested(
+  env: TransparentBackgroundEnv = process.env,
+): boolean {
+  const raw = env[TRANSPARENT_BG_ENV_VAR]?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+export function supportsTransparentBackground(
+  env: TransparentBackgroundEnv = process.env,
+): boolean {
+  const colorterm = env.COLORTERM?.trim().toLowerCase();
+  if (colorterm !== "truecolor" && colorterm !== "24bit") return false;
+  const program = (env.TERM_PROGRAM ?? "").trim().toLowerCase();
+  if (TRANSPARENT_BG_PROGRAMS.has(program)) return true;
+  const term = (env.TERM ?? "").trim().toLowerCase();
+  return TRANSPARENT_BG_TERM_HINTS.some((hint) => term.includes(hint));
+}
+
+/**
+ * The ground a theme paints with: `"transparent"` when requested and
+ * supported, otherwise the theme's opaque ground. Unsupported requests fall
+ * back to opaque with a single log line.
+ */
+export function resolveGround(
+  theme: Theme,
+  env: TransparentBackgroundEnv = process.env,
+  onFallback: TransparentFallbackLog = (message) => {
+    process.stderr.write(`${message}\n`);
+  },
+): string {
+  if (!isTransparentBackgroundRequested(env)) return theme.ground;
+  if (supportsTransparentBackground(env)) return TRANSPARENT_BACKGROUND;
+  if (!transparentFallbackLogged) {
+    transparentFallbackLogged = true;
+    onFallback(
+      "corbits: transparent background requested but unsupported here; using opaque ground",
+    );
+  }
+  return theme.ground;
+}
+
+/**
+ * Startup entry: resolves the active theme's ground once and publishes it on
+ * `UI` so all surfaces follow. Must run before any surface builds. Returns
+ * true when the shell paints transparent.
+ */
+export function configureTransparentBackground(
+  env: TransparentBackgroundEnv = process.env,
+  onFallback?: TransparentFallbackLog,
+): boolean {
+  const ground =
+    onFallback === undefined
+      ? resolveGround(activeTheme, env)
+      : resolveGround(activeTheme, env, onFallback);
+  transparentBackgroundEnabled = ground === TRANSPARENT_BACKGROUND;
+  publishTheme();
+  return transparentBackgroundEnabled;
 }
