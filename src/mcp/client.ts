@@ -857,9 +857,19 @@ export async function connectMCPServer(
   config: ResolvedMCPServerConfig,
   options: MCPConnectOptions = {},
 ): Promise<MCPConnectResult> {
-  return isHttpServer(config)
+  const telemetry = options.telemetry ?? NOOP_TELEMETRY;
+  const result = await (isHttpServer(config)
     ? connectHttp(config, options)
-    : connectStdio(config, options);
+    : connectStdio(config, options));
+  // One enum-only event per outward connection outcome. Internal HTTP
+  // auth-recovery re-dials stay inside connectHttp, so this wrapper fires
+  // exactly once per connectMCPServer call. Server name, URL, and error
+  // text never leave the process.
+  captureMcpConnect(telemetry, {
+    transport: isHttpServer(config) ? "http" : "stdio",
+    result: classifyMcpConnectOutcome(result),
+  });
+  return result;
 }
 
 export async function connectMCPServers(
@@ -867,27 +877,20 @@ export async function connectMCPServers(
   onWarning: (message: string) => void,
   options: MCPConnectOptions = {},
 ): Promise<MCPClient[]> {
-  const telemetry = options.telemetry ?? NOOP_TELEMETRY;
+  // Telemetry flows through options into connectMCPServer, which captures
+  // one mcp_connect per config.
   const results = await Promise.all(
     configs.map((c) => connectMCPServer(c, options)),
   );
   const clients: MCPClient[] = [];
-  for (let index = 0; index < results.length; index += 1) {
-    const result = results[index];
-    if (result === undefined) continue;
+  for (const result of results) {
     if (result.ok) clients.push(result.client);
     else
       onWarning(
         `[mcp] Warning: failed to connect to MCP server "${result.serverName}": ${result.error}`,
       );
-    // One enum-only event per server: the transport that was dialed and the
-    // outcome enum. Server name, URL, and error text never leave the process.
-    const config = configs[index];
-    captureMcpConnect(telemetry, {
-      transport:
-        config !== undefined && isHttpServer(config) ? "http" : "stdio",
-      result: classifyMcpConnectOutcome(result),
-    });
+    // No emit here: connectMCPServer already captured one enum-only
+    // mcp_connect per config. Emitting again would double-count.
   }
   return clients;
 }

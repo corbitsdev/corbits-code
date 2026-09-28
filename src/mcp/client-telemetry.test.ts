@@ -25,7 +25,7 @@ await withMockedModule(
   }),
 );
 
-const { connectMCPServers } = await import("./client.js");
+const { connectMCPServers, connectMCPServer } = await import("./client.js");
 
 function recordingTelemetry(events: Record<string, unknown>[]): Telemetry {
   return {
@@ -62,11 +62,17 @@ describe("connectMCPServers telemetry", () => {
       expect(clients).toHaveLength(1);
       expect(warnings).toHaveLength(1);
       expect(events).toHaveLength(2);
-      expect(events.map((event) => event.transport)).toEqual([
+      // Order-insensitive: the batch fans out over Promise.all, and each
+      // singular connect captures its own event on completion, so arrival
+      // order follows settle order, not config order.
+      expect(events.map((event) => event.transport).sort()).toEqual([
         "stdio",
         "stdio",
       ]);
-      expect(events.map((event) => event.result)).toEqual(["ok", "fail"]);
+      expect(events.map((event) => event.result).sort()).toEqual([
+        "fail",
+        "ok",
+      ]);
     } finally {
       for (const client of clients) await client.close();
     }
@@ -90,5 +96,33 @@ describe("connectMCPServers telemetry", () => {
     } finally {
       for (const client of clients) await client.close();
     }
+  });
+});
+
+describe("connectMCPServer telemetry", () => {
+  beforeEach(() => {
+    connectCalls = 0;
+    failOnCall = -1;
+  });
+
+  test("singular ok + fail emits one mcp_connect each, exactly once per attempt", async () => {
+    const events: Record<string, unknown>[] = [];
+    const telemetry = recordingTelemetry(events);
+    const ok = await connectMCPServer(
+      { name: "a", type: "stdio", command: "test-server-a" },
+      { telemetry },
+    );
+    expect(ok.ok).toBe(true);
+    if (ok.ok) await ok.client.close();
+    failOnCall = 2;
+    const failed = await connectMCPServer(
+      { name: "b", type: "stdio", command: "test-server-b" },
+      { telemetry },
+    );
+    expect(failed.ok).toBe(false);
+    expect(connectCalls).toBe(2);
+    expect(events).toHaveLength(connectCalls);
+    expect(events.map((event) => event.transport)).toEqual(["stdio", "stdio"]);
+    expect(events.map((event) => event.result)).toEqual(["ok", "fail"]);
   });
 });
