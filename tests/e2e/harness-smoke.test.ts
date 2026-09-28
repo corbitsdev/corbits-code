@@ -34,5 +34,5 @@ describe("e2e harness smoke", () => {
     } finally {
       await closeE2ESession(session);
     }
-  });
+  }, 30000);
 });

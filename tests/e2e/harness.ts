@@ -131,7 +131,9 @@ export async function sendOperatorTurn(
   const events: ReactorEmittedEvent[] = [];
   const continuationGate = createContinuationGate();
   // The collector outlives the send: recovery scenarios deliver a follow-up
-  // turn after this returns, and its events keep appending to `events`.
+  // turn after this returns, and its events keep appending to `events`. The
+  // catch mirrors runUntilSuspended — a stream error must not become an
+  // unhandled rejection in the shared test process.
   void (async () => {
     for await (const event of session.agent.stream()) {
       events.push(event);
@@ -141,7 +143,7 @@ export async function sendOperatorTurn(
         }
       }
     }
-  })();
+  })().catch(() => undefined);
   const outcome = await Promise.all([
     session.agent.send(message).then(
       (result) => result,
