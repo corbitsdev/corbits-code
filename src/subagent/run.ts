@@ -1145,6 +1145,8 @@ async function runSubAgentInner(
         : undefined;
     const sessionId = safeRequestedId ?? generateSessionId();
     const workdir = join(params.workdirBase, "subagents", sessionId);
+    const sessionStoresPromise = createSessionStores(workdir);
+    void sessionStoresPromise.catch(() => undefined);
     await mkdir(workdir, { recursive: true });
     childContextDir = workdir;
     // One record per stop/nudge, with its measured value beside its
@@ -1173,9 +1175,6 @@ async function runSubAgentInner(
       },
     });
 
-    const { storage, audit } = await createSessionStores(workdir);
-    childBlobWriter = (key, bytes, contentType) =>
-      storage.writeBlob(key, bytes, contentType);
     const authorize = createWorkerAuthorize(params.permissionGate);
 
     const head = {
@@ -1202,6 +1201,9 @@ async function runSubAgentInner(
       bundle.sources[0];
     if (workerSource === undefined)
       throw new Error("sub-agent source bundle is empty");
+    const { storage, audit } = await sessionStoresPromise;
+    childBlobWriter = (key, bytes, contentType) =>
+      storage.writeBlob(key, bytes, contentType);
     agent = await createAgentWithLiveToolDispatch(def, {
       sources: bundle.sources,
       defaultSource: bundle.defaultSource,
