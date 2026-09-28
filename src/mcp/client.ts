@@ -15,6 +15,14 @@ import type { McpToolAnnotations } from "./tool-permissions.js";
 import { buildStdioMcpProcessEnv } from "./stdio-env.js";
 import { isHttpServer } from "./is-http-server.js";
 import { MCP_CLIENT_NAME } from "../branding.js";
+import {
+  captureMcpConnect,
+  captureMcpOauth,
+  classifyMcpConnectOutcome,
+  classifyMcpOauthOutcome,
+  NOOP_TELEMETRY,
+  type Telemetry,
+} from "../telemetry/index.js";
 
 export interface MCPTool {
   name: string;
@@ -94,6 +102,9 @@ export interface MCPConnectOptions {
   // learns the transport died under a live client. Never fired for
   // intentional teardown — close() disarms it before closing the transport.
   onDisconnect?: () => void;
+  // Optional telemetry handle for enum-only connect/oauth outcome events. No
+  // globals: callers that care pass their instance; otherwise nothing emits.
+  telemetry?: Telemetry;
 }
 
 export function unwrapToolContent(content: unknown): string {
@@ -137,6 +148,7 @@ interface HTTPAuthContext {
   interactive: boolean;
   serverName: string;
   onAuthorized?: (serverName: string) => void;
+  telemetry: Telemetry;
 }
 
 interface BrowserAuthFlow {
@@ -441,16 +453,28 @@ async function driveRecovery(
   }
 
   const browserFlow = coordinator.browserFlow;
-  await browserFlow.promptEmitted;
-  const code = await waitForBrowserAuthCode(context);
-  await new StreamableHTTPClientTransport(
-    context.url,
-    streamableHTTPTransportOptions(
-      context.authProvider,
-      coordinator.lifecycle.signal,
-    ),
-  ).finishAuth(code);
-  await coordinator.probe();
+  // One enum-only outcome per browser attempt: prompt, wait, token exchange,
+  // and probe either complete together or map the failure to exactly one of
+  // cancelled (explicit abort) / timeout (expiry, cap, denial, teardown).
+  try {
+    await browserFlow.promptEmitted;
+    const code = await waitForBrowserAuthCode(context);
+    await new StreamableHTTPClientTransport(
+      context.url,
+      streamableHTTPTransportOptions(
+        context.authProvider,
+        coordinator.lifecycle.signal,
+      ),
+    ).finishAuth(code);
+    await coordinator.probe();
+  } catch (error) {
+    captureMcpOauth(
+      context.telemetry,
+      classifyMcpOauthOutcome(error, coordinator.lifecycle.signal.aborted),
+    );
+    throw error;
+  }
+  captureMcpOauth(context.telemetry, "completed");
 }
 
 function completeVerifiedRecovery(
@@ -763,6 +787,7 @@ async function connectHttp(
         ...(options.onAuthorized !== undefined
           ? { onAuthorized: options.onAuthorized }
           : {}),
+        telemetry: options.telemetry ?? NOOP_TELEMETRY,
       };
       gateRedirectToAuthorization(authContext);
     }
@@ -835,16 +860,27 @@ export async function connectMCPServers(
   onWarning: (message: string) => void,
   options: MCPConnectOptions = {},
 ): Promise<MCPClient[]> {
+  const telemetry = options.telemetry ?? NOOP_TELEMETRY;
   const results = await Promise.all(
     configs.map((c) => connectMCPServer(c, options)),
   );
   const clients: MCPClient[] = [];
-  for (const result of results) {
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index];
+    if (result === undefined) continue;
     if (result.ok) clients.push(result.client);
     else
       onWarning(
         `[mcp] Warning: failed to connect to MCP server "${result.serverName}": ${result.error}`,
       );
+    // One enum-only event per server: the transport that was dialed and the
+    // outcome enum. Server name, URL, and error text never leave the process.
+    const config = configs[index];
+    captureMcpConnect(telemetry, {
+      transport:
+        config !== undefined && isHttpServer(config) ? "http" : "stdio",
+      result: classifyMcpConnectOutcome(result),
+    });
   }
   return clients;
 }

@@ -854,6 +854,18 @@ export type SendFailureKind = "abort" | "auth" | "error";
 /** First-party auth_provider values only — never free-text provider labels. */
 export type AuthProviderId = "codex" | "xai" | "anthropic" | "other";
 
+/**
+ * Map a setup/connect provider id to its telemetry enum. Exact first-party
+ * matches only — every other catalog id (openai, ollama, custom, …) is
+ * "other", and free-text display names must never reach this function.
+ */
+export function authProviderFromConnectId(providerId: string): AuthProviderId {
+  if (providerId === "codex") return "codex";
+  if (providerId === "xai") return "xai";
+  if (providerId === "anthropic") return "anthropic";
+  return "other";
+}
+
 export interface ClassifiedSendFailure {
   readonly kind: SendFailureKind;
   readonly authProvider: AuthProviderId | null;
@@ -906,6 +918,23 @@ export function captureAuthFailure(
 ): void {
   if (failure.kind !== "auth" || failure.authProvider === null) return;
   telemetry.capture("auth_failure", { auth_provider: failure.authProvider });
+}
+
+// Mirrors ClassifiedSendFailure without the rejection detail: a success has
+// no message to classify, only the provider that completed sign-in. Stays
+// silent unless the sign-in actually completed, so failed attempts are never
+// counted as successes.
+export interface AuthSuccessOutcome {
+  readonly connected: boolean;
+  readonly authProvider: AuthProviderId | null;
+}
+
+export function captureAuthSuccess(
+  telemetry: Telemetry,
+  outcome: AuthSuccessOutcome,
+): void {
+  if (!outcome.connected || outcome.authProvider === null) return;
+  telemetry.capture("auth_success", { auth_provider: outcome.authProvider });
 }
 
 /** Same classification as `classifyAgentSendFailure`, from the message alone. */

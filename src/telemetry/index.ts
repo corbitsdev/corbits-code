@@ -63,6 +63,9 @@ export type TelemetryEvent =
   | "summarizer_failure"
   | "crash"
   | "auth_failure"
+  | "auth_success"
+  | "mcp_connect"
+  | "mcp_oauth"
   // PostHog Surveys event name (space included). Intentional operator feedback
   // from /feedback — can ship when ambient product telemetry is off; still
   // blocked by env kill switches. See captureIntentional.
@@ -199,6 +202,15 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
   // Which provider rejected the credentials, not why — the rejection detail is
   // provider-authored text and error_class means a JS constructor name.
   auth_failure: ["auth_provider"],
+  // Which provider completed sign-in. Same enum as auth_failure, no message:
+  // a success has no rejection detail to report.
+  auth_success: ["auth_provider"],
+  // Per-server connect outcome. transport is the stdio/http connect path and
+  // result is the outcome enum — never the server name, URL, or error text.
+  mcp_connect: ["transport", "result"],
+  // Per-attempt browser-OAuth outcome. result only — never the
+  // authorization URL, state, server name, or error text.
+  mcp_oauth: ["result"],
   // Intentional /feedback survey response (PostHog custom survey capture shape).
   // Free text is only sent because the operator typed it for that purpose.
   // turn_trace_id links to the last $ai_generation in this session when known.
@@ -226,7 +238,8 @@ export function aiSpansEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
 
 /**
  * Sample rate for successful `$ai_generation` events (0–1). Default 1.0 (no
- * drop). Errors (`$ai_is_error: true`), `crash`, and `auth_failure` always ship.
+ * drop). Errors (`$ai_is_error: true`), `crash`, `auth_failure`,
+ * `auth_success`, `mcp_connect`, and `mcp_oauth` always ship.
  */
 export function generationSampleRate(
   env: NodeJS.ProcessEnv = process.env,
@@ -528,4 +541,78 @@ export function createTelemetry(options: CreateTelemetryOptions): Telemetry {
     flush,
     discard,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Enum-only product events (CL-9017). These helpers live beside the schema
+// rather than the call sites so the values they can send stay visible next
+// to the allowlists that bound them: fixed enums in, nothing else out.
+// Sampling gates only `$ai_generation`, so every event here always ships.
+// ---------------------------------------------------------------------------
+
+export type McpTransport = "stdio" | "http";
+
+export type McpConnectOutcome = "ok" | "auth" | "timeout" | "fail";
+
+export interface McpConnectReport {
+  readonly transport: McpTransport;
+  readonly result: McpConnectOutcome;
+}
+
+// Structural subset of the connect result: the report carries the outcome
+// enum, never the server name or the error text it was classified from.
+export interface McpConnectClassificationInput {
+  readonly ok: boolean;
+  readonly serverName?: string;
+  readonly error?: string;
+  readonly authPending?: boolean;
+}
+
+const MCP_CONNECT_TIMEOUT_MESSAGE = /abort|timeout|timed out|expir/i;
+
+export function classifyMcpConnectOutcome(
+  result: McpConnectClassificationInput,
+): McpConnectOutcome {
+  if (result.ok) return "ok";
+  if (result.authPending === true) return "auth";
+  // Substring match, not word match: AbortError surfaces as "The operation
+  // was aborted", and only the timeout-vs-fail bucket rides on this — the
+  // error text itself never ships.
+  if (
+    result.error !== undefined &&
+    MCP_CONNECT_TIMEOUT_MESSAGE.test(result.error)
+  )
+    return "timeout";
+  return "fail";
+}
+
+export function captureMcpConnect(
+  telemetry: Telemetry,
+  report: McpConnectReport,
+): void {
+  telemetry.capture("mcp_connect", {
+    transport: report.transport,
+    result: report.result,
+  });
+}
+
+export type McpOauthOutcome = "completed" | "cancelled" | "timeout";
+
+// Only an explicit abort (aborted signal, AbortError) is "cancelled". Every
+// other browser-wait end without a code — wait expiry, attempt cap, denial,
+// teardown — is "timeout", so each attempt maps to exactly one outcome.
+export function classifyMcpOauthOutcome(
+  error: unknown,
+  aborted: boolean,
+): McpOauthOutcome {
+  if (aborted) return "cancelled";
+  if (error instanceof Error && error.name === "AbortError") return "cancelled";
+  return "timeout";
+}
+
+export function captureMcpOauth(
+  telemetry: Telemetry,
+  result: McpOauthOutcome,
+): void {
+  telemetry.capture("mcp_oauth", { result });
 }

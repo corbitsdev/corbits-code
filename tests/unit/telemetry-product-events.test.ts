@@ -48,15 +48,24 @@ import {
   resetFeedbackStateForTests,
 } from "../../src/telemetry/feedback.js";
 import {
+  authProviderFromConnectId,
   captureAuthFailure,
+  captureAuthSuccess,
   classifyAgentSendFailure,
 } from "../../src/tui/chrome-state.js";
+import {
+  captureMcpConnect,
+  captureMcpOauth,
+  classifyMcpConnectOutcome,
+  classifyMcpOauthOutcome,
+  type McpConnectClassificationInput,
+} from "../../src/telemetry/index.js";
 
 interface BatchBody {
   batch: { event: string; properties: Record<string, unknown> }[];
 }
 
-function harness(): {
+function harness(env: NodeJS.ProcessEnv = {}): {
   telemetry: Telemetry;
   wire: () => Promise<string>;
   events: () => Promise<BatchBody["batch"]>;
@@ -72,7 +81,7 @@ function harness(): {
   };
   const telemetry = createTelemetry({
     settings,
-    env: {},
+    env,
     fetchFn,
     apiKey: "test-key",
   });
@@ -754,4 +763,218 @@ test("keys outside an event's allowlist are stripped from the payload", async ()
   const [event] = await events();
   expect(event?.properties.command).toBeUndefined();
   expect(await wire()).not.toContain("acmecorp");
+});
+
+// ---------------------------------------------------------------------------
+// auth_success — mirrors auth_failure: the provider enum ships, nothing else
+// ---------------------------------------------------------------------------
+
+test("auth_success names the provider and ships even when generations are unsampled", async () => {
+  // Generation sampling gates only $ai_generation; product events always ship.
+  const { telemetry, wire, events } = harness({
+    CORBITS_TELEMETRY_GENERATION_SAMPLE_RATE: "0",
+  });
+
+  for (const authProvider of ["codex", "xai", "anthropic", "other"] as const) {
+    captureAuthSuccess(telemetry, { connected: true, authProvider });
+  }
+
+  const captured = await events();
+  expect(captured.map((e) => e.properties.auth_provider)).toEqual([
+    "codex",
+    "xai",
+    "anthropic",
+    "other",
+  ]);
+  expect(captured.every((e) => e.event === "auth_success")).toBe(true);
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+test("auth_success stays silent unless the sign-in actually completed", async () => {
+  const { telemetry, events } = harness();
+
+  captureAuthSuccess(telemetry, { connected: false, authProvider: "codex" });
+  captureAuthSuccess(telemetry, { connected: true, authProvider: null });
+
+  expect(await events()).toEqual([]);
+});
+
+test("auth_success strips everything outside its allowlist", async () => {
+  const { telemetry, wire, events } = harness();
+  telemetry.capture("auth_success", {
+    auth_provider: "codex",
+    serverName: "acme",
+    message: "connected acmecorp-eng profile",
+  });
+
+  const [event] = await events();
+  expect(event?.properties.auth_provider).toBe("codex");
+  expect(event?.properties.serverName).toBeUndefined();
+  expect(event?.properties.message).toBeUndefined();
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+test("connect ids map to the provider enum exactly, everything else is other", () => {
+  expect(authProviderFromConnectId("codex")).toBe("codex");
+  expect(authProviderFromConnectId("xai")).toBe("xai");
+  expect(authProviderFromConnectId("anthropic")).toBe("anthropic");
+  expect(authProviderFromConnectId("openai")).toBe("other");
+  expect(authProviderFromConnectId("my-codex")).toBe("other");
+  expect(authProviderFromConnectId("ChatGPT")).toBe("other");
+});
+
+// ---------------------------------------------------------------------------
+// mcp_connect — one enum-only event per server
+// ---------------------------------------------------------------------------
+
+test("mcp_connect reports transport and outcome and nothing else", async () => {
+  const { telemetry, wire, events } = harness();
+
+  captureMcpConnect(telemetry, { transport: "http", result: "ok" });
+  captureMcpConnect(telemetry, { transport: "stdio", result: "auth" });
+  captureMcpConnect(telemetry, { transport: "http", result: "timeout" });
+  captureMcpConnect(telemetry, { transport: "stdio", result: "fail" });
+
+  const captured = await events();
+  expect(captured.map((e) => e.event)).toEqual([
+    "mcp_connect",
+    "mcp_connect",
+    "mcp_connect",
+    "mcp_connect",
+  ]);
+  expect(captured.map((e) => e.properties.transport)).toEqual([
+    "http",
+    "stdio",
+    "http",
+    "stdio",
+  ]);
+  expect(captured.map((e) => e.properties.result)).toEqual([
+    "ok",
+    "auth",
+    "timeout",
+    "fail",
+  ]);
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+test("mcp_connect classifies connect results without leaking server identity", () => {
+  const ok = {
+    ok: true,
+    client: { serverName: "acme-prod" },
+  } as unknown as McpConnectClassificationInput;
+  expect(classifyMcpConnectOutcome(ok)).toBe("ok");
+
+  const pending = {
+    ok: false,
+    serverName: "acme-prod",
+    error: "Authorization timed out waiting for the browser.",
+    authPending: true,
+  } satisfies McpConnectClassificationInput;
+  expect(classifyMcpConnectOutcome(pending)).toBe("auth");
+
+  const aborted = {
+    ok: false,
+    serverName: "acme-prod",
+    error: "This operation was aborted",
+  } satisfies McpConnectClassificationInput;
+  expect(classifyMcpConnectOutcome(aborted)).toBe("timeout");
+
+  const refused = {
+    ok: false,
+    serverName: "acme-prod",
+    error: "spawn /opt/acme/bin/server ENOENT",
+  } satisfies McpConnectClassificationInput;
+  expect(classifyMcpConnectOutcome(refused)).toBe("fail");
+});
+
+test("mcp_connect strips serverName, url, and error text", async () => {
+  const { telemetry, wire, events } = harness();
+  telemetry.capture("mcp_connect", {
+    transport: "http",
+    result: "fail",
+    serverName: "acme-prod",
+    url: "https://mcp.acmecorp.internal",
+    error: "acmecorp token rejected",
+  });
+
+  const [event] = await events();
+  expect(event?.properties.transport).toBe("http");
+  expect(event?.properties.result).toBe("fail");
+  expect(event?.properties.serverName).toBeUndefined();
+  expect(event?.properties.url).toBeUndefined();
+  expect(event?.properties.error).toBeUndefined();
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+// ---------------------------------------------------------------------------
+// mcp_oauth — exactly one enum outcome per browser attempt
+// ---------------------------------------------------------------------------
+
+test("mcp_oauth reports completed, cancelled, and timeout and nothing else", async () => {
+  const { telemetry, wire, events } = harness();
+
+  captureMcpOauth(telemetry, "completed");
+  captureMcpOauth(telemetry, "cancelled");
+  captureMcpOauth(telemetry, "timeout");
+
+  const captured = await events();
+  expect(captured.map((e) => e.properties.result)).toEqual([
+    "completed",
+    "cancelled",
+    "timeout",
+  ]);
+  expect(captured.every((e) => e.event === "mcp_oauth")).toBe(true);
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+test("mcp_oauth treats explicit aborts as cancelled and everything else as timeout", () => {
+  const abortError = new Error("The operation was aborted");
+  abortError.name = "AbortError";
+  expect(classifyMcpOauthOutcome(abortError, false)).toBe("cancelled");
+  expect(classifyMcpOauthOutcome(new Error("denied"), true)).toBe("cancelled");
+
+  const waitError = new Error(
+    "Authorization timed out waiting for the browser.",
+  );
+  expect(classifyMcpOauthOutcome(waitError, false)).toBe("timeout");
+  expect(
+    classifyMcpOauthOutcome(
+      new Error("Authorization failed: access_denied"),
+      false,
+    ),
+  ).toBe("timeout");
+});
+
+test("mcp_oauth strips server, url, state, and error text", async () => {
+  const { telemetry, wire, events } = harness();
+  telemetry.capture("mcp_oauth", {
+    result: "timeout",
+    serverName: "acme-prod",
+    authorizationUrl: "https://auth.acmecorp.internal/authorize",
+    state: "acme-state",
+    error: "acmecorp denied the request",
+  });
+
+  const [event] = await events();
+  expect(event?.properties.result).toBe("timeout");
+  expect(event?.properties.serverName).toBeUndefined();
+  expect(event?.properties.authorizationUrl).toBeUndefined();
+  expect(event?.properties.state).toBeUndefined();
+  expect(event?.properties.error).toBeUndefined();
+  expect(await wire()).not.toContain("acmecorp");
+});
+
+// ---------------------------------------------------------------------------
+// kill switch — the new product events respect disabled telemetry
+// ---------------------------------------------------------------------------
+
+test("the new product events respect the env kill switch", async () => {
+  const { telemetry, wire } = harness({ CORBITS_TELEMETRY: "0" });
+  expect(telemetry.enabled).toBe(false);
+
+  captureAuthSuccess(telemetry, { connected: true, authProvider: "codex" });
+  captureMcpConnect(telemetry, { transport: "http", result: "ok" });
+  captureMcpOauth(telemetry, "completed");
+
+  expect(await wire()).toBe("[]");
 });

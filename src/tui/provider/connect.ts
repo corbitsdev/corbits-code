@@ -6,6 +6,11 @@
  */
 
 import type { Settings } from "../../config/settings.js";
+import { getTelemetry } from "../../telemetry/singleton.js";
+import {
+  authProviderFromConnectId,
+  captureAuthSuccess,
+} from "../chrome-state.js";
 import { runProviderSetup } from "./setup.js";
 import type { ProviderSetupConfig } from "./types.js";
 import {
@@ -84,5 +89,13 @@ export async function connectProviderInline(
   });
 
   if (!submitted) return { connected: false };
+  // Login-completion site: exactly one enum-only event per completed /connect
+  // sign-in. Cancelled flows return above and failed submits never set
+  // connected, so neither can emit. The setup choice id maps to the enum with
+  // other-fallback — free-text names never leave the process.
+  captureAuthSuccess(getTelemetry(), {
+    connected: result.connected,
+    authProvider: authProviderFromConnectId(input.providerId),
+  });
   return result;
 }
