@@ -438,7 +438,7 @@ describe("secret-guard file URL normalization", () => {
     );
   }
 
-  const schemeBraceURLs = [
+  const synthesizedSchemeURLs = [
     "{file,https}:///tmp/%2Eenv",
     "{https,file}:///tmp/%2Eenv",
     "file{,s}:///tmp/%2Eenv",
@@ -449,9 +449,13 @@ describe("secret-guard file URL normalization", () => {
     "{https://127.0.0.1:1/README.md,file:///tmp/%2Eenv}",
     "f{i,oo}{le,tp}:///tmp/%2Eenv",
     "F{ILE,OO}:///tmp/%2Eenv",
+    "f[i-i]le:///tmp/%2Eenv",
+    "f[a-z]le:///tmp/%2Eenv",
+    "F[I-I]LE:///tmp/%2Eenv",
+    "f[i-i]l{e,x}:///tmp/%2Eenv",
   ];
 
-  for (const url of schemeBraceURLs) {
+  for (const url of synthesizedSchemeURLs) {
     test.skipIf(Bun.which("curl") === null)(
       `flags curl scheme synthesis that reads a real .env: ${url}`,
       async () => {
@@ -483,31 +487,84 @@ describe("secret-guard file URL normalization", () => {
     );
   }
 
-  test("keeps remote-only scheme braces allowed", () => {
+  test("keeps remote-only scheme globs allowed", () => {
     const overflow = `{${Array.from({ length: 80 }, (_, index) =>
+      index % 2 === 0 ? "https" : "http",
+    ).join(",")}}://example.com/{one,two}`;
+    const overlength = `{${Array.from({ length: 800 }, (_, index) =>
       index % 2 === 0 ? "https" : "http",
     ).join(",")}}://example.com/{one,two}`;
     for (const url of [
       "{https,http}://example.com/{one,two}",
       "{http,https}://example.com/{one,two}",
       "h{ttp,ttps}://example.com/{one,two}",
+      "{{https,http},{http,https}}://example.com/{one,two}",
+      "h{ttp,ttps}{,s}://example.com/{one,two}",
+      "h[t-t]tp://example.com/[a-z]",
+      "https://example.com/[a-z]?q=[0-9]",
       overflow,
+      overlength,
       `https://example.com/${"x".repeat(4_096)}/{one,two}`,
     ]) {
       expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeUndefined();
     }
   });
 
-  test("fails closed for ambiguous and overflowing file-scheme braces", () => {
+  test("classifies 1000 remote-only bracket URLs within a bounded time", () => {
+    const url = `f[t-t]p://example.com/${"[a-z]".repeat(1_000)}`;
+    const started = performance.now();
+    for (let index = 0; index < 1_000; index++) {
+      expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeUndefined();
+    }
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test("fails closed for file-capable scheme braces in any position", () => {
+    const remote: string[] = Array.from({ length: 800 }, (_, index) =>
+      index % 2 === 0 ? "https" : "http",
+    );
+    const withFileAt = (index: number) => {
+      const schemes = [...remote];
+      schemes[index] = "file";
+      return `{${schemes.join(",")}}:///tmp/%2Eenv`;
+    };
+    for (const url of [
+      withFileAt(0),
+      withFileAt(400),
+      withFileAt(799),
+      "{{https,http},{ftp,file}}:///tmp/%2Eenv",
+      "{f,h}{ile,ttps}:///tmp/%2Eenv",
+    ]) {
+      expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeDefined();
+    }
+  });
+
+  test("classifies a 100x remote-only alternative list within a bounded time", () => {
+    const url = `{${Array.from({ length: 80_000 }, (_, index) =>
+      index % 2 === 0 ? "https" : "http",
+    ).join(",")}}://example.com/{one,two}`;
+    const started = performance.now();
+    expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeUndefined();
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test("fails closed for ambiguous and overflowing file-scheme globs", () => {
     const overflow = `f{${Array.from({ length: 80 }, (_, index) =>
       index === 79 ? "ile" : `x${index}`,
     ).join(",")}}:///tmp/%2Eenv`;
     const overlength = `f{ile,${"x".repeat(4_096)}}:///tmp/%2Eenv`;
+    const malformedOverlength = `{${Array.from({ length: 800 }, (_, index) =>
+      index === 799 ? "f{ile" : "https",
+    ).join(",")}:///tmp/%2Eenv`;
     for (const url of [
       "f{ile:,https:///tmp/%2Eenv",
       "f{i,{oo,ILE}}:///tmp/%2Eenv",
+      "f[i]le:///tmp/%2Eenv",
+      "f[i-i le:///tmp/%2Eenv",
+      "f[i,i]le:///tmp/%2Eenv",
       overflow,
       overlength,
+      malformedOverlength,
     ]) {
       expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeDefined();
     }

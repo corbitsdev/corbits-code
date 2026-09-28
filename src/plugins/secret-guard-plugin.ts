@@ -474,38 +474,178 @@ function parseBraceSequence(token: string): BraceParseResult {
   return { sequence: parsed.parts };
 }
 
-function sequenceCanStartWithFileScheme(sequence: BraceSequence): boolean {
-  function consume(parts: BraceSequence, positions: ReadonlySet<number>) {
-    let current = positions;
-    for (const part of parts) {
-      const next = new Set<number>();
-      if (typeof part === "string") {
-        for (const start of current) {
-          let position = start;
-          for (const char of part) {
-            if (position === FILE_SCHEME.length) break;
-            if (char.toLowerCase() !== FILE_SCHEME[position]) {
-              position = -1;
-              break;
-            }
-            position++;
-          }
-          if (position >= 0) next.add(position);
-        }
-      } else {
-        for (const alternative of part) {
-          for (const position of consume(alternative, current)) {
-            next.add(position);
-          }
-        }
-      }
-      current = next;
-      if (current.size === 0 || current.has(FILE_SCHEME.length)) break;
-    }
-    return current;
+const FILE_SCHEME_MATCHED_STATE = 1 << FILE_SCHEME.length;
+const FILE_SCHEME_DEAD_STATE = 1 << (FILE_SCHEME.length + 1);
+
+function advanceFileSchemeStates(states: number, char: string): number {
+  let next = states & FILE_SCHEME_DEAD_STATE;
+  const lowerChar = char.toLowerCase();
+  for (let position = 0; position < FILE_SCHEME.length; position++) {
+    if ((states & (1 << position)) === 0) continue;
+    if (lowerChar === FILE_SCHEME[position]) next |= 1 << (position + 1);
+    else next |= FILE_SCHEME_DEAD_STATE;
+  }
+  return next;
+}
+
+interface RangeEmission {
+  includesExpected: boolean;
+  includesOther: boolean;
+  valid: boolean;
+}
+
+function rangeEmission(expression: string, expected: string): RangeEmission {
+  const range = /^([A-Za-z0-9])-([A-Za-z0-9])(?::([1-9][0-9]*))?$/.exec(
+    expression,
+  );
+  if (range === null) {
+    const single = /^[A-Za-z0-9]$/.test(expression);
+    return {
+      includesExpected: expression.toLowerCase().includes(expected),
+      includesOther: !single || expression.toLowerCase() !== expected,
+      valid: false,
+    };
   }
 
-  return consume(sequence, new Set([0])).has(FILE_SCHEME.length);
+  const start = range[1] ?? "";
+  const end = range[2] ?? "";
+  const step = Number(range[3] ?? "1");
+  const sameKind = /[A-Za-z]/.test(start) === /[A-Za-z]/.test(end);
+  const startCode = start.codePointAt(0) ?? 0;
+  const endCode = end.codePointAt(0) ?? -1;
+  if (!sameKind || startCode > endCode) {
+    return {
+      includesExpected: expression.toLowerCase().includes(expected),
+      includesOther: true,
+      valid: false,
+    };
+  }
+
+  const expectedCodes = [
+    expected.toLowerCase().codePointAt(0) ?? -1,
+    expected.toUpperCase().codePointAt(0) ?? -1,
+  ];
+  const includesExpected = expectedCodes.some(
+    (code) =>
+      code >= startCode && code <= endCode && (code - startCode) % step === 0,
+  );
+  const outputCount = Math.floor((endCode - startCode) / step) + 1;
+  return {
+    includesExpected,
+    includesOther: outputCount > (includesExpected ? 1 : 0),
+    valid: true,
+  };
+}
+
+function advanceFileSchemeRangeStates(
+  states: number,
+  expression: string,
+): { states: number; ambiguous: boolean } {
+  let next = states & FILE_SCHEME_DEAD_STATE;
+  let ambiguous = false;
+  for (let position = 0; position < FILE_SCHEME.length; position++) {
+    if ((states & (1 << position)) === 0) continue;
+    const emission = rangeEmission(expression, FILE_SCHEME[position] ?? "");
+    if (emission.includesExpected) next |= 1 << (position + 1);
+    if (emission.includesOther) next |= FILE_SCHEME_DEAD_STATE;
+    if (!emission.valid && emission.includesExpected) ambiguous = true;
+  }
+  return { states: next, ambiguous };
+}
+
+function globSyntaxCanProduceFileScheme(token: string): boolean {
+  let index = 0;
+  let matched = false;
+  let ambiguous = false;
+  let exceededDepth = false;
+
+  function consumeSequence(
+    states: number,
+    depth: number,
+    stopAtAlternative: boolean,
+  ): { states: number; separator?: "," | "}" } | undefined {
+    if (depth > MAX_BRACE_DEPTH) {
+      exceededDepth = true;
+      return undefined;
+    }
+    let current = states;
+
+    while (index < token.length) {
+      const char = token[index] ?? "";
+      if (stopAtAlternative && (char === "," || char === "}")) {
+        index++;
+        return { states: current, separator: char };
+      }
+      if (char === "}") return undefined;
+      if (char === "[") {
+        const close = token.indexOf("]", index + 1);
+        const expression = token.slice(
+          index + 1,
+          close === -1 ? undefined : close,
+        );
+        const range = advanceFileSchemeRangeStates(current, expression);
+        current = range.states;
+        if (close === -1) {
+          ambiguous = range.ambiguous;
+          return undefined;
+        }
+        index = close + 1;
+        if ((current & FILE_SCHEME_MATCHED_STATE) !== 0) {
+          matched = true;
+          return { states: current };
+        }
+        if (current === FILE_SCHEME_DEAD_STATE && !stopAtAlternative) {
+          return { states: current };
+        }
+        continue;
+      }
+      if (char !== "{") {
+        current = advanceFileSchemeStates(current, char);
+        index++;
+        if ((current & FILE_SCHEME_MATCHED_STATE) !== 0) {
+          matched = true;
+          return { states: current };
+        }
+        if (current === FILE_SCHEME_DEAD_STATE && !stopAtAlternative) {
+          return { states: current };
+        }
+        continue;
+      }
+
+      index++;
+      let alternativeStates = 0;
+      let hasComma = false;
+      while (true) {
+        const alternative = consumeSequence(current, depth + 1, true);
+        if (alternative === undefined || matched) return alternative;
+        alternativeStates |= alternative.states;
+        if (alternative.separator === ",") {
+          hasComma = true;
+          continue;
+        }
+        if (alternative.separator !== "}" || !hasComma) return undefined;
+        break;
+      }
+      current = alternativeStates;
+      if ((current & FILE_SCHEME_MATCHED_STATE) !== 0) {
+        matched = true;
+        return { states: current };
+      }
+      if (current === FILE_SCHEME_DEAD_STATE && !stopAtAlternative) {
+        return { states: current };
+      }
+    }
+
+    return { states: current };
+  }
+
+  const parsed = consumeSequence(1, 0, false);
+  if (matched) return true;
+  if (parsed?.states === FILE_SCHEME_DEAD_STATE) return false;
+  if (parsed === undefined || index !== token.length) {
+    return ambiguous || exceededDepth;
+  }
+  return (parsed.states & FILE_SCHEME_MATCHED_STATE) !== 0;
 }
 
 function repairMissingBraceClosers(token: string): string | undefined {
@@ -580,29 +720,20 @@ function normalizedFileURLPath(
 
 // WHATWG parsing handles slash counts, relative file paths, localhost, and
 // dot-segment normalization. Decode each pathname exactly once to match URL
-// transport semantics. Brace alternatives are parsed independently of the
-// invoking program because either curl or a shell can expand them. The prefix
-// matcher proves remote-only patterns without enumerating their path braces;
-// file-capable patterns expand under strict size, depth, and count limits.
-// Ambiguous or overflowing file-capable patterns prompt rather than guessing.
-// Existing file-URL pathname braces retain their conservative prompt behavior.
+// transport semantics. Curl brace alternatives and bracket ranges are parsed
+// independently of the invoking program because curl can expand either form.
+// The prefix matcher proves remote-only patterns without enumerating schemes or
+// scanning their URL tails. Brace-only file candidates expand under strict
+// size, depth, and count limits; bracket-capable candidates fail closed without
+// enumerating their ranges. Existing file-URL pathname globs remain conservative.
 function hasFixedNonFileScheme(token: string): boolean {
-  const braceIndex = token.search(/[{}]/);
+  const globIndex = token.search(/[{}[\]]/);
   const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:/.exec(token)?.[0];
   return (
     scheme !== undefined &&
     scheme.toLowerCase() !== FILE_SCHEME &&
-    (braceIndex === -1 || scheme.length <= braceIndex)
+    (globIndex === -1 || scheme.length <= globIndex)
   );
-}
-
-function literalPrefixCouldBecomeFileScheme(token: string): boolean {
-  const braceIndex = token.search(/[{}]/);
-  const literalPrefix = token.slice(
-    0,
-    braceIndex === -1 ? token.length : braceIndex,
-  );
-  return FILE_SCHEME.startsWith(literalPrefix.toLowerCase());
 }
 
 function normalizeFileURLPaths(
@@ -610,26 +741,18 @@ function normalizeFileURLPaths(
   dialect: ShellDialect,
 ): FileURLPaths | undefined {
   if (isFileSchemeURL(token)) return normalizedFileURLPath(token, dialect);
-  if (!/[{}]/.test(token) || hasFixedNonFileScheme(token)) return undefined;
+  if (!/[{}[\]]/.test(token) || hasFixedNonFileScheme(token)) return undefined;
+  if (!globSyntaxCanProduceFileScheme(token)) return undefined;
+  if (token.includes("[")) return { failClosed: true };
 
-  let parsed = parseBraceSequence(token);
+  const parsed = parseBraceSequence(token);
   if (parsed.sequence === undefined) {
     const repaired = repairMissingBraceClosers(token);
-    if (repaired === undefined) {
-      return literalPrefixCouldBecomeFileScheme(token)
-        ? { failClosed: true }
-        : undefined;
+    if (repaired !== undefined && !globSyntaxCanProduceFileScheme(repaired)) {
+      return undefined;
     }
-    parsed = parseBraceSequence(repaired);
-    if (parsed.sequence === undefined) {
-      return literalPrefixCouldBecomeFileScheme(token)
-        ? { failClosed: true }
-        : undefined;
-    }
-    if (!sequenceCanStartWithFileScheme(parsed.sequence)) return undefined;
     return { failClosed: true };
   }
-  if (!sequenceCanStartWithFileScheme(parsed.sequence)) return undefined;
 
   const candidates = expandBraceSequence(parsed.sequence);
   if (candidates === undefined) return { failClosed: true };

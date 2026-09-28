@@ -8,7 +8,7 @@ const shellCall = (command: string): ToolCall => ({
   arguments: { command },
 });
 
-describe("local file URL brace expansion", () => {
+describe("local file URL glob expansion", () => {
   const localBraceURLs = [
     "file:///tmp/{%2Eenv,README.md}",
     "file:///tmp/{README.md,%2Eenv}",
@@ -40,6 +40,12 @@ describe("local file URL brace expansion", () => {
       "{https://example.com/README.md,file:///tmp/%2Eenv}",
       "f{i,oo}{le,tp}:///tmp/%2Eenv",
       "F{ILE,OO}:///tmp/%2Eenv",
+      "f[i-i]le:///tmp/%2Eenv",
+      "f[a-z]le:///tmp/%2Eenv",
+      "F[I-I]LE:///tmp/%2Eenv",
+      "f[i-i]l{e,x}:///tmp/%2Eenv",
+      "f[i]le:///tmp/%2Eenv",
+      "f[i-i le:///tmp/%2Eenv",
     ];
     const commands = synthesizedURLs.flatMap((url) => [
       `curl '${url}'`,
@@ -57,14 +63,27 @@ describe("local file URL brace expansion", () => {
   });
 
   test("does not apply the local brace rule to remote URLs", () => {
+    const remoteSchemes: string[] = Array.from({ length: 800 }, (_, index) =>
+      index % 2 === 0 ? "https" : "http",
+    );
+    const overlengthRemote = `{${remoteSchemes.join(",")}}://example.com/{one,two}`;
     for (const url of [
       "https://example.com/{one,two}",
       "https://example.com/%7Bone,two%7D",
       "https://example.com/{one",
       "https://example.com/two}",
+      "h[t-t]tp://example.com/[a-z]",
+      "https://example.com/[a-z]?q=[0-9]",
+      overlengthRemote,
     ]) {
       expect(autoShellRuleForCall(shellCall(`curl '${url}'`))).toBeUndefined();
     }
+
+    remoteSchemes[799] = "file";
+    const overlengthFileCapable = `{${remoteSchemes.join(",")}}:///tmp/%2Eenv`;
+    expect(
+      autoShellRuleForCall(shellCall(`curl '${overlengthFileCapable}'`)),
+    ).toMatchObject({ name: "sensitive-path", effect: "ask" });
   });
 });
 
