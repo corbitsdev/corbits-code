@@ -109,7 +109,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentui/core": "0.5.11",
     "arktype": "catalog:",
-    "highlight.js": "^11.11.1",
     "isomorphic-git": "catalog:"
   },
   "devDependencies": {

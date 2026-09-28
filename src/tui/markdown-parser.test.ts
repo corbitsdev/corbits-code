@@ -7,7 +7,6 @@ import {
   withholdIncompleteHeading,
   type StyledSegment,
 } from "./markdown-parser.js";
-import { color } from "./semantic-theme.js";
 
 function firstLine(text: string): StyledSegment[] {
   return parseMarkdown(text)[0] ?? [];
@@ -124,19 +123,19 @@ describe("block elements", () => {
     expect(lines[0]?.[0]?.text).toContain("╭");
   });
 
-  test("highlights a fenced block by its language token", () => {
+  test("a fenced block keeps its language cap with a plain body", () => {
     const lines = parseMarkdown('```js\nconst x = "hi";\n```');
-    const keyword = lines.flat().find((s) => s.text === "const");
-    expect(keyword?.code).toBe(true);
-    expect(keyword?.color).toBe(color("syntaxKeyword"));
-    const str = lines.flat().find((s) => s.text === '"hi"');
-    expect(str?.color).toBe(color("syntaxString"));
+    const body = lines.flat().find((s) => s.text.includes("const x"));
+    expect(body?.code).toBe(true);
+    expect(body?.color).toBeUndefined();
+    expect(lines[0]?.map((s) => s.text).join("")).toContain("js");
   });
 
-  test("an unclosed streaming fence still highlights its body", () => {
+  test("an unclosed streaming fence keeps a plain body", () => {
     const lines = parseMarkdown("```js\nconst x = 1;");
-    const keyword = lines.flat().find((s) => s.text === "const");
-    expect(keyword?.color).toBe(color("syntaxKeyword"));
+    const body = lines.flat().find((s) => s.text.includes("const x"));
+    expect(body?.code).toBe(true);
+    expect(body?.color).toBeUndefined();
   });
 
   test("drops a half-typed closing fence from the streaming tail", () => {
@@ -173,8 +172,7 @@ describe("block elements", () => {
     // The blank body line is not an empty segment array — it still paints ▏.
     const blankBody = lines.find(
       (line) =>
-        line.length === 1 &&
-        line[0]?.text === "▏ " &&
+        line.map((s) => s.text).join("") === "▏ " &&
         line[0]?.codeFence === true,
     );
     expect(blankBody).toBeDefined();
