@@ -438,7 +438,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
         closeInsetOverlay(shell);
         await Promise.resolve();
         expect(shell.overlayKind).toBe("help");
-        expect(resolved).toEqual({ allow: false });
+        expect(resolved).toBeUndefined();
       } finally {
         dispose();
       }
@@ -657,7 +657,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           closeInsetOverlay(shell);
           await Promise.resolve();
           expect(shell.overlayKind).toBe("settings");
-          expect(resolved).toEqual({ allow: false });
+          expect(resolved).toBeUndefined();
         } finally {
           dispose();
         }
@@ -720,7 +720,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           closeInsetOverlay(shell);
           await Promise.resolve();
           expect(shell.overlayKind).toBe("mcp");
-          expect(resolved).toEqual({ allow: false });
+          expect(resolved).toBeUndefined();
         } finally {
           dispose();
         }
@@ -1162,7 +1162,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
         closeInsetOverlay(shell);
         await Promise.resolve();
         expect(shell.overlayKind).toBe("add_provider");
-        expect(resolved).toEqual({ allow: false });
+        expect(resolved).toBeUndefined();
       } finally {
         dispose();
       }

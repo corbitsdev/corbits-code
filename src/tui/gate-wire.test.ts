@@ -550,7 +550,7 @@ describe("wireGates", () => {
         ).toEqual(["Reject", "Accept once", "Allow git A"]);
 
         closeInsetOverlay(shell);
-        expect(resolvedA).toEqual({ allow: false });
+        expect(resolvedA).toBeUndefined();
         expect(shell.overlayList).toBeNull();
 
         emitter.emit("permission.gate", {
@@ -621,7 +621,7 @@ describe("wireGates", () => {
           },
         });
         closeInsetOverlay(shell);
-        expect(resolvedA).toEqual({ allow: false });
+        expect(resolvedA).toBeUndefined();
         expect(shell.overlayList).toBeNull();
 
         emitter.emit("permission.gate", {
@@ -1674,7 +1674,7 @@ describe("operator.gate auto-cancel", () => {
 });
 
 describe("Esc on a gate overlay settles the awaited promise", () => {
-  test("permission.gate: Esc denies instead of abandoning the promise", async () => {
+  test("permission.gate: Esc abandons instead of denying", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, {
         terminal: { columns: 80, rows: 24 },
@@ -1699,8 +1699,7 @@ describe("Esc on a gate overlay settles the awaited promise", () => {
 
         expect(shell.overlayList).toBeNull();
         expect(resolveCount).toBe(1);
-        expect(resolved).toEqual({ allow: false });
-        expect(resolved).not.toEqual(unavailable);
+        expect(resolved).toBeUndefined();
       } finally {
         shell.dispose();
       }
