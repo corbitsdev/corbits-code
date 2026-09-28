@@ -580,6 +580,25 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     expect(asked).toBe(1);
   });
 
+  test("stored curl grants do not authorize stepped file-scheme synthesis", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [{ tool: "run_shell", pattern: "curl *" }],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+    });
+    const verdict = await gate.evaluate(
+      shellCall("curl 'f[a-z:02]le:///tmp/%2Eenv'"),
+    );
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
   test("stored grants still authorize ordinary shell reads", async () => {
     let asked = 0;
     const gate = createPermissionGate({

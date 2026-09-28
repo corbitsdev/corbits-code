@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { createPosixTools } from "@intx/tools-posix";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
+import { autoShellRuleForCall } from "../permission/auto-shell-policy.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { loadProjectApprovals } from "../permission/store.js";
 import {
@@ -452,6 +453,8 @@ describe("secret-guard file URL normalization", () => {
     "F{ILE,OO}:///tmp/%2Eenv",
     "f[i-i]le:///tmp/%2Eenv",
     "f[a-z]le:///tmp/%2Eenv",
+    "f[a-z:02]le:///tmp/%2Eenv",
+    "f[a-z:0002]le:///tmp/%2Eenv",
     "F[I-I]LE:///tmp/%2Eenv",
     "f[i-i]l{e,x}:///tmp/%2Eenv",
   ];
@@ -488,6 +491,41 @@ describe("secret-guard file URL normalization", () => {
     );
   }
 
+  test("auto mode asks for leading-zero curl ranges across wrappers", () => {
+    for (const step of ["02", "0002"]) {
+      const url = `f[a-z:${step}]le:///tmp/%2Eenv`;
+      for (const command of [
+        `curl '${url}'`,
+        `env curl '${url}'`,
+        `bash -c "curl '${url}'"`,
+        `sh -c "curl '${url}'"`,
+      ]) {
+        expect(autoShellRuleForCall(shell(command), () => false)?.name).toBe(
+          "sensitive-path",
+        );
+      }
+    }
+  });
+
+  test("classifies stepped scheme ranges without widening remote URLs", () => {
+    for (const url of [
+      "f[a-z:2]le:///tmp/%2Eenv",
+      "f[a-z:02]le:///tmp/%2Eenv",
+      "f[a-z:0002]le:///tmp/%2Eenv",
+      "f[a-z:0]le:///tmp/%2Eenv",
+      "f[i]le:///tmp/%2Eenv",
+    ]) {
+      expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeDefined();
+    }
+    for (const url of [
+      "f[a-z:3]le:///tmp/%2Eenv",
+      "f[z-a:02]le:///tmp/%2Eenv",
+      "h[t-z:02]tp://example.com/%2Eenv",
+    ]) {
+      expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeUndefined();
+    }
+  });
+
   test("keeps remote-only scheme globs allowed", () => {
     const overflow = `{${Array.from({ length: 80 }, (_, index) =>
       index % 2 === 0 ? "https" : "http",
@@ -512,7 +550,7 @@ describe("secret-guard file URL normalization", () => {
   });
 
   test("classifies 1000 remote-only bracket URLs within a bounded time", () => {
-    const url = `f[t-t]p://example.com/${"[a-z]".repeat(1_000)}`;
+    const url = `f[t-t:0002]p://example.com/${"[a-z:02]".repeat(1_000)}`;
     const started = performance.now();
     for (let index = 0; index < 1_000; index++) {
       expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeUndefined();

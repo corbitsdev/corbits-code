@@ -495,9 +495,7 @@ interface RangeEmission {
 }
 
 function rangeEmission(expression: string, expected: string): RangeEmission {
-  const range = /^([A-Za-z0-9])-([A-Za-z0-9])(?::([1-9][0-9]*))?$/.exec(
-    expression,
-  );
+  const range = /^([A-Za-z0-9])-([A-Za-z0-9])(?::([0-9]+))?$/.exec(expression);
   if (range === null) {
     const single = /^[A-Za-z0-9]$/.test(expression);
     return {
@@ -525,6 +523,15 @@ function rangeEmission(expression: string, expected: string): RangeEmission {
     expected.toLowerCase().codePointAt(0) ?? -1,
     expected.toUpperCase().codePointAt(0) ?? -1,
   ];
+  if (!Number.isInteger(step) || step <= 0) {
+    return {
+      includesExpected: expectedCodes.some(
+        (code) => code >= startCode && code <= endCode,
+      ),
+      includesOther: true,
+      valid: false,
+    };
+  }
   const includesExpected = expectedCodes.some(
     (code) =>
       code >= startCode && code <= endCode && (code - startCode) % step === 0,
