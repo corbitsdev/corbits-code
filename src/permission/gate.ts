@@ -741,9 +741,16 @@ export function createPermissionGate(
   // provider-identity switches). Timeouts and aborts are never recorded.
   const denialMemory = new DenialMemory();
 
-  const denialFingerprint = (call: ToolCall, cwd: string): string =>
+  // Single canonical denial key: the raw call coerced onto its engine id
+  // (hidden shell argv/workdir, default./doubled aliases) before the stable
+  // request id, so a same-turn retry in any shape — raw, coerced, or fresh
+  // tool_call.id — fingerprints identically. Coercion is idempotent on
+  // already-coerced run_shell (looksLikeCodexShellArgs ignores native
+  // cwd/timeout), so decide() passing the raw call and evaluate() passing
+  // the raw call share one derivation with resolveSuspended()'s rebuild.
+  const denialFingerprint = (rawCall: ToolCall, cwd: string): string =>
     stableRequestId(
-      withCanonicalToolName(call),
+      callForIdentity(rawCall),
       cwd,
       rootsProvider,
       trustedPluginRoots,
@@ -817,7 +824,11 @@ export function createPermissionGate(
     // deny below: the decision is the same deny either way, but the reason
     // text is the originally recorded one, not a freshly computed escape
     // reason.
-    const stableId = denialFingerprint(call, effectiveCwd);
+    // Fingerprint the raw call, not the coerced `call` above: the coercion
+    // inside denialFingerprint is idempotent, so both forms share one key,
+    // and the raw form is what evaluate() and resolveSuspended() also derive
+    // from — keeping the three decline paths on the identical reason.
+    const stableId = denialFingerprint(rawCall, effectiveCwd);
     const cachedDenial = denialMemory.isDenied(stableId);
     if (cachedDenial !== undefined)
       return { kind: "deny", reason: cachedDenial };
@@ -1121,8 +1132,8 @@ export function createPermissionGate(
   // calls never pass through the reactor (sub-agents). When the gate is
   // reactor-gated, gateToolCall uses executionVerdict instead of evaluate() so
   // deny still blocks and ask never re-prompts (see gateToolCall).
-  const evaluate = async (call: ToolCall): Promise<GateVerdict> => {
-    const decision = await decide(call);
+  const evaluate = async (rawCall: ToolCall): Promise<GateVerdict> => {
+    const decision = await decide(rawCall);
     if (decision.kind === "allow") return { allowed: true };
     if (decision.kind === "deny")
       return { allowed: false, reason: decision.reason };
@@ -1133,14 +1144,15 @@ export function createPermissionGate(
       // same stable fingerprint) denies with the identical reason instead of
       // re-asking. Timeouts, aborts, and missing outcomes are never cached —
       // the operator made no decision, so the retry must ask again (mirrors
-      // resolveSuspended).
+      // resolveSuspended). The key derives from the raw call through the one
+      // canonical coercion, so a coerced-shape retry hits the same entry.
       if (
         outcome !== undefined &&
         !outcome.allow &&
         classifyOutcome(outcome) === "deny"
       ) {
         denialMemory.record(
-          denialFingerprint(call, getSubAgentIdentity()?.cwd ?? resolvedCwd),
+          denialFingerprint(rawCall, getSubAgentIdentity()?.cwd ?? resolvedCwd),
           reason,
         );
       }
@@ -1241,14 +1253,25 @@ export function createPermissionGate(
       // reason instead of re-prompting. Timeouts, aborts, and missing outcomes
       // are never cached — the operator made no decision, so the retry must
       // ask again. Invalidation (grant-mint/mode/identity clears) is unchanged.
+      // Rebuild the denied ToolCall from the suspended request through the
+      // one canonical helper decide()/evaluate() use, so the recorded key
+      // matches the retry's decide() key: request.tool/arguments are already
+      // post-coercion (run_shell {command}), and callForIdentity re-applies
+      // the same canonicalization idempotently. The synthesized id never
+      // participates (stableRequestId ignores call.id and correlationId).
       if (
         outcome !== undefined &&
         !outcome.allow &&
         classifyOutcome(outcome) === "deny"
       ) {
+        const suspendedCall = callForIdentity({
+          id: "",
+          name: request.tool,
+          arguments: request.arguments ?? {},
+        });
         denialMemory.record(
           denialFingerprint(
-            { id: "", name: request.tool, arguments: request.arguments ?? {} },
+            suspendedCall,
             request.cwd ?? getSubAgentIdentity()?.cwd ?? resolvedCwd,
           ),
           declineReason(request, outcome),
