@@ -1264,6 +1264,9 @@ export async function createAgentToolset(
       try {
         result = await connectMCPClient(config, {
           stderr: "ignore",
+          ...(args.telemetry !== undefined
+            ? { telemetry: args.telemetry }
+            : {}),
           ...(callbacks.interactiveAuth
             ? {
                 onAuthURL: (name: string, url: string) => {

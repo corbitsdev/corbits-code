@@ -365,6 +365,13 @@ function gateRedirectToAuthorization(context: HTTPAuthContext): void {
       return promptEmitted;
     } catch (err) {
       unfreezePkce(coordinator);
+      // The cap throws before a browser flow exists, so this denial never
+      // reaches the instrumented recovery path below — emit here so the
+      // terminal denial maps to timeout like every other non-abort end.
+      captureMcpOauth(
+        context.telemetry,
+        classifyMcpOauthOutcome(err, coordinator.lifecycle.signal.aborted),
+      );
       throw err;
     }
   };

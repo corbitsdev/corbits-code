@@ -7,6 +7,7 @@ import {
   test,
 } from "bun:test";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { Telemetry } from "../telemetry/index.js";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
 
 let finishAuthCalls = 0;
@@ -263,7 +264,7 @@ const config = {
   url: "https://mcp.linear.app/mcp",
 };
 
-async function connectWithAuthPrompt(): Promise<{
+async function connectWithAuthPrompt(telemetry?: Telemetry): Promise<{
   ok: boolean;
   error?: string;
   authPending?: boolean;
@@ -273,6 +274,7 @@ async function connectWithAuthPrompt(): Promise<{
       authURLCount += 1;
       authEvents.push("authURL");
     },
+    ...(telemetry !== undefined ? { telemetry } : {}),
   });
   return result.ok
     ? { ok: true }
@@ -862,6 +864,46 @@ describe("HTTP MCP re-auth loop prevention", () => {
     expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
     expect(finishAuthCalls).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
     expect(providerCreates).toBeGreaterThan(MAX_BROWSER_AUTH_ATTEMPTS);
+  });
+
+  test("a capped browser-auth denial emits one mcp_oauth timeout", async () => {
+    const oauthResults: unknown[] = [];
+    const telemetry: Telemetry = {
+      enabled: true,
+      installationId: "test",
+      capture: (event, properties) => {
+        if (event === "mcp_oauth")
+          oauthResults.push(
+            (properties as Record<string, unknown> | undefined)?.result,
+          );
+      },
+      captureIntentional: () => false,
+      flush: async () => undefined,
+      discard: () => undefined,
+    };
+    const connectWithTelemetry = () => connectWithAuthPrompt(telemetry);
+    connectFailuresLeft = Number.POSITIVE_INFINITY;
+
+    for (let episode = 0; episode < MAX_BROWSER_AUTH_ATTEMPTS; episode += 1) {
+      const result = await connectWithTelemetry();
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("finishAuth exploded");
+    }
+    expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
+    // Each failed episode emits exactly one timeout through recovery.
+    expect(oauthResults).toEqual(
+      Array.from({ length: MAX_BROWSER_AUTH_ATTEMPTS }, () => "timeout"),
+    );
+
+    const capped = await connectWithTelemetry();
+    expect(capped.ok).toBe(false);
+    expect(capped.error).toContain("retrying paused");
+    expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);
+    // The cap denial exits before a browser flow exists, but it still maps
+    // to exactly one terminal timeout rather than staying silent.
+    expect(oauthResults).toEqual(
+      Array.from({ length: MAX_BROWSER_AUTH_ATTEMPTS + 1 }, () => "timeout"),
+    );
   });
 
   test("successful interactive auth clears the cap so a later failure can prompt", async () => {

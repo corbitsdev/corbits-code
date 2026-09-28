@@ -5,6 +5,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 
 import { connectMCPServer, type MCPClient } from "../mcp/client.js";
 import type { MCPServerConfig } from "../config/settings.js";
+import { getTelemetry } from "../telemetry/singleton.js";
 import { EXA_MCP_URL } from "../mcp/exa.js";
 
 export { EXA_MCP_URL } from "../mcp/exa.js";
@@ -93,7 +94,9 @@ async function getClient(provider: WebSearchProviderId): Promise<MCPClient> {
     type: "http",
     url: endpointFor(provider),
   };
-  const connecting = connectMCPServer(config).then((result) => {
+  const connecting = connectMCPServer(config, {
+    telemetry: getTelemetry(),
+  }).then((result) => {
     if (!result.ok) {
       clientCache.delete(provider);
       throw new Error(result.error);
