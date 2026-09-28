@@ -11,7 +11,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type } from "arktype";
 
-import { createAuthStore, type BaseTokens } from "./store.js";
+import { withMockedModule } from "../../tests/helpers/mock-module.js";
+import type { BaseTokens } from "./store.js";
+
+let failingUnlinkPath: string | undefined;
+await withMockedModule(
+  import.meta.resolve("node:fs/promises"),
+  (real: typeof import("node:fs/promises")) => ({
+    ...real,
+    unlink: async (...args: Parameters<typeof real.unlink>) => {
+      if (args[0] === failingUnlinkPath) throw new Error("lock release failed");
+      return real.unlink(...args);
+    },
+  }),
+);
+
+const { createAuthStore } = await import("./store.js");
 
 type TestTokens = BaseTokens & { accountId?: string };
 
@@ -297,6 +312,64 @@ describe("createAuthStore", () => {
       await writeFile(store.authPath(home), "{not json", { mode: 0o600 });
       expect(await store.listProfiles(home)).toEqual([]);
     } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("surfaces a credential lock release failure after a successful write", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-release-error-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+      failingUnlinkPath = `${store.authPath(home)}.lock`;
+
+      await expect(
+        store.saveProfile(
+          {
+            name: "work",
+            tokens: { access: "a", refresh: "r", expiresAt: 1 },
+            createdAt: 1,
+          },
+          home,
+        ),
+      ).rejects.toThrow("lock release failed");
+    } finally {
+      failingUnlinkPath = undefined;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("does not mask a read-modify-write callback failure during release", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-error-precedence-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+      const profile = {
+        name: "work",
+        tokens: { access: "a", refresh: "r", expiresAt: 1 },
+        createdAt: 1,
+      };
+      await store.saveProfile(profile, home);
+
+      const failingStore = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: (_value: unknown): _value is TestTokens => {
+          throw new Error("validator failed");
+        },
+      });
+      failingUnlinkPath = `${store.authPath(home)}.lock`;
+      await expect(failingStore.saveProfile(profile, home)).rejects.toThrow(
+        "validator failed",
+      );
+    } finally {
+      failingUnlinkPath = undefined;
       await rm(home, { recursive: true, force: true });
     }
   });

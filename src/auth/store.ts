@@ -302,24 +302,37 @@ export function createAuthStore<TTokens extends BaseTokens>(
       }
     }
 
+    let callbackOutcome:
+      | { ok: true; value: TResult }
+      | { ok: false; error: unknown };
     try {
-      return await callback();
-    } finally {
-      try {
-        await lock.close();
-      } catch {
-        // The callback's result (or error) owns this return path; a close
-        // failure must not mask it. The unlink below still runs.
-      } finally {
-        // Swallow ENOENT only: a stale-takeover steal legitimately removes
-        // the file first, but permission and disk errors must surface.
-        try {
-          await unlink(lockPath);
-        } catch (error) {
-          if (!isErrnoCode(error, "ENOENT")) throw error;
-        }
+      callbackOutcome = { ok: true, value: await callback() };
+    } catch (error) {
+      callbackOutcome = { ok: false, error };
+    }
+
+    try {
+      await lock.close();
+    } catch {
+      // The callback outcome owns precedence; a close failure must not mask it.
+      // The unlink below still runs.
+    }
+
+    let releaseOutcome: { ok: true } | { ok: false; error: unknown } = {
+      ok: true,
+    };
+    try {
+      await unlink(lockPath);
+    } catch (error) {
+      // A stale-takeover steal may legitimately remove the file first.
+      if (!isErrnoCode(error, "ENOENT")) {
+        releaseOutcome = { ok: false, error };
       }
     }
+
+    if (!callbackOutcome.ok) throw callbackOutcome.error;
+    if (!releaseOutcome.ok) throw releaseOutcome.error;
+    return callbackOutcome.value;
   }
 
   function enqueueAuthFileOp<TResult>(
