@@ -1131,6 +1131,9 @@ describe("CL-8980 compaction preserves the path+offset resume recipe", () => {
     const compactor = createPruningCompactor({
       keepRecentTurns: 8,
       summaryMaxChars: 4000,
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       summarize,
     });
     const turns: ConversationTurn[] = [
@@ -1161,6 +1164,9 @@ describe("CL-8980 compaction preserves the path+offset resume recipe", () => {
     const compactor = createPruningCompactor({
       keepRecentTurns: 6,
       summaryMaxChars: 4000,
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
       summarize,
     });
     const turns: ConversationTurn[] = [
