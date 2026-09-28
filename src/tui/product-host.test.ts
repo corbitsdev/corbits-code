@@ -19,6 +19,7 @@ import {
   type ProductHostConfig,
 } from "./product-host.js";
 import { buildModelsFirstCatalog, modelOptionId } from "./model-catalog.js";
+import { MAX_RETAINED_STREAM_ROWS } from "./long-log.js";
 
 function makeFakeSessionPort(): {
   readonly sends: string[];
@@ -131,6 +132,56 @@ describe("mountProductHost", () => {
         { role: "user", text: "past prompt" },
         { role: "assistant", text: "past reply" },
       ]);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("history.hydrate caps oversized history at the newest retained rows (CL-9008)", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      const total = MAX_RETAINED_STREAM_ROWS + 200;
+      const blocks = Array.from({ length: total }, (_, i) => ({
+        type: "text",
+        content: `row-${i}`,
+      }));
+      emitter.emit("history.hydrate", blocks);
+      expect(host.shell.streamLog.length).toBe(MAX_RETAINED_STREAM_ROWS);
+      expect(host.shell.streamLog[0]).toEqual({
+        role: "assistant",
+        text: `row-${total - MAX_RETAINED_STREAM_ROWS}`,
+      });
+      expect(host.shell.streamLog[MAX_RETAINED_STREAM_ROWS - 1]).toEqual({
+        role: "assistant",
+        text: `row-${total - 1}`,
+      });
+      // Pre-sliced to the cap, so the append loop never trips retention
+      // eviction: no churn, no dropped-rows marker on resume.
+      expect(host.shell.streamLogBase).toBe(0);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("history.hydrate below the cap paints every row (CL-9008)", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      const total = MAX_RETAINED_STREAM_ROWS - 100;
+      const blocks = Array.from({ length: total }, (_, i) => ({
+        type: "text",
+        content: `small-${i}`,
+      }));
+      emitter.emit("history.hydrate", blocks);
+      expect(host.shell.streamLog.length).toBe(total);
+      expect(host.shell.streamLog[0]).toEqual({
+        role: "assistant",
+        text: "small-0",
+      });
+      expect(host.shell.streamLog[total - 1]).toEqual({
+        role: "assistant",
+        text: `small-${total - 1}`,
+      });
+      expect(host.shell.streamLogBase).toBe(0);
     } finally {
       host.dispose();
     }
