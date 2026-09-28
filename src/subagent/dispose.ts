@@ -42,17 +42,6 @@ export const SUBAGENT_SPAWN_DRAIN_MS = 2_000;
  */
 export const DEFAULT_CLOSE_DEADLINE_MS = 30_000;
 
-/**
- * Honest limits for plugin-spawn teardown (for operator docs and output notes).
- * Corbits Code disposes posix tools and LSP sidecars per sub-agent session.
- * Shell-guard tracks live `run_shell` children and kills the process group on
- * plugin dispose (`posixTools.dispose`). Ripgrep detached spawns are not
- * tracked in a global registry.
- */
-export const SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS =
-  "Per sub-agent session Corbits Code runs posixTools.dispose() (LSP and plugin dispose callbacks, including in-flight tool drain), then agent.close() and stream drain. " +
-  "run_shell children are tracked in the shell-guard plugin and killed on posixTools.dispose; ripgrep detached spawns are not tracked in a global registry.";
-
 /** Fail a hung close instead of resolving as successful teardown. */
 export async function awaitBoundedTeardown(
   teardown: Promise<void>,

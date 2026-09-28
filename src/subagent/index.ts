@@ -48,10 +48,7 @@ export {
   resolveSubAgentDeadlineMs,
 } from "./stop-policy.js";
 
-export { SubAgentDirector } from "./nudge-director.js";
-
 export {
-  SUBAGENT_PLUGIN_SPAWN_TEARDOWN_LIMITS,
   createSubAgentSpawnRegistryPlugin,
   disposeSubAgentSession,
 } from "./dispose.js";

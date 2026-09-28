@@ -468,11 +468,10 @@ export const ChatToolsActivateDataSchema = type({
 
 export interface ChatDirectorOptions {
   // CL-7919: task-boundary classification and workflow coordination are not
-  // host-injected closures. Classification's pure core lives in
-  // session/compactor.ts (classifyTaskBoundary); the director runs no
-  // decide()-time classification — the taskClassifier seam had zero
-  // production suppliers, and a native heuristics-only hook would newly arm
-  // new-task envelopes in the TUI. Coordination is host-owned (WorkflowHost
+  // host-injected closures. The director runs no decide()-time
+  // classification — the taskClassifier seam had zero production suppliers,
+  // and a native heuristics-only hook would newly arm new-task envelopes in
+  // the TUI. Coordination is host-owned (WorkflowHost
   // owns the runtime lifecycle: start/resume/reset/persist) and reaches the
   // director only through setWorkflowCoordinator, the narrow live-object
   // seam below — never through options. Rejected: tools the director calls

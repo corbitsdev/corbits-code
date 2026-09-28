@@ -3,7 +3,7 @@
 // Pure data — no process.stdout, no paint framework.
 
 /** Constitution zone ids (snake_case matches the registry table). */
-export const ZONE_IDS = [
+const ZONE_IDS = [
   "progress",
   "progress_divider",
   "notice",

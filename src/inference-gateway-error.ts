@@ -598,41 +598,6 @@ function formatCodexCredential404Message(
 }
 
 /**
- * Reclassification telemetry for the Codex credential-404 classifier. The
- * backend invents new 404 reasons over time; the counter plus the last-body
- * sample let future unknown-404 waves be spotted without guessing.
- */
-let codexCredential404ReclassifiedCount = 0;
-let lastReclassifiedCodex404Sample = "";
-
-export function codexCredential404ReclassifiedStats(): {
-  readonly count: number;
-  readonly lastSample: string;
-} {
-  return {
-    count: codexCredential404ReclassifiedCount,
-    lastSample: lastReclassifiedCodex404Sample,
-  };
-}
-
-export function resetCodexCredential404StatsForTests(): void {
-  codexCredential404ReclassifiedCount = 0;
-  lastReclassifiedCodex404Sample = "";
-}
-
-function recordCodexCredential404Reclassification(
-  error: InferenceErrorLike,
-): void {
-  codexCredential404ReclassifiedCount += 1;
-  const sample = [error.message ?? "", stringFromRaw(error.raw)]
-    .join("\n")
-    .replace(/\s+/g, " ")
-    .trim();
-  lastReclassifiedCodex404Sample =
-    sample.length > 500 ? `${sample.slice(0, 499)}…` : sample;
-}
-
-/**
  * Codex answers unauthenticated requests with 426/404, so a fatal 404 in a
  * known-Codex context whose body carries an auth-rejection signal is an
  * expired, invalid, or revoked credential — not a bad model name. The
@@ -657,7 +622,6 @@ function normalizeCodexCredential404Error(
   if (!hasCodexCredentialAuthSignal(error)) return error;
   const profile = codexProfileFromProviderName(providerId) ?? providerId;
   const message = formatCodexCredential404Message(profile, error.message ?? "");
-  recordCodexCredential404Reclassification(error);
   return {
     category: "credential_failure",
     message,

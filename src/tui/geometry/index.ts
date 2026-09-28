@@ -12,7 +12,6 @@ export {
   PROMPT_CAP_FRACTION,
   PROMPT_IDLE_ROWS,
   TASKS_PANEL_MAX_VISIBLE,
-  ZONE_IDS,
   ZONE_REGISTRY,
 } from "./zones.js";
 
