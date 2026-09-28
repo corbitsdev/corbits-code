@@ -45,6 +45,69 @@ async function saveClient(
   await save(info);
 }
 
+// linear's discovery document endpoints, canned; the POST branch is the
+// per-test part (token endpoint behavior varies by scenario).
+function linearDiscoveryFetch(
+  onPost: (init: RequestInit) => Promise<Response>,
+): (url: string | URL, init?: RequestInit) => Promise<Response> {
+  return async (url, init) => {
+    const href = String(url);
+    if (init?.method === "POST") {
+      return onPost(init);
+    }
+    if (href.includes("oauth-protected-resource")) {
+      return new Response(
+        JSON.stringify({
+          resource: "https://mcp.linear.app/mcp",
+          authorization_servers: ["https://mcp.linear.app"],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (
+      href.includes("oauth-authorization-server") ||
+      href.includes("openid-configuration")
+    ) {
+      return new Response(
+        JSON.stringify({
+          issuer: "https://mcp.linear.app",
+          authorization_endpoint: "https://mcp.linear.app/authorize",
+          token_endpoint: "https://mcp.linear.app/oauth/token",
+          response_types_supported: ["code"],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response(null, { status: 404 });
+  };
+}
+
+type OAuthProvider = Awaited<ReturnType<typeof createOAuthProvider>>;
+
+async function expectClientOnPort(
+  provider: OAuthProvider,
+  port: number,
+  clientId = `client-on-${String(port)}`,
+): Promise<void> {
+  const info = await syncValue(provider.clientInformation());
+  expect(info?.client_id).toBe(clientId);
+  expect(
+    info && "redirect_uris" in info ? info.redirect_uris : undefined,
+  ).toEqual([`http://127.0.0.1:${String(port)}/callback`]);
+}
+
+async function expectStoredClient(
+  home: string,
+  clientId: string,
+  port: number,
+): Promise<void> {
+  const disk = await loadAuthState(linear, home);
+  expect(disk.clientInformation?.client_id).toBe(clientId);
+  expect(disk.clientInformation?.redirect_uris).toEqual([
+    `http://127.0.0.1:${String(port)}/callback`,
+  ]);
+}
+
 describe("createOAuthProvider", () => {
   test("drops stale DCR client when redirect port changed and no tokens exist", async () => {
     const home = await tempHome();
@@ -345,11 +408,7 @@ describe("createOAuthProvider", () => {
     );
 
     await saveClient(b, clientInfo(60435));
-    const info = await syncValue(a.clientInformation());
-    expect(info?.client_id).toBe("client-on-62000");
-    expect(
-      info && "redirect_uris" in info ? info.redirect_uris : undefined,
-    ).toEqual(["http://127.0.0.1:62000/callback"]);
+    await expectClientOnPort(a, 62000);
   });
 
   test("saveTokens after a different-port sibling construct keeps this session's DCR", async () => {
@@ -380,16 +439,8 @@ describe("createOAuthProvider", () => {
       refresh_token: "ref-a",
     });
 
-    const info = await syncValue(a.clientInformation());
-    expect(info?.client_id).toBe("client-on-62000");
-    expect(
-      info && "redirect_uris" in info ? info.redirect_uris : undefined,
-    ).toEqual(["http://127.0.0.1:62000/callback"]);
-    const disk = await loadAuthState(linear, home);
-    expect(disk.clientInformation?.client_id).toBe("client-on-62000");
-    expect(disk.clientInformation?.redirect_uris).toEqual([
-      "http://127.0.0.1:62000/callback",
-    ]);
+    await expectClientOnPort(a, 62000);
+    await expectStoredClient(home, "client-on-62000", 62000);
   });
 
   test("idle tokens getter adopts a sibling's completed auth without rewriting matching DCR", async () => {
@@ -456,16 +507,8 @@ describe("createOAuthProvider", () => {
     await saveClient(b, clientInfo(60435));
     await saveClient(a, v2);
 
-    const info = await syncValue(a.clientInformation());
-    expect(info?.client_id).toBe("client-on-62000-v2");
-    expect(
-      info && "redirect_uris" in info ? info.redirect_uris : undefined,
-    ).toEqual(["http://127.0.0.1:62000/callback"]);
-    const disk = await loadAuthState(linear, home);
-    expect(disk.clientInformation?.client_id).toBe("client-on-62000-v2");
-    expect(disk.clientInformation?.redirect_uris).toEqual([
-      "http://127.0.0.1:62000/callback",
-    ]);
+    await expectClientOnPort(a, 62000, "client-on-62000-v2");
+    await expectStoredClient(home, "client-on-62000-v2", 62000);
   });
 
   test("sync getters fall back to the in-memory mirror when the auth file disappears", async () => {
@@ -599,48 +642,18 @@ describe("createOAuthProvider", () => {
     );
 
     const tokenBodies: string[] = [];
-    const fetchFn = async (
-      url: string | URL,
-      init?: RequestInit,
-    ): Promise<Response> => {
-      const href = String(url);
-      if (init?.method === "POST") {
-        tokenBodies.push(String(init.body));
-        return new Response(
-          JSON.stringify({
-            access_token: "fresh-access",
-            token_type: "bearer",
-            expires_in: 3600,
-            refresh_token: "fresh-refresh",
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      if (href.includes("oauth-protected-resource")) {
-        return new Response(
-          JSON.stringify({
-            resource: "https://mcp.linear.app/mcp",
-            authorization_servers: ["https://mcp.linear.app"],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      if (
-        href.includes("oauth-authorization-server") ||
-        href.includes("openid-configuration")
-      ) {
-        return new Response(
-          JSON.stringify({
-            issuer: "https://mcp.linear.app",
-            authorization_endpoint: "https://mcp.linear.app/authorize",
-            token_endpoint: "https://mcp.linear.app/oauth/token",
-            response_types_supported: ["code"],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response(null, { status: 404 });
-    };
+    const fetchFn = linearDiscoveryFetch(async (init) => {
+      tokenBodies.push(String(init.body));
+      return new Response(
+        JSON.stringify({
+          access_token: "fresh-access",
+          token_type: "bearer",
+          expires_in: 3600,
+          refresh_token: "fresh-refresh",
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
 
     const provider = await createOAuthProvider({
       serverName: "linear",
@@ -672,42 +685,13 @@ describe("createOAuthProvider", () => {
     const home = await tempHome();
     await saveAuthState(linear, { clientInformation: clientInfo(1) }, home);
 
-    const fetchFn = async (
-      url: string | URL,
-      init?: RequestInit,
-    ): Promise<Response> => {
-      const href = String(url);
-      if (init?.method === "POST") {
-        return new Response(JSON.stringify({ error: "invalid_grant" }), {
+    const fetchFn = linearDiscoveryFetch(
+      async () =>
+        new Response(JSON.stringify({ error: "invalid_grant" }), {
           status: 400,
           headers: { "content-type": "application/json" },
-        });
-      }
-      if (href.includes("oauth-protected-resource")) {
-        return new Response(
-          JSON.stringify({
-            resource: "https://mcp.linear.app/mcp",
-            authorization_servers: ["https://mcp.linear.app"],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      if (
-        href.includes("oauth-authorization-server") ||
-        href.includes("openid-configuration")
-      ) {
-        return new Response(
-          JSON.stringify({
-            issuer: "https://mcp.linear.app",
-            authorization_endpoint: "https://mcp.linear.app/authorize",
-            token_endpoint: "https://mcp.linear.app/oauth/token",
-            response_types_supported: ["code"],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response(null, { status: 404 });
-    };
+        }),
+    );
 
     const provider = await createOAuthProvider({
       serverName: "linear",
@@ -731,46 +715,19 @@ describe("createOAuthProvider", () => {
     await saveAuthState(linear, { clientInformation: clientInfo(1) }, home);
     const abort = new AbortController();
     const seen: (AbortSignal | undefined)[] = [];
-    const fetchFn = fetchWithConnectAbort(abort.signal, (url, init) => {
-      seen.push(init?.signal ?? undefined);
-      const href = String(url);
-      if (init?.method === "POST") {
-        return new Promise<Response>((_resolve, reject) => {
+    const discoveryFetch = linearDiscoveryFetch(
+      (init) =>
+        new Promise<Response>((_resolve, reject) => {
           const fail = (): void => {
             reject(init.signal?.reason ?? new Error("aborted"));
           };
           if (init.signal?.aborted === true) fail();
           else init.signal?.addEventListener("abort", fail, { once: true });
-        });
-      }
-      if (href.includes("oauth-protected-resource")) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              resource: "https://mcp.linear.app/mcp",
-              authorization_servers: ["https://mcp.linear.app"],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
-        );
-      }
-      if (
-        href.includes("oauth-authorization-server") ||
-        href.includes("openid-configuration")
-      ) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              issuer: "https://mcp.linear.app",
-              authorization_endpoint: "https://mcp.linear.app/authorize",
-              token_endpoint: "https://mcp.linear.app/oauth/token",
-              response_types_supported: ["code"],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          ),
-        );
-      }
-      return Promise.resolve(new Response(null, { status: 404 }));
+        }),
+    );
+    const fetchFn = fetchWithConnectAbort(abort.signal, (url, init) => {
+      seen.push(init?.signal ?? undefined);
+      return discoveryFetch(url, init);
     });
 
     const provider = await createOAuthProvider({

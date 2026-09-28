@@ -5,41 +5,20 @@
  */
 import { describe, expect, test } from "bun:test";
 import { openCommandSurface, type McpEntry } from "./command-surfaces";
-import { withTestRenderer } from "./harness";
-import { createAppShell } from "./shell/index";
-import type { AppShell } from "./shell/internals";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
 } from "./shell/overlay-host";
 import { moveOverlaySelection } from "./shell/overlay-list";
+import { withAppShell } from "./test-helpers";
 
 const entries: readonly McpEntry[] = [
   { name: "notion", state: "needs-auth", authURL: "https://notion.test/auth" },
 ];
 
-async function withShell(
-  fn: (shell: AppShell) => Promise<void> | void,
-): Promise<void> {
-  await withTestRenderer(
-    async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        wireKeys: false,
-      });
-      try {
-        await fn(shell);
-      } finally {
-        shell.dispose();
-      }
-    },
-    { width: 80, height: 24 },
-  );
-}
-
 describe("mcp auth copy failure", () => {
   test("both clipboard legs failing flashes copy failed instead of crashing", async () => {
-    await withShell(async (shell) => {
+    await withAppShell(async (shell) => {
       const clip = {
         writeText: () => Promise.reject(new Error("both legs failed")),
       };

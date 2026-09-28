@@ -17,26 +17,17 @@
  * genuine run.ts code path.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import { defined } from "../testkit/defined.js";
-import { createPermissionGate } from "../permission/gate.js";
-import type { RunSubAgentParams } from "./types.js";
 import { errorMessage } from "../agent/error-message.js";
-
-const testPermissionGate = createPermissionGate({
-  approvals: [],
-  interactive: false,
-  skipPermissions: true,
-  reactorGated: false,
-});
-
-async function tmpCwd(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "cl6997-live-agent-"));
-}
+import {
+  baseRunParams,
+  captureRunHandles,
+  pollUntil,
+  stubAgent,
+  tmpSubAgentCwd,
+  withStubbedAgent,
+} from "./run-test-harness.js";
 
 /** Minimal stand-in for the vendored `Agent` (dist/agent.d.ts), instrumented
  * to prove reuse: `sendLog` accumulates every message across BOTH the
@@ -48,7 +39,7 @@ function createStubAgent(opts?: { hangFromSend?: number }) {
   return {
     sendLog,
     abortedSends,
-    async send(content: string, optsSend?: { signal?: AbortSignal }) {
+    send: async (content: string, optsSend?: { signal?: AbortSignal }) => {
       sendLog.push(content);
       const index = sendLog.length - 1;
       abortedSends[index] = false;
@@ -85,83 +76,47 @@ function createStubAgent(opts?: { hangFromSend?: number }) {
         );
       });
     },
-    stream: () =>
-      (async function* () {
-        yield* [];
-      })(),
-    deliver: () => undefined,
-    close: async () => undefined,
-    setSource: () => undefined,
-    setSources: () => undefined,
-    history: async () => [],
-    checkpoints: async () => [],
-    readAt: async () => [],
-    blobReader: {},
+    ...stubAgent(),
   };
 }
 
 describe("interrupt_agent / resume_agent reuse the same live agent", () => {
   test("followup after interrupt sends into the SAME agent instance — not a rebuilt one", async () => {
-    const cwd = await tmpCwd();
+    const cwd = await tmpSubAgentCwd("cl6997-live-agent-");
     let constructions = 0;
     let capturedAgent: ReturnType<typeof createStubAgent> | undefined;
 
-    const outcome = await withMockedModuleDuring(
-      import.meta.resolve("../agent/live-tool-dispatch.js"),
-      (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-        ...real,
-        createAgentWithLiveToolDispatch: async () => {
-          constructions++;
-          const stub = createStubAgent();
-          capturedAgent = stub;
-          return stub as unknown as Awaited<
-            ReturnType<typeof real.createAgentWithLiveToolDispatch>
-          >;
-        },
-      }),
+    const outcome = await withStubbedAgent(
+      async () => {
+        constructions++;
+        const stub = createStubAgent();
+        capturedAgent = stub;
+        return stub;
+      },
       async () => {
         const { runSubAgent } = await import("./run.js");
-
-        let handles:
-          | {
-              close: (ms?: number) => Promise<void>;
-              interrupt: () => void;
-              followup: (message: string) => Promise<string>;
-            }
-          | undefined;
-
-        const params: RunSubAgentParams = {
-          cwd,
-          workdirBase: join(cwd, ".ctx"),
-          permissionGate: testPermissionGate,
-          provider: {
-            providerName: "test",
-            baseURL: "http://localhost",
-            model: "test-model",
-          },
-          description: "live-agent reuse probe",
-          prompt: "explore the codebase for the bug",
-          persist: true,
-          onAgentReady: (h) => {
-            handles = h;
-          },
-        };
-
-        const runPromise = runSubAgent(params);
+        const handles = captureRunHandles();
+        const runPromise = runSubAgent(
+          baseRunParams(cwd, {
+            description: "live-agent reuse probe",
+            prompt: "explore the codebase for the bug",
+            persist: true,
+            onAgentReady: handles.onAgentReady,
+          }),
+        );
 
         // onAgentReady fires before agent.send() is awaited; poll briefly
         // rather than assume a fixed number of ticks.
-        for (let i = 0; i < 500 && handles === undefined; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 1));
-        }
-        if (handles === undefined) throw new Error("onAgentReady never fired");
+        await pollUntil(() => handles.peek() !== undefined, {
+          message: "onAgentReady never fired",
+        });
 
-        handles.interrupt();
+        handles.require().interrupt();
         const interruptedResult = await runPromise;
 
-        const reply = await handles.followup(
-          "do X instead, not what the original prompt said",
-        );
+        const reply = await handles
+          .require()
+          .followup("do X instead, not what the original prompt said");
         return { interruptedResult, reply };
       },
     );
@@ -187,57 +142,28 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
   });
 
   test("interrupt_agent salvage is stopReason interrupted, not cancelled", async () => {
-    const cwd = await tmpCwd();
+    const cwd = await tmpSubAgentCwd("cl6997-live-agent-");
     let capturedAgent: ReturnType<typeof createStubAgent> | undefined;
 
-    const outcome = await withMockedModuleDuring(
-      import.meta.resolve("../agent/live-tool-dispatch.js"),
-      (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-        ...real,
-        createAgentWithLiveToolDispatch: async () => {
-          const stub = createStubAgent({ hangFromSend: 1 });
-          capturedAgent = stub;
-          return stub as unknown as Awaited<
-            ReturnType<typeof real.createAgentWithLiveToolDispatch>
-          >;
-        },
-      }),
+    const outcome = await withStubbedAgent(
+      async () => {
+        const stub = createStubAgent({ hangFromSend: 1 });
+        capturedAgent = stub;
+        return stub;
+      },
       async () => {
         const { runSubAgent } = await import("./run.js");
-
-        let handles:
-          | {
-              close: (ms?: number) => Promise<void>;
-              interrupt: () => void;
-              followup: (message: string) => Promise<string>;
-            }
-          | undefined;
-
-        const runPromise = runSubAgent({
-          cwd,
-          workdirBase: join(cwd, ".ctx"),
-          permissionGate: testPermissionGate,
-          provider: {
-            providerName: "test",
-            baseURL: "http://localhost",
-            model: "test-model",
-          },
-          description: "interrupt salvage stopReason probe",
-          prompt: "hang until interrupted",
-          persist: true,
-          onAgentReady: (h) => {
-            handles = h;
-          },
-        });
-        for (
-          let i = 0;
-          i < 500 && (capturedAgent?.sendLog.length ?? 0) < 1;
-          i++
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 1));
-        }
-        if (handles === undefined) throw new Error("onAgentReady never fired");
-        handles.interrupt();
+        const handles = captureRunHandles();
+        const runPromise = runSubAgent(
+          baseRunParams(cwd, {
+            description: "interrupt salvage stopReason probe",
+            prompt: "hang until interrupted",
+            persist: true,
+            onAgentReady: handles.onAgentReady,
+          }),
+        );
+        await pollUntil(() => (capturedAgent?.sendLog.length ?? 0) >= 1);
+        handles.require().interrupt();
         return runPromise;
       },
     );
@@ -253,63 +179,34 @@ describe("interrupt_agent / resume_agent reuse the same live agent", () => {
   });
 
   test("interrupt_agent aborts the resumed followup agent.send", async () => {
-    const cwd = await tmpCwd();
+    const cwd = await tmpSubAgentCwd("cl6997-live-agent-");
     let constructions = 0;
     let capturedAgent: ReturnType<typeof createStubAgent> | undefined;
 
-    const outcome = await withMockedModuleDuring(
-      import.meta.resolve("../agent/live-tool-dispatch.js"),
-      (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-        ...real,
-        createAgentWithLiveToolDispatch: async () => {
-          constructions++;
-          const stub = createStubAgent({ hangFromSend: 2 });
-          capturedAgent = stub;
-          return stub as unknown as Awaited<
-            ReturnType<typeof real.createAgentWithLiveToolDispatch>
-          >;
-        },
-      }),
+    const outcome = await withStubbedAgent(
+      async () => {
+        constructions++;
+        const stub = createStubAgent({ hangFromSend: 2 });
+        capturedAgent = stub;
+        return stub;
+      },
       async () => {
         const { runSubAgent } = await import("./run.js");
+        const handles = captureRunHandles();
+        const first = await runSubAgent(
+          baseRunParams(cwd, {
+            description: "live-agent followup interrupt probe",
+            prompt: "finish the first turn",
+            persist: true,
+            onAgentReady: handles.onAgentReady,
+          }),
+        );
 
-        let handles:
-          | {
-              close: (ms?: number) => Promise<void>;
-              interrupt: () => void;
-              followup: (message: string) => Promise<string>;
-            }
-          | undefined;
-
-        const params: RunSubAgentParams = {
-          cwd,
-          workdirBase: join(cwd, ".ctx"),
-          permissionGate: testPermissionGate,
-          provider: {
-            providerName: "test",
-            baseURL: "http://localhost",
-            model: "test-model",
-          },
-          description: "live-agent followup interrupt probe",
-          prompt: "finish the first turn",
-          persist: true,
-          onAgentReady: (h) => {
-            handles = h;
-          },
-        };
-
-        const first = await runSubAgent(params);
-        if (handles === undefined) throw new Error("onAgentReady never fired");
-
-        const followupPromise = handles.followup("now do the second turn");
-        for (
-          let i = 0;
-          i < 500 && (capturedAgent?.sendLog.length ?? 0) < 2;
-          i++
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 1));
-        }
-        handles.interrupt();
+        const followupPromise = handles
+          .require()
+          .followup("now do the second turn");
+        await pollUntil(() => (capturedAgent?.sendLog.length ?? 0) >= 2);
+        handles.require().interrupt();
         const followup = await followupPromise.then(
           (reply) => ({ ok: true as const, reply }),
           (err: unknown) => ({

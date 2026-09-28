@@ -10,49 +10,26 @@ import {
   FLEET_DRY_REPORT_CHARS,
   fleetDrySpillKey,
   shouldDriveOpenTasks,
-  type FleetDryMailbox,
   type FleetDryMailboxRecord,
 } from "./fleet-dry-drive.js";
 import { createSubAgentSessionStore } from "./session-store.js";
+import {
+  ACCEPTED_DELIVERY,
+  collectingMailbox,
+  driveFixture,
+  orderingDrive,
+  NOT_DELIVERED_RESULT,
+  peekMailbox,
+  UNCERTAIN_DELIVERY,
+} from "./fleet-test-harness.js";
 
 const openTask: Task = { id: "t1", title: "keep going", status: "todo" };
 
-function peekMailbox(
-  records: Map<string, FleetDryMailboxRecord>,
-): FleetDryMailbox {
-  return {
-    ids: () => [...records.keys()],
-    peek: (id) => records.get(id),
-    take: (id) => records.get(id),
-  };
+function recordsOf(
+  entries: Record<string, FleetDryMailboxRecord>,
+): Map<string, FleetDryMailboxRecord> {
+  return new Map(Object.entries(entries));
 }
-
-function collectingMailbox(
-  records: Map<string, FleetDryMailboxRecord>,
-): FleetDryMailbox {
-  return {
-    ids: () => [...records.keys()],
-    peek: (id) => records.get(id),
-    take: (id) => {
-      const existing = records.get(id);
-      if (existing === undefined) return undefined;
-      const taken = { ...existing, collected: true };
-      records.set(id, taken);
-      return taken;
-    },
-  };
-}
-
-const ACCEPTED_DELIVERY = { status: "accepted" as const };
-const NOT_DELIVERED_RESULT = {
-  status: "not-delivered" as const,
-  reason: "agent-closed" as const,
-  detail: "agent closed",
-};
-const UNCERTAIN_DELIVERY = {
-  status: "uncertain" as const,
-  detail: "send raced",
-};
 
 function fakeBlobStore() {
   const blobs = new Map<string, { bytes: Uint8Array; contentType: string }>();
@@ -79,6 +56,19 @@ function reportsJSONFromPrompt(prompt: string): unknown {
   return JSON.parse(
     prompt.slice(jsonStart, jsonEnd === -1 ? undefined : jsonEnd),
   );
+}
+
+async function deferredDrySendRejected(
+  sendWithAttemptIdentity: () => unknown,
+): Promise<void> {
+  const records = recordsOf({ w1: { status: "done", report: "ok" } });
+  const driven = await driveOpenTasksAfterFleetDry({
+    deferredDryEdge: true,
+    openTasks: [openTask],
+    ...driveFixture(records, { send: () => sendWithAttemptIdentity() }),
+  });
+  expect(driven).toBe(false);
+  expect(records.get("w1")?.collected).not.toBe(true);
 }
 
 describe("shouldDriveOpenTasks", () => {
@@ -268,22 +258,11 @@ describe("collectUncollectedTerminals", () => {
   });
 
   test("fills report/error from the session-store lane when the mailbox snapshot is empty", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["ghost", { status: "done" }],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => {
-        const existing = records.get(id);
-        if (existing === undefined) return undefined;
-        const taken = { ...existing, collected: true };
-        records.set(id, taken);
-        return taken;
-      },
-    };
+    const records = recordsOf({
+      ghost: { status: "done" },
+    });
     const reports = await collectUncollectedTerminals(
-      mailbox,
+      collectingMailbox(records),
       [{ id: "ghost", description: "from store", report: "store report" }],
       true,
     );
@@ -299,18 +278,16 @@ describe("collectUncollectedTerminals", () => {
   });
 
   test("projects mailbox stopReason as stop_reason", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      [
-        "w1",
-        { status: "interrupted", report: "salvage", stopReason: "interrupted" },
-      ],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => records.get(id),
-    };
-    expect(await collectUncollectedTerminals(mailbox, [], true)).toEqual([
+    const records = recordsOf({
+      w1: {
+        status: "interrupted",
+        report: "salvage",
+        stopReason: "interrupted",
+      },
+    });
+    expect(
+      await collectUncollectedTerminals(peekMailbox(records), [], true),
+    ).toEqual([
       {
         agent_id: "w1",
         status: "interrupted",
@@ -322,9 +299,9 @@ describe("collectUncollectedTerminals", () => {
 
   test("clips oversized reports with an honest not-retrievable notice when no writer is provided", async () => {
     const original = "x".repeat(FLEET_DRY_REPORT_CHARS + 40);
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["big", { status: "done", report: original }],
-    ]);
+    const records = recordsOf({
+      big: { status: "done", report: original },
+    });
     const reports = await collectUncollectedTerminals(
       peekMailbox(records),
       [],
@@ -341,9 +318,9 @@ describe("collectUncollectedTerminals", () => {
 
   test("spills oversized reports to a tool-output URI when a writer is provided", async () => {
     const original = `head-${"x".repeat(FLEET_DRY_REPORT_CHARS)}TAIL-MARKER`;
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["big", { status: "done", report: original }],
-    ]);
+    const records = recordsOf({
+      big: { status: "done", report: original },
+    });
     const store = fakeBlobStore();
     const reports = await collectUncollectedTerminals(
       peekMailbox(records),
@@ -379,9 +356,9 @@ describe("collectUncollectedTerminals", () => {
 
   test("leaves under-budget reports unchanged even when a writer is provided", async () => {
     const report = "short enough";
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report }],
-    ]);
+    const records = recordsOf({
+      w1: { status: "done", report },
+    });
     const store = fakeBlobStore();
     const reports = await collectUncollectedTerminals(
       peekMailbox(records),
@@ -395,9 +372,9 @@ describe("collectUncollectedTerminals", () => {
 
   test("spills oversized error fields under a distinct key", async () => {
     const original = "e".repeat(FLEET_DRY_REPORT_CHARS + 20);
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["boom", { status: "failed", error: original }],
-    ]);
+    const records = recordsOf({
+      boom: { status: "failed", error: original },
+    });
     const store = fakeBlobStore();
     const reports = await collectUncollectedTerminals(
       peekMailbox(records),
@@ -415,30 +392,23 @@ describe("collectUncollectedTerminals", () => {
   });
 
   test("consume false peeks without take", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => {
-        const existing = records.get(id);
-        if (existing === undefined) return undefined;
-        const taken = { ...existing, collected: true };
-        records.set(id, taken);
-        return taken;
-      },
-    };
-    const reports = await collectUncollectedTerminals(mailbox, [], false);
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
+    const reports = await collectUncollectedTerminals(
+      collectingMailbox(records),
+      [],
+      false,
+    );
     expect(reports).toEqual([{ agent_id: "w1", status: "done", report: "ok" }]);
     expect(records.get("w1")?.collected).not.toBe(true);
   });
 
   test("names a tool-output URI only after an async writeBlob resolves", async () => {
     const original = `head-${"x".repeat(FLEET_DRY_REPORT_CHARS)}TAIL-MARKER`;
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["big", { status: "done", report: original }],
-    ]);
+    const records = recordsOf({
+      big: { status: "done", report: original },
+    });
     const store = fakeBlobStore();
     let resolveWrite: (() => void) | undefined;
     const writeBlob = (key: string, bytes: Uint8Array, contentType: string) =>
@@ -477,9 +447,9 @@ describe("collectUncollectedTerminals", () => {
 
   test("rejected writeBlob yields NOT retrievable with no URI and no unhandled rejection", async () => {
     const original = "x".repeat(FLEET_DRY_REPORT_CHARS + 40);
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["big", { status: "done", report: original }],
-    ]);
+    const records = recordsOf({
+      big: { status: "done", report: original },
+    });
     const rejections: unknown[] = [];
     const onUnhandled = (reason: unknown) => {
       rejections.push(reason);
@@ -510,37 +480,15 @@ describe("collectUncollectedTerminals", () => {
 describe("driveOpenTasksAfterFleetDry", () => {
   test("dry+open collects, begins continuation, then sends", async () => {
     const order: string[] = [];
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok", description: "lane" }],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => {
-        const existing = records.get(id);
-        if (existing === undefined) return undefined;
-        const taken = { ...existing, collected: true };
-        records.set(id, taken);
-        return taken;
-      },
-    };
+    const records = recordsOf({
+      w1: { status: "done", report: "ok", description: "lane" },
+    });
     const sent: string[] = [];
     const driven = await driveOpenTasksAfterFleetDry({
       previousRunning: 1,
       running: 0,
       openTasks: [openTask],
-      parentProcessing: false,
-      mailbox,
-      lanes: [],
-      beginSystemContinuation: (prompt) => {
-        order.push("begin");
-        sent.push(prompt);
-      },
-      send: (prompt) => {
-        order.push("send");
-        sent.push(prompt);
-        return ACCEPTED_DELIVERY;
-      },
+      ...orderingDrive(records, order, sent),
     });
     expect(driven).toBe(true);
     expect(order).toEqual(["begin", "send"]);
@@ -551,9 +499,9 @@ describe("driveOpenTasksAfterFleetDry", () => {
 
   test("dry+open continuation JSON includes a spill URI for oversized reports", async () => {
     const original = `head-${"x".repeat(FLEET_DRY_REPORT_CHARS)}TAIL-MARKER`;
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["big", { status: "done", report: original }],
-    ]);
+    const records = recordsOf({
+      big: { status: "done", report: original },
+    });
     const store = fakeBlobStore();
     const sent: string[] = [];
     const driven = await driveOpenTasksAfterFleetDry({
@@ -626,34 +574,21 @@ describe("driveOpenTasksAfterFleetDry", () => {
   });
 
   test("deferred dry edge after parentProcessing still collects and sends", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => {
-        const existing = records.get(id);
-        if (existing === undefined) return undefined;
-        const taken = { ...existing, collected: true };
-        records.set(id, taken);
-        return taken;
-      },
-    };
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
     const sent: string[] = [];
     const driven = await driveOpenTasksAfterFleetDry({
       previousRunning: 0,
       running: 0,
       deferredDryEdge: true,
       openTasks: [openTask],
-      parentProcessing: false,
-      mailbox,
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: (prompt) => {
-        sent.push(prompt);
-        return ACCEPTED_DELIVERY;
-      },
+      ...driveFixture(records, {
+        send: (prompt) => {
+          sent.push(prompt);
+          return ACCEPTED_DELIVERY;
+        },
+      }),
     });
     expect(driven).toBe(true);
     expect(sent[0]).toContain("w1");
@@ -661,122 +596,48 @@ describe("driveOpenTasksAfterFleetDry", () => {
   });
 
   test("send failure after take leaves reports waitable", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => {
-        const existing = records.get(id);
-        if (existing === undefined) return undefined;
-        const taken = { ...existing, collected: true };
-        records.set(id, taken);
-        return taken;
-      },
-    };
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
     const driven = await driveOpenTasksAfterFleetDry({
       previousRunning: 1,
       running: 0,
       openTasks: [openTask],
-      parentProcessing: false,
-      mailbox,
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => {
-        throw new Error("send failed");
-      },
+      ...driveFixture(records, {
+        send: () => {
+          throw new Error("send failed");
+        },
+      }),
     });
     expect(driven).toBe(false);
     expect(records.get("w1")?.collected).not.toBe(true);
   });
 
   test("TUI sendWithAttemptIdentity rejection leaves mailbox uncollected", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => {
-        const existing = records.get(id);
-        if (existing === undefined) return undefined;
-        const taken = { ...existing, collected: true };
-        records.set(id, taken);
-        return taken;
-      },
-    };
-    const sendWithAttemptIdentity = async (): Promise<never> => {
+    await deferredDrySendRejected(async (): Promise<never> => {
       await Promise.resolve();
       throw new Error("agentProxy.send failed");
-    };
-    const driven = await driveOpenTasksAfterFleetDry({
-      deferredDryEdge: true,
-      openTasks: [openTask],
-      parentProcessing: false,
-      mailbox,
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => sendWithAttemptIdentity(),
     });
-    expect(driven).toBe(false);
-    expect(records.get("w1")?.collected).not.toBe(true);
   });
 
   test("TUI sendWithAttemptIdentity not-delivered after handleSendFailure leaves mailbox uncollected", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => {
-        const existing = records.get(id);
-        if (existing === undefined) return undefined;
-        const taken = { ...existing, collected: true };
-        records.set(id, taken);
-        return taken;
-      },
-    };
-    const sendWithAttemptIdentity = async () => {
+    await deferredDrySendRejected(async () => {
       await Promise.resolve();
       return NOT_DELIVERED_RESULT;
-    };
-    const driven = await driveOpenTasksAfterFleetDry({
-      deferredDryEdge: true,
-      openTasks: [openTask],
-      parentProcessing: false,
-      mailbox,
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => sendWithAttemptIdentity(),
     });
-    expect(driven).toBe(false);
-    expect(records.get("w1")?.collected).not.toBe(true);
   });
 
   test("sync send not-delivered returns false, calls onSendFailure, and leaves mailbox uncollected", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => {
-        const existing = records.get(id);
-        if (existing === undefined) return undefined;
-        const taken = { ...existing, collected: true };
-        records.set(id, taken);
-        return taken;
-      },
-    };
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
     let failures = 0;
     const driven = await driveOpenTasksAfterFleetDry({
       previousRunning: 1,
       running: 0,
       openTasks: [openTask],
       parentProcessing: false,
-      mailbox,
+      mailbox: collectingMailbox(records),
       lanes: [],
       beginSystemContinuation: () => undefined,
       send: () => NOT_DELIVERED_RESULT,
@@ -790,9 +651,9 @@ describe("driveOpenTasksAfterFleetDry", () => {
   });
 
   test("pending send Promise does not resolve as a successful continuation", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
     let resolveSend: ((result: typeof ACCEPTED_DELIVERY) => void) | undefined;
     let sendStarted: (() => void) | undefined;
     const sendSeen = new Promise<void>((resolve) => {
@@ -802,16 +663,14 @@ describe("driveOpenTasksAfterFleetDry", () => {
       previousRunning: 1,
       running: 0,
       openTasks: [openTask],
-      parentProcessing: false,
-      mailbox: collectingMailbox(records),
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => {
-        sendStarted?.();
-        return new Promise((resolve) => {
-          resolveSend = resolve;
-        });
-      },
+      ...driveFixture(records, {
+        send: () => {
+          sendStarted?.();
+          return new Promise((resolve) => {
+            resolveSend = resolve;
+          });
+        },
+      }),
     });
     await sendSeen;
     let settled: boolean | undefined;
@@ -828,18 +687,16 @@ describe("driveOpenTasksAfterFleetDry", () => {
   });
 
   test("resolved uncertain returns idle and leaves the wake waitable", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
     const driven = await driveOpenTasksAfterFleetDry({
       previousRunning: 1,
       running: 0,
       openTasks: [openTask],
-      parentProcessing: false,
-      mailbox: collectingMailbox(records),
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => Promise.resolve(UNCERTAIN_DELIVERY),
+      ...driveFixture(records, {
+        send: () => Promise.resolve(UNCERTAIN_DELIVERY),
+      }),
     });
     expect(driven).toBe(false);
     expect(records.get("w1")?.collected).not.toBe(true);

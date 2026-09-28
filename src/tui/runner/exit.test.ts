@@ -9,16 +9,19 @@ import {
   readSourceCredentialMaterial,
   registerSourceCredentialRecord,
 } from "../../config/source-credentials.js";
-import { createChatDirector } from "../../agent/director.js";
+import { createChatDirector, type ChatDirector } from "../../agent/director.js";
 import * as sessionIndex from "../../session/index.js";
-import { createSubAgentSessionStore } from "../../subagent/session-store.js";
-import type {
-  ReactorAction,
-  ReactorCapabilities,
-  ReactorInboundEvent,
-  ReactorState,
-} from "@intx/types/runtime";
+import {
+  createSubAgentSessionStore,
+  type SubAgentSessionStore,
+} from "../../subagent/session-store.js";
+import type { ReactorInboundEvent } from "@intx/types/runtime";
 import { defined } from "../../testkit/defined.js";
+import {
+  stubReactorCapabilities,
+  stubReactorState,
+  stubTextTurnEvent,
+} from "../../testkit/reactor-stubs.js";
 import {
   withMockedHomedir,
   withMockedModuleDuring,
@@ -405,25 +408,6 @@ describe("agentProxy.send vs /clear", () => {
   }
 });
 
-const rebuildMockState: ReactorState = {} as unknown as ReactorState;
-
-const rebuildMockCapabilities: ReactorCapabilities = {
-  infer: (options) =>
-    ({
-      type: "infer",
-      ...(options !== undefined ? { options } : {}),
-    }) as ReactorAction,
-  executeTools: (calls) => ({ type: "execute_tools", calls }),
-  suspend: (gate) => ({ type: "suspend", gate }),
-  fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
-  emit: (eventType, data) => ({ type: "emit", eventType, data }),
-  reply: (content) => ({ type: "reply", content }),
-  checkpoint: (message = "") => ({ type: "checkpoint", message }),
-  compact: (compactor, reason) => ({ type: "compact", compactor, reason }),
-  wait: () => ({ type: "wait" }),
-  done: () => ({ type: "done" }),
-};
-
 function rebuildManageTasksEvent(): ReactorInboundEvent {
   return {
     type: "inference.done",
@@ -448,18 +432,78 @@ function rebuildManageTasksEvent(): ReactorInboundEvent {
   } as unknown as ReactorInboundEvent;
 }
 
-function rebuildTextTurn(): ReactorInboundEvent {
-  return {
-    type: "inference.done",
-    turn: {
-      role: "assistant",
-      model: "test",
-      timestamp: 0,
-      content: [{ type: "text", text: "all set" }],
-    },
-    usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-    source: { model: "test-model" },
-  } as unknown as ReactorInboundEvent;
+/**
+ * The services surface every rebuild path touches: holder swap, fleet store,
+ * workflow reattach, recorder reset, and a buildAgent that mints a fresh
+ * director from the static `allowIdleWithFleet: true` seed — the same seed
+ * the TUI session assembly uses, since fleet lanes may appear mid-session.
+ * The rotation-only stubs (buildSessionSources, hostHolder, the resetters)
+ * are inert on interrupt/reload paths.
+ */
+function wireRebuildServices(
+  services: RunnerServices,
+  directorHolder: RunnerServices["directorHolder"],
+  agent: Agent,
+  store?: SubAgentSessionStore,
+): void {
+  services.directorHolder = directorHolder;
+  services.subAgentSessions = (store ?? {
+    cancelAll: async () => [],
+    list: () => [],
+  }) as unknown as RunnerServices["subAgentSessions"];
+  services.workflowHost = {
+    reattach: () => undefined,
+    reset: () => undefined,
+  } as unknown as RunnerServices["workflowHost"];
+  services.cycleRecorder = {
+    dispose: async () => "",
+    reset: () => undefined,
+    handleEvent: () => undefined,
+  } as unknown as RunnerServices["cycleRecorder"];
+  services.buildSessionSources = () => ({
+    sources: [liveSource],
+    defaultSource: liveSource.id,
+    selected: liveSource,
+  });
+  services.permissionGate = {
+    reset: () => undefined,
+  } as unknown as RunnerServices["permissionGate"];
+  services.runSink = {
+    sink: () => undefined,
+    reset: () => undefined,
+  } as unknown as RunnerServices["runSink"];
+  services.sessionCost = {
+    addTurn: () => undefined,
+    reset: () => undefined,
+  } as unknown as RunnerServices["sessionCost"];
+  services.activatedToolNames = {
+    clear: () => undefined,
+    activate: () => false,
+    list: () => [],
+  } as unknown as RunnerServices["activatedToolNames"];
+  services.hostHolder = {} as unknown as RunnerServices["hostHolder"];
+  services.buildAgent = (async () => {
+    directorHolder.instance = createChatDirector("base", [], {
+      allowIdleWithFleet: true,
+    });
+    return agent;
+  }) as unknown as RunnerServices["buildAgent"];
+}
+
+/** Seed an open task, then assert the content-free turn still re-infers. */
+async function expectOpenTaskNudge(director: ChatDirector): Promise<void> {
+  await director.decide(
+    rebuildManageTasksEvent(),
+    stubReactorState,
+    stubReactorCapabilities,
+  );
+  const actions = await director.decide(
+    stubTextTurnEvent(),
+    stubReactorState,
+    stubReactorCapabilities,
+  );
+  const list = Array.isArray(actions) ? actions : [actions];
+  expect(list.some((action) => action.type === "infer")).toBe(true);
 }
 
 describe("rebuild re-syncs idle-with-fleet while drained", () => {
@@ -472,18 +516,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       directorHolder: { instance: director },
       subAgentSessions: store,
     });
-    await director.decide(
-      rebuildManageTasksEvent(),
-      rebuildMockState,
-      rebuildMockCapabilities,
-    );
-    const actions = await director.decide(
-      rebuildTextTurn(),
-      rebuildMockState,
-      rebuildMockCapabilities,
-    );
-    const list = Array.isArray(actions) ? actions : [actions];
-    expect(list.some((action) => action.type === "infer")).toBe(true);
+    await expectOpenTaskNudge(director);
   });
 
   test("first assemble with a drained fleet does not leave idle-with-fleet stuck true", async () => {
@@ -491,41 +524,13 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
-    services.directorHolder =
-      directorHolder as unknown as RunnerServices["directorHolder"];
-    services.subAgentSessions =
-      store as unknown as RunnerServices["subAgentSessions"];
-    services.workflowHost = {
-      reattach: () => undefined,
-    } as unknown as RunnerServices["workflowHost"];
-    services.cycleRecorder = {
-      dispose: async () => "",
-      reset: () => undefined,
-      handleEvent: () => undefined,
-    } as unknown as RunnerServices["cycleRecorder"];
-    services.buildAgent = (async () => {
-      directorHolder.instance = createChatDirector("base", [], {
-        allowIdleWithFleet: true,
-      });
-      return agent;
-    }) as unknown as RunnerServices["buildAgent"];
+    wireRebuildServices(services, directorHolder, agent, store);
     await createRunLifecycle(state, services);
     const director = defined(
       directorHolder.instance,
       "directorHolder.instance",
     );
-    await director.decide(
-      rebuildManageTasksEvent(),
-      rebuildMockState,
-      rebuildMockCapabilities,
-    );
-    const actions = await director.decide(
-      rebuildTextTurn(),
-      rebuildMockState,
-      rebuildMockCapabilities,
-    );
-    const list = Array.isArray(actions) ? actions : [actions];
-    expect(list.some((action) => action.type === "infer")).toBe(true);
+    await expectOpenTaskNudge(director);
   });
 
   test("interrupt during an in-flight compaction aborts the compact and rebuilds so the next send works", async () => {
@@ -533,26 +538,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const sends: string[] = [];
     const agent = recordingAgent(sends);
     const { state, services } = stubSendLifecycle(agent);
-    services.directorHolder =
-      directorHolder as unknown as RunnerServices["directorHolder"];
-    services.subAgentSessions = {
-      cancelAll: async () => [],
-      list: () => [],
-    } as unknown as RunnerServices["subAgentSessions"];
-    services.workflowHost = {
-      reattach: () => undefined,
-    } as unknown as RunnerServices["workflowHost"];
-    services.cycleRecorder = {
-      dispose: async () => "",
-      reset: () => undefined,
-      handleEvent: () => undefined,
-    } as unknown as RunnerServices["cycleRecorder"];
-    services.buildAgent = (async () => {
-      directorHolder.instance = createChatDirector("base", [], {
-        allowIdleWithFleet: true,
-      });
-      return agent;
-    }) as unknown as RunnerServices["buildAgent"];
+    wireRebuildServices(services, directorHolder, agent);
     await createRunLifecycle(state, services);
     // A fold is mid-flight on the reactor when the operator interrupts: the
     // wrapped compact hangs on its summary call.
@@ -604,47 +590,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const sends: string[] = [];
     const agent = recordingAgent(sends);
     const { state, services } = stubSendLifecycle(agent);
-    services.directorHolder =
-      directorHolder as unknown as RunnerServices["directorHolder"];
-    services.subAgentSessions =
-      store as unknown as RunnerServices["subAgentSessions"];
-    services.workflowHost = {
-      reattach: () => undefined,
-      reset: () => undefined,
-    } as unknown as RunnerServices["workflowHost"];
-    services.cycleRecorder = {
-      dispose: async () => "",
-      reset: () => undefined,
-      handleEvent: () => undefined,
-    } as unknown as RunnerServices["cycleRecorder"];
-    services.buildSessionSources = () => ({
-      sources: [liveSource],
-      defaultSource: liveSource.id,
-      selected: liveSource,
-    });
-    services.permissionGate = {
-      reset: () => undefined,
-    } as unknown as RunnerServices["permissionGate"];
-    services.runSink = {
-      sink: () => undefined,
-      reset: () => undefined,
-    } as unknown as RunnerServices["runSink"];
-    services.sessionCost = {
-      addTurn: () => undefined,
-      reset: () => undefined,
-    } as unknown as RunnerServices["sessionCost"];
-    services.activatedToolNames = {
-      clear: () => undefined,
-      activate: () => false,
-      list: () => [],
-    } as unknown as RunnerServices["activatedToolNames"];
-    services.hostHolder = {} as unknown as RunnerServices["hostHolder"];
-    services.buildAgent = (async () => {
-      directorHolder.instance = createChatDirector("base", [], {
-        allowIdleWithFleet: true,
-      });
-      return agent;
-    }) as unknown as RunnerServices["buildAgent"];
+    wireRebuildServices(services, directorHolder, agent, store);
     const initDir = spyOn(sessionIndex, "initSessionDir").mockImplementation(
       async () => "/tmp/rotated-session",
     );
@@ -697,26 +643,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
-    services.directorHolder =
-      directorHolder as unknown as RunnerServices["directorHolder"];
-    services.subAgentSessions = {
-      cancelAll: async () => [],
-      list: () => [],
-    } as unknown as RunnerServices["subAgentSessions"];
-    services.workflowHost = {
-      reattach: () => undefined,
-    } as unknown as RunnerServices["workflowHost"];
-    services.cycleRecorder = {
-      dispose: async () => "",
-      reset: () => undefined,
-      handleEvent: () => undefined,
-    } as unknown as RunnerServices["cycleRecorder"];
-    services.buildAgent = (async () => {
-      directorHolder.instance = createChatDirector("base", [], {
-        allowIdleWithFleet: true,
-      });
-      return agent;
-    }) as unknown as RunnerServices["buildAgent"];
+    wireRebuildServices(services, directorHolder, agent);
     await createRunLifecycle(state, services);
     const lifecycle = createCompactionLifecycle();
     state.compactionLifecycle = lifecycle;
@@ -771,26 +698,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
-    services.directorHolder =
-      directorHolder as unknown as RunnerServices["directorHolder"];
-    services.subAgentSessions = {
-      cancelAll: async () => [],
-      list: () => [],
-    } as unknown as RunnerServices["subAgentSessions"];
-    services.workflowHost = {
-      reattach: () => undefined,
-    } as unknown as RunnerServices["workflowHost"];
-    services.cycleRecorder = {
-      dispose: async () => "",
-      reset: () => undefined,
-      handleEvent: () => undefined,
-    } as unknown as RunnerServices["cycleRecorder"];
-    services.buildAgent = (async () => {
-      directorHolder.instance = createChatDirector("base", [], {
-        allowIdleWithFleet: true,
-      });
-      return agent;
-    }) as unknown as RunnerServices["buildAgent"];
+    wireRebuildServices(services, directorHolder, agent);
     await createRunLifecycle(state, services);
     const lifecycle = createCompactionLifecycle();
     state.compactionLifecycle = lifecycle;
@@ -814,60 +722,29 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
-    services.directorHolder =
-      directorHolder as unknown as RunnerServices["directorHolder"];
-    services.subAgentSessions =
-      store as unknown as RunnerServices["subAgentSessions"];
-    services.workflowHost = {
-      reattach: () => undefined,
-    } as unknown as RunnerServices["workflowHost"];
-    services.cycleRecorder = {
-      dispose: async () => "",
-      reset: () => undefined,
-      handleEvent: () => undefined,
-    } as unknown as RunnerServices["cycleRecorder"];
-    services.buildAgent = (async () => {
-      // Every rebuild mints a fresh director from the static true seed (fleet
-      // lanes may appear mid-session), exactly like the TUI session assembly.
-      directorHolder.instance = createChatDirector("base", [], {
-        allowIdleWithFleet: true,
-      });
-      return agent;
-    }) as unknown as RunnerServices["buildAgent"];
+    // Every rebuild mints a fresh director from the static true seed (fleet
+    // lanes may appear mid-session), exactly like the TUI session assembly.
+    wireRebuildServices(services, directorHolder, agent, store);
     const fleetEvents: unknown[] = [];
     services.emitter.on("event", (event: { type: string }) => {
       if (event.type === "fleet") fleetEvents.push(event);
     });
     await createRunLifecycle(state, services);
-    const expectOpenTaskNudge = async (): Promise<void> => {
-      const director = defined(
-        directorHolder.instance,
-        "directorHolder.instance",
+    const nudges = (): Promise<void> =>
+      expectOpenTaskNudge(
+        defined(directorHolder.instance, "directorHolder.instance"),
       );
-      await director.decide(
-        rebuildManageTasksEvent(),
-        rebuildMockState,
-        rebuildMockCapabilities,
-      );
-      const actions = await director.decide(
-        rebuildTextTurn(),
-        rebuildMockState,
-        rebuildMockCapabilities,
-      );
-      const list = Array.isArray(actions) ? actions : [actions];
-      expect(list.some((action) => action.type === "infer")).toBe(true);
-    };
     // Drained fleet: the idle reload rebuilds onto the static true seed.
     state.pendingReload = true;
     defined(state.reloadIfIdle, "reloadIfIdle")();
     await services.sessionOps.awaitTail();
     expect(state.fatalBuildError).toBeNull();
-    await expectOpenTaskNudge();
+    await nudges();
     // The interrupt rebuild inherits the same seed.
     defined(state.interrupt, "interrupt")();
     await services.sessionOps.awaitTail();
     expect(state.fatalBuildError).toBeNull();
-    await expectOpenTaskNudge();
+    await nudges();
     expect(store.list()).toEqual([]);
     expect(fleetEvents).toEqual([]);
   });
@@ -877,47 +754,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const directorHolder: RunnerServices["directorHolder"] = {};
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
-    services.directorHolder =
-      directorHolder as unknown as RunnerServices["directorHolder"];
-    services.subAgentSessions =
-      store as unknown as RunnerServices["subAgentSessions"];
-    services.workflowHost = {
-      reattach: () => undefined,
-      reset: () => undefined,
-    } as unknown as RunnerServices["workflowHost"];
-    services.cycleRecorder = {
-      dispose: async () => "",
-      reset: () => undefined,
-      handleEvent: () => undefined,
-    } as unknown as RunnerServices["cycleRecorder"];
-    services.buildSessionSources = () => ({
-      sources: [liveSource],
-      defaultSource: liveSource.id,
-      selected: liveSource,
-    });
-    services.permissionGate = {
-      reset: () => undefined,
-    } as unknown as RunnerServices["permissionGate"];
-    services.runSink = {
-      sink: () => undefined,
-      reset: () => undefined,
-    } as unknown as RunnerServices["runSink"];
-    services.sessionCost = {
-      addTurn: () => undefined,
-      reset: () => undefined,
-    } as unknown as RunnerServices["sessionCost"];
-    services.activatedToolNames = {
-      clear: () => undefined,
-      activate: () => false,
-      list: () => [],
-    } as unknown as RunnerServices["activatedToolNames"];
-    services.hostHolder = {} as unknown as RunnerServices["hostHolder"];
-    services.buildAgent = (async () => {
-      directorHolder.instance = createChatDirector("base", [], {
-        allowIdleWithFleet: true,
-      });
-      return agent;
-    }) as unknown as RunnerServices["buildAgent"];
+    wireRebuildServices(services, directorHolder, agent, store);
     const initDir = spyOn(sessionIndex, "initSessionDir").mockImplementation(
       async () => "/tmp/rotated-session",
     );
@@ -934,18 +771,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
         directorHolder.instance,
         "directorHolder.instance",
       );
-      await director.decide(
-        rebuildManageTasksEvent(),
-        rebuildMockState,
-        rebuildMockCapabilities,
-      );
-      const actions = await director.decide(
-        rebuildTextTurn(),
-        rebuildMockState,
-        rebuildMockCapabilities,
-      );
-      const list = Array.isArray(actions) ? actions : [actions];
-      expect(list.some((action) => action.type === "infer")).toBe(true);
+      await expectOpenTaskNudge(director);
     } finally {
       initDir.mockRestore();
       contextDir.mockRestore();

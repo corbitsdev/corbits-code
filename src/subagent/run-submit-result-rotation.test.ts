@@ -9,25 +9,20 @@
  * followup-live-agent.test.ts.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import { defined } from "../testkit/defined.js";
-import { createPermissionGate } from "../permission/gate.js";
-import type { RunSubAgentParams } from "./types.js";
-
-const testPermissionGate = createPermissionGate({
-  approvals: [],
-  interactive: false,
-  skipPermissions: true,
-  reactorGated: false,
-});
+import {
+  baseRunParams,
+  captureRunHandles,
+  pollUntil,
+  stubAgent,
+  tmpSubAgentCwd,
+  withStubbedAgent,
+} from "./run-test-harness.js";
 
 /** First send hangs (the run stays alive for steering); later sends resolve. */
 function createRotatingStubAgent(sendLog: string[]) {
-  return {
+  return stubAgent({
     async send(content: string, optsSend?: { signal?: AbortSignal }) {
       sendLog.push(content);
       if (sendLog.length === 1) {
@@ -56,19 +51,7 @@ function createRotatingStubAgent(sendLog: string[]) {
         turn: { role: "assistant", content: [] },
       };
     },
-    stream: () =>
-      (async function* () {
-        yield* [];
-      })(),
-    deliver: () => undefined,
-    close: async () => undefined,
-    setSource: () => undefined,
-    setSources: () => undefined,
-    history: async () => [],
-    checkpoints: async () => [],
-    readAt: async () => [],
-    blobReader: {},
-  };
+  });
 }
 
 function tokenOfSend(send: string): string | undefined {
@@ -77,59 +60,35 @@ function tokenOfSend(send: string): string | undefined {
 
 describe("submit_result token rotation on steering", () => {
   test("followup rotates the leaf turn token and states the replacement in the steer", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "cl6946-token-rotation-"));
+    const cwd = await tmpSubAgentCwd("cl6946-token-rotation-");
     const sendLog: string[] = [];
 
-    const outcome = await withMockedModuleDuring(
-      import.meta.resolve("../agent/live-tool-dispatch.js"),
-      (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-        ...real,
-        createAgentWithLiveToolDispatch: async () =>
-          createRotatingStubAgent(sendLog) as unknown as Awaited<
-            ReturnType<typeof real.createAgentWithLiveToolDispatch>
-          >,
-      }),
+    const outcome = await withStubbedAgent(
+      () => createRotatingStubAgent(sendLog),
       async () => {
         const { runSubAgent } = await import("./run.js");
-
-        let handles:
-          | {
-              close: (ms?: number) => Promise<void>;
-              interrupt: () => void;
-              followup: (message: string) => Promise<string>;
-            }
-          | undefined;
-
-        const params: RunSubAgentParams = {
-          cwd,
-          workdirBase: join(cwd, ".ctx"),
-          permissionGate: testPermissionGate,
-          provider: {
-            providerName: "test",
-            baseURL: "http://localhost",
-            model: "test-model",
-          },
-          description: "token rotation probe",
-          prompt: "hold for steering",
-          persist: true,
-          tier: "leaf",
-          onAgentReady: (h) => {
-            handles = h;
-          },
-        };
-
-        const runPromise = runSubAgent(params);
-        for (let i = 0; i < 500 && sendLog.length < 1; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 1));
-        }
-        if (handles === undefined) throw new Error("onAgentReady never fired");
-
-        const reply = await handles.followup("new orders: pivot to X");
+        const handles = captureRunHandles();
+        const runPromise = runSubAgent(
+          baseRunParams(cwd, {
+            description: "token rotation probe",
+            prompt: "hold for steering",
+            persist: true,
+            tier: "leaf",
+            onAgentReady: handles.onAgentReady,
+          }),
+        );
+        await pollUntil(() => sendLog.length >= 1);
+        const reply = await handles
+          .require()
+          .followup("new orders: pivot to X");
         // followup replaced the per-turn interrupt controller, so interrupt()
         // can no longer reach the still-hung first send — close() aborts the
         // run controller instead and settles the run for cleanup. Both can
         // reject with the abort reason; settlement is all we need.
-        await handles.close().catch(() => undefined);
+        await handles
+          .require()
+          .close()
+          .catch(() => undefined);
         await runPromise.catch(() => undefined);
         return { reply };
       },

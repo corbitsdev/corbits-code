@@ -9,37 +9,44 @@ import {
   occupancyShouldYieldWait,
 } from "./mailbox-mail-drive.js";
 import { createSubAgentSessionStore } from "./session-store.js";
-import type {
-  FleetDryMailbox,
-  FleetDryMailboxRecord,
-} from "./fleet-dry-drive.js";
+import type { FleetDryMailboxRecord } from "./fleet-dry-drive.js";
+import {
+  ACCEPTED_DELIVERY,
+  collectingMailbox,
+  driveFixture,
+  orderingDrive,
+  NOT_DELIVERED_RESULT,
+  UNCERTAIN_DELIVERY,
+} from "./fleet-test-harness.js";
 
-function mapMailbox(
-  records: Map<string, FleetDryMailboxRecord>,
-): FleetDryMailbox {
-  return {
-    ids: () => [...records.keys()],
-    peek: (id) => records.get(id),
-    take: (id) => {
-      const existing = records.get(id);
-      if (existing === undefined) return undefined;
-      const taken = { ...existing, collected: true };
-      records.set(id, taken);
-      return taken;
-    },
-  };
+function recordsOf(
+  entries: Record<string, FleetDryMailboxRecord>,
+): Map<string, FleetDryMailboxRecord> {
+  return new Map(Object.entries(entries));
 }
 
-const ACCEPTED_DELIVERY = { status: "accepted" as const };
-const NOT_DELIVERED_RESULT = {
-  status: "not-delivered" as const,
-  reason: "agent-closed" as const,
-  detail: "agent closed",
+const NOOP_DRIVE = {
+  beginSystemContinuation: () => {
+    throw new Error("must not begin");
+  },
+  send: () => {
+    throw new Error("must not send");
+  },
 };
-const UNCERTAIN_DELIVERY = {
-  status: "uncertain" as const,
-  detail: "send raced",
-};
+
+async function driveMailNotDelivered(): Promise<
+  Map<string, FleetDryMailboxRecord>
+> {
+  const records = recordsOf({ w1: { status: "done", report: "ok" } });
+  const driven = await driveMailboxMail({
+    ...driveFixture(records, {
+      send: () => Promise.resolve(NOT_DELIVERED_RESULT),
+    }),
+  });
+  expect(driven).toBe(false);
+  expect(records.get("w1")?.collected).not.toBe(true);
+  return records;
+}
 
 describe("buildMailboxMailPrompt", () => {
   test("prefixes collected JSON and tells the parent not to wait_agents", () => {
@@ -61,25 +68,14 @@ describe("buildMailboxMailPrompt", () => {
 
 describe("driveMailboxMail", () => {
   test("idle parent with one terminal drives even while siblings run", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["done", { status: "done", report: "ok", description: "lane" }],
-      ["live", { status: "running" }],
-    ]);
+    const records = recordsOf({
+      done: { status: "done", report: "ok", description: "lane" },
+      live: { status: "running" },
+    });
     const order: string[] = [];
     const sent: string[] = [];
     const driven = await driveMailboxMail({
-      parentProcessing: false,
-      mailbox: mapMailbox(records),
-      lanes: [],
-      beginSystemContinuation: (prompt) => {
-        order.push("begin");
-        sent.push(prompt);
-      },
-      send: (prompt) => {
-        order.push("send");
-        sent.push(prompt);
-        return ACCEPTED_DELIVERY;
-      },
+      ...orderingDrive(records, order, sent),
     });
     expect(driven).toBe(true);
     expect(order).toEqual(["begin", "send"]);
@@ -91,19 +87,17 @@ describe("driveMailboxMail", () => {
   });
 
   test("fail path is the same terminal collect", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["fail", { status: "failed", error: "boom" }],
-    ]);
+    const records = recordsOf({
+      fail: { status: "failed", error: "boom" },
+    });
     const sent: string[] = [];
     const driven = await driveMailboxMail({
-      parentProcessing: false,
-      mailbox: mapMailbox(records),
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: (prompt) => {
-        sent.push(prompt);
-        return ACCEPTED_DELIVERY;
-      },
+      ...driveFixture(records, {
+        send: (prompt) => {
+          sent.push(prompt);
+          return ACCEPTED_DELIVERY;
+        },
+      }),
     });
     expect(driven).toBe(true);
     expect(sent[0]).toContain("fail");
@@ -112,31 +106,23 @@ describe("driveMailboxMail", () => {
   });
 
   test("parentProcessing or empty mailbox is a no-op", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["done", { status: "done", report: "ok" }],
-    ]);
-    const noop = {
-      beginSystemContinuation: () => {
-        throw new Error("must not begin");
-      },
-      send: () => {
-        throw new Error("must not send");
-      },
-    };
+    const records = recordsOf({
+      done: { status: "done", report: "ok" },
+    });
     expect(
       driveMailboxMail({
         parentProcessing: true,
-        mailbox: mapMailbox(records),
+        mailbox: collectingMailbox(records),
         lanes: [],
-        ...noop,
+        ...NOOP_DRIVE,
       }),
     ).toBe(false);
     expect(
       driveMailboxMail({
         parentProcessing: false,
-        mailbox: mapMailbox(new Map()),
+        mailbox: collectingMailbox(new Map()),
         lanes: [],
-        ...noop,
+        ...NOOP_DRIVE,
       }),
     ).toBe(false);
     expect(records.get("done")?.collected).not.toBe(true);
@@ -159,68 +145,48 @@ describe("driveMailboxMail", () => {
         parentProcessing: false,
         mailbox,
         lanes: sessions.list(),
-        beginSystemContinuation: () => {
-          throw new Error("must not begin");
-        },
-        send: () => {
-          throw new Error("must not send");
-        },
+        ...NOOP_DRIVE,
       }),
     ).toBe(false);
   });
 
   test("send failure leaves reports waitable", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
     const driven = await driveMailboxMail({
-      parentProcessing: false,
-      mailbox: mapMailbox(records),
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => {
-        throw new Error("send failed");
-      },
+      ...driveFixture(records, {
+        send: () => {
+          throw new Error("send failed");
+        },
+      }),
     });
     expect(driven).toBe(false);
     expect(records.get("w1")?.collected).not.toBe(true);
   });
 
   test("async send not-delivered after begin leaves mailbox uncollected", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const driven = await driveMailboxMail({
-      parentProcessing: false,
-      mailbox: mapMailbox(records),
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => Promise.resolve(NOT_DELIVERED_RESULT),
-    });
-    expect(driven).toBe(false);
-    expect(records.get("w1")?.collected).not.toBe(true);
+    await driveMailNotDelivered();
   });
 
   test("async send success takes after the promise resolves", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
     let resolveSend: ((result: typeof ACCEPTED_DELIVERY) => void) | undefined;
     let sendStarted: (() => void) | undefined;
     const sendSeen = new Promise<void>((resolve) => {
       sendStarted = resolve;
     });
     const driven = driveMailboxMail({
-      parentProcessing: false,
-      mailbox: mapMailbox(records),
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => {
-        sendStarted?.();
-        return new Promise((resolve) => {
-          resolveSend = resolve;
-        });
-      },
+      ...driveFixture(records, {
+        send: () => {
+          sendStarted?.();
+          return new Promise((resolve) => {
+            resolveSend = resolve;
+          });
+        },
+      }),
     });
     await sendSeen;
     expect(records.get("w1")?.collected).not.toBe(true);
@@ -230,10 +196,10 @@ describe("driveMailboxMail", () => {
   });
 
   test("two flushes while send is pending deliver once", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const mailbox = mapMailbox(records);
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
+    const mailbox = collectingMailbox(records);
     const sends: string[] = [];
     let resolveSend: ((result: typeof ACCEPTED_DELIVERY) => void) | undefined;
     let sendStarted: (() => void) | undefined;
@@ -261,12 +227,7 @@ describe("driveMailboxMail", () => {
         parentProcessing: false,
         mailbox,
         lanes: [],
-        beginSystemContinuation: () => {
-          throw new Error("must not begin");
-        },
-        send: () => {
-          throw new Error("must not send");
-        },
+        ...NOOP_DRIVE,
       }),
     ).toBe(false);
     expect(sends).toHaveLength(1);
@@ -276,10 +237,10 @@ describe("driveMailboxMail", () => {
   });
 
   test("failed send can retry once", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const mailbox = mapMailbox(records);
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
+    const mailbox = collectingMailbox(records);
     const sends: string[] = [];
     expect(
       await driveMailboxMail({
@@ -310,41 +271,31 @@ describe("driveMailboxMail", () => {
   });
 
   test("awaiting_director is not mailbox mail", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["ask", { status: "awaiting_director" }],
-      ["live", { status: "running" }],
-    ]);
+    const records = recordsOf({
+      ask: { status: "awaiting_director" },
+      live: { status: "running" },
+    });
     expect(
       driveMailboxMail({
         parentProcessing: false,
-        mailbox: mapMailbox(records),
+        mailbox: collectingMailbox(records),
         lanes: [],
-        beginSystemContinuation: () => {
-          throw new Error("must not begin");
-        },
-        send: () => {
-          throw new Error("must not send");
-        },
+        ...NOOP_DRIVE,
       }),
     ).toBe(false);
   });
 
   test("does not begin if the parent starts processing during collect", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
     let processing = false;
     const driven = driveMailboxMail({
       parentProcessing: false,
       isParentProcessing: () => processing,
-      mailbox: mapMailbox(records),
+      mailbox: collectingMailbox(records),
       lanes: [],
-      beginSystemContinuation: () => {
-        throw new Error("must not begin");
-      },
-      send: () => {
-        throw new Error("must not send");
-      },
+      ...NOOP_DRIVE,
     });
     processing = true;
     expect(await driven).toBe(false);
@@ -352,22 +303,11 @@ describe("driveMailboxMail", () => {
   });
 
   test("not-delivered send leaves the wake retryable", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const driven = await driveMailboxMail({
-      parentProcessing: false,
-      mailbox: mapMailbox(records),
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => Promise.resolve(NOT_DELIVERED_RESULT),
-    });
-    expect(driven).toBe(false);
-    expect(records.get("w1")?.collected).not.toBe(true);
+    const records = await driveMailNotDelivered();
     expect(
       await driveMailboxMail({
         parentProcessing: false,
-        mailbox: mapMailbox(records),
+        mailbox: collectingMailbox(records),
         lanes: [],
         beginSystemContinuation: () => undefined,
         send: () => ACCEPTED_DELIVERY,
@@ -377,13 +317,13 @@ describe("driveMailboxMail", () => {
   });
 
   test("uncertain send leaves the wake retryable", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
+    const records = recordsOf({
+      w1: { status: "done", report: "ok" },
+    });
     expect(
       await driveMailboxMail({
         parentProcessing: false,
-        mailbox: mapMailbox(records),
+        mailbox: collectingMailbox(records),
         lanes: [],
         beginSystemContinuation: () => undefined,
         send: () => Promise.resolve(UNCERTAIN_DELIVERY),
@@ -395,9 +335,9 @@ describe("driveMailboxMail", () => {
 
 describe("latchMailboxMailDrive", () => {
   test("overlapping flushes send once until the in-flight collect settles", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["done", { status: "done", report: "ok", description: "lane" }],
-    ]);
+    const records = recordsOf({
+      done: { status: "done", report: "ok", description: "lane" },
+    });
     const sends: string[] = [];
     let resolveSend: (() => void) | undefined;
     const sent = new Promise<void>((resolve) => {
@@ -406,7 +346,7 @@ describe("latchMailboxMailDrive", () => {
     const driver = latchMailboxMailDrive(() =>
       driveMailboxMail({
         parentProcessing: false,
-        mailbox: mapMailbox(records),
+        mailbox: collectingMailbox(records),
         lanes: [],
         beginSystemContinuation: () => undefined,
         send: (prompt) => {
@@ -442,14 +382,9 @@ describe("latchMailboxMailDrive", () => {
     const driver = latchMailboxMailDrive(() =>
       driveMailboxMail({
         parentProcessing: false,
-        mailbox: mapMailbox(new Map()),
+        mailbox: collectingMailbox(new Map()),
         lanes: [],
-        beginSystemContinuation: () => {
-          throw new Error("must not begin");
-        },
-        send: () => {
-          throw new Error("must not send");
-        },
+        ...NOOP_DRIVE,
       }),
     );
     expect(driver()).toBe(false);
@@ -457,10 +392,10 @@ describe("latchMailboxMailDrive", () => {
   });
 
   test("after the in-flight drive settles, a new terminal can send", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["first", { status: "done", report: "one" }],
-    ]);
-    const mailbox = mapMailbox(records);
+    const records = recordsOf({
+      first: { status: "done", report: "one" },
+    });
+    const mailbox = collectingMailbox(records);
     const sends: string[] = [];
     let sawSend: (() => void) | undefined;
     const waitForSend = (): Promise<void> =>
@@ -504,30 +439,34 @@ describe("latchMailboxMailDrive", () => {
 describe("occupancyShouldYieldWait", () => {
   test("yields on uncollected terminal, fail, or ask; not on live or collected", () => {
     expect(occupancyShouldYieldWait(undefined)).toBe(false);
-    expect(occupancyShouldYieldWait(mapMailbox(new Map()))).toBe(false);
+    expect(occupancyShouldYieldWait(collectingMailbox(new Map()))).toBe(false);
     expect(
       occupancyShouldYieldWait(
-        mapMailbox(new Map([["live", { status: "running" }]])),
+        collectingMailbox(recordsOf({ live: { status: "running" } })),
       ),
     ).toBe(false);
     expect(
       occupancyShouldYieldWait(
-        mapMailbox(new Map([["done", { status: "done", report: "ok" }]])),
+        collectingMailbox(
+          recordsOf({ done: { status: "done", report: "ok" } }),
+        ),
       ),
     ).toBe(true);
     expect(
       occupancyShouldYieldWait(
-        mapMailbox(new Map([["fail", { status: "failed", error: "boom" }]])),
+        collectingMailbox(
+          recordsOf({ fail: { status: "failed", error: "boom" } }),
+        ),
       ),
     ).toBe(true);
     expect(
       occupancyShouldYieldWait(
-        mapMailbox(new Map([["ask", { status: "awaiting_director" }]])),
+        collectingMailbox(recordsOf({ ask: { status: "awaiting_director" } })),
       ),
     ).toBe(true);
-    const collected = new Map<string, FleetDryMailboxRecord>([
-      ["done", { status: "done", report: "ok", collected: true }],
-    ]);
-    expect(occupancyShouldYieldWait(mapMailbox(collected))).toBe(false);
+    const collected = recordsOf({
+      done: { status: "done", report: "ok", collected: true },
+    });
+    expect(occupancyShouldYieldWait(collectingMailbox(collected))).toBe(false);
   });
 });

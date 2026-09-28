@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentTool } from "@intx/agent";
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import {
   isResolvedProviderFailureError,
   type ResolvedProviderFailureError,
@@ -13,7 +10,6 @@ import {
 import type { InferenceErrorLike } from "../inference-gateway-error.js";
 import type { RetryPolicy } from "@intx/types/runtime";
 import { MAX_BLIND_WAIT_MS } from "../agent/retry-policy.js";
-import { createPermissionGate } from "../permission/gate.js";
 import {
   createFleetMailbox,
   createSpawnAgentTool,
@@ -22,6 +18,16 @@ import {
 import { unlimitedAdmissionQueue } from "./admission.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
+import {
+  callFleetTool,
+  deferred,
+  testPermissionGate,
+} from "./fleet-test-harness.js";
+import {
+  stubAgent,
+  tmpSubAgentCwd,
+  withStubbedAgent,
+} from "./run-test-harness.js";
 
 const OPAQUE_SECRET = "opaque credential with spaces?!";
 const RAW_DIAGNOSTIC = `\u001b[31mPOST https://provider.invalid returned\n credential ${OPAQUE_SECRET} in response body\u001b[0m`;
@@ -34,12 +40,6 @@ const provider = {
   apiKey: OPAQUE_SECRET,
   model: "test-model",
 };
-const testPermissionGate = createPermissionGate({
-  approvals: [],
-  interactive: false,
-  skipPermissions: true,
-  reactorGated: false,
-});
 
 type Run = (params: RunSubAgentParams) => Promise<RunSubAgentResult>;
 
@@ -55,63 +55,48 @@ async function withResolvedProviderRun<T>(
   },
   sendFailure?: Error,
 ): Promise<T> {
-  const cwd = await mkdtemp(join(tmpdir(), "resolved-provider-failure-"));
+  const cwd = await tmpSubAgentCwd("resolved-provider-failure-");
   const observed: ReactorEmittedEvent[] = [];
   let inferenceErrorConsumed: (() => void) | undefined;
   const inferenceErrorWasConsumed = new Promise<void>((resolve) => {
     inferenceErrorConsumed = resolve;
   });
   try {
-    return await withMockedModuleDuring(
-      import.meta.resolve("../agent/live-tool-dispatch.js"),
-      (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-        ...real,
-        createAgentWithLiveToolDispatch: async () =>
-          ({
-            send: async () => {
-              if (sendFailure !== undefined) {
-                await inferenceErrorWasConsumed;
-                throw sendFailure;
-              }
-              await new Promise<void>((resolve) => queueMicrotask(resolve));
-              return {
-                reply: RAW_DIAGNOSTIC,
-                turn: { role: "assistant", content: [] },
-              };
-            },
-            stream: () =>
-              (async function* (): AsyncGenerator<ReactorEmittedEvent> {
-                yield {
-                  type: "inference.start",
-                  seq: 1,
-                  data: { sourceId: "test", model: "test-model", input: [] },
-                } as unknown as ReactorEmittedEvent;
-                yield {
-                  type: "inference.error",
-                  seq: 2,
-                  data: {
-                    error: providerError,
-                    partial: { text: "" },
-                  },
-                } as unknown as ReactorEmittedEvent;
-                inferenceErrorConsumed?.();
-                yield {
-                  type: "connector.reply",
-                  seq: 3,
-                  data: { content: RAW_DIAGNOSTIC },
-                } as unknown as ReactorEmittedEvent;
-              })(),
-            deliver: () => undefined,
-            close: async () => undefined,
-            setSource: () => undefined,
-            setSources: () => undefined,
-            history: async () => [],
-            checkpoints: async () => [],
-            readAt: async () => [],
-            blobReader: {},
-          }) as unknown as Awaited<
-            ReturnType<typeof real.createAgentWithLiveToolDispatch>
-          >,
+    return await withStubbedAgent(
+      stubAgent({
+        send: async () => {
+          if (sendFailure !== undefined) {
+            await inferenceErrorWasConsumed;
+            throw sendFailure;
+          }
+          await new Promise<void>((resolve) => queueMicrotask(resolve));
+          return {
+            reply: RAW_DIAGNOSTIC,
+            turn: { role: "assistant", content: [] },
+          };
+        },
+        stream: () =>
+          (async function* (): AsyncGenerator<ReactorEmittedEvent> {
+            yield {
+              type: "inference.start",
+              seq: 1,
+              data: { sourceId: "test", model: "test-model", input: [] },
+            } as unknown as ReactorEmittedEvent;
+            yield {
+              type: "inference.error",
+              seq: 2,
+              data: {
+                error: providerError,
+                partial: { text: "" },
+              },
+            } as unknown as ReactorEmittedEvent;
+            inferenceErrorConsumed?.();
+            yield {
+              type: "connector.reply",
+              seq: 3,
+              data: { content: RAW_DIAGNOSTIC },
+            } as unknown as ReactorEmittedEvent;
+          })(),
       }),
       async () => {
         const { runSubAgent } = await import("./run.js");
@@ -129,19 +114,6 @@ async function withResolvedProviderRun<T>(
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
-}
-
-async function callTool(
-  tool: AgentTool,
-  name: string,
-  args: Record<string, unknown>,
-) {
-  if (tool.kind !== "full")
-    throw new Error(`expected full tool, got ${tool.kind}`);
-  return tool.handler(
-    { id: `${name}-call`, name, arguments: args },
-    new AbortController().signal,
-  );
 }
 
 // The retry schedules are exercised, not timed: a 1ms outer backoff and a
@@ -171,92 +143,69 @@ interface RetryAttemptScript {
   toolCalls?: string[];
 }
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
 async function withScriptedProviderRun<T>(
   scripts: RetryAttemptScript[],
   callback: (run: Run, cwd: string, sendCount: () => number) => Promise<T>,
 ): Promise<T> {
-  const cwd = await mkdtemp(join(tmpdir(), "outer-retry-"));
+  const cwd = await tmpSubAgentCwd("outer-retry-");
   let sendCount = 0;
-  const started = scripts.map(() => deferred());
-  const eventsDone = scripts.map(() => deferred());
+  const started = scripts.map(() => deferred<undefined>());
+  const eventsDone = scripts.map(() => deferred<undefined>());
   try {
-    return await withMockedModuleDuring(
-      import.meta.resolve("../agent/live-tool-dispatch.js"),
-      (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-        ...real,
-        createAgentWithLiveToolDispatch: async () =>
-          ({
-            send: async () => {
-              const index = Math.min(sendCount, scripts.length - 1);
-              sendCount += 1;
-              started[index]?.resolve();
-              await eventsDone[index]?.promise;
-              const script = scripts[index] ?? {};
-              return {
-                type: "reply",
-                reply: script.replyText ?? "recovered",
-                turn: { role: "assistant", content: [] },
-              };
-            },
-            stream: () =>
-              (async function* (): AsyncGenerator<ReactorEmittedEvent> {
-                let seq = 1;
-                for (const [index, script] of scripts.entries()) {
-                  await started[index]?.promise;
-                  for (const name of script.toolCalls ?? []) {
-                    yield {
-                      type: "tool.start",
-                      seq: seq++,
-                      data: { call: { name, arguments: {} } },
-                    } as unknown as ReactorEmittedEvent;
-                  }
-                  if (script.error !== undefined) {
-                    yield {
-                      type: "inference.error",
-                      seq: seq++,
-                      data: {
-                        error: script.error,
-                        partial: { text: "" },
-                      },
-                    } as unknown as ReactorEmittedEvent;
-                  } else {
-                    yield {
-                      type: "inference.start",
-                      seq: seq++,
-                      data: {
-                        sourceId: "test",
-                        model: "test-model",
-                        input: [],
-                      },
-                    } as unknown as ReactorEmittedEvent;
-                  }
-                  yield {
-                    type: "connector.reply",
-                    seq: seq++,
-                    data: { content: script.replyText ?? "" },
-                  } as unknown as ReactorEmittedEvent;
-                  eventsDone[index]?.resolve();
-                }
-              })(),
-            deliver: () => undefined,
-            close: async () => undefined,
-            setSource: () => undefined,
-            setSources: () => undefined,
-            history: async () => [],
-            checkpoints: async () => [],
-            readAt: async () => [],
-            blobReader: {},
-          }) as unknown as Awaited<
-            ReturnType<typeof real.createAgentWithLiveToolDispatch>
-          >,
+    return await withStubbedAgent(
+      stubAgent({
+        send: async () => {
+          const index = Math.min(sendCount, scripts.length - 1);
+          sendCount += 1;
+          started[index]?.resolve(undefined);
+          await eventsDone[index]?.promise;
+          const script = scripts[index] ?? {};
+          return {
+            type: "reply",
+            reply: script.replyText ?? "recovered",
+            turn: { role: "assistant", content: [] },
+          };
+        },
+        stream: () =>
+          (async function* (): AsyncGenerator<ReactorEmittedEvent> {
+            let seq = 1;
+            for (const [index, script] of scripts.entries()) {
+              await started[index]?.promise;
+              for (const name of script.toolCalls ?? []) {
+                yield {
+                  type: "tool.start",
+                  seq: seq++,
+                  data: { call: { name, arguments: {} } },
+                } as unknown as ReactorEmittedEvent;
+              }
+              if (script.error !== undefined) {
+                yield {
+                  type: "inference.error",
+                  seq: seq++,
+                  data: {
+                    error: script.error,
+                    partial: { text: "" },
+                  },
+                } as unknown as ReactorEmittedEvent;
+              } else {
+                yield {
+                  type: "inference.start",
+                  seq: seq++,
+                  data: {
+                    sourceId: "test",
+                    model: "test-model",
+                    input: [],
+                  },
+                } as unknown as ReactorEmittedEvent;
+              }
+              yield {
+                type: "connector.reply",
+                seq: seq++,
+                data: { content: script.replyText ?? "" },
+              } as unknown as ReactorEmittedEvent;
+              eventsDone[index]?.resolve(undefined);
+            }
+          })(),
       }),
       async () => {
         const { runSubAgent } = await import("./run.js");
@@ -266,6 +215,39 @@ async function withScriptedProviderRun<T>(
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+}
+
+interface SpawnAndWaitOutcome {
+  sessions: ReturnType<typeof createSubAgentSessionStore>;
+  agentId: string;
+  waitResult: Record<string, unknown>;
+}
+
+async function spawnAndWait(
+  run: Run,
+  cwd: string,
+  description: string,
+): Promise<SpawnAndWaitOutcome> {
+  const sessions = createSubAgentSessionStore();
+  const fleetRecords = createFleetMailbox(sessions);
+  const spawned = await callFleetTool(
+    createSpawnAgentTool({
+      ...runParams(cwd),
+      getWorkdirBase: () => join(cwd, ".ctx"),
+      sessions,
+      fleetRecords,
+      admission: unlimitedAdmissionQueue(),
+      run,
+    }),
+    { description, prompt: "trigger it", intent: "explore" },
+  );
+  const agentId = spawned.agent_id;
+  if (typeof agentId !== "string") throw new Error("missing agent_id");
+  const waitResult = await callFleetTool(
+    createWaitAgentsTool({ sessions, fleetRecords }),
+    { targets: [agentId], timeout_ms: 5000 },
+  );
+  return { sessions, agentId, waitResult };
 }
 
 describe("resolved sub-agent provider failures", () => {
@@ -302,36 +284,12 @@ describe("resolved sub-agent provider failures", () => {
 
   test("split spawn_agent and wait_agents return only the safe message", async () => {
     await withResolvedProviderRun(async (run, cwd) => {
-      const sessions = createSubAgentSessionStore();
-      const fleetRecords = createFleetMailbox(sessions);
-      const deps = {
-        ...runParams(cwd),
-        getWorkdirBase: () => join(cwd, ".ctx"),
-        sessions,
-        fleetRecords,
-        admission: unlimitedAdmissionQueue(),
+      const { sessions, agentId, waitResult } = await spawnAndWait(
         run,
-      };
-      const spawned = await callTool(
-        createSpawnAgentTool(deps),
-        "spawn_agent",
-        {
-          description: "provider failure",
-          prompt: "trigger it",
-          intent: "explore",
-        },
+        cwd,
+        "provider failure",
       );
-      const spawnPayload = JSON.parse(String(spawned.content)) as {
-        agent_id?: unknown;
-      };
-      if (typeof spawnPayload.agent_id !== "string")
-        throw new Error("missing agent_id");
-      const waited = await callTool(
-        createWaitAgentsTool({ sessions, fleetRecords }),
-        "wait_agents",
-        { targets: [spawnPayload.agent_id], timeout_ms: 5000 },
-      );
-      const waitPayload = JSON.parse(String(waited.content)) as {
+      const waitPayload = waitResult as {
         results?: {
           agent_id?: string;
           status?: string;
@@ -341,20 +299,17 @@ describe("resolved sub-agent provider failures", () => {
       };
 
       expect(waitPayload.results?.[0]).toEqual({
-        agent_id: spawnPayload.agent_id,
+        agent_id: agentId,
         status: "failed",
         error: SAFE_MESSAGE,
         provider_failure: true,
       });
-      expect(String(waited.content)).not.toContain(RAW_DIAGNOSTIC);
-      expect(String(waited.content)).not.toContain(NORMALIZED_DIAGNOSTIC);
-      expect(sessions.get(spawnPayload.agent_id)?.error).toBe(SAFE_MESSAGE);
-      expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(
-        RAW_DIAGNOSTIC,
-      );
-      expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(
-        NORMALIZED_DIAGNOSTIC,
-      );
+      const serialized = JSON.stringify(waitResult);
+      expect(serialized).not.toContain(RAW_DIAGNOSTIC);
+      expect(serialized).not.toContain(NORMALIZED_DIAGNOSTIC);
+      expect(sessions.get(agentId)?.error).toBe(SAFE_MESSAGE);
+      expect(sessions.get(agentId)?.error).not.toContain(RAW_DIAGNOSTIC);
+      expect(sessions.get(agentId)?.error).not.toContain(NORMALIZED_DIAGNOSTIC);
     });
   });
 
@@ -366,48 +321,21 @@ describe("resolved sub-agent provider failures", () => {
     } satisfies InferenceErrorLike;
     await withResolvedProviderRun(
       async (run, cwd) => {
-        const sessions = createSubAgentSessionStore();
-        const fleetRecords = createFleetMailbox(sessions);
-        const deps = {
-          ...runParams(cwd),
-          getWorkdirBase: () => join(cwd, ".ctx"),
-          sessions,
-          fleetRecords,
-          admission: unlimitedAdmissionQueue(),
-          outerRetryDelayMs: 1,
-          retryPolicy: fastRetryPolicy,
+        const { sessions, agentId, waitResult } = await spawnAndWait(
           run,
-        };
-        const spawned = await callTool(
-          createSpawnAgentTool(deps),
-          "spawn_agent",
-          {
-            description: "rejected provider failure",
-            prompt: "trigger it",
-            intent: "explore",
-          },
-        );
-        const spawnPayload = JSON.parse(String(spawned.content)) as {
-          agent_id?: unknown;
-        };
-        if (typeof spawnPayload.agent_id !== "string")
-          throw new Error("missing agent_id");
-        const waited = await callTool(
-          createWaitAgentsTool({ sessions, fleetRecords }),
-          "wait_agents",
-          { targets: [spawnPayload.agent_id], timeout_ms: 5000 },
+          cwd,
+          "rejected provider failure",
         );
         const safeFailure =
           "test-provider Provider failed (retryable). Try again.";
 
-        expect(String(waited.content)).toContain(safeFailure);
-        expect(String(waited.content)).not.toContain(RAW_DIAGNOSTIC);
-        expect(String(waited.content)).not.toContain(NORMALIZED_DIAGNOSTIC);
-        expect(sessions.get(spawnPayload.agent_id)?.error).toBe(safeFailure);
-        expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(
-          RAW_DIAGNOSTIC,
-        );
-        expect(sessions.get(spawnPayload.agent_id)?.error).not.toContain(
+        const serialized = JSON.stringify(waitResult);
+        expect(serialized).toContain(safeFailure);
+        expect(serialized).not.toContain(RAW_DIAGNOSTIC);
+        expect(serialized).not.toContain(NORMALIZED_DIAGNOSTIC);
+        expect(sessions.get(agentId)?.error).toBe(safeFailure);
+        expect(sessions.get(agentId)?.error).not.toContain(RAW_DIAGNOSTIC);
+        expect(sessions.get(agentId)?.error).not.toContain(
           NORMALIZED_DIAGNOSTIC,
         );
       },
@@ -615,44 +543,29 @@ describe("resolved sub-agent provider failures", () => {
   });
 
   test("outer retry does not retry a raw send rejection without inference.error", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "outer-retry-raw-"));
+    const cwd = await tmpSubAgentCwd("outer-retry-raw-");
     let sends = 0;
     const rawError = new Error("raw send boom");
     try {
-      await withMockedModuleDuring(
-        import.meta.resolve("../agent/live-tool-dispatch.js"),
-        (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-          ...real,
-          createAgentWithLiveToolDispatch: async () =>
-            ({
-              send: async () => {
-                sends += 1;
-                throw rawError;
-              },
-              stream: () =>
-                (async function* (): AsyncGenerator<ReactorEmittedEvent> {
-                  yield {
-                    type: "inference.start",
-                    seq: 1,
-                    data: { sourceId: "test", model: "test-model", input: [] },
-                  } as unknown as ReactorEmittedEvent;
-                  yield {
-                    type: "connector.reply",
-                    seq: 2,
-                    data: { content: "" },
-                  } as unknown as ReactorEmittedEvent;
-                })(),
-              deliver: () => undefined,
-              close: async () => undefined,
-              setSource: () => undefined,
-              setSources: () => undefined,
-              history: async () => [],
-              checkpoints: async () => [],
-              readAt: async () => [],
-              blobReader: {},
-            }) as unknown as Awaited<
-              ReturnType<typeof real.createAgentWithLiveToolDispatch>
-            >,
+      await withStubbedAgent(
+        stubAgent({
+          send: async () => {
+            sends += 1;
+            throw rawError;
+          },
+          stream: () =>
+            (async function* (): AsyncGenerator<ReactorEmittedEvent> {
+              yield {
+                type: "inference.start",
+                seq: 1,
+                data: { sourceId: "test", model: "test-model", input: [] },
+              } as unknown as ReactorEmittedEvent;
+              yield {
+                type: "connector.reply",
+                seq: 2,
+                data: { content: "" },
+              } as unknown as ReactorEmittedEvent;
+            })(),
         }),
         async () => {
           const { runSubAgent } = await import("./run.js");

@@ -157,6 +157,163 @@ function ephemeralTexts(
   return ephemeralTurns(infer)?.map((turn) => turn.content[0]?.text ?? "");
 }
 
+function observedIds(
+  director: SubAgentDirector,
+): { id: string; count?: number }[] {
+  const records: { id: string; count?: number }[] = [];
+  director.observeInterventions((event) => {
+    records.push(
+      event.count === undefined
+        ? { id: event.id }
+        : { id: event.id, count: event.count },
+    );
+  });
+  return records;
+}
+
+function replyText(result: ReactorAction[]): string {
+  const reply = result.find((action) => action.type === "reply");
+  expect(reply).toBeDefined();
+  if (reply === undefined || reply.type !== "reply") {
+    throw new Error("expected reply action");
+  }
+  return reply.content;
+}
+
+async function readOnce(
+  director: SubAgentDirector,
+  st: ReactorState,
+  caps: ReactorCapabilities,
+): Promise<void> {
+  await director.decide(inferenceDone(["read-1"]), st, caps);
+  await director.decide(toolDone("read-1"), st, caps);
+}
+
+async function narratingSalvage(
+  director: SubAgentDirector,
+  st: ReactorState,
+  caps: ReactorCapabilities,
+): Promise<ReactorAction[]> {
+  await readOnce(director, st, caps);
+  await director.decide(
+    inferenceDoneText("Still looking at the files..."),
+    st,
+    caps,
+  );
+  return actions(
+    await director.decide(
+      inferenceDoneText("Still narrating, no envelope."),
+      st,
+      caps,
+    ),
+  );
+}
+
+async function expectPruneCompact(
+  director: SubAgentDirector,
+  st: ReactorState,
+  caps: ReactorCapabilities,
+): Promise<void> {
+  const compact = actions(await director.decide(overflowError(), st, caps));
+  expect(compact.some((action) => action.type === "infer")).toBe(false);
+  expect(compact).toEqual([
+    {
+      type: "compact",
+      compactor: "pruning-compactor",
+      reason: "context-overflow",
+    },
+  ]);
+}
+
+async function expectEmptyPingWaits(
+  director: SubAgentDirector,
+  st: ReactorState,
+  caps: ReactorCapabilities,
+): Promise<void> {
+  const afterEmpty = actions(
+    await director.decide(messageReceived(""), st, caps),
+  );
+  expect(afterEmpty.some((action) => action.type === "infer")).toBe(false);
+  expect(afterEmpty.some((action) => action.type === "reply")).toBe(false);
+  expect(afterEmpty).toContainEqual({ type: "wait" });
+}
+
+function expectIncompleteNudge(
+  result: ReactorAction[],
+  needle: string,
+): string[] | undefined {
+  expect(result.some((action) => action.type === "reply")).toBe(false);
+  expect(result.some((action) => action.type === "done")).toBe(false);
+  expect(result).toContainEqual({
+    type: "checkpoint",
+    message: "subagent-incomplete-report-nudge",
+  });
+  const texts = ephemeralTexts(inferAction(result));
+  expect(texts).toHaveLength(1);
+  expect(texts?.[0]).toContain(needle);
+  return texts;
+}
+
+function expectNudgeUserTurn(nudge: ReactorAction[]): void {
+  const turns = ephemeralTurns(inferAction(nudge));
+  expect(turns).toHaveLength(1);
+  expect(turns?.[0]?.role).toBe("user");
+  expect(defined(turns?.[0]?.content[0]?.text).length).toBeGreaterThan(0);
+}
+
+function stallDirector(now0: number): {
+  director: SubAgentDirector;
+  caps: ReactorCapabilities;
+  tick: (ms: number) => void;
+  setNow: (ms: number) => void;
+} {
+  let now = now0;
+  const director = new SubAgentDirector(
+    "system",
+    [],
+    undefined,
+    1_000,
+    () => now,
+  );
+  const caps = createTestCapabilities();
+  return {
+    director,
+    caps,
+    tick: (ms) => (now += ms),
+    setNow: (v) => (now = v),
+  };
+}
+
+async function stallNudge(
+  director: SubAgentDirector,
+  st: ReactorState,
+  caps: ReactorCapabilities,
+): Promise<ReactorAction[]> {
+  const nudge = actions(await director.decide(messageReceived(""), st, caps));
+  expect(nudge).toContainEqual({
+    type: "checkpoint",
+    message: "subagent-stall-nudge",
+  });
+  return nudge;
+}
+
+async function armedRecoveryBurst(): Promise<{
+  director: SubAgentDirector;
+  caps: ReactorCapabilities;
+  records: { id: string; count?: number }[];
+}> {
+  const director = new SubAgentDirector("system", [], undefined, 30);
+  const caps = createTestCapabilities();
+  const records = observedIds(director);
+  await director.decide(
+    inferenceDone(["fail-a", "fail-b", "ok-c"]),
+    state,
+    caps,
+  );
+  await director.decide(toolDone("fail-a", true), state, caps);
+  return { director, caps, records };
+}
+
 describe("SubAgentDirector tool failure recovery", () => {
   test("failed tool result adds one actionable ephemeral recovery nudge", async () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
@@ -177,23 +334,7 @@ describe("SubAgentDirector tool failure recovery", () => {
   });
 
   test("coalesces consecutive failed tool audits into one counted intervention", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
-    const records: { id: string; count?: number }[] = [];
-    director.observeInterventions((event) => {
-      records.push(
-        event.count === undefined
-          ? { id: event.id }
-          : { id: event.id, count: event.count },
-      );
-    });
-
-    await director.decide(
-      inferenceDone(["fail-a", "fail-b", "ok-c"]),
-      state,
-      caps,
-    );
-    await director.decide(toolDone("fail-a", true), state, caps);
+    const { director, caps, records } = await armedRecoveryBurst();
     expect(records).toEqual([]);
     await director.decide(toolDone("fail-b", true), state, caps);
     expect(records).toEqual([]);
@@ -222,24 +363,8 @@ describe("SubAgentDirector tool failure recovery", () => {
   });
 
   test("flushes an undelivered recovery burst when the run goes terminal", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
-    const records: { id: string; count?: number }[] = [];
-    director.observeInterventions((event) => {
-      records.push(
-        event.count === undefined
-          ? { id: event.id }
-          : { id: event.id, count: event.count },
-      );
-    });
-
     // ok-c stays pending so the armed recovery nudge never reaches an infer.
-    await director.decide(
-      inferenceDone(["fail-a", "fail-b", "ok-c"]),
-      state,
-      caps,
-    );
-    await director.decide(toolDone("fail-a", true), state, caps);
+    const { director, caps, records } = await armedRecoveryBurst();
     await director.decide(toolDone("fail-b", true), state, caps);
     expect(records).toEqual([]);
 
@@ -453,17 +578,7 @@ describe("SubAgentDirector tool failure recovery", () => {
     expect(texts).toHaveLength(1);
     expect(texts?.[0]).toContain("A tool call failed");
 
-    const compact = actions(
-      await director.decide(overflowError(), state, caps),
-    );
-    expect(compact.some((action) => action.type === "infer")).toBe(false);
-    expect(compact).toEqual([
-      {
-        type: "compact",
-        compactor: "pruning-compactor",
-        reason: "context-overflow",
-      },
-    ]);
+    await expectPruneCompact(director, state, caps);
     expect(continuations).toBe(1);
 
     const resumed = inferAction(
@@ -509,17 +624,7 @@ describe("SubAgentDirector tool failure recovery", () => {
     );
     expect(ephemeralTexts(afterSuccess)).toBeUndefined();
 
-    const compact = actions(
-      await director.decide(overflowError(), state, caps),
-    );
-    expect(compact.some((action) => action.type === "infer")).toBe(false);
-    expect(compact).toEqual([
-      {
-        type: "compact",
-        compactor: "pruning-compactor",
-        reason: "context-overflow",
-      },
-    ]);
+    await expectPruneCompact(director, state, caps);
     expect(continuations).toBe(1);
 
     const resumed = inferAction(
@@ -624,8 +729,7 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
       message: "subagent-incomplete-report-nudge",
     });
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
     const afterTool = actions(
       await director.decide(inferenceDoneText(verbatimToolCall), state, caps),
     );
@@ -698,8 +802,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
 
     const result = actions(
       await director.decide(
@@ -708,15 +811,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
         caps,
       ),
     );
-    expect(result.some((action) => action.type === "reply")).toBe(false);
-    expect(result.some((action) => action.type === "done")).toBe(false);
-    expect(result).toContainEqual({
-      type: "checkpoint",
-      message: "subagent-incomplete-report-nudge",
-    });
-    const texts = ephemeralTexts(inferAction(result));
-    expect(texts).toHaveLength(1);
-    expect(texts?.[0]).toContain("## Summary");
+    const texts = expectIncompleteNudge(result, "## Summary");
     expect(texts?.[0]).toContain("## Findings");
     expect(texts?.[0]).toContain("## Blockers");
     expect(texts?.[0]).toContain("## Paths");
@@ -727,8 +822,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
 
     const result = actions(
       await director.decide(
@@ -743,15 +837,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
         caps,
       ),
     );
-    expect(result.some((action) => action.type === "reply")).toBe(false);
-    expect(result.some((action) => action.type === "done")).toBe(false);
-    expect(result).toContainEqual({
-      type: "checkpoint",
-      message: "subagent-incomplete-report-nudge",
-    });
-    const texts = ephemeralTexts(inferAction(result));
-    expect(texts).toHaveLength(1);
-    expect(texts?.[0]).toContain("## Findings");
+    const texts = expectIncompleteNudge(result, "## Findings");
     expect(texts?.[0]).toContain("## Blockers");
     expect(texts?.[0]).toContain("## Paths");
   });
@@ -760,8 +846,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
     await director.decide(
       inferenceDoneText("Still looking at the files..."),
       state,
@@ -781,19 +866,16 @@ describe("SubAgentDirector incomplete-report wiring", () => {
       type: "checkpoint",
       message: "subagent-incomplete-report",
     });
-    const reply = result.find((action) => action.type === "reply");
-    expect(reply).toBeDefined();
-    if (reply === undefined || reply.type !== "reply")
-      throw new Error("expected reply action");
-    expect(reply.content).toContain(
+    const replyContent = replyText(result);
+    expect(replyContent).toContain(
       "narrated instead of writing a report envelope",
     );
-    expect(reply.content).toContain("Still narrating, no envelope.");
-    expect(reply.content).toContain("one successor");
-    expect(reply.content).toContain("changed brief");
-    expect(reply.content).not.toContain("wait for the operator");
-    expect(reply.content).toContain("## Paths");
-    expect(reply.content).toContain("read-1.ts");
+    expect(replyContent).toContain("Still narrating, no envelope.");
+    expect(replyContent).toContain("one successor");
+    expect(replyContent).toContain("changed brief");
+    expect(replyContent).not.toContain("wait for the operator");
+    expect(replyContent).toContain("## Paths");
+    expect(replyContent).toContain("read-1.ts");
   });
 
   test("incomplete-report-stop fires once then waits on later tool-less turns", async () => {
@@ -810,20 +892,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
       records.push({ id: event.id, class: event.class });
     });
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
-    await director.decide(
-      inferenceDoneText("Still looking at the files..."),
-      state,
-      caps,
-    );
-    const salvage = actions(
-      await director.decide(
-        inferenceDoneText("Still narrating, no envelope."),
-        state,
-        caps,
-      ),
-    );
+    const salvage = await narratingSalvage(director, state, caps);
     expect(salvage).toContainEqual({
       type: "checkpoint",
       message: "subagent-incomplete-report",
@@ -862,8 +931,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
       state,
       caps,
     );
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
     await director.decide(inferenceDone(["read-2"]), state, caps);
     await director.decide(toolDone("read-2"), state, caps);
 
@@ -886,8 +954,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     const director = new SubAgentDirector("system", [], undefined, 30);
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
 
     const result = actions(
       await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps),
@@ -897,12 +964,9 @@ describe("SubAgentDirector incomplete-report wiring", () => {
       type: "checkpoint",
       message: "subagent-complete",
     });
-    const reply = result.find((action) => action.type === "reply");
-    expect(reply).toBeDefined();
-    if (reply === undefined || reply.type !== "reply")
-      throw new Error("expected reply action");
-    expect(reply.content).toBe(REPORT_ENVELOPE);
-    expect(reply.content).not.toContain(
+    const replyContent = replyText(result);
+    expect(replyContent).toBe(REPORT_ENVELOPE);
+    expect(replyContent).not.toContain(
       "narrated instead of writing a report envelope",
     );
   });
@@ -1021,13 +1085,10 @@ describe("SubAgentDirector plan-substance wiring", () => {
       type: "checkpoint",
       message: "subagent-incomplete-report",
     });
-    const reply = result.find((action) => action.type === "reply");
-    expect(reply).toBeDefined();
-    if (reply === undefined || reply.type !== "reply")
-      throw new Error("expected reply action");
-    expect(reply.content).toContain("not an attachable plan");
-    expect(reply.content).toContain("Plan ready.");
-    expect(reply.content).toContain("## Summary");
+    const replyContent = replyText(result);
+    expect(replyContent).toContain("not an attachable plan");
+    expect(replyContent).toContain("Plan ready.");
+    expect(replyContent).toContain("## Summary");
   });
 
   test("pass plan fixture with requirePlanSubstance completes", async () => {
@@ -1049,11 +1110,7 @@ describe("SubAgentDirector plan-substance wiring", () => {
       type: "checkpoint",
       message: "subagent-complete",
     });
-    const reply = result.find((action) => action.type === "reply");
-    expect(reply).toBeDefined();
-    if (reply === undefined || reply.type !== "reply")
-      throw new Error("expected reply action");
-    expect(reply.content).toBe(PASS_PLAN_ENVELOPE);
+    expect(replyText(result)).toBe(PASS_PLAN_ENVELOPE);
   });
 
   test("wrap-up plan Findings after real tools completes instead of stub salvage", async () => {
@@ -1081,8 +1138,7 @@ describe("SubAgentDirector plan-substance wiring", () => {
       "src/gate.ts",
     ].join("\n");
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
 
     const result = actions(
       await director.decide(inferenceDoneText(wrapPlan), state, caps),
@@ -1091,12 +1147,9 @@ describe("SubAgentDirector plan-substance wiring", () => {
       type: "checkpoint",
       message: "subagent-complete",
     });
-    const reply = result.find((action) => action.type === "reply");
-    expect(reply).toBeDefined();
-    if (reply === undefined || reply.type !== "reply")
-      throw new Error("expected reply action");
-    expect(reply.content).toBe(wrapPlan);
-    expect(reply.content).not.toContain("not an attachable plan");
+    const replyContent = replyText(result);
+    expect(replyContent).toBe(wrapPlan);
+    expect(replyContent).not.toContain("not an attachable plan");
   });
 });
 
@@ -1105,8 +1158,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
     const director = new SubAgentDirector("system", [], undefined, 1000);
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
     const complete = actions(
       await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps),
     );
@@ -1116,12 +1168,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
     });
     expect(complete.some((action) => action.type === "reply")).toBe(true);
 
-    const afterEmpty = actions(
-      await director.decide(messageReceived(""), state, caps),
-    );
-    expect(afterEmpty.some((action) => action.type === "infer")).toBe(false);
-    expect(afterEmpty.some((action) => action.type === "reply")).toBe(false);
-    expect(afterEmpty).toContainEqual({ type: "wait" });
+    await expectEmptyPingWaits(director, state, caps);
   });
 
   test("stall empty-ping after a report reply does not revive inference", async () => {
@@ -1135,8 +1182,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
     );
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
     await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
 
     now += 1500;
@@ -1154,8 +1200,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
     const director = new SubAgentDirector("system", [], undefined, 1000);
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
     await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
 
     const followup = actions(
@@ -1173,32 +1218,14 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
     const director = new SubAgentDirector("system", [], undefined, 1000);
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
-    await director.decide(
-      inferenceDoneText("Still looking at the files..."),
-      state,
-      caps,
-    );
-    const salvage = actions(
-      await director.decide(
-        inferenceDoneText("Still narrating, no envelope."),
-        state,
-        caps,
-      ),
-    );
+    const salvage = await narratingSalvage(director, state, caps);
     expect(salvage).toContainEqual({
       type: "checkpoint",
       message: "subagent-incomplete-report",
     });
     expect(salvage.some((action) => action.type === "reply")).toBe(true);
 
-    const afterEmpty = actions(
-      await director.decide(messageReceived(""), state, caps),
-    );
-    expect(afterEmpty.some((action) => action.type === "infer")).toBe(false);
-    expect(afterEmpty.some((action) => action.type === "reply")).toBe(false);
-    expect(afterEmpty).toContainEqual({ type: "wait" });
+    await expectEmptyPingWaits(director, state, caps);
   });
 
   test("idle-compact meter path after a report reply waits instead of re-inferring", async () => {
@@ -1214,8 +1241,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
     const caps = createTestCapabilities();
 
     // Under-threshold tooling so tool.done does not compact before the report.
-    await director.decide(inferenceDone(["read-1"]), longState, caps);
-    await director.decide(toolDone("read-1"), longState, caps);
+    await readOnce(director, longState, caps);
 
     const complete = actions(
       await director.decide(
@@ -1257,8 +1283,7 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
     const director = new SubAgentDirector("system", [], undefined, 1000);
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), state, caps);
-    await director.decide(toolDone("read-1"), state, caps);
+    await readOnce(director, state, caps);
     await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps);
 
     const firstEmpty = actions(
@@ -1278,26 +1303,18 @@ describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
 
 describe("SubAgentDirector stall nudge grace", () => {
   test("long in-flight tool with no assistant text does not stall-nudge", async () => {
-    let now = 4_000_000;
-    const director = new SubAgentDirector(
-      "system",
-      [],
-      undefined,
-      1_000,
-      () => now,
-    );
-    const caps = createTestCapabilities();
+    const { director, caps, tick } = stallDirector(4_000_000);
 
     await director.decide(inferenceDone(["slow-1"]), state, caps);
 
-    now += 60_000;
+    tick(60_000);
     const midTool = actions(
       await director.decide(messageReceived(""), state, caps),
     );
     expect(midTool).toEqual([{ type: "wait" }]);
 
     await director.decide(toolDone("slow-1"), state, caps);
-    now += 1_000;
+    tick(1_000);
     const afterTool = actions(
       await director.decide(messageReceived(""), state, caps),
     );
@@ -1308,24 +1325,16 @@ describe("SubAgentDirector stall nudge grace", () => {
   });
 
   test("resume.tool_result clears in-flight ids so later silence can stall-nudge", async () => {
-    let now = 5_000_000;
-    const director = new SubAgentDirector(
-      "system",
-      [],
-      undefined,
-      1_000,
-      () => now,
-    );
-    const caps = createTestCapabilities();
+    const { director, caps, tick } = stallDirector(5_000_000);
 
     await director.decide(inferenceDone(["parked-1"]), state, caps);
-    now += 60_000;
+    tick(60_000);
     expect(
       actions(await director.decide(messageReceived(""), state, caps)),
     ).toEqual([{ type: "wait" }]);
 
     await director.decide(resumeToolResult("parked-1"), state, caps);
-    now += 1_000;
+    tick(1_000);
     expect(
       actions(await director.decide(messageReceived(""), state, caps)),
     ).toContainEqual({
@@ -1335,26 +1344,11 @@ describe("SubAgentDirector stall nudge grace", () => {
   });
 
   test("two queued empty pings in the same tick nudge then wait, not stop", async () => {
-    let now = 3_000_000;
-    const director = new SubAgentDirector(
-      "system",
-      [],
-      undefined,
-      1_000,
-      () => now,
-    );
-    const caps = createTestCapabilities();
+    const { director, caps, tick } = stallDirector(3_000_000);
 
     await director.decide(inferenceDoneText("working"), state, caps);
-
-    now += 1_000;
-    const first = actions(
-      await director.decide(messageReceived(""), state, caps),
-    );
-    expect(first).toContainEqual({
-      type: "checkpoint",
-      message: "subagent-stall-nudge",
-    });
+    tick(1_000);
+    const first = await stallNudge(director, state, caps);
     expect(first.some((action) => action.type === "reply")).toBe(false);
 
     const second = actions(
@@ -1364,40 +1358,25 @@ describe("SubAgentDirector stall nudge grace", () => {
   });
 
   test("queued pings inside grace wait; stop only after grace with no activity", async () => {
-    let now = 1_000_000;
-    const director = new SubAgentDirector(
-      "system",
-      [],
-      undefined,
-      1_000,
-      () => now,
-    );
-    const caps = createTestCapabilities();
+    const { director, caps, tick } = stallDirector(1_000_000);
 
     await director.decide(inferenceDoneText("working"), state, caps);
+    tick(1_000);
+    await stallNudge(director, state, caps);
 
-    now += 1_000;
-    const first = actions(
-      await director.decide(messageReceived(""), state, caps),
-    );
-    expect(first).toContainEqual({
-      type: "checkpoint",
-      message: "subagent-stall-nudge",
-    });
-
-    now += 200;
+    tick(200);
     const midGrace = actions(
       await director.decide(messageReceived(""), state, caps),
     );
     expect(midGrace).toEqual([{ type: "wait" }]);
 
-    now += 200;
+    tick(200);
     const stillGrace = actions(
       await director.decide(messageReceived(""), state, caps),
     );
     expect(stillGrace).toEqual([{ type: "wait" }]);
 
-    now += 600;
+    tick(600);
     const stopped = actions(
       await director.decide(messageReceived(""), state, caps),
     );
@@ -1409,30 +1388,16 @@ describe("SubAgentDirector stall nudge grace", () => {
   });
 
   test("tool.done during grace clears stallNudgeAt so a later silence nudges again", async () => {
-    let now = 2_000_000;
-    const director = new SubAgentDirector(
-      "system",
-      [],
-      undefined,
-      1_000,
-      () => now,
-    );
-    const caps = createTestCapabilities();
+    const { director, caps, tick } = stallDirector(2_000_000);
 
     await director.decide(inferenceDoneText("working"), state, caps);
-    now += 1_000;
-    const first = actions(
-      await director.decide(messageReceived(""), state, caps),
-    );
-    expect(first).toContainEqual({
-      type: "checkpoint",
-      message: "subagent-stall-nudge",
-    });
+    tick(1_000);
+    await stallNudge(director, state, caps);
 
-    now += 100;
+    tick(100);
     await director.decide(toolDone("read-1"), state, caps);
 
-    now += 1_000;
+    tick(1_000);
     const afterActivity = actions(
       await director.decide(messageReceived(""), state, caps),
     );
@@ -1545,19 +1510,11 @@ describe("SubAgentDirector ask_director park wait-guard", () => {
 
 describe("SubAgentDirector idle stall ping", () => {
   test("empty ping inside the stall window waits and does not infer", async () => {
-    let now = 8_000_000;
-    const director = new SubAgentDirector(
-      "system",
-      [],
-      undefined,
-      1_000,
-      () => now,
-    );
-    const caps = createTestCapabilities();
+    const { director, caps, tick, setNow } = stallDirector(8_000_000);
 
     await director.decide(inferenceDoneText("working"), state, caps);
 
-    now += 200;
+    tick(200);
     const early = actions(
       await director.decide(messageReceived(""), state, caps),
     );
@@ -1567,7 +1524,7 @@ describe("SubAgentDirector idle stall ping", () => {
 
     // The in-window wait must not restart the silence clock. One stall
     // timeout from the original activity still nudges, once.
-    now = 8_000_000 + 1_000;
+    setNow(8_000_000 + 1_000);
     const nudge = actions(
       await director.decide(messageReceived(""), state, caps),
     );
@@ -1575,20 +1532,15 @@ describe("SubAgentDirector idle stall ping", () => {
       type: "checkpoint",
       message: "subagent-stall-nudge",
     });
-    const nudgeTurns = ephemeralTurns(inferAction(nudge));
-    expect(nudgeTurns).toHaveLength(1);
-    expect(nudgeTurns?.[0]?.role).toBe("user");
-    expect(defined(nudgeTurns?.[0]?.content[0]?.text).length).toBeGreaterThan(
-      0,
-    );
+    expectNudgeUserTurn(nudge);
 
-    now += 200;
+    tick(200);
     const grace = actions(
       await director.decide(messageReceived(""), state, caps),
     );
     expect(grace).toEqual([{ type: "wait" }]);
 
-    now += 800;
+    tick(800);
     const stopped = actions(
       await director.decide(messageReceived(""), state, caps),
     );
@@ -1648,8 +1600,7 @@ describe("SubAgentDirector idle stall ping", () => {
     );
     const caps = createTestCapabilities();
 
-    await director.decide(inferenceDone(["read-1"]), longState, caps);
-    await director.decide(toolDone("read-1"), longState, caps);
+    await readOnce(director, longState, caps);
     const complete = actions(
       await director.decide(
         inferenceDoneText(REPORT_ENVELOPE, 999_999),
@@ -1717,12 +1668,7 @@ describe("SubAgentDirector idle stall ping", () => {
       type: "checkpoint",
       message: "subagent-stall-nudge",
     });
-    const nudgeTurns = ephemeralTurns(inferAction(nudge));
-    expect(nudgeTurns).toHaveLength(1);
-    expect(nudgeTurns?.[0]?.role).toBe("user");
-    expect(defined(nudgeTurns?.[0]?.content[0]?.text).length).toBeGreaterThan(
-      0,
-    );
+    expectNudgeUserTurn(nudge);
     expect(nudge.some((action) => action.type === "wait")).toBe(false);
   });
 

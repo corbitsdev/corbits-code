@@ -1,56 +1,21 @@
 import { test, expect } from "bun:test";
 
-import { runRg, type RgChild, type SpawnRg } from "./rg-run.js";
+import { runRg } from "./rg-run.js";
+import {
+  scriptedRgSpawn,
+  stalledRgSpawn,
+  type RgScript,
+} from "./test-helpers.js";
 
 const line = "big.txt:1:match line here\n";
 
-interface Script {
-  stdout: string[];
-  code: number | null;
-  /** When true, fire close before any stdout data (Linux-style race). */
-  closeFirst?: boolean;
-}
-
-// A child whose event order is dictated by the test rather than by how the
-// platform happens to schedule pipe reads.
-function scriptedSpawn(script: Script): SpawnRg {
-  return () => {
-    let onData: ((chunk: unknown) => void) | undefined;
-    let onClose: ((code: number | null) => void) | undefined;
-    const child: RgChild = {
-      pid: undefined,
-      stdout: {
-        on: (_event, listener) => {
-          onData = listener;
-        },
-      },
-      stderr: { on: () => undefined },
-      on: ((event: string, listener: (arg: never) => void) => {
-        if (event === "close")
-          onClose = listener as (code: number | null) => void;
-      }) as RgChild["on"],
-      kill: () => undefined,
-    };
-    queueMicrotask(() => {
-      if (script.closeFirst) {
-        onClose?.(script.code);
-        script.stdout.forEach((chunk) => onData?.(chunk));
-      } else {
-        script.stdout.forEach((chunk) => onData?.(chunk));
-        onClose?.(script.code);
-      }
-    });
-    return child;
-  };
-}
-
-function run(script: Script, maxOutputBytes = 200): ReturnType<typeof runRg> {
+function run(script: RgScript, maxOutputBytes = 200): ReturnType<typeof runRg> {
   return runRg(
     [],
     ".",
     new AbortController().signal,
     { maxOutputBytes },
-    scriptedSpawn(script),
+    scriptedRgSpawn(script),
   );
 }
 
@@ -98,19 +63,12 @@ test("exit code 1 is no-match", async () => {
 });
 
 test("the timeout settles a slow run", async () => {
-  const stalled: SpawnRg = () => ({
-    pid: undefined,
-    stdout: { on: () => undefined },
-    stderr: { on: () => undefined },
-    on: (() => undefined) as RgChild["on"],
-    kill: () => undefined,
-  });
   const result = await runRg(
     [],
     ".",
     new AbortController().signal,
     { timeoutMs: 1 },
-    stalled,
+    stalledRgSpawn,
   );
   expect(result).toMatchObject({
     kind: "partial",

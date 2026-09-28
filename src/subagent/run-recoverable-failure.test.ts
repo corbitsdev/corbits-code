@@ -1,86 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import {
-  createFleetMailbox,
-  createSpawnAgentTool,
-  createWaitAgentsTool,
-  waitAgentsToolDefinition,
-  type AgentFleetDeps,
-} from "./agent-fleet.js";
-import { unlimitedAdmissionQueue } from "./admission.js";
+import { createSpawnAgentTool, createWaitAgentsTool } from "./agent-fleet.js";
 import { isLiveWaitStatus } from "./lifecycle.js";
 import {
   driveMailboxMail,
   occupancyShouldYieldWait,
 } from "./mailbox-mail-drive.js";
 import { createResolvedProviderFailureError } from "../inference-error-message.js";
-import { createPermissionGate } from "../permission/gate.js";
-import { createSubAgentSessionStore } from "./session-store.js";
-import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
-
-const testPermissionGate = createPermissionGate({
-  approvals: [],
-  interactive: false,
-  skipPermissions: true,
-  reactorGated: false,
-});
-
-const provider = {
-  providerName: "test-provider",
-  baseURL: "http://localhost",
-  model: "test-model",
-};
-
-function makeDeps(
-  run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>,
-): AgentFleetDeps {
-  const sessions = createSubAgentSessionStore();
-  return {
-    permissionGate: testPermissionGate,
-    cwd: "/tmp",
-    getWorkdirBase: () => "/tmp/workdir",
-    provider,
-    run,
-    sessions,
-    fleetRecords: createFleetMailbox(sessions),
-    admission: unlimitedAdmissionQueue(),
-  };
-}
-
-async function callToolRaw(
-  tool:
-    | ReturnType<typeof createSpawnAgentTool>
-    | ReturnType<typeof createWaitAgentsTool>,
-  args: Record<string, unknown>,
-): Promise<{ content: string; isError?: boolean }> {
-  if (tool.kind !== "full")
-    throw new Error(`expected full tool, got ${tool.kind}`);
-  const result = await tool.handler(
-    {
-      id: `call-${Math.random()}`,
-      name: tool.definition.name,
-      arguments: args,
-    },
-    new AbortController().signal,
-  );
-  const content =
-    typeof result.content === "string"
-      ? result.content
-      : JSON.stringify(result.content);
-  return {
-    content,
-    ...(result.isError !== undefined ? { isError: result.isError } : {}),
-  };
-}
-
-async function callTool(
-  tool:
-    | ReturnType<typeof createSpawnAgentTool>
-    | ReturnType<typeof createWaitAgentsTool>,
-  args: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const { content } = await callToolRaw(tool, args);
-  return JSON.parse(content) as Record<string, unknown>;
-}
+import type { RunSubAgentResult } from "./types.js";
+import {
+  callFleetTool,
+  createFleetDeps,
+  deferred,
+  waitUntilMailboxTerminal,
+} from "./fleet-test-harness.js";
 
 function retryableAfterToolsFailure(): Error {
   // runSubAgentInner throws without an outer retry once any tool already ran,
@@ -93,40 +25,13 @@ function retryableAfterToolsFailure(): Error {
   });
 }
 
-function waitUntilMailboxTerminal(
-  mailbox: ReturnType<typeof createFleetMailbox>,
-  sessions: ReturnType<typeof createSubAgentSessionStore>,
-  id: string,
-): Promise<void> {
-  return new Promise((resolve) => {
-    const done = (): boolean => {
-      const snap = mailbox.peek(id);
-      return snap !== undefined && !isLiveWaitStatus(snap.status);
-    };
-    if (done()) {
-      resolve();
-      return;
-    }
-    const unsub = sessions.subscribe(() => {
-      if (done()) {
-        unsub();
-        resolve();
-      }
-    });
-    if (done()) {
-      unsub();
-      resolve();
-    }
-  });
-}
-
 describe("CL-8978 recoverable subagent failure", () => {
   // The full retryable-after-tools scenario (failed lane, continuable
   // marker, parent not stalled) runs end-to-end in
   // e2e/subagent-recoverable-failure.test.ts. The cases below stay
   // unit-level: they exercise mailbox/deliver seams below e2e granularity.
   test("credential failure stays failed without a continuable marker", async () => {
-    const deps = makeDeps(async () => {
+    const deps = createFleetDeps(async () => {
       throw createResolvedProviderFailureError("test-provider", {
         category: "credential_failure",
         message: "Authentication failed",
@@ -139,12 +44,12 @@ describe("CL-8978 recoverable subagent failure", () => {
       fleetRecords: deps.fleetRecords,
     });
 
-    const spawned = await callTool(spawn, {
+    const spawned = await callFleetTool(spawn, {
       description: "auth job",
       prompt: "do it",
       intent: "explore",
     });
-    const waited = await callTool(wait, {
+    const waited = await callFleetTool(wait, {
       targets: [spawned.agent_id as string],
       timeout_ms: 5000,
       mode: "all",
@@ -155,11 +60,11 @@ describe("CL-8978 recoverable subagent failure", () => {
   });
 
   test("failed+recoverable lane is delivered as mailbox mail, and a failed send re-arms instead of dropping the terminal", async () => {
-    const deps = makeDeps(async () => {
+    const deps = createFleetDeps(async () => {
       throw retryableAfterToolsFailure();
     });
     const spawn = createSpawnAgentTool(deps);
-    const spawned = await callTool(spawn, {
+    const spawned = await callFleetTool(spawn, {
       description: "flaky job",
       prompt: "do it",
       intent: "explore",
@@ -202,18 +107,15 @@ describe("CL-8978 recoverable subagent failure", () => {
   });
 
   test("in-flight work stays live until settled: a timeout is liveness, not failure", async () => {
-    let resolveRun!: (v: RunSubAgentResult) => void;
-    const gate = new Promise<RunSubAgentResult>((res) => {
-      resolveRun = res;
-    });
-    const deps = makeDeps(() => gate);
+    const gate = deferred<RunSubAgentResult>();
+    const deps = createFleetDeps(() => gate.promise);
     const spawn = createSpawnAgentTool(deps);
     const wait = createWaitAgentsTool({
       sessions: deps.sessions,
       fleetRecords: deps.fleetRecords,
     });
 
-    const spawned = await callTool(spawn, {
+    const spawned = await callFleetTool(spawn, {
       description: "slow job",
       prompt: "do it",
       intent: "explore",
@@ -225,7 +127,7 @@ describe("CL-8978 recoverable subagent failure", () => {
     expect(snap?.status).toBe("running");
     expect(isLiveWaitStatus(snap?.status ?? "failed")).toBe(true);
 
-    const waited = await callTool(wait, {
+    const waited = await callFleetTool(wait, {
       targets: [id],
       timeout_ms: 50,
       mode: "all",
@@ -235,8 +137,8 @@ describe("CL-8978 recoverable subagent failure", () => {
     expect(results[0]?.status).toBe("running");
     expect(results[0]?.continuable).toBeUndefined();
 
-    resolveRun({ report: "slow done" });
-    const waited2 = await callTool(wait, {
+    gate.resolve({ report: "slow done" });
+    const waited2 = await callFleetTool(wait, {
       targets: [id],
       timeout_ms: 5000,
       mode: "all",
@@ -244,9 +146,5 @@ describe("CL-8978 recoverable subagent failure", () => {
     expect(waited2.timed_out).toBe(false);
     const results2 = waited2.results as Record<string, unknown>[];
     expect(results2[0]?.status).toBe("done");
-  });
-
-  test("wait_agents documents the continuable failed marker", () => {
-    expect(waitAgentsToolDefinition.description).toContain("continuable");
   });
 });

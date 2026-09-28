@@ -3123,31 +3123,39 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
     return { repo, worktree };
   };
 
+  // Each test mints a grant through a live requestApproval prompt and then
+  // checks whether a second evaluate replays it; `persist` picks the scope.
+  const promptGrantingGate = (
+    cwd: string,
+    persist: { pattern: string; grant: "project" | "session" },
+  ) => {
+    const asked = { count: 0 };
+    const gate = createGate({
+      cwd,
+      requestApproval: async () => {
+        asked.count += 1;
+        return {
+          allow: true,
+          persist: { id: "exact", label: "Always allow", ...persist },
+        };
+      },
+    });
+    return { gate, asked };
+  };
+
   test("a project grant minted at the session root matches a sub-agent request whose cwd is a worktree under that root", async () => {
     const { runWithSubAgentIdentity } =
       await import("../subagent/identity-context.js");
     const { repo, worktree } = createRepoWithSiblingWorktree();
-    let asked = 0;
-    const gate = createGate({
-      cwd: repo,
-      requestApproval: async () => {
-        asked++;
-        return {
-          allow: true,
-          persist: {
-            id: "exact",
-            label: "Always allow",
-            pattern: "npm *",
-            grant: "project",
-          },
-        };
-      },
+    const { gate, asked } = promptGrantingGate(repo, {
+      pattern: "npm *",
+      grant: "project",
     });
 
     // First call, from the session root, mints the project grant.
     const first = await gate.evaluate(shellCall("npm test"));
     expect(first.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked.count).toBe(1);
 
     // Second call, from a sub-agent running in the sibling worktree, must
     // replay the same project grant instead of asking again.
@@ -3156,7 +3164,7 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       () => gate.evaluate(shellCall("npm run build")),
     );
     expect(second.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked.count).toBe(1);
   });
 
   // Security test: a project grant must never leak to a request from a
@@ -3168,26 +3176,14 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       await import("../subagent/identity-context.js");
     const { repo } = createRepoWithSiblingWorktree();
     const unrelated = mkdtempSync(join(tmpdir(), "corbits-unrelated-project-"));
-    let asked = 0;
-    const gate = createGate({
-      cwd: repo,
-      requestApproval: async () => {
-        asked++;
-        return {
-          allow: true,
-          persist: {
-            id: "exact",
-            label: "Always allow",
-            pattern: "npm *",
-            grant: "project",
-          },
-        };
-      },
+    const { gate, asked } = promptGrantingGate(repo, {
+      pattern: "npm *",
+      grant: "project",
     });
 
     const first = await gate.evaluate(shellCall("npm test"));
     expect(first.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked.count).toBe(1);
 
     const second = await runWithSubAgentIdentity(
       { description: "Worker", cwd: unrelated },
@@ -3196,7 +3192,7 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
     expect(second.allowed).toBe(true);
     // The unrelated cwd must still ask — the grant did not leak across
     // projects — even though the operator happens to approve it again here.
-    expect(asked).toBe(2);
+    expect(asked.count).toBe(2);
   });
 
   // Uses write_file rather than run_shell: every bare shell token is itself
@@ -3213,33 +3209,21 @@ describe("project-scoped grants match sub-agent worktree requests (CL-5662)", ()
       await import("../subagent/identity-context.js");
     const { repo, worktree } = createRepoWithSiblingWorktree();
     const target = join(repo, "notes.md");
-    let asked = 0;
-    const gate = createGate({
-      cwd: repo,
-      requestApproval: async () => {
-        asked++;
-        return {
-          allow: true,
-          persist: {
-            id: "exact",
-            label: "Always allow",
-            pattern: target,
-            grant: "session",
-          },
-        };
-      },
+    const { gate, asked } = promptGrantingGate(repo, {
+      pattern: target,
+      grant: "session",
     });
 
     const first = await gate.evaluate(toolCall("write_file", { path: target }));
     expect(first.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked.count).toBe(1);
 
     const second = await runWithSubAgentIdentity(
       { description: "Worker", cwd: worktree },
       () => gate.evaluate(toolCall("write_file", { path: target })),
     );
     expect(second.allowed).toBe(true);
-    expect(asked).toBe(1);
+    expect(asked.count).toBe(1);
   });
 });
 

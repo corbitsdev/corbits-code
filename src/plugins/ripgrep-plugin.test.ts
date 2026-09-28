@@ -1,7 +1,6 @@
 import { test, expect } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
 
 import { createPosixTools } from "@intx/tools-posix";
@@ -11,7 +10,9 @@ import { MAX_RESULT_CHARS } from "./result-truncation-plugin.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { defined } from "../testkit/defined.js";
-import type { RgChild, SpawnRg } from "./rg-run.js";
+import { withTempDir } from "../testkit/temporary-dirs.js";
+import type { SpawnRg } from "./rg-run.js";
+import { scriptedRgSpawn, stalledRgSpawn } from "./test-helpers.js";
 
 // Repo root derived from this file, not process.cwd(): these cases search real
 // repo paths, so they must not depend on where the runner was invoked from.
@@ -34,54 +35,11 @@ function run(
   return handler(call, new AbortController().signal);
 }
 
-// A child that never emits data or closes, so the timeout is the only path
-// to settlement — the trigger the timeout test needs, not a race against how
-// fast a real ripgrep process happens to run.
-const stalledSpawn: SpawnRg = (): RgChild => ({
-  pid: undefined,
-  stdout: { on: () => undefined },
-  stderr: { on: () => undefined },
-  on: (() => undefined) as RgChild["on"],
-  kill: () => undefined,
-});
-
 // A child whose stdout is scripted directly, bypassing a real `rg` process
 // (and its own --max-count filtering) so the byte cap and the line-count cap
 // can both be forced to fire on the same run.
-function scriptedSpawn(stdout: string, code: number | null): SpawnRg {
-  return () => {
-    let onData: ((chunk: unknown) => void) | undefined;
-    let onClose: ((code: number | null) => void) | undefined;
-    const child: RgChild = {
-      pid: undefined,
-      stdout: {
-        on: (_event, listener) => {
-          onData = listener;
-        },
-      },
-      stderr: { on: () => undefined },
-      on: ((event: string, listener: (arg: never) => void) => {
-        if (event === "close")
-          onClose = listener as (code: number | null) => void;
-      }) as RgChild["on"],
-      kill: () => undefined,
-    };
-    queueMicrotask(() => {
-      onData?.(stdout);
-      onClose?.(code);
-    });
-    return child;
-  };
-}
-
-async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
-  const dir = await mkdtemp(join(tmpdir(), "ripgrep-plugin-"));
-  try {
-    await run(dir);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
+const scriptedStdout = (stdout: string, code: number | null): SpawnRg =>
+  scriptedRgSpawn({ stdout: [stdout], code });
 
 test("grep routes through ripgrep and returns matches", async () => {
   const result = await run({
@@ -126,7 +84,7 @@ test("unrelated tools fall through to the next handler", async () => {
 });
 
 test("grep returns partial matches when the output byte cap is hit", async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir("ripgrep-plugin-", async (dir) => {
     await writeFile(join(dir, "big.txt"), "match line here\n".repeat(5000));
     const result = await run(
       {
@@ -155,7 +113,7 @@ async function withoutRipgrep(body: () => Promise<void>): Promise<void> {
 }
 
 test("the output byte cap holds when ripgrep is unavailable", async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir("ripgrep-plugin-", async (dir) => {
     await writeFile(join(dir, "big.txt"), "match line here\n".repeat(5000));
     await withoutRipgrep(async () => {
       const result = await run(
@@ -188,7 +146,7 @@ test("a grep result that hits both the byte cap and the match-count cap announce
       arguments: { pattern: "match", path: cwd, max_results: 3 },
     },
     { maxOutputBytes: 200 },
-    scriptedSpawn("big.txt:1:match line here\n".repeat(400), 0),
+    scriptedStdout("big.txt:1:match line here\n".repeat(400), 0),
   );
 
   expect(result.isError).toBeUndefined();
@@ -240,7 +198,7 @@ function truncationNoticeCount(content: string): number {
 }
 
 test("an oversized grep result is capped and announced once through the real plugin chain", async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir("ripgrep-plugin-", async (dir) => {
     await writeOversizedHaystack(dir);
     const content = await grepThroughRealChain(dir);
 
@@ -251,7 +209,7 @@ test("an oversized grep result is capped and announced once through the real plu
 });
 
 test("an oversized grep result is capped and announced once when ripgrep is unavailable", async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir("ripgrep-plugin-", async (dir) => {
     await writeOversizedHaystack(dir);
     await withoutRipgrep(async () => {
       const content = await grepThroughRealChain(dir);
@@ -267,7 +225,7 @@ test("grep returns partial matches when the timeout fires", async () => {
   const result = await run(
     { id: "c", name: "grep", arguments: { pattern: "e", path: "src" } },
     { timeoutMs: 1 },
-    stalledSpawn,
+    stalledRgSpawn,
   );
   expect(result.isError).toBeUndefined();
   expect(result.content).toContain("timed out");

@@ -1,6 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { createSubAgentSessionStore } from "./session-store.js";
 
+function retainedCompleted(
+  store: ReturnType<typeof createSubAgentSessionStore>,
+) {
+  const s = store.start({
+    description: "worker",
+    agentId: "builder",
+    brief: "b",
+    retained: true,
+  });
+  store.markRunning(s.id);
+  let closed = false;
+  store.registerClose(s.id, async () => {
+    closed = true;
+  });
+  store.complete(s.id, "done", { agentRetained: true });
+  return { s, wasClosed: () => closed };
+}
+
 describe("retained session lifecycle", () => {
   test("a salvaged (deadline/cancel) run lands resumable even though run.ts disposed its agent", () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
@@ -69,43 +87,21 @@ describe("retained session lifecycle", () => {
 
   test("a genuinely retained clean completion IS resumable, and cancelAll releases it", async () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
-    const s = store.start({
-      description: "worker",
-      agentId: "builder",
-      brief: "b",
-      retained: true,
-    });
-    store.markRunning(s.id);
-    let closed = false;
-    store.registerClose(s.id, async () => {
-      closed = true;
-    });
     // Mirrors agent-fleet's real call: only a clean turnSucceeded completion
     // sets agentRetained.
-    store.complete(s.id, "done", { agentRetained: true });
+    const { s, wasClosed } = retainedCompleted(store);
     store.registerFollowup(s.id, async () => "next");
     expect(store.resumeOne(s.id, "more").ok).toBe(true);
-    expect(closed).toBe(false);
+    expect(wasClosed()).toBe(false);
     await store.cancelAll("parent stop");
-    expect(closed).toBe(true);
+    expect(wasClosed()).toBe(true);
   });
 
   test("clear() releases every retained session's close handle instead of dropping it silently", () => {
     const store = createSubAgentSessionStore({ maxCompleted: 5 });
-    const s = store.start({
-      description: "worker",
-      agentId: "builder",
-      brief: "b",
-      retained: true,
-    });
-    store.markRunning(s.id);
-    let closed = false;
-    store.registerClose(s.id, async () => {
-      closed = true;
-    });
-    store.complete(s.id, "done", { agentRetained: true });
+    const { wasClosed } = retainedCompleted(store);
     store.clear();
-    expect(closed).toBe(true);
+    expect(wasClosed()).toBe(true);
   });
 
   test("close_agent during the setup window waits for the handle instead of falsely reporting shutdown", async () => {

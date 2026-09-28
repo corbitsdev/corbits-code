@@ -1,22 +1,17 @@
 import { expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { AuditStore, ContextStore } from "@intx/types/runtime";
 
 import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import { defined } from "../testkit/defined.js";
-import { createPermissionGate } from "../permission/gate.js";
-
-const permissionGate = createPermissionGate({
-  approvals: [],
-  interactive: false,
-  skipPermissions: true,
-  reactorGated: false,
-});
+import {
+  baseRunParams,
+  stubAgent,
+  tmpSubAgentCwd,
+  withStubbedAgent,
+} from "./run-test-harness.js";
 
 test("runSubAgent threads the isogit audit store and session id into createAgent", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "corbits-run-audit-"));
+  const cwd = await tmpSubAgentCwd("corbits-run-audit-");
   const fakeStore = {
     readBlob: async () => new Uint8Array(),
   } as unknown as ContextStore & AuditStore;
@@ -34,55 +29,26 @@ test("runSubAgent threads the isogit audit store and session id into createAgent
       }),
     }),
     async () => {
-      await withMockedModuleDuring(
-        import.meta.resolve("../agent/live-tool-dispatch.js"),
-        (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-          ...real,
-          createAgentWithLiveToolDispatch: async (
-            _def: unknown,
-            env: {
-              storage: ContextStore;
-              audit: AuditStore;
-              sessionId?: string;
-            },
-          ) => {
-            seen = env;
-            return {
-              send: async () => ({
-                type: "reply" as const,
-                reply: "ok",
-                turn: { role: "assistant" as const, content: [] },
-              }),
-              stream: () =>
-                (async function* () {
-                  yield* [];
-                })(),
-              deliver: () => undefined,
-              close: async () => undefined,
-              setSource: () => undefined,
-              setSources: () => undefined,
-              history: async () => [],
-              checkpoints: async () => [],
-              readAt: async () => [],
-              blobReader: {},
-            };
-          },
-        }),
+      await withStubbedAgent(
+        (_def: unknown, env: unknown) => {
+          seen = env as typeof seen;
+          return stubAgent({
+            send: async () => ({
+              type: "reply" as const,
+              reply: "ok",
+              turn: { role: "assistant" as const, content: [] },
+            }),
+          });
+        },
         async () => {
           const { runSubAgent } = await import("./run.js");
-          await runSubAgent({
-            cwd,
-            workdirBase: join(cwd, ".ctx"),
-            permissionGate,
-            provider: {
-              providerName: "test",
-              baseURL: "http://localhost",
-              model: "test-model",
-            },
-            description: "audit wiring",
-            prompt: "noop",
-            id: "child-session-1",
-          });
+          await runSubAgent(
+            baseRunParams(cwd, {
+              description: "audit wiring",
+              prompt: "noop",
+              id: "child-session-1",
+            }),
+          );
         },
       );
     },

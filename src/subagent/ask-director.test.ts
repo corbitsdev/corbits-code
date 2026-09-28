@@ -12,6 +12,26 @@ import {
   resetAskDirectorTurn,
 } from "./ask-director.js";
 
+async function expectCancelledAsk(
+  state: ReturnType<typeof createAskDirectorState>,
+  port: {
+    register: () => Promise<string>;
+    cancel: () => void;
+  },
+  controller: AbortController,
+): Promise<string> {
+  const message = await handleAskDirector({
+    question: "which file?",
+    state,
+    port,
+    signal: controller.signal,
+  });
+  expect(message).toContain("cancelled");
+  expect(state.questions).toBe(0);
+  expect(state.pending).toBe(false);
+  return message;
+}
+
 describe("evaluateAskDirector", () => {
   test("rejects a missing or empty question without suspending", () => {
     const state = createAskDirectorState();
@@ -134,15 +154,7 @@ describe("evaluateAskDirector", () => {
         rejectAnswer?.(new Error("ask_director aborted"));
       },
     };
-    const message = await handleAskDirector({
-      question: "which file?",
-      state,
-      port,
-      signal: controller.signal,
-    });
-    expect(message).toContain("cancelled");
-    expect(state.questions).toBe(0);
-    expect(state.pending).toBe(false);
+    await expectCancelledAsk(state, port, controller);
     expect(cancelled).toBeGreaterThan(0);
   });
 
@@ -168,15 +180,7 @@ describe("evaluateAskDirector", () => {
           rejectAnswer?.(new Error("ask_director aborted"));
         },
       };
-      const message = await handleAskDirector({
-        question: "which file?",
-        state,
-        port,
-        signal: controller.signal,
-      });
-      expect(message).toContain("cancelled");
-      expect(state.questions).toBe(0);
-      expect(state.pending).toBe(false);
+      await expectCancelledAsk(state, port, controller);
       await new Promise((r) => setTimeout(r, 0));
       expect(unhandled).toEqual([]);
     } finally {

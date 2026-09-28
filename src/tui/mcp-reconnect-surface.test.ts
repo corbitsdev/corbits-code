@@ -9,14 +9,12 @@ import {
   openCommandSurface,
   type McpEntry,
 } from "./command-surfaces";
-import { withTestRenderer } from "./harness";
-import { createAppShell } from "./shell/index";
-import type { AppShell } from "./shell/internals";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
 } from "./shell/overlay-host";
 import { moveOverlaySelection } from "./shell/overlay-list";
+import { withAppShell } from "./test-helpers";
 
 const entries: readonly McpEntry[] = [
   {
@@ -27,25 +25,6 @@ const entries: readonly McpEntry[] = [
     error: "transport closed unexpectedly",
   },
 ];
-
-async function withShell(
-  fn: (shell: AppShell) => Promise<void> | void,
-): Promise<void> {
-  await withTestRenderer(
-    async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        wireKeys: false,
-      });
-      try {
-        await fn(shell);
-      } finally {
-        shell.dispose();
-      }
-    },
-    { width: 80, height: 24 },
-  );
-}
 
 describe("mcp reconnecting surface", () => {
   test("the row label shows the attempt and the retained tool count", () => {
@@ -59,7 +38,7 @@ describe("mcp reconnecting surface", () => {
   });
 
   test("Enter on a reconnecting row retries that server without a second row", async () => {
-    await withShell(async (shell) => {
+    await withAppShell(async (shell) => {
       const retried: string[] = [];
       const notices: string[] = [];
       openCommandSurface(shell, "mcp", {

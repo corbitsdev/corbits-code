@@ -7,40 +7,21 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { tmpdir } from "node:os";
-import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 
 import { withMockedModuleDuring } from "../testkit/mock-module.js";
-import { createPermissionGate } from "../permission/gate.js";
 import { FleetAuthorityError } from "./authority.js";
 import { runSubAgent } from "./run.js";
 import type { RunSubAgentParams } from "./types.js";
-
-const testPermissionGate = createPermissionGate({
-  approvals: [],
-  interactive: false,
-  skipPermissions: true,
-  reactorGated: false,
-});
+import { testPermissionGate } from "./fleet-test-harness.js";
+import {
+  baseRunParams,
+  runWithFailingInference,
+  tmpSubAgentCwd,
+} from "./run-test-harness.js";
 
 async function tmpCwd(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "cl6941-run-authority-"));
-}
-
-function baseParams(
-  cwd: string,
-  workdirBase: string,
-  baseURL = "http://localhost",
-): Omit<RunSubAgentParams, "orchestrator"> {
-  return {
-    cwd,
-    workdirBase,
-    permissionGate: testPermissionGate,
-    provider: { providerName: "test", baseURL, model: "test-model" },
-    description: "gate probe",
-    prompt: "no-op",
-  };
+  return tmpSubAgentCwd("cl6941-run-authority-");
 }
 
 // Each mount-gate probe awaits a full runSubAgent cycle whose inference send
@@ -54,25 +35,77 @@ function baseParams(
 // per-test timeouts below only absorb machine-load spikes during the
 // full-runtime construction these probes perform; assertions are
 // timing-independent.
-async function runWithFailingInference(
-  run: (baseURL: string) => Promise<unknown>,
-): Promise<void> {
-  const server = Bun.serve({
-    port: 0,
-    fetch: () =>
-      new Response(
-        JSON.stringify({ error: { message: "mount-gate probe provider" } }),
-        {
-          status: 401,
-          headers: { "content-type": "application/json" },
-        },
-      ),
+function baseParams(
+  cwd: string,
+  baseURL = "http://localhost",
+): RunSubAgentParams {
+  return baseRunParams(cwd, {
+    provider: { providerName: "test", baseURL, model: "test-model" },
+    description: "gate probe",
+    prompt: "no-op",
   });
-  try {
-    await run(server.url.origin);
-  } finally {
-    server.stop(true);
-  }
+}
+
+function nestedDispatch(
+  cwd: string,
+  baseURL: string,
+  withProfiles = false,
+): NonNullable<RunSubAgentParams["nestedDispatch"]> {
+  return {
+    permissionGate: testPermissionGate,
+    getWorkdirBase: () => join(cwd, ".ctx"),
+    provider: { providerName: "test", baseURL, model: "test-model" },
+    ...(withProfiles
+      ? { profiles: [{ id: "intern", systemPromptRole: "You are intern." }] }
+      : {}),
+  };
+}
+
+/** Drive runSubAgent under the failing provider with one module mock
+ * installed; mount decisions run before the send fails. */
+async function probeMount<T extends object>(
+  cwd: string,
+  modulePath: string,
+  impl: (real: T) => object,
+  extra: (baseURL: string) => Partial<RunSubAgentParams>,
+): Promise<void> {
+  await runWithFailingInference((baseURL) =>
+    withMockedModuleDuring(modulePath, impl, async () => {
+      // Re-import so the mock is visible to runSubAgent's binding.
+      const { runSubAgent: run } = await import("./run.js");
+      await run({ ...baseParams(cwd, baseURL), ...extra(baseURL) }).catch(
+        () => {
+          // Inference/agent construction may fail; mount decisions run first.
+        },
+      );
+    }),
+  );
+}
+
+async function probeSearchAgentsMount(
+  cwd: string,
+  id: string,
+  tier: NonNullable<RunSubAgentParams["orchestratorTier"]>,
+): Promise<number> {
+  let searchAgentsMounts = 0;
+  await probeMount(
+    cwd,
+    import.meta.resolve("../agent/agent-search.js"),
+    (real: typeof import("../agent/agent-search.js")) => ({
+      ...real,
+      createSearchAgentsTool: (getProfiles: () => never) => {
+        searchAgentsMounts++;
+        return real.createSearchAgentsTool(getProfiles);
+      },
+    }),
+    (baseURL) => ({
+      id,
+      orchestrator: true,
+      orchestratorTier: tier,
+      nestedDispatch: nestedDispatch(cwd, baseURL, true),
+    }),
+  );
+  return searchAgentsMounts;
 }
 
 describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
@@ -80,7 +113,7 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
     const cwd = await tmpCwd();
     await expect(
       runSubAgent({
-        ...baseParams(cwd, join(cwd, ".ctx")),
+        ...baseParams(cwd),
         orchestrator: true,
         // No directorId, no orchestratorTier — this is exactly the shape a
         // project/plugin AgentProfile with orchestrator: true produces.
@@ -94,7 +127,7 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
     const cwd = await tmpCwd();
     await expect(
       runSubAgent({
-        ...baseParams(cwd, join(cwd, ".ctx")),
+        ...baseParams(cwd),
         orchestrator: true,
         orchestratorTier: "leaf",
       }),
@@ -105,7 +138,7 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
     const cwd = await tmpCwd();
     try {
       await runSubAgent({
-        ...baseParams(cwd, join(cwd, ".ctx")),
+        ...baseParams(cwd),
         orchestrator: true,
         orchestratorTier: "nested-orchestrator",
         // Deliberately still omit nestedDispatch: a tier that passes the gate
@@ -125,37 +158,10 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
 describe("runSubAgent search_agents mount gate (CL-7051, Tier-1 only)", () => {
   test("nested-orchestrator does not mount search_agents even when profiles exist", async () => {
     const cwd = await tmpCwd();
-    let searchAgentsMounts = 0;
-
-    await runWithFailingInference((baseURL) =>
-      withMockedModuleDuring(
-        import.meta.resolve("../agent/agent-search.js"),
-        (real: typeof import("../agent/agent-search.js")) => ({
-          ...real,
-          createSearchAgentsTool: (getProfiles: () => never) => {
-            searchAgentsMounts++;
-            return real.createSearchAgentsTool(getProfiles);
-          },
-        }),
-        async () => {
-          // Re-import so the mock is visible to runSubAgent's binding.
-          const { runSubAgent: run } = await import("./run.js");
-          await run({
-            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
-            id: "greybeard-session",
-            orchestrator: true,
-            orchestratorTier: "nested-orchestrator",
-            nestedDispatch: {
-              permissionGate: testPermissionGate,
-              getWorkdirBase: () => join(cwd, ".ctx"),
-              provider: { providerName: "test", baseURL, model: "test-model" },
-              profiles: [{ id: "intern", systemPromptRole: "You are intern." }],
-            },
-          }).catch(() => {
-            // Inference/agent construction may fail; mount decisions run first.
-          });
-        },
-      ),
+    const searchAgentsMounts = await probeSearchAgentsMount(
+      cwd,
+      "greybeard-session",
+      "nested-orchestrator",
     );
 
     expect(searchAgentsMounts).toBe(0);
@@ -163,36 +169,10 @@ describe("runSubAgent search_agents mount gate (CL-7051, Tier-1 only)", () => {
 
   test("Tier-1 orchestrator mounts search_agents when profiles exist", async () => {
     const cwd = await tmpCwd();
-    let searchAgentsMounts = 0;
-
-    await runWithFailingInference((baseURL) =>
-      withMockedModuleDuring(
-        import.meta.resolve("../agent/agent-search.js"),
-        (real: typeof import("../agent/agent-search.js")) => ({
-          ...real,
-          createSearchAgentsTool: (getProfiles: () => never) => {
-            searchAgentsMounts++;
-            return real.createSearchAgentsTool(getProfiles);
-          },
-        }),
-        async () => {
-          const { runSubAgent: run } = await import("./run.js");
-          await run({
-            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
-            id: "skywalker-session",
-            orchestrator: true,
-            orchestratorTier: "orchestrator",
-            nestedDispatch: {
-              permissionGate: testPermissionGate,
-              getWorkdirBase: () => join(cwd, ".ctx"),
-              provider: { providerName: "test", baseURL, model: "test-model" },
-              profiles: [{ id: "intern", systemPromptRole: "You are intern." }],
-            },
-          }).catch(() => {
-            // Inference/agent construction may fail; mount decisions run first.
-          });
-        },
-      ),
+    const searchAgentsMounts = await probeSearchAgentsMount(
+      cwd,
+      "skywalker-session",
+      "orchestrator",
     );
 
     expect(searchAgentsMounts).toBe(1);
@@ -205,37 +185,25 @@ describe("runSubAgent passes parentSessionId into spawn_agent mount", () => {
     let capturedParentSessionId: string | undefined;
     let spawnMounts = 0;
 
-    await runWithFailingInference((baseURL) =>
-      withMockedModuleDuring(
-        import.meta.resolve("./agent-fleet.js"),
-        (real: typeof import("./agent-fleet.js")) => ({
-          ...real,
-          createSpawnAgentTool: (
-            deps: Parameters<typeof real.createSpawnAgentTool>[0],
-          ) => {
-            spawnMounts++;
-            capturedParentSessionId = deps.parentSessionId;
-            return real.createSpawnAgentTool(deps);
-          },
-        }),
-        async () => {
-          const { runSubAgent: run } = await import("./run.js");
-          await run({
-            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
-            id: "greybeard-session",
-            orchestrator: true,
-            orchestratorTier: "nested-orchestrator",
-            nestedDispatch: {
-              permissionGate: testPermissionGate,
-              getWorkdirBase: () => join(cwd, ".ctx"),
-              provider: { providerName: "test", baseURL, model: "test-model" },
-              profiles: [{ id: "intern", systemPromptRole: "You are intern." }],
-            },
-          }).catch(() => {
-            // Inference/agent construction may fail; mount decisions run first.
-          });
+    await probeMount(
+      cwd,
+      import.meta.resolve("./agent-fleet.js"),
+      (real: typeof import("./agent-fleet.js")) => ({
+        ...real,
+        createSpawnAgentTool: (
+          deps: Parameters<typeof real.createSpawnAgentTool>[0],
+        ) => {
+          spawnMounts++;
+          capturedParentSessionId = deps.parentSessionId;
+          return real.createSpawnAgentTool(deps);
         },
-      ),
+      }),
+      (baseURL) => ({
+        id: "greybeard-session",
+        orchestrator: true,
+        orchestratorTier: "nested-orchestrator",
+        nestedDispatch: nestedDispatch(cwd, baseURL, true),
+      }),
     );
 
     expect(spawnMounts).toBe(1);
@@ -248,33 +216,22 @@ describe("runSubAgent list_agents mount (mailbox-scoped, nested ok)", () => {
     const cwd = await tmpCwd();
     let listAgentsMounts = 0;
 
-    await runWithFailingInference((baseURL) =>
-      withMockedModuleDuring(
-        import.meta.resolve("./agent-fleet.js"),
-        (real: typeof import("./agent-fleet.js")) => ({
-          ...real,
-          createListAgentsTool: (deps: never) => {
-            listAgentsMounts++;
-            return real.createListAgentsTool(deps);
-          },
-        }),
-        async () => {
-          const { runSubAgent: run } = await import("./run.js");
-          await run({
-            ...baseParams(cwd, join(cwd, ".ctx"), baseURL),
-            id: "greybeard-session",
-            orchestrator: true,
-            orchestratorTier: "nested-orchestrator",
-            nestedDispatch: {
-              permissionGate: testPermissionGate,
-              getWorkdirBase: () => join(cwd, ".ctx"),
-              provider: { providerName: "test", baseURL, model: "test-model" },
-            },
-          }).catch(() => {
-            // Inference/agent construction may fail; mount decisions run first.
-          });
+    await probeMount(
+      cwd,
+      import.meta.resolve("./agent-fleet.js"),
+      (real: typeof import("./agent-fleet.js")) => ({
+        ...real,
+        createListAgentsTool: (deps: never) => {
+          listAgentsMounts++;
+          return real.createListAgentsTool(deps);
         },
-      ),
+      }),
+      (baseURL) => ({
+        id: "greybeard-session",
+        orchestrator: true,
+        orchestratorTier: "nested-orchestrator",
+        nestedDispatch: nestedDispatch(cwd, baseURL),
+      }),
     );
 
     expect(listAgentsMounts).toBe(1);

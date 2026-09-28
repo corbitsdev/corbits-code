@@ -25,33 +25,19 @@ import {
 } from "@intx/inference";
 import type {
   ReactorState,
-  ReactorCapabilities,
   ReactorAction,
+  ReactorCapabilities,
   ReactorInboundEvent,
 } from "@intx/types/runtime";
 import {
   INFERENCE_ABORT_INTERNAL_RECOVERY,
   INFERENCE_ABORT_USER_STOP,
 } from "./inference-abort.js";
-
-const mockState: ReactorState = {} as unknown as ReactorState;
-
-const mockCapabilities: ReactorCapabilities = {
-  infer: (options) =>
-    ({
-      type: "infer",
-      ...(options !== undefined ? { options } : {}),
-    }) as ReactorAction,
-  executeTools: (calls) => ({ type: "execute_tools", calls }),
-  suspend: (gate) => ({ type: "suspend", gate }),
-  fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
-  emit: (eventType, data) => ({ type: "emit", eventType, data }),
-  reply: (content) => ({ type: "reply", content }),
-  checkpoint: (message = "") => ({ type: "checkpoint", message }),
-  compact: (compactor, reason) => ({ type: "compact", compactor, reason }),
-  wait: () => ({ type: "wait" }),
-  done: () => ({ type: "done" }),
-};
+import {
+  stubReactorCapabilities,
+  stubReactorState,
+  stubTextTurnEvent,
+} from "./testkit/reactor-stubs.js";
 
 function makeInferenceDoneEvent(
   toolCalls: { id: string; name: string; args?: Record<string, unknown> }[],
@@ -85,20 +71,6 @@ function makeToolErrorEvent(callId: string, content: string) {
   return {
     type: "tool.done",
     result: { callId, content, isError: true },
-  } as unknown as ReactorInboundEvent;
-}
-
-function makeTextTurnEvent() {
-  return {
-    type: "inference.done",
-    turn: {
-      role: "assistant",
-      model: "test",
-      timestamp: 0,
-      content: [{ type: "text", text: "all set" }],
-    },
-    usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-    source: { model: "test-model" },
   } as unknown as ReactorInboundEvent;
 }
 
@@ -169,8 +141,8 @@ describe("operator declined tool calls", () => {
     const actions = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", declined),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(hasCheckpoint(actions)).toBe(true);
@@ -192,8 +164,8 @@ describe("operator declined tool calls", () => {
       const actions = actionsArray(
         await director.decide(
           makeToolErrorEvent("c", content),
-          mockState,
-          mockCapabilities,
+          stubReactorState,
+          stubReactorCapabilities,
         ),
       );
       expect(hasInfer(actions)).toBe(true);
@@ -209,8 +181,8 @@ describe("operator declined tool calls", () => {
     const actions = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", "denied by approver"),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(hasCheckpoint(actions)).toBe(true);
@@ -229,8 +201,8 @@ describe("operator declined tool calls", () => {
       const actions = actionsArray(
         await director.decide(
           makeToolErrorEvent("c", content),
-          mockState,
-          mockCapabilities,
+          stubReactorState,
+          stubReactorCapabilities,
         ),
       );
       expect(hasInfer(actions)).toBe(true);
@@ -269,7 +241,7 @@ describe("open-task termination guard", () => {
     };
     freeze(event);
     await expect(
-      director.decide(event, mockState, mockCapabilities),
+      director.decide(event, stubReactorState, stubReactorCapabilities),
     ).resolves.toBeDefined();
   });
 
@@ -282,12 +254,16 @@ describe("open-task termination guard", () => {
     const director = createChatDirector("base", [], {});
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     const actions = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasInfer(actions)).toBe(true);
     expect(hasReply(actions)).toBe(false);
@@ -297,12 +273,16 @@ describe("open-task termination guard", () => {
     const director = createChatDirector("base", [], {});
     await director.decide(
       manageTasksEvent("done"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     const actions = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasReply(actions)).toBe(true);
     expect(hasInfer(actions)).toBe(false);
@@ -313,8 +293,8 @@ describe("open-task termination guard", () => {
     const actions = actionsArray(
       await director.decide(
         manageTasksEvent("doing"),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(
@@ -336,18 +316,26 @@ describe("open-task termination guard", () => {
     const director = createChatDirector("base", [], {});
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     for (let i = 0; i < 3; i++) {
       const nudged = actionsArray(
-        await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+        await director.decide(
+          stubTextTurnEvent(),
+          stubReactorState,
+          stubReactorCapabilities,
+        ),
       );
       expect(hasInfer(nudged)).toBe(true);
     }
     const exhausted = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasReply(exhausted)).toBe(true);
     expect(hasInfer(exhausted)).toBe(false);
@@ -359,13 +347,17 @@ describe("open-task termination guard", () => {
     });
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     for (let i = 0; i < 4; i++) {
       const actions = actionsArray(
-        await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+        await director.decide(
+          stubTextTurnEvent(),
+          stubReactorState,
+          stubReactorCapabilities,
+        ),
       );
       expect(hasInfer(actions)).toBe(false);
       expect(hasReply(actions)).toBe(true);
@@ -378,8 +370,8 @@ describe("open-task termination guard", () => {
     });
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     const inferPolicyOf = (actions: ReactorAction[]) => {
       const infer = actions.find((a) => a.type === "infer");
@@ -402,7 +394,11 @@ describe("open-task termination guard", () => {
 
     // Seeded from the session provider: bare 429s abort.
     const before = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(await inferPolicyOf(before)(bare429)).toEqual({ kind: "abort" });
 
@@ -430,11 +426,15 @@ describe("open-task termination guard", () => {
           model: "grok-4",
         },
       } as unknown as ReactorInboundEvent,
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     const after = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(await inferPolicyOf(after)(bare429)).toEqual({
       kind: "retry",
@@ -446,16 +446,16 @@ describe("open-task termination guard", () => {
     const omitted = createChatDirector("base", [], {});
     await omitted.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     expect(
       hasInfer(
         actionsArray(
           await omitted.decide(
-            makeTextTurnEvent(),
-            mockState,
-            mockCapabilities,
+            stubTextTurnEvent(),
+            stubReactorState,
+            stubReactorCapabilities,
           ),
         ),
       ),
@@ -466,16 +466,16 @@ describe("open-task termination guard", () => {
     });
     await disabled.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     expect(
       hasInfer(
         actionsArray(
           await disabled.decide(
-            makeTextTurnEvent(),
-            mockState,
-            mockCapabilities,
+            stubTextTurnEvent(),
+            stubReactorState,
+            stubReactorCapabilities,
           ),
         ),
       ),
@@ -488,13 +488,17 @@ describe("open-task termination guard", () => {
     });
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     // Seeded allowance: terminal reply with open tasks, no nudge spent.
     const seeded = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasReply(seeded)).toBe(true);
     expect(hasInfer(seeded)).toBe(false);
@@ -502,7 +506,11 @@ describe("open-task termination guard", () => {
     // Drained fleet resumes the open-task nudge.
     director.setAllowIdleWithFleet(false);
     const nudged = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasInfer(nudged)).toBe(true);
     expect(hasReply(nudged)).toBe(false);
@@ -510,7 +518,11 @@ describe("open-task termination guard", () => {
     // Fleet back: terminal allowed again.
     director.setAllowIdleWithFleet(true);
     const settled = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasReply(settled)).toBe(true);
     expect(hasInfer(settled)).toBe(false);
@@ -528,7 +540,11 @@ describe("open-task termination guard", () => {
     } as unknown as ReactorInboundEvent;
 
     const actions = actionsArray(
-      await director.decide(emptyTurn, mockState, mockCapabilities),
+      await director.decide(
+        emptyTurn,
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(actions.map((action) => action.type)).toEqual([
       "checkpoint",
@@ -549,16 +565,16 @@ describe("open-task termination guard", () => {
     const director = createChatDirector("base", [], {});
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     for (let i = 0; i < 2; i++) {
       const nudged = actionsArray(
         await director.decide(
           makeToolErrorEvent("c", declined),
-          mockState,
-          mockCapabilities,
+          stubReactorState,
+          stubReactorCapabilities,
         ),
       );
       expect(nudged.some((a) => a.type === "infer")).toBe(true);
@@ -567,8 +583,8 @@ describe("open-task termination guard", () => {
     const ended = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", declined),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(
@@ -591,8 +607,8 @@ describe("open-task termination guard", () => {
     const director = createChatDirector("base", [], {});
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     // Two content-free terminations spend two of the three nudges.
@@ -600,9 +616,9 @@ describe("open-task termination guard", () => {
       hasInfer(
         actionsArray(
           await director.decide(
-            makeTextTurnEvent(),
-            mockState,
-            mockCapabilities,
+            stubTextTurnEvent(),
+            stubReactorState,
+            stubReactorCapabilities,
           ),
         ),
       ),
@@ -611,9 +627,9 @@ describe("open-task termination guard", () => {
       hasInfer(
         actionsArray(
           await director.decide(
-            makeTextTurnEvent(),
-            mockState,
-            mockCapabilities,
+            stubTextTurnEvent(),
+            stubReactorState,
+            stubReactorCapabilities,
           ),
         ),
       ),
@@ -625,17 +641,25 @@ describe("open-task termination guard", () => {
       makeInferenceDoneEvent([
         { id: "e", name: "run_shell", args: { command: "echo done" } },
       ]),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     // Only one nudge remains from the original budget of three.
     const nudged = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasInfer(nudged)).toBe(true);
     const ended = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasReply(ended)).toBe(true);
     expect(hasInfer(ended)).toBe(false);
@@ -645,8 +669,8 @@ describe("open-task termination guard", () => {
     const director = createChatDirector("base", [], {});
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     for (let i = 0; i < 3; i++) {
@@ -654,16 +678,20 @@ describe("open-task termination guard", () => {
         hasInfer(
           actionsArray(
             await director.decide(
-              makeTextTurnEvent(),
-              mockState,
-              mockCapabilities,
+              stubTextTurnEvent(),
+              stubReactorState,
+              stubReactorCapabilities,
             ),
           ),
         ),
       ).toBe(true);
     }
     const exhausted = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasReply(exhausted)).toBe(true);
 
@@ -673,11 +701,15 @@ describe("open-task termination guard", () => {
         type: "message.received",
         message: { role: "user", content: "keep going" },
       } as unknown as ReactorInboundEvent,
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     const nudged = actionsArray(
-      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
+      await director.decide(
+        stubTextTurnEvent(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     expect(hasInfer(nudged)).toBe(true);
   });
@@ -686,8 +718,8 @@ describe("open-task termination guard", () => {
     const director = createChatDirector("base", [], {});
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     // Spend both of the declined-path nudges, with a successful tool result
@@ -696,8 +728,8 @@ describe("open-task termination guard", () => {
     const first = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", declined),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(first.some((a) => a.type === "infer")).toBe(true);
@@ -705,15 +737,15 @@ describe("open-task termination guard", () => {
     // A successful (non-error) tool result in between must not buy back budget.
     await director.decide(
       makeToolDoneEvent("ok1"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
 
     const second = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", declined),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(second.some((a) => a.type === "infer")).toBe(true);
@@ -721,8 +753,8 @@ describe("open-task termination guard", () => {
     const third = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", declined),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(third.some((a) => a.type === "infer")).toBe(false);
@@ -741,8 +773,8 @@ describe("open-task termination guard", () => {
     const actions = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", declined),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(
@@ -765,8 +797,8 @@ describe("open-task termination guard", () => {
     const declinedTurn = actionsArray(
       await director.decide(
         makeToolErrorEvent("c", declined),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(
@@ -789,8 +821,8 @@ describe("open-task termination guard", () => {
             flags: ["operator-originated"],
           },
         } as unknown as ReactorInboundEvent,
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(
@@ -813,16 +845,16 @@ describe("open-task termination guard", () => {
     });
     await director.decide(
       makeToolErrorEvent("c", declined),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     await director.decide(
       {
         type: "message.received",
         message: { role: "user", content: "worker report" },
       } as unknown as ReactorInboundEvent,
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     expect(cleared).toBe(0);
   });
@@ -855,7 +887,7 @@ describe("chatDirector compaction", () => {
       await director.decide(
         textInferenceDone(999_999),
         longState,
-        mockCapabilities,
+        stubReactorCapabilities,
       ),
     );
     expect(replyActions.some((a) => a.type === "reply")).toBe(true);
@@ -871,7 +903,11 @@ describe("chatDirector compaction", () => {
     ).toBe(true);
 
     const compactActions = actionsArray(
-      await director.decide(messageReceived(""), longState, mockCapabilities),
+      await director.decide(
+        messageReceived(""),
+        longState,
+        stubReactorCapabilities,
+      ),
     );
     expect(compactActions).toEqual([
       {
@@ -902,7 +938,7 @@ describe("chatDirector compaction", () => {
     await director.decide(
       textInferenceDone(999_999),
       longTurnsState,
-      mockCapabilities,
+      stubReactorCapabilities,
     );
     expect(director.getContextEstimate().isEstimate).toBe(false);
     const before = director.getContextEstimate().tokens;
@@ -910,14 +946,18 @@ describe("chatDirector compaction", () => {
     await director.decide(
       messageReceived(""),
       longTurnsState,
-      mockCapabilities,
+      stubReactorCapabilities,
     );
 
     // Simulate the reactor having compacted, then the meter-sync continuation.
     const shrunkTurns = largeTurns.slice(-3);
     const shrunkState = { turns: shrunkTurns } as unknown as ReactorState;
     const afterActions = actionsArray(
-      await director.decide(messageReceived(""), shrunkState, mockCapabilities),
+      await director.decide(
+        messageReceived(""),
+        shrunkState,
+        stubReactorCapabilities,
+      ),
     );
     expect(afterActions.some((a) => a.type === "infer")).toBe(false);
     expect(
@@ -972,12 +1012,16 @@ describe("chatDirector compaction", () => {
 
   test("compacts at the tool.done pause once over threshold", async () => {
     const director = chatDirector("Corbits operating prompt");
-    await director.decide(overThresholdToolTurn(), longState, mockCapabilities);
+    await director.decide(
+      overThresholdToolTurn(),
+      longState,
+      stubReactorCapabilities,
+    );
     const actions = actionsArray(
       await director.decide(
         makeToolDoneEvent("t1"),
         longState,
-        mockCapabilities,
+        stubReactorCapabilities,
       ),
     );
     expect(
@@ -992,7 +1036,11 @@ describe("chatDirector compaction", () => {
 
     // The continuation message re-enters inference after the compact cycle.
     const resumed = actionsArray(
-      await director.decide(messageReceived(""), longState, mockCapabilities),
+      await director.decide(
+        messageReceived(""),
+        longState,
+        stubReactorCapabilities,
+      ),
     );
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
     const infer = resumed.find((a) => a.type === "infer");
@@ -1016,7 +1064,7 @@ describe("chatDirector compaction", () => {
     } as unknown as ReactorInboundEvent;
 
     const actions = actionsArray(
-      await director.decide(timeout, longState, mockCapabilities),
+      await director.decide(timeout, longState, stubReactorCapabilities),
     );
     expect(actions.some((action) => action.type === "infer")).toBe(false);
     expect(actions.some((action) => action.type === "reply")).toBe(true);
@@ -1033,7 +1081,7 @@ describe("chatDirector compaction", () => {
       },
     } as unknown as ReactorInboundEvent;
     const recovered = actionsArray(
-      await director.decide(internalAbort, longState, mockCapabilities),
+      await director.decide(internalAbort, longState, stubReactorCapabilities),
     );
     expect(recovered.some((action) => action.type === "infer")).toBe(true);
     const infer = recovered.find((action) => action.type === "infer");
@@ -1046,7 +1094,7 @@ describe("chatDirector compaction", () => {
       reason: { kind: "operator", message: "cancelled" },
     } as unknown as ReactorInboundEvent;
     const stopped = actionsArray(
-      await director.decide(explicitAbort, longState, mockCapabilities),
+      await director.decide(explicitAbort, longState, stubReactorCapabilities),
     );
     expect(stopped.some((action) => action.type === "done")).toBe(true);
     expect(stopped.some((action) => action.type === "infer")).toBe(false);
@@ -1064,7 +1112,7 @@ describe("chatDirector compaction", () => {
     } as unknown as ReactorInboundEvent;
 
     const actions = actionsArray(
-      await director.decide(userStopAbort, longState, mockCapabilities),
+      await director.decide(userStopAbort, longState, stubReactorCapabilities),
     );
     expect(actions.some((action) => action.type === "infer")).toBe(false);
     expect(
@@ -1079,7 +1127,11 @@ describe("chatDirector compaction", () => {
   test("a context_overflow inference error triggers compact-and-retry, not a terminal reply", async () => {
     const director = chatDirector("Corbits operating prompt");
     const actions = actionsArray(
-      await director.decide(overflowError(), longState, mockCapabilities),
+      await director.decide(
+        overflowError(),
+        longState,
+        stubReactorCapabilities,
+      ),
     );
     // Continuation is expressed as an emit action the host drives.
     expect(actions).toEqual([
@@ -1096,7 +1148,11 @@ describe("chatDirector compaction", () => {
     ]);
 
     const resumed = actionsArray(
-      await director.decide(messageReceived(""), longState, mockCapabilities),
+      await director.decide(
+        messageReceived(""),
+        longState,
+        stubReactorCapabilities,
+      ),
     );
     expect(resumed.some((a) => a.type === "infer")).toBe(true);
     const infer = resumed.find((a) => a.type === "infer");
@@ -1109,13 +1165,25 @@ describe("chatDirector compaction", () => {
     const director = chatDirector("");
     for (let i = 0; i < 2; i++) {
       const actions = actionsArray(
-        await director.decide(overflowError(), longState, mockCapabilities),
+        await director.decide(
+          overflowError(),
+          longState,
+          stubReactorCapabilities,
+        ),
       );
       expect(actions.some((a) => a.type === "compact")).toBe(true);
-      await director.decide(messageReceived(""), longState, mockCapabilities);
+      await director.decide(
+        messageReceived(""),
+        longState,
+        stubReactorCapabilities,
+      );
     }
     const exhausted = actionsArray(
-      await director.decide(overflowError(), longState, mockCapabilities),
+      await director.decide(
+        overflowError(),
+        longState,
+        stubReactorCapabilities,
+      ),
     );
     expect(exhausted.some((a) => a.type === "compact")).toBe(false);
   });
@@ -1123,7 +1191,11 @@ describe("chatDirector compaction", () => {
   test("chat posture is preserved: an idle turn never terminates the session", async () => {
     const director = chatDirector("");
     const idle = actionsArray(
-      await director.decide(textInferenceDone(10), longState, mockCapabilities),
+      await director.decide(
+        textInferenceDone(10),
+        longState,
+        stubReactorCapabilities,
+      ),
     );
     expect(idle.some((a) => a.type === "done")).toBe(false);
 
@@ -1131,12 +1203,16 @@ describe("chatDirector compaction", () => {
       await director.decide(
         textInferenceDone(999_999),
         longState,
-        mockCapabilities,
+        stubReactorCapabilities,
       ),
     );
     expect(overThreshold.some((a) => a.type === "done")).toBe(false);
     const afterCompact = actionsArray(
-      await director.decide(messageReceived(""), longState, mockCapabilities),
+      await director.decide(
+        messageReceived(""),
+        longState,
+        stubReactorCapabilities,
+      ),
     );
     expect(afterCompact.some((a) => a.type === "done")).toBe(false);
   });
@@ -1178,13 +1254,13 @@ describe("chatDirector LSP auto-activation", () => {
       makeInferenceDoneEvent([
         { id: "c", name: "read_file", args: { path: "src/foo.ts" } },
       ]),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     const actions = await director.decide(
       makeToolDoneEvent("c"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     expect(activateEmits(actions)).toEqual([
       {
@@ -1201,13 +1277,13 @@ describe("chatDirector LSP auto-activation", () => {
       makeInferenceDoneEvent([
         { id: "c", name: "edit_file", args: { path: "lib/bar.rs" } },
       ]),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     const actions = await director.decide(
       makeToolDoneEvent("c"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     expect(activateEmits(actions)).toEqual([
       {
@@ -1224,13 +1300,13 @@ describe("chatDirector LSP auto-activation", () => {
       makeInferenceDoneEvent([
         { id: "c", name: "read_file", args: { path: "README.md" } },
       ]),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     const actions = await director.decide(
       makeToolDoneEvent("c"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     expect(activateEmits(actions)).toEqual([]);
   });
@@ -1241,13 +1317,13 @@ describe("chatDirector LSP auto-activation", () => {
       makeInferenceDoneEvent([
         { id: "c", name: "read_file", args: { path: "src/foo.ts" } },
       ]),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     const actions = await director.decide(
       makeToolErrorEvent("c", "Error: not found"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     expect(activateEmits(actions)).toEqual([]);
   });
@@ -1260,7 +1336,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
       message: { role: "user", content },
     }) as unknown as ReactorInboundEvent;
   const capabilitiesWithInferArgs: ReactorCapabilities = {
-    ...mockCapabilities,
+    ...stubReactorCapabilities,
     infer: (opts) =>
       ({ type: "infer", options: opts }) as unknown as ReactorAction,
   };
@@ -1287,7 +1363,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
   ) => {
     const result = await director.decide(
       event,
-      mockState,
+      stubReactorState,
       capabilitiesWithInferArgs,
     );
     const actions = Array.isArray(result) ? result : [result];
@@ -1330,12 +1406,12 @@ describe("updateToolDefinitions rewrites infer tools", () => {
       makeInferenceDoneEvent([
         { id: "ts", name: "tool_search", args: { query: "find files" } },
       ]),
-      mockState,
+      stubReactorState,
       capabilitiesWithInferArgs,
     );
     await director.decide(
       makeToolDoneEvent("ts"),
-      mockState,
+      stubReactorState,
       capabilitiesWithInferArgs,
     );
 
@@ -1467,7 +1543,7 @@ describe("CL-7919 coordinator shape", () => {
       message: { role: "user", content },
     }) as unknown as ReactorInboundEvent;
   const capabilitiesWithInferArgs: ReactorCapabilities = {
-    ...mockCapabilities,
+    ...stubReactorCapabilities,
     infer: (opts) =>
       ({ type: "infer", options: opts }) as unknown as ReactorAction,
   };
@@ -1501,7 +1577,7 @@ describe("CL-7919 coordinator shape", () => {
     const actions = actionsArray(
       await director.decide(
         makeMessageReceivedEvent("hello"),
-        mockState,
+        stubReactorState,
         capabilitiesWithInferArgs,
       ),
     );
@@ -1527,7 +1603,7 @@ describe("CL-7919 coordinator shape", () => {
     const actions = actionsArray(
       await director.decide(
         makeMessageReceivedEvent("hello"),
-        mockState,
+        stubReactorState,
         capabilitiesWithInferArgs,
       ),
     );
@@ -1554,7 +1630,7 @@ describe("CL-7919 coordinator shape", () => {
     const actions = actionsArray(
       await director.decide(
         makeMessageReceivedEvent("hello"),
-        mockState,
+        stubReactorState,
         capabilitiesWithInferArgs,
       ),
     );
@@ -1588,7 +1664,7 @@ describe("CL-7919 coordinator shape", () => {
     const fromMessage = actionsArray(
       await director.decide(
         makeMessageReceivedEvent("hello"),
-        mockState,
+        stubReactorState,
         capabilitiesWithInferArgs,
       ),
     );
@@ -1599,7 +1675,7 @@ describe("CL-7919 coordinator shape", () => {
           type: "tool.done",
           result: { callId: "missing", content: "ok" },
         } as unknown as ReactorInboundEvent,
-        mockState,
+        stubReactorState,
         capabilitiesWithInferArgs,
       ),
     );
@@ -1634,7 +1710,7 @@ describe("CL-7919 coordinator shape", () => {
     const actions = actionsArray(
       await director.decide(
         makeMessageReceivedEvent("hello"),
-        mockState,
+        stubReactorState,
         capabilitiesWithInferArgs,
       ),
     );
@@ -1665,8 +1741,8 @@ describe("CL-7919 coordinator shape", () => {
       } as unknown as WorkflowCoordinator);
       const actions = actionsArray(
         await director.decide(
-          makeTextTurnEvent(),
-          mockState,
+          stubTextTurnEvent(),
+          stubReactorState,
           capabilitiesWithInferArgs,
         ),
       );
@@ -1691,7 +1767,7 @@ describe("CL-7919 coordinator shape", () => {
     const actions = actionsArray(
       await director.decide(
         makeMessageReceivedEvent("hello"),
-        mockState,
+        stubReactorState,
         capabilitiesWithInferArgs,
       ),
     );
@@ -1867,11 +1943,15 @@ describe("transient nudges", () => {
     const director = createChatDirector("stable-base", [], {});
     await director.decide(
       manageTasksEvent("doing"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     const actions = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(
+        textTurn(),
+        stubReactorState,
+        stubReactorCapabilities,
+      ),
     );
     const infer = actions.find((a) => a.type === "infer");
     // Plain annotation, not a cast: InferenceOptions is assignable to the
@@ -1915,8 +1995,8 @@ describe("chatDirector spacer echo", () => {
       const actions = actionsArray(
         await director.decide(
           spacerInferenceDone(text),
-          mockState,
-          mockCapabilities,
+          stubReactorState,
+          stubReactorCapabilities,
         ),
       );
       expect(actions.some((a) => a.type === "infer")).toBe(true);
@@ -1942,7 +2022,7 @@ describe("chatDirector spacer echo", () => {
         await director.decide(
           spacerInferenceDone(LEGACY_COMPACT_SPACER_TEXT),
           longState,
-          mockCapabilities,
+          stubReactorCapabilities,
         ),
       );
       expect(nudged.some((a) => a.type === "infer")).toBe(true);
@@ -1952,7 +2032,7 @@ describe("chatDirector spacer echo", () => {
       await director.decide(
         spacerInferenceDone(COMPACT_SPACER_TEXT),
         longState,
-        mockCapabilities,
+        stubReactorCapabilities,
       ),
     );
     expect(settled.some((a) => a.type === "infer")).toBe(false);
@@ -1970,8 +2050,8 @@ describe("chatDirector spacer echo", () => {
       const nudged = actionsArray(
         await director.decide(
           spacerInferenceDone(LEGACY_COMPACT_SPACER_TEXT),
-          mockState,
-          mockCapabilities,
+          stubReactorState,
+          stubReactorCapabilities,
         ),
       );
       expect(nudged.some((a) => a.type === "infer")).toBe(true);
@@ -1980,8 +2060,8 @@ describe("chatDirector spacer echo", () => {
     const exhausted = actionsArray(
       await director.decide(
         spacerInferenceDone(COMPACT_SPACER_TEXT),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(exhausted.some((a) => a.type === "infer")).toBe(false);
@@ -1993,14 +2073,14 @@ describe("chatDirector spacer echo", () => {
 
     await director.decide(
       messageReceived("keep going"),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     const afterReset = actionsArray(
       await director.decide(
         spacerInferenceDone(LEGACY_COMPACT_SPACER_TEXT),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(afterReset.some((a) => a.type === "infer")).toBe(true);
@@ -2019,15 +2099,15 @@ describe("chatDirector spacer echo", () => {
           },
         },
       ]),
-      mockState,
-      mockCapabilities,
+      stubReactorState,
+      stubReactorCapabilities,
     );
     for (let i = 0; i < 2; i++) {
       const nudged = actionsArray(
         await director.decide(
           spacerInferenceDone(LEGACY_COMPACT_SPACER_TEXT),
-          mockState,
-          mockCapabilities,
+          stubReactorState,
+          stubReactorCapabilities,
         ),
       );
       expect(nudged.some((a) => a.type === "infer")).toBe(true);
@@ -2035,8 +2115,8 @@ describe("chatDirector spacer echo", () => {
     const afterCap = actionsArray(
       await director.decide(
         spacerInferenceDone(COMPACT_SPACER_TEXT),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(afterCap.some((a) => a.type === "infer")).toBe(true);
@@ -2049,8 +2129,8 @@ describe("chatDirector spacer echo", () => {
       const nudged = actionsArray(
         await director.decide(
           spacerInferenceDone(COMPACT_SPACER_TEXT),
-          mockState,
-          mockCapabilities,
+          stubReactorState,
+          stubReactorCapabilities,
         ),
       );
       expect(nudged.some((a) => a.type === "infer")).toBe(true);
@@ -2058,8 +2138,8 @@ describe("chatDirector spacer echo", () => {
     const exhausted = actionsArray(
       await director.decide(
         spacerInferenceDone(COMPACT_SPACER_TEXT),
-        mockState,
-        mockCapabilities,
+        stubReactorState,
+        stubReactorCapabilities,
       ),
     );
     expect(exhausted.some((a) => a.type === "infer")).toBe(false);
@@ -2081,7 +2161,7 @@ describe("tool-discipline rules on the wire", () => {
       message: { role: "user", content: "hi" },
     } as unknown as ReactorInboundEvent;
     const actions = actionsArray(
-      await director.decide(event, mockState, mockCapabilities),
+      await director.decide(event, stubReactorState, stubReactorCapabilities),
     );
     const infer = actions.find((a) => a.type === "infer") as
       | { options?: ExtendedInferenceOptions }

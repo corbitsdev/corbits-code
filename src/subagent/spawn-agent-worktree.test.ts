@@ -91,6 +91,19 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
+async function expectWorktreeReclaimed(
+  sessions: ReturnType<typeof createSubAgentSessionStore>,
+  agentId: string,
+  workerCwd: string | undefined,
+): Promise<void> {
+  expect(workerCwd).toBeDefined();
+  expect(await pathExists(defined(workerCwd))).toBe(true);
+
+  await sessions.closeOne(agentId, 1000);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(await pathExists(defined(workerCwd))).toBe(false);
+}
+
 describe("spawn_agent worktree isolation", () => {
   test("propagates a fresh worktree path as the worker cwd", async () => {
     const repo = await makeRepo();
@@ -310,12 +323,7 @@ describe("spawn_agent worktree isolation", () => {
     settle.resolve({ report: "## Summary\nDone.", agentRetained: true });
     await waitFor(() => workerCwd !== undefined);
 
-    expect(workerCwd).toBeDefined();
-    expect(await pathExists(defined(workerCwd))).toBe(true);
-
-    await sessions.closeOne(agentId, 1000);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(await pathExists(defined(workerCwd))).toBe(false);
+    await expectWorktreeReclaimed(sessions, agentId, workerCwd);
   });
 
   test("defers worktree cleanup while the session is interrupted for followup", async () => {
@@ -404,12 +412,7 @@ describe("spawn_agent worktree isolation", () => {
       status: "interrupted",
       stop_reason: "interrupted",
     });
-    expect(workerCwd).toBeDefined();
-    expect(await pathExists(defined(workerCwd))).toBe(true);
-
-    await sessions.closeOne(agentId, 1000);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(await pathExists(defined(workerCwd))).toBe(false);
+    await expectWorktreeReclaimed(sessions, agentId, workerCwd);
   });
 
   test("reclaims the worktree immediately when the agent is not retained", async () => {

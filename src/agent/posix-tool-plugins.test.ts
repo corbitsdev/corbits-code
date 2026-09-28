@@ -15,6 +15,8 @@ import {
 } from "./lazy-blob-reader.js";
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { editFileLineRangePlugin } from "../plugins/edit-file-line-range-plugin.js";
+import { lineRangeEditCall } from "../plugins/test-helpers.js";
+import { withTempDir } from "../testkit/temporary-dirs.js";
 
 type ToolHandlerLike = (
   call: ToolCall,
@@ -385,8 +387,7 @@ describe("buildCorePosixToolPlugins", () => {
   });
 
   test("a real line-range edit_file call verifies as success through the wired plugin chain", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
-    try {
+    await withTempDir("ic-posix-plugins-", async (cwd) => {
       const path = join(cwd, "test.txt");
       await writeFile(path, "a\nb\nc\n");
 
@@ -403,25 +404,18 @@ describe("buildCorePosixToolPlugins", () => {
       });
 
       const result = await runner.run(
-        {
-          id: "call-1",
-          name: "edit_file",
-          arguments: { path, start_line: 2, end_line: 2, new_string: "B" },
-        },
+        lineRangeEditCall(path),
         new AbortController().signal,
       );
 
       expect(result.isError).not.toBe(true);
       const final = await readFile(path, "utf8");
       expect(final).toBe("a\nB\nc\n");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    });
   });
 
   test("verifyPlugin still catches a genuine line-range mismatch caused by a concurrent write", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
-    try {
+    await withTempDir("ic-posix-plugins-", async (dir) => {
       const path = join(dir, "test.txt");
       await writeFile(path, "a\nb\nc\n");
 
@@ -452,19 +446,13 @@ describe("buildCorePosixToolPlugins", () => {
       );
 
       const result = await composed(
-        {
-          id: "call-1",
-          name: "edit_file",
-          arguments: { path, start_line: 2, end_line: 2, new_string: "B" },
-        },
+        lineRangeEditCall(path),
         new AbortController().signal,
       );
 
       expect(result.isError).toBe(true);
       expect(result.content).toMatch(/content mismatch after replacement/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("a grep result containing a secret-shaped string is redacted before reaching the model (CL-5717)", async () => {

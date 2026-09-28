@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -27,4 +28,17 @@ export function createTempDirs(
       rmSync(home, { recursive: true, force: true });
     },
   };
+}
+
+/** Runs `body` inside a fresh temp dir, always removing it afterwards. */
+export async function withTempDir(
+  prefix: string,
+  body: (dir: string) => Promise<void>,
+): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), prefix));
+  try {
+    await body(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }

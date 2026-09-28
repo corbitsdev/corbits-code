@@ -15,6 +15,7 @@ import {
 import {
   createSubAgentSessionStore,
   DEFAULT_MAX_ENTRY_CHARS,
+  type SubAgentSession,
 } from "./session-store.js";
 import { createAdmissionQueue } from "./admission.js";
 import { defined } from "../testkit/defined.js";
@@ -51,6 +52,30 @@ async function callTool(
       ? result.content
       : JSON.stringify(result.content);
   return parseFleetJson(content);
+}
+
+function retainedPendingFollowup(
+  sessions: ReturnType<typeof createSubAgentSessionStore>,
+): {
+  worker: SubAgentSession;
+  finish: (reply: string) => void;
+} {
+  const worker = sessions.start({
+    description: "worker",
+    agentId: "a",
+    brief: "b",
+    retained: true,
+  });
+  let finish: (reply: string) => void = () => undefined;
+  sessions.registerFollowup(
+    worker.id,
+    () =>
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  // Followup resolution is wired at resume time, so hand back a forwarder.
+  return { worker, finish: (reply: string) => finish(reply) };
 }
 
 describe("close_agent", () => {
@@ -303,20 +328,7 @@ describe("resume_agent", () => {
     expect(closedErr.isError).toBe(true);
     expect(String(closedErr.content)).toContain("shutdown");
 
-    const worker = sessions.start({
-      description: "worker",
-      agentId: "a",
-      brief: "b",
-      retained: true,
-    });
-    let finish: (reply: string) => void = () => undefined;
-    sessions.registerFollowup(
-      worker.id,
-      () =>
-        new Promise<string>((resolve) => {
-          finish = resolve;
-        }),
-    );
+    const { worker, finish } = retainedPendingFollowup(sessions);
     sessions.complete(worker.id, "## Summary\nDone.");
 
     const first = await callTool(resumeAgent, {
@@ -419,20 +431,7 @@ describe("resume_agent", () => {
   test("wait_agents collects the resumed turn after resume_agent returns", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = sessions.start({
-      description: "worker",
-      agentId: "a",
-      brief: "b",
-      retained: true,
-    });
-    let finish: (reply: string) => void = () => undefined;
-    sessions.registerFollowup(
-      worker.id,
-      () =>
-        new Promise<string>((resolve) => {
-          finish = resolve;
-        }),
-    );
+    const { worker, finish } = retainedPendingFollowup(sessions);
     sessions.complete(worker.id, "first report");
     fleetRecords.register(worker.id);
 
@@ -766,6 +765,41 @@ describe("send_input", () => {
     return { sessions, fleetRecords, worker };
   }
 
+  async function interruptSteerThenCollect(
+    lane: ReturnType<typeof liveLane>,
+  ): Promise<
+    { status: string; stop_reason?: string; error?: string; report?: string }[]
+  > {
+    const sendInput = createSendInputTool({
+      sessions: lane.sessions,
+      fleetRecords: lane.fleetRecords,
+    });
+    const wait = createWaitAgentsTool({
+      sessions: lane.sessions,
+      fleetRecords: lane.fleetRecords,
+    });
+    await callTool(sendInput, {
+      target: lane.worker.id,
+      message: "stop that",
+      interrupt: true,
+    });
+    lane.sessions.attachReport(lane.worker.id, "salvage", {
+      stopReason: "interrupted",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const collected = await callTool(wait, {
+      targets: [lane.worker.id],
+      timeout_ms: 1000,
+    });
+    expect(collected.timed_out).toBe(false);
+    return collected.results as {
+      status: string;
+      stop_reason?: string;
+      error?: string;
+      report?: string;
+    }[];
+  }
+
   test("send_input interrupt then successful follow-up wait is done without leftover interrupted stop_reason", async () => {
     let finish: (reply: string) => void = () => undefined;
     const { sessions, fleetRecords, worker } = liveLane({
@@ -817,28 +851,14 @@ describe("send_input", () => {
       },
     });
 
-    const sendInput = createSendInputTool({ sessions, fleetRecords });
-    const wait = createWaitAgentsTool({ sessions, fleetRecords });
-
-    await callTool(sendInput, {
-      target: worker.id,
-      message: "stop that",
-      interrupt: true,
-    });
     // CL-7344: the interrupt stashes the follow-up until the original run
     // settles; the salvage handoff launches it, it rejects, and the session
     // restamps interrupted.
-    sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const collected = await callTool(wait, {
-      targets: [worker.id],
-      timeout_ms: 1000,
+    const results = await interruptSteerThenCollect({
+      sessions,
+      fleetRecords,
+      worker,
     });
-    expect(collected.timed_out).toBe(false);
-    const results = collected.results as {
-      status: string;
-      stop_reason?: string;
-    }[];
     expect(defined(results[0]).status).toBe("interrupted");
     expect(defined(results[0]).stop_reason).toBe("interrupted");
   });
@@ -971,23 +991,13 @@ describe("send_input", () => {
         throw new AgentClosedError();
       },
     });
-    const sendInput = createSendInputTool({ sessions, fleetRecords });
-    const wait = createWaitAgentsTool({ sessions, fleetRecords });
     const list = createListAgentsTool({ sessions, fleetRecords });
     const resume = createResumeAgentTool({ sessions, fleetRecords });
-    await callTool(sendInput, {
-      target: worker.id,
-      message: "stop that",
-      interrupt: true,
+    const results = await interruptSteerThenCollect({
+      sessions,
+      fleetRecords,
+      worker,
     });
-    sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const collected = await callTool(wait, {
-      targets: [worker.id],
-      timeout_ms: 1000,
-    });
-    expect(collected.timed_out).toBe(false);
-    const results = collected.results as { status: string; error?: string }[];
     expect(defined(results[0]).status).toBe("failed");
     expect(defined(results[0]).error).toContain("closed");
 

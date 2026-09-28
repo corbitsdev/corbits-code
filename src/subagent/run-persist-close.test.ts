@@ -7,28 +7,22 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-import type { ReactorEmittedEvent } from "@intx/inference";
 
 import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import { defined } from "../testkit/defined.js";
 import { INTERN_TOOLS } from "../agent/directors/tool-sets.js";
-import { createPermissionGate } from "../permission/gate.js";
 import type { BackgroundShellRegistry } from "../shell/background-shell.js";
-import type { RunSubAgentParams } from "./types.js";
+import {
+  baseRunParams,
+  captureRunHandles,
+  stubAgent,
+  tmpSubAgentCwd,
+  withPosixDispose,
+  withStubbedAgent,
+} from "./run-test-harness.js";
 
-const permissionGate = createPermissionGate({
-  approvals: [],
-  interactive: false,
-  skipPermissions: true,
-  reactorGated: false,
-});
-
-function stubAgent() {
-  return {
+const delayedReplyAgent = () =>
+  stubAgent({
     send: async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       return {
@@ -37,20 +31,11 @@ function stubAgent() {
         turn: { role: "assistant", content: [] },
       };
     },
-    stream: () =>
-      (async function* (): AsyncGenerator<ReactorEmittedEvent> {
-        yield* [];
-      })(),
-    deliver: () => undefined,
-    close: async () => undefined,
-    setSource: () => undefined,
-    setSources: () => undefined,
-    history: async () => [],
-    checkpoints: async () => [],
-    readAt: async () => [],
-    blobReader: {},
-  };
-}
+  });
+
+const LEFTOVER_DISPOSE = async () => {
+  throw new Error("1 shell child process still live after 2000ms reap");
+};
 
 /** Poll until a process carries `token`; fail if it never becomes visible. */
 async function waitUntilPresent(token: string): Promise<void> {
@@ -76,122 +61,55 @@ async function waitUntilGone(token: string): Promise<void> {
 
 describe("persist close_agent leftover dispose", () => {
   test("onAgentReady close rejects when posix dispose reports leftover children", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-persist-close-"));
+    const cwd = await tmpSubAgentCwd("corbits-persist-close-");
 
-    await withMockedModuleDuring(
-      import.meta.resolve("@intx/tools-posix"),
-      (real: typeof import("@intx/tools-posix")) => ({
-        ...real,
-        createPosixTools: (opts: Parameters<typeof real.createPosixTools>[0]) =>
-          Object.assign(real.createPosixTools(opts), {
-            dispose: async () => {
-              throw new Error(
-                "1 shell child process still live after 2000ms reap",
-              );
-            },
+    await withPosixDispose(LEFTOVER_DISPOSE, async () =>
+      withStubbedAgent(delayedReplyAgent(), async () => {
+        const { runSubAgent } = await import("./run.js");
+        const handles = captureRunHandles();
+        const result = await runSubAgent(
+          baseRunParams(cwd, {
+            description: "persist close leftover probe",
+            prompt: "finish the first turn",
+            persist: true,
+            onAgentReady: handles.onAgentReady,
           }),
+        );
+        expect(result.agentRetained).toBe(true);
+        await expect(handles.require().close(1000)).rejects.toThrow(
+          /still live after 2000ms reap/,
+        );
       }),
-      async () =>
-        withMockedModuleDuring(
-          import.meta.resolve("../agent/live-tool-dispatch.js"),
-          (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-            ...real,
-            createAgentWithLiveToolDispatch: async () =>
-              stubAgent() as unknown as Awaited<
-                ReturnType<typeof real.createAgentWithLiveToolDispatch>
-              >,
-          }),
-          async () => {
-            const { runSubAgent } = await import("./run.js");
-            let handles:
-              | {
-                  close: (deadlineMs?: number) => Promise<void>;
-                }
-              | undefined;
-            const params: RunSubAgentParams = {
-              cwd,
-              workdirBase: join(cwd, ".ctx"),
-              permissionGate,
-              provider: {
-                providerName: "test",
-                baseURL: "http://localhost",
-                model: "test-model",
-              },
-              description: "persist close leftover probe",
-              prompt: "finish the first turn",
-              persist: true,
-              onAgentReady: (h) => {
-                handles = h;
-              },
-            };
-            const result = await runSubAgent(params);
-            expect(result.agentRetained).toBe(true);
-            if (handles === undefined)
-              throw new Error("onAgentReady never fired");
-            await expect(handles.close(1000)).rejects.toThrow(
-              /still live after 2000ms reap/,
-            );
-          },
-        ),
     );
   });
 
   test("onAgentReady close reaps posix tools before a hung agent.close and fails the deadline", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-persist-close-hung-"));
+    const cwd = await tmpSubAgentCwd("corbits-persist-close-hung-");
     let posixDisposed = false;
 
-    await withMockedModuleDuring(
-      import.meta.resolve("@intx/tools-posix"),
-      (real: typeof import("@intx/tools-posix")) => ({
-        ...real,
-        createPosixTools: (opts: Parameters<typeof real.createPosixTools>[0]) =>
-          Object.assign(real.createPosixTools(opts), {
-            dispose: async () => {
-              posixDisposed = true;
-            },
-          }),
-      }),
+    await withPosixDispose(
+      async () => {
+        posixDisposed = true;
+      },
       async () =>
-        withMockedModuleDuring(
-          import.meta.resolve("../agent/live-tool-dispatch.js"),
-          (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-            ...real,
-            createAgentWithLiveToolDispatch: async () =>
-              ({
-                ...stubAgent(),
-                close: () => new Promise<void>(() => undefined),
-              }) as unknown as Awaited<
-                ReturnType<typeof real.createAgentWithLiveToolDispatch>
-              >,
-          }),
+        withStubbedAgent(
+          {
+            ...delayedReplyAgent(),
+            close: () => new Promise<void>(() => undefined),
+          },
           async () => {
             const { runSubAgent } = await import("./run.js");
-            let handles:
-              | {
-                  close: (deadlineMs?: number) => Promise<void>;
-                }
-              | undefined;
-            const params: RunSubAgentParams = {
-              cwd,
-              workdirBase: join(cwd, ".ctx"),
-              permissionGate,
-              provider: {
-                providerName: "test",
-                baseURL: "http://localhost",
-                model: "test-model",
-              },
-              description: "persist close hung close probe",
-              prompt: "finish the first turn",
-              persist: true,
-              onAgentReady: (h) => {
-                handles = h;
-              },
-            };
-            const result = await runSubAgent(params);
+            const handles = captureRunHandles();
+            const result = await runSubAgent(
+              baseRunParams(cwd, {
+                description: "persist close hung close probe",
+                prompt: "finish the first turn",
+                persist: true,
+                onAgentReady: handles.onAgentReady,
+              }),
+            );
             expect(result.agentRetained).toBe(true);
-            if (handles === undefined)
-              throw new Error("onAgentReady never fired");
-            await expect(handles.close(50)).rejects.toThrow(
+            await expect(handles.require().close(50)).rejects.toThrow(
               /session close exceeded 50ms/,
             );
             expect(posixDisposed).toBe(true);
@@ -201,73 +119,36 @@ describe("persist close_agent leftover dispose", () => {
   });
 
   test("onAgentReady close surfaces leftover posix dispose when agent.close hangs", async () => {
-    const cwd = await mkdtemp(
-      join(tmpdir(), "corbits-persist-close-leftover-hang-"),
-    );
+    const cwd = await tmpSubAgentCwd("corbits-persist-close-leftover-hang-");
     let closeStarted = false;
 
-    await withMockedModuleDuring(
-      import.meta.resolve("@intx/tools-posix"),
-      (real: typeof import("@intx/tools-posix")) => ({
-        ...real,
-        createPosixTools: (opts: Parameters<typeof real.createPosixTools>[0]) =>
-          Object.assign(real.createPosixTools(opts), {
-            dispose: async () => {
-              throw new Error(
-                "1 shell child process still live after 2000ms reap",
-              );
-            },
-          }),
-      }),
-      async () =>
-        withMockedModuleDuring(
-          import.meta.resolve("../agent/live-tool-dispatch.js"),
-          (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-            ...real,
-            createAgentWithLiveToolDispatch: async () =>
-              ({
-                ...stubAgent(),
-                close: () => {
-                  closeStarted = true;
-                  return new Promise<void>(() => undefined);
-                },
-              }) as unknown as Awaited<
-                ReturnType<typeof real.createAgentWithLiveToolDispatch>
-              >,
-          }),
-          async () => {
-            const { runSubAgent } = await import("./run.js");
-            let handles:
-              | {
-                  close: (deadlineMs?: number) => Promise<void>;
-                }
-              | undefined;
-            const params: RunSubAgentParams = {
-              cwd,
-              workdirBase: join(cwd, ".ctx"),
-              permissionGate,
-              provider: {
-                providerName: "test",
-                baseURL: "http://localhost",
-                model: "test-model",
-              },
+    await withPosixDispose(LEFTOVER_DISPOSE, async () =>
+      withStubbedAgent(
+        {
+          ...delayedReplyAgent(),
+          close: () => {
+            closeStarted = true;
+            return new Promise<void>(() => undefined);
+          },
+        },
+        async () => {
+          const { runSubAgent } = await import("./run.js");
+          const handles = captureRunHandles();
+          const result = await runSubAgent(
+            baseRunParams(cwd, {
               description: "persist close leftover hung close probe",
               prompt: "finish the first turn",
               persist: true,
-              onAgentReady: (h) => {
-                handles = h;
-              },
-            };
-            const result = await runSubAgent(params);
-            expect(result.agentRetained).toBe(true);
-            if (handles === undefined)
-              throw new Error("onAgentReady never fired");
-            await expect(handles.close(200)).rejects.toThrow(
-              /still live after 2000ms reap/,
-            );
-            expect(closeStarted).toBe(true);
-          },
-        ),
+              onAgentReady: handles.onAgentReady,
+            }),
+          );
+          expect(result.agentRetained).toBe(true);
+          await expect(handles.require().close(200)).rejects.toThrow(
+            /still live after 2000ms reap/,
+          );
+          expect(closeStarted).toBe(true);
+        },
+      ),
     );
   });
 });
@@ -275,7 +156,7 @@ describe("persist close_agent leftover dispose", () => {
 describe("intern persist reaps leftover registry children when collect is unmounted", () => {
   test("a leftover background child is disposeAll'd even though the intern session is retained", async () => {
     expect(INTERN_TOOLS as readonly string[]).not.toContain("shell_collect");
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-intern-persist-reap-"));
+    const cwd = await tmpSubAgentCwd("corbits-intern-persist-reap-");
     const token = `ic_intern_persist_${randomUUID()}`;
     let registry: BackgroundShellRegistry | undefined;
     const disposeReasons: string[] = [];
@@ -301,65 +182,45 @@ describe("intern persist reaps leftover registry children when collect is unmoun
         },
       }),
       async () =>
-        withMockedModuleDuring(
-          import.meta.resolve("../agent/live-tool-dispatch.js"),
-          (real: typeof import("../agent/live-tool-dispatch.js")) => ({
-            ...real,
-            createAgentWithLiveToolDispatch: async () =>
-              ({
-                ...stubAgent(),
-                send: async () => {
-                  const captured = defined(registry);
-                  const started = captured.start({
-                    // Token must be argv/process-title, not a shell comment:
-                    // pgrep -f only sees the exec'd sleep, so a comment leak
-                    // would make waitUntilGone succeed even if kill failed.
-                    command: `bash -c 'exec -a ${token} sleep 600'`,
-                    cwd,
-                  });
-                  if ("error" in started) throw new Error(started.error);
-                  leftoverId = started.id;
-                  expect(captured.runningCount()).toBe(1);
-                  if (process.platform !== "win32") {
-                    await waitUntilPresent(token);
-                  }
-                  return {
-                    type: "reply" as const,
-                    reply: "done",
-                    turn: { role: "assistant", content: [] },
-                  };
-                },
-              }) as unknown as Awaited<
-                ReturnType<typeof real.createAgentWithLiveToolDispatch>
-              >,
-          }),
+        withStubbedAgent(
+          {
+            ...delayedReplyAgent(),
+            send: async () => {
+              const captured = defined(registry);
+              const started = captured.start({
+                // Token must be argv/process-title, not a shell comment:
+                // pgrep -f only sees the exec'd sleep, so a comment leak
+                // would make waitUntilGone succeed even if kill failed.
+                command: `bash -c 'exec -a ${token} sleep 600'`,
+                cwd,
+              });
+              if ("error" in started) throw new Error(started.error);
+              leftoverId = started.id;
+              expect(captured.runningCount()).toBe(1);
+              if (process.platform !== "win32") {
+                await waitUntilPresent(token);
+              }
+              return {
+                type: "reply" as const,
+                reply: "done",
+                turn: { role: "assistant", content: [] },
+              };
+            },
+          },
           async () => {
             const { runSubAgent } = await import("./run.js");
-            let handles:
-              | {
-                  close: (deadlineMs?: number) => Promise<void>;
-                }
-              | undefined;
-            const params: RunSubAgentParams = {
-              cwd,
-              workdirBase: join(cwd, ".ctx"),
-              permissionGate,
-              provider: {
-                providerName: "test",
-                baseURL: "http://localhost",
-                model: "test-model",
-              },
-              description: "intern persist leftover registry probe",
-              prompt: "finish the first turn",
-              persist: true,
-              directorId: "intern",
-              capabilities: { mode: "allow", tools: [...INTERN_TOOLS] },
-              onAgentReady: (h) => {
-                handles = h;
-              },
-            };
+            const handles = captureRunHandles();
             try {
-              const result = await runSubAgent(params);
+              const result = await runSubAgent(
+                baseRunParams(cwd, {
+                  description: "intern persist leftover registry probe",
+                  prompt: "finish the first turn",
+                  persist: true,
+                  directorId: "intern",
+                  capabilities: { mode: "allow", tools: [...INTERN_TOOLS] },
+                  onAgentReady: handles.onAgentReady,
+                }),
+              );
               expect(result.agentRetained).toBe(true);
               expect(disposeReasons).toEqual(["sub-agent closed"]);
               const captured = defined(registry);
@@ -371,9 +232,10 @@ describe("intern persist reaps leftover registry children when collect is unmoun
               }
             } finally {
               registry?.disposeAll("test done");
-              if (handles !== undefined) {
-                await handles.close(1000).catch(() => undefined);
-              }
+              await handles
+                .peek()
+                ?.close(1000)
+                .catch(() => undefined);
             }
           },
         ),

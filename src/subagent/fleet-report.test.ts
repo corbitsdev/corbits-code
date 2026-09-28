@@ -59,6 +59,35 @@ describe("liveFleetCount", () => {
   });
 });
 
+function mixedDryUpdates(docs: {
+  status: FleetLane["status"];
+  lifecycleStatus: NonNullable<FleetLane["lifecycleStatus"]>;
+}): readonly string[] {
+  const seeded = observeFleet(
+    createFleetWatch(),
+    [lane({ id: "api" }), lane({ id: "docs" })],
+    T0,
+  ).watch;
+  const { updates } = observeFleet(
+    seeded,
+    [
+      lane({
+        id: "api",
+        status: "done",
+        lifecycleStatus: "completed",
+        report: "ok",
+      }),
+      lane({
+        id: "docs",
+        status: docs.status,
+        lifecycleStatus: docs.lifecycleStatus,
+      }),
+    ],
+    T0 + 1000,
+  );
+  return updates;
+}
+
 describe("observeFleet", () => {
   test("the first observation seeds without announcing an in-flight fleet", () => {
     const { watch, updates } = observeFleet(
@@ -286,55 +315,15 @@ describe("observeFleet", () => {
   });
 
   test("a mixed dry fleet counts done and cancelled with interrupted lifecycle", () => {
-    const seeded = observeFleet(
-      createFleetWatch(),
-      [lane({ id: "api" }), lane({ id: "docs" })],
-      T0,
-    ).watch;
-    const { updates } = observeFleet(
-      seeded,
-      [
-        lane({
-          id: "api",
-          status: "done",
-          lifecycleStatus: "completed",
-          report: "ok",
-        }),
-        lane({
-          id: "docs",
-          status: "cancelled",
-          lifecycleStatus: "interrupted",
-        }),
-      ],
-      T0 + 1000,
-    );
-    expect(updates).toEqual(["1 done, 1 cancelled"]);
+    expect(
+      mixedDryUpdates({ status: "cancelled", lifecycleStatus: "interrupted" }),
+    ).toEqual(["1 done, 1 cancelled"]);
   });
 
   test("a mixed dry fleet does not count interrupted leftovers as done", () => {
-    const seeded = observeFleet(
-      createFleetWatch(),
-      [lane({ id: "api" }), lane({ id: "docs" })],
-      T0,
-    ).watch;
-    const { updates } = observeFleet(
-      seeded,
-      [
-        lane({
-          id: "api",
-          status: "done",
-          lifecycleStatus: "completed",
-          report: "ok",
-        }),
-        lane({
-          id: "docs",
-          status: "running",
-          lifecycleStatus: "interrupted",
-        }),
-      ],
-      T0 + 1000,
-    );
-    expect(updates).toEqual(["1 done"]);
+    expect(
+      mixedDryUpdates({ status: "running", lifecycleStatus: "interrupted" }),
+    ).toEqual(["1 done"]);
   });
 });
 

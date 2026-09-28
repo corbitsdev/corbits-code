@@ -23,10 +23,10 @@ import type { KeyEvent } from "@opentui/core";
 
 import { focusOwner } from "./focus/index.js";
 import { BUNDLED_PLUGIN_MARKER as BUNDLED_MARKER } from "../plugins/origin-marker.js";
-import { withTestRenderer, type Harness } from "./harness";
+import type { Harness } from "./harness";
 import { projectPluginsRoot, userPluginsRoot } from "../plugins/uninstall.js";
-import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
+import { withAppShell } from "./test-helpers";
 import {
   acceptOverlaySelection,
   closeInsetOverlay,
@@ -47,43 +47,13 @@ function baseSnapshot(): SettingsSnapshot {
   };
 }
 
-async function withShell(
+const withShell = (
   fn: (shell: AppShell) => Promise<void> | void,
-): Promise<void> {
-  await withTestRenderer(
-    async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        wireKeys: false,
-      });
-      try {
-        await fn(shell);
-      } finally {
-        shell.dispose();
-      }
-    },
-    { width: 80, height: 24 },
-  );
-}
+): Promise<void> => withAppShell(fn);
 
-async function withWiredShell(
+const withWiredShell = (
   fn: (shell: AppShell, harness: Harness) => Promise<void> | void,
-): Promise<void> {
-  await withTestRenderer(
-    async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        wireKeys: true,
-      });
-      try {
-        await fn(shell, h);
-      } finally {
-        shell.dispose();
-      }
-    },
-    { width: 80, height: 24 },
-  );
-}
+): Promise<void> => withAppShell(fn, { shell: { wireKeys: true } });
 
 describe("surface labels", () => {
   test("grant label carries scope, tool, pattern, provider model", () => {

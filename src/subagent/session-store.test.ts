@@ -107,6 +107,82 @@ test("appendEvent dedups repeated tool_call.start names in toolNames", () => {
   expect(stored?.toolNames).toEqual(["grep"]);
 });
 
+function queuedSteer(store: SessionStore) {
+  const started: string[] = [];
+  const failures: unknown[] = [];
+  const session = runningRetained(store, async (message) => {
+    started.push(message);
+    return "should not run";
+  });
+  store.sendInputOne(session.id, "steer now", {
+    interrupt: true,
+    onFail: (err: unknown) => {
+      failures.push(err);
+    },
+  });
+  return { started, failures, session };
+}
+
+function expectSteerLost(
+  store: SessionStore,
+  sessionId: string,
+  started: string[],
+  failures: unknown[],
+): void {
+  expect(started).toEqual([]);
+  expect(failures).toHaveLength(1);
+  expect(String(defined(failures[0]))).toContain("steer now");
+  expect(store.get(sessionId)?.entries).toContainEqual(
+    expect.objectContaining({
+      kind: "report",
+      content: expect.stringContaining("steer now"),
+    }),
+  );
+}
+
+function stashedSteer(store: SessionStore) {
+  const started: string[] = [];
+  const failures: unknown[] = [];
+  const replies: string[] = [];
+  const session = runningRetained(store, async (message) => {
+    started.push(message);
+    return "followup reply";
+  });
+  store.sendInputOne(session.id, "steer now", {
+    interrupt: true,
+    onFail: (err: unknown) => {
+      failures.push(err);
+    },
+    onFollowupReply: (reply: string) => {
+      replies.push(reply);
+    },
+  });
+  return { started, failures, replies, session };
+}
+
+function expectSteerDelivered(
+  store: SessionStore,
+  sessionId: string,
+  started: string[],
+  failures: unknown[],
+  replies: string[],
+): void {
+  expect(started).toEqual(["steer now"]);
+  expect(failures).toEqual([]);
+  expect(replies).toEqual(["followup reply"]);
+  expect(store.get(sessionId)?.lifecycle.state).toBe("completed");
+  expect(store.get(sessionId)?.report).toBe("followup reply");
+}
+
+function resumeCompleted(store: SessionStore, sessionId: string): void {
+  expect(store.get(sessionId)?.status).toBe("done");
+  expect(store.get(sessionId)?.lifecycleStatus).toBe("completed");
+  expect(store.resumeOne(sessionId, "continue")).toEqual({
+    ok: true,
+    status: "running",
+  });
+}
+
 describe("session-store snapshot caching", () => {
   test("list() reuses the cached snapshot for a session unaffected by another session's notify", () => {
     const store = createSubAgentSessionStore();
@@ -528,13 +604,7 @@ describe("CL-6943 reusable worker sessions", () => {
         }),
       complete: "## Summary\nDone.",
     });
-    expect(store.get(session.id)?.status).toBe("done");
-    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
-
-    expect(store.resumeOne(session.id, "continue")).toEqual({
-      ok: true,
-      status: "running",
-    });
+    resumeCompleted(store, session.id);
     expect(store.get(session.id)?.status).toBe("running");
     expect(store.get(session.id)?.lifecycleStatus).toBe("running");
     expect(store.get(session.id)?.finishedAt).toBeUndefined();
@@ -575,13 +645,7 @@ describe("CL-6943 reusable worker sessions", () => {
       },
       complete: "## Summary\nDone.",
     });
-    expect(store.get(session.id)?.status).toBe("done");
-    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
-
-    expect(store.resumeOne(session.id, "continue")).toEqual({
-      ok: true,
-      status: "running",
-    });
+    resumeCompleted(store, session.id);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const after = store.get(session.id);
@@ -1851,58 +1915,20 @@ describe("CL-7344 follow-up stash", () => {
 
   test("CL-7989 interrupt wins the race: stashed steer launches from attachReport", async () => {
     const store = createSubAgentSessionStore();
-    const started: string[] = [];
-    const failures: unknown[] = [];
-    const replies: string[] = [];
-    const session = runningRetained(store, async (message) => {
-      started.push(message);
-      return "followup reply";
-    });
-    store.sendInputOne(session.id, "steer now", {
-      interrupt: true,
-      onFail: (err: unknown) => {
-        failures.push(err);
-      },
-      onFollowupReply: (reply: string) => {
-        replies.push(reply);
-      },
-    });
+    const { started, failures, replies, session } = stashedSteer(store);
     store.attachReport(session.id, "salvage", { stopReason: "interrupted" });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(started).toEqual(["steer now"]);
-    expect(failures).toEqual([]);
-    expect(replies).toEqual(["followup reply"]);
-    expect(store.get(session.id)?.lifecycle.state).toBe("completed");
-    expect(store.get(session.id)?.report).toBe("followup reply");
+    expectSteerDelivered(store, session.id, started, failures, replies);
   });
 
   test("CL-7989 run-completion wins the race: stashed steer delivers as a fresh follow-up", async () => {
     const store = createSubAgentSessionStore();
-    const started: string[] = [];
-    const failures: unknown[] = [];
-    const replies: string[] = [];
-    const session = runningRetained(store, async (message) => {
-      started.push(message);
-      return "followup reply";
-    });
-    store.sendInputOne(session.id, "steer now", {
-      interrupt: true,
-      onFail: (err: unknown) => {
-        failures.push(err);
-      },
-      onFollowupReply: (reply: string) => {
-        replies.push(reply);
-      },
-    });
+    const { started, failures, replies, session } = stashedSteer(store);
     store.complete(session.id, "## Summary\nOriginal done.");
     expect(store.get(session.id)?.lifecycleStatus).toBe("running");
     expect(store.isRunInFlight(session.id)).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(started).toEqual(["steer now"]);
-    expect(failures).toEqual([]);
-    expect(replies).toEqual(["followup reply"]);
-    expect(store.get(session.id)?.lifecycle.state).toBe("completed");
-    expect(store.get(session.id)?.report).toBe("followup reply");
+    expectSteerDelivered(store, session.id, started, failures, replies);
     expect(store.get(session.id)?.entries).toContainEqual(
       expect.objectContaining({
         kind: "report",
@@ -1933,33 +1959,14 @@ describe("CL-7344 follow-up stash", () => {
 
   test("salvage completion with agentRetained:false drops the queued steer loudly", async () => {
     const store = createSubAgentSessionStore();
-    const started: string[] = [];
-    const failures: unknown[] = [];
-    const session = runningRetained(store, async (message) => {
-      started.push(message);
-      return "should not run";
-    });
-    store.sendInputOne(session.id, "steer now", {
-      interrupt: true,
-      onFail: (err: unknown) => {
-        failures.push(err);
-      },
-    });
+    const { started, failures, session } = queuedSteer(store);
     // Mirrors run.ts's salvage return: the report resolves through complete()
     // but the agent is already disposed, so the queued steer is superseded.
     store.complete(session.id, "Stopped: deadline\n\nPartial work...", {
       agentRetained: false,
     });
     await Promise.resolve();
-    expect(started).toEqual([]);
-    expect(failures).toHaveLength(1);
-    expect(String(defined(failures[0]))).toContain("steer now");
-    expect(store.get(session.id)?.entries).toContainEqual(
-      expect.objectContaining({
-        kind: "report",
-        content: expect.stringContaining("steer now"),
-      }),
-    );
+    expectSteerLost(store, session.id, started, failures);
   });
 
   test("a throwing handoff onReply does not stall the queued steers behind it", async () => {
@@ -1986,30 +1993,11 @@ describe("CL-7344 follow-up stash", () => {
 
   test("CL-7989 run-failure wins the race: loss is surfaced, never silent", async () => {
     const store = createSubAgentSessionStore();
-    const started: string[] = [];
-    const failures: unknown[] = [];
-    const session = runningRetained(store, async (message) => {
-      started.push(message);
-      return "should not run";
-    });
-    store.sendInputOne(session.id, "steer now", {
-      interrupt: true,
-      onFail: (err: unknown) => {
-        failures.push(err);
-      },
-    });
+    const { started, failures, session } = queuedSteer(store);
     store.fail(session.id, "provider 500");
     await Promise.resolve();
-    expect(started).toEqual([]);
     expect(store.get(session.id)?.lifecycle.state).toBe("failed");
-    expect(failures).toHaveLength(1);
-    expect(String(defined(failures[0]))).toContain("steer now");
-    expect(store.get(session.id)?.entries).toContainEqual(
-      expect.objectContaining({
-        kind: "report",
-        content: expect.stringContaining("steer now"),
-      }),
-    );
+    expectSteerLost(store, session.id, started, failures);
   });
 });
 

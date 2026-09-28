@@ -79,6 +79,10 @@ function correlationHeaders(message: unknown) {
   return (message as InboundMessage).headers;
 }
 
+function firstDeliveredContent(delivered: unknown[]): unknown {
+  return JSON.parse((delivered[0] as { content: string }).content) as unknown;
+}
+
 describe("approval resume late-decision guard", () => {
   test("a decision after the reactor settled the correlation is dropped", async () => {
     const turns = [userTurn()];
@@ -104,8 +108,7 @@ describe("approval resume late-decision guard", () => {
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(delivered).toHaveLength(1);
-    const message = delivered[0] as { content: string };
-    expect(JSON.parse(message.content)).toEqual({
+    expect(firstDeliveredContent(delivered)).toEqual({
       outcome: "rejected",
       message: "not today",
     });
@@ -155,7 +158,7 @@ describe("approval resume generation capture", () => {
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(delivered).toHaveLength(1);
-    expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
+    expect(firstDeliveredContent(delivered)).toEqual({
       outcome: "rejected",
       message: APPROVAL_DROPPED_NOTICE,
     });
@@ -183,7 +186,7 @@ describe("approval resume generation capture", () => {
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(delivered).toHaveLength(1);
-    expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
+    expect(firstDeliveredContent(delivered)).toEqual({
       outcome: "approved",
     });
   });
@@ -223,7 +226,7 @@ describe("approval resume generation capture", () => {
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(deliveredA).toHaveLength(1);
-    expect(JSON.parse((deliveredA[0] as { content: string }).content)).toEqual({
+    expect(firstDeliveredContent(deliveredA)).toEqual({
       outcome: "rejected",
       message: APPROVAL_DROPPED_NOTICE,
     });
@@ -299,7 +302,7 @@ describe("approval resume generation capture", () => {
     expect(events.indexOf("reject")).toBeGreaterThanOrEqual(0);
     expect(events.indexOf("reject")).toBeLessThan(events.indexOf("enqueue"));
     expect(events).toContain("rebuild");
-    expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
+    expect(firstDeliveredContent(delivered)).toEqual({
       outcome: "rejected",
       message: APPROVAL_DROPPED_NOTICE,
     });
@@ -413,7 +416,7 @@ describe("approval resume persist Allow after interrupt", () => {
     expect(gate.getApprovals()).toEqual([]);
     expect(notices).toEqual([APPROVAL_DROPPED_NOTICE]);
     expect(delivered).toHaveLength(1);
-    expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
+    expect(firstDeliveredContent(delivered)).toEqual({
       outcome: "rejected",
       message: APPROVAL_DROPPED_NOTICE,
     });
@@ -475,7 +478,9 @@ describe("approval resume stillCurrent at resolve", () => {
 });
 
 describe("approval resume occupancy until correlation", () => {
-  test("inFlight holds idle rebuild until the correlated resume is accepted", async () => {
+  // Shared rig: a resume whose deliver parks on correlation acceptance while
+  // a rebuild waits on inFlight draining to zero. `run()` starts the handle.
+  function occupancyResume() {
     const events: string[] = [];
     const { enqueue, awaitTail } = createSessionOperationQueue();
     const correlationAcceptance = createCorrelationAcceptance();
@@ -522,10 +527,30 @@ describe("approval resume occupancy until correlation", () => {
         },
       } as unknown as PermissionGate,
     });
+    const run = () =>
+      runWhileAgentBusy(state, async () => {
+        await resume.handle(SUSPENDED);
+      });
+    return {
+      events,
+      state,
+      correlationAcceptance,
+      waitUntilDelivered,
+      run,
+      awaitTail,
+    };
+  }
 
-    const running = runWhileAgentBusy(state, async () => {
-      await resume.handle(SUSPENDED);
-    });
+  test("inFlight holds idle rebuild until the correlated resume is accepted", async () => {
+    const {
+      events,
+      state,
+      correlationAcceptance,
+      waitUntilDelivered,
+      run,
+      awaitTail,
+    } = occupancyResume();
+    const running = run();
 
     await waitUntilDelivered;
     expect(events).toEqual(["deliver"]);
@@ -541,56 +566,15 @@ describe("approval resume occupancy until correlation", () => {
   });
 
   test("approved correlation holds idle rebuild until tool.start", async () => {
-    const events: string[] = [];
-    const { enqueue, awaitTail } = createSessionOperationQueue();
-    const correlationAcceptance = createCorrelationAcceptance();
-    let delivered: (() => void) | undefined;
-    const waitUntilDelivered = new Promise<void>((resolve) => {
-      delivered = resolve;
-    });
-    const state = {
-      inFlight: 0,
-      pendingReload: false,
-      reloadIfIdle: () => {
-        if (!state.pendingReload || state.inFlight > 0) return;
-        state.pendingReload = false;
-        void enqueue(async () => {
-          events.push("rebuild");
-        });
-      },
-    };
-    const agent = {
-      deliver: (_message: unknown) => {
-        events.push("deliver");
-      },
-      history: async () => [userTurn()],
-    };
-    const resume = createApprovalResume({
-      resolveParkedCallId: () => "call-ask",
-      getAgent: () => agent,
-      deliver: (message) =>
-        enqueue(async () => {
-          const correlationId = message.headers.interchangeCorrelationId;
-          const accepted =
-            correlationId === undefined
-              ? undefined
-              : correlationAcceptance.wait(correlationId);
-          agent.deliver(message);
-          delivered?.();
-          await accepted;
-        }),
-      gate: {
-        resolveSuspended: async () => {
-          state.pendingReload = true;
-          state.reloadIfIdle?.();
-          return { allow: true };
-        },
-      } as unknown as PermissionGate,
-    });
-
-    const running = runWhileAgentBusy(state, async () => {
-      await resume.handle(SUSPENDED);
-    });
+    const {
+      events,
+      state,
+      correlationAcceptance,
+      waitUntilDelivered,
+      run,
+      awaitTail,
+    } = occupancyResume();
+    const running = run();
 
     await waitUntilDelivered;
     expect(events).toEqual(["deliver"]);

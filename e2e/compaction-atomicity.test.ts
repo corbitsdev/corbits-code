@@ -25,6 +25,54 @@ function texts(turns: ConversationTurn[]): string[] {
   return turns.map((t) => (t.content[0] as { text: string }).text);
 }
 
+// Map-backed blob store so the archive can be exercised without a real repo.
+function mapArchive(dir: string) {
+  const blobs = new Map<string, Uint8Array>();
+  return createCompactionArchive({
+    sessionId: "primary",
+    contextDir: dir,
+    writeBlob: async (key, bytes) => {
+      blobs.set(key, bytes);
+    },
+    readBlob: async (key) => {
+      const hit = blobs.get(key);
+      if (hit === undefined) throw new Error(`missing ${key}`);
+      return hit;
+    },
+  });
+}
+
+// A turn sequence carrying one tool_call/tool_result pair — the shape the
+// completeness gate checks for evidence coverage.
+function toolExchangeHistory(): ConversationTurn[] {
+  return [
+    turn("fact-a"),
+    {
+      role: "assistant" as const,
+      content: [
+        {
+          type: "tool_call" as const,
+          id: "c1",
+          name: "read_file",
+          arguments: { path: "x" },
+        },
+      ],
+      timestamp: 2,
+    },
+    {
+      role: "user" as const,
+      content: [
+        {
+          type: "tool_result" as const,
+          callId: "c1",
+          content: [{ type: "text" as const, text: "body" }],
+        },
+      ],
+      timestamp: 3,
+    },
+  ];
+}
+
 const EMPTY_META = {
   pendingOperations: [],
   tokenUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, thinking: 0 },
@@ -81,49 +129,12 @@ describe("compaction atomicity", () => {
 
   test("primary incomplete certifyRange refuses destructive compact", async () => {
     const dir = tempDir();
-    const blobs = new Map<string, Uint8Array>();
-    const archive = createCompactionArchive({
-      sessionId: "primary",
-      contextDir: dir,
-      writeBlob: async (key, bytes) => {
-        blobs.set(key, bytes);
-      },
-      readBlob: async (key) => {
-        const hit = blobs.get(key);
-        if (hit === undefined) throw new Error(`missing ${key}`);
-        return hit;
-      },
-    });
+    const archive = mapArchive(dir);
     const wrapped = wrapCompactorWithCompletenessGate(
       truncatingCompactor(),
       archive,
     );
-    const history = [
-      turn("fact-a"),
-      {
-        role: "assistant" as const,
-        content: [
-          {
-            type: "tool_call" as const,
-            id: "c1",
-            name: "read_file",
-            arguments: { path: "x" },
-          },
-        ],
-        timestamp: 2,
-      },
-      {
-        role: "user" as const,
-        content: [
-          {
-            type: "tool_result" as const,
-            callId: "c1",
-            content: [{ type: "text" as const, text: "body" }],
-          },
-        ],
-        timestamp: 3,
-      },
-    ];
+    const history = toolExchangeHistory();
     const result = await wrapped.apply(history, ctx);
     expect(result.output).toBe(history);
     expect(result.blobs).toBeUndefined();
@@ -132,19 +143,7 @@ describe("compaction atomicity", () => {
 
   test("adopted handoff is recorded so the next fold can drop the spine", async () => {
     const dir = tempDir();
-    const blobs = new Map<string, Uint8Array>();
-    const archive = createCompactionArchive({
-      sessionId: "primary",
-      contextDir: dir,
-      writeBlob: async (key, bytes) => {
-        blobs.set(key, bytes);
-      },
-      readBlob: async (key) => {
-        const hit = blobs.get(key);
-        if (hit === undefined) throw new Error(`missing ${key}`);
-        return hit;
-      },
-    });
+    const archive = mapArchive(dir);
     const foldingCompactor = (
       spine: string,
       keep: ConversationTurn[],
@@ -213,32 +212,7 @@ describe("compaction atomicity", () => {
   test("primary complete rewrite publishes turns and evidence together", async () => {
     const dir = tempDir();
     const store = await createOptimizedContextStore(dir);
-    const history = [
-      turn("fact-a"),
-      {
-        role: "assistant" as const,
-        content: [
-          {
-            type: "tool_call" as const,
-            id: "c1",
-            name: "read_file",
-            arguments: { path: "x" },
-          },
-        ],
-        timestamp: 2,
-      },
-      {
-        role: "user" as const,
-        content: [
-          {
-            type: "tool_result" as const,
-            callId: "c1",
-            content: [{ type: "text" as const, text: "body" }],
-          },
-        ],
-        timestamp: 3,
-      },
-    ];
+    const history = toolExchangeHistory();
     await store.writeTurns(history);
     await store.writeMetadata(EMPTY_META);
     const oldCommit = await store.commit({ message: "primary-old" });

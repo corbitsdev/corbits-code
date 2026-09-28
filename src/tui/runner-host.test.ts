@@ -5,7 +5,7 @@ import type { KeyEvent } from "@opentui/core";
 
 import type { CostSummary } from "../cost/cost-summary.js";
 import type { SubAgentSession } from "../subagent/session-store.js";
-import { createHarness } from "./harness.js";
+import { createHarness, type Harness } from "./harness.js";
 import { modelOptionId, modelOptionRef } from "./model-catalog.js";
 import {
   acceptOverlaySelection,
@@ -21,6 +21,8 @@ import {
   mountRunnerHost,
   observeSessionFromSubAgents,
   rowFromTranscriptEntry,
+  type RunnerHost,
+  type RunnerHostDeps,
 } from "./runner/host.js";
 
 /** The bottom rule holds StyledText; join its chunks for assertions. */
@@ -47,6 +49,39 @@ function fakeCostSummary(): CostSummary {
     contextWindow: 10000,
     contextPercentUsed: 10,
   };
+}
+
+/**
+ * Mount a runner host on a headless renderer with no-op deps; `deps` carries
+ * only what the test exercises. Host and harness are always torn down.
+ */
+async function withRunnerHost(
+  fn: (host: RunnerHost, harness: Harness) => Promise<void> | void,
+  deps: Partial<RunnerHostDeps> = {},
+): Promise<void> {
+  const harness = await createHarness({ width: 80, height: 24 });
+  const host = await mountRunnerHost({
+    title: "test",
+    eventEmitter: new EventEmitter(),
+    send: () => undefined,
+    interrupt: () => undefined,
+    deliver: () => undefined,
+    providers: {},
+    onModelSelect: () => undefined,
+    commands: [],
+    onCommand: () => undefined,
+    chrome: () => ({ agents: [] }),
+    subscribeChrome: () => () => undefined,
+    subAgentSessions: () => [],
+    createRenderer: async () => harness.renderer,
+    ...deps,
+  });
+  try {
+    await fn(host, harness);
+  } finally {
+    host.dispose();
+    harness.destroy();
+  }
 }
 
 function session(over: Partial<SubAgentSession>): SubAgentSession {
@@ -160,52 +195,17 @@ describe("observeSessionFromSubAgents", () => {
 
 describe("mountRunnerHost session bridge", () => {
   test("exposes the live session bridge so a system continuation can mark the run busy", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
+    await withRunnerHost(async (host) => {
       expect(typeof host.bridge.beginSystemContinuation).toBe("function");
       expect(host.shell.session.run).toBe("idle");
       host.bridge.beginSystemContinuation(
         "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)",
       );
       expect(host.shell.session.run).toBe("busy");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    });
   });
 
   test("opens credential recovery only after the shell is idle", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
     const accepted: string[] = [];
     const args = {
       alternatives: [
@@ -219,7 +219,7 @@ describe("mountRunnerHost session bridge", () => {
       onAccept: (id: string) => accepted.push(id),
       onCancel: () => undefined,
     };
-    try {
+    await withRunnerHost(async (host) => {
       host.bridge.beginSystemContinuation("busy");
       expect(host.openCredentialRecovery(args)).toBe(false);
       expect(host.shell.overlayKind).toBeNull();
@@ -230,45 +230,26 @@ describe("mountRunnerHost session bridge", () => {
       expect(host.shell.overlayItems).toEqual(["model-a * [backup]"]);
       acceptOverlaySelection(host.shell);
       expect(accepted).toEqual([modelOptionId("backup", "model-a")]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    });
   });
 });
 
 describe("mountRunnerHost chrome wiring", () => {
   test("reads the current command catalog on every palette access", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     let commands = [{ name: "first", description: "First command" }];
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: () => commands,
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
-      expect(
-        resolvePaletteCatalog(host.shell).map((command) => command.id),
-      ).toEqual(["first"]);
+    await withRunnerHost(
+      async (host) => {
+        expect(
+          resolvePaletteCatalog(host.shell).map((command) => command.id),
+        ).toEqual(["first"]);
 
-      commands = [{ name: "second", description: "Second command" }];
-      expect(
-        resolvePaletteCatalog(host.shell).map((command) => command.id),
-      ).toEqual(["second"]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+        commands = [{ name: "second", description: "Second command" }];
+        expect(
+          resolvePaletteCatalog(host.shell).map((command) => command.id),
+        ).toEqual(["second"]);
+      },
+      { commands: () => commands },
+    );
   });
 
   // CL-5731: subscribeChrome must stay wired end-to-end. formatChromeZones
@@ -276,585 +257,374 @@ describe("mountRunnerHost chrome wiring", () => {
   // paint the checklist — this test asserts the notify path still runs and
   // leaves the task panel empty (rebuild later; live work is spawn_agent rows).
   test("a live chrome push (subscribeChrome notify) does not auto-paint the task panel", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     let liveTasks: readonly {
       title: string;
       status: "todo" | "doing" | "done" | "cancelled";
     }[] = [];
     let notify: (() => void) | undefined;
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ tasks: liveTasks, agents: [] }),
-      subscribeChrome: (n) => {
-        notify = n;
-        return () => {
-          notify = undefined;
-        };
+    await withRunnerHost(
+      async (host, harness) => {
+        expect(host.shell.taskBox.visible).toBe(false);
+        expect(notify).toBeDefined();
+
+        // Mirrors the chat tasks-changed event path: live source changes, then
+        // the runner notifies the host. formatChromeZones parks the checklist.
+        liveTasks = [{ title: "wire task panel", status: "doing" }];
+        notify?.();
+
+        expect(host.shell.taskBox.visible).toBe(false);
+        await harness.renderOnce();
+        const frame = harness.captureCharFrame();
+        expect(frame).not.toContain("wire task panel");
+        // Notify callback stayed registered — subscribe path ran without error.
+        expect(notify).toBeDefined();
       },
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
-      expect(host.shell.taskBox.visible).toBe(false);
-      expect(notify).toBeDefined();
-
-      // Mirrors the chat tasks-changed event path: live source changes, then
-      // the runner notifies the host. formatChromeZones parks the checklist.
-      liveTasks = [{ title: "wire task panel", status: "doing" }];
-      notify?.();
-
-      expect(host.shell.taskBox.visible).toBe(false);
-      await harness.renderOnce();
-      const frame = harness.captureCharFrame();
-      expect(frame).not.toContain("wire task panel");
-      // Notify callback stayed registered — subscribe path ran without error.
-      expect(notify).toBeDefined();
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+      {
+        chrome: () => ({ tasks: liveTasks, agents: [] }),
+        subscribeChrome: (n) => {
+          notify = n;
+          return () => {
+            notify = undefined;
+          };
+        },
+      },
+    );
   });
 });
 
 describe("mountRunnerHost command surfaces", () => {
   test("routes settings and models, and reports surfaces with no data source", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-      surfaces: {
-        settings: {
-          read: () => ({
-            waitForApproval: true,
-            telemetryEnabled: false,
-            showPromptCost: false,
-          }),
-          setWaitForApproval: () => undefined,
-          setTelemetryEnabled: () => undefined,
-          setShowPromptCost: () => undefined,
+    await withRunnerHost(
+      async (host) => {
+        expect(host.openSurface("settings")).toBe(true);
+        expect(host.shell.overlayKind).toBe("settings");
+        closeInsetOverlay(host.shell);
+        // onModelSelect being wired is enough to open the picker, even with an
+        // empty catalog (nothing to pick yet, but the surface itself opens).
+        expect(host.openSurface("models")).toBe(true);
+      },
+      {
+        surfaces: {
+          settings: {
+            read: () => ({
+              waitForApproval: true,
+              telemetryEnabled: false,
+              showPromptCost: false,
+            }),
+            setWaitForApproval: () => undefined,
+            setTelemetryEnabled: () => undefined,
+            setShowPromptCost: () => undefined,
+          },
         },
       },
-    });
-    try {
-      expect(host.openSurface("settings")).toBe(true);
-      expect(host.shell.overlayKind).toBe("settings");
-      closeInsetOverlay(host.shell);
-      // onModelSelect being wired is enough to open the picker, even with an
-      // empty catalog (nothing to pick yet, but the surface itself opens).
-      expect(host.openSurface("models")).toBe(true);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    );
   });
 });
 
 describe("mountRunnerHost model picker", () => {
   test("refreshModels moves a selected pair into the Recent section", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: { xai: { models: ["grok-4", "grok-3"] } },
-      activeModel: () => ({ provider: "xai", model: "grok-4" }),
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
-      host.refreshModels([{ provider: "xai", model: "grok-4" }], []);
-      closeInsetOverlay(host.shell);
-      expect(host.openSurface("models")).toBe(true);
-      expect(host.shell.overlayItems[0]).toBe("grok-4 * [xai] (current)");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    await withRunnerHost(
+      async (host) => {
+        host.refreshModels([{ provider: "xai", model: "grok-4" }], []);
+        closeInsetOverlay(host.shell);
+        expect(host.openSurface("models")).toBe(true);
+        expect(host.shell.overlayItems[0]).toBe("grok-4 * [xai] (current)");
+      },
+      {
+        providers: { xai: { models: ["grok-4", "grok-3"] } },
+        activeModel: () => ({ provider: "xai", model: "grok-4" }),
+      },
+    );
   });
 
   test("refreshModels swaps in a freshly connected provider's models without a remount", async () => {
     // Mount-time deps are a snapshot; a live provider connect (CL-5602) must be
     // able to replace them without remounting the host, or the newly connected
     // provider's models never appear.
-    const harness = await createHarness({ width: 80, height: 24 });
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
-      host.refreshModels([], [], {
-        xai: { models: ["grok-4"] },
-        openai: { models: ["gpt-5"] },
-      });
-      expect(host.openSurface("models")).toBe(true);
-      // Flat list: the new provider appears as a leaf `model * [provider]` row,
-      // not a nested group to drill into.
-      expect(
-        host.shell.overlayItems.some((label) => label.includes("openai")),
-      ).toBe(true);
-      expect(
-        host.shell.overlayItems.some((label) => label.includes("gpt-5")),
-      ).toBe(true);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    await withRunnerHost(
+      async (host) => {
+        host.refreshModels([], [], {
+          xai: { models: ["grok-4"] },
+          openai: { models: ["gpt-5"] },
+        });
+        expect(host.openSurface("models")).toBe(true);
+        // Flat list: the new provider appears as a leaf `model * [provider]` row,
+        // not a nested group to drill into.
+        expect(
+          host.shell.overlayItems.some((label) => label.includes("openai")),
+        ).toBe(true);
+        expect(
+          host.shell.overlayItems.some((label) => label.includes("gpt-5")),
+        ).toBe(true);
+      },
+      { providers: { xai: { models: ["grok-4"] } } },
+    );
   });
 
   test("f toggles favorite on the focused row via onFavoriteToggle", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     const toggled: string[] = [];
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => undefined,
-      onFavoriteToggle: (id) => toggled.push(id),
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
-      expect(host.openSurface("models")).toBe(true);
-      // Flat list: the model row is already focusable at the top level —
-      // Alt+F toggles favorite without a nested provider drill.
-      const fKey = {
-        name: "f",
-        ctrl: false,
-        meta: false,
-        option: true,
-      } as KeyEvent;
-      expect(runOverlayAction(host.shell, fKey)).toBe(true);
-      expect(toggled).toEqual([modelOptionId("xai", "grok-4")]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    await withRunnerHost(
+      async (host) => {
+        expect(host.openSurface("models")).toBe(true);
+        // Flat list: the model row is already focusable at the top level —
+        // Alt+F toggles favorite without a nested provider drill.
+        const fKey = {
+          name: "f",
+          ctrl: false,
+          meta: false,
+          option: true,
+        } as KeyEvent;
+        expect(runOverlayAction(host.shell, fKey)).toBe(true);
+        expect(toggled).toEqual([modelOptionId("xai", "grok-4")]);
+      },
+      {
+        providers: { xai: { models: ["grok-4"] } },
+        onFavoriteToggle: (id) => toggled.push(id),
+      },
+    );
   });
 
   test("Alt+D sets default on the focused row via onSetDefault", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     const setDefault: string[] = [];
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => undefined,
-      onSetDefault: (id) => setDefault.push(id),
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
-      expect(host.openSurface("models")).toBe(true);
-      const dKey = {
-        name: "d",
-        ctrl: false,
-        meta: false,
-        option: true,
-      } as KeyEvent;
-      expect(runOverlayAction(host.shell, dKey)).toBe(true);
-      expect(setDefault).toEqual([modelOptionId("xai", "grok-4")]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    await withRunnerHost(
+      async (host) => {
+        expect(host.openSurface("models")).toBe(true);
+        const dKey = {
+          name: "d",
+          ctrl: false,
+          meta: false,
+          option: true,
+        } as KeyEvent;
+        expect(runOverlayAction(host.shell, dKey)).toBe(true);
+        expect(setDefault).toEqual([modelOptionId("xai", "grok-4")]);
+      },
+      {
+        providers: { xai: { models: ["grok-4"] } },
+        onSetDefault: (id) => setDefault.push(id),
+      },
+    );
   });
 
   test("Alt+A opens the add-provider selector built from addProviderChoices", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     const connected: string[] = [];
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => undefined,
-      onConnectProvider: (name) => connected.push(name),
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
-        { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
-      ],
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
-      expect(host.openSurface("models")).toBe(true);
-      const altA = {
-        name: "a",
-        ctrl: false,
-        meta: false,
-        option: true,
-      } as KeyEvent;
-      expect(runOverlayAction(host.shell, altA)).toBe(true);
-      expect(host.shell.overlayKind).toBe("add_provider");
-      expect(host.shell.overlayItems).toEqual([
-        "Codex — 1 account",
-        "OpenAI — 0 accounts",
-      ]);
-      acceptOverlaySelection(host.shell);
-      expect(connected).toEqual(["codex"]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    await withRunnerHost(
+      async (host) => {
+        expect(host.openSurface("models")).toBe(true);
+        const altA = {
+          name: "a",
+          ctrl: false,
+          meta: false,
+          option: true,
+        } as KeyEvent;
+        expect(runOverlayAction(host.shell, altA)).toBe(true);
+        expect(host.shell.overlayKind).toBe("add_provider");
+        expect(host.shell.overlayItems).toEqual([
+          "Codex — 1 account",
+          "OpenAI — 0 accounts",
+        ]);
+        acceptOverlaySelection(host.shell);
+        expect(connected).toEqual(["codex"]);
+      },
+      {
+        providers: { xai: { models: ["grok-4"] } },
+        onConnectProvider: (name) => connected.push(name),
+        addProviderChoices: () => [
+          { id: "codex", label: "Codex", hint: "", accountCount: 1 },
+          { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
+        ],
+      },
+    );
   });
 
   test("openSurface add-provider returns false when add-provider is not wired", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
-      expect(host.openSurface("add-provider")).toBe(false);
-      expect(host.shell.overlayKind).not.toBe("add_provider");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    await withRunnerHost(
+      async (host) => {
+        expect(host.openSurface("add-provider")).toBe(false);
+        expect(host.shell.overlayKind).not.toBe("add_provider");
+      },
+      { providers: { xai: { models: ["grok-4"] } } },
+    );
   });
 });
 
 describe("bottom border cost run", () => {
   test("omits the cost run when showPromptCost is unset (default off)", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-      readCostSummary: () => fakeCostSummary(),
-    });
-    try {
-      const bottom = ruleOf(host.shell.promptBottomRule);
-      expect(bottom).toContain("10%");
-      expect(bottom).not.toContain("$0.42");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+    await withRunnerHost(
+      async (host) => {
+        const bottom = ruleOf(host.shell.promptBottomRule);
+        expect(bottom).toContain("10%");
+        expect(bottom).not.toContain("$0.42");
+      },
+      { readCostSummary: () => fakeCostSummary() },
+    );
   });
 
   test("shows the cost run when showPromptCost reads true, and refreshCostContext repaints it live", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     let showCost = false;
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-      readCostSummary: () => fakeCostSummary(),
-      showPromptCost: () => showCost,
-    });
-    try {
-      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
+    await withRunnerHost(
+      async (host) => {
+        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
 
-      showCost = true;
-      host.refreshCostContext();
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+        showCost = true;
+        host.refreshCostContext();
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+      },
+      {
+        readCostSummary: () => fakeCostSummary(),
+        showPromptCost: () => showCost,
+      },
+    );
   });
 
   test("selecting a Codex model hides prompt $ without waiting for inference", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     let provider = "xai";
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {
-        xai: { models: ["grok-4"] },
-        "codex/abk-labs": { models: ["gpt-5.5"] },
-      },
-      onModelSelect: (id) => {
-        const identity = modelOptionRef(id);
-        if (identity !== null) provider = identity.provider;
-      },
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-      readCostSummary: () => ({
-        ...fakeCostSummary(),
-        costHiddenReason: provider.startsWith("codex/")
-          ? "chatgpt-subscription"
-          : null,
-      }),
-      showPromptCost: () => true,
-    });
-    try {
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
+    await withRunnerHost(
+      async (host) => {
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
 
-      expect(host.openSurface("models")).toBe(true);
-      const items = host.shell.overlayItems;
-      const codexIndex = items.findIndex((label) =>
-        label.includes("codex/abk-labs"),
-      );
-      expect(codexIndex).toBeGreaterThanOrEqual(0);
-      moveOverlaySelection(host.shell, codexIndex);
-      acceptOverlaySelection(host.shell);
+        expect(host.openSurface("models")).toBe(true);
+        const items = host.shell.overlayItems;
+        const codexIndex = items.findIndex((label) =>
+          label.includes("codex/abk-labs"),
+        );
+        expect(codexIndex).toBeGreaterThanOrEqual(0);
+        moveOverlaySelection(host.shell, codexIndex);
+        acceptOverlaySelection(host.shell);
 
-      expect(provider).toBe("codex/abk-labs");
-      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
-      expect(host.shell.costContext?.costLabel ?? null).toBeNull();
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+        expect(provider).toBe("codex/abk-labs");
+        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
+        expect(host.shell.costContext?.costLabel ?? null).toBeNull();
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+      },
+      {
+        providers: {
+          xai: { models: ["grok-4"] },
+          "codex/abk-labs": { models: ["gpt-5.5"] },
+        },
+        onModelSelect: (id) => {
+          const identity = modelOptionRef(id);
+          if (identity !== null) provider = identity.provider;
+        },
+        readCostSummary: () => ({
+          ...fakeCostSummary(),
+          costHiddenReason: provider.startsWith("codex/")
+            ? "chatgpt-subscription"
+            : null,
+        }),
+        showPromptCost: () => true,
+      },
+    );
   });
 
   test("selecting a metered model from Codex shows prompt $ without waiting for inference", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     let provider = "codex/abk-labs";
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {
-        "codex/abk-labs": { models: ["gpt-5.5"] },
-        xai: { models: ["grok-4"] },
-      },
-      onModelSelect: (id) => {
-        const identity = modelOptionRef(id);
-        if (identity !== null) provider = identity.provider;
-      },
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-      readCostSummary: () => ({
-        ...fakeCostSummary(),
-        costHiddenReason: provider.startsWith("codex/")
-          ? "chatgpt-subscription"
-          : null,
-      }),
-      showPromptCost: () => true,
-    });
-    try {
-      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
+    await withRunnerHost(
+      async (host) => {
+        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
 
-      expect(host.openSurface("models")).toBe(true);
-      const items = host.shell.overlayItems;
-      const meteredIndex = items.findIndex((label) => label.includes("[xai]"));
-      expect(meteredIndex).toBeGreaterThanOrEqual(0);
-      moveOverlaySelection(host.shell, meteredIndex);
-      acceptOverlaySelection(host.shell);
+        expect(host.openSurface("models")).toBe(true);
+        const items = host.shell.overlayItems;
+        const meteredIndex = items.findIndex((label) =>
+          label.includes("[xai]"),
+        );
+        expect(meteredIndex).toBeGreaterThanOrEqual(0);
+        moveOverlaySelection(host.shell, meteredIndex);
+        acceptOverlaySelection(host.shell);
 
-      expect(provider).toBe("xai");
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
-      expect(host.shell.costContext?.costLabel ?? null).toBe("$0.42");
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+        expect(provider).toBe("xai");
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
+        expect(host.shell.costContext?.costLabel ?? null).toBe("$0.42");
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+      },
+      {
+        providers: {
+          "codex/abk-labs": { models: ["gpt-5.5"] },
+          xai: { models: ["grok-4"] },
+        },
+        onModelSelect: (id) => {
+          const identity = modelOptionRef(id);
+          if (identity !== null) provider = identity.provider;
+        },
+        readCostSummary: () => ({
+          ...fakeCostSummary(),
+          costHiddenReason: provider.startsWith("codex/")
+            ? "chatgpt-subscription"
+            : null,
+        }),
+        showPromptCost: () => true,
+      },
+    );
   });
 
   test("session.clear paints the context meter unknown immediately", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     const emitter = new EventEmitter();
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: emitter,
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-      // Stale occupancy — refreshCostContext would re-paint this if clear
-      // re-read before rotation finished.
-      readCostSummary: () => fakeCostSummary(),
-    });
-    try {
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
-      expect(host.shell.costContext).not.toBeNull();
+    await withRunnerHost(
+      async (host) => {
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+        expect(host.shell.costContext).not.toBeNull();
 
-      emitter.emit("session.clear");
+        emitter.emit("session.clear");
 
-      expect(host.shell.costContext).toBeNull();
-      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("10%");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+        expect(host.shell.costContext).toBeNull();
+        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("10%");
+      },
+      {
+        eventEmitter: emitter,
+        // Stale occupancy — refreshCostContext would re-paint this if clear
+        // re-read before rotation finished.
+        readCostSummary: () => fakeCostSummary(),
+      },
+    );
   });
 
   test("inference.start refreshes the cost meter from the live summary", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     const emitter = new EventEmitter();
     let percent = 10;
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: emitter,
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-      readCostSummary: () => ({
-        ...fakeCostSummary(),
-        contextPercentUsed: percent,
-      }),
-    });
-    try {
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+    await withRunnerHost(
+      async (host) => {
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
 
-      percent = 42;
-      emitter.emit("event", { type: "inference.start" });
+        percent = 42;
+        emitter.emit("event", { type: "inference.start" });
 
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("42%");
-      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("10%");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("42%");
+        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("10%");
+      },
+      {
+        eventEmitter: emitter,
+        readCostSummary: () => ({
+          ...fakeCostSummary(),
+          contextPercentUsed: percent,
+        }),
+      },
+    );
   });
 
   test("connector.reply refreshes the cost meter after idle compact meter-sync", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
     const emitter = new EventEmitter();
     let percent = 90;
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: emitter,
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: {},
-      onModelSelect: () => undefined,
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-      readCostSummary: () => ({
-        ...fakeCostSummary(),
-        contextPercentUsed: percent,
-      }),
-    });
-    try {
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("90%");
+    await withRunnerHost(
+      async (host) => {
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("90%");
 
-      percent = 12;
-      emitter.emit("event", { type: "connector.reply", data: { content: "" } });
+        percent = 12;
+        emitter.emit("event", {
+          type: "connector.reply",
+          data: { content: "" },
+        });
 
-      expect(ruleOf(host.shell.promptBottomRule)).toContain("12%");
-      expect(ruleOf(host.shell.promptBottomRule)).not.toContain("90%");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
+        expect(ruleOf(host.shell.promptBottomRule)).toContain("12%");
+        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("90%");
+      },
+      {
+        eventEmitter: emitter,
+        readCostSummary: () => ({
+          ...fakeCostSummary(),
+          contextPercentUsed: percent,
+        }),
+      },
+    );
   });
 });
 
