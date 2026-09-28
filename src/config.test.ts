@@ -1093,89 +1093,58 @@ describe("loadConfig", () => {
     }
   });
 
-  test("--help throws CliHelpError with exitCode 0 and full help text", async () => {
-    await expectCliHelp(["--help"]);
-    await expectCliHelp(["-h"]);
-  });
+  test.each([
+    [["--help"]],
+    [["-h"]],
+    [["--auto", "--help"]],
+    [["--auto", "-h"]],
+    [["ship it", "--help"]],
+    [["ship", "it", "--help"]],
+    [["--cwd", ".", "--help"]],
+    [["--provider", "fireworks", "--help"]],
+    [["exec", "--help"]],
+    [["exec", "--director", "--help"]],
+    [["resume", "--pick", "--help"]],
+    [["resume", "-h"]],
+    [["resume", "--help"]],
+    [["continue", "-h"]],
+    // Value flags must not swallow --help / -h as their value.
+    [["--provider", "--help"]],
+    [["--provider", "-h"]],
+    [["--model", "--help"]],
+    [["--model", "-h"]],
+    [["--cwd", "--help"]],
+    [["--cwd", "-h"]],
+    [["--config", "--help"]],
+    [["--config", "-h"]],
+    [["--profile", "--help"]],
+    [["--profile", "-h"]],
+  ])(
+    "%j throws CliHelpError with exitCode 0 and full help text",
+    async (argv) => {
+      await expectCliHelp(argv);
+    },
+  );
 
-  test("--help after flags throws CliHelpError", async () => {
-    await expectCliHelp(["--auto", "--help"]);
-    await expectCliHelp(["--auto", "-h"]);
-  });
-
-  test("--help after a positional throws CliHelpError", async () => {
-    await expectCliHelp(["ship it", "--help"]);
-    await expectCliHelp(["ship", "it", "--help"]);
-  });
-
-  test("--help after a bound flag value throws CliHelpError", async () => {
-    await expectCliHelp(["--cwd", ".", "--help"]);
-    await expectCliHelp(["--provider", "fireworks", "--help"]);
-  });
-
-  test("exec --help throws CliHelpError", async () => {
-    await expectCliHelp(["exec", "--help"]);
-    await expectCliHelp(["exec", "--director", "--help"]);
-  });
-
-  test("resume --pick --help throws CliHelpError", async () => {
-    await expectCliHelp(["resume", "--pick", "--help"]);
-  });
-
-  test("resume -h / --help throws CliHelpError instead of treating it as a session id", async () => {
-    await expectCliHelp(["resume", "-h"]);
-    await expectCliHelp(["resume", "--help"]);
-    await expectCliHelp(["continue", "-h"]);
-  });
-
-  test("value flags do not swallow --help / -h as their value", async () => {
-    for (const flag of [
-      "--provider",
-      "--model",
-      "--cwd",
-      "--config",
-      "--profile",
-    ] as const) {
-      await expectCliHelp([flag, "--help"]);
-      await expectCliHelp([flag, "-h"]);
-    }
-  });
-
-  test("value flags reject other flag-shaped tokens as values", async () => {
+  test.each([
+    // Other flag-shaped tokens are not accepted as values.
+    [["--provider", "--auto"], "--provider requires a value"],
+    [["--model", "--cwd"], "--model requires a value"],
+    [["--cwd", "--tmp"], "--cwd requires a value"],
+    [
+      ["exec", "--director", "--auto", "ship it"],
+      "--director requires a value",
+    ],
+    // An omitted value errors the same way.
+    [["--provider"], "--provider requires a value"],
+    [["--model"], "--model requires a value"],
+    [["--cwd"], "--cwd requires a value"],
+    [["--config"], "--config requires a value"],
+    [["--profile"], "--profile requires a value"],
+  ] as const)("%j rejects with %s", async (argv, message) => {
     await expect(
-      loadConfig(["--provider", "--auto"], {
-        globalSettingsPath: NO_SETTINGS,
-      }),
-    ).rejects.toThrow("--provider requires a value");
-    await expect(
-      loadConfig(["--model", "--cwd"], { globalSettingsPath: NO_SETTINGS }),
-    ).rejects.toThrow("--model requires a value");
-    await expect(
-      loadConfig(["--cwd", "--tmp"], { globalSettingsPath: NO_SETTINGS }),
-    ).rejects.toThrow("--cwd requires a value");
-    await expect(
-      loadConfig(["exec", "--director", "--auto", "ship it"], {
-        globalSettingsPath: NO_SETTINGS,
-      }),
-    ).rejects.toThrow("--director requires a value");
-  });
-
-  test("value flags still error clearly when the value is omitted", async () => {
-    await expect(
-      loadConfig(["--provider"], { globalSettingsPath: NO_SETTINGS }),
-    ).rejects.toThrow("--provider requires a value");
-    await expect(
-      loadConfig(["--model"], { globalSettingsPath: NO_SETTINGS }),
-    ).rejects.toThrow("--model requires a value");
-    await expect(
-      loadConfig(["--cwd"], { globalSettingsPath: NO_SETTINGS }),
-    ).rejects.toThrow("--cwd requires a value");
-    await expect(
-      loadConfig(["--config"], { globalSettingsPath: NO_SETTINGS }),
-    ).rejects.toThrow("--config requires a value");
-    await expect(
-      loadConfig(["--profile"], { globalSettingsPath: NO_SETTINGS }),
-    ).rejects.toThrow("--profile requires a value");
+      loadConfig([...argv], { globalSettingsPath: NO_SETTINGS }),
+    ).rejects.toThrow(message);
   });
 
   test("value flags accept a POSIX path that starts with a single dash", async () => {

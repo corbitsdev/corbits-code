@@ -13,10 +13,7 @@ import { describe, expect, test } from "bun:test";
 
 import { withTestRenderer } from "./harness";
 import type { PaletteCommand } from "./command-catalog";
-import {
-  openCommandSurface,
-  type CommandSurfaceDeps,
-} from "./command-surfaces";
+import { openCommandSurface } from "./command-surfaces";
 import { wireGates } from "./gate-wire";
 import { openAddProviderOverlay, openPermissionsOverlay } from "./overlays";
 import { createAppShell } from "./shell/index";
@@ -587,29 +584,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           dispose();
         }
       },
-      {
-        onCommand: (name, shell) => {
-          if (name !== "settings") return;
-          const deps: CommandSurfaceDeps = {
-            notify: () => undefined,
-            settings: {
-              read: () => ({
-                waitForApproval: true,
-                telemetryEnabled: false,
-                showPromptCost: false,
-              }),
-              setWaitForApproval: () => undefined,
-              setTelemetryEnabled: () => undefined,
-              setShowPromptCost: () => undefined,
-            },
-            permissions: {
-              list: () => list,
-              revoke: () => Promise.resolve(),
-            },
-          };
-          openCommandSurface(shell, "settings", deps);
-        },
-      },
+      { onCommand: settingsOnCommand(list) },
     );
   });
 
@@ -662,29 +637,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           dispose();
         }
       },
-      {
-        onCommand: (name, shell) => {
-          if (name !== "settings") return;
-          const deps: CommandSurfaceDeps = {
-            notify: () => undefined,
-            settings: {
-              read: () => ({
-                waitForApproval: true,
-                telemetryEnabled: false,
-                showPromptCost: false,
-              }),
-              setWaitForApproval: () => undefined,
-              setTelemetryEnabled: () => undefined,
-              setShowPromptCost: () => undefined,
-            },
-            permissions: {
-              list: () => list,
-              revoke: () => Promise.resolve(),
-            },
-          };
-          openCommandSurface(shell, "settings", deps);
-        },
-      },
+      { onCommand: settingsOnCommand(list) },
     );
   });
 });

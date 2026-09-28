@@ -13,6 +13,24 @@ const stringTool = (name: string, reply: string): AgentTool => ({
   handler: async () => reply,
 });
 
+// The tool was promoted (gate open via isActivated) but its server
+// disconnected before the call, so removeTools dropped it from the registry
+// mid-window.
+function activatedUnmountedRunner(): ReturnType<
+  typeof createDynamicToolRunner
+> {
+  const runner = createDynamicToolRunner([
+    stringTool("read_file", "core"),
+    stringTool("mcp__acme__do", "blind-result"),
+  ]);
+  const activated = new Set(["mcp__acme__do"]);
+  runner.setCallGate((name) => name === "read_file" || activated.has(name), {
+    isActivated: (name) => activated.has(name),
+  });
+  runner.removeTools(["mcp__acme__do"]);
+  return runner;
+}
+
 describe("blind tool dispatch", () => {
   test("a registered-but-unadvertised tool is still callable without a gate", async () => {
     const runner = createDynamicToolRunner([
@@ -182,18 +200,7 @@ describe("mangled dispatch names", () => {
 
 describe("activated-but-unmounted registry miss", () => {
   test("a gate-activated name missing from the registry reports reconnecting, not unknown tool", async () => {
-    const runner = createDynamicToolRunner([
-      stringTool("read_file", "core"),
-      stringTool("mcp__acme__do", "blind-result"),
-    ]);
-    const activated = new Set(["mcp__acme__do"]);
-    runner.setCallGate((name) => name === "read_file" || activated.has(name), {
-      isActivated: (name) => activated.has(name),
-    });
-
-    // The tool was promoted (gate open) but its server disconnected before the
-    // call, so removeTools dropped it from the registry mid-window.
-    runner.removeTools(["mcp__acme__do"]);
+    const runner = activatedUnmountedRunner();
     const result = await runner.run(
       { id: "1", name: "mcp__acme__do", arguments: {} },
       new AbortController().signal,
@@ -271,18 +278,9 @@ describe("harness namespace prefix", () => {
   });
 
   test("a prefixed miss for an activated-but-unmounted stripped tool reports reconnecting under the original name", async () => {
-    const runner = createDynamicToolRunner([
-      stringTool("read_file", "core"),
-      stringTool("mcp__acme__do", "blind-result"),
-    ]);
-    const activated = new Set(["mcp__acme__do"]);
-    runner.setCallGate((name) => name === "read_file" || activated.has(name), {
-      isActivated: (name) => activated.has(name),
-    });
-
     // The server dropped between search and call, so the bare tool left the
     // registry; the model still emits the harness-namespaced form.
-    runner.removeTools(["mcp__acme__do"]);
+    const runner = activatedUnmountedRunner();
     const result = await runner.run(
       { id: "1", name: "default.mcp__acme__do", arguments: {} },
       new AbortController().signal,

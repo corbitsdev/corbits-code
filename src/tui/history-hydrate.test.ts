@@ -8,7 +8,6 @@ import {
   hydrateHistoryRows,
   MISSING_ERROR_DETAIL,
   rowFromHistoryBlock,
-  rowsFromHistoryBlocks,
   type HistoryBlock,
 } from "./history-hydrate.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
@@ -370,18 +369,6 @@ describe("hydrateHistoryRows", () => {
     expect(hydrateHistoryRows(undefined)).toEqual([]);
     expect(hydrateHistoryRows(null)).toEqual([]);
     expect(hydrateHistoryRows({ type: "user" })).toEqual([]);
-  });
-
-  test("rowsFromHistoryBlocks is typed convenience", () => {
-    expect(
-      rowsFromHistoryBlocks([
-        { type: "user", content: "a" },
-        { type: "reply", content: "b" },
-      ]),
-    ).toEqual([
-      { role: "user", text: "a" },
-      { role: "assistant", text: "b" },
-    ]);
   });
 });
 

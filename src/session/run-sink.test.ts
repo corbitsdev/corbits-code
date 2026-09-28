@@ -595,19 +595,6 @@ describe("createRunSink", () => {
     expect(runSink.getRunError()).toBeUndefined();
   });
 
-  test("sink forwards every event through the emitter", () => {
-    const emitter = new EventEmitter();
-    const runSink = createRunSink({
-      emitter,
-      hookManager: stubHookManager([enabledHook]),
-    });
-    const received: unknown[] = [];
-    emitter.on("event", (e) => received.push(e));
-    const done = event("reactor.done", {});
-    runSink.sink(done);
-    expect(received).toEqual([done]);
-  });
-
   // Session rotation: reset() clears accumulated state so the post-run hook
   // for a new session only sees turns from that session, not the prior one.
   test("reset clears status, error, and the turn collector between sessions", () => {

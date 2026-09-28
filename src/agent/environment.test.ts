@@ -6,27 +6,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { gatherEnvironment, getGitBranch } from "./environment.js";
+import { GIT_FATAL, captureStderr } from "../testkit/capture-stderr.js";
 import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
 
 const run = promisify(execFile);
-
-const GIT_FATAL = "fatal: not a git repository";
-
-function captureStderr(): { output: () => string; restore: () => void } {
-  const original = process.stderr.write.bind(process.stderr);
-  let wrote = "";
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    wrote +=
-      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-    return true;
-  }) as typeof process.stderr.write;
-  return {
-    output: () => wrote,
-    restore: () => {
-      process.stderr.write = original;
-    },
-  };
-}
 
 let restoreStderr: (() => void) | undefined;
 

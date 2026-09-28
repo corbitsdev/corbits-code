@@ -206,21 +206,6 @@ describe("slash command popup", () => {
     });
   });
 
-  test("description prose keeps the slash list open with no matches", async () => {
-    await withShell(async ({ shell, press, render, frame }) => {
-      press("/");
-      press("p");
-      await render();
-      expect(isSlashPopupOpen(shell)).toBe(true);
-      expect(shell.overlayList).not.toBeNull();
-      expect(shell.prompt.value).toBe("/p");
-      expect(shell.overlayItems).toHaveLength(1);
-      const placeholder = shell.overlayItems[0] ?? "";
-      expect(placeholder.trim()).not.toBe("");
-      expect(frame()).toContain(placeholder);
-    });
-  });
-
   test("Tab-accepting a hint then Enter dispatches bare, not the placeholder", async () => {
     await withShell(async ({ shell, press }) => {
       for (const ch of "/release") press(ch);
@@ -466,30 +451,6 @@ describe("Ctrl+C exit", () => {
       );
       expect(() => clearPendingAttachments(shell)).not.toThrow();
       expect(shell.pendingAttachments).toHaveLength(0);
-    });
-  });
-
-  test("clearPendingAttachments unlinks ephemeralPath on an attachment that also has path", async () => {
-    await withShell(async ({ shell }) => {
-      const dir = mkdtempSync(join(tmpdir(), "ctrlc-attach-both-"));
-      const ephemeral = join(dir, "ours.png");
-      const operator = join(dir, "theirs.png");
-      writeFileSync(ephemeral, "ephemeral-bytes");
-      writeFileSync(operator, "operator-bytes");
-      try {
-        addPendingAttachment(
-          shell,
-          pendingImage("both", { ephemeralPath: ephemeral, path: operator }),
-        );
-
-        clearPendingAttachments(shell);
-
-        expect(shell.pendingAttachments).toHaveLength(0);
-        expect(existsSync(ephemeral)).toBe(false);
-        expect(existsSync(operator)).toBe(true);
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
     });
   });
 

@@ -225,34 +225,21 @@ describe("flushToOtel", () => {
     expect(called).toBe(0);
   });
 
-  test("network errors are swallowed", async () => {
-    const fetchFn = mockFetch(async () => {
-      throw new Error("ECONNREFUSED");
-    });
-    await expect(
-      flushToOtel(
-        [{ id: "1", name: "turn", startNs: 1n, endNs: 2n }],
-        enabledConfig(),
-        {
-          fetchFn,
-        },
-      ),
-    ).resolves.toBeUndefined();
-  });
-
-  test("non-2xx responses are swallowed", async () => {
-    const fetchFn = mockFetch(
-      async () => new Response("nope", { status: 503 }),
-    );
-    await expect(
-      flushToOtel(
-        [{ id: "1", name: "turn", startNs: 1n, endNs: 2n }],
-        enabledConfig(),
-        {
-          fetchFn,
-        },
-      ),
-    ).resolves.toBeUndefined();
+  test("network errors and non-2xx responses are swallowed", async () => {
+    for (const fetchFn of [
+      mockFetch(async () => {
+        throw new Error("ECONNREFUSED");
+      }),
+      mockFetch(async () => new Response("nope", { status: 503 })),
+    ]) {
+      await expect(
+        flushToOtel(
+          [{ id: "1", name: "turn", startNs: 1n, endNs: 2n }],
+          enabledConfig(),
+          { fetchFn },
+        ),
+      ).resolves.toBeUndefined();
+    }
   });
 });
 

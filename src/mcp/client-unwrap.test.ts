@@ -1,46 +1,39 @@
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { unwrapToolContent } from "./client.js";
 
-// The MCP content-array envelope is removed at the client boundary,
-// so the TUI formatter (formatMcpResult / extractMcpRecords) only ever sees plain
-// text or JSON, never the {content:[{type,text}]} wrapper. These pin that.
 describe("unwrapToolContent", () => {
-  test("empty or non-array content becomes an empty string", () => {
+  test("returns empty string for empty or non-array content", () => {
     expect(unwrapToolContent([])).toBe("");
-    expect(unwrapToolContent(undefined)).toBe("");
     expect(unwrapToolContent(null)).toBe("");
-    expect(unwrapToolContent({ type: "text", text: "x" })).toBe("");
+    expect(unwrapToolContent("not-array")).toBe("");
   });
 
-  test("a single text block contributes its text", () => {
+  test("newline-joins text blocks, with a missing text field joining as empty", () => {
     expect(unwrapToolContent([{ type: "text", text: "hello" }])).toBe("hello");
-  });
-
-  test("multiple text blocks are newline-joined", () => {
+    expect(
+      unwrapToolContent([
+        { type: "text", text: "line1" },
+        { type: "text", text: "line2" },
+      ]),
+    ).toBe("line1\nline2");
     expect(
       unwrapToolContent([
         { type: "text", text: "a" },
+        { type: "text" },
         { type: "text", text: "b" },
       ]),
-    ).toBe("a\nb");
+    ).toBe("a\n\nb");
   });
 
-  test("a non-text block is stringified rather than dropped or undefined", () => {
-    const image = { type: "image", data: "base64", mimeType: "image/png" };
-    expect(unwrapToolContent([image])).toBe(JSON.stringify(image));
-  });
-
-  test("mixed text and non-text blocks are both preserved", () => {
-    const out = unwrapToolContent([
-      { type: "text", text: "caption" },
-      { type: "image", data: "b64" },
-    ]);
-    expect(out).toBe(
-      `caption\n${JSON.stringify({ type: "image", data: "b64" })}`,
+  test("stringifies non-text blocks, with or without sibling text", () => {
+    expect(unwrapToolContent([{ type: "image", data: "abc123" }])).toBe(
+      JSON.stringify({ type: "image", data: "abc123" }),
     );
-  });
-
-  test("a text block with a missing text field yields an empty segment, not 'undefined'", () => {
-    expect(unwrapToolContent([{ type: "text" }])).toBe("");
+    const result = unwrapToolContent([
+      { type: "text", text: "hello" },
+      { type: "image", data: "img" },
+    ]);
+    expect(result).toContain("hello");
+    expect(result).toContain("image");
   });
 });

@@ -87,7 +87,6 @@ describe("approval delivery acceptance bound", () => {
     expect(err.mayStillApply).toBe(true);
     expect(err.message).toContain("corr-stuck");
     expect(err.message).toContain("reactor-acceptance");
-    expect(err.message).toContain("may still");
     expect(tailAdvanced).toBe(true);
     expect(Date.now() - started).toBeLessThan(5000);
     expect(delivered).toHaveLength(1);

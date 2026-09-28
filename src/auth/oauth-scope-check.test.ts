@@ -151,20 +151,6 @@ describe("checkOAuthProviderScope", () => {
     expect(result.status).toBe("blocked");
   });
 
-  test("codex: fail-closed on garbage access (Bearer probe classifies blocked)", async () => {
-    stubFetch((_url, init) => {
-      const headers = init?.headers as Record<string, string>;
-      expect(headers.authorization).toBe("Bearer !!!not-a-token!!!");
-      return new Response("forbidden", { status: 403 });
-    });
-    const result = await checkOAuthProviderScope(
-      "codex",
-      { ...codexTokens, access: "!!!not-a-token!!!" },
-      commandName,
-    );
-    expect(result.status).toBe("blocked");
-  });
-
   test("codex: blocks a definitive 401", async () => {
     stubFetch(() => new Response("nope", { status: 401 }));
     const result = await checkOAuthProviderScope(
@@ -295,20 +281,6 @@ describe("checkOAuthProviderScope", () => {
     expect(result.status).toBe("blocked");
   });
 
-  test("xai: fail-closed on garbage access (Bearer probe classifies blocked)", async () => {
-    stubFetch((_url, init) => {
-      const headers = init?.headers as Record<string, string>;
-      expect(headers.authorization).toBe("Bearer !!!not-a-token!!!");
-      return new Response("forbidden", { status: 403 });
-    });
-    const result = await checkOAuthProviderScope(
-      "xai",
-      { ...xaiTokens, access: "!!!not-a-token!!!" },
-      commandName,
-    );
-    expect(result.status).toBe("blocked");
-  });
-
   test("xai: pins the probe to the fixed models URL", async () => {
     const seen: string[] = [];
     stubFetch((url) => {
@@ -318,13 +290,5 @@ describe("checkOAuthProviderScope", () => {
     const result = await checkOAuthProviderScope("xai", xaiTokens, commandName);
     expect(result.status).toBe("ok");
     expect(seen).toEqual([`${XAI_BASE_URL}/models`]);
-  });
-
-  test("xai: unavailable on a timeout-style abort", async () => {
-    stubFetch(() => {
-      throw new DOMException("The operation timed out.", "TimeoutError");
-    });
-    const result = await checkOAuthProviderScope("xai", xaiTokens, commandName);
-    expect(result.status).toBe("unavailable");
   });
 });

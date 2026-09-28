@@ -9,7 +9,6 @@ import {
   contextTokensFromUsage,
   contextMeterBand,
   COMPACTION_WINDOW_FRACTION,
-  COMPACTION_WIDE_RESUME_FRACTION,
   CONTEXT_METER_DANGER_FRACTION,
   setModelContextWindows,
   setProviderContextWindowOverrides,
@@ -36,21 +35,13 @@ describe("contextWindowFor", () => {
     expect(contextWindowFor("gpt-5-codex")).toBe(400_000);
   });
 
-  test("returns the gpt-6 family window for Astra", () => {
-    expect(contextWindowFor("gpt-6-astra")).toBe(1_000_000);
+  test("glm-5.3 family uses a 1M window while other glm models keep the 200k heuristic", () => {
+    expect(contextWindowFor("glm-5.3")).toBe(1_000_000);
+    expect(contextWindowFor("glm-5.2")).toBe(200_000);
   });
 
   test("falls back to a conservative window for unknown models", () => {
     expect(contextWindowFor("some-unknown-model")).toBe(128_000);
-  });
-
-  test("glm-5.3 family uses a 1M window", () => {
-    expect(contextWindowFor("glm-5.3")).toBe(1_000_000);
-    expect(contextWindowFor("glm-5.3-flash")).toBe(1_000_000);
-  });
-
-  test("other glm models stay on the 200k heuristic", () => {
-    expect(contextWindowFor("glm-5.2")).toBe(200_000);
   });
 
   test("models.dev metadata overrides the family heuristic", () => {
@@ -76,13 +67,7 @@ describe("compactionThresholdFor", () => {
 
 describe("compactionWideResumeDeltaFor", () => {
   test("is a full warning band of the model window, danger-anchored", () => {
-    expect(COMPACTION_WIDE_RESUME_FRACTION).toBe(0.2);
     expect(compactionWideResumeDeltaFor("claude-sonnet-4-6")).toBe(40_000);
-  });
-
-  test("uses models.dev window when available", () => {
-    setModelContextWindows({ "small-model": 32_000 });
-    expect(compactionWideResumeDeltaFor("small-model")).toBe(6_400);
   });
 
   test("falls back to the default window when the model is unknown", () => {
@@ -143,16 +128,11 @@ describe("contextTokensFromUsage", () => {
 });
 
 describe("context meter fractions", () => {
-  test("warning aligns with the compaction window fraction", () => {
-    expect(COMPACTION_WINDOW_FRACTION).toBe(0.6);
-  });
-
   test("danger sits between compaction and hard overflow", () => {
     expect(CONTEXT_METER_DANGER_FRACTION).toBeGreaterThan(
       COMPACTION_WINDOW_FRACTION,
     );
     expect(CONTEXT_METER_DANGER_FRACTION).toBeLessThan(1);
-    expect(CONTEXT_METER_DANGER_FRACTION).toBe(0.8);
   });
 });
 

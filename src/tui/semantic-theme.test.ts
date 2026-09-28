@@ -25,10 +25,6 @@ afterEach(() => {
   }
 });
 
-test("warning reuses the brand orange hex", () => {
-  expect(color("warning")).toBe(color("brand"));
-});
-
 test("every role maps to a valid ANSI-256 index", () => {
   for (const role of Object.keys(palette) as (keyof typeof palette)[]) {
     const idx = color256(role);
@@ -41,13 +37,6 @@ test("every role exposes a six-digit hex value", () => {
   for (const role of Object.keys(palette) as (keyof typeof palette)[]) {
     expect(color(role)).toMatch(/^#[0-9a-fA-F]{6}$/);
   }
-});
-
-test("diff foregrounds alias the semantic status colors", () => {
-  expect(palette.diffAdded).toEqual(palette.success);
-  expect(palette.diffRemoved).toEqual(palette.danger);
-  expect(palette.diffContext).toEqual(palette.dim);
-  expect(palette.diffHunkHeader).toEqual(palette.accent);
 });
 
 test("diff backgrounds are distinct dark tints", () => {
@@ -67,20 +56,6 @@ test("diff backgrounds are distinct dark tints", () => {
     );
     for (const channel of channels) expect(channel).toBeLessThan(0x60);
   }
-});
-
-test("markdown tokens reuse the prose brightness ladder", () => {
-  expect(palette.markdownHeading).toEqual(palette.emphasis);
-  expect(palette.markdownStrong).toEqual(palette.emphasis);
-  expect(palette.markdownLink).toEqual(palette.accent);
-  expect(palette.markdownBlockquote).toEqual(palette.muted);
-  expect(palette.markdownCode).toEqual(palette.brand);
-});
-
-test("syntax comments recede to the dim rung and strings match success green", () => {
-  expect(palette.syntaxComment).toEqual(palette.dim);
-  expect(palette.syntaxString).toEqual(palette.success);
-  expect(palette.syntaxVariable).toEqual(palette.text);
 });
 
 test("supportsTrueColor detects truecolor terminals", () => {

@@ -170,7 +170,6 @@ describe("landing layout math", () => {
     const content = landingBelowContent({ rows: 10, columns: 78 });
     expect(content.notice).toEqual([]);
     const text = landingBelowRows(content).map((row) => row.text);
-    expect(text).toContain("try");
     expect(text.some((line) => line.includes("telemetry"))).toBe(false);
   });
 
@@ -957,28 +956,5 @@ describe("landing screen", () => {
         shell.dispose();
       }
     }, size);
-  });
-
-  test("the version never appears inside the hero block beside the mark/hints", async () => {
-    await withTestRenderer(async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: SIZE.width, rows: SIZE.height },
-        wireKeys: false,
-        run: "idle",
-      });
-      try {
-        await settle(h);
-        const painted = rows(h);
-        const heroEnd = painted.findIndex((row) => /[┌╭]/.test(row));
-        expect(heroEnd).toBeGreaterThan(0);
-        // Nothing above the box's own top border carries the version — the
-        // hero (mark + hint doors) is exactly the two lines, no third.
-        for (const row of painted.slice(0, heroEnd)) {
-          expect(row).not.toContain(LANDING_VERSION);
-        }
-      } finally {
-        shell.dispose();
-      }
-    }, SIZE);
   });
 });

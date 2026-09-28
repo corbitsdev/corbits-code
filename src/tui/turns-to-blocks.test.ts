@@ -139,34 +139,3 @@ describe("hydrateTasksFromTurns", () => {
     expect(hydrateTasksFromTurns(turns)).toEqual([]);
   });
 });
-
-describe("resume rendering, end to end (mirrors runner.ts's hydrate composition)", () => {
-  test("a manage_tasks call whose result errored leaves the transcript empty of it", () => {
-    const turns = [manageTasksTurn("m1", "doing"), toolResultTurn("m1", true)];
-
-    const blocks = turnsToContentBlocks(turns);
-
-    // The restored list goes to the task panel and nowhere else: the transcript
-    // carries neither the raw call rows nor an aggregated copy of the list.
-    expect(hydrateTasksFromTurns(turns)).toEqual([
-      { id: "t1", title: "work", status: "doing" },
-    ]);
-    expect(
-      blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks"),
-    ).toBe(false);
-    expect(blocks.some((b) => b.type === "tool_result")).toBe(false);
-  });
-
-  test("a manage_tasks call with no result at all leaves the transcript empty of it", () => {
-    const turns = [manageTasksTurn("m1", "doing")];
-
-    const blocks = turnsToContentBlocks(turns);
-
-    expect(hydrateTasksFromTurns(turns)).toEqual([
-      { id: "t1", title: "work", status: "doing" },
-    ]);
-    expect(
-      blocks.some((b) => b.type === "tool_call" && b.name === "manage_tasks"),
-    ).toBe(false);
-  });
-});

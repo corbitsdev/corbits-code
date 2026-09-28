@@ -14,7 +14,7 @@ import { attachSessionBridge, createRecordingPort } from "./runtime-bridge.js";
 import { createHarness, type Harness } from "./harness.js";
 import { toggleCollapsedRow } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
-import { isThinkingRow, rowGroupGap, type StreamRow } from "./stream.js";
+import { isThinkingRow, type StreamRow } from "./stream.js";
 
 type Bridge = ReturnType<typeof attachSessionBridge>;
 type Shell = ReturnType<typeof createAppShell>;
@@ -137,14 +137,5 @@ describe("a turn's reasoning", () => {
 
     expect(thinking()).toHaveLength(2);
     expect(thinking()[1]?.text).toBe("thinking about two");
-  });
-
-  test("costs the turn no extra gap whether it is there or not", () => {
-    const you: StreamRow = { role: "user", text: "go" };
-    const thought: StreamRow = { role: "system", text: "…", meta: "thinking" };
-    const agent: StreamRow = { role: "assistant", text: "done" };
-    expect(rowGroupGap(you, thought) + rowGroupGap(thought, agent)).toBe(
-      rowGroupGap(you, agent),
-    );
   });
 });

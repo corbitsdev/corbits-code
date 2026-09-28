@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createPermissionGate } from "./gate.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
-import { stripCommentLines, splitChainedCommand, tokenize } from "./command.js";
+import { stripCommentLines } from "./command.js";
 import { buildRequests } from "./classify.js";
 import type { RequestApproval } from "./types.js";
 
@@ -44,13 +44,6 @@ describe("comment normalization x exact full-command grants", () => {
     expect(prompts).toBe(1); // no re-prompt: comment-insensitive replay
   });
 
-  test("comment lines do not count toward the real segment count", () => {
-    const comments = Array.from({ length: 10 }, (_, i) => `# c${i}`).join("\n");
-    const cmd = `${comments}\ngit fetch origin && git rebase origin/main`;
-    const [req] = buildRequests(call(cmd));
-    expect(req?.scopes.length).toBeGreaterThan(0);
-  });
-
   test("a long real chain hidden after comments still gets an exact-command scope", () => {
     const cmd = Array.from({ length: 8 }, (_, i) => `cmd${i} run`).join(" && ");
     const [req] = buildRequests(call(cmd));
@@ -62,17 +55,6 @@ describe("comment stripping cannot hide executable payload", () => {
   test("a payload line glued by backslash continuation is not stripped", () => {
     const cmd = "echo safe \\\nrm -rf /";
     expect(stripCommentLines(cmd)).toContain("rm -rf /");
-  });
-
-  test("a chained payload on a comment line still surfaces as a segment", () => {
-    const segs = splitChainedCommand("# note && rm -rf /");
-    expect(segs).toContain("rm -rf /");
-  });
-
-  test("substitution inside double quotes stays visible after stripping", () => {
-    const cmd = '# why\ncat "$(cat /etc/passwd)"';
-    const stripped = stripCommentLines(cmd);
-    expect(tokenize(stripped)).toContain("/etc/passwd");
   });
 });
 

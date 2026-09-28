@@ -2,17 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import type { CodexProfile } from "../auth/codex/store.js";
 import type { XaiProfile } from "../auth/xai/store.js";
-import {
-  codexProfileFromProviderName,
-  codexProfilesToCatalogEntries,
-  codexProviderName,
-  codexProvidersAsSettings,
-  isCodexProviderName,
-} from "./codex-providers.js";
+import { codexProfilesToCatalogEntries } from "./codex-providers.js";
 import { xaiProfilesToCatalogEntries } from "./xai-providers.js";
 
 // Characterization tests pinning the projection behavior both provider
-// wrappers must preserve through the shared implementation.
+// wrappers must preserve through the shared implementation. Name round-trips
+// and settings projection are characterized in codex-providers.test.ts and
+// xai-providers.test.ts — only cross-provider marker isolation lives here.
 
 const codexProfile: CodexProfile = {
   name: "work",
@@ -34,30 +30,6 @@ const xaiProfile: XaiProfile = {
   tokens: { access: "xai-access", refresh: "r", expiresAt: 1 },
   createdAt: 0,
 };
-
-describe("provider name round-trip", () => {
-  test("codex", () => {
-    expect(codexProviderName("work")).toBe("codex/work");
-    expect(isCodexProviderName("codex/work")).toBe(true);
-    expect(isCodexProviderName("xai/work")).toBe(false);
-    expect(codexProfileFromProviderName("codex/work")).toBe("work");
-    expect(codexProfileFromProviderName("openai")).toBeUndefined();
-  });
-
-  // xai naming/settings projection is characterized in xai-providers.test.ts;
-  // here we only assert cross-provider isolation (below), not re-test it.
-});
-
-describe("settings projection", () => {
-  test("codex profiles become synthetic providers seeded with the access token", () => {
-    const settings = codexProvidersAsSettings([codexProfile]);
-    const entry = settings["codex/work"];
-    expect(entry?.name).toBe("codex/work");
-    expect(entry?.apiKey).toBe("codex-access");
-    expect(entry?.defaultModel).toBe(entry?.models?.[0]);
-    expect(entry?.baseURL).toBeString();
-  });
-});
 
 describe("catalog projection", () => {
   test("codex entries carry the profile marker and accountId only when stored", () => {

@@ -1,18 +1,8 @@
 import { describe, expect, spyOn, test } from "bun:test";
 
-import {
-  formatResumeHint,
-  printResumeHint,
-  resetResumeHintForTests,
-} from "./resume-hint.js";
+import { printResumeHint, resetResumeHintForTests } from "./resume-hint.js";
 
 describe("resume hint", () => {
-  test("formats the resume command with the exited session id", () => {
-    expect(formatResumeHint("123e4567-e89b-12d3-a456-426614174000")).toBe(
-      "Run corbits resume 123e4567-e89b-12d3-a456-426614174000",
-    );
-  });
-
   test("prints the hint line to stderr, leaving stdout clean", () => {
     resetResumeHintForTests();
     const outWrites: string[] = [];

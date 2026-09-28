@@ -31,10 +31,6 @@ function expectMessageCopy(result: unknown, fragment: string): void {
 }
 
 describe("/help command", () => {
-  it("is registered", () => {
-    expect(getCommand("help")).toBeDefined();
-  });
-
   it("requests the help overlay", () => {
     const ctx = makeCtx();
     const result = defined(getCommand("help"), "help").handler("", ctx);
@@ -62,10 +58,6 @@ describe("removed commands", () => {
 });
 
 describe("/connect command", () => {
-  it("is registered", () => {
-    expect(getCommand("connect")).toBeDefined();
-  });
-
   it("requests the add-provider overlay", () => {
     expect(
       defined(getCommand("connect"), "connect").handler("", makeCtx()),
@@ -132,10 +124,6 @@ describe("removed approval command", () => {
 });
 
 describe("/yolo command", () => {
-  it("is registered", () => {
-    expect(getCommand("yolo")).toBeDefined();
-  });
-
   it("persists through the command layer to the active custom settings file", async () => {
     const home = await mkdtemp(join(tmpdir(), "corbits-yolo-command-"));
     const customSettingsPath = join(home, "custom-settings.json");
@@ -272,10 +260,6 @@ describe("/yolo command", () => {
 });
 
 describe("/model command", () => {
-  it("is registered", () => {
-    expect(getCommand("model")).toBeDefined();
-  });
-
   it("opens the agent configuration modal", () => {
     expect(
       defined(getCommand("model"), "model").handler("", makeCtx()),
@@ -287,10 +271,10 @@ describe("/model command", () => {
   });
 });
 
-describe("/clear command", () => {
+describe.each(["clear", "new"] as const)("/%s command", (name) => {
   it("returns a local message and does not send to the agent", () => {
     const ctx = makeCtx();
-    const result = defined(getCommand("clear"), "clear").handler("", ctx);
+    const result = defined(getCommand(name), name).handler("", ctx);
     expectMessageCopy(result, "fresh session");
   });
 
@@ -300,25 +284,7 @@ describe("/clear command", () => {
     ctx.signalClear = () => {
       called = true;
     };
-    defined(getCommand("clear"), "clear").handler("", ctx);
-    expect(called).toBe(true);
-  });
-});
-
-describe("/new command", () => {
-  it("returns a local message and does not send to the agent", () => {
-    const ctx = makeCtx();
-    const result = defined(getCommand("new"), "new").handler("", ctx);
-    expectMessageCopy(result, "fresh session");
-  });
-
-  it("calls signalClear", () => {
-    let called = false;
-    const ctx = makeCtx();
-    ctx.signalClear = () => {
-      called = true;
-    };
-    defined(getCommand("new"), "new").handler("", ctx);
+    defined(getCommand(name), name).handler("", ctx);
     expect(called).toBe(true);
   });
 });
@@ -352,17 +318,14 @@ describe("/cost command", () => {
         contextIsEstimate: false,
       });
     const result = defined(getCommand("cost"), "cost").handler("", ctx);
+    // The rendered shape is pinned in src/cost/cost-summary.test.ts; here only
+    // the pass-through matters — the supplied summary reaches the message.
     expect(result.type).toBe("message");
-    expect((result as { text: string }).text).toContain("Model: claude-x");
-    expect((result as { text: string }).text).toContain("Cost: $0.4200");
+    expect((result as { text: string }).text).toContain("claude-x");
   });
 });
 
 describe("/feedback command", () => {
-  it("is registered", () => {
-    expect(getCommand("feedback")).toBeDefined();
-  });
-
   it("arms multi-turn capture when invoked bare", () => {
     let armed = false;
     const ctx: CommandContext = {
@@ -412,11 +375,6 @@ describe("/feedback command", () => {
 });
 
 describe("/compact command", () => {
-  it("is registered with optional instruction hint", () => {
-    const cmd = defined(getCommand("compact"), "compact");
-    expect(cmd.argumentHint).toBe("[optional instructions]");
-  });
-
   it("explains when compaction is not wired", () => {
     expectMessageCopy(
       defined(getCommand("compact"), "compact").handler("", makeCtx()),
@@ -455,10 +413,6 @@ describe("/compact command", () => {
 });
 
 describe("/handoff command", () => {
-  it("is registered with optional instructions", () => {
-    expect(getCommand("handoff")).toBeDefined();
-  });
-
   it("passes the trailing instructions through and noops on success", () => {
     const seen: string[] = [];
     const ctx: CommandContext = {

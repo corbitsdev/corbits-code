@@ -162,7 +162,6 @@ describe("provider setup pure helpers", () => {
   test("offers Ollama as a keyless provider with an editable root URL", () => {
     const ollama = providerChoiceById("ollama");
     expect(ollama).toBeDefined();
-    expect(ollama?.baseURL).toBe("http://localhost:11434");
     expect(stepsFor(ollama ?? null)).toEqual([
       "provider",
       "name",
@@ -268,24 +267,15 @@ describe("provider setup pure helpers", () => {
     expect(suggestOAuthProfileSlug(["default", "default-2"])).toBe("default-3");
   });
 
-  test("the pick-list carries known providers and ends with custom", () => {
+  test("the pick-list ends with custom and every known provider is launchable", () => {
     const choices = providerChoices();
-    const ids = choices.map((c) => c.id);
-    expect(ids).toContain("openai");
-    expect(ids).toContain("opencode-go");
-    expect(ids).toContain("anthropic");
-    expect(ids.at(-1)).toBe(CUSTOM_CHOICE_ID);
-    // Subscription providers are pickable on a first run: their step is a
-    // browser sign-in rather than a paste, not an exclusion.
-    expect(ids).toContain("codex");
-    expect(ids).toContain("xai");
+    expect(choices.at(-1)?.id).toBe(CUSTOM_CHOICE_ID);
     for (const choice of choices) {
       if (choice.custom) continue;
       expect(choice.baseURL.length).toBeGreaterThan(0);
       if (choice.id !== "ollama")
         expect(choice.defaultModel.length).toBeGreaterThan(0);
     }
-    expect(providerChoiceRows(choices)[0]?.label).toContain("OpenAI");
   });
 
   test("Alt+A selector rows include Custom and never filter by account count", () => {

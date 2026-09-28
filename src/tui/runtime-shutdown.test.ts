@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { defined } from "../testkit/defined.js";
+import { expectRejectedSettle, settleOrTimeout } from "../testkit/settle.js";
 import { createRuntimeShutdown } from "./runner/shutdown.js";
 
 describe("runtime shutdown", () => {
@@ -175,21 +176,8 @@ describe("runtime shutdown", () => {
         throw new Error("1 shell child process still live after 2000ms reap");
       },
     });
-    const result = await Promise.race([
-      shutdown().then(
-        () => ({ kind: "resolved" as const }),
-        (err: unknown) => ({ kind: "rejected" as const, err }),
-      ),
-      new Promise<{ kind: "timeout" }>((resolve) => {
-        setTimeout(() => resolve({ kind: "timeout" }), 200);
-      }),
-    ]);
+    const result = await settleOrTimeout(shutdown());
     expect(closeStarted).toBe(true);
-    expect(result.kind).toBe("rejected");
-    if (result.kind !== "rejected") throw new Error("expected leftover reject");
-    expect(result.err).toBeInstanceOf(Error);
-    expect((result.err as Error).message).toMatch(
-      /still live after 2000ms reap/,
-    );
+    expectRejectedSettle(result, /still live after 2000ms reap/);
   });
 });

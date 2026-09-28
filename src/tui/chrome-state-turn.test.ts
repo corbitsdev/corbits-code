@@ -105,21 +105,6 @@ describe("resolveTurnLabel", () => {
     ).toBeUndefined();
   });
 
-  test("blocked gate shows a waiting-on-operator state", () => {
-    expect(
-      resolveTurnLabel(
-        {
-          isProcessing: true,
-          status: "blocked",
-          currentToolName: "run_shell",
-          streamingType: "tool",
-        },
-        false,
-        null,
-      ),
-    ).toBe("waiting");
-  });
-
   test("stopping beats tool phase", () => {
     expect(
       resolveTurnLabel(

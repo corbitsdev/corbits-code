@@ -125,22 +125,6 @@ describe("mergeOAuthCatalog legacy bare-row dedupe (CL-5606)", () => {
     );
     expect(merged.map((p) => p.name)).toEqual(["codex", "codex/default"]);
   });
-
-  test("a bare xai row pointed at a mirror survives alongside xai/work (CL-7929)", () => {
-    const merged = mergeOAuthCatalog(
-      settingsWith({
-        xai: {
-          baseURL: "https://mirror.example.com/v1",
-          apiKey: "sk-mirror",
-          models: ["grok-4-1"],
-        },
-      }),
-      resolved,
-      [],
-      [xaiWork],
-    );
-    expect(merged.map((p) => p.name)).toEqual(["xai", "xai/work"]);
-  });
 });
 
 describe("CL-6728: OAuth projections do not overwrite hand-named provider entries", () => {
@@ -254,24 +238,6 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
     const merged = mergeOAuthCatalog(null, resolvedCodexMine, [liveMine], []);
     const persisted = providerCatalogToSettings(merged, undefined);
     expect(JSON.stringify(persisted)).not.toContain("live-token");
-  });
-
-  test("mergeOAuthCatalog keeps a hand-named xai/<slug> entry when its profile is live", () => {
-    const handNamedXai = (): ProviderSettings => ({
-      baseURL: "https://hand-named-xai.example.com/v1",
-      apiKey: "hand-named-xai-key",
-      models: ["hand-xai-model"],
-    });
-    const merged = mergeOAuthCatalog(
-      settingsWith({ "xai/work": handNamedXai() }),
-      resolved,
-      [],
-      [xaiWork],
-    );
-    const rows = merged.filter((p) => p.name === "xai/work");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.apiKey).toBe("hand-named-xai-key");
-    expect(rows[0]?.xaiProfile).toBeUndefined();
   });
 
   test("mergeOAuthCatalog keeps a keyless codex/<slug> entry when its profile is live", () => {

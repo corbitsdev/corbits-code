@@ -2,30 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { isHttpServer } from "./is-http-server.js";
 
 describe("isHttpServer", () => {
-  test("HTTP wins when type is unset and url is set, even with command", () => {
-    const config = { command: "run", url: "https://mcp.example.test" };
-    expect(isHttpServer(config)).toBe(true);
+  test("a url selects HTTP even when command is also set, with or without an explicit type", () => {
+    const url = "https://mcp.example.test";
+    const untyped = { command: "run", url };
+    const typed = { type: "http" as const, command: "run", url };
+    expect(isHttpServer(untyped)).toBe(true);
+    expect(isHttpServer(typed)).toBe(true);
   });
 
-  test("type http wins even when command is also set", () => {
-    const config = {
-      type: "http" as const,
-      command: "run",
-      url: "https://mcp.example.test",
-    };
-    expect(isHttpServer(config)).toBe(true);
-  });
-
-  test("type stdio is not HTTP even when url is set", () => {
+  test("stdio type or no url is not HTTP", () => {
     expect(
-      isHttpServer({
-        type: "stdio",
-        url: "https://mcp.example.test",
-      }),
+      isHttpServer({ type: "stdio", url: "https://mcp.example.test" }),
     ).toBe(false);
-  });
-
-  test("unset type and url is not HTTP", () => {
     expect(isHttpServer({})).toBe(false);
   });
 });

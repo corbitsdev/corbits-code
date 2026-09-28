@@ -227,34 +227,6 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
     expect(writes).toBe(0);
   });
 
-  test("startup agent-profile resolution: a malformed profile stays silent on stderr", async () => {
-    // Same call shape as runner.ts's startup `resolveAgentPluginProfiles`
-    // (over `executablePlugins()` and the full `settings.plugins` config),
-    // distinct from the verify-time call above which targets one plugin id.
-    const mod = {
-      manifest: {
-        id: "startup-agent",
-        name: "Startup Agent",
-        kind: "agent" as const,
-      },
-      agentPlugin: {
-        agents: [{ description: "missing the required id field" }],
-      },
-    };
-    const { writes } = await withStderrCapture(async () => {
-      const diag = createPluginLoadDiagnostics();
-      const profiles = await resolveAgentPluginProfiles(
-        [mod],
-        { "startup-agent": { enabled: true } },
-        { diagnostics: diag },
-      );
-      expect(profiles).toEqual([]);
-      const message = formatPluginWarningsSummary(diag.warnings);
-      expect(message).toBeDefined();
-    });
-    expect(writes).toBe(0);
-  });
-
   test("tool-resolve: a throwing tool-plugin factory stays silent on stderr", async () => {
     const candidate: ToolPluginCandidate = {
       id: "throws",

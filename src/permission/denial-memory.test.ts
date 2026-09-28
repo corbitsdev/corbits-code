@@ -106,19 +106,6 @@ describe("DenialMemory", () => {
     expect(memory.isDenied(retry)).toBe("denied: needs approval");
   });
 
-  test("distinct fingerprints are independent", () => {
-    const memory = new DenialMemory();
-    memory.record(
-      stableRequestId(fetchCall("call_0", "https://example.com/a"), "/work"),
-      "denied: needs approval",
-    );
-    expect(
-      memory.isDenied(
-        stableRequestId(fetchCall("call_1", "https://example.com/b"), "/work"),
-      ),
-    ).toBeUndefined();
-  });
-
   test("first recorded reason wins; clear forgets every denial", () => {
     const memory = new DenialMemory();
     const stableId = stableRequestId(

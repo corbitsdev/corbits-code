@@ -4,6 +4,16 @@ import { OPENCODE_GO_BASE_URL } from "../../packages/opencode-go/src/index.js";
 import type { ProviderCatalogEntry } from "./index.js";
 import { buildProviderEntry, resolveDefaultModel } from "./providers.js";
 
+function expectBuiltEntry(
+  submission: Parameters<typeof buildProviderEntry>[0],
+  catalog: readonly ProviderCatalogEntry[] = [],
+) {
+  const result = buildProviderEntry(submission, catalog);
+  expect(result.ok).toBe(true);
+  if (!result.ok) throw new Error(result.error);
+  return result.entry;
+}
+
 const baseCatalog: ProviderCatalogEntry[] = [
   {
     name: "bf",
@@ -76,71 +86,47 @@ describe("buildProviderEntry OpenCode Go baseURL pin", () => {
   });
 
   test("does not rewrite baseURL for non-Go providers", () => {
-    const result = buildProviderEntry(
-      {
-        name: "zen",
-        baseURL: "https://opencode.ai/zen/v1",
-        apiKey: "sk-zen-key",
-        models: ["claude-sonnet-4-5"],
-      },
-      [],
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.entry.baseURL).toBe("https://opencode.ai/zen/v1");
-    expect(result.entry.opencodeGo).toBeUndefined();
+    const entry = expectBuiltEntry({
+      name: "zen",
+      baseURL: "https://opencode.ai/zen/v1",
+      apiKey: "sk-zen-key",
+      models: ["claude-sonnet-4-5"],
+    });
+    expect(entry.baseURL).toBe("https://opencode.ai/zen/v1");
+    expect(entry.opencodeGo).toBeUndefined();
   });
 
   test("pins Go baseURL when name is opencode-go even without opencodeGo flag", () => {
-    const result = buildProviderEntry(
-      {
-        name: "opencode-go",
-        baseURL: "https://opencode.ai/zen/v1",
-        apiKey: "sk-go-key-long-enough",
-        models: ["kimi-k2.7-code"],
-      },
-      [],
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.entry.baseURL).toBe(OPENCODE_GO_BASE_URL);
-    expect(result.entry.opencodeGo).toBe(true);
+    const entry = expectBuiltEntry({
+      name: "opencode-go",
+      baseURL: "https://opencode.ai/zen/v1",
+      apiKey: "sk-go-key-long-enough",
+      models: ["kimi-k2.7-code"],
+    });
+    expect(entry.baseURL).toBe(OPENCODE_GO_BASE_URL);
+    expect(entry.opencodeGo).toBe(true);
   });
 
   test("pins Go baseURL and flag for custom name with Go URL", () => {
-    const result = buildProviderEntry(
-      {
-        name: "go/personal",
-        baseURL: "https://opencode.ai/zen/go/v1",
-        apiKey: "sk-go-key-long-enough",
-        models: ["kimi-k2.7-code"],
-      },
-      [],
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.entry.baseURL).toBe(OPENCODE_GO_BASE_URL);
-    expect(result.entry.opencodeGo).toBe(true);
+    const entry = expectBuiltEntry({
+      name: "go/personal",
+      baseURL: "https://opencode.ai/zen/go/v1",
+      apiKey: "sk-go-key-long-enough",
+      models: ["kimi-k2.7-code"],
+    });
+    expect(entry.baseURL).toBe(OPENCODE_GO_BASE_URL);
+    expect(entry.opencodeGo).toBe(true);
   });
 
   test("does not treat bare Zen URL as Go for custom names", () => {
-    const result = buildProviderEntry(
-      {
-        name: "go/personal",
-        baseURL: "https://opencode.ai/zen/v1",
-        apiKey: "sk-zen-key",
-        models: ["claude-sonnet-4-5"],
-      },
-      [],
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.entry.baseURL).toBe("https://opencode.ai/zen/v1");
-    expect(result.entry.opencodeGo).toBeUndefined();
+    const entry = expectBuiltEntry({
+      name: "go/personal",
+      baseURL: "https://opencode.ai/zen/v1",
+      apiKey: "sk-zen-key",
+      models: ["claude-sonnet-4-5"],
+    });
+    expect(entry.baseURL).toBe("https://opencode.ai/zen/v1");
+    expect(entry.opencodeGo).toBeUndefined();
   });
 
   test("demotes sticky opencodeGo when edit submits bare Zen URL for a custom name", () => {
@@ -202,32 +188,20 @@ describe("buildProviderEntry OpenCode Go baseURL pin", () => {
 });
 
 describe("resolveDefaultModel", () => {
-  test("returns defaultModel when present and non-empty", () => {
+  test("prefers a non-empty defaultModel, falls back to models[0], and tolerates empty entries", () => {
     expect(
       resolveDefaultModel({
         defaultModel: "gpt-4o",
         models: ["gpt-4o", "gpt-4o-mini"],
       }),
     ).toBe("gpt-4o");
-  });
-
-  test("falls back to models[0] when defaultModel is absent", () => {
     expect(resolveDefaultModel({ models: ["gpt-4o", "gpt-4o-mini"] })).toBe(
       "gpt-4o",
     );
-  });
-
-  test("falls back to models[0] when defaultModel is empty", () => {
     expect(resolveDefaultModel({ defaultModel: "", models: ["gpt-4o"] })).toBe(
       "gpt-4o",
     );
-  });
-
-  test("returns undefined for an undefined entry", () => {
     expect(resolveDefaultModel(undefined)).toBeUndefined();
-  });
-
-  test("returns undefined when entry has no models and no defaultModel", () => {
     expect(resolveDefaultModel({ models: [] })).toBeUndefined();
   });
 });
@@ -303,22 +277,6 @@ describe("buildProviderEntry protocol flag preservation", () => {
     if (!result.ok) return;
     expect(result.entry.anthropic).toBeUndefined();
     expect(result.entry.opencodeGo).toBeUndefined();
-  });
-
-  test("honors explicit connect flags on create", () => {
-    const result = buildProviderEntry(
-      {
-        name: "opencode-go",
-        baseURL: "https://opencode.ai/zen/go/v1",
-        apiKey: "sk-go-longenough",
-        models: ["kimi-k2.7-code"],
-        opencodeGo: true,
-      },
-      [],
-    );
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.entry.opencodeGo).toBe(true);
   });
 
   test("empty-key re-Connect preserves existing apiKey", () => {

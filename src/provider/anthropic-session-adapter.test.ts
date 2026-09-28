@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { InferenceOptions } from "@intx/types/runtime";
 import {
   createOpenCodeGoAnthropicAdapter,
-  createSessionHeaderAnthropicAdapter,
   createZenAnthropicAdapter,
 } from "./anthropic-session-adapter.js";
 
@@ -46,28 +45,4 @@ describe("session header Anthropic adapter", () => {
       expect(request.headers["x-opencode-session"]).toBeUndefined();
     });
   }
-
-  test("named factories match the shared wrapper byte-for-byte", () => {
-    const source = {
-      sourceId: "shared",
-      provider: "zen-messages",
-      model: "minimax-m3",
-    };
-    const options = {
-      providerOptions: { opencodeSessionId: "sess-1" },
-    } as InferenceOptions;
-    const shared = createSessionHeaderAnthropicAdapter(source).buildRequest(
-      messages,
-      "minimax-m3",
-      options,
-    );
-    for (const factory of Object.values(factories)) {
-      const request = factory(source).buildRequest(
-        messages,
-        "minimax-m3",
-        options,
-      );
-      expect(request).toEqual(shared);
-    }
-  });
 });

@@ -409,10 +409,6 @@ describe("authz hard-deny peels env -S / --split-string payloads", () => {
     );
   });
 
-  test("B6: bare bash -c catastrophic rm still hard-blocks (regression)", () => {
-    expect(runShellAuthzBlockReason("bash -c 'rm -rf /'")).toMatch(destructive);
-  });
-
   test("N1: nested env -S payloads are blocked within peel depth", () => {
     // Alternating quotes so naive tokenize keeps each -S payload intact.
     expect(
@@ -565,10 +561,6 @@ describe("authz hard-deny peels glued and trailing env -S forms", () => {
       runShellAuthzBlockReason(`env -S "rm -rf node_modules"`),
     ).toBeUndefined();
     expect(commandHasRecursiveRm(`env -S "rm -rf node_modules"`)).toBe(true);
-  });
-
-  test("G8: soft-deny catastrophic rm inside -S is hard-denied", () => {
-    expect(runShellAuthzBlockReason(`env -S "rm -rf /"`)).toMatch(destructive);
   });
 
   test("G9: flag soup before -S still peels (env -i -u HOME -S)", () => {

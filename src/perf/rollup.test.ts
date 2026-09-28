@@ -1,12 +1,11 @@
 import { defined } from "../testkit/defined.js";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   ALLOWED_TAG_KEYS,
   RING_CAPACITY,
-  clear,
   end,
   mark,
   snapshot,
@@ -26,39 +25,14 @@ import {
   sessionTotals,
   spanDurationNs,
 } from "./rollup.js";
+import { span, useCleanSpanStore } from "./fixtures/spans.js";
 
 // The span store is process-wide, so a perf test cannot assume the tests that
 // ran before it in this process left it empty. Reset on both edges.
-beforeEach(() => {
-  clear();
-});
-
-afterEach(() => {
-  clear();
-});
+useCleanSpanStore();
 
 const ALLOWED_TAG_KEY_SET: ReadonlySet<string> = new Set(ALLOWED_TAG_KEYS);
 const DUMP_SPAN_KEY_SET: ReadonlySet<string> = new Set(DUMP_SPAN_KEYS);
-
-/** Build a completed span with fixed times (no live clock). */
-function span(partial: {
-  id: string;
-  name: PerfSpan["name"];
-  parentId?: string;
-  startNs: bigint;
-  endNs?: bigint;
-  tags?: PerfSpan["tags"];
-}): PerfSpan {
-  const s: PerfSpan = {
-    id: partial.id,
-    name: partial.name,
-    startNs: partial.startNs,
-  };
-  if (partial.parentId !== undefined) s.parentId = partial.parentId;
-  if (partial.endNs !== undefined) s.endNs = partial.endNs;
-  if (partial.tags !== undefined) s.tags = partial.tags;
-  return s;
-}
 
 /**
  * Nested tree:

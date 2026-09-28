@@ -238,16 +238,3 @@ function pushHistoryBlock(rows: StreamRow[], block: HistoryBlock): void {
   const row = rowFromHistoryBlock(block);
   if (row) rows.push(row);
 }
-
-/**
- * Convenience: map an already-typed block list (e.g. from turns-to-blocks).
- */
-export function rowsFromHistoryBlocks(
-  blocks: readonly HistoryBlock[],
-): StreamRow[] {
-  const rows: StreamRow[] = [];
-  for (const block of blocks) {
-    pushHistoryBlock(rows, block);
-  }
-  return rows;
-}

@@ -138,13 +138,3 @@ describe("isGoModelOnZenPath", () => {
     ).toBe(false);
   });
 });
-
-describe("billingProductForProvider", () => {
-  test("resolves subscription and credits labels for UI rows", () => {
-    expect(
-      billingProductForProvider({ name: "opencode-go", opencodeGo: true }),
-    ).toBe("subscription");
-    expect(billingProductForProvider({ name: "zen" })).toBe("credits");
-    expect(billingProductForProvider({ name: "openai" })).toBeUndefined();
-  });
-});

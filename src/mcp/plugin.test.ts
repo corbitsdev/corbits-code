@@ -687,36 +687,6 @@ function makeFakeClient(serverName: string, toolNames: string[]): MCPClient {
 }
 
 describe("mcpClientToAgentTools (production gated path)", () => {
-  test("namespaces tools as mcp__<server>__<tool>", () => {
-    const client = makeFakeClient("acme", ["list_issues", "create_issue"]);
-    const gate = createPermissionGate({
-      approvals: [],
-      interactive: false,
-      skipPermissions: true,
-      reactorGated: false,
-    });
-    gate.registerMcpClient(client);
-    const tools = mcpClientToAgentTools(client, gate);
-    expect(tools.map((t) => t.definition.name)).toEqual([
-      "mcp__acme__list_issues",
-      "mcp__acme__create_issue",
-    ]);
-  });
-
-  test("prefixes description with server name", () => {
-    const client = makeFakeClient("github", ["search_repos"]);
-    const gate = createPermissionGate({
-      approvals: [],
-      interactive: false,
-      skipPermissions: true,
-      reactorGated: false,
-    });
-    const tools = mcpClientToAgentTools(client, gate);
-    expect(defined(tools[0], "mcp tool").definition.description).toBe(
-      "[github] search_repos tool",
-    );
-  });
-
   test("tool handler returns call result", async () => {
     let capturedName: string | undefined;
     let capturedArgs: Record<string, unknown> | undefined;
@@ -758,36 +728,6 @@ describe("mcpClientToAgentTools (production gated path)", () => {
       throw new Error("expected structured ToolResult");
     expect(result.content).toBe("done");
     expect(result.isError).toBeUndefined();
-  });
-
-  test("tool handler returns error result on throw", async () => {
-    const client: MCPClient = {
-      serverName: "srv",
-      tools: [{ name: "fail", description: "", inputSchema: {} }],
-      async call() {
-        throw new Error("server error");
-      },
-      async close() {
-        return undefined;
-      },
-    };
-
-    const gate = createPermissionGate({
-      approvals: [],
-      interactive: false,
-      skipPermissions: true,
-      reactorGated: false,
-    });
-    const tool = defined(mcpClientToAgentTools(client, gate)[0], "mcp tool");
-    const result = await tool.handler(
-      { id: "c1", name: "mcp__srv__fail", arguments: {} },
-      new AbortController().signal,
-    );
-
-    if (typeof result === "string")
-      throw new Error("expected structured ToolResult");
-    expect(result.isError).toBe(true);
-    expect(result.content).toBe("server error");
   });
 
   test("permission gate blocks mutating MCP when not skipped", async () => {

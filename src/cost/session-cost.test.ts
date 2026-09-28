@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import type { TokenUsage } from "@intx/types/runtime";
 
 import { createFaremeter, formatCost } from "./faremeter.js";
 import { testPricingCache as pricingCache } from "./pricing-test-fixture.js";
@@ -7,37 +6,10 @@ import {
   billingIdentityFromSource,
   createSessionCostAccumulator,
 } from "./session-cost.js";
+import { recastAtLiveModel, tokenUsage } from "../testkit/token-usage.js";
 
-const usage = (input: number, output: number): TokenUsage => ({
-  input,
-  output,
-  cacheRead: 0,
-  cacheWrite: 0,
-  thinking: 0,
-});
-
-const CODEX_USAGE = usage(100_000, 20_000);
-const METERED_USAGE = usage(1_000, 500);
-
-function recastAtLiveModel(modelId: string, turns: TokenUsage[]): number {
-  const faremeter = createFaremeter({ modelId, pricingCache });
-  const combined: TokenUsage = {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    thinking: 0,
-  };
-  for (const turn of turns) {
-    combined.input += turn.input;
-    combined.output += turn.output;
-    combined.cacheRead += turn.cacheRead;
-    combined.cacheWrite += turn.cacheWrite;
-    combined.thinking += turn.thinking;
-  }
-  faremeter.addUsage(combined);
-  return faremeter.getTotalCost();
-}
+const CODEX_USAGE = tokenUsage(100_000, 20_000);
+const METERED_USAGE = tokenUsage(1_000, 500);
 
 describe("createSessionCostAccumulator", () => {
   it("prices Codex then metered as the metered turns only, not a live-model recast of the sink", () => {
@@ -57,7 +29,7 @@ describe("createSessionCostAccumulator", () => {
     expect(snapshot.mix).toBe("mixed");
     expect(snapshot.meteredCost).toBe(meteredOnly.getTotalCost());
     expect(snapshot.meteredCost).toBeLessThan(
-      recastAtLiveModel("glm-5.1", [CODEX_USAGE, METERED_USAGE]),
+      recastAtLiveModel("glm-5.1", pricingCache, [CODEX_USAGE, METERED_USAGE]),
     );
     expect(formatCost(snapshot.meteredCost)).toBe(
       formatCost(meteredOnly.getTotalCost()),

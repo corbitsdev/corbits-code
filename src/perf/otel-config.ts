@@ -413,10 +413,3 @@ export function otelConfigForDump(
     headerNames: Object.freeze(Object.keys(config.headers).sort()),
   };
 }
-
-/** True when resolution failed closed (export must not start). */
-export function isOtelConfigInvalid(
-  result: OtelConfigResolution,
-): result is Extract<OtelConfigResolution, { ok: false }> {
-  return result.ok === false;
-}

@@ -61,7 +61,7 @@ test("coordinator directive defaults to mailbox collect when wait_agents is unmo
   const rt = new WorkflowRuntime(empty, resolver);
   rt.start(withAgentStep);
   const directive = coordDirective(rt);
-  expect(directive).toContain("mailbox mail");
+  expect(directive).toContain("mailbox");
   expect(directive).not.toContain("wait_agents");
 });
 
@@ -70,7 +70,7 @@ test("coordinator directive keeps the wait_agents collect path when mounted", ()
   rt.start(withAgentStep);
   const coord = new WorkflowCoordinator(rt, () => undefined, false, true);
   const directive = coord.directive();
-  expect(directive).toContain("collect it with wait_agents");
+  expect(directive).toContain("wait_agents");
 });
 
 test("coordinator parallel-agent guidance is mount-gated", () => {

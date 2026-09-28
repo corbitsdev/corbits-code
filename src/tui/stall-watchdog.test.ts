@@ -109,15 +109,6 @@ describe("shouldAbortForStall — awaiting-response with a null stream eventuall
     ).toBe(true);
   });
 
-  // Mirrors the tool.done handler: the last outstanding call just resolved,
-  // awaitingResponse flips true and streamingType resets to null, then nothing
-  // else arrives.
-  test("post-tool-batch silence auto-aborts after the stall budget", () => {
-    expect(shouldAbortForStall({ ...awaiting, activeToolCalls: [] })).toBe(
-      true,
-    );
-  });
-
   test("a parallel fan-out with sibling tools still running is not a stall", () => {
     expect(
       shouldAbortForStall({ ...awaiting, activeToolCalls: ["call-2"] }),
@@ -282,22 +273,20 @@ describe("shouldAbortForStall — execution-watchdog-exempt tools do not pin for
 });
 
 describe("applyStallRecovery", () => {
-  test("aborts then notifies with the default message", () => {
+  test("aborts first, then notifies with the given or default message", () => {
     const calls: string[] = [];
-    applyStallRecovery({
-      abort: () => calls.push("abort"),
-      notify: (m) => calls.push(m),
-    });
-    expect(calls).toEqual(["abort", STALL_RECOVERY_MESSAGE]);
-  });
-
-  test("aborts then notifies with a supplied message", () => {
-    const calls: string[] = [];
+    const abort = () => calls.push("abort");
+    applyStallRecovery({ abort, notify: (m) => calls.push(m) });
     applyStallRecovery(
-      { abort: () => calls.push("abort"), notify: (m) => calls.push(m) },
+      { abort, notify: (m) => calls.push(m) },
       "custom message",
     );
-    expect(calls).toEqual(["abort", "custom message"]);
+    expect(calls).toEqual([
+      "abort",
+      STALL_RECOVERY_MESSAGE,
+      "abort",
+      "custom message",
+    ]);
   });
 });
 

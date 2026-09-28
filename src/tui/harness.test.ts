@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BoxRenderable, TextRenderable, type KeyEvent } from "@opentui/core";
 import { defined } from "../testkit/defined.js";
-import { createHarness, withTestRenderer } from "./harness.js";
+import { withTestRenderer } from "./harness.js";
 
 describe("withTestRenderer", () => {
   test("creates renderer, paints Text/Box, destroys without throw", async () => {
@@ -55,18 +55,5 @@ describe("withTestRenderer", () => {
       expect(ctrlC.name).toBe("c");
       expect(ctrlC.ctrl).toBe(true);
     });
-  });
-});
-
-describe("createHarness", () => {
-  test("caller destroy cleans up", async () => {
-    const h = await createHarness({ width: 20, height: 8 });
-    try {
-      await h.renderOnce();
-      expect(typeof h.captureCharFrame()).toBe("string");
-      expect(h.root).toBe(h.renderer.root);
-    } finally {
-      h.destroy();
-    }
   });
 });

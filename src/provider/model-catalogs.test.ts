@@ -125,8 +125,6 @@ for (const harness of harnesses) {
     otherLabel,
     prefetch,
     prefetchName,
-    reset,
-    resetName,
     sampleId,
     seedIds,
     selectable,
@@ -368,23 +366,6 @@ for (const harness of harnesses) {
       expect(prefetched).toEqual([liveOnlyId]);
       expect(selectable()).toEqual([liveOnlyId]);
       expect(fetchCount).toBe(2);
-    });
-
-    test(`${resetName} isolates the snapshot between tests`, async () => {
-      globalThis.fetch = (async () =>
-        Response.json({
-          data: [{ id: liveOnlyId }],
-        })) as unknown as typeof fetch;
-      await prefetch();
-      expect(selectable()).toEqual([liveOnlyId]);
-
-      reset();
-      expect(selectable()).toEqual(seedIds);
-
-      globalThis.fetch = (async () => {
-        throw new Error("connection refused");
-      }) as unknown as typeof fetch;
-      expect(await prefetch()).toEqual(seedIds);
     });
   });
 }

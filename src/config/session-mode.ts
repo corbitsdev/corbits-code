@@ -7,10 +7,6 @@ import type { LocalSettings, Settings } from "./settings.js";
  */
 export type SessionMode = "orchestrator";
 
-export function isSessionMode(value: unknown): value is SessionMode {
-  return value === "orchestrator";
-}
-
 /**
  * Product always runs orchestrator. Legacy `sessionMode` values in settings
  * (including `"single"`) are ignored — not errors on load, not written back here.

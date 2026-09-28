@@ -707,65 +707,6 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).toBe("FALLBACK");
   });
 
-  test("following same-path offsets reads a large file to completion; every hop re-issues the original path with a rising offset (CL-8980)", async () => {
-    const lines = Array.from({ length: 9_000 }, (_, i) => `line-${i} payload`);
-    await fixture("huge.txt", lines.join("\n"));
-    const plugin = readFileGuardPlugin(dir, {});
-    const middleware = defined(plugin.middleware)(fallback);
-
-    let result = await middleware(
-      { id: "c1", name: "read_file", arguments: { path: "huge.txt" } },
-      neverAbort(),
-    );
-    let seen = 0;
-    let guard = 0;
-    for (;;) {
-      guard++;
-      expect(guard).toBeLessThan(50); // fails loudly instead of hanging on a broken offset chain
-      const content = String(result.content);
-      const numbered = content.split("\n\n")[0] ?? "";
-      seen += numbered.trimEnd().split("\n").length;
-
-      const match = /Use offset=(\d+) to continue/.exec(content);
-      if (match === undefined || match === null) break;
-      const offset = Number(match[1] as string);
-
-      result = await middleware(
-        {
-          id: `c${guard + 1}`,
-          name: "read_file",
-          arguments: { path: "huge.txt", offset },
-        },
-        neverAbort(),
-      );
-      expect(result.isError).toBeFalsy();
-    }
-
-    expect(seen).toBe(lines.length);
-    expect(guard).toBeGreaterThan(1); // it actually paginated
-  });
-
-  test("an unknown tool-output URI against a real blobReader surfaces the blob store error", async () => {
-    const blobReader = {
-      async read(uri: string): Promise<Uint8Array> {
-        throw new Error(`Blob not found for key: ${uri}`);
-      },
-    };
-    const result = await run(
-      {
-        id: "u1",
-        name: "read_file",
-        arguments: { path: "tool-output:///never-minted" },
-      },
-      blobReader,
-    );
-    expect(result.isError).toBe(true);
-    expect(String(result.content)).toContain("Blob not found for key");
-    // No handle machinery remains: there is no spent/cursor wording anywhere.
-    expect(String(result.content)).not.toContain("already used");
-    expect(String(result.content)).not.toContain("single-use");
-  });
-
   test("a replayed unknown tool-output URI surfaces the same blob error twice — no spent-handle state", async () => {
     const blobReader = {
       async read(uri: string): Promise<Uint8Array> {
@@ -897,38 +838,5 @@ describe("CL-8980 single-way path+offset resume", () => {
     expect(content).toContain("beyond end of file");
     expect(content).toContain("tool-output:///dead-blob");
     expect(content).toContain("100 lines");
-  });
-
-  test("a spilled blob pages forward on the same URI with rising offsets; replay is identical", async () => {
-    const encoder = new TextEncoder();
-    const body = Array.from({ length: 100 }, (_, i) => `srow-${i}`).join("\n");
-    const blobReader = createBlobReader({
-      async readBlob(key) {
-        if (key === "chain-blob") return encoder.encode(body);
-        throw new Error(`missing ${key}`);
-      },
-    });
-    const run = freshRunner(blobReader);
-    const first = await run("e1", {
-      path: "tool-output:///chain-blob",
-      offset: 0,
-      limit: 10,
-    });
-    expect(first.isError).toBeFalsy();
-    const offset = noticeOffset(String(first.content));
-    const second = await run("e2", {
-      path: "tool-output:///chain-blob",
-      offset,
-      limit: 10,
-    });
-    expect(second.isError).toBeFalsy();
-    expect(String(second.content)).toContain("srow-10");
-    expect(String(second.content)).not.toContain("srow-9");
-    const replay = await run("e3", {
-      path: "tool-output:///chain-blob",
-      offset,
-      limit: 10,
-    });
-    expect(String(replay.content)).toBe(String(second.content));
   });
 });

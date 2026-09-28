@@ -291,37 +291,6 @@ describe("withReplaySanitizer", () => {
     expect(request.body).not.toContain("thoughtSignature");
   });
 
-  it("builds an Anthropic request from a persisted refusal block", () => {
-    const adapter = resolveSanitized({
-      sourceId: "s1",
-      provider: "anthropic",
-      model: "claude-opus-4",
-    });
-    const request = adapter.buildRequest(
-      [
-        {
-          role: "user",
-          content: [{ type: "text", text: "do it" }],
-          timestamp: 1,
-        },
-        {
-          role: "assistant",
-          model: "gpt-5",
-          content: [{ type: "refusal", reason: "cannot comply" }],
-          timestamp: 2,
-        },
-        {
-          role: "user",
-          content: [{ type: "text", text: "why not" }],
-          timestamp: 3,
-        },
-      ],
-      "claude-opus-4",
-      {},
-    );
-    expect(request.body).toContain("cannot comply");
-  });
-
   it("builds an Anthropic request from a dangling tool_call", () => {
     const adapter = resolveSanitized({
       sourceId: "s1",
@@ -372,37 +341,6 @@ describe("withReplaySanitizer", () => {
       expect(withThinking.body).not.toEqual(without.body);
       expect(withThinking.body).toContain(THINKING_ONLY_OMITTED);
     }
-  });
-
-  it("builds requests for thinking-only and leftover-only assistant turns", () => {
-    const adapter = resolveSanitized({
-      sourceId: "s1",
-      provider: "anthropic",
-      model: "claude-opus-4",
-    });
-    const leftoverHistory: ConversationTurn[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "hello" }],
-        timestamp: 1,
-      },
-      {
-        role: "assistant",
-        model: "grok-4",
-        content: [
-          { type: "thinking", thinking: "pondering" },
-          { type: "redacted_thinking", data: "opaque" },
-          { type: "citation", citedText: "quote", source: {} },
-        ],
-        timestamp: 2,
-      },
-    ];
-    expect(() =>
-      adapter.buildRequest(thinkingOnlyHistory(), "claude-opus-4", {}),
-    ).not.toThrow();
-    expect(() =>
-      adapter.buildRequest(leftoverHistory, "claude-opus-4", {}),
-    ).not.toThrow();
   });
 
   // Regression for CL-6912: sanitizeReplayTurns runs INSIDE buildRequest,

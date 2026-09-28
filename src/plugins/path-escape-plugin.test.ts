@@ -17,29 +17,21 @@ import {
   pathEscapePlugin,
 } from "./path-escape-plugin.js";
 import type { ToolCall, ToolResult } from "@intx/types/runtime";
-
-function makeCall(name: string, args: Record<string, unknown>): ToolCall {
-  return {
-    id: "test-call",
-    name,
-    arguments: args,
-  };
-}
-
-const nextHandler = async (call: ToolCall): Promise<ToolResult> => ({
-  callId: call.id,
-  content: "ok",
-});
+import {
+  echoArgsHandler,
+  makeToolCall,
+  neverAbort,
+  okHandler,
+  pluginHandler,
+} from "./test-helpers.js";
 
 describe("pathEscapePlugin", () => {
   test("allows paths inside cwd", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware
-      ? plugin.middleware(nextHandler)
-      : nextHandler;
+    const handler = pluginHandler(plugin, okHandler);
     const result = await handler(
-      makeCall("read_file", { path: "src/index.ts" }),
-      new AbortController().signal,
+      makeToolCall("read_file", { path: "src/index.ts" }),
+      neverAbort(),
     );
     expect(result.isError).not.toBe(true);
   });
@@ -54,12 +46,10 @@ describe("pathEscapePlugin", () => {
   ] as const) {
     test(`blocks escape via ${key} key (${tool})`, async () => {
       const plugin = pathEscapePlugin("/project");
-      const handler = plugin.middleware
-        ? plugin.middleware(nextHandler)
-        : nextHandler;
+      const handler = pluginHandler(plugin, okHandler);
       const result = await handler(
-        makeCall(tool, { [key]: value }),
-        new AbortController().signal,
+        makeToolCall(tool, { [key]: value }),
+        neverAbort(),
       );
       expect(result.isError).toBe(true);
     });
@@ -67,12 +57,10 @@ describe("pathEscapePlugin", () => {
 
   test("the block message tells the operator the path escapes the working directory", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware
-      ? plugin.middleware(nextHandler)
-      : nextHandler;
+    const handler = pluginHandler(plugin, okHandler);
     const result = await handler(
-      makeCall("read_file", { path: "../secret.txt" }),
-      new AbortController().signal,
+      makeToolCall("read_file", { path: "../secret.txt" }),
+      neverAbort(),
     );
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/escapes working directory/);
@@ -80,12 +68,10 @@ describe("pathEscapePlugin", () => {
 
   test("allows cwd path itself", async () => {
     const plugin = pathEscapePlugin("/project");
-    const handler = plugin.middleware
-      ? plugin.middleware(nextHandler)
-      : nextHandler;
+    const handler = pluginHandler(plugin, okHandler);
     const result = await handler(
-      makeCall("read_file", { path: "." }),
-      new AbortController().signal,
+      makeToolCall("read_file", { path: "." }),
+      neverAbort(),
     );
     expect(result.isError).not.toBe(true);
   });
@@ -94,14 +80,10 @@ describe("pathEscapePlugin", () => {
     const plugin = pathEscapePlugin("/project", () => [], {
       allowOutside: true,
     });
-    const next = async (call: ToolCall): Promise<ToolResult> => ({
-      callId: call.id,
-      content: JSON.stringify(call.arguments),
-    });
-    const handler = plugin.middleware ? plugin.middleware(next) : next;
+    const handler = pluginHandler(plugin, echoArgsHandler);
     const result = await handler(
-      makeCall("read_file", { path: "../other-repo/README.md" }),
-      new AbortController().signal,
+      makeToolCall("read_file", { path: "../other-repo/README.md" }),
+      neverAbort(),
     );
     expect(result.isError).not.toBe(true);
     const args = JSON.parse(String(result.content)) as { path: string };
@@ -112,14 +94,10 @@ describe("pathEscapePlugin", () => {
     const plugin = pathEscapePlugin("/project", () => [], {
       allowOutside: true,
     });
-    const next = async (call: ToolCall): Promise<ToolResult> => ({
-      callId: call.id,
-      content: JSON.stringify(call.arguments),
-    });
-    const handler = plugin.middleware ? plugin.middleware(next) : next;
+    const handler = pluginHandler(plugin, echoArgsHandler);
     const result = await handler(
-      makeCall("read_file", { path: "src/index.ts" }),
-      new AbortController().signal,
+      makeToolCall("read_file", { path: "src/index.ts" }),
+      neverAbort(),
     );
     expect(result.isError).not.toBe(true);
     const args = JSON.parse(String(result.content)) as { path: string };
@@ -131,22 +109,18 @@ describe("pathEscapePlugin", () => {
     const plugin = pathEscapePlugin("/project", () => [], {
       allowOutside: () => allow,
     });
-    const next = async (call: ToolCall): Promise<ToolResult> => ({
-      callId: call.id,
-      content: JSON.stringify(call.arguments),
-    });
-    const handler = plugin.middleware ? plugin.middleware(next) : next;
+    const handler = pluginHandler(plugin, echoArgsHandler);
     const blocked = await handler(
-      makeCall("read_file", { path: "../other-repo/README.md" }),
-      new AbortController().signal,
+      makeToolCall("read_file", { path: "../other-repo/README.md" }),
+      neverAbort(),
     );
     expect(blocked.isError).toBe(true);
     expect(blocked.content).toMatch(/escapes working directory/);
 
     allow = true;
     const allowed = await handler(
-      makeCall("read_file", { path: "../other-repo/README.md" }),
-      new AbortController().signal,
+      makeToolCall("read_file", { path: "../other-repo/README.md" }),
+      neverAbort(),
     );
     expect(allowed.isError).not.toBe(true);
     const args = JSON.parse(String(allowed.content)) as { path: string };
@@ -155,14 +129,10 @@ describe("pathEscapePlugin", () => {
 
   test("passes archive:/// refs through without resolving them as filesystem paths", async () => {
     const plugin = pathEscapePlugin("/project");
-    const next = async (call: ToolCall): Promise<ToolResult> => ({
-      callId: call.id,
-      content: JSON.stringify(call.arguments),
-    });
-    const handler = plugin.middleware ? plugin.middleware(next) : next;
+    const handler = pluginHandler(plugin, echoArgsHandler);
     const result = await handler(
-      makeCall("read_file", { path: "archive:///occ-abc" }),
-      new AbortController().signal,
+      makeToolCall("read_file", { path: "archive:///occ-abc" }),
+      neverAbort(),
     );
     expect(result.isError).not.toBe(true);
     const args = JSON.parse(String(result.content)) as { path: string };
@@ -187,18 +157,14 @@ describe("pathEscapePlugin", () => {
       await symlink(realTarget, link);
 
       const plugin = pathEscapePlugin(cwd);
-      const next = async (call: ToolCall): Promise<ToolResult> => ({
-        callId: call.id,
-        content: JSON.stringify(call.arguments),
-      });
-      const handler = plugin.middleware ? plugin.middleware(next) : next;
+      const handler = pluginHandler(plugin, echoArgsHandler);
 
       const result = await handler(
-        makeCall("write_file", {
+        makeToolCall("write_file", {
           path: join("link", "note.txt"),
           content: "hi",
         }),
-        new AbortController().signal,
+        neverAbort(),
       );
       const args = JSON.parse(String(result.content)) as { path: string };
       // The path handed to write_file is already the resolved real-target
@@ -240,12 +206,10 @@ describe("pathEscapePlugin", () => {
 
     test("blocks escape in a nested object under a path-like key", async () => {
       const plugin = pathEscapePlugin("/project");
-      const handler = plugin.middleware
-        ? plugin.middleware(nextHandler)
-        : nextHandler;
+      const handler = pluginHandler(plugin, okHandler);
       const result = await handler(
-        makeCall("read_file", { options: { path: "../secret.txt" } }),
-        new AbortController().signal,
+        makeToolCall("read_file", { options: { path: "../secret.txt" } }),
+        neverAbort(),
       );
       expect(result.isError).toBe(true);
       expect(result.content).toMatch(/escapes working directory/);
@@ -254,10 +218,10 @@ describe("pathEscapePlugin", () => {
     test("resolves nested in-bounds paths instead of passing them through", async () => {
       const plugin = pathEscapePlugin("/project");
       const { next, seen } = captureNext();
-      const handler = plugin.middleware ? plugin.middleware(next) : next;
+      const handler = pluginHandler(plugin, next);
       const result = await handler(
-        makeCall("read_file", { options: { path: "src/index.ts" } }),
-        new AbortController().signal,
+        makeToolCall("read_file", { options: { path: "src/index.ts" } }),
+        neverAbort(),
       );
       expect(result.isError).not.toBe(true);
       expect(seen()).toEqual({
@@ -267,12 +231,10 @@ describe("pathEscapePlugin", () => {
 
     test("blocks escape via the filepath spelling", async () => {
       const plugin = pathEscapePlugin("/project");
-      const handler = plugin.middleware
-        ? plugin.middleware(nextHandler)
-        : nextHandler;
+      const handler = pluginHandler(plugin, okHandler);
       const result = await handler(
-        makeCall("read_file", { filepath: "../secret.txt" }),
-        new AbortController().signal,
+        makeToolCall("read_file", { filepath: "../secret.txt" }),
+        neverAbort(),
       );
       expect(result.isError).toBe(true);
       expect(result.content).toMatch(/escapes working directory/);
@@ -280,14 +242,12 @@ describe("pathEscapePlugin", () => {
 
     test("blocks escape in a string array under a path-like key", async () => {
       const plugin = pathEscapePlugin("/project");
-      const handler = plugin.middleware
-        ? plugin.middleware(nextHandler)
-        : nextHandler;
+      const handler = pluginHandler(plugin, okHandler);
       const result = await handler(
-        makeCall("read_file", {
+        makeToolCall("read_file", {
           paths: ["src/index.ts", "../secret.txt"],
         }),
-        new AbortController().signal,
+        neverAbort(),
       );
       expect(result.isError).toBe(true);
       expect(result.content).toMatch(/escapes working directory/);
@@ -323,10 +283,10 @@ describe("pathEscapePlugin", () => {
     test("nested non-path keys pass through untouched (allowlist policy)", async () => {
       const plugin = pathEscapePlugin("/project");
       const { next, seen } = captureNext();
-      const handler = plugin.middleware ? plugin.middleware(next) : next;
+      const handler = pluginHandler(plugin, next);
       const result = await handler(
-        makeCall("custom_tool", { options: { command: "../secret.txt" } }),
-        new AbortController().signal,
+        makeToolCall("custom_tool", { options: { command: "../secret.txt" } }),
+        neverAbort(),
       );
       expect(result.isError).not.toBe(true);
       expect(seen()).toEqual({ options: { command: "../secret.txt" } });
@@ -342,13 +302,11 @@ describe("pathEscapePlugin", () => {
 
     test("FILE_PATH and file-path match case- and separator-insensitively", async () => {
       const plugin = pathEscapePlugin("/project");
-      const handler = plugin.middleware
-        ? plugin.middleware(nextHandler)
-        : nextHandler;
+      const handler = pluginHandler(plugin, okHandler);
       for (const key of ["FILE_PATH", "file-path"]) {
         const result = await handler(
-          makeCall("read_file", { [key]: "../secret.txt" }),
-          new AbortController().signal,
+          makeToolCall("read_file", { [key]: "../secret.txt" }),
+          neverAbort(),
         );
         expect(result.isError).toBe(true);
         expect(result.content).toMatch(/escapes working directory/);
@@ -366,15 +324,15 @@ describe("pathEscapePlugin", () => {
     test("xpath, jsonpath, and classpath keys pass through untouched", async () => {
       const plugin = pathEscapePlugin("/project");
       const { next, seen } = captureNext();
-      const handler = plugin.middleware ? plugin.middleware(next) : next;
+      const handler = pluginHandler(plugin, next);
       const args = {
         xpath: "../../title",
         jsonpath: "$.store.book",
         classpath: "src/Main",
       };
       const result = await handler(
-        makeCall("custom_tool", args),
-        new AbortController().signal,
+        makeToolCall("custom_tool", args),
+        neverAbort(),
       );
       expect(result.isError).not.toBe(true);
       expect(seen()).toEqual(args);
@@ -417,15 +375,13 @@ describe("pathEscapePlugin", () => {
 
     test("middleware blocks a non-reader tool-output call with no rejector plugin", async () => {
       const plugin = pathEscapePlugin("/project");
-      const handler = plugin.middleware
-        ? plugin.middleware(nextHandler)
-        : nextHandler;
+      const handler = pluginHandler(plugin, okHandler);
       const result = await handler(
-        makeCall("grep", {
+        makeToolCall("grep", {
           pattern: "foo",
           path: "tool-output:///abc123",
         }),
-        new AbortController().signal,
+        neverAbort(),
       );
       expect(result.isError).toBe(true);
       expect(result.content).toMatch(/tool-output/);
@@ -441,14 +397,10 @@ describe("pathEscapePlugin", () => {
         ),
       ).toBeUndefined();
       const plugin = pathEscapePlugin("/project");
-      const next = async (call: ToolCall): Promise<ToolResult> => ({
-        callId: call.id,
-        content: JSON.stringify(call.arguments),
-      });
-      const handler = plugin.middleware ? plugin.middleware(next) : next;
+      const handler = pluginHandler(plugin, echoArgsHandler);
       const result = await handler(
-        makeCall("read_file", { path: "tool-output:///abc123" }),
-        new AbortController().signal,
+        makeToolCall("read_file", { path: "tool-output:///abc123" }),
+        neverAbort(),
       );
       expect(result.isError).not.toBe(true);
       const args = JSON.parse(String(result.content)) as { path: string };
@@ -475,15 +427,13 @@ describe("pathEscapePlugin", () => {
         ),
       ).toMatch(/archive/);
       const plugin = pathEscapePlugin("/project");
-      const handler = plugin.middleware
-        ? plugin.middleware(nextHandler)
-        : nextHandler;
+      const handler = pluginHandler(plugin, okHandler);
       const blocked = await handler(
-        makeCall("write_file", {
+        makeToolCall("write_file", {
           path: "archive:///occ-abc",
           content: "hi",
         }),
-        new AbortController().signal,
+        neverAbort(),
       );
       expect(blocked.isError).toBe(true);
     });
@@ -512,24 +462,22 @@ describe("pathEscapePlugin", () => {
       const plugin = pathEscapePlugin("/project", () => [], {
         allowOutside: true,
       });
-      const handler = plugin.middleware
-        ? plugin.middleware(nextHandler)
-        : nextHandler;
+      const handler = pluginHandler(plugin, okHandler);
       const spill = await handler(
-        makeCall("grep", {
+        makeToolCall("grep", {
           pattern: "foo",
           path: "tool-output:///abc123",
         }),
-        new AbortController().signal,
+        neverAbort(),
       );
       expect(spill.isError).toBe(true);
       expect(spill.content).toMatch(/tool-output/);
       const archive = await handler(
-        makeCall("write_file", {
+        makeToolCall("write_file", {
           path: "archive:///occ-abc",
           content: "hi",
         }),
-        new AbortController().signal,
+        neverAbort(),
       );
       expect(archive.isError).toBe(true);
       expect(archive.content).toMatch(/archive/);
@@ -547,14 +495,10 @@ describe("pathEscapePlugin", () => {
       const plugin = pathEscapePlugin(cwd, () => [], {
         trustedPluginRoots: () => [pluginDir],
       });
-      const next = async (call: ToolCall): Promise<ToolResult> => ({
-        callId: call.id,
-        content: JSON.stringify(call.arguments),
-      });
-      const handler = plugin.middleware ? plugin.middleware(next) : next;
+      const handler = pluginHandler(plugin, echoArgsHandler);
       const result = await handler(
-        makeCall("read_file", { path: target }),
-        new AbortController().signal,
+        makeToolCall("read_file", { path: target }),
+        neverAbort(),
       );
       expect(result.isError).not.toBe(true);
       const args = JSON.parse(String(result.content)) as { path: string };
@@ -585,12 +529,10 @@ describe("pathEscapePlugin", () => {
       const plugin = pathEscapePlugin(cwd, () => [], {
         trustedPluginRoots: () => [pluginDir],
       });
-      const handler = plugin.middleware
-        ? plugin.middleware(nextHandler)
-        : nextHandler;
+      const handler = pluginHandler(plugin, okHandler);
       const result = await handler(
-        makeCall("write_file", { path: target, content: "x" }),
-        new AbortController().signal,
+        makeToolCall("write_file", { path: target, content: "x" }),
+        neverAbort(),
       );
       expect(result.isError).toBe(true);
       expect(result.content).toMatch(/escapes working directory/);

@@ -27,12 +27,11 @@ async function surfacedWarning(globalSettingsPath: string): Promise<string> {
 }
 
 describe("saved skip-permissions startup warning", () => {
-  test("identifies a custom config path without false default provenance", async () => {
+  test("identifies a custom config path without the default-path /yolo hint", async () => {
     const warning = await surfacedWarning("/tmp/custom-corbits-settings.json");
 
     expect(warning).toContain("/tmp/custom-corbits-settings.json");
-    expect(warning).toContain("edit that file to re-enable");
-    expect(warning).not.toMatch(/machine-wide|saved default|\/yolo off/i);
+    expect(warning).not.toContain("/yolo off");
   });
 
   test("appends the /yolo off hint for the default settings path", async () => {
@@ -40,7 +39,6 @@ describe("saved skip-permissions startup warning", () => {
     const warning = await surfacedWarning(source);
 
     expect(warning).toContain(source);
-    expect(warning).toContain("edit that file to re-enable");
     expect(warning).toContain("/yolo off");
   });
 });

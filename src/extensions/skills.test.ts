@@ -139,34 +139,17 @@ describe("path-like skill refs", () => {
     await rm(pluginRoot, { recursive: true, force: true });
   });
 
-  test("resolves relative dir ref under pluginRoot", async () => {
-    const body = await resolveSkillBody(fixtureCwd, "./skills/style", [], {
-      pluginRoot,
-    });
-    expect(body).toBeDefined();
-    expect(body).toContain("Be clean and direct.");
-    expect(defined(body, "skill body").startsWith("---")).toBe(false);
-  });
-
-  test("resolves relative SKILL.md file ref under pluginRoot", async () => {
-    const body = await resolveSkillBody(
-      fixtureCwd,
+  test("resolves path-like refs under pluginRoot", async () => {
+    for (const ref of [
+      "./skills/style",
       "./skills/style/SKILL.md",
-      [],
-      {
-        pluginRoot,
-      },
-    );
-    expect(body).toBeDefined();
-    expect(body).toContain("Be clean and direct.");
-  });
-
-  test("resolves path containing slash without ./ prefix", async () => {
-    const body = await resolveSkillBody(fixtureCwd, "skills/style", [], {
-      pluginRoot,
-    });
-    expect(body).toBeDefined();
-    expect(body).toContain("Be clean and direct.");
+      "skills/style",
+    ]) {
+      const body = await resolveSkillBody(fixtureCwd, ref, [], { pluginRoot });
+      expect(body).toBeDefined();
+      expect(body).toContain("Be clean and direct.");
+      expect(defined(body, "skill body").startsWith("---")).toBe(false);
+    }
   });
 
   test("bare names still resolve via skillBaseDirs when pluginRoot is set", async () => {

@@ -41,53 +41,24 @@ describe("tool execution watchdog", () => {
     ).toBe(100);
   });
 
-  test("spawn_agent with no settings timeout is unbounded", () => {
-    expect(
-      resolveToolExecutionTimeoutMs(undefined, {
-        id: "1",
-        name: "spawn_agent",
-        arguments: {},
-      }),
-    ).toBeUndefined();
-  });
-
-  test("wait_agents with no settings timeout is unbounded", () => {
-    expect(
-      resolveToolExecutionTimeoutMs(undefined, {
-        id: "1",
-        name: "wait_agents",
-        arguments: {},
-      }),
-    ).toBeUndefined();
-  });
-
-  test("spawn_agent is exempt from the settings watchdog", () => {
-    // Dispatch returns immediately; the generic per-tool budget must not abort it.
-    const call = { id: "1", name: "spawn_agent", arguments: {} };
-    expect(
-      resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call),
-    ).toBeUndefined();
-    expect(
-      resolveToolExecutionTimeoutMs(
-        { defaultMs: 660_000, maxMs: 1_800_000 },
-        call,
-      ),
-    ).toBeUndefined();
-  });
-
-  test("wait_agents is exempt from the settings watchdog", () => {
-    // Collect can outlast settings.tools.timeoutMs while workers still run.
-    const call = { id: "1", name: "wait_agents", arguments: {} };
-    expect(
-      resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call),
-    ).toBeUndefined();
-    expect(
-      resolveToolExecutionTimeoutMs(
-        { defaultMs: 660_000, maxMs: 1_800_000 },
-        call,
-      ),
-    ).toBeUndefined();
-  });
+  // Dispatch returns immediately / collect can outlast tools.timeoutMs while
+  // workers still run: the generic per-tool budget must never arm on either.
+  test.each(["spawn_agent", "wait_agents"] as const)(
+    "%s is unbounded and exempt from the settings watchdog",
+    (name) => {
+      const call = { id: "1", name, arguments: {} };
+      expect(resolveToolExecutionTimeoutMs(undefined, call)).toBeUndefined();
+      expect(
+        resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call),
+      ).toBeUndefined();
+      expect(
+        resolveToolExecutionTimeoutMs(
+          { defaultMs: 660_000, maxMs: 1_800_000 },
+          call,
+        ),
+      ).toBeUndefined();
+    },
+  );
 
   test("background run_shell start is exempt; foreground arms requested+slack", () => {
     const background = {
@@ -119,20 +90,11 @@ describe("tool execution watchdog", () => {
     ).toBeUndefined();
   });
 
-  test("ask_director with no settings timeout is unbounded", () => {
-    expect(
-      resolveToolExecutionTimeoutMs(undefined, {
-        id: "1",
-        name: "ask_director",
-        arguments: {},
-      }),
-    ).toBeUndefined();
-  });
-
-  test("ask_director is exempt from the settings watchdog", () => {
+  test("ask_director is unbounded and exempt from the settings watchdog", () => {
     // Awaiting the director can outlast settings.tools.timeoutMs; aborting
     // would cancel the pending ask so later send_input steers instead of answering.
     const call = { id: "1", name: "ask_director", arguments: {} };
+    expect(resolveToolExecutionTimeoutMs(undefined, call)).toBeUndefined();
     expect(
       resolveToolExecutionTimeoutMs({ defaultMs: 660_000 }, call),
     ).toBeUndefined();
@@ -377,7 +339,6 @@ describe("tool execution watchdog", () => {
     expect(result.content).toContain(
       "mcp__linear__get_issue timed out after 0s",
     );
-    expect(result.content).toContain("the server may be wedged");
   }, 10_000);
 
   test("concurrent mcp tool calls each time out independently", async () => {

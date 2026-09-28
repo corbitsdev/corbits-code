@@ -6,7 +6,6 @@ import {
   OTEL_CONFIG_INVALID,
   OTEL_ENV,
   OtelConfigError,
-  isOtelConfigInvalid,
   otelConfigForDump,
   parseOtelKeyValueList,
   requireOtelExportConfig,
@@ -49,17 +48,14 @@ describe("parseOtelKeyValueList", () => {
 });
 
 describe("resolveOtelExportConfig", () => {
-  test("disabled when nothing is configured", () => {
-    const result = resolveOtelExportConfig(baseSettings(), {});
-    expect(result).toEqual({ ok: true, config: { enabled: false } });
-  });
-
-  test("disabled when only service name is set", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({ serviceName: "demo" }),
-      {},
-    );
-    expect(result).toEqual({ ok: true, config: { enabled: false } });
+  test("disabled without an endpoint, even when a service name is set", () => {
+    expect(resolveOtelExportConfig(baseSettings(), {})).toEqual({
+      ok: true,
+      config: { enabled: false },
+    });
+    expect(
+      resolveOtelExportConfig(baseSettings({ serviceName: "demo" }), {}),
+    ).toEqual({ ok: true, config: { enabled: false } });
   });
 
   test("settings endpoint enables export with defaults", () => {
@@ -133,98 +129,71 @@ describe("resolveOtelExportConfig", () => {
     }
   });
 
-  test("service name: env > settings > attrs > default", () => {
-    const fromSettings = resolveOtelExportConfig(
-      baseSettings({
-        endpoint: "https://c.example",
-        serviceName: "from-settings",
-      }),
-      {},
-    );
-    expect(
-      fromSettings.ok &&
-        fromSettings.config.enabled &&
-        fromSettings.config.serviceName,
-    ).toBe("from-settings");
-
-    const fromEnv = resolveOtelExportConfig(
-      baseSettings({
-        endpoint: "https://c.example",
-        serviceName: "from-settings",
-      }),
-      { [OTEL_ENV.serviceName]: "from-env" },
-    );
-    expect(
-      fromEnv.ok && fromEnv.config.enabled && fromEnv.config.serviceName,
-    ).toBe("from-env");
-  });
-
-  test("service.name: attrs used when env and settings serviceName unset", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({
-        endpoint: "https://c.example",
-        resourceAttributes: { "service.name": "from-attrs" },
-      }),
-      {},
-    );
-    expect(result.ok).toBe(true);
-    if (result.ok && result.config.enabled) {
-      expect(result.config.serviceName).toBe("from-attrs");
-      expect(result.config.resourceAttributes["service.name"]).toBe(
-        "from-attrs",
-      );
-    }
-  });
-
-  test("service.name: env wins over settings and attrs, always synced to attrs", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({
-        endpoint: "https://c.example",
-        serviceName: "from-settings",
-        resourceAttributes: { "service.name": "from-attrs" },
-      }),
-      { [OTEL_ENV.serviceName]: "from-env" },
-    );
-    expect(result.ok).toBe(true);
-    if (result.ok && result.config.enabled) {
-      expect(result.config.serviceName).toBe("from-env");
-      expect(result.config.resourceAttributes["service.name"]).toBe("from-env");
-    }
-  });
-
-  test("service.name: settings wins over attrs, always synced to attrs", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({
-        endpoint: "https://c.example",
-        serviceName: "from-settings",
-        resourceAttributes: { "service.name": "from-attrs" },
-      }),
-      {},
-    );
-    expect(result.ok).toBe(true);
-    if (result.ok && result.config.enabled) {
-      expect(result.config.serviceName).toBe("from-settings");
-      expect(result.config.resourceAttributes["service.name"]).toBe(
-        "from-settings",
-      );
-    }
-  });
-
-  test("service.name: env OTEL_RESOURCE_ATTRIBUTES service.name used when no env/settings name", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({ endpoint: "https://c.example" }),
+  test("service name precedence: env > settings > attrs, synced to attrs", () => {
+    const cases: {
+      otel: Settings["otel"];
+      env: Record<string, string>;
+      serviceName: string;
+      extraAttrs?: Record<string, string>;
+    }[] = [
       {
-        [OTEL_ENV.resourceAttributes]:
-          "service.name=from-env-attrs,team=corbits",
+        otel: { endpoint: "https://c.example", serviceName: "from-settings" },
+        env: {},
+        serviceName: "from-settings",
       },
-    );
-    expect(result.ok).toBe(true);
-    if (result.ok && result.config.enabled) {
-      expect(result.config.serviceName).toBe("from-env-attrs");
-      expect(result.config.resourceAttributes["service.name"]).toBe(
-        "from-env-attrs",
-      );
-      expect(result.config.resourceAttributes.team).toBe("corbits");
+      {
+        otel: { endpoint: "https://c.example", serviceName: "from-settings" },
+        env: { [OTEL_ENV.serviceName]: "from-env" },
+        serviceName: "from-env",
+      },
+      {
+        otel: {
+          endpoint: "https://c.example",
+          resourceAttributes: { "service.name": "from-attrs" },
+        },
+        env: {},
+        serviceName: "from-attrs",
+      },
+      {
+        otel: {
+          endpoint: "https://c.example",
+          serviceName: "from-settings",
+          resourceAttributes: { "service.name": "from-attrs" },
+        },
+        env: { [OTEL_ENV.serviceName]: "from-env" },
+        serviceName: "from-env",
+      },
+      {
+        otel: {
+          endpoint: "https://c.example",
+          serviceName: "from-settings",
+          resourceAttributes: { "service.name": "from-attrs" },
+        },
+        env: {},
+        serviceName: "from-settings",
+      },
+      {
+        otel: { endpoint: "https://c.example" },
+        env: {
+          [OTEL_ENV.resourceAttributes]:
+            "service.name=from-env-attrs,team=corbits",
+        },
+        serviceName: "from-env-attrs",
+        extraAttrs: { team: "corbits" },
+      },
+    ];
+    for (const { otel, env, serviceName, extraAttrs } of cases) {
+      const result = resolveOtelExportConfig(baseSettings(otel), env);
+      expect(result.ok).toBe(true);
+      if (result.ok && result.config.enabled) {
+        expect(result.config.serviceName).toBe(serviceName);
+        expect(result.config.resourceAttributes["service.name"]).toBe(
+          serviceName,
+        );
+        for (const [key, value] of Object.entries(extraAttrs ?? {})) {
+          expect(result.config.resourceAttributes[key]).toBe(value);
+        }
+      }
     }
   });
 
@@ -270,81 +239,46 @@ describe("resolveOtelExportConfig", () => {
     }
   });
 
-  test("fail closed: invalid endpoint URL", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({ endpoint: "not a url" }),
-      {},
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe(OTEL_CONFIG_INVALID);
-      expect(result.message).toContain("not a valid URL");
-    }
-  });
-
-  test("fail closed: non-http protocol", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({ endpoint: "ftp://collector.example" }),
-      {},
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.message).toContain("http or https");
-    }
-  });
-
-  test("fail closed: credentials embedded in endpoint", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({ endpoint: "https://user:pass@collector.example" }),
-      {},
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.message).toContain("must not embed credentials");
-    }
-  });
-
-  test("fail closed: headers without endpoint", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({ headers: { Authorization: "Bearer x" } }),
-      {},
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe(OTEL_CONFIG_INVALID);
-      expect(result.message).toContain("no endpoint");
-    }
-  });
-
-  test("fail closed: enabled true without endpoint", () => {
-    const result = resolveOtelExportConfig(baseSettings({ enabled: true }), {});
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.message).toContain("enabled but no endpoint");
-    }
-  });
-
-  test("fail closed: malformed env headers", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({ endpoint: "https://c.example" }),
+  test("fail closed on invalid config", () => {
+    const cases: {
+      otel: Settings["otel"];
+      env?: Record<string, string>;
+      message?: string;
+    }[] = [
+      { otel: { endpoint: "not a url" }, message: "not a valid URL" },
       {
-        [OTEL_ENV.headers]: "bad",
+        otel: { endpoint: "ftp://collector.example" },
+        message: "http or https",
       },
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.message).toContain(OTEL_ENV.headers);
-    }
-  });
-
-  test("fail closed: malformed env resource attributes", () => {
-    const result = resolveOtelExportConfig(
-      baseSettings({ endpoint: "https://c.example" }),
       {
-        [OTEL_ENV.resourceAttributes]: "=novalue",
+        otel: { endpoint: "https://user:pass@collector.example" },
+        message: "must not embed credentials",
       },
-    );
-    expect(isOtelConfigInvalid(result)).toBe(true);
+      {
+        otel: { headers: { Authorization: "Bearer x" } },
+        message: "no endpoint",
+      },
+      { otel: { enabled: true }, message: "enabled but no endpoint" },
+      {
+        otel: { endpoint: "https://c.example" },
+        env: { [OTEL_ENV.headers]: "bad" },
+        message: OTEL_ENV.headers,
+      },
+      {
+        otel: { endpoint: "https://c.example" },
+        env: { [OTEL_ENV.resourceAttributes]: "=novalue" },
+      },
+    ];
+    for (const { otel, env, message } of cases) {
+      const result = resolveOtelExportConfig(baseSettings(otel), env ?? {});
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe(OTEL_CONFIG_INVALID);
+        if (message !== undefined) {
+          expect(result.message).toContain(message);
+        }
+      }
+    }
   });
 });
 

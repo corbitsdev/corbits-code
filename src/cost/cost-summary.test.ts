@@ -193,28 +193,19 @@ describe("formatStatusBarSegments", () => {
 });
 
 describe("formatCostCommandOutput", () => {
-  it("reports the reason cost is hidden for a free model", () => {
-    const summary = buildCostSummary({ ...baseInput, modelId: "qwen3:free" });
-    expect(formatCostCommandOutput(summary)).toContain(
-      "Cost: hidden (free model)",
-    );
-  });
-
-  it("reports the reason cost is hidden for a coding-plan endpoint", () => {
-    const summary = buildCostSummary({
-      ...baseInput,
-      baseURL: "https://api.z.ai/api/coding/paas/v4",
-    });
-    expect(formatCostCommandOutput(summary)).toContain(
-      "Cost: hidden (coding-plan endpoint)",
-    );
-  });
-
-  it("reports the reason cost is hidden for a provider marked free", () => {
-    const summary = buildCostSummary({ ...baseInput, providerFree: true });
-    expect(formatCostCommandOutput(summary)).toContain(
-      "Cost: hidden (provider marked free)",
-    );
+  it("reports the reason cost is hidden", () => {
+    const cases: [Partial<CostSummaryInput>, string][] = [
+      [{ modelId: "qwen3:free" }, "Cost: hidden (free model)"],
+      [
+        { baseURL: "https://api.z.ai/api/coding/paas/v4" },
+        "Cost: hidden (coding-plan endpoint)",
+      ],
+      [{ providerFree: true }, "Cost: hidden (provider marked free)"],
+    ];
+    for (const [overrides, expected] of cases) {
+      const summary = buildCostSummary({ ...baseInput, ...overrides });
+      expect(formatCostCommandOutput(summary)).toContain(expected);
+    }
   });
 
   it("prints unknown for a non-positive context window", () => {

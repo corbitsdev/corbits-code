@@ -150,13 +150,10 @@ describe("parseModelsDevPricing", () => {
     expect(result["incomplete"]).toBeUndefined();
   });
 
-  test("returns empty object for non-object input", () => {
+  test("returns empty object for input with no model entries", () => {
     expect(parseModelsDevPricing(null)).toEqual({});
     expect(parseModelsDevPricing("string")).toEqual({});
     expect(parseModelsDevPricing(42)).toEqual({});
-  });
-
-  test("returns empty object for empty object input", () => {
     expect(parseModelsDevPricing({})).toEqual({});
   });
 });

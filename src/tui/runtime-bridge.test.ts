@@ -6,7 +6,6 @@ import { defined } from "../testkit/defined.js";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { buildShellBackgroundMessage } from "../session/runtime-assembly.js";
 import {
-  FIXTURE_BUSY_SESSION,
   attachSessionBridge,
   createRecordingPort,
   mapReactorLike,
@@ -181,30 +180,6 @@ describe("attachSessionBridge", () => {
           (r) => r.role === "system" && r.text === message.content,
         ),
       ).toHaveLength(1);
-    });
-  });
-
-  test("fixture paints user / assistant / tool through shell", async () => {
-    await withBridge({ run: "idle" }, async ({ h, shell, bridge }) => {
-      bridge.play(FIXTURE_BUSY_SESSION);
-      // Assistant rows are markdown; their blocks highlight asynchronously,
-      // so poll for the painted body instead of a fixed wait.
-      const deadline = Date.now() + 2_000;
-      let frame = "";
-      for (;;) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        await h.renderOnce();
-        frame = h.captureCharFrame();
-        if (
-          frame.includes("I'll list the directory.") ||
-          Date.now() >= deadline
-        )
-          break;
-      }
-      // Sticky follows the tail; early user line may scroll off.
-      expect(shell.lineCount).toBeGreaterThanOrEqual(3);
-      expect(frame).not.toContain("AGENTS.md");
-      expect(shell.session.run).toBe("idle");
     });
   });
 
@@ -484,34 +459,6 @@ describe("attachSessionBridge", () => {
       expect(port.calls).toEqual([
         { op: "sendImmediate", text: "are you still there" },
       ]);
-    });
-  });
-
-  test("run returns to idle between two consecutive turns, not only at reactor shutdown", async () => {
-    // CL-5570: `run` must flip back to idle at every turn boundary
-    // (`inference.done`), so a second Enter after the first reply sends
-    // immediately instead of routing through the queue. reactor.done is
-    // shutdown, not a turn boundary, and never fires between turns.
-    await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
-      bridge.submit("first turn", "immediate");
-      expect(shell.session.run).toBe("busy");
-      bridge.handle({ type: "inference.start" });
-      bridge.handle({
-        type: "inference.text.delta",
-        data: { token: "hi" },
-      });
-      bridge.handle({ type: "inference.done" });
-      expect(shell.session.run).toBe("idle");
-
-      bridge.submit("second turn", "immediate");
-      expect(shell.session.run).toBe("busy");
-      bridge.handle({ type: "inference.start" });
-      bridge.handle({
-        type: "inference.text.delta",
-        data: { token: "hi again" },
-      });
-      bridge.handle({ type: "inference.done" });
-      expect(shell.session.run).toBe("idle");
     });
   });
 

@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { Config, UnconfiguredConfig } from "../config/index.js";
-import type { ProviderSetupConfig } from "./provider/types.js";
+import type {
+  ProviderFormValues,
+  ProviderSetupConfig,
+  SubmitOpts,
+} from "./provider/types.js";
 import type { WelcomeConfig } from "./welcome.js";
 import { withMockedModule } from "../testkit/mock-module.js";
+import { createTempDirs } from "../testkit/temporary-dirs.js";
 
 let testHome = "";
 let setup: (config: ProviderSetupConfig) => Promise<void> = async () =>
@@ -75,6 +79,29 @@ async function unconfiguredConfig(
   return config;
 }
 
+const CUSTOM_PROVIDER: ProviderFormValues = {
+  name: "custom",
+  baseURL: "https://provider.example.com/v1",
+  apiKey: "test-key",
+  model: "test-model",
+  oauthProfile: "",
+};
+
+const ISOLATED_PROVIDER: ProviderFormValues = {
+  name: "isolated",
+  baseURL: "https://isolated.example.com/v1",
+  apiKey: "isolated-key",
+  model: "isolated-model",
+  oauthProfile: "",
+};
+
+/** Stub the setup flow to submit one provider form, validation skipped. */
+function setupSubmits(values: ProviderFormValues, opts?: SubmitOpts): void {
+  setup = async ({ onSubmit }) => {
+    await onSubmit(values, () => undefined, opts ?? { skipValidation: true });
+  };
+}
+
 async function writeXAIAuthProfile(
   home: string,
   profile: string,
@@ -107,33 +134,20 @@ afterEach(() => {
 
 describe("runOnboarding welcome gate", () => {
   test("fresh user sees welcome before provider setup and marks onboarded", async () => {
-    testHome = await mkdtemp(
-      join(tmpdir(), "corbits-onboarding-welcome-home-"),
+    const dirs = createTempDirs(
+      "corbits-onboarding-welcome-cwd-",
+      "corbits-onboarding-welcome-home-",
     );
-    const cwd = await mkdtemp(
-      join(tmpdir(), "corbits-onboarding-welcome-cwd-"),
-    );
+    testHome = dirs.home;
     const configPath = join(testHome, ".corbits", "settings.json");
     try {
       await mkdir(join(testHome, ".corbits"), { recursive: true });
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, {
+      const config = await unconfiguredConfig(dirs.cwd, {
         programmaticConfigPath: configPath,
       });
 
-      setup = async ({ onSubmit }) => {
-        await onSubmit(
-          {
-            name: "custom",
-            baseURL: "https://provider.example.com/v1",
-            apiKey: "test-key",
-            model: "test-model",
-            oauthProfile: "",
-          },
-          () => undefined,
-          { skipValidation: true },
-        );
-      };
+      setupSubmits(CUSTOM_PROVIDER);
 
       expect(await runOnboarding(config)).toBe(0);
       expect(callOrder).toEqual(["welcome", "setup"]);
@@ -143,14 +157,16 @@ describe("runOnboarding welcome gate", () => {
       };
       expect(persisted.onboarded).toBe(true);
     } finally {
-      await rm(testHome, { recursive: true, force: true });
-      await rm(cwd, { recursive: true, force: true });
+      dirs.cleanup();
     }
   });
 
   test("already-onboarded skips welcome and opens setup directly", async () => {
-    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-skip-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-skip-cwd-"));
+    const dirs = createTempDirs(
+      "corbits-onboarding-skip-cwd-",
+      "corbits-onboarding-skip-home-",
+    );
+    testHome = dirs.home;
     const configPath = join(testHome, ".corbits", "settings.json");
     try {
       await mkdir(join(testHome, ".corbits"), { recursive: true });
@@ -158,40 +174,30 @@ describe("runOnboarding welcome gate", () => {
         configPath,
         JSON.stringify({ providers: {}, onboarded: true }),
       );
-      const config = await unconfiguredConfig(cwd, {
+      const config = await unconfiguredConfig(dirs.cwd, {
         programmaticConfigPath: configPath,
       });
 
-      setup = async ({ onSubmit }) => {
-        await onSubmit(
-          {
-            name: "custom",
-            baseURL: "https://provider.example.com/v1",
-            apiKey: "test-key",
-            model: "test-model",
-            oauthProfile: "",
-          },
-          () => undefined,
-          { skipValidation: true },
-        );
-      };
+      setupSubmits(CUSTOM_PROVIDER);
 
       expect(await runOnboarding(config)).toBe(0);
       expect(callOrder).toEqual(["setup"]);
     } finally {
-      await rm(testHome, { recursive: true, force: true });
-      await rm(cwd, { recursive: true, force: true });
+      dirs.cleanup();
     }
   });
 
   test("cancelled welcome does not mark onboarded or open setup", async () => {
-    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-cancel-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-cancel-cwd-"));
+    const dirs = createTempDirs(
+      "corbits-onboarding-cancel-cwd-",
+      "corbits-onboarding-cancel-home-",
+    );
+    testHome = dirs.home;
     const configPath = join(testHome, ".corbits", "settings.json");
     try {
       await mkdir(join(testHome, ".corbits"), { recursive: true });
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, {
+      const config = await unconfiguredConfig(dirs.cwd, {
         programmaticConfigPath: configPath,
       });
 
@@ -205,48 +211,47 @@ describe("runOnboarding welcome gate", () => {
       };
       expect(persisted.onboarded).toBeUndefined();
     } finally {
-      await rm(testHome, { recursive: true, force: true });
-      await rm(cwd, { recursive: true, force: true });
+      dirs.cleanup();
     }
   });
 });
 
 describe("runOnboarding settings source", () => {
   test("reloads CLI --config with the selected OAuth profile projection", async () => {
-    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-oauth-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-oauth-cwd-"));
-    const configPath = join(cwd, "custom-settings.json");
+    const dirs = createTempDirs(
+      "corbits-onboarding-oauth-cwd-",
+      "corbits-onboarding-oauth-home-",
+    );
+    testHome = dirs.home;
+    const configPath = join(dirs.cwd, "custom-settings.json");
     try {
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, {
+      const config = await unconfiguredConfig(dirs.cwd, {
         cliConfigPath: configPath,
       });
 
-      setup = async ({ onSubmit }) => {
-        await onSubmit(
-          {
-            name: "xai/work",
-            baseURL: "https://api.x.ai/v1",
-            apiKey: "",
-            model: "grok-4",
-            oauthProfile: "work",
-          },
-          () => undefined,
-          {
-            skipValidation: true,
-            oauth: {
-              kind: "xai",
-              providerName: "xai/work",
-              tokens: {
-                access: "work-access-token",
-                refresh: "work-refresh-token",
-                expiresAt: 0,
-              },
-              commit: () => writeXAIAuthProfile(testHome, "work"),
+      setupSubmits(
+        {
+          name: "xai/work",
+          baseURL: "https://api.x.ai/v1",
+          apiKey: "",
+          model: "grok-4",
+          oauthProfile: "work",
+        },
+        {
+          skipValidation: true,
+          oauth: {
+            kind: "xai",
+            providerName: "xai/work",
+            tokens: {
+              access: "work-access-token",
+              refresh: "work-refresh-token",
+              expiresAt: 0,
             },
+            commit: () => writeXAIAuthProfile(testHome, "work"),
           },
-        );
-      };
+        },
+      );
 
       expect(await runOnboarding(config)).toBe(0);
       expect(tuiConfig?.providerName).toBe("xai/work");
@@ -270,34 +275,24 @@ describe("runOnboarding settings source", () => {
       });
       expect(JSON.stringify(persisted)).not.toContain("apiKey");
     } finally {
-      await rm(testHome, { recursive: true, force: true });
-      await rm(cwd, { recursive: true, force: true });
+      dirs.cleanup();
     }
   });
 
   test("keeps API-key onboarding writes and reloads on CLI --config", async () => {
-    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-key-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-key-cwd-"));
-    const configPath = join(cwd, "custom-settings.json");
+    const dirs = createTempDirs(
+      "corbits-onboarding-key-cwd-",
+      "corbits-onboarding-key-home-",
+    );
+    testHome = dirs.home;
+    const configPath = join(dirs.cwd, "custom-settings.json");
     try {
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, {
+      const config = await unconfiguredConfig(dirs.cwd, {
         cliConfigPath: configPath,
       });
 
-      setup = async ({ onSubmit }) => {
-        await onSubmit(
-          {
-            name: "custom",
-            baseURL: "https://provider.example.com/v1",
-            apiKey: "test-key",
-            model: "test-model",
-            oauthProfile: "",
-          },
-          () => undefined,
-          { skipValidation: true },
-        );
-      };
+      setupSubmits(CUSTOM_PROVIDER);
 
       expect(await runOnboarding(config)).toBe(0);
       expect(tuiConfig?.providerName).toBe("custom");
@@ -309,16 +304,18 @@ describe("runOnboarding settings source", () => {
       };
       expect(persisted.providers).toHaveProperty("custom");
     } finally {
-      await rm(testHome, { recursive: true, force: true });
-      await rm(cwd, { recursive: true, force: true });
+      dirs.cleanup();
     }
   });
 
   test("keeps OAuth profiles isolated when CLI and programmatic paths are both supplied", async () => {
-    testHome = await mkdtemp(join(tmpdir(), "corbits-onboarding-both-home-"));
-    const cwd = await mkdtemp(join(tmpdir(), "corbits-onboarding-both-cwd-"));
-    const cliConfigPath = join(cwd, "cli-settings.json");
-    const programmaticConfigPath = join(cwd, "programmatic-settings.json");
+    const dirs = createTempDirs(
+      "corbits-onboarding-both-cwd-",
+      "corbits-onboarding-both-home-",
+    );
+    testHome = dirs.home;
+    const cliConfigPath = join(dirs.cwd, "cli-settings.json");
+    const programmaticConfigPath = join(dirs.cwd, "programmatic-settings.json");
     try {
       await writeXAIAuthProfile(testHome, "hidden");
       await writeFile(cliConfigPath, JSON.stringify({ providers: {} }));
@@ -326,26 +323,14 @@ describe("runOnboarding settings source", () => {
         programmaticConfigPath,
         JSON.stringify({ providers: {} }),
       );
-      const config = await unconfiguredConfig(cwd, {
+      const config = await unconfiguredConfig(dirs.cwd, {
         cliConfigPath,
         programmaticConfigPath,
       });
       expect(config.cliConfigPath).toBe(cliConfigPath);
       expect(config.programmaticSettingsPath).toBe(true);
 
-      setup = async ({ onSubmit }) => {
-        await onSubmit(
-          {
-            name: "isolated",
-            baseURL: "https://isolated.example.com/v1",
-            apiKey: "isolated-key",
-            model: "isolated-model",
-            oauthProfile: "",
-          },
-          () => undefined,
-          { skipValidation: true },
-        );
-      };
+      setupSubmits(ISOLATED_PROVIDER);
 
       expect(await runOnboarding(config)).toBe(0);
       expect(tuiConfig?.providerName).toBe("isolated");
@@ -354,39 +339,25 @@ describe("runOnboarding settings source", () => {
       ]);
       expect(tuiConfig?.globalSettingsPath).toBe(cliConfigPath);
     } finally {
-      await rm(testHome, { recursive: true, force: true });
-      await rm(cwd, { recursive: true, force: true });
+      dirs.cleanup();
     }
   });
 
   test("keeps a default-path programmatic override isolated after reload", async () => {
-    testHome = await mkdtemp(
-      join(tmpdir(), "corbits-onboarding-isolated-home-"),
+    const dirs = createTempDirs(
+      "corbits-onboarding-isolated-cwd-",
+      "corbits-onboarding-isolated-home-",
     );
-    const cwd = await mkdtemp(
-      join(tmpdir(), "corbits-onboarding-isolated-cwd-"),
-    );
+    testHome = dirs.home;
     const configPath = join(testHome, ".corbits", "settings.json");
     try {
       await writeXAIAuthProfile(testHome, "hidden");
       await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const config = await unconfiguredConfig(cwd, {
+      const config = await unconfiguredConfig(dirs.cwd, {
         programmaticConfigPath: configPath,
       });
 
-      setup = async ({ onSubmit }) => {
-        await onSubmit(
-          {
-            name: "isolated",
-            baseURL: "https://isolated.example.com/v1",
-            apiKey: "isolated-key",
-            model: "isolated-model",
-            oauthProfile: "",
-          },
-          () => undefined,
-          { skipValidation: true },
-        );
-      };
+      setupSubmits(ISOLATED_PROVIDER);
 
       expect(await runOnboarding(config)).toBe(0);
       expect(tuiConfig?.providerName).toBe("isolated");
@@ -395,8 +366,7 @@ describe("runOnboarding settings source", () => {
       ]);
       expect(tuiConfig?.globalSettingsPath).toBe(configPath);
     } finally {
-      await rm(testHome, { recursive: true, force: true });
-      await rm(cwd, { recursive: true, force: true });
+      dirs.cleanup();
     }
   });
 });

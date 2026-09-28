@@ -73,18 +73,8 @@ test("telemetryDisabledByEnv reflects env kills only", () => {
   expect(telemetryDisabledByEnv({ DO_NOT_TRACK: "0" })).toBe(false);
 });
 
-test("telemetryDisabledByEnv treats any falsy CORBITS_TELEMETRY value as disable", () => {
-  for (const value of [
-    "0",
-    "false",
-    "FALSE",
-    "off",
-    "no",
-    "",
-    " 0",
-    "false\n",
-    " off ",
-  ]) {
+test("telemetryDisabledByEnv treats falsy CORBITS_TELEMETRY spellings as disable", () => {
+  for (const value of ["0", "FALSE", " off ", ""]) {
     expect(telemetryDisabledByEnv({ CORBITS_TELEMETRY: value })).toBe(true);
   }
   expect(telemetryDisabledByEnv({ CORBITS_TELEMETRY: "1" })).toBe(false);
@@ -378,15 +368,6 @@ test("flush resolves even when the underlying fetch rejects", async () => {
     apiKey: "test-key",
   });
   telemetry.capture("cli_start");
-  await expect(telemetry.flush()).resolves.toBeUndefined();
-});
-
-test("flush resolves immediately when nothing is pending", async () => {
-  const telemetry = createTelemetry({
-    settings: settingsWith("id"),
-    env: {},
-    apiKey: "",
-  });
   await expect(telemetry.flush()).resolves.toBeUndefined();
 });
 

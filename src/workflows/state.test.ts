@@ -51,43 +51,28 @@ describe("workflow state persistence", () => {
     expect(await loadWorkflowState(cwd, "nope", home)).toBeNull();
   });
 
-  test("loadWorkflowState with truncated JSON returns null instead of throwing", async () => {
-    const dir = sessionDir(cwd, SESSION_ID, home);
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "workflow.json"),
+  test("loadWorkflowState returns null instead of throwing on malformed files", async () => {
+    const malformed: string[] = [
+      // truncated JSON
       '{ "completed": false, "stack": [',
-    );
-
-    expect(await loadWorkflowState(cwd, SESSION_ID, home)).toBeNull();
-  });
-
-  test("loadWorkflowState rejects invalid stepIndex values", async () => {
-    const dir = sessionDir(cwd, SESSION_ID, home);
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "workflow.json"),
+      // invalid stepIndex
       JSON.stringify({
         completed: false,
         stack: [{ workflow: "review", stepIndex: 1.5, statuses: ["active"] }],
       }),
-    );
-
-    expect(await loadWorkflowState(cwd, SESSION_ID, home)).toBeNull();
-  });
-
-  test("loadWorkflowState rejects unknown step statuses", async () => {
-    const dir = sessionDir(cwd, SESSION_ID, home);
-    await mkdir(dir, { recursive: true });
-    await writeFile(
-      join(dir, "workflow.json"),
+      // unknown step status
       JSON.stringify({
         completed: false,
         stack: [{ workflow: "review", stepIndex: 0, statuses: ["running"] }],
       }),
-    );
-
-    expect(await loadWorkflowState(cwd, SESSION_ID, home)).toBeNull();
+    ];
+    for (const raw of malformed) {
+      const dir = sessionDir(cwd, SESSION_ID, home);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "workflow.json"), raw);
+      expect(await loadWorkflowState(cwd, SESSION_ID, home)).toBeNull();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("saveWorkflowState leaves no .tmp file after successful write", async () => {

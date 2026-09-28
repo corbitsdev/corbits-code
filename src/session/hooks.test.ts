@@ -343,21 +343,6 @@ test("createRunSummary derives duration and carries accumulated turn data", () =
   expect(summary.error).toBeUndefined();
 });
 
-test("createRunSummary supports cancelled runs", () => {
-  const summary = createRunSummary({
-    task: "do work",
-    status: "cancelled",
-    startedAt: 100,
-    finishedAt: 175,
-    turnsUsed: 1,
-    tokenUsage: usage,
-    turns: [],
-    toolCallCount: 3,
-  });
-
-  expect(summary.status).toBe("cancelled");
-});
-
 test("createLifecycleHookManager executes TypeScript hooks and reports status", async () => {
   const dir = await mkdtemp(join(tmpdir(), "interchange-hooks-"));
   const outputPath = join(dir, "output.json");

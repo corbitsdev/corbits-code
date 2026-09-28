@@ -584,29 +584,25 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  test("the model picker footer advertises Alt+D when onSetDefault is wired", async () => {
-    const { harness, host } = await mountPicker({
-      onSetDefault: () => undefined,
-    });
+  test("the model picker footer advertises Alt+D iff onSetDefault is wired", async () => {
+    const wired = await mountPicker({ onSetDefault: () => undefined });
     try {
-      host.openModels?.();
-      await harness.renderOnce();
-      expect(harness.captureCharFrame()).toContain("Alt+D");
+      wired.host.openModels?.();
+      await wired.harness.renderOnce();
+      expect(wired.harness.captureCharFrame()).toContain("Alt+D");
     } finally {
-      host.dispose();
-      harness.destroy();
+      wired.host.dispose();
+      wired.harness.destroy();
     }
-  });
 
-  test("the model picker footer does not advertise Alt+D when onSetDefault is omitted", async () => {
-    const { harness, host } = await mountPicker();
+    const unwired = await mountPicker();
     try {
-      host.openModels?.();
-      await harness.renderOnce();
-      expect(harness.captureCharFrame()).not.toContain("Alt+D");
+      unwired.host.openModels?.();
+      await unwired.harness.renderOnce();
+      expect(unwired.harness.captureCharFrame()).not.toContain("Alt+D");
     } finally {
-      host.dispose();
-      harness.destroy();
+      unwired.host.dispose();
+      unwired.harness.destroy();
     }
   });
 
@@ -617,24 +613,34 @@ describe("flat type-to-filter model picker", () => {
     option: true,
   } as KeyEvent;
 
-  test("the model picker footer advertises Alt+A and /connect", async () => {
-    const { harness, host } = await mountPicker({
-      // The hint requires the full wiring — choices AND the connect handler —
-      // because that is exactly when the key actually works.
+  test("the model picker footer advertises Alt+A and /connect iff add-provider is wired", async () => {
+    // The hint requires the full wiring — choices AND the connect handler —
+    // because that is exactly when the key actually works.
+    const wired = await mountPicker({
       onConnectProvider: () => undefined,
       addProviderChoices: () => [
         { id: "codex", label: "Codex", hint: "", accountCount: 0 },
       ],
     });
     try {
-      host.openModels?.();
-      await harness.renderOnce();
-      const frame = harness.captureCharFrame();
+      wired.host.openModels?.();
+      await wired.harness.renderOnce();
+      const frame = wired.harness.captureCharFrame();
       expect(frame).toContain("Alt+A");
       expect(frame).toContain("/connect");
     } finally {
-      host.dispose();
-      harness.destroy();
+      wired.host.dispose();
+      wired.harness.destroy();
+    }
+
+    const unwired = await mountPicker();
+    try {
+      unwired.host.openModels?.();
+      await unwired.harness.renderOnce();
+      expect(unwired.harness.captureCharFrame()).not.toContain("Alt+A");
+    } finally {
+      unwired.host.dispose();
+      unwired.harness.destroy();
     }
   });
 
@@ -928,20 +934,6 @@ describe("flat type-to-filter model picker", () => {
       await harness.renderOnce();
       expect(runOverlayAction(host.shell, altA)).toBe(false);
       expect(host.shell.overlayKind).toBe("model_picker");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
-  test("without addProviderChoices, the footer never advertises Alt+A", async () => {
-    // The hint and the key claim must move together: a host that omits
-    // addProviderChoices gets neither, so the footer never names a dead key.
-    const { harness, host } = await mountPicker();
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      expect(harness.captureCharFrame()).not.toContain("Alt+A");
     } finally {
       host.dispose();
       harness.destroy();

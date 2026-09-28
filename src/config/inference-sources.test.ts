@@ -176,15 +176,6 @@ describe("source credential provenance", () => {
 });
 
 describe("contextWindow / maxTokens split (CL-7784)", () => {
-  test("setting contextWindow does not change the source output budget", () => {
-    const source = buildInferenceSourceForRef(
-      { provider: "fp", model: "fp-large" },
-      ctx(),
-      settingsWithWindow(),
-    );
-    expect(source?.defaults?.maxTokens).toBe(SOURCE_MAX_TOKENS);
-  });
-
   test("contextWindow 400000 does not reach the wire as max_tokens 400000", () => {
     const source = buildInferenceSourceForRef(
       { provider: "fp", model: "fp-large" },
@@ -254,23 +245,6 @@ describe("OpenAI reasoning max_completion_tokens quirk (CL-7785)", () => {
     for (const model of openaiApi?.maxCompletionTokensModels ?? []) {
       expect(presetModels).toContain(model);
     }
-  });
-
-  test("every preset model has an explicit quirk decision", () => {
-    const flagged = new Set(openaiApi?.maxCompletionTokensModels ?? []);
-    // Explicit max_tokens decision: non-reasoning preset models stay on
-    // max_tokens. Adding a preset model requires a decision here AND in the
-    // preset's maxCompletionTokensModels — the union below fails loudly
-    // otherwise instead of silently sending max_tokens.
-    // Keep: gpt-4.1 is the catalog's remaining non-reasoning preset. The
-    // union with maxCompletionTokensModels must equal OPENAI_API_MODELS.
-    const explicitMaxTokensModels = new Set(["gpt-4.1"]);
-    expect([...flagged, ...explicitMaxTokensModels].sort()).toEqual(
-      [...new Set(presetModels)].sort(),
-    );
-    expect([...flagged].filter((m) => explicitMaxTokensModels.has(m))).toEqual(
-      [],
-    );
   });
 
   test("reasoning preset models emit max_completion_tokens, never max_tokens", () => {

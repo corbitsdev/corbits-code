@@ -40,164 +40,153 @@ describe("compareVersionStrings", () => {
 });
 
 describe("detectInstallMethod", () => {
-  test("detects Homebrew Cellar installs", () => {
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/opt/homebrew/Cellar/corbits-code/0.2.95/bin/corbits",
-        }),
-      ),
-    ).toBe("homebrew");
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/usr/local/bin/corbits",
-          resolvedPath: "/usr/local/Cellar/corbits-code/0.2.90/bin/corbits",
-        }),
-      ),
-    ).toBe("homebrew");
-  });
-
-  test("detects legacy corbits Cellar installs", () => {
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/usr/local/bin/corbits",
-          resolvedPath: "/usr/local/Cellar/corbits/0.2.90/bin/corbits",
-        }),
-      ),
-    ).toBe("homebrew");
-  });
-
-  test("detects Homebrew via HOMEBREW_PREFIX when the binary lives under it", () => {
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/opt/homebrew/bin/corbits",
-          env: { HOMEBREW_PREFIX: "/opt/homebrew" },
-        }),
-      ),
-    ).toBe("homebrew");
-  });
-
-  test("detects Debian package installs", () => {
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/usr/bin/corbits",
-          platform: "linux",
-          pathExists: (p) => p === `/var/lib/dpkg/info/${DEB_PACKAGE}.list`,
-        }),
-      ),
-    ).toBe("deb");
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/usr/bin/corbits",
-          platform: "linux",
-          pathExists: (p) => p === `/usr/share/doc/${DEB_PACKAGE}`,
-        }),
-      ),
-    ).toBe("deb");
-  });
-
-  test("detects Bun / from-source runs", () => {
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/Users/dev/.bun/bin/bun",
-          argv: ["bun", "/repo/corbits-code/src/index.ts"],
-        }),
-      ),
-    ).toBe("source");
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/usr/local/bin/bun",
-          argv: ["bun", "/repo/dist/index.js"],
-        }),
-      ),
-    ).toBe("source");
+  const cases: [InstallProbe, ReturnType<typeof detectInstallMethod>][] = [
+    // Homebrew Cellar installs
+    [
+      probe({
+        execPath: "/opt/homebrew/Cellar/corbits-code/0.2.95/bin/corbits",
+      }),
+      "homebrew",
+    ],
+    [
+      probe({
+        execPath: "/usr/local/bin/corbits",
+        resolvedPath: "/usr/local/Cellar/corbits-code/0.2.90/bin/corbits",
+      }),
+      "homebrew",
+    ],
+    // legacy corbits Cellar installs
+    [
+      probe({
+        execPath: "/usr/local/bin/corbits",
+        resolvedPath: "/usr/local/Cellar/corbits/0.2.90/bin/corbits",
+      }),
+      "homebrew",
+    ],
+    // HOMEBREW_PREFIX when the binary lives under it
+    [
+      probe({
+        execPath: "/opt/homebrew/bin/corbits",
+        env: { HOMEBREW_PREFIX: "/opt/homebrew" },
+      }),
+      "homebrew",
+    ],
+    // Debian package installs
+    [
+      probe({
+        execPath: "/usr/bin/corbits",
+        platform: "linux",
+        pathExists: (p) => p === `/var/lib/dpkg/info/${DEB_PACKAGE}.list`,
+      }),
+      "deb",
+    ],
+    [
+      probe({
+        execPath: "/usr/bin/corbits",
+        platform: "linux",
+        pathExists: (p) => p === `/usr/share/doc/${DEB_PACKAGE}`,
+      }),
+      "deb",
+    ],
+    // Bun / from-source runs
+    [
+      probe({
+        execPath: "/Users/dev/.bun/bin/bun",
+        argv: ["bun", "/repo/corbits-code/src/index.ts"],
+      }),
+      "source",
+    ],
+    [
+      probe({
+        execPath: "/usr/local/bin/bun",
+        argv: ["bun", "/repo/dist/index.js"],
+      }),
+      "source",
+    ],
     // brew-installed bun must not look like a brew-installed corbits
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/opt/homebrew/bin/bun",
-          argv: ["bun", "/repo/src/index.ts"],
-          env: { HOMEBREW_PREFIX: "/opt/homebrew" },
-        }),
-      ),
-    ).toBe("source");
-  });
+    [
+      probe({
+        execPath: "/opt/homebrew/bin/bun",
+        argv: ["bun", "/repo/src/index.ts"],
+        env: { HOMEBREW_PREFIX: "/opt/homebrew" },
+      }),
+      "source",
+    ],
+    // standalone release binaries
+    [
+      probe({
+        execPath: "/home/user/.local/bin/corbits",
+        platform: "linux",
+      }),
+      "binary",
+    ],
+    [
+      probe({
+        execPath: "/Users/dev/bin/corbits",
+        platform: "darwin",
+      }),
+      "binary",
+    ],
+    // falls back to unknown rather than guessing brew
+    [
+      probe({
+        execPath: "/mysterious/path/agent-runner",
+        argv: ["agent-runner"],
+      }),
+      "unknown",
+    ],
+  ];
 
-  test("detects standalone release binaries", () => {
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/home/user/.local/bin/corbits",
-          platform: "linux",
-        }),
-      ),
-    ).toBe("binary");
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/Users/dev/bin/corbits",
-          platform: "darwin",
-        }),
-      ),
-    ).toBe("binary");
-  });
-
-  test("falls back to unknown rather than guessing brew", () => {
-    expect(
-      detectInstallMethod(
-        probe({
-          execPath: "/mysterious/path/agent-runner",
-          argv: ["agent-runner"],
-        }),
-      ),
-    ).toBe("unknown");
+  test("maps the install probe to an install method", () => {
+    for (const [installProbe, expected] of cases) {
+      expect(detectInstallMethod(installProbe)).toBe(expected);
+    }
   });
 });
 
 describe("formatUpgradeMessage", () => {
   const base = { current: "0.2.90", latest: "0.2.95" };
 
-  test("homebrew message uses the live formula upgrade", () => {
-    const msg = formatUpgradeMessage({ ...base, method: "homebrew" });
-    expect(msg).toContain("v0.2.90 → v0.2.95");
-    expect(msg).toContain(`brew update && brew upgrade ${BREW_FORMULA}`);
-    expect(msg).not.toContain("dpkg");
-  });
-
-  test("source message points at pull + bun rebuild", () => {
-    const msg = formatUpgradeMessage({ ...base, method: "source" });
-    expect(msg).toContain("bun install");
-    expect(msg).toContain("bun run start");
-    expect(msg).not.toContain("brew upgrade");
-  });
-
-  test("binary message points at the GitHub releases page", () => {
-    const msg = formatUpgradeMessage({ ...base, method: "binary" });
-    expect(msg).toContain(`${RELEASES_URL}/latest`);
-    expect(msg).not.toContain("brew upgrade");
-    expect(msg).not.toContain("dpkg");
-  });
-
-  test("deb message points at dpkg install of the release artifact", () => {
-    const msg = formatUpgradeMessage({ ...base, method: "deb" });
-    expect(msg).toContain("dpkg -i");
-    expect(msg).toContain(`${DEB_PACKAGE}_0.2.95_`);
-    expect(msg).not.toContain("brew upgrade");
-  });
-
-  test("unknown message is generic — no brew or apt command", () => {
-    const msg = formatUpgradeMessage({ ...base, method: "unknown" });
-    expect(msg).toContain(RELEASES_URL);
-    expect(msg).not.toContain("brew");
-    expect(msg).not.toContain("dpkg");
-    expect(msg).not.toContain("apt");
+  test("each method gets its own upgrade instructions and no others", () => {
+    const cases: {
+      method: Parameters<typeof formatUpgradeMessage>[0]["method"];
+      contains: string[];
+      notContains: string[];
+    }[] = [
+      {
+        method: "homebrew",
+        contains: [
+          "v0.2.90 → v0.2.95",
+          `brew update && brew upgrade ${BREW_FORMULA}`,
+        ],
+        notContains: ["dpkg"],
+      },
+      {
+        method: "source",
+        contains: ["bun install", "bun run start"],
+        notContains: ["brew upgrade"],
+      },
+      {
+        method: "binary",
+        contains: [`${RELEASES_URL}/latest`],
+        notContains: ["brew upgrade", "dpkg"],
+      },
+      {
+        method: "deb",
+        contains: ["dpkg -i", `${DEB_PACKAGE}_0.2.95_`],
+        notContains: ["brew upgrade"],
+      },
+      {
+        method: "unknown",
+        contains: [RELEASES_URL],
+        notContains: ["brew", "dpkg", "apt"],
+      },
+    ];
+    for (const { method, contains, notContains } of cases) {
+      const msg = formatUpgradeMessage({ ...base, method });
+      for (const text of contains) expect(msg).toContain(text);
+      for (const text of notContains) expect(msg).not.toContain(text);
+    }
   });
 });
 

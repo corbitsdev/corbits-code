@@ -59,28 +59,29 @@ describe("selectWebPlugin", () => {
     },
   ];
 
-  test("explicit override wins", () => {
-    expect(selectWebPlugin(candidates, {}, "other")?.id).toBe("other");
-  });
-
-  test("falls back to the single enabled plugin when no override", () => {
-    expect(
-      selectWebPlugin(candidates, { exa: { enabled: true } }, undefined)?.id,
-    ).toBe("exa");
-  });
-
-  test("returns undefined when multiple enabled and no override (ambiguous)", () => {
-    expect(
-      selectWebPlugin(
-        candidates,
-        { exa: { enabled: true }, other: { enabled: true } },
-        undefined,
-      ),
-    ).toBeUndefined();
-  });
-
-  test("returns undefined when none enabled and no override", () => {
-    expect(selectWebPlugin(candidates, {}, undefined)).toBeUndefined();
+  test("override wins; otherwise exactly one enabled plugin is required", () => {
+    const cases: {
+      config: Parameters<typeof selectWebPlugin>[1];
+      override: string | undefined;
+      expected: string | undefined;
+    }[] = [
+      { config: {}, override: "other", expected: "other" },
+      {
+        config: { exa: { enabled: true } },
+        override: undefined,
+        expected: "exa",
+      },
+      // ambiguous: multiple enabled, no override
+      {
+        config: { exa: { enabled: true }, other: { enabled: true } },
+        override: undefined,
+        expected: undefined,
+      },
+      { config: {}, override: undefined, expected: undefined },
+    ];
+    for (const { config, override, expected } of cases) {
+      expect(selectWebPlugin(candidates, config, override)?.id).toBe(expected);
+    }
   });
 });
 

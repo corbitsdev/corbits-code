@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createSubAgentSessionStore } from "../subagent/session-store.js";
 import { defined } from "../testkit/defined.js";
+import { expectRejectedSettle, settleOrTimeout } from "../testkit/settle.js";
 import { disposeExecRuntime, formatCaughtError } from "./dispose.js";
 
 describe("formatCaughtError", () => {
@@ -121,22 +122,9 @@ describe("disposeExecRuntime", () => {
       },
       subAgentSessions: null,
     });
-    const result = await Promise.race([
-      pending.then(
-        () => ({ kind: "resolved" as const }),
-        (err: unknown) => ({ kind: "rejected" as const, err }),
-      ),
-      new Promise<{ kind: "timeout" }>((resolve) => {
-        setTimeout(() => resolve({ kind: "timeout" }), 200);
-      }),
-    ]);
+    const result = await settleOrTimeout(pending);
     expect(closeStarted).toBe(true);
-    expect(result.kind).toBe("rejected");
-    if (result.kind !== "rejected") throw new Error("expected leftover reject");
-    expect(result.err).toBeInstanceOf(Error);
-    expect((result.err as Error).message).toMatch(
-      /still live after 2000ms reap/,
-    );
+    expectRejectedSettle(result, /still live after 2000ms reap/);
   });
 
   test("rejects when toolset dispose fails", async () => {

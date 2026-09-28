@@ -6,7 +6,6 @@ import {
   createExaMCPWebFetchTool,
   createWebFetchTool,
   runWebFetch,
-  webFetchDefinition,
   MAX_FETCH_BYTES,
 } from "./web-fetch.js";
 
@@ -130,33 +129,6 @@ describe("runWebFetch", () => {
   test("rejects a non-http(s) SSRF target before ever fetching", async () => {
     const outcome = await runWebFetch("ftp://example.com/", "text", 30);
     expect(outcome.ok).toBe(false);
-  });
-});
-
-describe("webFetchDefinition", () => {
-  test("routes hosts covered by a connected MCP server through tool_search", () => {
-    expect(webFetchDefinition.description).toContain(
-      "covered by a connected MCP server",
-    );
-    expect(webFetchDefinition.description).toContain("via tool_search");
-  });
-
-  test("extracts the item identifier from the pasted URL host-plus-path", () => {
-    expect(webFetchDefinition.description).toContain(
-      "extracting the item identifier from the host-plus-path",
-    );
-  });
-
-  test("scopes web_fetch to public refs, not authenticated app surfaces", () => {
-    expect(webFetchDefinition.description).toContain(
-      "not authenticated app surfaces",
-    );
-  });
-
-  test("allows web_fetch when no covering MCP, MCP fails, or page is public", () => {
-    expect(webFetchDefinition.description).toContain(
-      "the MCP call fails, or the page is genuinely public",
-    );
   });
 });
 

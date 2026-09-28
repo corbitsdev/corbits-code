@@ -35,71 +35,29 @@ test("loadProfile returns null for missing file", async () => {
   expect(result).toBeNull();
 });
 
-test("loadProfile parses valid profile", async () => {
+test.each([
+  [{ model: "claude-opus-4-8" }],
+  [{ systemPromptExtensions: ["no-destructive-migrations"] }],
+  [{ promptSectionOmit: ["toolChoice" as const, "orchestration" as const] }],
+])("loadProfile parses %j", async (profile) => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });
   const path = join(dir, "profile.json");
-  await writeJson(path, { model: "claude-opus-4-8" });
-  const result = await loadProfile(path);
-  expect(result).toEqual({ model: "claude-opus-4-8" });
+  await writeJson(path, profile);
+  expect(await loadProfile(path)).toEqual(profile);
 });
 
-test("loadProfile parses systemPromptExtensions", async () => {
+test.each([
+  [{ promptSectionOmit: ["no-such-block"] }, /promptSectionOmit/],
+  [{ model: "x", unknownKey: true }, /unknownKey must be removed/],
+  [{ workflow: "build" }, /workflow must be removed/],
+  [{ systemPromptExtensions: "bad" }, /systemPromptExtensions/],
+])("loadProfile rejects %j", async (profile, pattern) => {
   const dir = makeTmp();
   await mkdir(dir, { recursive: true });
   const path = join(dir, "profile.json");
-  await writeJson(path, {
-    systemPromptExtensions: ["no-destructive-migrations"],
-  });
-  const result = await loadProfile(path);
-  expect(result).toEqual({
-    systemPromptExtensions: ["no-destructive-migrations"],
-  });
-});
-
-test("loadProfile parses promptSectionOmit", async () => {
-  const dir = makeTmp();
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, "profile.json");
-  await writeJson(path, {
-    promptSectionOmit: ["toolChoice", "orchestration"],
-  });
-  const result = await loadProfile(path);
-  expect(result).toEqual({
-    promptSectionOmit: ["toolChoice", "orchestration"],
-  });
-});
-
-test("loadProfile rejects unknown promptSectionOmit ids", async () => {
-  const dir = makeTmp();
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, "profile.json");
-  await writeJson(path, { promptSectionOmit: ["no-such-block"] });
-  await expect(loadProfile(path)).rejects.toThrow(/promptSectionOmit/);
-});
-
-test("loadProfile rejects unknown keys", async () => {
-  const dir = makeTmp();
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, "profile.json");
-  await writeJson(path, { model: "x", unknownKey: true });
-  await expect(loadProfile(path)).rejects.toThrow(/unknownKey must be removed/);
-});
-
-test("loadProfile rejects a workflow field", async () => {
-  const dir = makeTmp();
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, "profile.json");
-  await writeJson(path, { workflow: "build" });
-  await expect(loadProfile(path)).rejects.toThrow(/workflow must be removed/);
-});
-
-test("loadProfile rejects non-array systemPromptExtensions", async () => {
-  const dir = makeTmp();
-  await mkdir(dir, { recursive: true });
-  const path = join(dir, "profile.json");
-  await writeJson(path, { systemPromptExtensions: "bad" });
-  await expect(loadProfile(path)).rejects.toThrow(/systemPromptExtensions/);
+  await writeJson(path, profile);
+  await expect(loadProfile(path)).rejects.toThrow(pattern);
 });
 
 test("loadProfile rejects invalid JSON", async () => {

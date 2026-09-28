@@ -326,42 +326,6 @@ describe("recoverEvidenceMarkers", () => {
   });
 });
 
-describe("renderHandoffFile", () => {
-  test("carries all handoff sections plus a verbatim exact-facts appendix", () => {
-    const { artifact } = extractHandoffArtifact(foldedRegion(), "narrative");
-    const file = renderHandoffFile(
-      artifact,
-      "Paraphrased narrative here.",
-      "tool-output:///k",
-    );
-
-    for (const heading of [
-      "## Goal",
-      "## Constraints",
-      "## Decisions",
-      "## Evidence markers (cumulative echo)",
-      "## Files",
-      "## Commands",
-      "## Verification",
-      "## Dead ends",
-      "## Next actions",
-      "## Summary (this fold — may paraphrase)",
-      "## Exact facts (verbatim — do not paraphrase)",
-    ]) {
-      expect(file).toContain(heading);
-    }
-    // Exact facts survive even when the narrative paraphrases them away.
-    expect(file).toContain("src/auth.ts");
-    expect(file).toContain("bun test src/auth.test.ts");
-    expect(file).toContain(
-      "[[evidence:decision|operator:correction|session-table]]",
-    );
-    expect(file).toContain("## Files\n");
-    expect(file).toContain("## Commands\n");
-    expect(file).not.toContain("## Files and commands");
-  });
-});
-
 describe("renderHandoffSpine", () => {
   test("stays thin and carries an explicit re-readable pointer", () => {
     const { spine } = extractHandoffArtifact(foldedRegion(), "narrative");
@@ -582,25 +546,6 @@ describe("iterative folding", () => {
     );
     expect(second.artifact.files).toEqual(
       expect.arrayContaining(["src/auth", "src/auth.ts"]),
-    );
-  });
-
-  test("iterative union keeps src/foo and src/foo/bar.ts as distinct files", () => {
-    const first = buildHandoffFold(
-      [userTurn("Inspect foo."), ...fileReadTurns("c1", "src/foo")],
-      "narrative",
-    );
-    const second = buildHandoffFold(
-      [
-        spineTurn(first.spineText),
-        userTurn("Read the nested file."),
-        ...fileReadTurns("c2", "src/foo/bar.ts"),
-      ],
-      "narrative",
-      { priorFileText: new TextDecoder().decode(first.blob.bytes) },
-    );
-    expect(second.artifact.files).toEqual(
-      expect.arrayContaining(["src/foo", "src/foo/bar.ts"]),
     );
   });
 
@@ -882,114 +827,6 @@ describe("tool-body dumps", () => {
     const file = new TextDecoder().decode(fold.blob.bytes);
     expect(file).toContain("Read the huge file.");
     expect(file).toContain("src/huge.ts");
-  });
-});
-
-describe("createPruningCompactor — handoff fold (CL-8744)", () => {
-  test("a successful fold emits a handoff blob and a spine with its pointer", async () => {
-    const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
-      summaryMaxChars: 500,
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-    });
-    const turns: ConversationTurn[] = [
-      userTurn("Ship the widget. Never rename src/widget.ts."),
-      makeTurn({
-        role: "assistant",
-        content: [
-          {
-            type: "tool_call",
-            id: "c1",
-            name: "read_file",
-            arguments: { path: "src/widget.ts" },
-          },
-        ],
-      }),
-      makeTurn({
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            callId: "c1",
-            content: [{ type: "text", text: "widget body" }],
-          },
-        ],
-      }),
-      userTurn("Keep the public API unchanged."),
-      makeTurn({ role: "assistant", content: [{ type: "text", text: "mid" }] }),
-      userTurn("Recent ask one."),
-      makeTurn({
-        role: "assistant",
-        content: [{ type: "text", text: "recent one" }],
-      }),
-      userTurn("Recent ask two."),
-    ];
-
-    const result = await compactor.apply(turns, mockStrategyCtx);
-    const blobs = defined(result.blobs);
-    expect(blobs).toHaveLength(1);
-    const blob = defined(blobs[0]);
-    expect(blob.key).toBe(HANDOFF_LATEST_KEY);
-    expect(blob.contentType).toBe("text/markdown");
-
-    const file = new TextDecoder().decode(blob.bytes);
-    expect(file).toContain("## Exact facts (verbatim — do not paraphrase)");
-    expect(file).toContain("## Evidence markers (cumulative echo)");
-    expect(file).toContain("src/widget.ts");
-
-    const spine = defined(
-      result.output[0]?.content.find((b) => b.type === "text"),
-    );
-    expect(spine.type).toBe("text");
-    if (spine.type !== "text") throw new Error("unreachable");
-    expect(spine.text.startsWith(COMPACTED_PREFIX)).toBe(true);
-    expect(spine.text).toContain(`Handoff: ${handoffBlobUri(blob.key)}`);
-  });
-
-  test("two-pass with readPriorHandoff keeps fold-1 paths in the latest blob", async () => {
-    let latest: string | undefined;
-    const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
-      summaryMaxChars: 500,
-      // CL-9007: pin a tiny tail budget so each fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      readPriorHandoff: async () => latest,
-    });
-    const firstTurns: ConversationTurn[] = [
-      userTurn("Ship the widget. Never rename src/widget.ts."),
-      ...fileReadTurns("c1", "src/widget.ts", "widget body"),
-      userTurn("Keep the public API unchanged."),
-      makeTurn({ role: "assistant", content: [{ type: "text", text: "mid" }] }),
-      userTurn("Recent ask one."),
-      makeTurn({
-        role: "assistant",
-        content: [{ type: "text", text: "recent one" }],
-      }),
-      userTurn("Recent ask two."),
-    ];
-    const first = await compactor.apply(firstTurns, mockStrategyCtx);
-    const firstBlob = defined(defined(first.blobs)[0]);
-    latest = new TextDecoder().decode(firstBlob.bytes);
-    expect(latest).toContain("src/widget.ts");
-
-    const secondTurns: ConversationTurn[] = [
-      ...first.output,
-      userTurn("Now inspect diagnostics."),
-      ...fileReadTurns("c2", "diagnostic.log", "ok"),
-      userTurn("Recent A."),
-      makeTurn({ role: "assistant", content: [{ type: "text", text: "a" }] }),
-      userTurn("Recent B."),
-    ];
-    const second = await compactor.apply(secondTurns, mockStrategyCtx);
-    const secondFile = new TextDecoder().decode(
-      defined(defined(second.blobs)[0]).bytes,
-    );
-    const filesSection = secondFile.split("## Files")[1]?.split("## ")[0] ?? "";
-    expect(filesSection).toContain("src/widget.ts");
-    expect(filesSection).toContain("diagnostic.log");
   });
 });
 

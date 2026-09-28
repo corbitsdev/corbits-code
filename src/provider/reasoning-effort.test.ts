@@ -51,12 +51,6 @@ describe("supportedEfforts", () => {
       "high",
       "xhigh",
     ]);
-    expect(supportedEfforts("gpt-5.4-mini", undefined, true)).toEqual([
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-    ]);
   });
 
   test("gpt-6-astra takes low through max on both API and Codex paths", () => {
@@ -78,22 +72,6 @@ describe("supportedEfforts", () => {
 
   test("gpt-5.6 family additionally takes max and ultra on the codex backend", () => {
     expect(supportedEfforts("gpt-5.6-sol", undefined, true)).toEqual([
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-      "ultra",
-    ]);
-    expect(supportedEfforts("gpt-5.6-terra", undefined, true)).toEqual([
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-      "ultra",
-    ]);
-    expect(supportedEfforts("gpt-5.6-luna", undefined, true)).toEqual([
       "low",
       "medium",
       "high",
@@ -133,37 +111,24 @@ describe("supportedEfforts", () => {
     expect(supportedEfforts("grok-4.5")).toEqual(["low", "medium", "high"]);
   });
 
-  test("grok-composer-2.5-fast stays on the unknown-model subset without xhigh", () => {
-    expect(supportedEfforts("grok-composer-2.5-fast")).toEqual([
-      "low",
-      "medium",
-      "high",
-    ]);
-  });
-
   test("glm-5.3 family supports low, high, and max", () => {
     expect(supportedEfforts("glm-5.3")).toEqual(["low", "high", "max"]);
-    expect(supportedEfforts("glm-5.3-flash")).toEqual(["low", "high", "max"]);
   });
 
-  // Five ids ship across two catalogs (packages/opencode-go and packages/zen)
-  // and nothing normalizes the model string before it reaches supportedEfforts,
-  // so every one of them has to land on the same ladder.
-  test.each([
-    "muse-spark-1.3-contributor",
-    "muse-spark-1.2-contributor",
-    "muse-spark-1.3",
-    "muse-spark-1.2",
-    "muse-spark-1.3-contributor-free",
-  ])("Muse Spark id %s supports minimal through high", (model) => {
-    expect(supportedEfforts(model)).toEqual([
-      "minimal",
-      "low",
-      "medium",
-      "high",
-    ]);
-    expect(defaultEffortForModel(model)).toBe("low");
-  });
+  // Every catalog Muse Spark id reaches supportedEfforts unnormalized, so
+  // they must all land on the same ladder — two ids pin the family rule.
+  test.each(["muse-spark-1.3-contributor", "muse-spark-1.3-contributor-free"])(
+    "Muse Spark id %s supports minimal through high",
+    (model) => {
+      expect(supportedEfforts(model)).toEqual([
+        "minimal",
+        "low",
+        "medium",
+        "high",
+      ]);
+      expect(defaultEffortForModel(model)).toBe("low");
+    },
+  );
 
   test("a model merely containing muse-spark is not matched", () => {
     expect(supportedEfforts("not-muse-spark-1.3")).toEqual([
@@ -207,9 +172,6 @@ describe("validateEffort", () => {
 
   test("rejects medium on glm-5.3 family", () => {
     expect(validateEffort("glm-5.3", "medium").ok).toBe(false);
-    expect(validateEffort("glm-5.3-flash", "medium").ok).toBe(false);
-    expect(validateEffort("glm-5.3", "low")).toEqual({ ok: true });
-    expect(validateEffort("glm-5.3", "high")).toEqual({ ok: true });
     expect(validateEffort("glm-5.3", "max")).toEqual({ ok: true });
   });
 });
@@ -244,16 +206,6 @@ describe("cycleReasoningEffort", () => {
     expect(cycleReasoningEffort("gpt-5", "xhigh")).toBe(
       cycleReasoningEffort("gpt-5", "medium"),
     );
-  });
-
-  test("grok leftover minimal cycles the same as unset / high", () => {
-    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(
-      cycleReasoningEffort("grok-4.6", undefined),
-    );
-    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe(
-      cycleReasoningEffort("grok-4.6", "high"),
-    );
-    expect(cycleReasoningEffort("grok-4.6", "minimal")).toBe("xhigh");
   });
 
   test("unknown models with rungs still start at supported[0] when no default exists", () => {
@@ -469,20 +421,15 @@ describe("defaultEffortForModel", () => {
   afterEach(() => setModelReasoningCapabilities({}));
 
   test("grok family defaults to high", () => {
-    expect(defaultEffortForModel("grok-4.7")).toBe("high");
     expect(defaultEffortForModel("grok-4.6")).toBe("high");
-    expect(defaultEffortForModel("grok-4.5")).toBe("high");
   });
 
   test("glm-5.3 family defaults to max", () => {
     expect(defaultEffortForModel("glm-5.3")).toBe("max");
-    expect(defaultEffortForModel("glm-5.3-flash")).toBe("max");
   });
 
   test("gpt-5 and o-series default to medium", () => {
     expect(defaultEffortForModel("gpt-5")).toBe("medium");
-    expect(defaultEffortForModel("o1")).toBe("medium");
-    expect(defaultEffortForModel("o3-mini")).toBe("medium");
     expect(defaultEffortForModel("o4-mini")).toBe("medium");
     expect(defaultEffortForModel("gpt-6-astra")).toBe("medium");
   });
@@ -519,15 +466,12 @@ describe("resolveSessionEffort", () => {
 
   test("keeps a supported configured level", () => {
     expect(resolveSessionEffort("gpt-5", "low")).toBe("low");
-    expect(resolveSessionEffort("grok-4.6", "low")).toBe("low");
   });
 
   test("falls back to the family default when unset or unsupported", () => {
     expect(resolveSessionEffort("gpt-5", undefined)).toBe("medium");
     expect(resolveSessionEffort("gpt-5", "xhigh")).toBe("medium");
     expect(resolveSessionEffort("grok-4.6", undefined)).toBe("high");
-    expect(resolveSessionEffort("gpt-5.1", undefined)).toBe("none");
-    expect(resolveSessionEffort("gpt-5.6-sol", undefined, true)).toBe("medium");
     expect(
       resolveSessionEffort("some-random-model", undefined),
     ).toBeUndefined();

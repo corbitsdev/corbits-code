@@ -5,7 +5,6 @@ import {
   buildSummaryPrompt,
   condenseTurns,
   createModelSummarizer,
-  DEFAULT_SUMMARIZER_TIMEOUT_MS,
 } from "./summarizer.js";
 import type { Telemetry, TelemetryEvent } from "../telemetry/index.js";
 import { registerSourceCredentialRecord } from "../config/source-credentials.js";
@@ -91,15 +90,6 @@ test("buildSummaryPrompt injects operator compact instructions", () => {
   });
   expect(prompt).toContain("Operator compact instructions");
   expect(prompt).toContain("keep the auth discussion");
-});
-
-test("model summarizer returns the model output", async () => {
-  const summarize = createModelSummarizer({
-    getSource: () => source,
-    complete: async () => "## What Happened\n- read src/auth.ts",
-  });
-  const result = await summarize(turns());
-  expect(result).toContain("What Happened");
 });
 
 test("model summarizer throws on failure instead of substituting a stats stub", async () => {
@@ -225,11 +215,6 @@ test("summarizer timeout is honoured independently of the director total timeout
   } finally {
     harness.dispose();
   }
-});
-
-test("default summarizer timeout stays well under the director's 600s", () => {
-  expect(DEFAULT_SUMMARIZER_TIMEOUT_MS).toBeLessThanOrEqual(120_000);
-  expect(DEFAULT_SUMMARIZER_TIMEOUT_MS).toBeGreaterThanOrEqual(60_000);
 });
 
 test("a 401 retries once after a credential re-read", async () => {

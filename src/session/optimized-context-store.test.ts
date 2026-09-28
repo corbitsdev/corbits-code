@@ -385,88 +385,6 @@ describe("createOptimizedContextStore load", () => {
     expect(loaded.turns).toHaveLength(2);
     expect(await listSegmentFiles(dir, TURNS_FILE)).toEqual([TURNS_FILE]);
   });
-
-  // Rebuild (new store) → compact rewrite → third store load must not see
-  // orphan tails. This is the production poison path without the reactor.
-  test("rebuild then compact then reload has unique tool_call ids", async () => {
-    const dir = tempDir();
-    const store1 = await createOptimizedContextStore(dir);
-
-    const callId = "call-rebuild-1";
-    const history: ConversationTurn[] = [];
-    const big = "x".repeat(20_000);
-    // Append one-at-a-time so the segmented writer rolls past segment 0.
-    for (let i = 0; i < 18; i++) {
-      history.push(turn(`${i}-${big}`));
-      await store1.writeTurns([...history]);
-    }
-    history.push({
-      role: "assistant",
-      content: [{ type: "tool_call", id: callId, name: "grep", arguments: {} }],
-      timestamp: 100,
-    });
-    history.push({
-      role: "user",
-      content: [
-        {
-          type: "tool_result",
-          callId,
-          content: [{ type: "text", text: "ok" }],
-        },
-      ],
-      timestamp: 101,
-    });
-    await store1.writeTurns([...history]);
-    await store1.writeMetadata({
-      pendingOperations: [],
-      tokenUsage: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        thinking: 0,
-      },
-    });
-    await store1.commit({ message: "pre-rebuild" });
-    expect((await listSegmentFiles(dir, TURNS_FILE)).length).toBeGreaterThan(1);
-
-    // Agent rebuild: fresh store/writer, then compact to a short head that keeps
-    // the recent tool pair (same shape as keepRecent after summarization).
-    const store2 = await createOptimizedContextStore(dir);
-    const compacted: ConversationTurn[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "[Compacted prior context]\nsummary" }],
-        timestamp: 1,
-      },
-      defined(history[history.length - 2]),
-      defined(history[history.length - 1]),
-    ];
-    await store2.writeTurns(compacted);
-    await store2.writeMetadata({
-      pendingOperations: [],
-      tokenUsage: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        thinking: 0,
-      },
-    });
-    await store2.commit({ message: "post-compact" });
-
-    expect(await listSegmentFiles(dir, TURNS_FILE)).toEqual([TURNS_FILE]);
-
-    const store3 = await createOptimizedContextStore(dir);
-    const loaded = await store3.load();
-    expect(loaded.turns).toHaveLength(3);
-    const ids = loaded.turns.flatMap((t) =>
-      t.content
-        .filter((b) => b.type === "tool_call")
-        .map((b) => (b as { id: string }).id),
-    );
-    expect(ids).toEqual([callId]);
-  }, 30_000);
 });
 
 describe("loadRecentTurns", () => {
@@ -827,25 +745,6 @@ describe("createOptimizedContextStore unpublished rewrite", () => {
     await store.writeTurns([first, turn("two")]);
     const loaded = await store.load();
     expect(turnTexts(loaded.turns)).toEqual(["one", "two"]);
-  });
-
-  test("folds evidence-archive into the compact commit tree", async () => {
-    const dir = tempDir();
-    const store = await createOptimizedContextStore(dir);
-    await store.writeTurns([turn("old")]);
-    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
-    await store.commit({ message: "old" });
-
-    const archiveDir = path.join(dir, "evidence-archive");
-    fs.mkdirSync(archiveDir, { recursive: true });
-    fs.writeFileSync(path.join(archiveDir, "index.jsonl"), "{}\n");
-    await store.writeTurns([turn("compacted")]);
-    await store.writeMetadata(EMPTY_CHECKPOINT_METADATA);
-    await store.commit({ message: "compact" });
-
-    expect(await gitLsTree(dir)).toContain("evidence-archive/index.jsonl");
-    const loaded = await store.load();
-    expect(turnTexts(loaded.turns)).toEqual(["compacted"]);
   });
 
   test("readAt of the old hash is not the load completeness path", async () => {

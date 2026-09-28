@@ -37,12 +37,6 @@ describe("shell output feed", () => {
       new TextEncoder().encode(feed.snapshot()).length,
     ).toBeLessThanOrEqual(SHELL_FEED_LIMIT_BYTES);
   });
-
-  test("empty appends change nothing", () => {
-    const feed = createShellOutputFeed();
-    feed.append("");
-    expect(feed.snapshot()).toBe("");
-  });
 });
 
 describe("shell output feed map", () => {

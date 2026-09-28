@@ -101,11 +101,6 @@ describe("createAdvertisedToolset", () => {
     ).toEqual(["read"]);
   });
 
-  test("advertises nothing from an empty registry", () => {
-    const { computeAdvertised } = createAdvertisedToolset(wiring());
-    expect(computeAdvertised([])).toEqual([]);
-  });
-
   test("isAdvertised tracks prefix, pinned, and activated names", () => {
     const { activated, isAdvertised } = createAdvertisedToolset(
       wiring({ pinnedTools: ["mcp__linear__save_issue"] }),

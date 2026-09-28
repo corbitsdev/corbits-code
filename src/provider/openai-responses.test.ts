@@ -64,17 +64,6 @@ describe("openai-responses buildRequest", () => {
     expect(second["prompt_cache_key"]).toBe("sess-1");
   });
 
-  test("distinct session ids yield distinct prompt_cache_keys", () => {
-    const bodyFor = (sessionId: string): Record<string, unknown> =>
-      JSON.parse(
-        adapter().buildRequest([userTurn("hi")], "gpt-5.6-luna", {
-          providerOptions: { [OPENAI_SESSION_ID_OPTION]: sessionId },
-        }).body,
-      ) as Record<string, unknown>;
-    expect(bodyFor("sess-1")["prompt_cache_key"]).toBe("sess-1");
-    expect(bodyFor("sess-2")["prompt_cache_key"]).toBe("sess-2");
-  });
-
   test("omits prompt_cache_key when no session id is present", () => {
     const body = JSON.parse(
       adapter().buildRequest([userTurn("hi")], "gpt-5.6-luna", {}).body,

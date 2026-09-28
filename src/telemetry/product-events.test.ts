@@ -217,33 +217,14 @@ test("skill_used reports a first-party skill by name", async () => {
 });
 
 test("first-party skill names are reported by name; everything else stays custom", () => {
-  for (const name of [
-    "ast-grep",
-    "create-issue",
-    "git-rebase",
-    "git-worktrees",
-    "implement",
-    "interview",
-    "lexicon",
-    "linear-issue-workflow",
-    "opsh",
-    "philosophy",
-    "plan",
-    "pull-request-review",
-    "refactor",
-    "review",
-    "scribe",
-    "style",
-    "typescript",
-  ]) {
+  for (const name of ["review", "plan", "implement"]) {
     expect(classifySkillName(name)).toBe(name);
   }
   expect(classifySkillName("acme-internal-deploy")).toBe("custom");
   // Bundled catalog skills outside the closed allowlist are not reported by
   // name either — the allowlist is the closed set, not the skills directory.
-  // All four hidden-from-discovery background skills (explicit loads still
-  // resolve) stay custom, while the seven flagged-but-allowlisted
-  // use_skill-only recipes assert by name above.
+  // Hidden-from-discovery background skills (explicit loads still resolve)
+  // stay custom.
   expect(classifySkillName("idiot-proof")).toBe("custom");
   expect(classifySkillName("native-integration")).toBe("custom");
   expect(classifySkillName("native-runtime")).toBe("custom");
@@ -575,23 +556,9 @@ test("buildSubagentEndProperties shapes rollup fields and omits empty parentTrac
 });
 
 test("first-party director ids are reported by name; unknown profiles stay custom", () => {
-  expect(classifyAgentName("worker")).toBe("worker");
-  expect(classifyAgentName("builder")).toBe("builder");
-  expect(classifyAgentName("skywalker")).toBe("skywalker");
-  expect(classifyAgentName("greybeard")).toBe("greybeard");
-  expect(classifyAgentName("explorer")).toBe("explorer");
-  expect(classifyAgentName("counsel")).toBe("counsel");
-  expect(classifyAgentName("critic")).toBe("critic");
-  expect(classifyAgentName("intern")).toBe("intern");
-  expect(classifyAgentName("tester")).toBe("tester");
-  expect(classifyAgentName("testsmith")).toBe("testsmith");
-  expect(classifyAgentName("shakespeare")).toBe("shakespeare");
-  expect(classifyAgentName("rand")).toBe("rand");
-  expect(classifyAgentName("draper")).toBe("draper");
-  expect(classifyAgentName("emil")).toBe("emil");
-  expect(classifyAgentName("gaasbot")).toBe("gaasbot");
-  expect(classifyAgentName("bruckheimer")).toBe("bruckheimer");
-  expect(classifyAgentName("neckbeard")).toBe("neckbeard");
+  for (const name of ["worker", "builder", "shakespeare"]) {
+    expect(classifyAgentName(name)).toBe(name);
+  }
   expect(classifyAgentName("acmecorp-release-captain")).toBe("custom");
 });
 

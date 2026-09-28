@@ -3,7 +3,6 @@ import type { PermissionRequest } from "../../permission/types.js";
 import type { PermissionGateEvent } from "../gate-events.js";
 import { createGateRequestApproval } from "../request-approval.js";
 import { createParkedOverlayAbortBinding } from "./parked-overlay-abort.js";
-import { assembleTUISession } from "./session.js";
 
 const request: PermissionRequest = {
   tool: "run_shell",
@@ -49,14 +48,6 @@ describe("parked overlay abort binding", () => {
 });
 
 describe("assembleTUISession overlay abort wiring", () => {
-  test("registers the parked overlay abort on approval resume and merges it into the gate identity signal", () => {
-    const src = assembleTUISession.toString();
-    expect(src).toContain("createParkedOverlayAbortBinding");
-    expect(src).toContain("registerOverlayAbort");
-    expect(src).toContain("parkedOverlay.identitySignal");
-    expect(src).toContain("parkedOverlay.registerOverlayAbort");
-  });
-
   test("a registered overlay abort dismisses the gate event the session identity signal feeds", async () => {
     const binding = createParkedOverlayAbortBinding();
     const identity = new AbortController();

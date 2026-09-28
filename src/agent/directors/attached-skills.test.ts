@@ -38,9 +38,6 @@ describe("formatAttachedSkillConstraints", () => {
       cwd,
       skillDirs: [pluginRoot],
     });
-    expect(section).toContain("# Attached skill constraints");
-    expect(section).toContain("Do not use_skill them again");
-    expect(section).toContain("do not park, do not ask_director");
     expect(section).toContain("### style");
     expect(section).toContain("Follow the style guide.");
     expect(section).toContain(

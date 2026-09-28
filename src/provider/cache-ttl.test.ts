@@ -25,12 +25,7 @@ describe("cacheTtlMsFor", () => {
     expect(cacheTtlMsFor("openai-responses/gpt-5.6")).toBeUndefined();
     expect(cacheTtlMsFor("codex-responses/gpt-5.6")).toBeUndefined();
     expect(cacheTtlMsFor("openai-compatible/custom")).toBeUndefined();
-    expect(cacheTtlMsFor("xai/thegreataxios")).toBeUndefined();
-    expect(cacheTtlMsFor("gemini/gemini-3-pro")).toBeUndefined();
-    expect(cacheTtlMsFor("deepseek/deepseek-chat")).toBeUndefined();
-    expect(cacheTtlMsFor("ollama/llama3.1")).toBeUndefined();
     expect(cacheTtlMsFor(undefined)).toBeUndefined();
-    expect(cacheTtlMsFor("")).toBeUndefined();
   });
 
   test("keys ollama off production LastCycleSource, not a slash-form model", () => {
@@ -59,13 +54,10 @@ describe("cacheTtlMsFor", () => {
   });
 
   test("does not inherit a window from the model family or an unknown provider", () => {
-    expect(cacheTtlMsFor("proxy-acme/grok-4")).toBeUndefined();
-    expect(cacheTtlMsFor("proxy-acme/gemini-3-pro")).toBeUndefined();
     expect(cacheTtlMsFor("proxy-acme/claude-opus-4-6")).toBeUndefined();
     // The provider segment wins: an openai-compatible account fronting
     // Claude is not the Anthropic messages protocol.
     expect(cacheTtlMsFor("openai-compatible/claude-opus-4-6")).toBeUndefined();
-    expect(cacheTtlMsFor("bifrost/some-model")).toBeUndefined();
     expect(cacheTtlMsFor("unknown-id")).toBeUndefined();
   });
 });

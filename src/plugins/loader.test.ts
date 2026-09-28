@@ -229,16 +229,6 @@ describe("readManifestJson malformed vs missing", () => {
 });
 
 describe("plugin path loading", () => {
-  test("loadPluginEntry loads a plugin directory by path and reads its manifest", async () => {
-    const mod = defined(
-      await loadPluginEntry("fixtures/plugins/exa"),
-      "plugin module",
-    );
-    expect(mod.manifest?.id).toBe("exa");
-    expect(mod.manifest?.kind).toBe("web");
-    expect(typeof mod.createWebProvider).toBe("function");
-  });
-
   test("loadPluginEntry returns null for a non-existent path", async () => {
     expect(await loadPluginEntry("/no/such/plugin/here")).toBeNull();
   });

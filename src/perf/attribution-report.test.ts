@@ -14,25 +14,7 @@ import {
   multiToolTurnFixture,
 } from "./fixtures/multi-tool-turn.js";
 import type { PerfSpan } from "./index.js";
-
-function span(partial: {
-  id: string;
-  name: PerfSpan["name"];
-  parentId?: string;
-  startNs: bigint;
-  endNs?: bigint;
-  tags?: PerfSpan["tags"];
-}): PerfSpan {
-  const s: PerfSpan = {
-    id: partial.id,
-    name: partial.name,
-    startNs: partial.startNs,
-  };
-  if (partial.parentId !== undefined) s.parentId = partial.parentId;
-  if (partial.endNs !== undefined) s.endNs = partial.endNs;
-  if (partial.tags !== undefined) s.tags = partial.tags;
-  return s;
-}
+import { span } from "./fixtures/spans.js";
 
 describe("attributionFromSpans — multi-tool golden fixture", () => {
   test("exclusive shares match locked fixture durations", () => {
@@ -449,7 +431,6 @@ describe("formatAttributionReport", () => {
     const text = formatAttributionReport(
       attributionFromSpans(multiToolTurnFixture()),
     );
-    expect(text).toContain("PerfTrace attribution report");
     expect(text).toContain("inference");
     expect(text).toContain("tools");
     expect(text).toContain("permission.wait");
@@ -458,7 +439,6 @@ describe("formatAttributionReport", () => {
     expect(text).toContain("40.0%"); // inference 2000/5000
     expect(text).toContain("24.0%"); // tools 1200/5000
     expect(text).toContain("turn t1");
-    expect(text).toContain("Inference split (of ttft+stream)");
     expect(text).not.toContain("Open (incomplete)");
   });
 
@@ -489,8 +469,5 @@ describe("formatAttributionReport", () => {
     const text = formatAttributionReport(attributionFromSpans(spans));
     expect(text).toContain("Open (incomplete)");
     expect(text).toContain("inference.stream");
-    expect(text).toContain("open phases:");
-    expect(text).toContain("shares incomplete");
-    expect(text).toContain("not a full stall diagnosis");
   });
 });

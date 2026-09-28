@@ -45,7 +45,7 @@ import {
   type AppShell,
 } from "./shell/internals.js";
 import { leaveSubagentObserve } from "./shell/observe.js";
-import { openHelpOverlay, setPaletteCatalog } from "./shell/palette.js";
+import { setPaletteCatalog } from "./shell/palette.js";
 import {
   addPendingAttachment,
   applyShellInterrupt,
@@ -901,23 +901,5 @@ describe("help stays reachable as a command", () => {
         shell.dispose();
       }
     });
-  });
-
-  test("openHelpOverlay (the /help handler) opens the same overlay the removed ? chord used to", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
-    try {
-      const shell = createAppShell(harness.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        run: "idle",
-      });
-      try {
-        openHelpOverlay(shell);
-        expect(shell.overlayKind).toBe("help");
-      } finally {
-        shell.dispose();
-      }
-    } finally {
-      harness.destroy();
-    }
   });
 });

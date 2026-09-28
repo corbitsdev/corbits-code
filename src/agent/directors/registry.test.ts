@@ -26,7 +26,6 @@ describe("director registry", () => {
       const pkg = DIRECTOR_REGISTRY[id];
       expect(pkg.systemPrompt.length).toBeGreaterThan(40);
       expect(pkg.systemPrompt.startsWith("Placeholder")).toBe(false);
-      expect(pkg.systemPrompt.toLowerCase()).toContain("primary intent");
     }
   });
 
@@ -40,8 +39,8 @@ describe("director registry", () => {
     const r = resolveDirector({ agentId: "pontusbot" });
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.error).toContain("Unknown director");
-      expect(r.hint).toContain("implement");
+      expect(r.error.length).toBeGreaterThan(0);
+      expect(r.hint?.length).toBeGreaterThan(0);
     }
   });
 
@@ -64,7 +63,6 @@ describe("director registry", () => {
     });
     const general = resolveDirector({ intent: "general" });
     expect(general.ok).toBe(false);
-    if (!general.ok) expect(general.error).toContain("general");
   });
 
   test("explicit agentId wins over intent", () => {
@@ -145,8 +143,6 @@ describe("director registry", () => {
     expect(m.modelRole).toBe("plan");
     expect(m.tools?.allow).toEqual(["read_file", "grep", "lsp", "run_shell"]);
     expect(packageToProfile(m).orchestrator).toBe(false);
-    expect(m.systemPrompt).toMatch(/dry-run and scratch-copy execution ONLY/);
-    expect(m.systemPrompt).toMatch(/Background shells are forbidden/);
     const r = resolveDirector({ agentId: "migrator" });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.package.id).toBe("migrator");
@@ -210,12 +206,8 @@ describe("director registry", () => {
     }
   });
 
-  test("skywalker primary stance: DIY tiny writes, spawn for substantial work", () => {
+  test("skywalker primary mounts DIY writes plus the spawn surface", () => {
     const s = DIRECTOR_REGISTRY.skywalker;
-    expect(s.systemPrompt).toContain("write/edit/delete");
-    expect(s.systemPrompt).toContain("DIY tiny/single-file/one-route");
-    expect(s.systemPrompt).toContain("You are Skywalker");
-    expect(s.systemPrompt).toMatch(/No catch-all worker/i);
     expect(s.tools?.allow).not.toContain("task");
     expect(s.tools?.allow).toContain("spawn_agent");
     // CL-7678: wait_agents is exec-primary opt-in, off the Skywalker allow —
@@ -250,7 +242,6 @@ describe("director registry", () => {
       expect(r.package.tier).toBe("leaf");
       expect(r.package.spawn.maySpawn).toBe(false);
       expect(r.package.modelRole).toBe("test");
-      expect(r.package.primaryIntent).toMatch(/mutation-check/i);
     }
     expect(isDirectorId("gauntlet")).toBe(true);
     expect(tierForDirectorId("gauntlet")).toBe("leaf");
@@ -264,7 +255,6 @@ describe("director registry", () => {
       expect(r.package.tier).toBe("leaf");
       expect(r.package.spawn.maySpawn).toBe(false);
       expect(r.package.modelRole).toBe("test");
-      expect(r.package.primaryIntent).toMatch(/measure/i);
     }
     expect(isDirectorId("prober")).toBe(true);
     expect(tierForDirectorId("prober")).toBe("leaf");

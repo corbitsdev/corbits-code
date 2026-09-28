@@ -1,42 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import type { CommandContext } from "../tui/commands/registry.js";
+import { describe, test, expect } from "bun:test";
 import { loadSkillCommands } from "./skill-commands.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
 import { defined } from "../testkit/defined.js";
+import { stubCommandContext, usePluginDir } from "./test-fixtures.js";
 
-let root: string;
-
-async function makePlugin(layout: Record<string, string>): Promise<string> {
-  const dir = join(root, `p-${Math.random().toString(36).slice(2)}`);
-  for (const [relPath, content] of Object.entries(layout)) {
-    const fullPath = join(dir, relPath);
-    await mkdir(join(fullPath, ".."), { recursive: true });
-    await writeFile(fullPath, content, "utf8");
-  }
-  return dir;
-}
-
-const ctx: CommandContext = { signalClear: () => undefined };
-
-beforeEach(async () => {
-  root = await mkdtemp();
-});
-
-afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
-});
-
-async function mkdtemp(): Promise<string> {
-  const dir = join(
-    tmpdir(),
-    `ic-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  await mkdir(dir, { recursive: true });
-  return dir;
-}
+const { makePlugin } = usePluginDir();
+const ctx = stubCommandContext;
 
 describe("loadSkillCommands", () => {
   test("returns null when there is no skills directory", async () => {

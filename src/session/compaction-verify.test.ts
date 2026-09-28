@@ -873,40 +873,6 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
   });
 });
 
-describe("continuation facts survive many folds", () => {
-  test("verify signal holds after five lossy folds", async () => {
-    let priorFile: string | undefined;
-    const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
-      summaryMaxChars: 4000,
-      // CL-9007: pin a tiny tail budget so each fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      summarize: async () => "Work continues. Next: fix tests.",
-      readPriorHandoff: async () => priorFile,
-    });
-    let turns: ConversationTurn[] = [
-      ...droppedTurns(),
-      textTurn("user", "recent ask"),
-      textTurn("assistant", "recent reply"),
-    ];
-    for (let fold = 0; fold < 5; fold++) {
-      const result = await compactor.apply(turns, mockStrategyCtx);
-      const file = handoffFileText(result);
-      // The thin live spine does not carry next-action / blocker text; the
-      // fat handoff file does. Verify repair writes those into the narrative
-      // that the file persists, and later folds re-read it.
-      expect(file).toContain("refresh assertion");
-      priorFile = file;
-      turns = [
-        ...result.output,
-        textTurn("user", `follow-up ${fold}`),
-        textTurn("assistant", `progress note ${fold}`),
-      ];
-    }
-  });
-});
-
 describe("completeness gate plus verify repair", () => {
   function memoryArchive() {
     const dir = fs.mkdtempSync(

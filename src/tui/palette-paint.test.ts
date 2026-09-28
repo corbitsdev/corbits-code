@@ -39,15 +39,7 @@ async function paletteFrame(width: number): Promise<readonly string[]> {
       });
       openPalette(shell, { catalog: CATALOG });
       await h.renderOnce();
-      return h
-        .captureCharFrame()
-        .split("\n")
-        .map((line) =>
-          line
-            .replace(/^\s*│/, "")
-            .replace(/│\s*$/, "")
-            .trimEnd(),
-        );
+      return stripFrameLines(h.captureCharFrame());
     },
     { width, height: 32 },
   );
@@ -71,15 +63,7 @@ describe("command list rows", () => {
         });
         openPalette(shell, { catalog: CATALOG, typeToFilter: true });
         await h.renderOnce();
-        return h
-          .captureCharFrame()
-          .split("\n")
-          .map((line) =>
-            line
-              .replace(/^\s*│/, "")
-              .replace(/│\s*$/, "")
-              .trimEnd(),
-          );
+        return stripFrameLines(h.captureCharFrame());
       },
       { width: 100, height: 32 },
     );

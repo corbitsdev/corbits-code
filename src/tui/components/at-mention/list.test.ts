@@ -64,13 +64,6 @@ describe("listPathSuggestions", () => {
     expect(results.every((r) => r.startsWith("RE"))).toBe(true);
   });
 
-  test("resolves bare path with slash relative to cwd", async () => {
-    const results = await listPathSuggestions("src/", fixture);
-    expect(results).toContain("src/index.ts");
-    expect(results).toContain("src/index.test.ts");
-    expect(results).toContain("src/utils/");
-  });
-
   test("returns [] for a nonexistent path", async () => {
     expect(
       await listPathSuggestions("/nonexistent-path-12345/", fixture),

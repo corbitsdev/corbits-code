@@ -12,8 +12,6 @@ import {
   persistLocalMCPServerRemoved,
   persistMCPServerEnabled,
   persistMCPServerRemoved,
-  removeMCPServerEntry,
-  setMCPServerEntryEnabled,
 } from "./add-server.js";
 import { loadAuthState, mcpAuthDir, saveAuthState } from "./auth-store.js";
 import { isReadOnlyMcpTool, mcpToolName } from "./tool-name.js";
@@ -280,63 +278,6 @@ const linearAuth = {
   serverName: "linear",
   serverURL: "https://mcp.linear.app/mcp",
 };
-
-describe("setMCPServerEntryEnabled", () => {
-  test("disables a transport row and omits enabled when re-enabled", () => {
-    expect(setMCPServerEntryEnabled([linearHTTP], "linear", false)).toEqual([
-      { ...linearHTTP, enabled: false },
-    ]);
-    expect(
-      setMCPServerEntryEnabled(
-        [{ ...linearHTTP, enabled: false }],
-        "linear",
-        true,
-      ),
-    ).toEqual([linearHTTP]);
-  });
-
-  test("upserts an Exa preset when the list is empty or already a preset", () => {
-    expect(setMCPServerEntryEnabled([], "exa", false)).toEqual([
-      { name: "exa", enabled: false },
-    ]);
-    expect(
-      setMCPServerEntryEnabled([{ name: "exa", enabled: false }], "exa", true),
-    ).toEqual([{ name: "exa", enabled: true }]);
-  });
-
-  test("treats a custom transport named exa as a transport row", () => {
-    const custom = {
-      name: "exa",
-      type: "http" as const,
-      url: "https://custom.exa.test/mcp",
-    };
-    expect(setMCPServerEntryEnabled([custom], "exa", false)).toEqual([
-      { ...custom, enabled: false },
-    ]);
-  });
-
-  test("returns null for a missing non-exa name", () => {
-    expect(setMCPServerEntryEnabled([linearHTTP], "other", false)).toBeNull();
-  });
-});
-
-describe("removeMCPServerEntry", () => {
-  test("drops a transport row and refuses an Exa preset", () => {
-    expect(
-      removeMCPServerEntry(
-        [linearHTTP, { name: "exa", enabled: true }],
-        "linear",
-      ),
-    ).toEqual({
-      entries: [{ name: "exa", enabled: true }],
-      removed: linearHTTP,
-    });
-    expect(
-      removeMCPServerEntry([{ name: "exa", enabled: false }], "exa"),
-    ).toBeNull();
-    expect(removeMCPServerEntry([linearHTTP], "missing")).toBeNull();
-  });
-});
 
 describe("persistMCPServerEnabled", () => {
   test("disables Linear HTTP with enabled false and omits enabled on enable", async () => {

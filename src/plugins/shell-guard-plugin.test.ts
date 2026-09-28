@@ -160,100 +160,84 @@ describe("runGuardedShell", () => {
 });
 
 describe("resolveShellTimeoutMs", () => {
-  test("omitted foreground timeout is 120s", () => {
-    expect(
-      resolveShellTimeoutMs({ requested: undefined, background: false }),
-    ).toBe(DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS);
-    expect(resolveShellTimeoutMs({ requested: 0, background: false })).toBe(
-      DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS,
-    );
-    expect(resolveShellTimeoutMs({ requested: -1, background: false })).toBe(
-      DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS,
-    );
-  });
-
-  test("maxMs clamps only the foreground default path", () => {
-    expect(
-      resolveShellTimeoutMs({
-        requested: undefined,
-        background: false,
-        maxMs: 100,
-      }),
-    ).toBe(100);
-    expect(
-      resolveShellTimeoutMs({
-        requested: undefined,
-        background: false,
-        defaultMs: 15_000,
-        maxMs: 100,
-      }),
-    ).toBe(100);
-    expect(
-      resolveShellTimeoutMs({
-        requested: undefined,
-        background: false,
-        defaultMs: 120_000,
-        maxMs: 60_000,
-      }),
-    ).toBe(60_000);
-  });
-
-  test("per-call timeout is not clamped by maxMs", () => {
-    expect(
-      resolveShellTimeoutMs({
-        requested: 5_000,
-        background: false,
-        maxMs: 100,
-      }),
-    ).toBe(5_000);
-    expect(
-      resolveShellTimeoutMs({
-        requested: 3_600_000,
-        background: false,
-        defaultMs: 120_000,
-        maxMs: 100,
-      }),
-    ).toBe(3_600_000);
-    expect(
-      resolveShellTimeoutMs({
-        requested: 5_400_000,
-        background: false,
-        defaultMs: 15_000,
-        maxMs: 600_000,
-      }),
-    ).toBe(5_400_000);
-  });
-
-  test("background omitted timeout is undefined even when defaultMs is 90", () => {
-    expect(
-      resolveShellTimeoutMs({
-        requested: undefined,
-        background: true,
-        defaultMs: 90,
-        maxMs: 50,
-      }),
-    ).toBeUndefined();
-  });
-
-  test("background per-call timeout is the bound with no clamp", () => {
-    expect(
-      resolveShellTimeoutMs({
-        requested: 5_000,
-        background: true,
-        defaultMs: 120_000,
-        maxMs: 100,
-      }),
-    ).toBe(5_000);
-  });
-
-  test("settings defaultMs overrides the 120s foreground default", () => {
-    expect(
-      resolveShellTimeoutMs({
-        requested: undefined,
-        background: false,
-        defaultMs: 90,
-      }),
-    ).toBe(90);
+  test("resolves the foreground default, clamps only defaults, and leaves background unbounded", () => {
+    const cases: [
+      Parameters<typeof resolveShellTimeoutMs>[0],
+      number | undefined,
+    ][] = [
+      // Omitted/filler foreground timeout is the 120s default.
+      [
+        { requested: undefined, background: false },
+        DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS,
+      ],
+      [
+        { requested: 0, background: false },
+        DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS,
+      ],
+      [
+        { requested: -1, background: false },
+        DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS,
+      ],
+      // maxMs clamps only the foreground default path.
+      [{ requested: undefined, background: false, maxMs: 100 }, 100],
+      [
+        {
+          requested: undefined,
+          background: false,
+          defaultMs: 15_000,
+          maxMs: 100,
+        },
+        100,
+      ],
+      [
+        {
+          requested: undefined,
+          background: false,
+          defaultMs: 120_000,
+          maxMs: 60_000,
+        },
+        60_000,
+      ],
+      // Per-call timeout is not clamped by maxMs.
+      [{ requested: 5_000, background: false, maxMs: 100 }, 5_000],
+      [
+        {
+          requested: 3_600_000,
+          background: false,
+          defaultMs: 120_000,
+          maxMs: 100,
+        },
+        3_600_000,
+      ],
+      [
+        {
+          requested: 5_400_000,
+          background: false,
+          defaultMs: 15_000,
+          maxMs: 600_000,
+        },
+        5_400_000,
+      ],
+      // Background: omitted stays undefined; per-call is the bound, unclamped.
+      [
+        { requested: undefined, background: true, defaultMs: 90, maxMs: 50 },
+        undefined,
+      ],
+      [
+        { requested: 5_000, background: true, defaultMs: 120_000, maxMs: 100 },
+        5_000,
+      ],
+      // Settings defaultMs overrides the 120s foreground default.
+      [{ requested: undefined, background: false, defaultMs: 90 }, 90],
+    ];
+    const mismatched = cases
+      .map(([input, expected]) => ({
+        input,
+        expected,
+        actual: resolveShellTimeoutMs(input),
+      }))
+      .filter((c) => c.actual !== c.expected);
+    expect(mismatched).toEqual([]);
   });
 });
 

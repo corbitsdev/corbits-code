@@ -101,9 +101,9 @@ describe("isSensitivePath", () => {
     "/home/me/.azure/accessTokens.json",
     "/home/me/.azure/azureProfile.json",
   ];
-  for (const p of sensitive) {
-    test(`flags ${p}`, () => expect(isSensitivePath(p)).toBe(true));
-  }
+  test("flags every credential-shaped path", () => {
+    expect(sensitive.filter((p) => !isSensitivePath(p))).toEqual([]);
+  });
 
   const ok = [
     "src/index.ts",
@@ -133,9 +133,9 @@ describe("isSensitivePath", () => {
     "src/gcloud-deploy.ts",
     "src/azure-profile-view.tsx",
   ];
-  for (const p of ok) {
-    test(`allows ${p}`, () => expect(isSensitivePath(p)).toBe(false));
-  }
+  test("allows every plausible look-alike path", () => {
+    expect(ok.filter((p) => isSensitivePath(p))).toEqual([]);
+  });
 
   test("normalizes drive-relative paths only for cmd", () => {
     expect(isSensitivePath("C:.envrc", "posix")).toBe(false);
@@ -182,13 +182,13 @@ describe("isSensitivePath", () => {
 });
 
 describe("secretGuardPlugin", () => {
-  for (const path of [".env", ".envrc", "/abs/path/.flaskenv"]) {
-    test(`denies reading sensitive file ${path}`, async () => {
+  test("denies reading sensitive files", async () => {
+    for (const path of [".env", ".envrc", "/abs/path/.flaskenv"]) {
       const result = await handler()(read(path), new AbortController().signal);
       expect(result.isError).toBe(true);
       expect(result.content).toMatch(/sensitive file blocked/);
-    });
-  }
+    }
+  });
 
   test("denies writing a sensitive file", async () => {
     const call: ToolCall = {
@@ -288,10 +288,11 @@ describe("commandReferencesSensitivePath", () => {
     "cat server.ppk",
     "cat service-account.json",
   ];
-  for (const c of blocked) {
-    test(`flags: ${c}`, () =>
-      expect(commandReferencesSensitivePath(c)).toBeDefined());
-  }
+  test("flags every command touching a credential path", () => {
+    expect(
+      blocked.filter((c) => commandReferencesSensitivePath(c) === undefined),
+    ).toEqual([]);
+  });
 
   const allowed = [
     "ls -la",
@@ -308,10 +309,11 @@ describe("commandReferencesSensitivePath", () => {
     "grep --fil=.envrc needle",
     "bun test",
   ];
-  for (const c of allowed) {
-    test(`allows: ${c}`, () =>
-      expect(commandReferencesSensitivePath(c)).toBeUndefined());
-  }
+  test("allows every benign command", () => {
+    expect(
+      allowed.filter((c) => commandReferencesSensitivePath(c) !== undefined),
+    ).toEqual([]);
+  });
 });
 
 describe("secretGuardPlugin run_shell", () => {

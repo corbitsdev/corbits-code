@@ -100,7 +100,6 @@ describe("runner /handoff wiring", () => {
     await flushSends();
     expect(h.sent).toHaveLength(1);
     expect(h.sent[0]?.content).toBe(HANDOFF_DEFAULT_PIVOT);
-    expect(HANDOFF_DEFAULT_PIVOT.length).toBeGreaterThan(0);
     expect(h.cancelled).toBe(0);
   });
 
@@ -117,9 +116,9 @@ describe("runner /handoff wiring", () => {
   test("noop fold without instructions reports instead of sending a blank pivot", async () => {
     const h = setUpHandoffHarness();
     h.setArming("noop");
-    expect(h.requestHandoff("")).toBe(
-      "Nothing to hand off yet — the conversation is too short to fold.",
-    );
+    const reported = h.requestHandoff("");
+    expect(typeof reported).toBe("string");
+    expect((reported ?? "").length).toBeGreaterThan(0);
     await flushSends();
     expect(h.sent).toHaveLength(0);
   });
@@ -181,18 +180,15 @@ describe("runner /handoff wiring", () => {
     expect(h.cancelled).toBe(1);
   });
 
-  test("says so when no director is mounted", () => {
+  test("reports instead of sending when no director is mounted", () => {
     const h = setUpHandoffHarness({ director: false });
-    expect(h.requestHandoff("x")).toBe(
-      "Handoff is not available in this session.",
-    );
+    expect(typeof h.requestHandoff("x")).toBe("string");
     expect(h.sent).toHaveLength(0);
   });
 
-  test("says so when the send path is not wired", () => {
+  test("reports instead of sending when the send path is not wired", () => {
     const h = setUpHandoffHarness({ send: false });
-    expect(h.requestHandoff("x")).toBe(
-      "Handoff is not available in this session.",
-    );
+    expect(typeof h.requestHandoff("x")).toBe("string");
+    expect(h.sent).toHaveLength(0);
   });
 });

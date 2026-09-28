@@ -31,20 +31,6 @@ describe("buildWorkerContract", () => {
     }
   });
 
-  test("carries no idle/poll/mailbox/tool-catalog/appendix copy", () => {
-    for (const opts of VARIANTS) {
-      const contract = buildWorkerContract(opts);
-      expect(contract).not.toContain("mailbox");
-      expect(contract).not.toContain("do not poll");
-      expect(contract).not.toMatch(/\breply and idle\b/i);
-      expect(contract).not.toContain("## Corbits Code notes");
-      expect(contract).not.toContain("Prompt discipline:");
-      expect(contract).not.toContain("Guidelines:");
-      expect(contract).not.toContain("Harness facts:");
-      expect(contract).not.toContain("Tools:");
-    }
-  });
-
   test("ask rule names ask_director only when mounted", () => {
     const withAsk = buildWorkerContract({ askDirector: true });
     expect(withAsk).toContain("ask_director");
@@ -77,23 +63,6 @@ describe("buildWorkerContract", () => {
       "Only the primary Corbits Code session (or a built-in orchestrator director) may call `spawn_agent`",
     );
     expect(contract).not.toContain("mailbox");
-  });
-
-  test("contract owns the skill-escalation rule", () => {
-    const contract = buildWorkerContract({ askDirector: true });
-    expect(contract).toContain(
-      "Skills are available; search only when the brief names a skill or the task is outside your lane. For a small, bounded edit, do not search skills.",
-    );
-    expect(contract).toContain(
-      "Load a brief-named skill straight through use_skill",
-    );
-    expect(contract).toContain("load only the skills the task needs");
-    expect(contract).toContain("Do not reload attached skills");
-    expect(contract).not.toContain("Call skill_search for descriptions");
-    expect(contract).toContain(
-      "call skill_search only when choosing among optional skills",
-    );
-    expect(contract).not.toContain("it is mounted");
   });
 });
 

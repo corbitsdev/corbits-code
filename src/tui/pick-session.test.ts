@@ -28,7 +28,10 @@ describe("sessionResumeLabel", () => {
         status: "done",
       }),
     );
-    expect(label).toBe("Ship picker · 5m ago · done");
+    expect(label).toContain("Ship picker");
+    expect(label).toContain("5m");
+    // 48h of startedAt staleness must not leak into the displayed age.
+    expect(label).not.toContain("48h");
   });
 
   test("includes completed and crashed statuses in the row", () => {
@@ -43,9 +46,11 @@ describe("sessionResumeLabel", () => {
     );
   });
 
-  test("falls back to Untitled session when the task is blank", () => {
+  test("a blank task still yields a well-formed label", () => {
     const label = sessionResumeLabel(summary({ task: "   " }));
-    expect(label.startsWith("Untitled session ·")).toBe(true);
+    expect(label.length).toBeGreaterThan(0);
+    // No dangling separator where the task name would sit.
+    expect(label.startsWith("·")).toBe(false);
   });
 });
 

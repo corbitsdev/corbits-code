@@ -45,11 +45,4 @@ describe("detectLanguageServerAvailable", () => {
     await writeFile(bin, "#!/usr/bin/env node\n");
     expect(detectLanguageServerAvailable(dir)).toBe(true);
   });
-
-  test("the real project checkout has a language server available", () => {
-    // This repo itself installs typescript and typescript-language-server as
-    // devDependencies, so detection against the actual cwd is a live check
-    // that the two-condition logic agrees with what createLSPPlugin would find.
-    expect(detectLanguageServerAvailable(process.cwd())).toBe(true);
-  });
 });

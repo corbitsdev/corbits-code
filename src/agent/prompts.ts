@@ -11,11 +11,7 @@ import {
   buildWorkerContract,
   buildWorkerToolNames,
 } from "./worker-contract.js";
-import {
-  CLAUDE_TASK_GUIDANCE_NOTE,
-  GPT_NARRATE_BEFORE_TOOLS_NOTE,
-  GROK_PROMPT_RESIDUAL,
-} from "./model-family-policy.js";
+import { GROK_PROMPT_RESIDUAL } from "./model-family-policy.js";
 
 // Advertise every gated core tool when the caller has no session-start facts
 // (tests, ad-hoc prompt previews) — except wait_agents, which is mount-gated:
@@ -542,27 +538,6 @@ export function buildGrokLeafAntiThrashNote(): string {
 // Single XML residual for Claude-family workers: a prose residual did
 // nothing, but one <task_guidance> block cut Sonnet tokens. One block only —
 // never a full-prompt XML renderer, never applied outside the claude family.
-// Rebuilt end to end from Anthropic's prompting docs (CL-8309): rationale
-// first, numbered approach, named output contract; every line is positively
-// framed and scope-explicit for Sonnet's literal instruction-following.
-// Single source of truth is the CLAUDE_TASK_GUIDANCE_NOTE block in
-// model-family-policy.ts (policy owns data); this returns that block verbatim
-// so the prompt carries one claude residual with no line twice.
-export function buildClaudeTaskGuidanceNote(): string {
-  return CLAUDE_TASK_GUIDANCE_NOTE;
-}
-
-// Tiny residual for GPT workers (CL-8310): GPT-5.5/5.6-luna runs showed 6–13
-// silent tool-only turns. Shared thrash harness + spawn contracts do the
-// structural work; this is only a narrate-before-tools nudge. Deliberately
-// not manage_tasks ceremony — that is CL-7769, not this text.
-// Single source of truth is the GPT_NARRATE_BEFORE_TOOLS_NOTE block in
-// model-family-policy.ts (policy owns data); this returns that block verbatim
-// so the prompt carries one gpt residual with no line twice.
-export function buildGptNarrateBeforeToolsNote(): string {
-  return GPT_NARRATE_BEFORE_TOOLS_NOTE;
-}
-
 export function buildSubAgentSystemPrompt(
   extensions?: string[],
   env?: EnvironmentInfo,

@@ -125,11 +125,6 @@ describe("agentProgress", () => {
     expect(progress?.stat).not.toContain("run_shell");
   });
 
-  test("without a preview the trailer still names the tool", () => {
-    const progress = agentProgress({ ...base, lastActivityAt: 42_000 }, 42_000);
-    expect(progress?.stat).toContain("grep");
-  });
-
   test("a running session with no current tool reports elapsed time alone", () => {
     const progress = agentProgress(
       { ...base, currentToolName: null, lastActivityAt: 42_000 },

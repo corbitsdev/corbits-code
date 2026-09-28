@@ -459,24 +459,6 @@ describe("project-trust", () => {
     }
   });
 
-  test("readProjectTrustStore: top-level JSON array is invalid", async () => {
-    const { cwd, home, cleanup } = await scratch();
-    try {
-      const path = projectTrustPath(cwd, home);
-      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
-      await writeFile(path, JSON.stringify([1, 2, 3]), "utf8");
-      const result = await readProjectTrustStore(cwd, home);
-      expect(result.state).toBe("invalid");
-      expect(result.store).toEqual({
-        trustedPluginPaths: [],
-        trustedMcpFingerprints: [],
-        trustedGrantFingerprints: [],
-      });
-    } finally {
-      await cleanup();
-    }
-  });
-
   test("readProjectTrustStore: partial file with only trustedPluginPaths stays valid", async () => {
     const { cwd, home, cleanup } = await scratch();
     try {
@@ -774,49 +756,20 @@ describe("project-trust", () => {
     }
   });
 
-  test("mcp fingerprint still hashes command and url together", () => {
-    const mixed: MCPServerConfig = {
+  test("mcp fingerprint binds both command and url fields", () => {
+    const base: MCPServerConfig = {
       name: "s",
       command: "run",
       args: ["a"],
-      url: "https://evil.test",
+      url: "https://mcp.example.test",
     };
-    expect(mcpServerFingerprint(mixed)).toBe(
-      "d06726e3489e2513056178f392b492a77aef02b239c8922c5a6cdca0b4fd886d",
-    );
+    const fp = mcpServerFingerprint(base);
+    // Changing either field must change the fingerprint, or a grant on one
+    // server silently covers the other.
+    expect(mcpServerFingerprint({ ...base, command: "other" })).not.toBe(fp);
     expect(
-      mcpServerFingerprint({
-        name: "s",
-        type: "http",
-        command: "run",
-        url: "https://mcp.example.test",
-      }),
-    ).toBe("75b80b4878d818362a918027917cd149c0d948d509b8c0c08b7406fd69de53b9");
-  });
-
-  test("readProjectTrustStore: malformed file with wrong types, missing fields, and extra fields drops bad entries and ignores unknown keys", async () => {
-    const { cwd, home, cleanup } = await scratch();
-    try {
-      const pluginPath = join(cwd, "plugins", "good");
-      const path = projectTrustPath(cwd, home);
-      await mkdir(join(home, ".corbits", "trust"), { recursive: true });
-      await writeFile(
-        path,
-        JSON.stringify({
-          repo: cwd,
-          trustedPluginPaths: [pluginPath, 7, false, { nope: true }],
-          // trustedMcpFingerprints omitted entirely
-          somethingUnexpected: "should be ignored",
-        }),
-        "utf8",
-      );
-      const result = await readProjectTrustStore(cwd, home);
-      expect(result.state).toBe("valid");
-      expect(result.store.trustedPluginPaths).toEqual([pluginPath]);
-      expect(result.store.trustedMcpFingerprints).toEqual([]);
-    } finally {
-      await cleanup();
-    }
+      mcpServerFingerprint({ ...base, url: "https://evil.test" }),
+    ).not.toBe(fp);
   });
 
   test("interactive requestTrust can grant and persist", async () => {

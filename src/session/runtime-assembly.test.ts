@@ -449,19 +449,6 @@ describe("skillDirsFromEnabledPlugins", () => {
 });
 
 describe("createSessionPruningCompactor", () => {
-  test("wires a summarize function when provided", async () => {
-    const summarize = async () => "summary";
-    const llm = createSessionPruningCompactor({
-      summarize,
-    });
-    expect(typeof llm.apply).toBe("function");
-  });
-
-  test("builds without a summarize function for sourceless leaves", () => {
-    const compactor = createSessionPruningCompactor({});
-    expect(typeof compactor.apply).toBe("function");
-  });
-
   test("forwards summaryContext to summarize in llm mode", async () => {
     const ctx = { workflow: { name: "build", stepIndex: 1, total: 3 } };
     let captured: unknown;

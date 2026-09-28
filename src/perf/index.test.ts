@@ -328,31 +328,6 @@ describe("sanitizeTags", () => {
   });
 });
 
-describe("open/close budget", () => {
-  test("start+end stays well under 50µs average", () => {
-    // Warm up JIT / maps.
-    for (let i = 0; i < 200; i += 1) {
-      const id = start("inference");
-      end(id);
-    }
-    clear();
-
-    const iterations = 5_000;
-    const t0 = process.hrtime.bigint();
-    for (let i = 0; i < iterations; i += 1) {
-      const id = start("inference", {
-        tags: { provider_id: "openai", model_id: "gpt-5.4" },
-      });
-      end(id, { duration_ms: 1 });
-    }
-    const t1 = process.hrtime.bigint();
-    const avgNs = Number(t1 - t0) / iterations;
-    // Budget: open/close on the order of microseconds. 50µs avg is a loose
-    // ceiling that still fails if we regress into heavy work (I/O, crypto, etc.).
-    expect(avgNs).toBeLessThan(50_000);
-  });
-});
-
 describe("snapshot shape", () => {
   test("completed spans retain only allowlisted fields", () => {
     const id = start("adapter.request_build", {

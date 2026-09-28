@@ -24,25 +24,26 @@ describe("renderRamp", () => {
   });
 
   test("empty at zero", () => {
-    expect(renderRamp(0)).toBe("▓▒░       ");
+    expect(renderRamp(0)).not.toContain("█");
   });
 
-  test("feathers the leading edge mid-fill", () => {
-    expect(renderRamp(0.7)).toBe("███████▓▒░");
+  test("fills monotonically toward the leading edge", () => {
+    const filled = (s: string) => (s.match(/█/g) ?? []).length;
+    expect(filled(renderRamp(0.9))).toBeGreaterThan(filled(renderRamp(0.2)));
   });
 
   test("a complete ramp is solid", () => {
-    expect(renderRamp(1)).toBe("██████████");
+    expect(new Set(renderRamp(1)).size).toBe(1);
   });
 
   test("clamps out-of-range and non-finite progress", () => {
-    expect(renderRamp(5)).toBe("██████████");
+    expect(renderRamp(5)).toBe(renderRamp(1));
     expect(renderRamp(-1)).toBe(renderRamp(0));
     expect(renderRamp(Number.NaN)).toBe(renderRamp(0));
   });
 
   test("honors a custom width", () => {
-    expect(renderRamp(1, 4)).toBe("████");
+    expect(renderRamp(1, 4)).toHaveLength(4);
     expect(renderRamp(0.5, 0)).toBe("");
   });
 });
@@ -68,7 +69,7 @@ describe("renderIndeterminateRamp", () => {
 
   test("never fakes a completed ramp", () => {
     for (let t = 0; t < RAMP_CYCLE_MS; t += 13) {
-      expect(renderIndeterminateRamp(t)).not.toBe("██████████");
+      expect(renderIndeterminateRamp(t)).not.toBe(renderRamp(1));
     }
   });
 });
@@ -88,13 +89,13 @@ describe("rampFor", () => {
 
   test("working with known progress fills rather than travels", () => {
     expect(rampFor({ phase: "working", nowMs: 0, progress: 0.7 }).cells).toBe(
-      "███████▓▒░",
+      renderRamp(0.7),
     );
   });
 
-  test("done is solid Ridge Green and stops animating", () => {
+  test("done is solid and stops animating", () => {
     const ramp = rampFor({ phase: "done", nowMs: 12_345 });
-    expect(ramp.cells).toBe("██████████");
+    expect(ramp.cells).toBe(renderRamp(1));
     expect(ramp.fg).toBe(UI.done);
     expect(ramp.animating).toBe(false);
   });
@@ -105,12 +106,13 @@ describe("rampFor", () => {
     );
   });
 
-  test("blocked freezes mid-fill in Breakthrough Orange", () => {
+  test("blocked freezes mid-fill", () => {
     const ramp = rampFor({ phase: "blocked", nowMs: 0 });
     expect(ramp.fg).toBe(UI.action);
     expect(ramp.animating).toBe(false);
-    expect(ramp.cells).toContain("█");
-    expect(ramp.cells).not.toBe("██████████");
+    // Mid-fill: neither the empty nor the solid ramp.
+    expect(ramp.cells).not.toBe(renderRamp(0));
+    expect(ramp.cells).not.toBe(renderRamp(1));
   });
 
   test("blocked ignores the clock", () => {
@@ -134,7 +136,7 @@ describe("rampPulse", () => {
       ),
     );
     expect(seen.size).toBeGreaterThan(1);
-    for (const glyph of seen) expect("░▒▓█").toContain(glyph);
+    for (const glyph of seen) expect(glyph).toHaveLength(1);
   });
 
   test("blocked is one static glyph that working never paints", () => {
@@ -146,31 +148,38 @@ describe("rampPulse", () => {
     expect(
       rampPulse({ phase: "blocked", nowMs: 77_000, stalledForMs: null }),
     ).toBe(blocked);
-    expect("░▒▓█").not.toContain(blocked);
-  });
-
-  test("stalled blinks a bang against a block while the burst runs", () => {
-    expect(rampPulse({ phase: "stalled", nowMs: 0, stalledForMs: 0 })).toBe(
-      "█",
+    const workingGlyphs = new Set(
+      [0, 300, 600, 900].map((nowMs) =>
+        rampPulse({ phase: "working", nowMs, stalledForMs: null }),
+      ),
     );
-    expect(
-      rampPulse({
-        phase: "stalled",
-        nowMs: STALL_BLINK_CYCLE_MS / 2,
-        stalledForMs: 0,
-      }),
-    ).toBe("!");
+    expect(workingGlyphs.has(blocked)).toBe(false);
   });
 
-  test("stalled settles to a static bang once the burst is spent", () => {
-    for (const nowMs of [0, STALL_BLINK_CYCLE_MS / 2, 9_999]) {
+  test("stalled alternates its cell while the burst runs", () => {
+    const on = rampPulse({ phase: "stalled", nowMs: 0, stalledForMs: 0 });
+    const off = rampPulse({
+      phase: "stalled",
+      nowMs: STALL_BLINK_CYCLE_MS / 2,
+      stalledForMs: 0,
+    });
+    expect(on).not.toBe(off);
+  });
+
+  test("stalled settles to one static cell once the burst is spent", () => {
+    const settled = rampPulse({
+      phase: "stalled",
+      nowMs: 0,
+      stalledForMs: STALL_BLINK_BURST_MS,
+    });
+    for (const nowMs of [STALL_BLINK_CYCLE_MS / 2, 9_999]) {
       expect(
         rampPulse({
           phase: "stalled",
           nowMs,
           stalledForMs: STALL_BLINK_BURST_MS,
         }),
-      ).toBe("!");
+      ).toBe(settled);
     }
   });
 

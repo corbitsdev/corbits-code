@@ -1,49 +1,22 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { defined } from "../testkit/defined.js";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import { clear, snapshot, type PerfSpan } from "./index.js";
+import {
+  completed,
+  event,
+  inferenceDone,
+  useCleanSpanStore,
+} from "./fixtures/spans.js";
+import { snapshot, type PerfSpan } from "./index.js";
 import { createPerfReactorObserver } from "./reactor-spans.js";
 import { createTurnContextCollector } from "../session/hooks.js";
 
 // The span store is process-wide, so a perf test cannot assume the tests that
 // ran before it in this process left it empty. Reset on both edges.
-beforeEach(() => {
-  clear();
-});
-
-afterEach(() => {
-  clear();
-});
-
-function event(type: string, data: unknown = {}): ReactorEmittedEvent {
-  return { type, seq: 1, data } as ReactorEmittedEvent;
-}
+useCleanSpanStore();
 
 function byName(spans: PerfSpan[], name: string): PerfSpan[] {
   return spans.filter((s) => s.name === name);
-}
-
-function completed(spans: PerfSpan[]): PerfSpan[] {
-  return spans.filter((s) => s.endNs !== undefined);
-}
-
-const emptyUsage = {
-  input: 10,
-  output: 5,
-  cacheRead: 0,
-  cacheWrite: 0,
-  thinking: 0,
-};
-const source = { provider: "test-provider", model: "test-model" };
-
-function inferenceDone(
-  content: unknown[] = [{ type: "text", text: "hi" }],
-): ReactorEmittedEvent {
-  return event("inference.done", {
-    turn: { role: "assistant", content, model: "test-model", timestamp: 0 },
-    usage: emptyUsage,
-    source,
-  });
 }
 
 describe("createPerfReactorObserver", () => {

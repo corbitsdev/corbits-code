@@ -16,25 +16,7 @@
  */
 
 import type { PerfSpan } from "../index.js";
-
-function span(partial: {
-  id: string;
-  name: PerfSpan["name"];
-  parentId?: string;
-  startNs: bigint;
-  endNs?: bigint;
-  tags?: PerfSpan["tags"];
-}): PerfSpan {
-  const s: PerfSpan = {
-    id: partial.id,
-    name: partial.name,
-    startNs: partial.startNs,
-  };
-  if (partial.parentId !== undefined) s.parentId = partial.parentId;
-  if (partial.endNs !== undefined) s.endNs = partial.endNs;
-  if (partial.tags !== undefined) s.tags = partial.tags;
-  return s;
-}
+import { span } from "./spans.js";
 
 /** Synthetic multi-tool turn tree for rollup / assertion regression tests. */
 export function multiToolTurnFixture(): PerfSpan[] {

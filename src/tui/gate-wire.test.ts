@@ -643,27 +643,6 @@ describe("wireGates", () => {
       expect(shell.overlayKind).not.toBe("permissions");
     });
   });
-
-  test("gate decisions do not replay the request into the transcript", async () => {
-    await withGates(
-      async ({ shell, emitter }) => {
-        emitPermission(emitter, {
-          request: baseRequest({ subject: "ls -la ~/.corbits/projects" }),
-        });
-
-        expect(
-          shell.streamLog.filter((r) => r.meta === "permission"),
-        ).toHaveLength(0);
-
-        acceptOverlaySelection(shell);
-
-        expect(
-          shell.streamLog.filter((r) => r.meta === "permission"),
-        ).toHaveLength(0);
-      },
-      { terminal: { columns: 96, rows: 30 } },
-    );
-  });
 });
 
 describe("gate decisions stay out of the transcript", () => {

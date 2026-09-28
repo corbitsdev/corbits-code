@@ -61,6 +61,51 @@ async function withSettings(
   }
 }
 
+// Writes a synthetic xai OAuth profile straight to a fake home's auth store —
+// the same home-level store loadConfig's OAuth merge actually reads.
+async function writeXaiAuthProfile(home: string): Promise<void> {
+  await writeFile(
+    join(home, ".corbits", "xai-auth.json"),
+    JSON.stringify({
+      profiles: {
+        synthetic: {
+          name: "synthetic",
+          tokens: {
+            access: "test-access-token",
+            refresh: "test-refresh",
+            expiresAt: Date.now() + 3_600_000,
+          },
+          createdAt: Date.now(),
+        },
+      },
+    }),
+  );
+}
+
+// loadConfig's OAuth profile merge reads the real os.homedir() with no
+// override parameter (Bun's homedir does not observe a post-startup HOME
+// change), so the only way to point it at a synthetic auth store is to stub
+// node:os for the duration of the call.
+async function loadConfigAtHome(
+  home: string,
+  args: string[],
+): Promise<Awaited<ReturnType<typeof loadConfig>>> {
+  return withMockedHomedir(home, async () => {
+    const { impl } = offlineFetch();
+    return loadConfig(args, { pricing: { fetchImpl: impl } });
+  });
+}
+
+function expectXaiSyntheticProvider(
+  config: Awaited<ReturnType<typeof loadConfig>>,
+): void {
+  expect(config.configured).toBe(true);
+  if (config.configured) {
+    expect(config.providerName).toBe("xai/synthetic");
+    expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(true);
+  }
+}
+
 test("loadConfig defaults auto mode on", async () => {
   await withSettings(async ({ cwd, globalSettingsPath }) => {
     const { impl } = offlineFetch();
@@ -405,34 +450,18 @@ test("aliased-home restart preserves a non-default OAuth model", async () => {
         },
       }),
     );
-    await writeFile(
-      join(fakeHome, ".corbits", "xai-auth.json"),
-      JSON.stringify({
-        profiles: {
-          synthetic: {
-            name: "synthetic",
-            tokens: {
-              access: "test-access-token",
-              refresh: "test-refresh",
-              expiresAt: Date.now() + 3_600_000,
-            },
-            createdAt: Date.now(),
-          },
-        },
-      }),
-    );
+    await writeXaiAuthProfile(fakeHome);
 
-    await withMockedHomedir(fakeHome, async () => {
-      const { impl } = offlineFetch();
-      const config = await loadConfig(["--cwd", fakeHome, "do something"], {
-        pricing: { fetchImpl: impl },
-      });
-      expect(config.configured).toBe(true);
-      if (config.configured) {
-        expect(config.providerName).toBe("xai/synthetic");
-        expect(config.model).toBe(selectedModel);
-      }
-    });
+    const config = await loadConfigAtHome(fakeHome, [
+      "--cwd",
+      fakeHome,
+      "do something",
+    ]);
+    expect(config.configured).toBe(true);
+    if (config.configured) {
+      expect(config.providerName).toBe("xai/synthetic");
+      expect(config.model).toBe(selectedModel);
+    }
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
   }
@@ -462,17 +491,16 @@ test("loadConfig ignores a persisted OAuth entry whose auth profile is gone", as
     });
     await writeFile(settingsPath, original);
 
-    await withMockedHomedir(fakeHome, async () => {
-      const { impl } = offlineFetch();
-      const config = await loadConfig(["--cwd", fakeHome, "do something"], {
-        pricing: { fetchImpl: impl },
-      });
-      expect(config.configured).toBe(true);
-      if (config.configured) {
-        expect(config.providerName).toBe("openai");
-        expect(config.providers.some((p) => p.name === "xai/gone")).toBe(false);
-      }
-    });
+    const config = await loadConfigAtHome(fakeHome, [
+      "--cwd",
+      fakeHome,
+      "do something",
+    ]);
+    expect(config.configured).toBe(true);
+    if (config.configured) {
+      expect(config.providerName).toBe("openai");
+      expect(config.providers.some((p) => p.name === "xai/gone")).toBe(false);
+    }
     expect(await readFile(settingsPath, "utf8")).toBe(original);
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
@@ -496,44 +524,17 @@ test("loadConfig resolves an OAuth-profile provider absent from any settings fil
   const cwd = await mkdtemp(join(tmpdir(), "ic-unit-config-oauth-cwd-"));
   try {
     await mkdir(join(fakeHome, ".corbits"), { recursive: true });
-    await writeFile(
-      join(fakeHome, ".corbits", "xai-auth.json"),
-      JSON.stringify({
-        profiles: {
-          synthetic: {
-            name: "synthetic",
-            tokens: {
-              access: "test-access-token",
-              refresh: "test-refresh",
-              expiresAt: Date.now() + 3_600_000,
-            },
-            createdAt: Date.now(),
-          },
-        },
-      }),
-    );
+    await writeXaiAuthProfile(fakeHome);
 
-    // Bun's os.homedir() does not observe process.env.HOME changed after
-    // startup (unlike Node's documented behavior), and loadConfig's OAuth
-    // profile merge always reads the real homedir() with no override
-    // parameter — so the only way to point it at a synthetic auth store
-    // without touching the real one is to stub node:os for the duration of
-    // this call.
-    await withMockedHomedir(fakeHome, async () => {
-      const { impl } = offlineFetch();
-      const config = await loadConfig(
-        ["exec", "--cwd", cwd, "--provider", "xai/synthetic", "do something"],
-        { pricing: { fetchImpl: impl } },
-      );
-
-      expect(config.configured).toBe(true);
-      if (config.configured) {
-        expect(config.providerName).toBe("xai/synthetic");
-        expect(config.providers.some((p) => p.name === "xai/synthetic")).toBe(
-          true,
-        );
-      }
-    });
+    const config = await loadConfigAtHome(fakeHome, [
+      "exec",
+      "--cwd",
+      cwd,
+      "--provider",
+      "xai/synthetic",
+      "do something",
+    ]);
+    expectXaiSyntheticProvider(config);
   } finally {
     await rm(fakeHome, { recursive: true, force: true });
     await rm(cwd, { recursive: true, force: true });

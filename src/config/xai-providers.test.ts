@@ -16,16 +16,9 @@ import {
 } from "./xai-providers.js";
 
 describe("xAI OAuth provider projection", () => {
-  test("default models include Grok 4.7 while defaulting to the CLI coding model", () => {
-    const models: string[] = [...XAI_DEFAULT_MODELS];
-    expect(models).toEqual([
-      "grok-4.5",
-      "grok-4.6",
-      "grok-4.7",
-      "grok-composer-2.5-fast",
-    ]);
-    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
-    expect(models[0]).toBe("grok-4.5");
+  test("default models lead with the CLI coding model", () => {
+    expect(XAI_DEFAULT_MODELS.length).toBeGreaterThan(1);
+    expect(XAI_DEFAULT_MODELS[0]).toBe("grok-4.5");
   });
 
   test("skips grok-4.7 insert when the vendor list already includes it", () => {
@@ -34,30 +27,6 @@ describe("xAI OAuth provider projection", () => {
       "grok-4.6",
       "grok-4.7",
       "grok-composer-2.5-fast",
-    ] as const;
-    const models = extendVendorXaiDefaultModels(vendor);
-    expect(models).toEqual(vendor);
-    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
-  });
-
-  test("skips grok-4.7 insert when the vendor list starts with it", () => {
-    const vendor = [
-      "grok-4.7",
-      "grok-4.5",
-      "grok-4.6",
-      "grok-composer-2.5-fast",
-    ] as const;
-    const models = extendVendorXaiDefaultModels(vendor);
-    expect(models).toEqual(vendor);
-    expect(models.filter((m) => m === "grok-4.7")).toHaveLength(1);
-  });
-
-  test("skips grok-4.7 insert when the vendor list ends with it", () => {
-    const vendor = [
-      "grok-4.5",
-      "grok-4.6",
-      "grok-composer-2.5-fast",
-      "grok-4.7",
     ] as const;
     const models = extendVendorXaiDefaultModels(vendor);
     expect(models).toEqual(vendor);

@@ -11,12 +11,8 @@ import {
   type DirectorId,
   type DirectorPackage,
 } from "./directors/types.js";
-import { buildChatSystemPrompt, buildSubAgentSystemPrompt } from "./prompts.js";
+import { buildSubAgentSystemPrompt } from "./prompts.js";
 import { resolveModelFamilyPolicy } from "./model-family-policy.js";
-import {
-  formatAgentsMdExtension,
-  MAX_AGENTS_MD_BYTES,
-} from "./context-extensions.js";
 import { shouldApplyGrokAntiThrash } from "../subagent/provider-family.js";
 import { shellCollectDefinition } from "./background-shell-tool.js";
 import { advertisedToolName } from "./tool-aliases.js";
@@ -80,7 +76,6 @@ export type PromptSizeFamily = "default" | "muse" | "grok" | "claude" | "gpt";
  * sizes move only when framing or assembly changes, not when the checkout's
  * AGENTS.md is edited.
  */
-export const CANONICAL_AGENTS_MD = "Follow the repository conventions.\n";
 
 /**
  * Pre-filter mount names in run.ts install order: posix base (TOOL_NAMES,
@@ -196,19 +191,6 @@ export function assembleDirectorPrompt(
     : prompt;
 }
 
-/**
- * Skywalker primary infer envelope: the chat system prompt plus the
- * AGENTS.md extension. Family-agnostic — Grok does not substitute the
- * trimmed director prompt. Live AGENTS.md is capped at MAX_AGENTS_MD_BYTES;
- * the fixture uses CANONICAL_AGENTS_MD so the number is checkout-stable.
- */
-export function assembleSkywalkerInferEnvelope(): string {
-  return buildChatSystemPrompt(
-    [formatAgentsMdExtension(CANONICAL_AGENTS_MD)],
-    CANONICAL_PROMPT_ENV,
-  );
-}
-
 export interface DirectorPromptSize {
   directorId: DirectorId;
   family: PromptSizeFamily;
@@ -229,26 +211,6 @@ export function measureDirectorPrompt(
   };
 }
 
-export interface SkywalkerPrefixSize {
-  inferEnvelopeChars: number;
-  inferEnvelopeBytes: number;
-  trimmedDirectorChars: number;
-  trimmedDirectorBytes: number;
-  agentsMdCap: number;
-}
-
-export function measureSkywalkerPrefix(): SkywalkerPrefixSize {
-  const infer = assembleSkywalkerInferEnvelope();
-  const trimmed = assembleDirectorPrompt("skywalker", "grok");
-  return {
-    inferEnvelopeChars: infer.length,
-    inferEnvelopeBytes: Buffer.byteLength(infer, "utf8"),
-    trimmedDirectorChars: trimmed.length,
-    trimmedDirectorBytes: Buffer.byteLength(trimmed, "utf8"),
-    agentsMdCap: MAX_AGENTS_MD_BYTES,
-  };
-}
-
 /** Full per-director x per-family size table. */
 export function directorPromptSizeTable(): DirectorPromptSize[] {
   const rows: DirectorPromptSize[] = [];
@@ -264,43 +226,4 @@ export function directorPromptSizeTable(): DirectorPromptSize[] {
     }
   }
   return rows;
-}
-
-/** Render the size table as markdown (for PR bodies and budget updates). */
-export function formatPromptSizeTable(rows: DirectorPromptSize[]): string {
-  const lines = [
-    "| director | default chars (bytes) | muse chars (bytes) | grok chars (bytes) | claude chars (bytes) | gpt chars (bytes) |",
-    "| --- | --- | --- | --- | --- | --- |",
-  ];
-  for (const directorId of DIRECTOR_IDS) {
-    const base = rows.find(
-      (r) => r.directorId === directorId && r.family === "default",
-    );
-    const muse = rows.find(
-      (r) => r.directorId === directorId && r.family === "muse",
-    );
-    const grok = rows.find(
-      (r) => r.directorId === directorId && r.family === "grok",
-    );
-    const claude = rows.find(
-      (r) => r.directorId === directorId && r.family === "claude",
-    );
-    const gpt = rows.find(
-      (r) => r.directorId === directorId && r.family === "gpt",
-    );
-    lines.push(
-      `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${muse?.chars} (${muse?.bytes}) | ${grok?.chars} (${grok?.bytes}) | ${claude?.chars} (${claude?.bytes}) | ${gpt?.chars} (${gpt?.bytes}) |`,
-    );
-  }
-  return lines.join("\n");
-}
-
-export function formatSkywalkerPrefixTable(size: SkywalkerPrefixSize): string {
-  return [
-    "| prefix | chars (bytes) |",
-    "| --- | --- |",
-    `| skywalker infer envelope (canonical AGENTS.md) | ${size.inferEnvelopeChars} (${size.inferEnvelopeBytes}) |`,
-    `| skywalker trimmed director (grok) | ${size.trimmedDirectorChars} (${size.trimmedDirectorBytes}) |`,
-    `| live AGENTS.md cap | ${size.agentsMdCap} |`,
-  ].join("\n");
 }

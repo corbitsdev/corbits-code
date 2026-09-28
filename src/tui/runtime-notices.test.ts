@@ -27,11 +27,8 @@ const hook = {
 };
 
 describe("hookNotice", () => {
-  test("startup inventory says nothing", () => {
+  test("startup inventory and unfired hooks say nothing", () => {
     expect(hookNotice({ type: "hooks.loaded", hooks: [hook] })).toBeNull();
-  });
-
-  test("a hook that has not fired says nothing", () => {
     expect(hookNotice({ type: "hook.updated", hook })).toBeNull();
   });
 
@@ -78,11 +75,8 @@ describe("hookNotice", () => {
 });
 
 describe("mcpNotice", () => {
-  test("connecting is not news", () => {
+  test("chatter states are not news — they stay off the rows", () => {
     expect(mcpNotice({ name: "linear", state: "connecting" })).toBeNull();
-  });
-
-  test("reconnecting is not news — backoff chatter stays off the rows", () => {
     expect(
       mcpNotice({
         name: "linear",
@@ -92,6 +86,7 @@ describe("mcpNotice", () => {
         error: "transport closed",
       }),
     ).toBeNull();
+    expect(mcpNotice({ name: "linear", state: "disconnected" })).toBeNull();
   });
 
   test("connected flashes with a tool count", () => {
@@ -124,10 +119,6 @@ describe("mcpNotice", () => {
         authPending: true,
       }),
     ).toBeNull();
-  });
-
-  test("disconnected is not news — the operator chose it", () => {
-    expect(mcpNotice({ name: "linear", state: "disconnected" })).toBeNull();
   });
 });
 

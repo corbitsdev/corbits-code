@@ -14,7 +14,6 @@ async function waitUntilGone(token: string): Promise<void> {
   throw new Error(`tagged child still alive after 5s: ${token}`);
 }
 import { createPermissionGate } from "../permission/gate.js";
-import { shellCollectDefinition } from "./background-shell-tool.js";
 import { createAgentToolset } from "./tools.js";
 import type { BackgroundShellExit } from "../shell/background-shell.js";
 import { buildShellBackgroundMessage } from "../session/runtime-assembly.js";
@@ -230,13 +229,5 @@ describe("background shell through the agent toolset", () => {
     expect(started.isError).not.toBe(true);
     await toolset.dispose();
     await waitUntilGone(token);
-  });
-});
-
-describe("shell_collect tool copy", () => {
-  test("names the doom-loop exemption for still-running polls", () => {
-    expect(shellCollectDefinition.description).toContain("doom-loop guard");
-    expect(shellCollectDefinition.description).toContain("liveness");
-    expect(shellCollectDefinition.description).toContain("running");
   });
 });

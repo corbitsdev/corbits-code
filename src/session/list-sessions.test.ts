@@ -27,14 +27,6 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true });
 });
 
-test("listSessions includes TUI sessions with context/ but no run.json", async () => {
-  const sessionId = generateSessionId();
-  await initSessionDir(cwd, sessionId, home);
-  const listed = await listSessions(cwd, home);
-  const row = listed.find((s) => s.sessionId === sessionId);
-  expect(row).toBeDefined();
-});
-
 test("listSessions reports crashed, not running, for a session with no readable run.json", async () => {
   const sessionId = generateSessionId();
   await initSessionDir(cwd, sessionId, home);
@@ -159,26 +151,6 @@ test("listSessions includes a failed run that recorded an error", async () => {
   const row = listed.find((s) => s.sessionId === sessionId);
   expect(row?.status).toBe("failed");
   expect(row?.task).toBe("failed work");
-});
-
-test("listSessions includes a crashed run that recorded an error", async () => {
-  const sessionId = generateSessionId();
-  await initSessionDir(cwd, sessionId, home);
-  await writeFile(
-    join(sessionDir(cwd, sessionId, home), "run.json"),
-    JSON.stringify({
-      status: "crashed",
-      turnsUsed: 1,
-      task: "crashed work",
-      startedAt: 1_700_000_000_000,
-      finishedAt: 1_700_000_005_000,
-      error: "uncaughtException: boom",
-    }),
-  );
-  const listed = await listSessions(cwd, home);
-  const row = listed.find((s) => s.sessionId === sessionId);
-  expect(row?.status).toBe("crashed");
-  expect(row?.task).toBe("crashed work");
 });
 
 test("listSessions stays silent when many sibling runs failed with an error", async () => {

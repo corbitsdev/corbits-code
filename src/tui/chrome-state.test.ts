@@ -128,7 +128,7 @@ describe("formatChromeZones", () => {
 });
 
 describe("agentsChromeNeedsSticky / linger", () => {
-  test("running agents need sticky", () => {
+  test("sticky tracks running, the linger window, and expiry", () => {
     expect(
       agentsChromeNeedsSticky(
         [
@@ -142,33 +142,27 @@ describe("agentsChromeNeedsSticky / linger", () => {
         NOW,
       ),
     ).toBe(true);
-  });
 
-  test("terminal inside linger window needs sticky", () => {
-    const session = {
+    const lingering = {
       agentId: "a",
       description: "x",
       status: "done" as const,
       currentToolStartedAt: null,
       finishedAt: NOW - 1_000,
     };
-    expect(agentIsLingering(session, NOW)).toBe(true);
-    expect(agentsChromeNeedsSticky([session], NOW)).toBe(true);
-  });
+    expect(agentIsLingering(lingering, NOW)).toBe(true);
+    expect(agentsChromeNeedsSticky([lingering], NOW)).toBe(true);
 
-  test("terminal past linger does not need sticky", () => {
-    const session = {
+    const expired = {
       agentId: "a",
       description: "x",
       status: "failed" as const,
       currentToolStartedAt: null,
       finishedAt: NOW - AGENTS_PANEL_LINGER_MS,
     };
-    expect(agentIsLingering(session, NOW)).toBe(false);
-    expect(agentsChromeNeedsSticky([session], NOW)).toBe(false);
-  });
+    expect(agentIsLingering(expired, NOW)).toBe(false);
+    expect(agentsChromeNeedsSticky([expired], NOW)).toBe(false);
 
-  test("empty / undefined agents do not need sticky", () => {
     expect(agentsChromeNeedsSticky(null, NOW)).toBe(false);
     expect(agentsChromeNeedsSticky(undefined, NOW)).toBe(false);
     expect(agentsChromeNeedsSticky([], NOW)).toBe(false);
@@ -221,9 +215,10 @@ describe("agentsChromeNeedsSticky / linger", () => {
 });
 
 describe("formatTasksPanel", () => {
-  test("null / undefined hide the zone", () => {
+  test("null / undefined / empty hide the zone", () => {
     expect(formatTasksPanel(null)).toBeNull();
     expect(formatTasksPanel(undefined)).toBeNull();
+    expect(formatTasksPanel([])).toBeNull();
   });
 
   test("open work first; done rows trail while live work remains", () => {
@@ -247,10 +242,6 @@ describe("formatTasksPanel", () => {
         { title: "b", status: "cancelled" },
       ]),
     ).toBeNull();
-  });
-
-  test("empty array hides", () => {
-    expect(formatTasksPanel([])).toBeNull();
   });
 
   test("bounds fan-out to maxVisible plus a +N more row", () => {

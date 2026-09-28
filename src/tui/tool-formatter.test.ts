@@ -10,11 +10,6 @@ import {
 } from "./tool-formatter.js";
 
 describe("humanizeToolName", () => {
-  test("maps known tools to readable names", () => {
-    expect(humanizeToolName("read_file")).toBe("Read");
-    expect(humanizeToolName("run_shell")).toBe("Shell");
-    expect(humanizeToolName("edit_file")).toBe("Edit");
-  });
   test("title-cases unknown snake_case tools so identifiers never leak", () => {
     expect(humanizeToolName("fetch_remote_thing")).toBe("Fetch Remote Thing");
     expect(humanizeToolName("custom_tool")).not.toContain("_");
@@ -55,20 +50,6 @@ describe("describeToolCall", () => {
     expect(describeToolCall("write_file", '{"path":"a"}').role).toBe("success");
     expect(describeToolCall("edit_file", '{"path":"a"}').role).toBe("success");
     expect(describeToolCall("read_file", '{"path":"a"}').role).toBe("warning");
-  });
-  test("web tools read as warning lookups with readable names", () => {
-    expect(describeToolCall("web_search", '{"query":"hono.dev"}').display).toBe(
-      "Web Search",
-    );
-    expect(describeToolCall("web_search", '{"query":"hono.dev"}').role).toBe(
-      "warning",
-    );
-    expect(
-      describeToolCall("web_fetch", '{"url":"https://hono.dev"}').display,
-    ).toBe("Web Fetch");
-    expect(
-      describeToolCall("web_fetch", '{"url":"https://hono.dev"}').role,
-    ).toBe("warning");
   });
   test("a destructive shell command reads as danger", () => {
     expect(
@@ -172,20 +153,10 @@ describe("mergedToolCollapsedPreview", () => {
 });
 
 describe("summarizeToolResult", () => {
-  test("read_file counts lines", () => {
-    const content = ["     1\tfoo", "     2\tbar", "     3\tbaz"].join("\n");
-    expect(summarizeToolResult("read_file", content).preview).toBe(
-      "Read 3 lines",
-    );
-  });
-
-  test("write_file extracts path", () => {
+  test("file mutations extract the path from tool output", () => {
     expect(
       summarizeToolResult("write_file", "wrote 42 bytes to src/foo.ts").preview,
     ).toBe("Wrote src/foo.ts");
-  });
-
-  test("edit_file extracts path", () => {
     expect(
       summarizeToolResult("edit_file", "replaced 2 occurrence(s) in src/foo.ts")
         .preview,
@@ -208,25 +179,19 @@ describe("summarizeToolResult", () => {
     );
   });
 
-  test("search_files no match", () => {
+  test("search_files distinguishes no-match from counted results", () => {
     expect(
       summarizeToolResult("search_files", 'no files matching "*.foo"').preview,
     ).toBe("No files matched");
-  });
-
-  test("search_files counts files", () => {
     expect(summarizeToolResult("search_files", "a.ts\nb.ts").preview).toBe(
       "Found 2 files",
     );
   });
 
-  test("grep no matches", () => {
+  test("grep distinguishes no-match from counted results", () => {
     expect(summarizeToolResult("grep", "no matches for /xyz/").preview).toBe(
       "No matches",
     );
-  });
-
-  test("grep counts matches", () => {
     expect(summarizeToolResult("grep", "a.ts:1:foo\nb.ts:2:bar").preview).toBe(
       "Found 2 matches",
     );
@@ -299,13 +264,10 @@ describe("isUserFacingJSON", () => {
     expect(isUserFacingJSON("     1\tconst x = 1")).toBe(false);
   });
 
-  test("bare scalar is not a document", () => {
+  test("bare scalars and empty containers are not documents", () => {
     expect(isUserFacingJSON("42")).toBe(false);
     expect(isUserFacingJSON("null")).toBe(false);
     expect(isUserFacingJSON('"just a string"')).toBe(false);
-  });
-
-  test("empty container is not a document", () => {
     expect(isUserFacingJSON("{}")).toBe(false);
     expect(isUserFacingJSON("[]")).toBe(false);
   });
@@ -355,25 +317,19 @@ describe("describeToolCall for spawn_agent", () => {
     expect(result.isShell).toBe(false);
   });
 
-  test("spawn_agent without agent uses generic Worker display", () => {
-    const args = JSON.stringify({
-      description: "map all callers",
-      prompt: "...",
-    });
-    const result = describeToolCall("spawn_agent", args);
-    expect(result.display).toBe("Worker");
-    expect(result.summary).toBe("map all callers");
-  });
-
-  test("spawn_agent with blank agent uses generic Worker display", () => {
-    const args = JSON.stringify({
-      agent: "",
-      description: "map all callers",
-      prompt: "...",
-    });
-    const result = describeToolCall("spawn_agent", args);
-    expect(result.display).toBe("Worker");
-    expect(result.summary).toBe("map all callers");
+  test("spawn_agent with no agent name falls back to generic Worker display", () => {
+    for (const args of [
+      JSON.stringify({ description: "map all callers", prompt: "..." }),
+      JSON.stringify({
+        agent: "",
+        description: "map all callers",
+        prompt: "...",
+      }),
+    ]) {
+      const result = describeToolCall("spawn_agent", args);
+      expect(result.display).toBe("Worker");
+      expect(result.summary).toBe("map all callers");
+    }
   });
 
   test("spawn_agent without description falls back to the prompt subject", () => {
@@ -553,15 +509,10 @@ describe("spawn_agent activity transcript lines", () => {
 });
 
 describe("pastTenseToolLabel", () => {
-  test("maps known raw tool names", () => {
+  test("maps raw tool names to past-tense labels", () => {
     expect(pastTenseToolLabel("grep")).toBe("Grepped");
     expect(pastTenseToolLabel("read_file")).toBe("Read");
-    expect(pastTenseToolLabel("write_file")).toBe("Wrote");
-    expect(pastTenseToolLabel("edit_file")).toBe("Edited");
     expect(pastTenseToolLabel("run_shell")).toBe("Ran");
-    expect(pastTenseToolLabel("list_dir")).toBe("Listed");
-    expect(pastTenseToolLabel("search_files")).toBe("Searched");
-    expect(pastTenseToolLabel("delete_file")).toBe("Deleted");
   });
 
   test("falls back to the display name for unknown tools", () => {

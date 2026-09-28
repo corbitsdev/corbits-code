@@ -150,71 +150,44 @@ describe("renderMark", () => {
     expect(new Set(withSnow).size).toBeGreaterThan(1);
   });
 
-  test("reducedMotion drops snow at a clock that otherwise snows, without reshaping the mountain", () => {
-    const nowMs = SNOW_SAMPLE_CLOCKS_MS.find((t) =>
-      renderMark({
-        nowMs: t,
-        still: true,
-        reducedMotion: false,
-        grid: MARK_LARGE,
-      })
-        .flat()
-        .some((cell) => isSnow(cell.char)),
-    );
-    if (nowMs === undefined) {
-      throw new Error("expected a still-mode clock that draws snow");
-    }
-
-    const snowing = renderMark({
-      nowMs,
-      still: true,
-      reducedMotion: false,
-      grid: MARK_LARGE,
-    });
-    const quiet = renderMark({
-      nowMs,
-      still: true,
-      reducedMotion: true,
-      grid: MARK_LARGE,
-    });
-    expect(snowing.flat().some((cell) => isSnow(cell.char))).toBe(true);
-    expect(quiet.flat().some((cell) => isSnow(cell.char))).toBe(false);
-    expect(stripSnow(markText(quiet))).toBe(stripSnow(markText(snowing)));
-  });
-
-  test("reducedMotion drops snow at a hold-full clock without reshaping the mountain", () => {
+  test("reducedMotion drops snow at clocks that otherwise snow, without reshaping the mountain", () => {
     const holdFullClocks = [0.76, 0.8, 0.85, 0.89].map(
       (phase) => phase * MARK_PERIOD_SECONDS * 1000,
     );
-    const nowMs = holdFullClocks.find((t) =>
-      renderMark({
-        nowMs: t,
-        still: false,
+    for (const [still, clocks] of [
+      [true, SNOW_SAMPLE_CLOCKS_MS],
+      [false, holdFullClocks],
+    ] as const) {
+      const nowMs = clocks.find((t) =>
+        renderMark({
+          nowMs: t,
+          still,
+          reducedMotion: false,
+          grid: MARK_LARGE,
+        })
+          .flat()
+          .some((cell) => isSnow(cell.char)),
+      );
+      if (nowMs === undefined) {
+        throw new Error("expected a clock that draws snow");
+      }
+
+      const snowing = renderMark({
+        nowMs,
+        still,
         reducedMotion: false,
         grid: MARK_LARGE,
-      })
-        .flat()
-        .some((cell) => isSnow(cell.char)),
-    );
-    if (nowMs === undefined) {
-      throw new Error("expected a hold-full clock that draws snow");
+      });
+      const quiet = renderMark({
+        nowMs,
+        still,
+        reducedMotion: true,
+        grid: MARK_LARGE,
+      });
+      expect(snowing.flat().some((cell) => isSnow(cell.char))).toBe(true);
+      expect(quiet.flat().some((cell) => isSnow(cell.char))).toBe(false);
+      expect(stripSnow(markText(quiet))).toBe(stripSnow(markText(snowing)));
     }
-
-    const snowing = renderMark({
-      nowMs,
-      still: false,
-      reducedMotion: false,
-      grid: MARK_LARGE,
-    });
-    const quiet = renderMark({
-      nowMs,
-      still: false,
-      reducedMotion: true,
-      grid: MARK_LARGE,
-    });
-    expect(snowing.flat().some((cell) => isSnow(cell.char))).toBe(true);
-    expect(quiet.flat().some((cell) => isSnow(cell.char))).toBe(false);
-    expect(stripSnow(markText(quiet))).toBe(stripSnow(markText(snowing)));
   });
 
   test("the animated frame advances with the injected clock", () => {

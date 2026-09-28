@@ -362,30 +362,26 @@ describe("exec MCP connect bounds", () => {
 });
 
 describe("exec credential failure surface", () => {
-  test("a raw codex refresh failure maps to the credential failure message", () => {
+  test("raw codex auth errors map to the credential failure message", () => {
     const cfg = { inference: { timeoutMs: 1_000 } } as unknown as Config;
-    const auth = new CodexAuthError(
-      "personal",
-      "refresh-failed",
-      'Codex profile "personal" could not be refreshed (boom). Log in again.',
-    );
     // Raw auth error, no SELECTED wrapper and no provider failure observed:
     // still a credential failure, never the bare provider text.
-    expect(execUserFailureMessage(cfg, auth, false)).toBe(
-      CREDENTIAL_FAILURE_USER_MESSAGE,
-    );
-  });
-
-  test("a missing codex profile maps to the credential failure message", () => {
-    const cfg = { inference: { timeoutMs: 1_000 } } as unknown as Config;
-    const auth = new CodexAuthError(
-      "ghost",
-      "missing",
-      'Codex profile "ghost" is missing. Log in again to recreate it.',
-    );
-    expect(execUserFailureMessage(cfg, auth, false)).toBe(
-      CREDENTIAL_FAILURE_USER_MESSAGE,
-    );
+    for (const auth of [
+      new CodexAuthError(
+        "personal",
+        "refresh-failed",
+        'Codex profile "personal" could not be refreshed (boom). Log in again.',
+      ),
+      new CodexAuthError(
+        "ghost",
+        "missing",
+        'Codex profile "ghost" is missing. Log in again to recreate it.',
+      ),
+    ]) {
+      expect(execUserFailureMessage(cfg, auth, false)).toBe(
+        CREDENTIAL_FAILURE_USER_MESSAGE,
+      );
+    }
   });
 
   test("a codex refresh lock failure keeps its own message with the lock path", async () => {

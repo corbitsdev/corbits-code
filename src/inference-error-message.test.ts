@@ -115,24 +115,29 @@ describe("terminalProviderFailureMessage", () => {
     expect(message).not.toMatch(/log in again|sign in again/i);
   });
 
-  test("terminal bare Codex 404 without an auth signal keeps switch-models guidance", () => {
-    const normalized = normalizeInferenceErrorForTerminal(
-      { category: "fatal", message: "Not Found", statusCode: 404 },
-      "codex/work",
-    );
+  test.each([
+    {
+      name: "bare 404 without an auth signal",
+      error: {
+        category: "fatal" as const,
+        message: "Not Found",
+        statusCode: 404,
+      },
+    },
+    {
+      name: "genuine unknown-model 404",
+      error: {
+        category: "fatal" as const,
+        message: "The model 'gpt-99' does not exist",
+        statusCode: 404,
+        providerId: "codex/work",
+      },
+    },
+  ])("terminal Codex $name keeps switch-models guidance", ({ error }) => {
+    const normalized = normalizeInferenceErrorForTerminal(error, "codex/work");
     const message = terminalProviderFailureMessage("codex/work", normalized);
     expect(message).toContain('"/model"');
     expect(message.toLowerCase()).not.toMatch(/log in again/);
-  });
-
-  test("terminal genuine unknown-model 404 keeps switch-models guidance", () => {
-    const message = terminalProviderFailureMessage("codex/work", {
-      category: "fatal",
-      message: "The model 'gpt-99' does not exist",
-      statusCode: 404,
-      providerId: "codex/work",
-    });
-    expect(message).toContain('"/model"');
   });
 
   test.each([

@@ -19,22 +19,6 @@ test("a marketplace path expands to its declared member plugins", async () => {
   expect(ids).toEqual(["alpha", "beta"]);
 });
 
-test("marketplace members load with their full data (agents + tagged skills)", async () => {
-  const mods = await loadPluginsFromPaths(
-    ["fixtures/marketplace"],
-    process.cwd(),
-  );
-  const alpha = mods.find((m) => m.manifest?.id === "alpha");
-  expect(alpha?.manifest?.kind).toBe("command"); // skills-only with a tagged skill
-  expect(alpha?.commandPlugin?.commands.map((c) => c.name)).toEqual([
-    "alpha-skill",
-  ]);
-
-  const beta = mods.find((m) => m.manifest?.id === "beta");
-  expect(beta?.manifest?.kind).toBe("agent"); // has an agent
-  expect(beta?.agentPlugin?.agents?.length).toBe(1);
-});
-
 test("a normal plugin directory is not expanded (no marketplace.json, no plugins/ root)", async () => {
   const mods = await loadPluginsFromPaths(
     ["fixtures/plugins/example-commands"],
@@ -186,61 +170,6 @@ test("path expand reports skips via onSkip (never silent when callback set)", as
     const missing = skips.find((s) => s.reason === "missing");
     expect(missing?.source).toBe("./plugins/missing");
     expect(missing?.resolved).toBe(join(root, "plugins", "missing"));
-  } finally {
-    await rm(base, { recursive: true, force: true });
-  }
-});
-
-test("onSkip is required — every skip reaches the caller's handler, none silent", async () => {
-  // `expandPluginPath` has no default sink: `onSkip` is a required field on
-  // its options (CL-5411 round 4) so a caller cannot forget it and fall
-  // through to a raw stderr write. This drives the real function with an
-  // explicit collecting handler and confirms every skip reaches it — stderr
-  // stays untouched, since there is no implicit fallback left to reach it.
-  const base = await mkdtemp(join(tmpdir(), "corbits-mkt-stderr-"));
-  try {
-    const root = join(base, "marketplace");
-    await mkdir(join(root, ".claude-plugin"), { recursive: true });
-    await writeFile(
-      join(root, ".claude-plugin", "marketplace.json"),
-      JSON.stringify({
-        plugins: [
-          { name: "abs", source: "/tmp/not-a-plugin" },
-          { name: "gone", source: "./plugins/missing" },
-        ],
-      }),
-    );
-    const writes: string[] = [];
-    const origWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((
-      chunk: string | Uint8Array,
-      ..._rest: unknown[]
-    ) => {
-      writes.push(
-        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
-      );
-      return true;
-    }) as typeof process.stderr.write;
-    const skips: ExpandPluginPathSkip[] = [];
-    try {
-      const members = await expandPluginPath(root, {
-        onSkip: (s) => skips.push(s),
-      });
-      expect(members).toEqual([]);
-      expect(writes).toEqual([]);
-      expect(
-        skips.some(
-          (s) => s.reason === "absolute" && s.source === "/tmp/not-a-plugin",
-        ),
-      ).toBe(true);
-      expect(
-        skips.some(
-          (s) => s.reason === "missing" && s.source === "./plugins/missing",
-        ),
-      ).toBe(true);
-    } finally {
-      process.stderr.write = origWrite;
-    }
   } finally {
     await rm(base, { recursive: true, force: true });
   }

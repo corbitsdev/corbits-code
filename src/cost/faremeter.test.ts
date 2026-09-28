@@ -182,22 +182,6 @@ test("thinking tokens increase total tokens but not cost", () => {
   expect(faremeter.getTotalCost()).toBe(0.02);
 });
 
-test("cacheWrite and thinking tokens combined increase tokens but not cost", () => {
-  const faremeter = createFaremeter({
-    inputPricePerToken: 0.00001,
-    outputPricePerToken: 0.00002,
-  });
-  faremeter.addUsage({
-    input: 1000,
-    output: 500,
-    cacheRead: 0,
-    cacheWrite: 300,
-    thinking: 250,
-  });
-  expect(faremeter.getTotalTokens()).toBe(2050);
-  expect(faremeter.getTotalCost()).toBe(0.02);
-});
-
 test("cacheRead tokens increase both total tokens and cost", () => {
   const faremeter = createFaremeter({
     inputPricePerToken: 0.00001,
@@ -213,10 +197,6 @@ test("cacheRead tokens increase both total tokens and cost", () => {
   });
   expect(faremeter.getTotalTokens()).toBe(1700);
   expect(faremeter.getTotalCost()).toBe(0.021);
-});
-
-test("formatCost zero case", () => {
-  expect(formatCost(0)).toBe("$0.0000");
 });
 
 test("formatCost rounding behavior", () => {

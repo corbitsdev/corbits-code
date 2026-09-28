@@ -36,7 +36,6 @@ import {
 import { applyShellInterrupt, surfaceSystemNotice } from "./shell/prompt.js";
 import { streamRowAt, streamRowCount } from "./shell/transcript.js";
 import { rampAnimating } from "./ramp.js";
-import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
 import {
   resolveRampPhase,
@@ -2349,39 +2348,3 @@ export function attachSessionBridge(
     },
   };
 }
-
-/** Sample fixture: busy run with tools, queue drain at boundary. */
-export const FIXTURE_BUSY_SESSION: readonly ReactorLikeEvent[] = [
-  { type: "inference.start", data: {} },
-  {
-    type: "message.received",
-    data: {
-      message: {
-        content: "list project root",
-        flags: [OPERATOR_ORIGINATED_FLAG],
-      },
-    },
-  },
-  { type: "inference.text.delta", data: { token: "I'll " } },
-  { type: "inference.text.delta", data: { token: "list the directory." } },
-  {
-    type: "inference.tool_call.end",
-    data: { name: "bash", callId: "c1", arguments: "ls -la" },
-  },
-  {
-    type: "tool.done",
-    data: {
-      result: {
-        callId: "c1",
-        name: "bash",
-        content: "AGENTS.md\nREADME.md",
-        isError: false,
-      },
-    },
-  },
-  {
-    type: "inference.text.delta",
-    data: { token: "Done — two top-level docs." },
-  },
-  { type: "reactor.done", data: {} },
-];

@@ -42,7 +42,6 @@ import { streamRowCount } from "./shell/transcript.js";
 import { wireGates } from "./gate-wire.js";
 import type { PermissionGateEvent } from "./gate-events.js";
 import { createGateRequestApproval } from "./request-approval.js";
-import { openAddProviderOverlay, openModelPickerOverlay } from "./overlays.js";
 
 const shellCall = (command: string): ToolCall => ({
   id: "c",
@@ -145,32 +144,7 @@ function openSlash(shell: AppShell): void {
 }
 
 describe("CL-8792 gate level: a second destructive evaluation re-prompts after allow-once", () => {
-  test("different command re-prompts through the overlay host and settles", async () => {
-    await withWiredWorld(async ({ shell, emitter }) => {
-      const gate = createOverlayBackedGate(emitter);
-      const first = gate.evaluate(shellCall("rm -rf /tmp/cl8792-a"));
-      await flushGateRaise();
-      expect(shell.overlayKind).toBe("permissions");
-
-      acceptChoice(shell, 1);
-      const firstVerdict = await settledWithin(first, 500);
-      expect(firstVerdict.settled).toBe(true);
-      if (!firstVerdict.settled) throw new Error("first evaluation hung");
-      expect(firstVerdict.value.allowed).toBe(true);
-
-      const second = gate.evaluate(shellCall("rm -rf /tmp/cl8792-b"));
-      await flushGateRaise();
-      // Allow-once persisted nothing, so the new command must prompt again.
-      expect(shell.overlayKind).toBe("permissions");
-      acceptChoice(shell, 1);
-      const secondVerdict = await settledWithin(second, 500);
-      expect(secondVerdict.settled).toBe(true);
-      if (!secondVerdict.settled) throw new Error("second evaluation hung");
-      expect(secondVerdict.value.allowed).toBe(true);
-    });
-  });
-
-  test("same command re-prompts: allow-once mints no grant", async () => {
+  test("allow-once mints no grant: the same command re-prompts and settles", async () => {
     await withWiredWorld(async ({ shell, emitter }) => {
       const gate = createOverlayBackedGate(emitter);
       const command = "rm -rf /tmp/cl8792-same";
@@ -178,7 +152,10 @@ describe("CL-8792 gate level: a second destructive evaluation re-prompts after a
       await flushGateRaise();
       expect(shell.overlayKind).toBe("permissions");
       acceptChoice(shell, 1);
-      await settledWithin(first, 500);
+      const firstVerdict = await settledWithin(first, 500);
+      expect(firstVerdict.settled).toBe(true);
+      if (!firstVerdict.settled) throw new Error("first evaluation hung");
+      expect(firstVerdict.value.allowed).toBe(true);
 
       const second = gate.evaluate(shellCall(command));
       await flushGateRaise();
@@ -539,44 +516,8 @@ describe("CL-8792 overlay host: suspend preserves the surface instead of dismiss
     });
   });
 
-  test.each([
-    {
-      kind: "model_picker" as const,
-      open: (shell: AppShell) =>
-        openModelPickerOverlay(shell, { items: ["grok-3"] }),
-    },
-    {
-      kind: "add_provider" as const,
-      open: (shell: AppShell) =>
-        openAddProviderOverlay(shell, {
-          items: ["custom"],
-          itemIds: ["custom"],
-        }),
-    },
-  ])(
-    "$kind yields to a newly raised gate and returns after settle",
-    async ({ kind, open }) => {
-      await withWiredWorld(async ({ shell, emitter }) => {
-        open(shell);
-        expect(shell.overlayKind).toBe(kind);
-
-        let resolved: unknown;
-        emitter.emit("permission.gate", {
-          id: `req-yield-${kind}`,
-          request: destructiveRequest(`rm -rf /tmp/cl8792-yield-${kind}`),
-          resolve: (outcome: unknown) => {
-            resolved = outcome;
-          },
-        });
-        expect(shell.overlayKind).toBe("permissions");
-
-        acceptChoice(shell, 1);
-        expect(resolved).toEqual({ allow: true });
-        expect(shell.overlayKind).toBe(kind);
-      });
-    },
-  );
-
+  // Other replaceable surfaces (model picker, add provider) yield and return
+  // by the same suspend path the slash test above pins — e2e covers them.
   test("MCP onCancel during suspend does not steal the host from a queued gate while a deferred slash occupies idle", async () => {
     await withWiredWorld(async ({ shell, emitter }) => {
       let cancelOpens = 0;

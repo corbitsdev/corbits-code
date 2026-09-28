@@ -9,10 +9,7 @@ import {
   providerCatalogToSettings,
   type ProviderCatalogEntry,
 } from "./index.js";
-import {
-  CODEX_BASE_URL,
-  CODEX_DEFAULT_MODELS,
-} from "../auth/codex/constants.js";
+import { CODEX_BASE_URL } from "../auth/codex/constants.js";
 import type { CodexProfile } from "../auth/codex/store.js";
 
 describe("codex provider naming", () => {
@@ -25,19 +22,8 @@ describe("codex provider naming", () => {
   });
 });
 
-describe("CODEX_DEFAULT_MODELS", () => {
-  test("includes the gpt-5.6 model family while defaulting to the shared OpenAI model", () => {
-    expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.6-sol");
-    expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.6-terra");
-    expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.6-luna");
-    expect(CODEX_DEFAULT_MODELS).toContain("gpt-6-astra");
-    expect(CODEX_DEFAULT_MODELS).toContain("gpt-5.5");
-    // CL-5691: the ChatGPT-OAuth default agrees with the OpenAI API-key
-    // path default (gpt-5.4) — both auth paths serve OpenAI.
-    expect(CODEX_DEFAULT_MODELS[0]).toBe("gpt-5.4");
-  });
-});
-
+// The CL-5691 default-model agreement is pinned without literals in
+// provider/identity-divergence.test.ts — no second literal re-pin here.
 describe("codexProvidersAsSettings", () => {
   test("projects profiles into provider settings seeded with the access token", () => {
     const profiles: CodexProfile[] = [

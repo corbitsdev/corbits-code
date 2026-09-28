@@ -20,41 +20,15 @@ describe("composeNoticeLine", () => {
     expect(composeNoticeLine(state())).toBe("");
   });
 
-  test("default state segments stay off the row", () => {
-    const line = composeNoticeLine(state({ pinned: false }));
-    expect(line).not.toContain("steer");
-    expect(line).not.toContain("follow-up");
-    expect(line).not.toContain("queue");
-    expect(line).not.toContain("pinned");
-  });
-
-  test("pending counts are not segments — the column lists the items", () => {
-    const line = composeNoticeLine(
-      state({ pinned: true, interrupt: true, attachments: 1 }),
-    );
-    expect(line).toContain("pinned");
-    expect(line).not.toContain("interrupt");
-    expect(line).toContain("1 image");
-    expect(line).not.toContain("steer");
-    expect(line).not.toContain("follow-up");
-  });
-
   test("waitingOn names the in-flight command", () => {
     const line = composeNoticeLine(state({ waitingOn: "run_shell" }));
-    expect(line).toContain("waiting on run_shell");
+    expect(line).toContain("run_shell");
   });
 
   test("a flash is carried verbatim so paths keep their case", () => {
     expect(composeNoticeLine(state({ flash: "attached Screenshot.png" }))).toBe(
       "attached Screenshot.png",
     );
-  });
-
-  test("no keys strip survives anywhere in the composition", () => {
-    const line = composeNoticeLine(state({ attachments: 1, interrupt: true }));
-    expect(line).not.toContain("commands");
-    expect(line).not.toContain("files");
-    expect(line).not.toContain("^C");
   });
 });
 

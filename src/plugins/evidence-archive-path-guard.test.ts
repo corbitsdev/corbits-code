@@ -1,19 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ToolCall, ToolResult } from "@intx/types/runtime";
 import {
   evidenceArchivePathGuardPlugin,
   isProtectedEvidenceLocation,
 } from "./evidence-archive-path-guard.js";
-
-function makeCall(name: string, args: Record<string, unknown>): ToolCall {
-  return { id: "test-call", name, arguments: args };
-}
-
-const nextHandler = async (call: ToolCall): Promise<ToolResult> => ({
-  callId: call.id,
-  content: "ok",
-});
+import {
+  makeToolCall,
+  neverAbort,
+  okHandler,
+  pluginHandler,
+} from "./test-helpers.js";
 
 describe("isProtectedEvidenceLocation", () => {
   test("matches evidence-archive and tool-output/archive-* forms", () => {
@@ -44,23 +40,24 @@ describe("isProtectedEvidenceLocation", () => {
 describe("evidenceArchivePathGuardPlugin", () => {
   test("denies path tools targeting evidence-archive or tool-output/archive-*", async () => {
     const plugin = evidenceArchivePathGuardPlugin();
-    const handler = plugin.middleware
-      ? plugin.middleware(nextHandler)
-      : nextHandler;
+    const handler = pluginHandler(plugin, okHandler);
     const denied = [
-      makeCall("read_file", { path: "evidence-archive/index.jsonl" }),
-      makeCall("grep", {
+      makeToolCall("read_file", { path: "evidence-archive/index.jsonl" }),
+      makeToolCall("grep", {
         path: "/tmp/context/evidence-archive",
         pattern: "foo",
       }),
-      makeCall("search_files", { path: "evidence-archive" }),
-      makeCall("list_dir", { path: "evidence-archive" }),
-      makeCall("write_file", { path: "evidence-archive/x", content: "nope" }),
-      makeCall("read_file", { path: "tool-output:///archive-sess-occ-1" }),
-      makeCall("read_file", { path: "tool-output/archive-sess-occ-1" }),
+      makeToolCall("search_files", { path: "evidence-archive" }),
+      makeToolCall("list_dir", { path: "evidence-archive" }),
+      makeToolCall("write_file", {
+        path: "evidence-archive/x",
+        content: "nope",
+      }),
+      makeToolCall("read_file", { path: "tool-output:///archive-sess-occ-1" }),
+      makeToolCall("read_file", { path: "tool-output/archive-sess-occ-1" }),
     ];
     for (const call of denied) {
-      const result = await handler(call, new AbortController().signal);
+      const result = await handler(call, neverAbort());
       expect(result.isError).toBe(true);
       expect(String(result.content)).toContain("search_files");
       expect(String(result.content)).toContain("archive:///");
@@ -69,12 +66,10 @@ describe("evidenceArchivePathGuardPlugin", () => {
 
   test("does not deny a grep pattern that mentions evidence-archive", async () => {
     const plugin = evidenceArchivePathGuardPlugin();
-    const handler = plugin.middleware
-      ? plugin.middleware(nextHandler)
-      : nextHandler;
+    const handler = pluginHandler(plugin, okHandler);
     const result = await handler(
-      makeCall("grep", { path: "src", pattern: "evidence-archive" }),
-      new AbortController().signal,
+      makeToolCall("grep", { path: "src", pattern: "evidence-archive" }),
+      neverAbort(),
     );
     expect(result.isError).not.toBe(true);
     expect(result.content).toBe("ok");
@@ -82,12 +77,10 @@ describe("evidenceArchivePathGuardPlugin", () => {
 
   test("passes ordinary workspace paths", async () => {
     const plugin = evidenceArchivePathGuardPlugin();
-    const handler = plugin.middleware
-      ? plugin.middleware(nextHandler)
-      : nextHandler;
+    const handler = pluginHandler(plugin, okHandler);
     const result = await handler(
-      makeCall("read_file", { path: "src/session/compaction-archive.ts" }),
-      new AbortController().signal,
+      makeToolCall("read_file", { path: "src/session/compaction-archive.ts" }),
+      neverAbort(),
     );
     expect(result.isError).not.toBe(true);
     expect(result.content).toBe("ok");

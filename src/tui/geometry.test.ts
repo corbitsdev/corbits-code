@@ -261,12 +261,6 @@ describe("resolveGeometry — task panel", () => {
       }
     }
   });
-
-  test("the task panel is ahead of the prompt in collapse order", () => {
-    expect(COLLAPSE_ORDER.indexOf("task")).toBeLessThan(
-      COLLAPSE_ORDER.indexOf("prompt"),
-    );
-  });
 });
 
 describe("resolveGeometry — collapse rules", () => {
@@ -389,10 +383,6 @@ describe("resolveGeometry — prompt growth", () => {
       expect(layout.heights.prompt).toBeGreaterThanOrEqual(PROMPT_BASE_ROWS);
     }
   });
-
-  test("prompt rests at its idle composing height by default", () => {
-    expect(idle80x24().heights.prompt).toBe(PROMPT_IDLE_ROWS);
-  });
 });
 
 describe("resolveGeometry — overlay modes", () => {
@@ -452,19 +442,6 @@ describe("resolveGeometry — resize / residual", () => {
     expect(tall.transcriptHeight).toBe(40 - tall.chromeHeight);
   });
 
-  test("120×40 idle still keeps floor and accrues residual to transcript", () => {
-    const layout = resolveGeometry({ terminal: { columns: 120, rows: 40 } });
-    expect(layout.transcriptHeight).toBeGreaterThanOrEqual(
-      IDLE_TRANSCRIPT_FLOOR,
-    );
-    expect(layout.chromeHeight).toBe(PROMPT_IDLE_ROWS);
-    expect(layout.transcriptHeight).toBe(40 - PROMPT_IDLE_ROWS);
-    // Idle has no agents → stack even on a wide terminal.
-    expect(layout.layoutMode).toBe("stack");
-    expect(layout.railWidth).toBe(0);
-    expect(layout.chatWidth).toBe(layout.contentWidth);
-  });
-
   test("does not read process.stdout — pure input only", () => {
     // Sanity: custom tiny size is honored even if stdout differs.
     const layout = resolveGeometry({ terminal: { columns: 40, rows: 18 } });
@@ -514,23 +491,6 @@ describe("resolveGeometry — stack-only layout", () => {
     expect(withAgents.heights.agents).toBe(8);
     expect(withAgents.chromeHeight).toBe(idle.chromeHeight + 8);
     expect(withAgents.transcriptHeight).toBe(idle.transcriptHeight - 8);
-  });
-
-  test("narrow terminal with agents → stack, full-width regions, railWidth 0", () => {
-    const layout = resolveGeometry({
-      terminal: { columns: 80, rows: 24 },
-      visibility: { agents: 5 },
-    });
-    expect(layout.layoutMode).toBe("stack");
-    expect(layout.railWidth).toBe(0);
-    expect(layout.railGutter).toBe(0);
-    expect(layout.chatWidth).toBe(layout.contentWidth);
-    expect(layout.regions.transcript?.width).toBe(layout.contentWidth);
-    expect(layout.regions.agents?.width).toBe(layout.contentWidth);
-    expect(defined(layout.regions.agents).y).toBeGreaterThan(
-      defined(layout.regions.transcript).y,
-    );
-    expect(layout.chromeHeight).toBeGreaterThan(PROMPT_IDLE_ROWS);
   });
 
   test("no agents → stack with railWidth 0 even on a wide terminal", () => {

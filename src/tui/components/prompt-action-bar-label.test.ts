@@ -79,35 +79,3 @@ describe("yoloModeLabel", () => {
     expect(yoloModeLabel(false)).toBeUndefined();
   });
 });
-
-describe("toggle label preservation", () => {
-  test("an effort update keeps the yolo mode segment", () => {
-    expect(
-      composePromptActionBarModelLabel({
-        profile: "work",
-        model: "gpt-5",
-        effort: "high",
-        mode: yoloModeLabel(true),
-      }),
-    ).toBe("work · gpt-5 · high · yolo");
-  });
-
-  test("a yolo toggle keeps the effort segment", () => {
-    expect(
-      composePromptActionBarModelLabel({
-        profile: "work",
-        model: "gpt-5",
-        effort: "high",
-        mode: yoloModeLabel(true),
-      }),
-    ).toBe("work · gpt-5 · high · yolo");
-    expect(
-      composePromptActionBarModelLabel({
-        profile: "work",
-        model: "gpt-5",
-        effort: "high",
-        mode: yoloModeLabel(false),
-      }),
-    ).toBe("work · gpt-5 · high");
-  });
-});

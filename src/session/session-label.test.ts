@@ -5,11 +5,7 @@ import { tmpdir } from "node:os";
 
 import { generateSessionId, initSessionDir } from "./index.js";
 import { appendSentMessage } from "./sent-messages.js";
-import {
-  isGenericSessionTask,
-  resolveSessionLabel,
-  truncateSessionLabel,
-} from "./session-label.js";
+import { resolveSessionLabel, truncateSessionLabel } from "./session-label.js";
 
 let cwd = "";
 let home = "";
@@ -46,9 +42,4 @@ test("resolveSessionLabel falls back to first sent message", async () => {
   await appendSentMessage(cwd, id, "How do we name sessions?", home);
   const label = await resolveSessionLabel(cwd, id, "(conversation)", home);
   expect(label).toBe("How do we name sessions?");
-});
-
-test("isGenericSessionTask", () => {
-  expect(isGenericSessionTask("(conversation)")).toBe(true);
-  expect(isGenericSessionTask("Real title")).toBe(false);
 });

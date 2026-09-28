@@ -1,9 +1,8 @@
 /**
- * The transcript never labels a row with the machinery that produced it.
- * Adding a painted chrome label means editing CHROME_LITERALS or
- * OVERLAY_KIND_GUTTER on purpose.
+ * The transcript never labels a row with the machinery that produced it:
+ * a "thinking" meta paints an empty gutter, and an accepted overlay writes
+ * its recap row tagged with the overlay's own gutter word.
  */
-import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { withTestRenderer } from "./harness.js";
 import { overlayKindWord } from "./overlay-body.js";
@@ -15,81 +14,34 @@ import {
 } from "./shell/overlay-host.js";
 import { streamRowGutter, type RowLayout } from "./stream.js";
 
-const OVERLAY_KIND_GUTTER = {
-  permissions: "permissions",
-  operator: "operator",
-  model_picker: "model picker",
-  add_provider: "add provider",
-  demo: "demo",
-  palette: "palette",
-  settings: "settings",
-  help: "help",
-  plugins: "plugins",
-  resume: "resume",
-  mentions: "mentions",
-  copy: "copy",
-  hooks: "hooks",
-  mcp: "mcp",
-  plugin_credentials: "plugin credentials",
-} as const satisfies Record<PrimaryOverlayKind, string>;
+// Every primary overlay kind, kept exhaustive by the satisfies bound.
+const OVERLAY_KINDS = {
+  permissions: true,
+  operator: true,
+  model_picker: true,
+  add_provider: true,
+  demo: true,
+  palette: true,
+  settings: true,
+  help: true,
+  plugins: true,
+  resume: true,
+  mentions: true,
+  copy: true,
+  hooks: true,
+  mcp: true,
+  plugin_credentials: true,
+} as const satisfies Record<PrimaryOverlayKind, true>;
 
 const CHROME_LITERALS = ["error", "plan", "report", "stop", "observe"] as const;
-
-// Queued items no longer store a meta — pending state lives in the column
-// and delivery paints a plain operator row, so steer/queue/steering/
-// following-up are gone from the closed set on purpose. Cancelled items are
-// dropped outright instead of marked, so cancelled is gone too.
-const STORED_META_LITERALS = [
-  "thinking",
-  "reinject",
-  "not-delivered",
-  "delivery-uncertain",
-];
-
-const FORBIDDEN = ["permission", "command", "overlay"];
 
 /** Palette and copy accept on a different path; they never echo overlayKindWord. */
 const NON_ECHO_OVERLAY_KINDS = new Set<PrimaryOverlayKind>(["palette", "copy"]);
 
 const LAYOUT: RowLayout = { width: 80, multiAgent: false };
 
-const IMMEDIATE_META = /meta:\s*["']([^"']+)["']/g;
-const TERNARY_META =
-  /meta:\s*[^,\n]+\?\s*["']([^"']+)["']\s*:\s*["']([^"']+)["']/g;
-const META_LINE = /\bmeta:\s*([^\n]+)/g;
-const SKIP_RHS = /^(true|false|string|boolean|number|unknown|null)\b/;
-
-function sortedSet(values: Iterable<string>): string[] {
-  return [...new Set(values)].sort();
-}
-
-function isOverlayKind(value: string): value is PrimaryOverlayKind {
-  return Object.hasOwn(OVERLAY_KIND_GUTTER, value);
-}
-
-function overlayKindCases(): { kind: PrimaryOverlayKind; word: string }[] {
-  const cases: { kind: PrimaryOverlayKind; word: string }[] = [];
-  for (const key of Object.keys(OVERLAY_KIND_GUTTER)) {
-    if (!isOverlayKind(key)) continue;
-    cases.push({ kind: key, word: OVERLAY_KIND_GUTTER[key] });
-  }
-  return cases;
-}
-
-function normalizeRhs(raw: string): string {
-  return raw
-    .replace(/\/\/.*$/, "")
-    .replace(/,?\s*$/, "")
-    .trim();
-}
-
-function isRecognisedMetaRhs(rhs: string): boolean {
-  if (SKIP_RHS.test(rhs)) return true;
-  if (rhs.startsWith("row.meta") || rhs === "input.name") return true;
-  if (rhs.startsWith("overlayKindWord(")) return true;
-  if (rhs.startsWith('"') || rhs.startsWith("'")) return true;
-  if (rhs.includes("?") && /["']/.test(rhs)) return true;
-  return false;
+function overlayKinds(): PrimaryOverlayKind[] {
+  return Object.keys(OVERLAY_KINDS) as PrimaryOverlayKind[];
 }
 
 async function assertEchoRecap(
@@ -120,48 +72,6 @@ async function assertEchoRecap(
 }
 
 describe("transcript gutter labels", () => {
-  test("production meta literals are a closed operator-facing set", async () => {
-    const tuiDir = import.meta.dirname;
-    const files = await Array.fromAsync(new Bun.Glob("**/*.ts").scan(tuiDir));
-    const captured = new Set<string>();
-    const unrecognized: string[] = [];
-    for (const relative of files) {
-      if (relative.endsWith(".test.ts")) {
-        continue;
-      }
-      const source = await Bun.file(join(tuiDir, relative)).text();
-      for (const match of source.matchAll(IMMEDIATE_META)) {
-        const token = match[1];
-        if (token) captured.add(token);
-      }
-      for (const match of source.matchAll(TERNARY_META)) {
-        if (match[1]) captured.add(match[1]);
-        if (match[2]) captured.add(match[2]);
-      }
-      for (const match of source.matchAll(META_LINE)) {
-        const rhs = normalizeRhs(match[1] ?? "");
-        if (rhs.length === 0 || isRecognisedMetaRhs(rhs)) continue;
-        unrecognized.push(`${relative}: ${rhs}`);
-      }
-    }
-
-    expect(unrecognized).toEqual([]);
-    expect(FORBIDDEN.filter((token) => captured.has(token))).toEqual([]);
-    const painted = new Set<string>([
-      ...CHROME_LITERALS,
-      ...Object.values(OVERLAY_KIND_GUTTER),
-    ]);
-    expect(FORBIDDEN.filter((token) => painted.has(token))).toEqual([]);
-
-    for (const { kind, word } of overlayKindCases()) {
-      expect(overlayKindWord(kind)).toBe(word);
-    }
-
-    expect(sortedSet(captured)).toEqual(
-      sortedSet([...CHROME_LITERALS, ...STORED_META_LITERALS]),
-    );
-  });
-
   test("thinking rows paint an empty gutter", () => {
     expect(
       streamRowGutter(
@@ -183,14 +93,12 @@ describe("transcript gutter labels", () => {
     },
   );
 
-  test.each(
-    overlayKindCases().filter(({ kind }) => !NON_ECHO_OVERLAY_KINDS.has(kind)),
-  )(
-    "a default-echo $kind recap paints the overlay word",
-    async ({ kind, word }) => {
+  test.each(overlayKinds().filter((kind) => !NON_ECHO_OVERLAY_KINDS.has(kind)))(
+    "a default-echo %s recap paints the overlay word",
+    async (kind) => {
       await assertEchoRecap(
         (shell) => openListOverlay(shell, { kind, items: ["one"] }),
-        word,
+        overlayKindWord(kind),
       );
     },
   );

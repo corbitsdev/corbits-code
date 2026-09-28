@@ -45,29 +45,23 @@ describe("state persistence", () => {
     expect(loaded).toEqual({ kind: "ok", state: baseRunState });
   });
 
-  test("loadState returns a failed run that recorded an error string", async () => {
-    const state: RunState = {
-      ...baseRunState,
-      status: "failed",
-      finishedAt: 1_700_000_005_000,
-      error: "Cycle commit failed\nhook dump: pre-commit rejected",
-    };
-    await saveState(cwd, SESSION_ID, state, home);
-    const loaded = await loadState(cwd, SESSION_ID, home);
-    expect(loaded).toEqual({ kind: "ok", state });
-  });
-
-  test("loadState returns a crashed run that recorded an error string", async () => {
-    const state: RunState = {
-      ...baseRunState,
-      status: "crashed",
-      finishedAt: 1_700_000_005_000,
-      error: "uncaughtException: boom",
-    };
-    await saveState(cwd, SESSION_ID, state, home);
-    const loaded = await loadState(cwd, SESSION_ID, home);
-    expect(loaded).toEqual({ kind: "ok", state });
-  });
+  test.each([
+    ["failed", "Cycle commit failed\nhook dump: pre-commit rejected"],
+    ["crashed", "uncaughtException: boom"],
+  ] as const)(
+    "loadState returns a %s run that recorded an error string",
+    async (status, error) => {
+      const state: RunState = {
+        ...baseRunState,
+        status,
+        finishedAt: 1_700_000_005_000,
+        error,
+      };
+      await saveState(cwd, SESSION_ID, state, home);
+      const loaded = await loadState(cwd, SESSION_ID, home);
+      expect(loaded).toEqual({ kind: "ok", state });
+    },
+  );
 
   test("failed and crashed runs with error do not print diagnostics to stderr", async () => {
     const failed: RunState = {
@@ -201,13 +195,6 @@ describe("state persistence", () => {
     const raw = await readFile(join(dir(), "run.json"), "utf8");
     expect(() => JSON.parse(raw)).not.toThrow();
     expect(JSON.parse(raw)).toEqual(updated);
-  });
-
-  test("saveState produces a valid final file that round-trips", async () => {
-    await saveState(cwd, SESSION_ID, baseRunState, home);
-    const raw = await readFile(join(dir(), "run.json"), "utf8");
-    expect(() => JSON.parse(raw)).not.toThrow();
-    expect(JSON.parse(raw)).toEqual(baseRunState);
   });
 
   // ---------------------------------------------------------------------------

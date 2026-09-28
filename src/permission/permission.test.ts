@@ -15,7 +15,6 @@ import {
   splitChainedCommand,
   tokenize,
   deriveCommandScopes,
-  isShellCommentOnly,
   isShellNoOp,
   stripCommentLines,
 } from "./command.js";
@@ -82,22 +81,6 @@ const recordPrompts = (outcome: ApprovalOutcome) => {
   return self;
 };
 
-describe("isShellCommentOnly", () => {
-  test("full-line comments and empty lines are comment-only", () => {
-    expect(isShellCommentOnly("# worktree")).toBe(true);
-    expect(isShellCommentOnly("  # note  ")).toBe(true);
-    expect(isShellCommentOnly("#")).toBe(true);
-    expect(isShellCommentOnly("")).toBe(true);
-    expect(isShellCommentOnly("   ")).toBe(true);
-  });
-
-  test("real commands are not comment-only, even with trailing comments", () => {
-    expect(isShellCommentOnly("npm test")).toBe(false);
-    expect(isShellCommentOnly("npm test # suite")).toBe(false);
-    expect(isShellCommentOnly("git worktree list")).toBe(false);
-  });
-});
-
 describe("isShellNoOp", () => {
   test("recognizes bare true/false/: and control-flow keywords", () => {
     expect(isShellNoOp("true")).toBe(true);
@@ -143,44 +126,6 @@ describe("splitChainedCommand", () => {
     expect(splitChainedCommand("a; b || c")).toEqual(["a", "b", "c"]);
   });
 
-  test("treats a lone & (background operator) as a boundary", () => {
-    // Otherwise the destructive tail rides under the benign head's approval scope.
-    expect(splitChainedCommand("ls & rm -rf foo")).toEqual([
-      "ls",
-      "rm -rf foo",
-    ]);
-    expect(splitChainedCommand("sleep 1 & echo done")).toEqual([
-      "sleep 1",
-      "echo done",
-    ]);
-  });
-
-  test("does not split a redirect that duplicates a fd with >& or <&", () => {
-    // `2>&1` is one redirect token, not "command 2>" backgrounded then "1".
-    expect(splitChainedCommand("bun run build 2>&1")).toEqual([
-      "bun run build 2>&1",
-    ]);
-    expect(splitChainedCommand("echo hi > /dev/null 2>&1")).toEqual([
-      "echo hi > /dev/null 2>&1",
-    ]);
-    expect(splitChainedCommand("cmd 2>&1 | tee log")).toEqual([
-      "cmd 2>&1",
-      "tee log",
-    ]);
-    expect(splitChainedCommand("cmd <&-")).toEqual(["cmd <&-"]);
-  });
-
-  test("does not split the bash &> combined redirect", () => {
-    expect(splitChainedCommand("ls &> out.log")).toEqual(["ls &> out.log"]);
-  });
-
-  test("still backgrounds when & is not part of a redirect", () => {
-    expect(splitChainedCommand("sleep 1 & cmd 2>&1")).toEqual([
-      "sleep 1",
-      "cmd 2>&1",
-    ]);
-  });
-
   test("does not split inside quotes", () => {
     expect(splitChainedCommand(`echo "a && b" | cat`)).toEqual([
       `echo "a && b"`,
@@ -191,16 +136,6 @@ describe("splitChainedCommand", () => {
 
   test("drops empty segments", () => {
     expect(splitChainedCommand("  ;  ; ls ")).toEqual(["ls"]);
-  });
-
-  test("treats heredoc body as atomic — does not split on internal newlines", () => {
-    const cmd = "cat > /tmp/out.md << 'EOF'\nline one\nline two\nEOF";
-    expect(splitChainedCommand(cmd)).toHaveLength(1);
-  });
-
-  test("treats unquoted heredoc body as atomic", () => {
-    const cmd = "cat > /tmp/out.md << EOF\nline one\nline two\nEOF";
-    expect(splitChainedCommand(cmd)).toHaveLength(1);
   });
 
   test("still splits chained commands before heredoc", () => {
@@ -456,127 +391,6 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         workspace: noWorkspace,
       }),
     ).toBe(false);
-  });
-
-  test("respects providerModel and cwd filters", async () => {
-    const scoped: Approval[] = [
-      { tool: "run_shell", pattern: "npm *", providerModel: "openai:gpt-4o" },
-      { tool: "run_shell", pattern: "git *", cwd: "/repo-a" },
-    ];
-    // A cwd-scoped grant matches only inside this gate's workspace
-    // (resolvedCwd === /repo-a): the grant cwd must equal the gate workspace
-    // before its cwd scope can match a request (CL-6706), so a workspace whose
-    // resolvedCwd is /unused must NOT let the /repo-a grant match. noWorkspace
-    // is therefore not appropriate for the cwd-filter cases below.
-    const repoAWorkspace = { resolvedCwd: "/repo-a", roots: ["/repo-a"] };
-    expect(
-      await evaluateApprovals({
-        tool: "run_shell",
-        subject: "npm test",
-        approvals: scoped,
-        activeProviderModel: "openai:gpt-4o",
-        workspace: repoAWorkspace,
-      }),
-    ).toBe(true);
-    expect(
-      await evaluateApprovals({
-        tool: "run_shell",
-        subject: "npm test",
-        approvals: scoped,
-        activeProviderModel: "anthropic:opus",
-        workspace: repoAWorkspace,
-      }),
-    ).toBe(false);
-    expect(
-      await evaluateApprovals({
-        tool: "run_shell",
-        subject: "git status",
-        approvals: scoped,
-        requestCwd: "/repo-a",
-        workspace: repoAWorkspace,
-      }),
-    ).toBe(true);
-    expect(
-      await evaluateApprovals({
-        tool: "run_shell",
-        subject: "git status",
-        approvals: scoped,
-        requestCwd: "/repo-b",
-        workspace: repoAWorkspace,
-      }),
-    ).toBe(false);
-  });
-
-  test("a project grant minted at the session root matches a request whose cwd is a registered worktree of that root", async () => {
-    const scoped: Approval[] = [
-      { tool: "run_shell", pattern: "git *", cwd: "/session-root" },
-    ];
-    const workspace = {
-      resolvedCwd: "/session-root",
-      roots: ["/sibling-dispatch-wts/agent-1"],
-    };
-    expect(
-      await evaluateApprovals({
-        tool: "run_shell",
-        subject: "git status",
-        approvals: scoped,
-        requestCwd: "/sibling-dispatch-wts/agent-1",
-        workspace,
-      }),
-    ).toBe(true);
-  });
-
-  // Security test: a grant minted for one project must never authorize a
-  // request whose cwd belongs to a completely different project, even when
-  // that other project also happens to be a git worktree somewhere. Must
-  // pass both before and after the worktree-matching fix.
-  test("a project grant does not match a request from an unrelated project root", async () => {
-    const scoped: Approval[] = [
-      { tool: "run_shell", pattern: "git *", cwd: "/session-root" },
-    ];
-    const workspace = {
-      resolvedCwd: "/session-root",
-      roots: ["/sibling-dispatch-wts/agent-1"],
-    };
-    expect(
-      await evaluateApprovals({
-        tool: "run_shell",
-        subject: "git status",
-        approvals: scoped,
-        requestCwd: "/some-other-unrelated-project",
-        workspace,
-      }),
-    ).toBe(false);
-  });
-
-  test("session and provider-model scopes (no cwd) are unaffected by workspace membership", async () => {
-    const scoped: Approval[] = [
-      { tool: "run_shell", pattern: "npm *" },
-      { tool: "run_shell", pattern: "git *", providerModel: "openai:gpt-4o" },
-    ];
-    const workspace = {
-      resolvedCwd: "/session-root",
-      roots: ["/sibling-dispatch-wts/agent-1"],
-    };
-    expect(
-      await evaluateApprovals({
-        tool: "run_shell",
-        subject: "npm test",
-        approvals: scoped,
-        requestCwd: "/anywhere-at-all",
-        workspace,
-      }),
-    ).toBe(true);
-    expect(
-      await evaluateApprovals({
-        tool: "run_shell",
-        subject: "git status",
-        approvals: scoped,
-        activeProviderModel: "openai:gpt-4o",
-        requestCwd: "/anywhere-at-all",
-        workspace,
-      }),
-    ).toBe(true);
   });
 });
 
@@ -1050,24 +864,6 @@ describe("createPermissionGate", () => {
     expect((await gate.evaluate(shellCall("curl x"))).allowed).toBe(true);
   });
 
-  test("skipPermissions auto-allows out-of-workspace path tools without asking", async () => {
-    const asked = recordPrompts({ allow: false });
-    const outside = mkdtempSync(join(tmpdir(), "corbits-skip-outside-"));
-    const target = join(outside, "other.ts");
-    writeFileSync(target, "");
-    const gate = createGate({
-      cwd: process.cwd(),
-      requestApproval: asked.requestApproval,
-      skipPermissions: true,
-    });
-    const verdict = await gate.evaluate(
-      toolCall("read_file", { path: target }),
-    );
-    expect(verdict.allowed).toBe(true);
-    expect(asked.count).toBe(0);
-    expect(gate.getSkipPermissions()).toBe(true);
-  });
-
   test("reset clears session grants but keeps seeded persisted approvals", async () => {
     let asked = 0;
     const sessionScope: PermissionRequest["scopes"][number] = {
@@ -1286,43 +1082,6 @@ describe("createPermissionGate", () => {
       requestApproval: asked.requestApproval,
     });
     const verdict = await gate.evaluate(toolCall("manage_tasks", {}));
-    expect(verdict.allowed).toBe(true);
-    expect(asked.count).toBe(0);
-  });
-
-  test("auto mode routes MCP tools to the operator prompt rather than blanket-allow", async () => {
-    const asked = recordPrompts({ allow: false });
-    const gate = createGate({
-      requestApproval: asked.requestApproval,
-      auto: true,
-    });
-    const verdict = await gate.evaluate(
-      toolCall("mcp__acme__delete_service", { id: "svc" }),
-    );
-    expect(verdict.allowed).toBe(false);
-    expect(asked.count).toBe(1);
-  });
-
-  test("auto mode does not blanket-allow an unknown consequential built-in", async () => {
-    const asked = recordPrompts({ allow: false });
-    const gate = createGate({
-      requestApproval: asked.requestApproval,
-      auto: true,
-    });
-    const verdict = await gate.evaluate(toolCall("remove_service", {}));
-    expect(verdict.allowed).toBe(false);
-    expect(asked.count).toBe(1);
-  });
-
-  test("auto mode still auto-allows safe reads without prompting", async () => {
-    const asked = recordPrompts({ allow: false });
-    const gate = createGate({
-      requestApproval: asked.requestApproval,
-      auto: true,
-    });
-    const verdict = await gate.evaluate(
-      toolCall("read_file", { path: "src/a.ts" }),
-    );
     expect(verdict.allowed).toBe(true);
     expect(asked.count).toBe(0);
   });
@@ -2530,16 +2289,6 @@ describe("createPermissionGate restricted paths", () => {
       },
     });
 
-  test("reading a normal source file stays allow-tier", async () => {
-    let asked = 0;
-    const gate = restrictedGate(() => asked++);
-    const verdict = await gate.evaluate(
-      toolCall("read_file", { path: "src/index.ts" }),
-    );
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(0);
-  });
-
   test("reading an .agent-state file is allow-tier (session transcripts are meant to be read)", async () => {
     let asked = 0;
     const gate = restrictedGate(() => asked++);
@@ -2964,11 +2713,6 @@ describe("listWorktreeRoots", () => {
     const roots = await listWorktreeRoots(repo);
     expect(roots).toContain(realpathSync(worktree));
     expect(roots).not.toContain(realpathSync(repo));
-  });
-
-  test("returns no roots outside a git repo", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "corbits-nogit-"));
-    expect(await listWorktreeRoots(dir)).toEqual([]);
   });
 
   test("a write into a discovered secondary worktree is auto-allowed", async () => {

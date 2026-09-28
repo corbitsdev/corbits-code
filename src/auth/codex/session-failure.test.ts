@@ -3,10 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { OAuthRefreshFailedError } from "@corbits/oauth-core";
-import { errorMessage } from "../../agent/error-message.js";
 import { saveCodexProfile } from "../../config/oauth-stores.js";
-import { formatSubAgentSpawnAuthFailureMessage } from "../../subagent/inference-auth-failure.js";
 import { isOAuthTokenEndpointError } from "../token-session-boundary.js";
+import { authFailureSurface } from "../../testkit/auth-failure-surface.js";
 import {
   codexAuthFailureDiagnostic,
   CodexAuthError,
@@ -105,19 +104,7 @@ describe("codex auth failure surface", () => {
       );
       expect(failure).toBeInstanceOf(CodexAuthError);
       const auth = failure as CodexAuthError;
-      const surfaced = JSON.stringify({
-        auth: String(auth),
-        retry: {
-          type: "inference.retry",
-          data: { previousError: { message: auth.message } },
-        },
-        terminal: {
-          type: "inference.error",
-          data: { error: { message: auth.message } },
-        },
-        log: errorMessage(auth),
-        guidance: formatSubAgentSpawnAuthFailureMessage("auth task", auth),
-      });
+      const surfaced = authFailureSurface(auth);
       expect(surfaced).not.toContain(refresh);
       expect(surfaced).toContain("grant rejected");
       expect(surfaced).toContain("Re-authenticate");

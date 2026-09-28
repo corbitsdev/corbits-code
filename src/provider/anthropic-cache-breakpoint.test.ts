@@ -7,7 +7,6 @@ import type {
   LastCycleSource,
 } from "@intx/types/runtime";
 import { withAnthropicCacheBreakpoint } from "./anthropic-cache-breakpoint.js";
-import { createOpenCodeGoAnthropicAdapter } from "./anthropic-session-adapter.js";
 import { createZenAnthropicAdapter } from "./anthropic-session-adapter.js";
 
 function sourceFor(provider: string): LastCycleSource {
@@ -19,9 +18,6 @@ const inner: AdapterRegistry = {
   resolve: (source) => {
     if (source.provider === "zen-messages") {
       return createZenAnthropicAdapter(source);
-    }
-    if (source.provider === "opencode-go-messages") {
-      return createOpenCodeGoAnthropicAdapter(source);
     }
     return createBuiltinRegistry().resolve(source);
   },
@@ -74,11 +70,9 @@ function build(provider: string, options: InferenceOptions): WireBody {
 }
 
 describe("anthropic cache breakpoint with ephemeral turns", () => {
-  for (const provider of [
-    "anthropic",
-    "zen-messages",
-    "opencode-go-messages",
-  ]) {
+  // anthropic = builtin adapter path; zen-messages = session-header wrapper
+  // path. opencode-go-messages shares the wrapper shape with zen-messages.
+  for (const provider of ["anthropic", "zen-messages"]) {
     test(`${provider}: breakpoint lands on the last persisted user turn, not the ephemeral tail`, () => {
       const body = build(provider, {});
 

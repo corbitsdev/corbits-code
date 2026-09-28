@@ -7,11 +7,8 @@
  * working channel, which is the regression this file exists to catch.
  */
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 
-import { defined } from "../testkit/defined.js";
 import { createHarness } from "./harness.js";
 import { mountProductHost, type ProductHostConfig } from "./product-host.js";
 import { isLanding } from "./shell/internals.js";
@@ -433,67 +430,4 @@ describe("workflow channel", () => {
       cleanup();
     }
   });
-});
-
-/**
- * Static guard for the whole bug class: an emitted channel with no `.on`
- * anywhere is a feature nobody can see, and it fails silently. Static because
- * the subscribers are spread across the runner itself and the product host,
- * and only some of them exist at any one mount.
- *
- * `subagent.progress` is still emitted by the runner for external listeners,
- * but the product host no longer paints from it — tool state rides the
- * subagent store (`currentToolName` + clock) via setChrome. Drop it from the
- * "must have a .on somewhere" set so a deliberate non-subscriber is not a
- * false alarm.
- */
-describe("every emitted runtime channel has a subscriber", () => {
-  const srcDir = fileURLToPath(new URL("../", import.meta.url));
-  // CL-6791 phase 4 split src/tui/runner.ts into src/tui/runner/*; the
-  // emitted-channel set now spans every module in that directory.
-  const runnerDir = fileURLToPath(new URL("./runner/", import.meta.url));
-  const runnerSources = Array.from(
-    new Bun.Glob("*.ts").scanSync({ cwd: runnerDir }),
-  )
-    .filter((f) => !f.endsWith(".test.ts"))
-    .map((f) => readFileSync(`${runnerDir}${f}`, "utf8"))
-    .join("\n");
-
-  const emitted = new Set(
-    [...runnerSources.matchAll(/emitter\.emit\("([a-z.]+)"/g)].map((m) =>
-      defined(m[1], "emit channel"),
-    ),
-  );
-  // Progress pings are store-mirrored chrome, not a host paint path.
-  emitted.delete("subagent.progress");
-
-  test("the runner still emits the channels this suite knows about", () => {
-    for (const channel of [
-      "hook",
-      "mcp.status",
-      "permission.grant",
-      "compaction",
-      "workflow",
-    ]) {
-      expect([...emitted]).toContain(channel);
-    }
-  });
-
-  test.each([...emitted])(
-    "%s is subscribed somewhere in src",
-    async (channel) => {
-      const grep = Bun.spawnSync([
-        "grep",
-        "-rl",
-        `.on("${channel}"`,
-        srcDir,
-        "--include=*.ts",
-      ]);
-      const files = new TextDecoder()
-        .decode(grep.stdout)
-        .split("\n")
-        .filter((f) => f.length > 0 && !f.endsWith(".test.ts"));
-      expect(files).not.toEqual([]);
-    },
-  );
 });

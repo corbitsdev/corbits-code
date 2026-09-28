@@ -8,10 +8,6 @@ import {
   assembleDirectorPrompt,
   canonicalToolNamesForDirector,
   directorPromptSizeTable,
-  formatPromptSizeTable,
-  formatSkywalkerPrefixTable,
-  assembleSkywalkerInferEnvelope,
-  measureSkywalkerPrefix,
   type PromptSizeFamily,
 } from "./prompt-sizes.js";
 import {
@@ -19,7 +15,6 @@ import {
   CATALOG_TOOL_NAMES,
   CORE_TOOL_NAMES,
 } from "./tool-search.js";
-import { MAX_AGENTS_MD_BYTES } from "./context-extensions.js";
 import { loadSessionChatPrompt } from "../session/runtime-assembly.js";
 import { createAdvertisedToolset } from "../session/assemble-runtime.js";
 import { resolveExecDirectorOverlay } from "../exec/runner.js";
@@ -121,9 +116,9 @@ function budgetMessage(
     `exceeds budget (${budget.chars} chars / ` +
     `${budget.bytes} bytes). Trim the prompt (preferred) or ` +
     `consciously raise the budget here with justification. ` +
-    `Repro: bun -e 'import { directorPromptSizeTable, ` +
-    `formatPromptSizeTable } from "./src/agent/prompt-sizes.ts"; ` +
-    `console.log(formatPromptSizeTable(directorPromptSizeTable()))'.`
+    `Repro: bun -e 'import { directorPromptSizeTable } ` +
+    `from "./src/agent/prompt-sizes.ts"; ` +
+    `console.log(directorPromptSizeTable())'.`
   );
 }
 
@@ -186,7 +181,7 @@ describe("director prompt size budget", () => {
     }
   });
 
-  test("muse family appends the shipped tool-discipline rules", () => {
+  test("muse family grows the prompt (tool-discipline rules appended)", () => {
     for (const directorId of DIRECTOR_IDS) {
       const base = rows.find(
         (r) => r.directorId === directorId && r.family === "default",
@@ -195,9 +190,6 @@ describe("director prompt size budget", () => {
         (r) => r.directorId === directorId && r.family === "muse",
       );
       expect(muse?.chars ?? 0).toBeGreaterThan(base?.chars ?? 0);
-      expect(assembleDirectorPrompt(directorId, "muse")).toContain(
-        "Tool discipline:",
-      );
     }
   });
 
@@ -231,12 +223,6 @@ describe("director prompt size budget", () => {
       expect(prompt).not.toContain("Tool budget:");
       expect(prompt).not.toContain("Finish bias (xAI / Grok worker):");
     }
-  });
-
-  test("measurement is deterministic", () => {
-    const again = directorPromptSizeTable();
-    expect(again.map((r) => r.chars)).toEqual(rows.map((r) => r.chars));
-    expect(again.map((r) => r.bytes)).toEqual(rows.map((r) => r.bytes));
   });
 
   test("tool names match the production mount: no dupes, no phantoms", () => {
@@ -276,60 +262,9 @@ describe("director prompt size budget", () => {
       }
     }
   });
-
-  test("formatPromptSizeTable renders one row per director", () => {
-    const table = formatPromptSizeTable(rows);
-    const dataRows = table
-      .split("\n")
-      .filter((line) =>
-        DIRECTOR_IDS.some((id) => line.startsWith(`| ${id} |`)),
-      );
-    expect(dataRows).toHaveLength(DIRECTOR_IDS.length);
-    for (const directorId of DIRECTOR_IDS) {
-      const base = rows.find(
-        (r) => r.directorId === directorId && r.family === "default",
-      );
-      expect(table).toContain(`${base?.chars} (${base?.bytes})`);
-    }
-  });
 });
 
 describe("skywalker grok prefix (infer envelope vs trimmed director)", () => {
-  test("keeps AGENTS.md and core tools on the infer envelope", () => {
-    const prompt = assembleSkywalkerInferEnvelope();
-    expect(prompt).toContain("## Project guidance (AGENTS.md, reference)");
-    expect(prompt).toContain("Follow the repository conventions.");
-    for (const name of CORE_TOOL_NAMES) {
-      if (name === "wait_agents") continue;
-      expect(prompt, name).toContain(`- ${name}:`);
-    }
-  });
-
-  test("does not substitute the trimmed director prompt on grok", () => {
-    const size = measureSkywalkerPrefix();
-    expect(size.agentsMdCap).toBe(MAX_AGENTS_MD_BYTES);
-    expect(size.inferEnvelopeChars).toBeGreaterThan(5000);
-    expect(size.trimmedDirectorChars).toBeGreaterThan(5000);
-    expect(size.inferEnvelopeBytes).toBeGreaterThanOrEqual(
-      size.inferEnvelopeChars,
-    );
-    expect(size.inferEnvelopeChars).not.toBe(size.trimmedDirectorChars);
-    const infer = assembleSkywalkerInferEnvelope();
-    expect(infer).not.toContain("Finish bias (xAI / Grok worker):");
-  });
-
-  test("formatSkywalkerPrefixTable reports both prefixes and the AGENTS.md cap", () => {
-    const size = measureSkywalkerPrefix();
-    const table = formatSkywalkerPrefixTable(size);
-    expect(table).toContain(
-      `${size.inferEnvelopeChars} (${size.inferEnvelopeBytes})`,
-    );
-    expect(table).toContain(
-      `${size.trimmedDirectorChars} (${size.trimmedDirectorBytes})`,
-    );
-    expect(table).toContain(`${size.agentsMdCap}`);
-  });
-
   // Production pin: a Grok fork at the runner that swapped loadSessionChatPrompt
   // or advertisedToolNamesForSessionMode for the trimmed director would fail here,
   // not only the fixture size inequality above.
@@ -393,28 +328,5 @@ describe("skywalker grok prefix (infer envelope vs trimmed director)", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  });
-});
-
-describe("grok tool-budget residual (CL-8297)", () => {
-  const countOccurrences = (haystack: string, needle: string): number =>
-    haystack.split(needle).length - 1;
-
-  test("a grok leaf director prompt contains the tool budget exactly once", () => {
-    const prompt = assembleDirectorPrompt("builder", "grok");
-    expect(countOccurrences(prompt, "Tool budget:")).toBe(1);
-  });
-
-  test("default-family and orchestrator prompts carry no tool budget", () => {
-    const defaultPrompt = assembleDirectorPrompt("builder", "default");
-    expect(defaultPrompt).not.toContain("Tool budget:");
-    // The default probe resolves to the default family, so the default
-    // column carries no family residual — neither the claude task_guidance
-    // block nor the gpt narrate-before-tools nudge.
-    expect(defaultPrompt).not.toContain("<task_guidance>");
-    expect(defaultPrompt).not.toContain("Narrate before tools (GPT worker):");
-    expect(assembleDirectorPrompt("skywalker", "grok")).not.toContain(
-      "Tool budget:",
-    );
   });
 });

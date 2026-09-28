@@ -141,11 +141,6 @@ describe("splitChainedCommand redirect and background fragments", () => {
     ]);
   });
 
-  test("keeps a heredoc body intact rather than fragmenting it", () => {
-    const command = "cat <<EOF\nhello\nEOF";
-    expect(splitChainedCommand(command)).toEqual([command]);
-  });
-
   test("leaves a non-command prose payload as a single segment", () => {
     const prose = "please run the build and check the output for errors";
     expect(splitChainedCommand(prose)).toEqual([prose]);

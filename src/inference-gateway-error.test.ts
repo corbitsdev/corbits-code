@@ -339,51 +339,52 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalized.message).toContain("Invalid token: expired");
   });
 
-  test("Codex bare 404 without an auth signal stays fatal", () => {
-    const error = {
-      category: "fatal" as const,
-      message: "Not Found",
-      statusCode: 404,
-      providerId: "codex/work",
-    };
-    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
-  });
-
-  test("Codex routing 404 without an auth signal stays fatal", () => {
-    const error = {
-      category: "fatal" as const,
-      message: "Not Found",
-      statusCode: 404,
-      providerId: "codex/work",
-      raw: { error: { code: "not_found", message: "No such endpoint" } },
-    };
-    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
-  });
-
-  test("Codex 404 naming a dotted unknown model stays fatal", () => {
-    const error = {
-      category: "fatal" as const,
-      message: "The model 'gpt-3.5-turbo' does not exist",
-      statusCode: 404,
-      providerId: "codex/work",
-    };
-    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
-  });
-
-  test("Codex 404 naming an unknown model keeps fatal switch-models guidance", () => {
-    const error = {
-      category: "fatal" as const,
-      message: "The model 'gpt-99' does not exist",
-      statusCode: 404,
-      providerId: "codex/work",
-      raw: {
-        error: {
-          code: "model_not_found",
-          message: "The model 'gpt-99' does not exist",
-          type: "invalid_request_error",
+  test.each([
+    {
+      name: "bare 404 without an auth signal",
+      error: {
+        category: "fatal" as const,
+        message: "Not Found",
+        statusCode: 404,
+        providerId: "codex/work",
+      },
+    },
+    {
+      name: "routing 404 without an auth signal",
+      error: {
+        category: "fatal" as const,
+        message: "Not Found",
+        statusCode: 404,
+        providerId: "codex/work",
+        raw: { error: { code: "not_found", message: "No such endpoint" } },
+      },
+    },
+    {
+      name: "404 naming a dotted unknown model",
+      error: {
+        category: "fatal" as const,
+        message: "The model 'gpt-3.5-turbo' does not exist",
+        statusCode: 404,
+        providerId: "codex/work",
+      },
+    },
+    {
+      name: "404 naming an unknown model keeps fatal switch-models guidance",
+      error: {
+        category: "fatal" as const,
+        message: "The model 'gpt-99' does not exist",
+        statusCode: 404,
+        providerId: "codex/work",
+        raw: {
+          error: {
+            code: "model_not_found",
+            message: "The model 'gpt-99' does not exist",
+            type: "invalid_request_error",
+          },
         },
       },
-    };
+    },
+  ])("Codex $name stays fatal", ({ error }) => {
     expect(normalizeInferenceErrorForRetry(error)).toBe(error);
   });
 
@@ -429,58 +430,66 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(error)).toBe(error);
   });
 
-  test("known-xAI message-only capacity protocol error becomes retryable", () => {
-    const normalized = normalizeInferenceErrorForRetry({
-      category: "protocol_mismatch",
-      message: "The model is currently at capacity. Please try again later.",
-      providerId: "xai/default",
+  test.each([
+    {
+      name: "message-only capacity protocol error",
+      error: {
+        category: "protocol_mismatch" as const,
+        message: "The model is currently at capacity. Please try again later.",
+        providerId: "xai/default",
+        retryAfterMs: 2_500,
+      },
       retryAfterMs: 2_500,
-    });
-    expect(normalized.category).toBe("retryable");
-    expect(normalized.retryAfterMs).toBe(2_500);
-  });
-
-  test("known-xAI JSON-bodied high-demand protocol error becomes retryable", () => {
-    const normalized = normalizeInferenceErrorForRetry({
-      category: "protocol_mismatch",
-      message: "malformed JSON in SSE data payload",
-      providerId: "xai/default",
-      raw: {
-        error: {
-          message: "The service is unavailable due to high demand",
+    },
+    {
+      name: "JSON-bodied high-demand protocol error",
+      error: {
+        category: "protocol_mismatch" as const,
+        message: "malformed JSON in SSE data payload",
+        providerId: "xai/default",
+        raw: {
+          error: {
+            message: "The service is unavailable due to high demand",
+          },
         },
       },
-    });
+      retryAfterMs: undefined,
+    },
+    {
+      name: "exact temporary-unavailable phrase",
+      error: {
+        category: "protocol_mismatch" as const,
+        message: "Service temporarily unavailable",
+        providerId: "xai/default",
+      },
+      retryAfterMs: undefined,
+    },
+    {
+      name: "exact phrase carried on raw",
+      error: {
+        category: "protocol_mismatch" as const,
+        message: "malformed JSON in SSE data payload",
+        providerId: "xai/default",
+        raw: "Service temporarily unavailable",
+      },
+      retryAfterMs: undefined,
+    },
+    {
+      name: "exact phrase nested in JSON raw",
+      error: {
+        category: "protocol_mismatch" as const,
+        message: "malformed JSON in SSE data payload",
+        providerId: "xai/default",
+        raw: { error: { message: "Service temporarily unavailable" } },
+      },
+      retryAfterMs: undefined,
+    },
+  ])("known-xAI $name becomes retryable", ({ error, retryAfterMs }) => {
+    const normalized = normalizeInferenceErrorForRetry(error);
     expect(normalized.category).toBe("retryable");
-  });
-
-  test("known-xAI exact temporary-unavailable phrase becomes retryable", () => {
-    const normalized = normalizeInferenceErrorForRetry({
-      category: "protocol_mismatch",
-      message: "Service temporarily unavailable",
-      providerId: "xai/default",
-    });
-    expect(normalized.category).toBe("retryable");
-  });
-
-  test("known-xAI exact phrase carried on raw becomes retryable", () => {
-    const normalized = normalizeInferenceErrorForRetry({
-      category: "protocol_mismatch",
-      message: "malformed JSON in SSE data payload",
-      providerId: "xai/default",
-      raw: "Service temporarily unavailable",
-    });
-    expect(normalized.category).toBe("retryable");
-  });
-
-  test("known-xAI exact phrase nested in JSON raw becomes retryable", () => {
-    const normalized = normalizeInferenceErrorForRetry({
-      category: "protocol_mismatch",
-      message: "malformed JSON in SSE data payload",
-      providerId: "xai/default",
-      raw: { error: { message: "Service temporarily unavailable" } },
-    });
-    expect(normalized.category).toBe("retryable");
+    if (retryAfterMs !== undefined) {
+      expect(normalized.retryAfterMs).toBe(retryAfterMs);
+    }
   });
 
   test("mixed xAI capacity and quota copy stays unchanged", () => {

@@ -3,77 +3,28 @@ import { resolveLocalSettingsPath } from "../config/settings.js";
 import { resolveExitCode } from "./runner/exit.js";
 
 describe("resolveExitCode", () => {
-  test("returns 0 when run completes successfully with no errors", () => {
-    const code = resolveExitCode({
-      runError: undefined,
-      sinkError: undefined,
-      status: "done",
-    });
-    expect(code).toBe(0);
-  });
+  const clean = { runError: undefined, sinkError: undefined };
+  const cases: [string, Parameters<typeof resolveExitCode>[0], number][] = [
+    ["clean run exits 0", { ...clean, status: "done" }, 0],
+    ["runError exits 1", { ...clean, runError: "boom", status: "failed" }, 1],
+    ["sinkError exits 1", { ...clean, sinkError: "boom", status: "failed" }, 1],
+    ["failed status exits 1", { ...clean, status: "failed" }, 1],
+    ["cancelled status exits 1", { ...clean, status: "cancelled" }, 1],
+    [
+      "both errors exit 1",
+      { runError: "a", sinkError: "b", status: "failed" },
+      1,
+    ],
+    // Teardown failure overrides a clean status; the run must not report success.
+    [
+      "teardown failure exits 1",
+      { ...clean, status: "done", teardownFailed: true },
+      1,
+    ],
+  ];
 
-  test("returns 1 when runError is set", () => {
-    const code = resolveExitCode({
-      runError: "Agent encountered an error",
-      sinkError: undefined,
-      status: "failed",
-    });
-    expect(code).toBe(1);
-  });
-
-  test("returns 1 when sinkError is set", () => {
-    const code = resolveExitCode({
-      runError: undefined,
-      sinkError: "Reactor error occurred",
-      status: "failed",
-    });
-    expect(code).toBe(1);
-  });
-
-  test("returns 1 when status is failed", () => {
-    const code = resolveExitCode({
-      runError: undefined,
-      sinkError: undefined,
-      status: "failed",
-    });
-    expect(code).toBe(1);
-  });
-
-  test("returns 1 when status is cancelled", () => {
-    const code = resolveExitCode({
-      runError: undefined,
-      sinkError: undefined,
-      status: "cancelled",
-    });
-    expect(code).toBe(1);
-  });
-
-  test("returns 1 when both runError and sinkError are set", () => {
-    const code = resolveExitCode({
-      runError: "Agent error",
-      sinkError: "Sink error",
-      status: "failed",
-    });
-    expect(code).toBe(1);
-  });
-
-  test("returns 0 when status is done despite other fields being undefined", () => {
-    const code = resolveExitCode({
-      runError: undefined,
-      sinkError: undefined,
-      status: "done",
-    });
-    expect(code).toBe(0);
-  });
-
-  test("returns 1 when teardown failed even if status is done", () => {
-    const code = resolveExitCode({
-      runError: undefined,
-      sinkError: undefined,
-      status: "done",
-      teardownFailed: true,
-    });
-    expect(code).toBe(1);
+  test.each(cases)("%s", (_name, input, expected) => {
+    expect(resolveExitCode(input)).toBe(expected);
   });
 });
 
