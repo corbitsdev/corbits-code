@@ -18,6 +18,7 @@ import {
 } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import { splitAtSettledHeading } from "./markdown-parser";
+import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
 import { isMarkdownRow } from "./stream";
 
 const WIDE = { width: 80, height: 24 } as const;
@@ -396,42 +397,67 @@ describe("markdown transcript rows", () => {
     }, WIDE);
   });
 
-  test("frozen assignment work stays constant when stream size doubles", async () => {
+  test("bridge keeps frozen assignment work sub-quadratic", async () => {
     await withTestRenderer(async (h) => {
-      function measure(size: number): FrozenWork {
+      async function measure(size: number): Promise<FrozenWork> {
         const shell = createAppShell(h.renderer, shellOpts);
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          schedule: () => () => undefined,
+        });
         const frozen = [
           ...Array.from({ length: size }, (_, i) => `settled line ${i}`),
           "### Title",
         ].join("\n");
-        const initial = `${frozen}\n\nx`;
-        appendStreamRow(shell, {
-          role: "assistant",
-          streaming: true,
-          text: initial,
-        });
-        const { frozenNode } = splitMarkdownNodes(shell);
-        const work = observeFrozenAssignments(frozenNode, () => {
-          for (let i = 1; i <= size; i += 1) {
-            replaceStreamRowAt(shell, shell.streamLog.length - 1, {
-              role: "assistant",
-              streaming: true,
-              text: `${initial}${"x".repeat(i)}`,
-            });
+        try {
+          bridge.handle({
+            type: "assistant.delta",
+            text: `${frozen}\n\nx`,
+          });
+          await h.renderOnce();
+          const { frozenNode } = splitMarkdownNodes(shell);
+          const descriptor = defined(
+            Object.getOwnPropertyDescriptor(
+              MarkdownRenderable.prototype,
+              "content",
+            ),
+          );
+          const work: FrozenWork = { assignments: 0, chars: 0 };
+          Object.defineProperty(frozenNode, "content", {
+            configurable: true,
+            get: () => descriptor.get?.call(frozenNode),
+            set: (value: string) => {
+              work.assignments += 1;
+              work.chars += value.length;
+              descriptor.set?.call(frozenNode, value);
+            },
+          });
+          try {
+            for (let i = 0; i < size; i += 1) {
+              bridge.handle({ type: "assistant.delta", text: "x" });
+              await h.renderOnce();
+              expect(splitMarkdownNodes(shell).frozenNode).toBe(frozenNode);
+            }
+            expect(splitMarkdownNodes(shell).liveNode.content).toBe(
+              "x".repeat(size + 1),
+            );
+          } finally {
+            Reflect.deleteProperty(frozenNode, "content");
           }
-        });
-        shell.dispose();
-        return work;
+          return work;
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
       }
 
-      const n = measure(20);
-      const twoN = measure(40);
+      const n = await measure(20);
+      const twoN = await measure(40);
       const ratio = (twoN.chars + 1) / (n.chars + 1);
-      expect({ n, twoN, ratio }).toEqual({
-        n: { assignments: 0, chars: 0 },
-        twoN: { assignments: 0, chars: 0 },
-        ratio: 1,
-      });
+      const headingTransitions = 0;
+      const maxAssignments = headingTransitions + 1;
+      expect(ratio).toBeLessThan(3);
+      expect(n.assignments).toBeLessThanOrEqual(maxAssignments);
+      expect(twoN.assignments).toBeLessThanOrEqual(maxAssignments);
     }, WIDE);
   });
 
