@@ -355,6 +355,34 @@ describe("createAuthStore", () => {
     }
   });
 
+  test("takes over a dead-holder pid:counter claim instead of timing out", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-takeover-claim-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+      const lockPath = `${store.authPath(home)}.lock`;
+      await mkdir(join(home, TEST_SETTINGS_DIR), { recursive: true });
+      // The NEW pid:counter claim format with a certainly-dead PID: kill(pid, 0)
+      // answers ESRCH (or EINVAL), both of which read as dead. The counter leg
+      // must not stop holderPid from reading the pid leg.
+      await writeFile(lockPath, `${2_147_483_647}:99`, { mode: 0o600 });
+
+      const profile = {
+        name: "work",
+        tokens: { access: "a", refresh: "r", expiresAt: 1 },
+        createdAt: 1,
+      };
+      await expect(store.saveProfile(profile, home)).resolves.toBeUndefined();
+      expect(await store.loadProfile("work", home)).toEqual(profile);
+      await expect(readFile(lockPath, "utf8")).rejects.toThrow("ENOENT");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   test("waits on a live-holder lock and times out without touching it", async () => {
     const home = await mkdtemp(join(tmpdir(), "oauth-store-live-"));
     try {
@@ -382,6 +410,42 @@ describe("createAuthStore", () => {
           "If no Corbits process is running, remove this lock file manually and retry.",
       );
       expect(await readFile(lockPath, "utf8")).toBe(`${process.pid}`);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("waits on a live-holder pid:counter claim and times out without touching it", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-live-claim-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+        lockTimeoutMs: 100,
+      });
+      const lockPath = `${store.authPath(home)}.lock`;
+      await mkdir(join(home, TEST_SETTINGS_DIR), { recursive: true });
+      // The NEW pid:counter claim format held by this live process. Never
+      // signal it; the waiter must read the pid leg as alive, time out, and
+      // leave the claim byte-identical.
+      const claim = `${process.pid}:42`;
+      await writeFile(lockPath, claim, { mode: 0o600 });
+
+      await expect(
+        store.saveProfile(
+          {
+            name: "work",
+            tokens: { access: "a", refresh: "r", expiresAt: 1 },
+            createdAt: 1,
+          },
+          home,
+        ),
+      ).rejects.toThrow(
+        `Timed out waiting for OAuth credential lock ${lockPath}. ` +
+          "If no Corbits process is running, remove this lock file manually and retry.",
+      );
+      expect(await readFile(lockPath, "utf8")).toBe(claim);
     } finally {
       await rm(home, { recursive: true, force: true });
     }
