@@ -542,7 +542,7 @@ landing screen at, say, 23 rows gets an 8-row cap instead of 9. This is a
 known, accepted cost of the badge rather than an oversight — see
 `terminalForGeometry`'s doc comment in `src/tui/shell/layout.ts` for the exact mechanism.
 
-While the landing is mounted, a mount-scoped 125ms timer advances snow
+While the landing is mounted, a mount-scoped 500ms idle-repaint timer advances snow
 across a frozen mountain. It is cancelled on the first real transcript
 row or on shell dispose. Deferred system notices do not count. While
 the landing is still up, the callback no-ops if a turn is already
