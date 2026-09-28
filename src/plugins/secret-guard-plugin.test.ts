@@ -438,6 +438,81 @@ describe("secret-guard file URL normalization", () => {
     );
   }
 
+  const schemeBraceURLs = [
+    "{file,https}:///tmp/%2Eenv",
+    "{https,file}:///tmp/%2Eenv",
+    "file{,s}:///tmp/%2Eenv",
+    "file{s,}:///tmp/%2Eenv",
+    "f{ile,oo}:///tmp/%2Eenv",
+    "f{oo,ile}:///tmp/%2Eenv",
+    "{file:///tmp/%2Eenv,https://127.0.0.1:1/README.md}",
+    "{https://127.0.0.1:1/README.md,file:///tmp/%2Eenv}",
+    "f{i,oo}{le,tp}:///tmp/%2Eenv",
+    "F{ILE,OO}:///tmp/%2Eenv",
+  ];
+
+  for (const url of schemeBraceURLs) {
+    test.skipIf(Bun.which("curl") === null)(
+      `flags curl scheme synthesis that reads a real .env: ${url}`,
+      async () => {
+        const cwd = await mkdtemp(join(tmpdir(), "secret-guard-file-url-"));
+        try {
+          await writeFile(join(cwd, ".env"), "CURL_SCHEME_PROOF=exfiltrated\n");
+          const localURL = url.replace("/tmp/%2Eenv", `${cwd}/%2Eenv`);
+          const result = Bun.spawnSync([
+            "curl",
+            "--silent",
+            "--show-error",
+            "--connect-timeout",
+            "1",
+            "--max-time",
+            "2",
+            localURL,
+          ]);
+
+          expect(result.stdout.toString()).toContain(
+            "CURL_SCHEME_PROOF=exfiltrated",
+          );
+          expect(
+            commandReferencesSensitivePath(`curl '${localURL}'`, cwd),
+          ).toBeDefined();
+        } finally {
+          await rm(cwd, { recursive: true, force: true });
+        }
+      },
+    );
+  }
+
+  test("keeps remote-only scheme braces allowed", () => {
+    const overflow = `{${Array.from({ length: 80 }, (_, index) =>
+      index % 2 === 0 ? "https" : "http",
+    ).join(",")}}://example.com/{one,two}`;
+    for (const url of [
+      "{https,http}://example.com/{one,two}",
+      "{http,https}://example.com/{one,two}",
+      "h{ttp,ttps}://example.com/{one,two}",
+      overflow,
+      `https://example.com/${"x".repeat(4_096)}/{one,two}`,
+    ]) {
+      expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeUndefined();
+    }
+  });
+
+  test("fails closed for ambiguous and overflowing file-scheme braces", () => {
+    const overflow = `f{${Array.from({ length: 80 }, (_, index) =>
+      index === 79 ? "ile" : `x${index}`,
+    ).join(",")}}:///tmp/%2Eenv`;
+    const overlength = `f{ile,${"x".repeat(4_096)}}:///tmp/%2Eenv`;
+    for (const url of [
+      "f{ile:,https:///tmp/%2Eenv",
+      "f{i,{oo,ILE}}:///tmp/%2Eenv",
+      overflow,
+      overlength,
+    ]) {
+      expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeDefined();
+    }
+  });
+
   for (const malformed of ["%", "%2", "%GG", "%E0%A4%A"]) {
     test(`fails closed for malformed file URL escape: ${malformed}`, () => {
       expect(

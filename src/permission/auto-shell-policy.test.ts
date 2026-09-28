@@ -28,6 +28,34 @@ describe("local file URL brace expansion", () => {
     }
   });
 
+  test("requires approval for synthesized file URL schemes through wrappers", () => {
+    const synthesizedURLs = [
+      "{file,https}:///tmp/%2Eenv",
+      "{https,file}:///tmp/%2Eenv",
+      "file{,s}:///tmp/%2Eenv",
+      "file{s,}:///tmp/%2Eenv",
+      "f{ile,oo}:///tmp/%2Eenv",
+      "f{oo,ile}:///tmp/%2Eenv",
+      "{file:///tmp/%2Eenv,https://example.com/README.md}",
+      "{https://example.com/README.md,file:///tmp/%2Eenv}",
+      "f{i,oo}{le,tp}:///tmp/%2Eenv",
+      "F{ILE,OO}:///tmp/%2Eenv",
+    ];
+    const commands = synthesizedURLs.flatMap((url) => [
+      `curl '${url}'`,
+      `env curl '${url}'`,
+      `bash -c "curl '${url}'"`,
+      `sh -c "curl '${url}'"`,
+    ]);
+
+    for (const command of commands) {
+      expect(autoShellRuleForCall(shellCall(command))).toMatchObject({
+        name: "sensitive-path",
+        effect: "ask",
+      });
+    }
+  });
+
   test("does not apply the local brace rule to remote URLs", () => {
     for (const url of [
       "https://example.com/{one,two}",

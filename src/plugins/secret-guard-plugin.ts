@@ -400,24 +400,170 @@ function isFileSchemeURL(token: string): boolean {
   return scheme?.toLowerCase() === "file:";
 }
 
-type FileURLPath =
-  | { localPath: string; failClosed: false }
+type FileURLPaths =
+  | { localPaths: readonly string[]; failClosed: false }
   | { failClosed: true };
 
-// WHATWG parsing handles slash counts, relative file paths, localhost, and
-// dot-segment normalization. Decode pathname exactly once to match URL
-// transport semantics; the raw token is checked afterward so query/glob
-// handling remains separate. Curl expands braces in local file URLs before
-// reading them, so any brace syntax in the raw or decoded pathname prompts,
-// including malformed syntax whose expansion behavior is uncertain. This
-// naturally exposes a sensitive pathname before its URL fragment, without
-// interpreting generic fragments or `@file` indirection. Unsupported hosts,
-// Windows forms, and malformed escapes prompt rather than guessing or throwing.
-function normalizeFileURLPath(
+type BracePart = string | readonly BraceSequence[];
+type BraceSequence = readonly BracePart[];
+
+const MAX_BRACE_INPUT_LENGTH = 4_096;
+const MAX_BRACE_OUTPUT_LENGTH = 4_096;
+const MAX_BRACE_EXPANSIONS = 64;
+const MAX_BRACE_DEPTH = 16;
+const FILE_SCHEME = "file:";
+
+interface BraceParseResult {
+  sequence?: BraceSequence;
+}
+
+function parseBraceSequence(token: string): BraceParseResult {
+  if (token.length > MAX_BRACE_INPUT_LENGTH) return {};
+  let index = 0;
+
+  function parseSequence(
+    depth: number,
+    stopAtAlternative: boolean,
+  ): { parts: BracePart[]; separator?: "," | "}" } | undefined {
+    if (depth > MAX_BRACE_DEPTH) return undefined;
+    const parts: BracePart[] = [];
+    let literal = "";
+    const flushLiteral = () => {
+      if (literal.length > 0) parts.push(literal);
+      literal = "";
+    };
+
+    while (index < token.length) {
+      const char = token[index] ?? "";
+      if (stopAtAlternative && (char === "," || char === "}")) {
+        flushLiteral();
+        index++;
+        return { parts, separator: char };
+      }
+      if (char === "}") return undefined;
+      if (char !== "{") {
+        literal += char;
+        index++;
+        continue;
+      }
+
+      flushLiteral();
+      index++;
+      const alternatives: BraceSequence[] = [];
+      let hasComma = false;
+      while (true) {
+        const alternative = parseSequence(depth + 1, true);
+        if (alternative === undefined) return undefined;
+        alternatives.push(alternative.parts);
+        if (alternative.separator === ",") {
+          hasComma = true;
+          continue;
+        }
+        if (alternative.separator !== "}" || !hasComma) return undefined;
+        break;
+      }
+      parts.push(alternatives);
+    }
+
+    flushLiteral();
+    return { parts };
+  }
+
+  const parsed = parseSequence(0, false);
+  if (parsed === undefined || index !== token.length) return {};
+  return { sequence: parsed.parts };
+}
+
+function sequenceCanStartWithFileScheme(sequence: BraceSequence): boolean {
+  function consume(parts: BraceSequence, positions: ReadonlySet<number>) {
+    let current = positions;
+    for (const part of parts) {
+      const next = new Set<number>();
+      if (typeof part === "string") {
+        for (const start of current) {
+          let position = start;
+          for (const char of part) {
+            if (position === FILE_SCHEME.length) break;
+            if (char.toLowerCase() !== FILE_SCHEME[position]) {
+              position = -1;
+              break;
+            }
+            position++;
+          }
+          if (position >= 0) next.add(position);
+        }
+      } else {
+        for (const alternative of part) {
+          for (const position of consume(alternative, current)) {
+            next.add(position);
+          }
+        }
+      }
+      current = next;
+      if (current.size === 0 || current.has(FILE_SCHEME.length)) break;
+    }
+    return current;
+  }
+
+  return consume(sequence, new Set([0])).has(FILE_SCHEME.length);
+}
+
+function repairMissingBraceClosers(token: string): string | undefined {
+  let depth = 0;
+  for (const char of token) {
+    if (char === "{") depth++;
+    else if (char === "}") {
+      if (depth === 0) return undefined;
+      depth--;
+    }
+  }
+  if (depth === 0 || depth > MAX_BRACE_DEPTH) return undefined;
+  return `${token}${"}".repeat(depth)}`;
+}
+
+function expandBraceSequence(sequence: BraceSequence): string[] | undefined {
+  let expanded = [""];
+  for (const part of sequence) {
+    let values: readonly string[];
+    if (typeof part === "string") {
+      values = [part];
+    } else {
+      const alternatives: string[] = [];
+      for (const alternative of part) {
+        const valuesForAlternative = expandBraceSequence(alternative);
+        if (
+          valuesForAlternative === undefined ||
+          alternatives.length + valuesForAlternative.length >
+            MAX_BRACE_EXPANSIONS
+        ) {
+          return undefined;
+        }
+        alternatives.push(...valuesForAlternative);
+      }
+      values = alternatives;
+    }
+    if (values.length === 0) return undefined;
+    const next: string[] = [];
+    for (const prefix of expanded) {
+      for (const value of values) {
+        if (
+          next.length === MAX_BRACE_EXPANSIONS ||
+          prefix.length + value.length > MAX_BRACE_OUTPUT_LENGTH
+        ) {
+          return undefined;
+        }
+        next.push(prefix + value);
+      }
+    }
+    expanded = next;
+  }
+  return expanded;
+}
+
+function normalizedFileURLPath(
   token: string,
   dialect: ShellDialect,
-): FileURLPath | undefined {
-  if (!isFileSchemeURL(token)) return undefined;
+): FileURLPaths {
   if (dialect === "cmd") return { failClosed: true };
   try {
     const url = new URL(token);
@@ -426,10 +572,75 @@ function normalizeFileURLPath(
     if (/[{}]/.test(url.pathname) || /[{}]/.test(localPath)) {
       return { failClosed: true };
     }
-    return { localPath, failClosed: false };
+    return { localPaths: [localPath], failClosed: false };
   } catch {
     return { failClosed: true };
   }
+}
+
+// WHATWG parsing handles slash counts, relative file paths, localhost, and
+// dot-segment normalization. Decode each pathname exactly once to match URL
+// transport semantics. Brace alternatives are parsed independently of the
+// invoking program because either curl or a shell can expand them. The prefix
+// matcher proves remote-only patterns without enumerating their path braces;
+// file-capable patterns expand under strict size, depth, and count limits.
+// Ambiguous or overflowing file-capable patterns prompt rather than guessing.
+// Existing file-URL pathname braces retain their conservative prompt behavior.
+function hasFixedNonFileScheme(token: string): boolean {
+  const braceIndex = token.search(/[{}]/);
+  const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:/.exec(token)?.[0];
+  return (
+    scheme !== undefined &&
+    scheme.toLowerCase() !== FILE_SCHEME &&
+    (braceIndex === -1 || scheme.length <= braceIndex)
+  );
+}
+
+function literalPrefixCouldBecomeFileScheme(token: string): boolean {
+  const braceIndex = token.search(/[{}]/);
+  const literalPrefix = token.slice(
+    0,
+    braceIndex === -1 ? token.length : braceIndex,
+  );
+  return FILE_SCHEME.startsWith(literalPrefix.toLowerCase());
+}
+
+function normalizeFileURLPaths(
+  token: string,
+  dialect: ShellDialect,
+): FileURLPaths | undefined {
+  if (isFileSchemeURL(token)) return normalizedFileURLPath(token, dialect);
+  if (!/[{}]/.test(token) || hasFixedNonFileScheme(token)) return undefined;
+
+  let parsed = parseBraceSequence(token);
+  if (parsed.sequence === undefined) {
+    const repaired = repairMissingBraceClosers(token);
+    if (repaired === undefined) {
+      return literalPrefixCouldBecomeFileScheme(token)
+        ? { failClosed: true }
+        : undefined;
+    }
+    parsed = parseBraceSequence(repaired);
+    if (parsed.sequence === undefined) {
+      return literalPrefixCouldBecomeFileScheme(token)
+        ? { failClosed: true }
+        : undefined;
+    }
+    if (!sequenceCanStartWithFileScheme(parsed.sequence)) return undefined;
+    return { failClosed: true };
+  }
+  if (!sequenceCanStartWithFileScheme(parsed.sequence)) return undefined;
+
+  const candidates = expandBraceSequence(parsed.sequence);
+  if (candidates === undefined) return { failClosed: true };
+  const localPaths: string[] = [];
+  for (const candidate of candidates) {
+    if (!isFileSchemeURL(candidate)) continue;
+    const normalized = normalizedFileURLPath(candidate, dialect);
+    if (normalized.failClosed) return normalized;
+    localPaths.push(...normalized.localPaths);
+  }
+  return { localPaths, failClosed: false };
 }
 
 // CL-7790: the ONE shell-token matcher both secret-guard call sites share —
@@ -471,16 +682,18 @@ export function isSensitiveShellToken(
 ): boolean {
   const { expanded, expandable } = expandShellToken(token, dialect);
   if (!expandable) return true;
-  const fileURLPath = normalizeFileURLPath(expanded, dialect);
-  if (fileURLPath?.failClosed) return true;
+  const fileURLPaths = normalizeFileURLPaths(expanded, dialect);
+  if (fileURLPaths?.failClosed) return true;
   if (
-    fileURLPath !== undefined &&
-    isSensitiveExpandedShellToken(
-      fileURLPath.localPath,
-      cwd,
-      resolveSymlinks,
-      isExtraDenied,
-      dialect,
+    fileURLPaths !== undefined &&
+    fileURLPaths.localPaths.some((localPath) =>
+      isSensitiveExpandedShellToken(
+        localPath,
+        cwd,
+        resolveSymlinks,
+        isExtraDenied,
+        dialect,
+      ),
     )
   ) {
     return true;
