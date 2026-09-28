@@ -443,6 +443,35 @@ describe("commandReferencesSensitivePath shell-variable expansion (CL-8999)", ()
   }
 });
 
+describe("secret-guard ordering keepers (CL-8999)", () => {
+  // H1: the pure-listing leg precedes the `?`/`[` glob check — moving the
+  // glob check earlier would prompt on a listing that never dumps contents.
+  test("pure listing with ?/[...] globs still lists freely", () => {
+    expect(commandReferencesSensitivePath("ls .en?")).toBeUndefined();
+    expect(commandReferencesSensitivePath("ls .en[v]")).toBeUndefined();
+  });
+
+  // H3: the cmd device-path exemption precedes the `?` check — the `?` in
+  // `\\?\…` must not fail closed to a prompt.
+  test("cmd device-path names keep working", () => {
+    expect(
+      isSensitiveShellToken(
+        String.raw`\\?\C:\repo\notes.txt`,
+        process.cwd(),
+        true,
+        () => false,
+        "cmd",
+      ),
+    ).toBe(false);
+  });
+
+  // H7: a piped ls loses the listing exemption and takes the resolve leg,
+  // so the glob check fires and prompts.
+  test("piped listing with a ? glob prompts", () => {
+    expect(commandReferencesSensitivePath("ls .en? | cat")).toBeDefined();
+  });
+});
+
 describe("secretGuardPlugin run_shell", () => {
   // Shell commands that mention a secret path are no longer hard-denied here —
   // they require operator approval at the permission gate. The plugin only
