@@ -1,3 +1,5 @@
+import { onThemeChange, UI } from "./theme.js";
+
 export interface ColorValue {
   hex: string;
   ansi256: number;
@@ -43,15 +45,16 @@ export type SemanticRole =
 
 const breakthroughOrange: ColorValue = { hex: "#f5933a", ansi256: 173 };
 const summitBlue: ColorValue = { hex: "#7ea2c4", ansi256: 74 };
-const ridgeGreen: ColorValue = { hex: "#94b889", ansi256: 108 };
+const liveBlue: ColorValue = { hex: "#7ea2c4", ansi256: 110 };
+const ridgeGreen: ColorValue = { hex: "#94b889", ansi256: 151 };
 const bedrockCharcoal: ColorValue = { hex: "#2b2627", ansi256: 235 };
 // Body prose. A calm warm off-white rather than near-white cream so a wall of
 // text does not read as heavy; emphasis and headings sit above it in brightness.
-const bodyOffWhite: ColorValue = { hex: "#d0c7bb", ansi256: 250 };
+const bodyOffWhite: ColorValue = { hex: "#d0c7bb", ansi256: 252 };
 // The brightest step in the ladder — carries inline emphasis so strong text
 // reads as brighter rather than shouting in bold weight.
 const emphasisCream: ColorValue = { hex: "#faf1e2", ansi256: 230 };
-const dangerRed: ColorValue = { hex: "#e0594d", ansi256: 167 };
+const dangerRed: ColorValue = { hex: "#ef766a", ansi256: 203 };
 const mutedGray: ColorValue = { hex: "#a89f96", ansi256: 247 };
 // One step dimmer than muted — used for tool args, collapsed results, thinking gutter.
 const dimGray: ColorValue = { hex: "#736c66", ansi256: 243 };
@@ -77,7 +80,7 @@ const pendingWash: ColorValue = { hex: "#21303a", ansi256: 24 };
 const successWash: ColorValue = { hex: "#20291f", ansi256: 22 };
 const errorWash: ColorValue = { hex: "#2e2020", ansi256: 52 };
 
-export const palette: Record<SemanticRole, ColorValue> = {
+const darkPalette: Record<SemanticRole, ColorValue> = {
   brand: breakthroughOrange,
   accent: summitBlue,
   success: ridgeGreen,
@@ -86,7 +89,7 @@ export const palette: Record<SemanticRole, ColorValue> = {
   muted: mutedGray,
   dim: dimGray,
   // Spinner/streaming indicator color — calm blue rather than brand orange.
-  live: summitBlue,
+  live: liveBlue,
   text: bodyOffWhite,
   emphasis: emphasisCream,
   surface: bedrockCharcoal,
@@ -118,6 +121,80 @@ export const palette: Record<SemanticRole, ColorValue> = {
   toolSuccessBg: successWash,
   toolErrorBg: errorWash,
 };
+
+function lightPalette(): Record<SemanticRole, ColorValue> {
+  const value = (hex: string, ansi256: number): ColorValue => ({
+    hex,
+    ansi256,
+  });
+  const brand = value(UI.action, 94);
+  const accent = value(UI.inFlightBright, 60);
+  const success = value(UI.done, 22);
+  const danger = value(UI.error, 124);
+  const warning = value(UI.warning, 96);
+  const muted = value(UI.textDim, 59);
+  const dim = value(UI.textFaint, 242);
+  const live = value(UI.inFlight, 58);
+  const text = value(UI.text, 234);
+  const emphasis = text;
+  const surface = value(UI.ground, 230);
+  const addedBackground = value("#e0e8d8", 194);
+  const removedBackground = value("#f5e0d8", 224);
+  const userBackground = value("#e4d7c4", 223);
+  const pendingBackground = value("#e0dac9", 223);
+  const successBackground = value("#dce5d5", 194);
+  const errorBackground = value("#edd8d0", 224);
+
+  return {
+    brand,
+    accent,
+    success,
+    danger,
+    warning,
+    muted,
+    dim,
+    live,
+    text,
+    emphasis,
+    surface,
+    syntaxKeyword: accent,
+    syntaxString: success,
+    syntaxComment: dim,
+    syntaxFunction: live,
+    syntaxNumber: value(UI.heading, 94),
+    syntaxType: value(UI.heading, 94),
+    syntaxOperator: muted,
+    syntaxPunctuation: muted,
+    syntaxVariable: text,
+    markdownHeading: emphasis,
+    markdownLink: accent,
+    markdownCode: brand,
+    markdownBlockquote: muted,
+    markdownEmphasis: emphasis,
+    markdownStrong: emphasis,
+    diffAdded: success,
+    diffRemoved: danger,
+    diffContext: dim,
+    diffHunkHeader: accent,
+    diffAddedBg: addedBackground,
+    diffRemovedBg: removedBackground,
+    userMessageBg: userBackground,
+    toolPendingBg: pendingBackground,
+    toolSuccessBg: successBackground,
+    toolErrorBg: errorBackground,
+  };
+}
+
+export const palette = Object.fromEntries(
+  Object.entries(darkPalette).map(([role, value]) => [role, { ...value }]),
+) as Record<SemanticRole, ColorValue>;
+
+onThemeChange((theme) => {
+  const next = theme.name === "corbits-light" ? lightPalette() : darkPalette;
+  for (const role of Object.keys(palette) as SemanticRole[]) {
+    Object.assign(palette[role], next[role]);
+  }
+});
 
 export function color(role: SemanticRole): string {
   return supportsTrueColor() ? palette[role].hex : `ansi256(${color256(role)})`;

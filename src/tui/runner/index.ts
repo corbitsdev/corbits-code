@@ -7,6 +7,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import { spawnSync } from "node:child_process";
 import type { Config } from "../../config/index.js";
 import { listFavoriteModels, listRecentModels } from "../../config/settings.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
@@ -39,8 +40,10 @@ import { createRunnerState, liveAgent } from "./state.js";
 import { applyCredentialRecoverySelection } from "./credential-recovery.js";
 import { setTheme } from "../theme.js";
 import {
+  detectOsAppearance,
   resolveDetectedTheme,
   resolveThemeSetting,
+  sniffSyncTheme,
   syncEnvFromRecord,
 } from "../theme-detect.js";
 import { getLogger } from "@intx/log";
@@ -52,24 +55,35 @@ export function createTUIEventEmitter(): EventEmitter {
 
 export { getTUIRunSummaryStatus } from "../../session/run-sink.js";
 
+function detectStartupOsTheme() {
+  return detectOsAppearance(process.platform, (command, args) => {
+    try {
+      const out = spawnSync(command, [...args], {
+        encoding: "utf8",
+        timeout: 500,
+      });
+      if (out.error !== undefined) return undefined;
+      if (out.status !== 0) return null;
+      return typeof out.stdout === "string" ? out.stdout : undefined;
+    } catch {
+      return undefined;
+    }
+  });
+}
+
 export async function runTUI(initialConfig: Config): Promise<number> {
   const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
+  const setting = resolveThemeSetting(initialConfig.settings?.theme);
+  const syncEnv = syncEnvFromRecord(process.env);
+  const os =
+    setting === "auto" && sniffSyncTheme(syncEnv) === null
+      ? detectStartupOsTheme()
+      : null;
+  setTheme(resolveDetectedTheme({ setting, syncEnv, os }));
+
   const start = await prepareTUISession(initialConfig, liveTelemetry);
   if (start === null) return 0;
   const state = createRunnerState(start);
-
-  // Sync theme answer (CL-8993): the explicit setting wins, else the
-  // COLORFGBG/TERM_PROGRAM sniff, else dark. Paints correctly on first frame;
-  // the async OS-appearance upgrade in wirePostStartup repaints if it lands
-  // lighter. Unknown terminals stay dark.
-  setTheme(
-    resolveDetectedTheme({
-      setting: resolveThemeSetting(state.config.settings?.theme),
-      syncEnv: syncEnvFromRecord(process.env),
-      osc: null,
-      os: null,
-    }),
-  );
 
   const { pluginModules } = start.trust;
   // /plugins UI backend state: discovered modules plus live, persisted config

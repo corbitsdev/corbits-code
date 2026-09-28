@@ -180,26 +180,29 @@ export function setPromptCostContext(
   paintPromptBorder(shell);
 }
 
-let cachedPromptSyntaxStyle: SyntaxStyle | null = null;
-
-let cachedPromptRecognizedStyleId: number | null = null;
+let cachedPromptSyntaxStyle: {
+  readonly theme: string;
+  readonly style: SyntaxStyle;
+  readonly recognizedStyleId: number;
+} | null = null;
 
 /**
  * The style registry backing the prompt's highlights, plus the one style id
  * this feature uses. Lazy for the same reason as `transcriptSyntaxStyle`:
  * construction reaches into the native render lib.
  */
-function promptRecognizedStyleId(): number {
-  if (cachedPromptSyntaxStyle === null) {
-    cachedPromptSyntaxStyle = SyntaxStyle.fromStyles({
+function promptRecognizedStyle(): NonNullable<typeof cachedPromptSyntaxStyle> {
+  if (cachedPromptSyntaxStyle?.theme !== UI.name) {
+    const style = SyntaxStyle.fromStyles({
       recognized: { fg: UI.action },
     });
+    cachedPromptSyntaxStyle = {
+      theme: UI.name,
+      style,
+      recognizedStyleId: style.resolveStyleId("recognized") ?? 0,
+    };
   }
-  if (cachedPromptRecognizedStyleId === null) {
-    cachedPromptRecognizedStyleId =
-      cachedPromptSyntaxStyle.resolveStyleId("recognized") ?? 0;
-  }
-  return cachedPromptRecognizedStyleId;
+  return cachedPromptSyntaxStyle;
 }
 
 const promptHighlightedValue = new WeakMap<AppShell, string>();
@@ -217,8 +220,9 @@ export function syncPromptHighlights(shell: AppShell): void {
   if (promptHighlightedValue.get(shell) === value) return;
   promptHighlightedValue.set(shell, value);
 
-  const styleId = promptRecognizedStyleId();
-  shell.prompt.syntaxStyle = cachedPromptSyntaxStyle;
+  const recognizedStyle = promptRecognizedStyle();
+  const styleId = recognizedStyle.recognizedStyleId;
+  shell.prompt.syntaxStyle = recognizedStyle.style;
   shell.prompt.clearAllHighlights();
   const matcher = resolvePromptRecognitionMatcher(source);
   for (const span of resolvePromptHighlightSpans(value, matcher)) {

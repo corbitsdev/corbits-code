@@ -57,16 +57,22 @@ export interface McpStructuredView {
   readonly cells: readonly (readonly McpCell[])[];
 }
 
-// Warning and danger both land on the action orange: a structured result has no
-// decision marker competing with it, and there is no red in the brand system.
-const TONE_FG: Record<McpTone, string> = {
-  plain: UI.text,
-  muted: UI.textDim,
-  accent: UI.inFlightBright,
-  success: UI.done,
-  warning: UI.actionDim,
-  danger: UI.action,
-};
+function toneForeground(tone: McpTone): string {
+  switch (tone) {
+    case "plain":
+      return UI.text;
+    case "muted":
+      return UI.textDim;
+    case "accent":
+      return UI.inFlightBright;
+    case "success":
+      return UI.done;
+    case "warning":
+      return UI.warning;
+    case "danger":
+      return UI.error;
+  }
+}
 
 const NAME_FIELDS = ["name", "title", "identifier", "label", "key", "summary"];
 const STATUS_FIELDS = ["status", "state"];
@@ -547,7 +553,7 @@ export function viewToTableContent(
 ): (TextChunk[] | null)[][] {
   return view.cells.map((row) =>
     row.map((cell) => {
-      const colored = fgChunk(TONE_FG[cell.tone ?? "plain"])(cell.text);
+      const colored = fgChunk(toneForeground(cell.tone ?? "plain"))(cell.text);
       return [cell.bold === true ? boldChunk(colored) : colored];
     }),
   );

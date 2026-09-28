@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   detectOsAppearance,
-  parseOsc11Reply,
-  queryTerminalBackground,
   resolveDetectedTheme,
   resolveThemeSetting,
   settingTheme,
@@ -12,13 +10,12 @@ import {
   type ThemeResolution,
 } from "./theme-detect";
 
-const SYNC_UNKNOWN = { syncEnv: {}, osc: null, os: null } as const;
+const SYNC_UNKNOWN = { syncEnv: {}, os: null } as const;
 
 function resolution(over: Partial<ThemeResolution>): ThemeResolution {
   return {
     setting: "auto",
     syncEnv: {},
-    osc: null,
     os: null,
     ...over,
   };
@@ -63,53 +60,6 @@ describe("sniffSyncTheme", () => {
   });
 });
 
-describe("parseOsc11Reply", () => {
-  test("dark replies resolve dark, light replies resolve light", () => {
-    expect(parseOsc11Reply("\u001b]11;rgb:1919/1616/1414\u001b\\")).toBe(
-      "corbits-dark",
-    );
-    expect(parseOsc11Reply("\u001b]11;rgb:f7f7/eaea/d5d5\u001b\\")).toBe(
-      "corbits-light",
-    );
-  });
-
-  test("garbage abstains dark-first", () => {
-    expect(parseOsc11Reply("")).toBeNull();
-    expect(parseOsc11Reply("not-a-reply")).toBeNull();
-    expect(parseOsc11Reply("\u001b]11;rgb:zz/zz/zz\u001b\\")).toBeNull();
-  });
-});
-
-describe("queryTerminalBackground", () => {
-  test("resolves the queried theme", async () => {
-    await expect(
-      queryTerminalBackground(async () => "rgb:f7f7/eaea/d5d5", 50),
-    ).resolves.toBe("corbits-light");
-  });
-
-  test("a silent terminal times out instead of hanging", async () => {
-    const start = Date.now();
-    await expect(
-      queryTerminalBackground(
-        () =>
-          new Promise<null>((resolve) => {
-            void resolve;
-          }),
-        20,
-      ),
-    ).resolves.toBeNull();
-    expect(Date.now() - start).toBeLessThan(1000);
-  });
-
-  test("a throwing transport resolves null", async () => {
-    await expect(
-      queryTerminalBackground(async () => {
-        throw new Error("no tty");
-      }, 50),
-    ).resolves.toBeNull();
-  });
-});
-
 describe("detectOsAppearance", () => {
   test("macOS Dark reads dark", () => {
     expect(detectOsAppearance("darwin", () => "Dark\n")).toBe("corbits-dark");
@@ -148,7 +98,6 @@ describe("resolveDetectedTheme precedence", () => {
         resolution({
           setting: "light",
           syncEnv: { COLORFGBG: "15;0" },
-          osc: "corbits-dark",
           os: "corbits-dark",
         }),
       ),
@@ -158,19 +107,17 @@ describe("resolveDetectedTheme precedence", () => {
         resolution({
           setting: "dark",
           syncEnv: { COLORFGBG: "0;15" },
-          osc: "corbits-light",
           os: "corbits-light",
         }),
       ),
     ).toBe("corbits-dark");
   });
 
-  test("sync sniff beats async signals", () => {
+  test("sync sniff beats OS appearance", () => {
     expect(
       resolveDetectedTheme(
         resolution({
           syncEnv: { COLORFGBG: "0;15" },
-          osc: "corbits-dark",
           os: "corbits-dark",
         }),
       ),
@@ -179,29 +126,18 @@ describe("resolveDetectedTheme precedence", () => {
       resolveDetectedTheme(
         resolution({
           syncEnv: { COLORFGBG: "15;0" },
-          osc: "corbits-light",
           os: "corbits-light",
         }),
       ),
     ).toBe("corbits-dark");
   });
 
-  test("OSC beats OS appearance", () => {
-    expect(
-      resolveDetectedTheme(
-        resolution({ osc: "corbits-light", os: "corbits-dark" }),
-      ),
-    ).toBe("corbits-light");
-    expect(
-      resolveDetectedTheme(
-        resolution({ osc: "corbits-dark", os: "corbits-light" }),
-      ),
-    ).toBe("corbits-dark");
-  });
-
-  test("OS appearance beats the dark default", () => {
+  test("OS appearance beats the dark fallback", () => {
     expect(resolveDetectedTheme(resolution({ os: "corbits-light" }))).toBe(
       "corbits-light",
+    );
+    expect(resolveDetectedTheme(resolution({ os: "corbits-dark" }))).toBe(
+      "corbits-dark",
     );
   });
 

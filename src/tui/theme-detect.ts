@@ -6,16 +6,14 @@
  * 1. Explicit `theme` setting (`light` | `dark`; `auto` defers).
  * 2. Sync sniff of COLORFGBG (and TERM_PROGRAM, which currently carries no
  *    theme signal on its own — consulted so the step owns both vars).
- * 3. Async OSC 11 query (`queryTerminalBackground`, bounded timeout, dark on
- *    timeout — startup never blocks on the terminal answering).
- * 4. OS appearance (best-effort per platform; unknown platforms abstain).
- * 5. Default dark.
+ * 3. OS appearance (best-effort per platform; unknown platforms abstain).
+ * 4. Default dark.
  *
  * Everything here is pure over injected inputs: no direct `process.env`,
  * `process.platform`, or stdin access. Callers read the environment once and
- * pass it in, which keeps the precedence matrix unit-testable and the one
- * impure edge (spawning `defaults`, writing the OSC query) in the startup
- * wiring. Nothing is cached across restarts — every launch re-detects.
+ * pass it in, which keeps the precedence matrix unit-testable and leaves OS
+ * appearance lookup at the startup wiring edge. Nothing is cached across
+ * restarts — every launch re-detects.
  */
 
 import type { ThemeName } from "./theme.js";
@@ -65,63 +63,13 @@ export function sniffSyncTheme(env: SyncThemeEnv): ThemeName | null {
   return null;
 }
 
-/**
- * Step 3: parse an OSC 11 background reply
- * (`ESC ] 11 ; rgb:RRRR/GGGG/BBBB ST`). Dark-first: unparseable replies and
- * the exact middle abstain (null) so the caller falls through to OS/default
- * dark rather than flashing light on garbage.
- */
-export function parseOsc11Reply(reply: string): ThemeName | null {
-  const match =
-    /rgb:([0-9a-fA-F]{1,4})\/([0-9a-fA-F]{1,4})\/([0-9a-fA-F]{1,4})/.exec(
-      reply,
-    );
-  if (match === null) return null;
-  const scale = (hex: string): number => {
-    const width = hex.length;
-    const v = Number.parseInt(hex, 16) / (16 ** width - 1);
-    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-  };
-  const luminance =
-    0.2126 * scale(match[1] ?? "") +
-    0.7152 * scale(match[2] ?? "") +
-    0.0722 * scale(match[3] ?? "");
-  if (luminance > 0.5) return "corbits-light";
-  if (luminance < 0.5) return "corbits-dark";
-  return null;
-}
-
-/**
- * Step 3 transport: race an injected OSC 11 query against a bounded timeout.
- * Never rejects and never outlives `timeoutMs` — an unanswered terminal
- * resolves null (dark-first downstream), never stalls startup.
- */
-export async function queryTerminalBackground(
-  query: () => Promise<string | null>,
-  timeoutMs = 150,
-): Promise<ThemeName | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), timeoutMs);
-  });
-  try {
-    const reply = await Promise.race([query(), timeout]);
-    if (reply === null) return null;
-    return parseOsc11Reply(reply);
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export type OsAppearanceRunner = (
   command: string,
   args: readonly string[],
 ) => string | null | undefined;
 
 /**
- * Step 4: OS appearance, best-effort per platform over an injected runner.
+ * Step 3: OS appearance, best-effort per platform over an injected runner.
  * macOS reads the global AppleInterfaceStyle default (`Dark` = dark; a
  * missing key means the Light default). Other platforms abstain — null is a
  * normal answer, not an error.
@@ -145,21 +93,14 @@ export function detectOsAppearance(
 export interface ThemeResolution {
   readonly setting: ThemeSetting;
   readonly syncEnv: SyncThemeEnv;
-  readonly osc: ThemeName | null;
   readonly os: ThemeName | null;
 }
 
-/**
- * The full precedence selector over already-gathered signals. Async signals
- * arrive as null until (and unless) they resolve, so calling this with
- * `{ osc: null, os: null }` is the sync startup answer and calling it again
- * with resolved values is the async upgrade — one function, no caching.
- */
+/** Select the final theme from signals gathered before the TUI is constructed. */
 export function resolveDetectedTheme(resolution: ThemeResolution): ThemeName {
   return (
     settingTheme(resolution.setting) ??
     sniffSyncTheme(resolution.syncEnv) ??
-    resolution.osc ??
     resolution.os ??
     "corbits-dark"
   );

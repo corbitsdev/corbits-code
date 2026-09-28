@@ -1,23 +1,103 @@
-import { test, expect, afterEach, beforeEach } from "bun:test";
+import { test, expect, afterEach } from "bun:test";
+import { defined } from "../../helpers/defined.js";
 import {
   color,
   color256,
   palette,
   supportsTrueColor,
 } from "../../../src/tui/semantic-theme.js";
+import { setTheme } from "../../../src/tui/theme.js";
 
 const originalColorterm = process.env.COLORTERM;
 
-// `color()` answers hex only on a truecolor terminal and ANSI-256 otherwise, so
-// every hex assertion below is really an assertion about the environment it
-// runs in. A developer's terminal sets COLORTERM and a CI runner does not, which
-// is why these passed locally and failed in CI. State the terminal rather than
-// inherit it; the two tests that exercise detection set it themselves.
-beforeEach(() => {
-  process.env.COLORTERM = "truecolor";
-});
+function luminance(hex: string): number {
+  const channel = (offset: number): number => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+function contrast(foreground: string, background: string): number {
+  const fg = luminance(foreground);
+  const bg = luminance(background);
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+}
+
+function ansi256Hex(index: number): string {
+  const base = [
+    "#000000",
+    "#800000",
+    "#008000",
+    "#808000",
+    "#000080",
+    "#800080",
+    "#008080",
+    "#c0c0c0",
+    "#808080",
+    "#ff0000",
+    "#00ff00",
+    "#ffff00",
+    "#0000ff",
+    "#ff00ff",
+    "#00ffff",
+    "#ffffff",
+  ];
+  if (index < 16) return defined(base[index]);
+  if (index < 232) {
+    const offset = index - 16;
+    const levels = [0, 95, 135, 175, 215, 255];
+    const red = defined(levels[Math.floor(offset / 36)]);
+    const green = defined(levels[Math.floor((offset % 36) / 6)]);
+    const blue = defined(levels[offset % 6]);
+    return `#${[red, green, blue]
+      .map((channel) => channel.toString(16).padStart(2, "0"))
+      .join("")}`;
+  }
+  const gray = 8 + (index - 232) * 10;
+  const channel = gray.toString(16).padStart(2, "0");
+  return `#${channel}${channel}${channel}`;
+}
+
+const SURFACE_ROLES = [
+  "text",
+  "muted",
+  "brand",
+  "accent",
+  "success",
+  "danger",
+  "warning",
+  "live",
+  "emphasis",
+  "syntaxKeyword",
+  "syntaxString",
+  "syntaxFunction",
+  "syntaxNumber",
+  "syntaxType",
+  "syntaxOperator",
+  "syntaxVariable",
+  "markdownHeading",
+  "markdownLink",
+  "markdownCode",
+  "markdownBlockquote",
+  "markdownEmphasis",
+  "markdownStrong",
+  "diffAdded",
+  "diffRemoved",
+  "diffHunkHeader",
+] as const;
+
+const EXPLICIT_SURFACE_PAIRS = [
+  ["diffAdded", "diffAddedBg"],
+  ["diffRemoved", "diffRemovedBg"],
+  ["text", "userMessageBg"],
+  ["text", "toolPendingBg"],
+  ["text", "toolSuccessBg"],
+  ["text", "toolErrorBg"],
+] as const;
 
 afterEach(() => {
+  setTheme("corbits-dark");
   if (originalColorterm === undefined) {
     delete process.env.COLORTERM;
   } else {
@@ -27,6 +107,44 @@ afterEach(() => {
 
 test("warning reuses the brand orange hex", () => {
   expect(color("warning")).toBe(color("brand"));
+});
+
+test("semantic foregrounds are readable on their rendered surfaces", () => {
+  for (const theme of ["corbits-dark", "corbits-light"] as const) {
+    setTheme(theme);
+    for (const tier of ["truecolor", "ansi256"] as const) {
+      const rendered = (role: keyof typeof palette): string =>
+        tier === "truecolor"
+          ? palette[role].hex
+          : ansi256Hex(palette[role].ansi256);
+      for (const role of SURFACE_ROLES) {
+        expect(
+          contrast(rendered(role), rendered("surface")),
+          `${theme} ${tier} ${role} on surface`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+      for (const [foreground, background] of EXPLICIT_SURFACE_PAIRS) {
+        expect(
+          contrast(rendered(foreground), rendered(background)),
+          `${theme} ${tier} ${foreground} on ${background}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  }
+});
+
+test("ANSI brand, accent, and live preserve semantic hierarchy", () => {
+  for (const theme of ["corbits-dark", "corbits-light"] as const) {
+    setTheme(theme);
+    expect(
+      new Set([
+        palette.brand.ansi256,
+        palette.accent.ansi256,
+        palette.live.ansi256,
+      ]).size,
+      theme,
+    ).toBe(3);
+  }
 });
 
 test("every role maps to a valid ANSI-256 index", () => {
@@ -39,7 +157,7 @@ test("every role maps to a valid ANSI-256 index", () => {
 
 test("every role exposes a six-digit hex value", () => {
   for (const role of Object.keys(palette) as (keyof typeof palette)[]) {
-    expect(color(role)).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(palette[role].hex).toMatch(/^#[0-9a-fA-F]{6}$/);
   }
 });
 
@@ -63,7 +181,7 @@ test("diff backgrounds are distinct dark tints", () => {
   ] as const) {
     // Backgrounds must stay dark enough that every foreground reads on top.
     const channels = [1, 3, 5].map((i) =>
-      parseInt(color(role).slice(i, i + 2), 16),
+      parseInt(palette[role].hex.slice(i, i + 2), 16),
     );
     for (const channel of channels) expect(channel).toBeLessThan(0x60);
   }
@@ -88,6 +206,26 @@ test("supportsTrueColor detects truecolor terminals", () => {
   expect(supportsTrueColor()).toBe(true);
   process.env.COLORTERM = "24bit";
   expect(supportsTrueColor()).toBe(true);
+});
+
+test("palette roles preserve identity and truthful reflection", () => {
+  setTheme("corbits-light");
+  const brand = palette.brand;
+  expect(palette.brand).toBe(brand);
+  expect(Object.keys(palette)).toContain("brand");
+  expect(Object.entries(palette)).toContainEqual(["brand", brand]);
+  expect(Object.getOwnPropertyDescriptor(palette, "brand")?.value).toBe(brand);
+});
+
+test("a frozen palette record remains readable across theme changes", () => {
+  setTheme("corbits-light");
+  const brand = palette.brand;
+  const lightHex = brand.hex;
+  Object.freeze(palette);
+  expect(() => palette.brand.hex).not.toThrow();
+  setTheme("corbits-dark");
+  expect(palette.brand).toBe(brand);
+  expect(palette.brand.hex).not.toBe(lightHex);
 });
 
 test("supportsTrueColor is false when COLORTERM is absent or basic", () => {

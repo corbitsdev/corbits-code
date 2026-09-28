@@ -11,7 +11,7 @@ import { toolCallRow } from "./diff";
 import { withTestRenderer, type Harness } from "./harness";
 import { appendStreamRow } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
-import { DIFF_FG } from "./stream";
+import { UI } from "./theme";
 import { toolResultRow } from "./mcp-view";
 
 const WIDE = { width: 100, height: 30 } as const;
@@ -78,8 +78,8 @@ describe("diff transcript rows", () => {
       const spans = spansWithHex(h);
       const del = spans.find((s) => s.text.includes("-") && s.text.length <= 2);
       const add = spans.find((s) => s.text.includes("+") && s.text.length <= 2);
-      expect(del?.fg).toBe(DIFF_FG.del);
-      expect(add?.fg).toBe(DIFF_FG.add);
+      expect(del?.fg).toBe(UI.action);
+      expect(add?.fg).toBe(UI.done);
     }, WIDE);
   });
 
@@ -97,13 +97,13 @@ describe("diff transcript rows", () => {
       const changedAdded = spans.find((s) => s.text.includes("product(a,"));
       const shared = spans.filter((s) => s.text.includes("const"));
 
-      expect(changedRemoved?.fg).toBe(DIFF_FG.del);
-      expect(changedAdded?.fg).toBe(DIFF_FG.add);
+      expect(changedRemoved?.fg).toBe(UI.action);
+      expect(changedAdded?.fg).toBe(UI.done);
       // Bold attribute distinguishes the changed tokens inside the line.
       expect(defined(changedRemoved).attributes).toBeGreaterThan(0);
       // "const" is shared by both sides, so it stays in the context tone.
       expect(shared.length).toBeGreaterThan(0);
-      expect(shared.every((s) => s.fg === DIFF_FG.context)).toBe(true);
+      expect(shared.every((s) => s.fg === UI.textDim)).toBe(true);
     }, WIDE);
   });
 

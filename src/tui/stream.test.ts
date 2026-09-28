@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { defined } from "../../tests/helpers/defined.js";
 import { stringWidth } from "./view/height";
 import {
@@ -15,12 +15,31 @@ import {
   type RowLayout,
   type StreamRow,
 } from "./stream";
-import { toolCallRow } from "./diff";
+import { renderDiff, toolCallRow } from "./diff";
 import { toolResultRow } from "./mcp-view";
 import { mergeToolRows } from "./tool-rows";
-import { UI } from "./theme";
+import { toolArgsView } from "./tool-args";
+import { corbitsLight, setTheme, UI } from "./theme";
 
 const SOLO: RowLayout = { width: 56, multiAgent: false };
+
+function luminance(hex: string): number {
+  const channel = (offset: number): number => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+function contrast(foreground: string, background: string): number {
+  const fg = luminance(foreground);
+  const bg = luminance(background);
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+}
+
+afterEach(() => {
+  setTheme("corbits-dark");
+});
 const CREW: RowLayout = { width: 56, multiAgent: true };
 
 const lines = (row: StreamRow, layout: RowLayout = SOLO): string[] =>
@@ -34,6 +53,80 @@ const userBody = (row: StreamRow, layout: RowLayout = SOLO): string[] => {
 };
 
 describe("stream paint", () => {
+  test("light theme resolves every essential rendered role at paint time", () => {
+    transcriptSyntaxStyle();
+    setTheme("corbits-light");
+
+    const assistant = paintStreamRow(
+      { role: "assistant", text: "readable prose" },
+      SOLO,
+    ).fg;
+    const tool = paintStreamRow(
+      { role: "tool", text: "readable result", meta: "read" },
+      SOLO,
+    ).fg;
+    const thinking = paintStreamRow(
+      { role: "system", text: "readable thought", meta: "thinking" },
+      SOLO,
+    ).fg;
+    const markdownDefault = transcriptSyntaxStyle()
+      .getAllStyles()
+      .get("default")?.fg;
+    const markdownChannels = (
+      markdownDefault as { toInts(): readonly number[] }
+    ).toInts();
+    const markdownDefaultHex = `#${markdownChannels
+      .slice(0, 3)
+      .map((channel) => channel.toString(16).padStart(2, "0"))
+      .join("")}`;
+    const diff = renderDiff("same\nold", "same\nnew", 40).flat();
+    const diffColors = new Set(diff.map((segment) => segment.fg));
+    const detailColors = new Set(
+      defined(
+        toolArgsView(
+          "present",
+          JSON.stringify({
+            view: {
+              type: "stack",
+              children: [
+                { type: "text", text: "caution", tone: "warning" },
+                { type: "text", text: "failure", tone: "danger" },
+                { type: "text", text: "context", tone: "muted" },
+              ],
+            },
+          }),
+        ),
+      )
+        .detail?.flat()
+        .map((segment) => segment.fg),
+    );
+
+    expect(assistant).toBe(corbitsLight.text);
+    expect(tool).toBe(corbitsLight.inFlight);
+    expect(thinking).toBe(corbitsLight.textFaint);
+    expect(markdownDefaultHex).toBe(corbitsLight.text);
+    expect(diffColors).toEqual(
+      new Set([corbitsLight.done, corbitsLight.action, corbitsLight.textDim]),
+    );
+    expect(detailColors).toEqual(
+      new Set([corbitsLight.warning, corbitsLight.error, corbitsLight.textDim]),
+    );
+
+    for (const foreground of [
+      assistant,
+      tool,
+      thinking,
+      markdownDefaultHex,
+      ...diffColors,
+      ...detailColors,
+    ]) {
+      expect(foreground).toBeDefined();
+      expect(
+        contrast(defined(foreground), corbitsLight.ground),
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   test("one voice needs no labels: the operator is found by the bar", () => {
     const you = userBody({ role: "user", text: "hi" })[0] as string;
     const agent = lines({ role: "assistant", text: "hello" })[0] as string;

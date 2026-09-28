@@ -48,8 +48,8 @@ export const LOCKUP_FADE_MS = 240;
  * Fade ramps, faintest first. A terminal has no alpha, so a transition steps
  * through the warm dim tones toward its resting tone instead of blending.
  */
-const WORDMARK_FADE = [UI.textFaint, UI.textDim] as const;
-const PHASE_FADE = [UI.textFaint, UI.textDim, UI.text] as const;
+const wordmarkFade = (): readonly string[] => [UI.textFaint, UI.textDim];
+const phaseFade = (): readonly string[] => [UI.textFaint, UI.textDim, UI.text];
 
 export interface LockupInput {
   readonly nowMs: number;
@@ -105,7 +105,7 @@ export function lockupCells(input: LockupInput): readonly MarkCell[] {
 
   const progress = fadeProgress(input);
   const cells: MarkCell[] = [];
-  const textTone = toneAt(live ? PHASE_FADE : WORDMARK_FADE, progress);
+  const textTone = toneAt(live ? phaseFade() : wordmarkFade(), progress);
   for (const char of label) {
     cells.push({ char, fg: textTone });
   }

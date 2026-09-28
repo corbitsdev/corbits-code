@@ -238,22 +238,11 @@ export interface PaintedStreamLine {
  * is tinted — it is machine output threaded through a human conversation, and
  * the bronze separates it without adding a second voice.
  */
-const ROLE_FG: Record<StreamRole, string> = {
-  user: UI.text,
-  assistant: UI.text,
-  tool: UI.inFlight,
-  system: UI.textDim,
-};
-
-/**
- * Diff body palette. This is the one place orange is not the decision marker:
- * a diff is content, and add/remove is the brand's own green/orange pair.
- */
-export const DIFF_FG = {
-  add: UI.done,
-  del: UI.action,
-  context: UI.textDim,
-} as const;
+function roleFg(role: StreamRole): string {
+  if (role === "tool") return UI.inFlight;
+  if (role === "system") return UI.textDim;
+  return UI.text;
+}
 
 /**
  * Meta column (tool name, `queue`, `error`). Fixed so a tool call's argument
@@ -300,7 +289,7 @@ function rowFg(row: StreamRow): string {
   if (isThinkingRow(row)) return UI.textFaint;
   // A failed call steps out of the live tool voice; the cross carries the rest.
   if (row.failed === true) return UI.textDim;
-  return ROLE_FG[row.role];
+  return roleFg(row.role);
 }
 
 /**
@@ -954,46 +943,54 @@ export function streamRowGutter(
  * Native scope names: `markup.*` for markdown, the rest for fenced-code
  * syntax highlighting.
  */
-const MARKDOWN_STYLES = {
-  default: { fg: UI.text },
-  conceal: { fg: UI.textFaint, dim: true },
-  // Tree-sitter markdown tags headings by level, and SyntaxStyle matches whole
-  // scope names, so the unnumbered scope alone would never be hit.
-  "markup.heading": { fg: UI.heading, bold: true },
-  "markup.heading.1": { fg: UI.heading, bold: true },
-  "markup.heading.2": { fg: UI.heading, bold: true },
-  "markup.heading.3": { fg: UI.heading, bold: true },
-  "markup.heading.4": { fg: UI.heading, bold: true },
-  "markup.heading.5": { fg: UI.heading, bold: true },
-  "markup.heading.6": { fg: UI.heading, bold: true },
-  "markup.strong": { fg: UI.text, bold: true },
-  "markup.italic": { fg: UI.text, italic: true },
-  "markup.strikethrough": { fg: UI.textFaint },
-  "markup.raw": { fg: UI.inFlight },
-  "markup.list": { fg: UI.inFlightBright },
-  "markup.quote": { fg: UI.textDim, italic: true },
-  "markup.link": { fg: UI.inFlightBright },
-  "markup.link.label": { fg: UI.inFlightBright },
-  "markup.link.url": { fg: UI.inFlightBright },
-  keyword: { fg: UI.inFlightBright },
-  string: { fg: UI.done },
-  number: { fg: UI.done },
-  comment: { fg: UI.textFaint, italic: true },
-  function: { fg: UI.inFlight },
-  type: { fg: UI.inFlightBright },
-  variable: { fg: UI.text },
-  punctuation: { fg: UI.textDim },
-} as const;
+function markdownStyles() {
+  return {
+    default: { fg: UI.text },
+    conceal: { fg: UI.textFaint, dim: true },
+    // Tree-sitter markdown tags headings by level, and SyntaxStyle matches whole
+    // scope names, so the unnumbered scope alone would never be hit.
+    "markup.heading": { fg: UI.heading, bold: true },
+    "markup.heading.1": { fg: UI.heading, bold: true },
+    "markup.heading.2": { fg: UI.heading, bold: true },
+    "markup.heading.3": { fg: UI.heading, bold: true },
+    "markup.heading.4": { fg: UI.heading, bold: true },
+    "markup.heading.5": { fg: UI.heading, bold: true },
+    "markup.heading.6": { fg: UI.heading, bold: true },
+    "markup.strong": { fg: UI.text, bold: true },
+    "markup.italic": { fg: UI.text, italic: true },
+    "markup.strikethrough": { fg: UI.textFaint },
+    "markup.raw": { fg: UI.inFlight },
+    "markup.list": { fg: UI.inFlightBright },
+    "markup.quote": { fg: UI.textDim, italic: true },
+    "markup.link": { fg: UI.inFlightBright },
+    "markup.link.label": { fg: UI.inFlightBright },
+    "markup.link.url": { fg: UI.inFlightBright },
+    keyword: { fg: UI.inFlightBright },
+    string: { fg: UI.done },
+    number: { fg: UI.done },
+    comment: { fg: UI.textFaint, italic: true },
+    function: { fg: UI.inFlight },
+    type: { fg: UI.inFlightBright },
+    variable: { fg: UI.text },
+    punctuation: { fg: UI.textDim },
+  } as const;
+}
 
-let cachedSyntaxStyle: SyntaxStyle | null = null;
+let cachedSyntaxStyle: {
+  readonly theme: string;
+  readonly style: SyntaxStyle;
+} | null = null;
 
 /**
  * Shared transcript SyntaxStyle. Lazy because construction reaches into the
  * native render lib, which is unavailable until a renderer exists.
  */
 export function transcriptSyntaxStyle(): SyntaxStyle {
-  if (cachedSyntaxStyle === null) {
-    cachedSyntaxStyle = SyntaxStyle.fromStyles({ ...MARKDOWN_STYLES });
+  if (cachedSyntaxStyle?.theme !== UI.name) {
+    cachedSyntaxStyle = {
+      theme: UI.name,
+      style: SyntaxStyle.fromStyles({ ...markdownStyles() }),
+    };
   }
-  return cachedSyntaxStyle;
+  return cachedSyntaxStyle.style;
 }

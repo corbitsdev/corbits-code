@@ -134,8 +134,10 @@ titlebar row: the model label sits right-aligned in the top rule as
 `profile · model · effort · mode` (empty segments omitted), and a
 compact `mcp !` sits immediately left of it when any MCP server still needs
 authorization (`/mcp` is the surface that names them), painted in
-`UI.warning` (sand, `#d1ad7d`) — the same role `plugin !` uses. Orange is
-not spent on these standing marks. The brand
+`UI.warning` — the same role `plugin !` uses. Warning is caution gold in the
+dark theme and muted plum (`#655275`) in the light theme; a bronze warning on
+cream is perceptually indistinguishable from machine emphasis, while plum stays
+separate without spending action orange or failure red. The brand
 lockup sits at the left of the bottom rule with the working directory and git
 branch at its right (`AppShell.promptTopRule` / `promptBottomRule`,
 `src/tui/shell/internals.ts`). Context occupancy rides that bottom rule as a percent:
@@ -238,6 +240,13 @@ Ongoing, non-decision status uses the bronze/sand/ember chrome ramp and green
 (`UI.done`) for completion.
 The one deliberate exception is diff removals, where orange is content (the
 removed line), not a decision marker, and no decision-marker shares that row.
+
+The shell selects its final theme before constructing or mounting renderables.
+An explicit `light` or `dark` setting wins; otherwise `COLORFGBG` wins when it
+identifies the terminal background, then macOS appearance is read synchronously,
+and unknown environments fall back to dark. The macOS read has a 500 ms process
+timeout. Production does not query OSC 11 or switch themes after mount, so the
+first frame cannot mix palettes across transcript, prompt, borders, or overlays.
 
 ## The live task list panel
 
@@ -418,7 +427,7 @@ framed content in the shell, and their body is shaped rather than merely
 listed (`src/tui/overlay-body.ts`): a dithered header (`░▒▓`) carries the
 subject in the action color — the only Breakthrough Orange on the card. The
 overlay host border and title use calm dim chrome (`UI.textDim`); consequence
-impact in the description zone paints `UI.warning` (sand), not orange. A
+impact in the description zone paints `UI.warning`, not orange. A
 blank row separates the subject from context. Choices are deliberately small:
 each one is a bare, single-line action name (`Reject`, `Accept once`, the
 scope's label) with no consequence text folded into the row. A scope's hint

@@ -1,8 +1,8 @@
 /**
  * Integration: app shell product skin — sticky, queue/steer/interrupt, overlay Esc.
  */
-import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
+import { afterEach, describe, expect, test } from "bun:test";
+import { rgbToHex, type KeyEvent } from "@opentui/core";
 import { defined } from "../../tests/helpers/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
@@ -19,6 +19,7 @@ import {
 } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import {
+  isLanding,
   isTranscriptFollowing,
   setShellBridgeHooks,
   shellInternals,
@@ -31,6 +32,19 @@ import {
   submitPrompt,
 } from "./shell/prompt";
 import { transcriptRowLayout } from "./shell/transcript";
+import { resolveDetectedTheme } from "./theme-detect";
+import { corbitsLight, setTheme } from "./theme";
+
+function colorHex(color: unknown): string {
+  if (typeof color === "string") return color.toLowerCase();
+  return rgbToHex(color as Parameters<typeof rgbToHex>[0])
+    .toLowerCase()
+    .slice(0, 7);
+}
+
+afterEach(() => {
+  setTheme("corbits-dark");
+});
 
 /** The transient notice row sits directly above the prompt box's top rule. */
 function noticeRow(frame: string): string {
@@ -40,6 +54,64 @@ function noticeRow(frame: string): string {
 }
 
 describe("createAppShell", () => {
+  test("mounts landing and persistent surfaces with the final startup theme", async () => {
+    const finalTheme = resolveDetectedTheme({
+      setting: "auto",
+      syncEnv: { COLORFGBG: "0;15" },
+      os: "corbits-dark",
+    });
+    expect(finalTheme).toBe("corbits-light");
+    setTheme(finalTheme);
+
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          title: "light startup",
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+        });
+        try {
+          expect(isLanding(shell)).toBe(true);
+          for (const surface of [
+            shell.root,
+            shell.transcript,
+            shell.transcript.viewport,
+            shell.transcript.content,
+            shell.promptBox,
+            shell.promptField,
+            shell.overlayHost,
+            shell.overlayBody,
+          ]) {
+            expect(colorHex(surface.backgroundColor)).toBe(corbitsLight.ground);
+          }
+          expect(colorHex(shell.prompt.backgroundColor)).toBe(
+            corbitsLight.ground,
+          );
+          expect(colorHex(shell.prompt.textColor)).toBe(corbitsLight.text);
+          expect(colorHex(shell.prompt.placeholderColor)).toBe(
+            corbitsLight.textFaint,
+          );
+          expect(colorHex(shell.promptField.borderColor)).toBe(
+            corbitsLight.textFaint,
+          );
+          expect(colorHex(shell.promptField.focusedBorderColor)).toBe(
+            corbitsLight.textDim,
+          );
+          expect(colorHex(shell.overlayHost.borderColor)).toBe(
+            corbitsLight.textDim,
+          );
+
+          await h.renderOnce();
+          expect(isLanding(shell)).toBe(true);
+          expect(h.captureCharFrame()).toContain("corbits code");
+        } finally {
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
+  });
+
   test("builds transcript / prompt / notice with floor geometry", async () => {
     await withTestRenderer(
       async (h) => {

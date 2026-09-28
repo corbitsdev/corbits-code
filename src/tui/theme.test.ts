@@ -24,6 +24,29 @@ function contrast(a: string, b: string): number {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
 
+function lab(hex: string): readonly [number, number, number] {
+  const linear = [1, 3, 5].map((offset) => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const [r = 0, g = 0, b = 0] = linear;
+  const xyz = [
+    (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047,
+    0.2126 * r + 0.7152 * g + 0.0722 * b,
+    (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883,
+  ].map((value) =>
+    value > 0.008856 ? Math.cbrt(value) : 7.787 * value + 16 / 116,
+  );
+  const [x = 0, y = 0, z = 0] = xyz;
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+
+function cie76(a: string, b: string): number {
+  const left = lab(a);
+  const right = lab(b);
+  return Math.hypot(left[0] - right[0], left[1] - right[1], left[2] - right[2]);
+}
+
 const ROLES: (keyof Theme)[] = [
   "ground",
   "text",
@@ -62,13 +85,36 @@ describe("theme roles", () => {
     );
   });
 
-  test("every light role separates from the ground", () => {
-    for (const role of ROLES) {
-      if (role === "ground") continue;
-      expect(contrast(corbitsLight[role], corbitsLight.ground)).toBeGreaterThan(
-        3,
-      );
+  test("every essential text role is readable on its theme ground", () => {
+    for (const theme of [corbitsDark, corbitsLight]) {
+      for (const role of ROLES) {
+        if (role === "ground") continue;
+        expect(contrast(theme[role], theme.ground)).toBeGreaterThanOrEqual(4.5);
+      }
     }
+  });
+
+  test("light warning is perceptually separate from machine emphasis", () => {
+    expect(
+      cie76(corbitsLight.warning, corbitsLight.inFlight),
+    ).toBeGreaterThanOrEqual(15);
+    expect(
+      cie76(corbitsLight.warning, corbitsLight.inFlightBright),
+    ).toBeGreaterThanOrEqual(15);
+    expect(
+      cie76(corbitsLight.warning, corbitsLight.heading),
+    ).toBeGreaterThanOrEqual(15);
+    expect(
+      cie76(corbitsLight.warning, corbitsLight.error),
+    ).toBeGreaterThanOrEqual(15);
+    expect(
+      contrast(corbitsLight.warning, corbitsLight.ground),
+    ).toBeGreaterThanOrEqual(4.5);
+    const [, warningA, warningB] = lab(corbitsLight.warning);
+    const [, actionA, actionB] = lab(corbitsLight.action);
+    expect(Math.hypot(warningA, warningB)).toBeLessThan(
+      Math.hypot(actionA, actionB),
+    );
   });
 
   test("orange is spent once per light screen", () => {

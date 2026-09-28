@@ -11,7 +11,8 @@ import {
   toolCallRow,
   type DiffLine,
 } from "./diff.js";
-import { DIFF_FG, isDiffRow, isMarkdownRow } from "./stream.js";
+import { isDiffRow, isMarkdownRow } from "./stream.js";
+import { UI } from "./theme.js";
 
 const textOf = (line: DiffLine): string => line.map((seg) => seg.text).join("");
 
@@ -91,11 +92,11 @@ describe("renderDiff", () => {
     const delBody = defined(lines[0]).slice(2);
     const addBody = defined(lines[1]).slice(2);
     const delChanged = delBody
-      .filter((s) => s.fg === DIFF_FG.del)
+      .filter((s) => s.fg === UI.action)
       .map((s) => s.text)
       .join("");
     const addChanged = addBody
-      .filter((s) => s.fg === DIFF_FG.add)
+      .filter((s) => s.fg === UI.done)
       .map((s) => s.text)
       .join("");
     expect(delChanged).toContain("bar");
@@ -103,7 +104,7 @@ describe("renderDiff", () => {
     expect(delChanged).not.toContain("const");
     expect(addChanged).not.toContain("const");
     expect(
-      delBody.some((s) => s.text.includes("const") && s.fg === DIFF_FG.context),
+      delBody.some((s) => s.text.includes("const") && s.fg === UI.textDim),
     ).toBe(true);
   });
 
@@ -118,7 +119,7 @@ describe("renderDiff", () => {
     const lines = renderDiff("a b c", "a x c", 40);
     const changed = defined(lines[0])
       .slice(2)
-      .filter((s) => s.fg === DIFF_FG.del)
+      .filter((s) => s.fg === UI.action)
       .map((s) => s.text.trim())
       .filter(Boolean);
     expect(changed).toEqual(["b"]);
@@ -130,26 +131,26 @@ describe("renderDiff", () => {
     expect(
       defined(removed)
         .slice(1)
-        .every((s) => s.fg === DIFF_FG.del),
+        .every((s) => s.fg === UI.action),
     ).toBe(true);
     expect(
       defined(added)
         .slice(1)
-        .every((s) => s.fg === DIFF_FG.add),
+        .every((s) => s.fg === UI.done),
     ).toBe(true);
   });
 
   test("context rows take the muted context tone", () => {
     const lines = renderDiff("a\nb", "a\nB", 40);
-    expect(defined(lines[0]).every((s) => s.fg === DIFF_FG.context)).toBe(true);
+    expect(defined(lines[0]).every((s) => s.fg === UI.textDim)).toBe(true);
   });
 
   test("line-number column always uses the muted context tone", () => {
     const lines = renderDiff("a\nb", "a\nB", 40);
     expect(lines.map((line) => defined(line[0]).fg)).toEqual([
-      DIFF_FG.context,
-      DIFF_FG.context,
-      DIFF_FG.context,
+      UI.textDim,
+      UI.textDim,
+      UI.textDim,
     ]);
   });
 

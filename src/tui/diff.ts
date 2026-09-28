@@ -16,7 +16,8 @@ import { describeToolCall } from "./tool-formatter.js";
 // The one wrap implementation: a diff row soft-wraps by the same column rules
 // as every other row, so a wide glyph cannot overflow the gutter here alone.
 import { wrapRanges } from "./view/height.js";
-import { DIFF_FG, type StreamRow } from "./stream.js";
+import type { StreamRow } from "./stream.js";
+import { UI } from "./theme.js";
 import { toolArgsView } from "./tool-args.js";
 
 export type DiffRowKind = "add" | "del" | "context";
@@ -139,9 +140,9 @@ const GUTTER: Record<DiffRowKind, string> = {
 };
 
 function rowColor(kind: DiffRowKind): string {
-  if (kind === "add") return DIFF_FG.add;
-  if (kind === "del") return DIFF_FG.del;
-  return DIFF_FG.context;
+  if (kind === "add") return UI.done;
+  if (kind === "del") return UI.action;
+  return UI.textDim;
 }
 
 // Attach each row's position in the old/new file before any collapsing, so a
@@ -227,7 +228,7 @@ export function wordDiffSegments(
   const m = other.length;
   while (i < n && j < m) {
     if (self[i] === other[j]) {
-      out.push({ text: requireDiffLine(self, i), fg: DIFF_FG.context });
+      out.push({ text: requireDiffLine(self, i), fg: UI.textDim });
       i++;
       j++;
     } else if (lcsCell(lcs, i + 1, j) >= lcsCell(lcs, i, j + 1)) {
@@ -351,7 +352,7 @@ export function renderDiff(
           ? [
               {
                 text: idx === 0 ? numCol : " ".repeat(numColWidth),
-                fg: DIFF_FG.context,
+                fg: UI.textDim,
               },
             ]
           : []),
@@ -453,7 +454,7 @@ export function editDiffView(
           [
             {
               text: `… ${all.length - MAX_DIFF_LINES} more diff lines`,
-              fg: DIFF_FG.context,
+              fg: UI.textDim,
             },
           ],
         ]

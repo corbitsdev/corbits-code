@@ -31,24 +31,16 @@ export interface ToolArgsView {
   readonly detail?: readonly StyledBodyLine[];
 }
 
-/**
- * View roles in the Corbits terminal palette. Warning and danger both land on
- * the action orange for the same reason the MCP table does: there is no red in
- * the brand system, and no decision marker competes on these rows.
- */
-const ROLE_FG: Partial<Record<SemanticRole, string>> = {
-  accent: UI.inFlightBright,
-  brand: UI.action,
-  success: UI.done,
-  warning: UI.actionDim,
-  danger: UI.action,
-  muted: UI.textDim,
-  dim: UI.textFaint,
-  emphasis: UI.text,
-};
-
+/** Map expanded view roles onto the active terminal palette. */
 function viewFg(role: SemanticRole): string {
-  return ROLE_FG[role] ?? UI.text;
+  if (role === "accent") return UI.inFlightBright;
+  if (role === "brand") return UI.action;
+  if (role === "success") return UI.done;
+  if (role === "warning") return UI.warning;
+  if (role === "danger") return UI.error;
+  if (role === "muted") return UI.textDim;
+  if (role === "dim") return UI.textFaint;
+  return UI.text;
 }
 
 /** Columns an expanded body is laid out for; the paint layer wraps the rest. */

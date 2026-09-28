@@ -74,15 +74,19 @@ export const BRAND = {
 // Cream stepped down toward the ground rather than desaturated toward gray, so
 // low-emphasis text keeps the same warm hue as full-emphasis text.
 const CREAM_DIM = "#a89f91";
-const CREAM_FAINT = "#787166";
+const CREAM_FAINT = "#877f73";
 
 // The warm chrome ramp. Three tones so the roles that once shared a blue stay
 // separable — they differ in lightness first, hue second, and all three sit
 // well under the action orange's saturation.
-const BRONZE = "#93733f"; // dimmest: motion and machine chrome
-const SAND = "#d1ad7d"; // brightest: keywords, links, args, and standing caution
-const EMBER = "#a97243"; // burnt, between the two: document structure
+const BRONZE = "#9d7b44"; // dimmest: motion and machine chrome
+const SAND = "#d1ad7d"; // brightest: keywords, links, and args
+const CAUTION_GOLD = "#d6ba68"; // standing caution, distinct from machine emphasis
+const EMBER = "#aa7444"; // burnt, between the two: document structure
 const ERROR_RED = "#e0594d"; // meter danger band, failures
+// Light-theme caution moves to muted plum: yellow/bronze collapses into the
+// machine ramp on cream, while red or orange would compete with failure/action.
+const LIGHT_WARNING = "#655275";
 
 export const corbitsDark: Theme = {
   name: "corbits-dark",
@@ -96,7 +100,7 @@ export const corbitsDark: Theme = {
   inFlightBright: SAND,
   heading: EMBER,
   done: BRAND.ridgeGreen,
-  warning: SAND,
+  warning: CAUTION_GOLD,
   error: ERROR_RED,
 };
 
@@ -105,9 +109,8 @@ export const corbitsDark: Theme = {
  *
  * Data-only — no interface change. Every value was picked by relative
  * luminance against the cream ground, not by eye: body text holds ~14:1
- * (near the dark theme's ~15:1), secondary roles hold >=5:1, and the lowest
- * emphasis plus the dimmed action hold >=3:1. Orange still appears once per
- * screen (action/actionDim); it is darkened here because Breakthrough Orange
+ * (near the dark theme's ~15:1), and every essential text role holds >=4.5:1.
+ * Orange still appears once per screen (action/actionDim); it is darkened here because Breakthrough Orange
  * itself is ~2.3:1 on cream and unreadable as text. The bronze ramp is
  * darkened for the same reason SAND is ~1.8:1 on cream.
  */
@@ -116,14 +119,14 @@ export const corbitsLight: Theme = {
   ground: BRAND.canvasCream,
   text: "#221d18",
   textDim: "#6b5f50",
-  textFaint: "#8a7f70",
+  textFaint: "#74695b",
   action: "#8f4f16",
-  actionDim: "#b35c12",
+  actionDim: "#9b4f10",
   inFlight: "#6f5427",
   inFlightBright: "#7a5a22",
   heading: "#7c4f24",
   done: "#3f6b3a",
-  warning: "#7a5a22",
+  warning: LIGHT_WARNING,
   error: "#b03a30",
 };
 
@@ -149,14 +152,18 @@ export function resolveThemeName(name: string): Theme {
  */
 export const UI: Theme = { ...corbitsDark };
 
+const themeChangeListeners = new Set<(theme: Theme) => void>();
+
+/** Keep a derived theme record synchronized with the live palette. */
+export function onThemeChange(listener: (theme: Theme) => void): void {
+  themeChangeListeners.add(listener);
+  listener(UI);
+}
+
 /** Switch the live `UI` binding to the named theme, keeping the reference. */
 export function setTheme(name: ThemeName | string): Theme {
   const next = resolveThemeName(name);
   Object.assign(UI, next);
+  for (const listener of themeChangeListeners) listener(UI);
   return UI;
 }
-
-// Known-divergent follow-up: `semantic-theme.ts` still carries its own
-// dark-only palette and `color()` helper for syntax/markdown/diff roles.
-// It is untouched here and stays dark until it learns the same live
-// binding; see the CL-8993 follow-up.

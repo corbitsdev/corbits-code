@@ -3,7 +3,9 @@
  * single records as label/value rows, never as raw JSON.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { rgbToHex, type CapturedSpan } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 
 import { extractMcpRecord, extractMcpRecords } from "./mcp-result-format.js";
 import { toolCallRow } from "./diff";
@@ -17,6 +19,7 @@ import {
   isStructuredRow,
   type StreamRow,
 } from "./stream";
+import { corbitsDark, corbitsLight, setTheme, type Theme } from "./theme";
 
 const WIDE = { width: 100, height: 24 } as const;
 
@@ -40,11 +43,41 @@ const RECORD = JSON.stringify({
   targetDate: "2026-01-31T00:00:00.000Z",
 });
 
+const TONE_LIST = JSON.stringify({
+  projects: [
+    { name: "Alpha", status: "In Progress", priority: "urgent" },
+    { name: "Beta", status: "Done", priority: "high" },
+    { name: "Gamma", status: "Queued", priority: "low" },
+  ],
+});
+
 async function settle(h: Harness): Promise<string> {
   await h.renderOnce();
   await h.renderOnce();
   return h.captureCharFrame();
 }
+
+function colorHex(color: CapturedSpan["fg"]): string {
+  return rgbToHex(color).toLowerCase().slice(0, 7);
+}
+
+function luminance(hex: string): number {
+  const channel = (offset: number): number => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+function contrast(foreground: string, background: string): number {
+  const fg = luminance(foreground);
+  const bg = luminance(background);
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+}
+
+afterEach(() => {
+  setTheme("corbits-dark");
+});
 
 /** Column start index of `needle` on the first line that contains it. */
 function columnOf(frame: string, needle: string): number {
@@ -133,6 +166,55 @@ describe("structured transcript rows", () => {
       expect(columnOf(frame, "Alpha")).toBe(columnOf(frame, "Beta"));
       expect(columnOf(frame, "In Progress")).toBe(columnOf(frame, "Done"));
     }, WIDE);
+  });
+
+  test("expanded table resolves readable semantic tones at paint time", async () => {
+    const renderTheme = async (name: string, theme: Theme): Promise<void> => {
+      setTheme(name);
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, shellOpts);
+        try {
+          appendStreamRow(shell, {
+            ...toolResultRow({
+              name: "mcp__linear__list_projects",
+              content: TONE_LIST,
+            }),
+            expanded: true,
+          });
+          await settle(h);
+
+          const expected = new Map([
+            ["Name", theme.textDim],
+            ["Alpha", theme.text],
+            ["In Progress", theme.inFlightBright],
+            ["urgent", theme.error],
+            ["Done", theme.done],
+            ["high", theme.warning],
+            ["low", theme.textDim],
+          ]);
+          const spans = h.captureSpans().lines.flatMap((line) => line.spans);
+          for (const [text, roleColor] of expected) {
+            const span = defined(
+              spans.find((candidate) => candidate.text.trim() === text),
+              `rendered MCP span ${text}`,
+            );
+            const foreground = colorHex(span.fg);
+            const background = colorHex(span.bg);
+            expect(foreground, `${name} ${text}`).toBe(roleColor);
+            expect(background, `${name} ${text}`).toBe(theme.ground);
+            expect(
+              contrast(foreground, background),
+              `${name} ${text}`,
+            ).toBeGreaterThanOrEqual(4.5);
+          }
+        } finally {
+          shell.dispose();
+        }
+      }, WIDE);
+    };
+
+    await renderTheme("corbits-light", corbitsLight);
+    await renderTheme("corbits-dark", corbitsDark);
   });
 
   test("single record renders label/value rows once expanded", async () => {

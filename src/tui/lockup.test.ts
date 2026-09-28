@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { rgbToHex, type CapturedSpan } from "@opentui/core";
+import { defined } from "../../tests/helpers/defined.js";
 
 import {
   LOCKUP_FADE_MS,
@@ -13,7 +15,9 @@ import {
   STALL_BLINK_CYCLE_MS,
   type RampPhase,
 } from "./ramp";
-import { UI } from "./theme";
+import { withTestRenderer } from "./harness";
+import { createAppShell } from "./shell/index";
+import { corbitsLight, setTheme, UI } from "./theme";
 
 const idle = (nowMs: number): LockupInput => ({
   nowMs,
@@ -39,6 +43,28 @@ const live = (
 });
 
 const still = (nowMs = 0) => lockupCells(idle(nowMs));
+
+function colorHex(color: CapturedSpan["fg"]): string {
+  return rgbToHex(color).toLowerCase().slice(0, 7);
+}
+
+function luminance(hex: string): number {
+  const channel = (offset: number): number => {
+    const value = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
+}
+
+function contrast(foreground: string, background: string): number {
+  const fg = luminance(foreground);
+  const bg = luminance(background);
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+}
+
+afterEach(() => {
+  setTheme("corbits-dark");
+});
 
 describe("brand lockup", () => {
   test("idle is the wordmark alone", () => {
@@ -67,6 +93,32 @@ describe("brand lockup", () => {
     };
     expect(lockupText(lockupCells(input))).toBe("thinking");
     expect(lockupWidth(input)).toBe(lockupCells(input).length);
+  });
+
+  test("light wordmark renders with readable paint-time chrome", async () => {
+    setTheme("corbits-light");
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: false,
+      });
+      try {
+        await h.renderOnce();
+        await h.renderOnce();
+        const wordmark = h
+          .captureSpans()
+          .lines.flatMap((line) => line.spans)
+          .find((span) => span.text.includes(LOCKUP_WORDMARK));
+        const painted = defined(wordmark, "rendered wordmark span");
+        const foreground = colorHex(painted.fg);
+        const background = colorHex(painted.bg);
+        expect(foreground).toBe(corbitsLight.textDim);
+        expect(background).toBe(corbitsLight.ground);
+        expect(contrast(foreground, background)).toBeGreaterThanOrEqual(4.5);
+      } finally {
+        shell.dispose();
+      }
+    });
   });
 
   test("the wordmark stays chrome-dim", () => {
