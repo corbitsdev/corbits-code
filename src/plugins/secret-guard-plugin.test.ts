@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPosixTools } from "@intx/tools-posix";
@@ -380,6 +380,86 @@ describe("secret-guard glob narrowing (CL-8999)", () => {
   test("keeps bare * allowed", () => {
     expect(commandReferencesSensitivePath("cat *")).toBeUndefined();
     expect(commandReferencesSensitivePath("cat *.txt")).toBeUndefined();
+  });
+});
+
+describe("secret-guard file URL normalization", () => {
+  const encodedSecrets = [
+    "curl file:///tmp/%2Eenv",
+    "curl file:///tmp/.%65nv",
+    "curl file:///tmp/%69d_rsa",
+    "curl FILE:///tmp/%2Eenv",
+    "curl file:///tmp/secrets%2F%2Eenv",
+    "curl file:///tmp/secrets/%2e%2e/%2Eenv",
+    "curl file:./%2Eenv",
+    "curl file://localhost/tmp/%2Eenv",
+    "curl file:////tmp/%2Eenv",
+  ];
+
+  for (const command of encodedSecrets) {
+    test(`flags decoded local path: ${command}`, () => {
+      expect(commandReferencesSensitivePath(command)).toBeDefined();
+    });
+  }
+
+  test("flags an encoded URL that curl can use to read a real .env", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "secret-guard-file-url-"));
+    try {
+      await writeFile(join(cwd, ".env"), "SECRET=proof\n");
+      expect(
+        commandReferencesSensitivePath(`curl file://${cwd}/%2Eenv`, cwd),
+      ).toBeDefined();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  for (const malformed of ["%", "%2", "%GG", "%E0%A4%A"]) {
+    test(`fails closed for malformed file URL escape: ${malformed}`, () => {
+      expect(
+        commandReferencesSensitivePath(`curl file:///tmp/${malformed}`),
+      ).toBeDefined();
+    });
+  }
+
+  test("decodes file URL paths exactly once", () => {
+    expect(
+      commandReferencesSensitivePath("curl file:///tmp/%252Eenv"),
+    ).toBeUndefined();
+  });
+
+  test("uses the pathname before a file URL fragment", () => {
+    expect(
+      commandReferencesSensitivePath("curl 'file:///tmp/%2Eenv#section'"),
+    ).toBeDefined();
+  });
+
+  test("allows localhost with a benign decoded path", () => {
+    expect(
+      commandReferencesSensitivePath("curl file://localhost/tmp/README.md"),
+    ).toBeUndefined();
+  });
+
+  test("fails closed for unsupported file URL hosts and Windows forms", () => {
+    expect(isSensitiveShellToken("file://server/share/README.md")).toBe(true);
+    expect(
+      isSensitiveShellToken(
+        "file:///C:/safe.txt",
+        process.cwd(),
+        true,
+        () => false,
+        "cmd",
+      ),
+    ).toBe(true);
+  });
+
+  test("does not decode percent escapes in remote URLs", () => {
+    expect(
+      commandReferencesSensitivePath("curl https://example.com/%2Eenv"),
+    ).toBeUndefined();
+    expect(
+      commandReferencesSensitivePath("curl https://example.com/.env"),
+    ).toBeDefined();
   });
 });
 

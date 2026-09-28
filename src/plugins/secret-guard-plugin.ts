@@ -400,6 +400,32 @@ function isFileSchemeURL(token: string): boolean {
   return scheme?.toLowerCase() === "file:";
 }
 
+type FileURLPath =
+  | { localPath: string; failClosed: false }
+  | { failClosed: true };
+
+// WHATWG parsing handles slash counts, relative file paths, localhost, and
+// dot-segment normalization. Decode pathname exactly once to match URL
+// transport semantics; the raw token is checked afterward so query/glob
+// handling remains separate. This naturally exposes a sensitive pathname
+// before its URL fragment, without interpreting generic fragments or `@file`
+// indirection. Unsupported hosts, Windows forms, and malformed escapes prompt
+// rather than guessing or throwing.
+function normalizeFileURLPath(
+  token: string,
+  dialect: ShellDialect,
+): FileURLPath | undefined {
+  if (!isFileSchemeURL(token)) return undefined;
+  if (dialect === "cmd") return { failClosed: true };
+  try {
+    const url = new URL(token);
+    if (url.host !== "") return { failClosed: true };
+    return { localPath: decodeURIComponent(url.pathname), failClosed: false };
+  } catch {
+    return { failClosed: true };
+  }
+}
+
 // CL-7790: the ONE shell-token matcher both secret-guard call sites share —
 // commandReferencesSensitivePath below and classify.ts's per-arg sensitive
 // check. The cheap lexical denylist runs first so the hot auto-allow path
@@ -439,6 +465,36 @@ export function isSensitiveShellToken(
 ): boolean {
   const { expanded, expandable } = expandShellToken(token, dialect);
   if (!expandable) return true;
+  const fileURLPath = normalizeFileURLPath(expanded, dialect);
+  if (fileURLPath?.failClosed) return true;
+  if (
+    fileURLPath !== undefined &&
+    isSensitiveExpandedShellToken(
+      fileURLPath.localPath,
+      cwd,
+      resolveSymlinks,
+      isExtraDenied,
+      dialect,
+    )
+  ) {
+    return true;
+  }
+  return isSensitiveExpandedShellToken(
+    expanded,
+    cwd,
+    resolveSymlinks,
+    isExtraDenied,
+    dialect,
+  );
+}
+
+function isSensitiveExpandedShellToken(
+  expanded: string,
+  cwd: string,
+  resolveSymlinks: boolean,
+  isExtraDenied: (value: string) => boolean,
+  dialect: ShellDialect,
+): boolean {
   if (isSensitivePath(expanded, dialect)) return true;
   if (isExtraDenied(expanded)) return true;
   if (!resolveSymlinks) {
