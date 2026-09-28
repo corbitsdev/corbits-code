@@ -518,9 +518,7 @@ describe("landing screen", () => {
         });
         try {
           const entry = soleCapturedIdleTimer(captured);
-          expect(LANDING_IDLE_REPAINT_INTERVAL_MS).toBeGreaterThanOrEqual(
-            500,
-          );
+          expect(LANDING_IDLE_REPAINT_INTERVAL_MS).toBeGreaterThanOrEqual(500);
           expect(entry.delay).toBeGreaterThanOrEqual(500);
         } finally {
           shell.dispose();
