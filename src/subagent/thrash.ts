@@ -14,6 +14,7 @@ import {
   isProductMutationTool,
   productMutationPaths,
 } from "../agent/product-mutation-tools.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import {
   PATH_KEYED_READ_TOOLS,
   SEARCH_QUERY_TOOLS,
@@ -107,7 +108,10 @@ export function nextThrashState(
   for (const block of content) {
     if (block.type !== "tool_call") continue;
     totalToolCalls += 1;
-    const name = typeof block.name === "string" ? block.name : "";
+    // Persisted calls keep the wire name the model emitted; the
+    // read/search/shell/mutation sets are all engine-keyed.
+    const name =
+      typeof block.name === "string" ? canonicalToolName(block.name) : "";
     const args = parseArgs(block.arguments);
     const path = pathFromArgs(args);
 

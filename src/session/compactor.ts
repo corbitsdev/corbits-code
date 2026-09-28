@@ -26,6 +26,7 @@ import {
   extractContinuationFacts,
   verifyOrRepair,
 } from "./compaction-verify.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import {
   PATH_KEYED_READ_TOOLS,
   SEARCH_QUERY_TOOLS,
@@ -425,7 +426,9 @@ function buildCallIndex(
   for (const turn of turns) {
     for (const block of turn.content) {
       if (block.type !== "tool_call") continue;
-      const info: ToolCallInfo = { name: block.name };
+      // Persisted calls keep the name the model emitted on the wire
+      // (read/glob/…); the read/query classification sets are engine-keyed.
+      const info: ToolCallInfo = { name: canonicalToolName(block.name) };
       const identity = readIdentityFromArguments(block.arguments);
       if (identity !== undefined) {
         info.pathArg = identity.path;
