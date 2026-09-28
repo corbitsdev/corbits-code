@@ -9,6 +9,14 @@ import {
   schedulePricingMetadataRefresh,
 } from "../../src/cost/pricing-metadata.js";
 import { cliCaughtExit, mainWithRunners } from "../../src/index.js";
+import {
+  configureTransparentBackground,
+  corbitsDark,
+  corbitsLight,
+  setTheme,
+  TRANSPARENT_BACKGROUND,
+  UI,
+} from "../../src/tui/theme.js";
 import { defined } from "../helpers/defined.js";
 
 const envVars = {
@@ -64,6 +72,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  configureTransparentBackground({});
+  setTheme("corbits-dark");
   rmSync(sandbox, { recursive: true, force: true });
 });
 
@@ -82,9 +92,13 @@ function sandboxArgs(
   ];
 }
 
-async function withEnv(fn: () => void | Promise<void>): Promise<void> {
+async function withEnv(
+  fn: () => void | Promise<void>,
+  overrides: Record<string, string> = {},
+): Promise<void> {
+  const values = { ...envVars, ...overrides };
   const original: Record<string, string | undefined> = {};
-  for (const [key, value] of Object.entries(envVars)) {
+  for (const [key, value] of Object.entries(values)) {
     original[key] = process.env[key];
     process.env[key] = value;
   }
@@ -113,6 +127,46 @@ test("main launches TUI when configured", async () => {
     expect(runExec).not.toHaveBeenCalled();
   });
 });
+
+for (const [appearance, COLORFGBG, theme] of [
+  ["light", "0;15", corbitsLight],
+  ["dark", "15;0", corbitsDark],
+] as const) {
+  test(`main selects ${appearance} theme before first-run onboarding`, async () => {
+    writeFileSync(
+      join(sandbox, "home", ".corbits", "settings.json"),
+      JSON.stringify({ providers: {}, theme: "auto" }),
+    );
+
+    await withEnv(
+      async () => {
+        const runTUI = mock((_config: Config) => Promise.resolve(0));
+        const runExec = mock((_config: Config) => Promise.resolve(0));
+        const runOnboarding = mock(() => {
+          expect(UI.name).toBe(theme.name);
+          expect(UI.text).toBe(theme.text);
+          expect(UI.ground).toBe(theme.ground);
+          expect(UI.canvasGround).toBe(TRANSPARENT_BACKGROUND);
+          return Promise.resolve(0);
+        });
+
+        const code = await mainWithRunners(sandboxArgs([]), {
+          runTUI,
+          runExec,
+          runOnboarding,
+        });
+
+        expect(code).toBe(0);
+        expect(runOnboarding).toHaveBeenCalledTimes(1);
+        expect(runTUI).not.toHaveBeenCalled();
+      },
+      {
+        COLORFGBG,
+        CORBITS_TRANSPARENT_BACKGROUND: "1",
+      },
+    );
+  });
+}
 
 test("main launches exec when configured with exec subcommand", async () => {
   await withEnv(async () => {

@@ -344,6 +344,7 @@ export function createSurface(
       slot.visible = true;
       slot.content = ` ${active ? ">" : " "} ${row.label}`;
       slot.fg = active ? UI.text : UI.textDim;
+      slot.bg = active ? UI.ground : UI.canvasGround;
     });
   };
 

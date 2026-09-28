@@ -251,10 +251,11 @@ first frame cannot mix palettes across transcript, prompt, borders, or overlays.
 Set `CORBITS_TRANSPARENT_BACKGROUND=1` (also `true`, `yes`, or `on`) to let the
 host terminal show through the root, transcript, landing, welcome, and provider
 canvases. This is an explicit OpenTUI canvas opt-in, not a guess based on
-terminal name or truecolor reporting. The detected or selected dark/light theme
-still owns every foreground color, while the prompt frame and input, decision
-surfaces, and focused or selected rows retain that theme's opaque ground so
-focus and text contrast do not depend on the host background.
+terminal name or truecolor reporting. Transparent canvas readability depends on
+the detected or explicitly selected dark/light theme matching the host terminal
+background. That theme owns every foreground color, while the prompt frame and
+input, decision surfaces, and focused or selected rows retain its opaque ground,
+so control focus and text contrast do not depend on the host background.
 
 ## The live task list panel
 

@@ -17,6 +17,7 @@ import {
 import { runExec } from "./exec/runner.js";
 import { runOnboarding } from "./tui/onboarding.js";
 import { runTUI } from "./tui/runner/index.js";
+import { applyStartupTheme } from "./tui/theme-startup.js";
 import { configureTransparentBackground } from "./tui/theme.js";
 
 export interface Runners {
@@ -86,7 +87,12 @@ export async function mainWithRunners(
 
   let exitCode: number;
   // Welcome, setup, and the product host read `UI` at construction time.
-  if (config.command === "tui") configureTransparentBackground();
+  if (config.command === "tui") {
+    configureTransparentBackground();
+    applyStartupTheme(
+      config.configured ? config.settings?.theme : config.theme,
+    );
+  }
   if (!config.configured) {
     if (config.command === "exec") {
       // Exec needs a provider; onboarding is TUI-only. Fail closed with a

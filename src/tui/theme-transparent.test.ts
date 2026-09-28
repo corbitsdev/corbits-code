@@ -3,8 +3,10 @@ import { rgbToHex, type CapturedSpan, type RGBA } from "@opentui/core";
 
 import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness.js";
+import { runProviderSetup } from "./provider/setup.js";
 import { createAppShell } from "./shell/index.js";
 import { openSettingsOverlay } from "./shell/palette.js";
+import { runWelcome, WELCOME_LINE } from "./welcome.js";
 import {
   BRAND,
   configureTransparentBackground,
@@ -234,5 +236,85 @@ describe("rendered semantic surfaces", () => {
         );
       });
     }
+
+    test(`${themeName} transparent welcome uses selected text roles`, async () => {
+      setTheme(themeName);
+      configureTransparentBackground(REQUESTED);
+
+      await withTestRenderer(
+        async (h) => {
+          const done = runWelcome({
+            createRenderer: async () => h.renderer,
+            autoAdvanceMs: 60_000,
+            now: () => 0,
+          });
+          await Promise.resolve();
+          await h.renderOnce();
+
+          const frame = h.captureSpans();
+          const root = defined(defined(frame.lines[0]).spans[0]);
+          const welcome = findSpan(frame.lines, WELCOME_LINE);
+          expect(alpha(root.bg)).toBe(0);
+          expect(alpha(welcome.bg)).toBe(0);
+          expect(rgbToHex(welcome.fg).toLowerCase().slice(0, 7)).toBe(
+            theme.text,
+          );
+
+          h.pressKey("x");
+          expect(await done).toBe(true);
+        },
+        { width: 80, height: 30 },
+      );
+    });
+
+    test(`${themeName} transparent provider selection is opaque`, async () => {
+      setTheme(themeName);
+      configureTransparentBackground(REQUESTED);
+
+      await withTestRenderer(
+        async (h) => {
+          const done = runProviderSetup({
+            onSubmit: async () => undefined,
+            showTelemetryNotice: false,
+            createRenderer: async () => h.renderer,
+          });
+          try {
+            await Promise.resolve();
+            await h.renderOnce();
+            const initial = h.captureSpans();
+            const root = defined(defined(initial.lines[0]).spans[0]);
+            const active = findSpan(initial.lines, "OpenAI ChatGPT");
+            const inactive = findSpan(initial.lines, "OpenAI API");
+
+            expect(alpha(root.bg)).toBe(0);
+            expect(active.text.trimStart().startsWith(">")).toBe(true);
+            expect(alpha(active.bg)).toBe(255);
+            expect(rgbToHex(active.bg).toLowerCase().slice(0, 7)).toBe(
+              theme.ground,
+            );
+            expect(rgbToHex(active.fg).toLowerCase().slice(0, 7)).toBe(
+              theme.text,
+            );
+            expect(contrast(active.fg, active.bg)).toBeGreaterThanOrEqual(4.5);
+            expect(inactive.text.trimStart().startsWith(">")).toBe(false);
+            expect(alpha(inactive.bg)).toBe(0);
+
+            h.pressKey("ARROW_DOWN");
+            await h.renderOnce();
+            const moved = h.captureSpans();
+            const prior = findSpan(moved.lines, "OpenAI ChatGPT");
+            const selected = findSpan(moved.lines, "OpenAI API");
+            expect(prior.text.trimStart().startsWith(">")).toBe(false);
+            expect(alpha(prior.bg)).toBe(0);
+            expect(selected.text.trimStart().startsWith(">")).toBe(true);
+            expect(alpha(selected.bg)).toBe(255);
+          } finally {
+            h.pressKey("Ctrl+C");
+            await done;
+          }
+        },
+        { width: 80, height: 30 },
+      );
+    });
   }
 });
