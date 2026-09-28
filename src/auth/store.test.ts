@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type } from "arktype";
@@ -323,6 +323,142 @@ describe("createAuthStore", () => {
       await expect(
         store.updateTokens("work", profile.tokens, home),
       ).resolves.toEqual(profile);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("takes over a dead-holder lock instead of timing out", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-takeover-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+      const lockPath = `${store.authPath(home)}.lock`;
+      await mkdir(join(home, TEST_SETTINGS_DIR), { recursive: true });
+      // The maximum pid_t can never be a live holder: kill(pid, 0) answers
+      // ESRCH (or EINVAL), both of which read as dead.
+      await writeFile(lockPath, `${2_147_483_647}`, { mode: 0o600 });
+
+      const profile = {
+        name: "work",
+        tokens: { access: "a", refresh: "r", expiresAt: 1 },
+        createdAt: 1,
+      };
+      await expect(store.saveProfile(profile, home)).resolves.toBeUndefined();
+      expect(await store.loadProfile("work", home)).toEqual(profile);
+      await expect(readFile(lockPath, "utf8")).rejects.toThrow("ENOENT");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("waits on a live-holder lock and times out without touching it", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-live-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+        lockTimeoutMs: 100,
+      });
+      const lockPath = `${store.authPath(home)}.lock`;
+      await mkdir(join(home, TEST_SETTINGS_DIR), { recursive: true });
+      await writeFile(lockPath, `${process.pid}`, { mode: 0o600 });
+
+      await expect(
+        store.saveProfile(
+          {
+            name: "work",
+            tokens: { access: "a", refresh: "r", expiresAt: 1 },
+            createdAt: 1,
+          },
+          home,
+        ),
+      ).rejects.toThrow(
+        `Timed out waiting for OAuth credential lock ${lockPath}. ` +
+          "If no Corbits process is running, remove this lock file manually and retry.",
+      );
+      expect(await readFile(lockPath, "utf8")).toBe(`${process.pid}`);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("takes over a stale legacy lock but waits on a fresh one", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-legacy-"));
+    try {
+      const staleStore = createAuthStore<TestTokens>({
+        filename: "stale-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+      const staleLockPath = `${staleStore.authPath(home)}.lock`;
+      await mkdir(join(home, TEST_SETTINGS_DIR), { recursive: true });
+      await writeFile(staleLockPath, "legacy-orphan", { mode: 0o600 });
+      await utimes(
+        staleLockPath,
+        new Date(),
+        new Date(Date.now() - 60_000),
+      );
+
+      const profile = {
+        name: "work",
+        tokens: { access: "a", refresh: "r", expiresAt: 1 },
+        createdAt: 1,
+      };
+      await expect(
+        staleStore.saveProfile(profile, home),
+      ).resolves.toBeUndefined();
+      expect(await staleStore.loadProfile("work", home)).toEqual(profile);
+
+      const freshStore = createAuthStore<TestTokens>({
+        filename: "fresh-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+        lockTimeoutMs: 100,
+      });
+      const freshLockPath = `${freshStore.authPath(home)}.lock`;
+      await writeFile(freshLockPath, "legacy-orphan", { mode: 0o600 });
+      await expect(
+        freshStore.saveProfile(profile, home),
+      ).rejects.toThrow("Timed out waiting for OAuth credential lock");
+      expect(await readFile(freshLockPath, "utf8")).toBe("legacy-orphan");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("saves when a contended lock vanishes mid-wait", async () => {
+    const home = await mkdtemp(join(tmpdir(), "oauth-store-vanish-"));
+    try {
+      const store = createAuthStore<TestTokens>({
+        filename: "test-auth.json",
+        settingsDirName: TEST_SETTINGS_DIR,
+        isTokens: isTestTokens,
+      });
+      const lockPath = `${store.authPath(home)}.lock`;
+      await mkdir(join(home, TEST_SETTINGS_DIR), { recursive: true });
+      await writeFile(lockPath, `${2_147_483_647}`, { mode: 0o600 });
+
+      // Yank the stale lock out from under the waiter: whether the waiter
+      // observes the dead PID, an ENOENT read, or an ENOENT unlink, it must
+      // retry the exclusive create and land the save — never throw ENOENT.
+      const pending = store.saveProfile(
+        {
+          name: "work",
+          tokens: { access: "a", refresh: "r", expiresAt: 1 },
+          createdAt: 1,
+        },
+        home,
+      );
+      await rm(lockPath, { force: true });
+      await expect(pending).resolves.toBeUndefined();
+      expect((await store.loadProfile("work", home))?.tokens.access).toBe(
+        "a",
+      );
     } finally {
       await rm(home, { recursive: true, force: true });
     }
