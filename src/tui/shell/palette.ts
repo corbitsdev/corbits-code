@@ -167,37 +167,60 @@ export function handlePaletteFilterKey(
 }
 
 /**
- * Glyphs some terminals emit for Option+A without setting meta/option.
+ * Composed glyphs a macOS terminal emits for Option+letter when Option is not
+ * Meta (raw/legacy input): the byte stream carries the printable glyph with no
+ * modifier flags, so OpenTUI reports it bare ({name: "∂", meta: false,
+ * option: false}) instead of the flagged chord. Kitty-protocol input already
+ * arrives flagged ({name: "d", meta: true, option: true}) and never hits this
+ * map.
  */
+const OPTION_COMPOSED_BASE: ReadonlyMap<string, string> = new Map([
+  ["∂", "d"],
+  ["´", "e"],
+  ["ç", "c"],
+  ["µ", "m"],
+  ["¥", "y"],
+]);
 const OPTION_A_COMPOSED_CHARS = new Set(["å", "Å"]);
-const OPTION_D_COMPOSED_CHARS = new Set(["∂"]);
 
 /**
- * True when a key event is the model-picker Alt+A add-provider chord.
- * Terminals may deliver Option+A as å/Å without meta/option.
+ * Fold a composed Option glyph into the flagged chord it shadows, in place.
+ * Unknown keys pass through untouched — including Ctrl chords and
+ * already-flagged events, whose names are base ASCII and never in the map.
+ * Sequence and raw retain the terminal's original bytes.
  */
-export function isAddProviderShortcutKey(key: KeyEvent): boolean {
-  if (key.ctrl) return false;
-  const name = typeof key.name === "string" ? key.name : "";
-  const seq = typeof key.sequence === "string" ? key.sequence : "";
-  if ((key.meta || key.option) && name.toLowerCase() === "a") return true;
-  if (OPTION_A_COMPOSED_CHARS.has(name) || OPTION_A_COMPOSED_CHARS.has(seq))
-    return true;
-  return false;
+export function normalizeOptionKey(key: KeyEvent): KeyEvent {
+  if (key.ctrl) return key;
+  const name = typeof key.name === "string" ? key.name.normalize("NFC") : "";
+  const seq =
+    typeof key.sequence === "string" ? key.sequence.normalize("NFC") : "";
+  const base = OPTION_COMPOSED_BASE.get(name) ?? OPTION_COMPOSED_BASE.get(seq);
+  if (base === undefined) return key;
+  key.name = base;
+  key.option = true;
+  return key;
 }
 
-/**
- * True when a key event is the model-picker Alt+D set-default chord.
- * Terminals may deliver Option+D as ∂ without meta/option.
- */
+/** True when a key event is the model-picker Alt+A add-provider chord. */
+export function isAddProviderShortcutKey(key: KeyEvent): boolean {
+  if (key.ctrl) return false;
+  const name = typeof key.name === "string" ? key.name.normalize("NFC") : "";
+  const seq =
+    typeof key.sequence === "string" ? key.sequence.normalize("NFC") : "";
+  if (OPTION_A_COMPOSED_CHARS.has(name) || OPTION_A_COMPOSED_CHARS.has(seq))
+    return true;
+  return (key.meta || key.option) && name.toLowerCase() === "a";
+}
+
+/** True when a key event is the model-picker Alt+D set-default chord. */
 export function isSetDefaultShortcutKey(key: KeyEvent): boolean {
   if (key.ctrl) return false;
-  const name = typeof key.name === "string" ? key.name : "";
-  const seq = typeof key.sequence === "string" ? key.sequence : "";
-  if ((key.meta || key.option) && name.toLowerCase() === "d") return true;
-  if (OPTION_D_COMPOSED_CHARS.has(name) || OPTION_D_COMPOSED_CHARS.has(seq))
-    return true;
-  return false;
+  const name = typeof key.name === "string" ? key.name.normalize("NFC") : "";
+  const seq =
+    typeof key.sequence === "string" ? key.sequence.normalize("NFC") : "";
+  if (OPTION_COMPOSED_BASE.get(name) === "d") return true;
+  if (OPTION_COMPOSED_BASE.get(seq) === "d") return true;
+  return (key.meta || key.option) && name.toLowerCase() === "d";
 }
 
 /**

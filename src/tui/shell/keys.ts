@@ -55,6 +55,7 @@ import {
   handlePaletteFilterKey,
   handleSlashPopupKey,
   MOTION_KEYS,
+  normalizeOptionKey,
   openAtMentionSuggestions,
   openSlashCommands,
   setPromptText,
@@ -278,6 +279,10 @@ export function createShellKeyHandlers(
   };
 
   const onKey = (key: KeyEvent): void => {
+    // Composed Option glyphs (ç for Alt+C, ∂ for Alt+D, …) arrive with no
+    // modifier flags; fold globally claimed chords before dispatch so every
+    // handler sees one form. Unmapped and contextual glyphs pass through.
+    normalizeOptionKey(key);
     if (opts.isDisposed()) return;
     if (shellInternals(shell)?.inputSuspended === true) return;
 
