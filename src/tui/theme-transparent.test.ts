@@ -4,6 +4,7 @@ import { rgbToHex, type CapturedSpan, type RGBA } from "@opentui/core";
 import { defined } from "../../tests/helpers/defined.js";
 import { withTestRenderer } from "./harness.js";
 import { runProviderSetup } from "./provider/setup.js";
+import { setPendingQueue } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
 import { openSettingsOverlay } from "./shell/palette.js";
 import { runWelcome, WELCOME_LINE } from "./welcome.js";
@@ -227,6 +228,78 @@ describe("rendered semantic surfaces", () => {
               }
               expect(contrast(selected.fg, selected.bg)).toBeGreaterThanOrEqual(
                 7,
+              );
+            } finally {
+              shell.dispose();
+            }
+          },
+          { width: 80, height: 24 },
+        );
+      });
+    }
+
+    for (const [mode, env, unselectedAlpha] of [
+      ["default", {}, 255],
+      ["transparent", REQUESTED, 0],
+    ] as const) {
+      test(`${themeName} ${mode} pending selection has opaque backing`, async () => {
+        setTheme(themeName);
+        configureTransparentBackground(env);
+
+        await withTestRenderer(
+          async (h) => {
+            const shell = createAppShell(h.renderer, {
+              terminal: { columns: 80, rows: 24 },
+              wireKeys: true,
+            });
+            try {
+              setPendingQueue(shell, 3);
+              await h.renderOnce();
+              const idle = h.captureSpans();
+              for (const text of ["pad-1", "pad-2", "pad-3"]) {
+                expect(alpha(findSpan(idle.lines, text).bg)).toBe(
+                  unselectedAlpha,
+                );
+              }
+
+              h.pressKey("ARROW_UP");
+              await h.renderOnce();
+              const initialSelection = h.captureSpans();
+              const initialMarker = findSpan(initialSelection.lines, "▸");
+              const initialSelected = findSpan(initialSelection.lines, "pad-3");
+              expect(alpha(initialMarker.bg)).toBe(255);
+              expect(alpha(initialSelected.bg)).toBe(255);
+              expect(
+                rgbToHex(initialSelected.bg).toLowerCase().slice(0, 7),
+              ).toBe(theme.ground);
+              expect(
+                rgbToHex(initialSelected.fg).toLowerCase().slice(0, 7),
+              ).toBe(theme.text);
+              expect(
+                contrast(initialSelected.fg, initialSelected.bg),
+              ).toBeGreaterThanOrEqual(4.5);
+
+              h.pressKey("ARROW_UP");
+              await h.renderOnce();
+              const movedSelection = h.captureSpans();
+              const unselected = findSpan(movedSelection.lines, "pad-3");
+              const selected = findSpan(movedSelection.lines, "pad-2");
+              const untouched = findSpan(movedSelection.lines, "pad-1");
+              expect(alpha(findSpan(movedSelection.lines, "▸").bg)).toBe(255);
+              expect(alpha(selected.bg)).toBe(255);
+              expect(alpha(unselected.bg)).toBe(unselectedAlpha);
+              expect(alpha(untouched.bg)).toBe(unselectedAlpha);
+              expect(rgbToHex(unselected.fg).toLowerCase().slice(0, 7)).toBe(
+                theme.textDim,
+              );
+              expect(rgbToHex(selected.bg).toLowerCase().slice(0, 7)).toBe(
+                theme.ground,
+              );
+              expect(rgbToHex(selected.fg).toLowerCase().slice(0, 7)).toBe(
+                theme.text,
+              );
+              expect(contrast(selected.fg, selected.bg)).toBeGreaterThanOrEqual(
+                4.5,
               );
             } finally {
               shell.dispose();
