@@ -1254,11 +1254,14 @@ export function createPermissionGate(
       // are never cached — the operator made no decision, so the retry must
       // ask again. Invalidation (grant-mint/mode/identity clears) is unchanged.
       // Rebuild the denied ToolCall from the suspended request through the
-      // one canonical helper decide()/evaluate() use, so the recorded key
-      // matches the retry's decide() key: request.tool/arguments are already
-      // post-coercion (run_shell {command}), and callForIdentity re-applies
-      // the same canonicalization idempotently. The synthesized id never
-      // participates (stableRequestId ignores call.id and correlationId).
+      // one canonical helper decide()/evaluate() use. The suspended request
+      // carries post-coercion run_shell {command} only — buildRequests drops
+      // the workdir-scoped cwd — so the recorded key is {command}-keyed while
+      // a same-workdir retry's decide() key is {command, cwd}-keyed: the retry
+      // misses and re-asks (fail-safe, never a bypass). Conversely a cwd-less
+      // retry of the same command hits the workdir record and denies
+      // (fail-closed over-deny). The synthesized id never participates
+      // (stableRequestId ignores call.id and correlationId).
       if (
         outcome !== undefined &&
         !outcome.allow &&

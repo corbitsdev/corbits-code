@@ -193,6 +193,56 @@ describe("hidden-shell decline fingerprint (CL-9341)", () => {
     expect(rawRetry.reason).toBe(verdict.reason);
   });
 
+  test("reactor workdir decline does not suppress the same-workdir raw retry (fail-safe re-ask)", async () => {
+    // In-workspace so the workdir call reaches the operator (an
+    // outside-workspace workdir is denied outright, never asked). The
+    // suspended request carries {command} only (buildRequests drops the
+    // workdir cwd), so the recorded denial key misses the same-workdir
+    // retry's {command, cwd} decide() key and the retry suspends again.
+    const workdir = join(process.cwd(), "tmp-corbits-decline-wd");
+    const { gate, asked } = countingDenyGate(true);
+    const suspended = await gate.authorizeCall(
+      hiddenShellArgvWorkdir("shell-rwd-1", workdir),
+    );
+    if (suspended.effect !== "ask")
+      throw new Error("expected the workdir shell to suspend for approval");
+    const outcome = await gate.resolveSuspended(suspended.request);
+    expect(outcome?.allow).toBe(false);
+    expect(asked()).toBe(1);
+    const rawRetry = await gate.authorizeCall(
+      hiddenShellArgvWorkdir("shell-rwd-2", workdir),
+    );
+    if (rawRetry.effect !== "ask")
+      throw new Error("expected the same-workdir retry to re-ask fail-safe");
+    expect(asked()).toBe(1);
+    const retryOutcome = await gate.resolveSuspended(rawRetry.request);
+    expect(retryOutcome?.allow).toBe(false);
+    expect(asked()).toBe(2);
+  });
+
+  test("reactor workdir decline suppresses the cwd-less same-command retry (fail-closed over-deny)", async () => {
+    // Companion direction: the {command}-keyed workdir record matches a
+    // cwd-less retry of the same command, so it denies without re-asking.
+    const workdir = join(process.cwd(), "tmp-corbits-decline-wd");
+    const { gate, asked } = countingDenyGate(true);
+    const suspended = await gate.authorizeCall(
+      hiddenShellArgvWorkdir("shell-rwdc-1", workdir),
+    );
+    if (suspended.effect !== "ask")
+      throw new Error("expected the workdir shell to suspend for approval");
+    const outcome = await gate.resolveSuspended(suspended.request);
+    expect(outcome?.allow).toBe(false);
+    expect(asked()).toBe(1);
+    const cwdLessRetry = await gate.authorizeCall({
+      id: "shell-rwdc-2",
+      name: "run_shell",
+      arguments: { command: DESTRUCTIVE },
+    });
+    if (cwdLessRetry.effect !== "deny")
+      throw new Error("expected the cwd-less retry denied from denial memory");
+    expect(asked()).toBe(1);
+  });
+
   test("plain run_shell decline still suppresses the fresh-id retry", async () => {
     const { gate, asked } = countingDenyGate(false);
     const args = { command: DESTRUCTIVE };
