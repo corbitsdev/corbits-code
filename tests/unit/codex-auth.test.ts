@@ -157,6 +157,17 @@ describe("accountIdFromIdToken", () => {
     expect(accountIdFromIdToken("not-a-jwt")).toBeUndefined();
     expect(accountIdFromIdToken(makeIdToken({ sub: "x" }))).toBeUndefined();
   });
+
+  test("omits account ids that would split a chatgpt-account-id header", () => {
+    expect(
+      accountIdFromIdToken(
+        makeIdToken({ chatgpt_account_id: "acct\r\ninjected" }),
+      ),
+    ).toBeUndefined();
+    expect(
+      accountIdFromIdToken(makeIdToken({ chatgpt_account_id: "acct\0nul" })),
+    ).toBeUndefined();
+  });
 });
 
 describe("Codex profile store", () => {

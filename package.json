@@ -87,7 +87,7 @@
   },
   "dependencies": {
     "@corbits/agent-intern": "workspace:*",
-    "@corbits/codex-provider": "github:corbitsdev/corbits-codex-provider",
+    "@corbits/codex-provider": "0.1.1",
     "@corbits/oauth-core": "0.2.0",
     "@corbits/openai-responses": "github:corbitsdev/corbits-openai-responses",
     "@corbits/xai-provider": "github:corbitsdev/corbits-xai-provider",
