@@ -318,3 +318,106 @@ test("coordinator ignores errored tool calls", () => {
   );
   expect(rt.currentStep()?.id).toBe("a");
 });
+
+test("CL-8289 pin: capability skip emits reason and satisfied run lands on gated step", () => {
+  const skipped = new WorkflowRuntime(empty, resolver);
+  const skippedEvents = collect(skipped);
+  skipped.start(withGatedStep);
+  skipped.advance();
+  expect(skipped.currentStep()?.id).toBe("c");
+  const skip = skippedEvents.find(
+    (e) => e.type === "step-skip" && e.step.id === "needs-ticket",
+  );
+  expect(skip?.type).toBe("step-skip");
+  if (skip?.type === "step-skip") {
+    expect(skip.reason).toBe("capability not satisfied: ticket-tracker");
+  }
+
+  const satisfied = new WorkflowRuntime(ticketTracker, resolver);
+  satisfied.start(withGatedStep);
+  satisfied.advance();
+  expect(satisfied.currentStep()?.id).toBe("needs-ticket");
+});
+
+test("CL-8289 pin: sub-workflow descends parent to child then pops complete to p3", () => {
+  const rt = new WorkflowRuntime(empty, resolver);
+  const events = collect(rt);
+  rt.start(parent);
+  expect(rt.currentStep()?.id).toBe("p1");
+  rt.advance();
+  expect(rt.currentStep()?.id).toBe("c1");
+  rt.advance();
+  expect(rt.currentStep()?.id).toBe("p3");
+  expect(events.map((e) => e.type)).toEqual([
+    "step-start",
+    "step-complete",
+    "step-start",
+    "step-complete",
+    "step-complete",
+    "step-start",
+  ]);
+});
+
+test("CL-8289 pin: optional missing sub-workflow skips with not-found prefix", () => {
+  const optionalMissing: Workflow = {
+    name: "optional-missing",
+    description: "optional absent child",
+    steps: [{ id: "o", label: "O", workflow: "nope", optional: true }],
+  };
+  const rt = new WorkflowRuntime(empty, (n) =>
+    n === "optional-missing" ? optionalMissing : undefined,
+  );
+  const events = collect(rt);
+  rt.start(optionalMissing);
+  expect(rt.isComplete()).toBe(true);
+  const skip = events.find((e) => e.type === "step-skip");
+  expect(skip?.type).toBe("step-skip");
+  if (skip?.type === "step-skip") {
+    expect(skip.reason.startsWith("sub-workflow not found: ")).toBe(true);
+    expect(skip.reason).toBe("sub-workflow not found: nope");
+  }
+});
+
+test("CL-8289 pin: required missing sub-workflow throws not-found text", () => {
+  const requiredMissing: Workflow = {
+    name: "required-missing",
+    description: "required absent child",
+    steps: [{ id: "r", label: "R", workflow: "nope" }],
+  };
+  const rt = new WorkflowRuntime(empty, (n) =>
+    n === "required-missing" ? requiredMissing : undefined,
+  );
+  expect(() => rt.start(requiredMissing)).toThrow(
+    'Sub-workflow "nope" not found in registry',
+  );
+});
+
+test("CL-8289 pin: depth limit throws nesting text", () => {
+  const cyclic: Workflow = {
+    name: "cyclic",
+    description: "calls itself",
+    steps: [{ id: "loop", label: "Loop", workflow: "cyclic" }],
+  };
+  const rt = new WorkflowRuntime(empty, (n) =>
+    n === "cyclic" ? cyclic : undefined,
+  );
+  expect(() => rt.start(cyclic)).toThrow(
+    'Workflow nesting exceeded the limit of 3 (at "cyclic")',
+  );
+});
+
+test("CL-8289 pin: two-step golden transcript", () => {
+  const rt = new WorkflowRuntime(empty, resolver);
+  const events = collect(rt);
+  rt.start(simple);
+  rt.advance();
+  rt.advance();
+  expect(rt.isComplete()).toBe(true);
+  expect(events.map((e) => e.type)).toEqual([
+    "step-start",
+    "step-complete",
+    "step-start",
+    "step-complete",
+    "workflow-complete",
+  ]);
+});

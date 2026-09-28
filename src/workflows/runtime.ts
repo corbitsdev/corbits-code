@@ -180,58 +180,67 @@ export class WorkflowRuntime {
         continue;
       }
 
-      const resolution = resolveStep(step, this.capabilities);
-      if (!resolution.runnable) {
-        frame.statuses[frame.stepIndex] = "skipped";
-        this.emit({
-          type: "step-skip",
-          workflow: workflow.name,
-          step,
-          reason: resolution.skippedReason ?? "not runnable",
-        });
-        frame.stepIndex += 1;
-        continue;
-      }
+      if (this.invokeStep(frame, workflow, step)) return;
+      else continue;
+    }
+  }
 
-      if (step.workflow !== undefined) {
-        const nested = this.resolve(step.workflow);
-        if (nested === undefined) {
-          if (step.optional === true) {
-            frame.statuses[frame.stepIndex] = "skipped";
-            this.emit({
-              type: "step-skip",
-              workflow: workflow.name,
-              step,
-              reason: `sub-workflow not found: ${step.workflow}`,
-            });
-            frame.stepIndex += 1;
-            continue;
-          }
-          throw new Error(
-            `Sub-workflow "${step.workflow}" not found in registry`,
-          );
-        }
-        if (this.stack.length >= MAX_WORKFLOW_DEPTH) {
-          throw new Error(
-            `Workflow nesting exceeded the limit of ${MAX_WORKFLOW_DEPTH} (at "${step.workflow}")`,
-          );
-        }
-        frame.statuses[frame.stepIndex] = "active";
-        this.stack.push(frameFor(nested));
-        continue;
-      }
-
-      // Landed on an executable step.
-      frame.statuses[frame.stepIndex] = "active";
+  private invokeStep(
+    frame: WorkflowFrame,
+    workflow: Workflow,
+    step: WorkflowStep,
+  ): boolean {
+    const resolution = resolveStep(step, this.capabilities);
+    if (!resolution.runnable) {
+      frame.statuses[frame.stepIndex] = "skipped";
       this.emit({
-        type: "step-start",
+        type: "step-skip",
         workflow: workflow.name,
         step,
-        index: frame.stepIndex,
-        total: workflow.steps.length,
+        reason: resolution.skippedReason ?? "not runnable",
       });
-      return;
+      frame.stepIndex += 1;
+      return false;
     }
+
+    if (step.workflow !== undefined) {
+      const nested = this.resolve(step.workflow);
+      if (nested === undefined) {
+        if (step.optional === true) {
+          frame.statuses[frame.stepIndex] = "skipped";
+          this.emit({
+            type: "step-skip",
+            workflow: workflow.name,
+            step,
+            reason: `sub-workflow not found: ${step.workflow}`,
+          });
+          frame.stepIndex += 1;
+          return false;
+        }
+        throw new Error(
+          `Sub-workflow "${step.workflow}" not found in registry`,
+        );
+      }
+      if (this.stack.length >= MAX_WORKFLOW_DEPTH) {
+        throw new Error(
+          `Workflow nesting exceeded the limit of ${MAX_WORKFLOW_DEPTH} (at "${step.workflow}")`,
+        );
+      }
+      frame.statuses[frame.stepIndex] = "active";
+      this.stack.push(frameFor(nested));
+      return false;
+    }
+
+    // Landed on an executable step.
+    frame.statuses[frame.stepIndex] = "active";
+    this.emit({
+      type: "step-start",
+      workflow: workflow.name,
+      step,
+      index: frame.stepIndex,
+      total: workflow.steps.length,
+    });
+    return true;
   }
 
   state(): WorkflowState {
