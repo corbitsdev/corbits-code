@@ -325,6 +325,47 @@ describe("commandReferencesSensitivePath", () => {
   }
 });
 
+describe("secret-guard glob narrowing (CL-8999)", () => {
+  let savedUnknown: string | undefined;
+
+  beforeEach(() => {
+    savedUnknown = process.env.UNKNOWN_X;
+    delete process.env.UNKNOWN_X;
+  });
+
+  afterEach(() => {
+    if (savedUnknown === undefined) delete process.env.UNKNOWN_X;
+    else process.env.UNKNOWN_X = savedUnknown;
+  });
+  // `?`/`[` fire only on file-operand-shaped tokens: URLs, regex operands,
+  // and the `[` test builtin itself must not prompt.
+  const allowed = [
+    "curl https://api.example.com/search?q=term",
+    "grep -E colou?r file.txt",
+    "grep 'colou?r' file.txt",
+    "grep [0-9] file.txt",
+    "grep '[0-9]' file.txt",
+    "[ -f Makefile ]",
+  ];
+  for (const c of allowed) {
+    test(`allows: ${c}`, () =>
+      expect(commandReferencesSensitivePath(c)).toBeUndefined());
+  }
+
+  // Dotfile-rooted `*` globs deterministically match `.env` in any realistic
+  // cwd, so they prompt; bare `*` cannot match a leading dot and stays free.
+  const blocked = ["cat .*", "cat .env*", "cat ${UNKNOWN_X:=.env*}"];
+  for (const c of blocked) {
+    test(`flags: ${c}`, () =>
+      expect(commandReferencesSensitivePath(c)).toBeDefined());
+  }
+
+  test("keeps bare * allowed", () => {
+    expect(commandReferencesSensitivePath("cat *")).toBeUndefined();
+    expect(commandReferencesSensitivePath("cat *.txt")).toBeUndefined();
+  });
+});
+
 describe("commandReferencesSensitivePath shell-variable expansion (CL-8999)", () => {
   const CFG_VALUE = "/tmp/cl-8999-cfg/.corbits";
   let savedCFG: string | undefined;

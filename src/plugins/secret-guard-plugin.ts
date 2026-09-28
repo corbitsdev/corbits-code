@@ -209,10 +209,17 @@ export function createExtraDeniedPathMatcher(
 // dynamic construction of a path the matcher never sees as one token — e.g.
 // indirection through an unrelated variable (`F=.en; cat ${F}v`), character-by-
 // character assembly (`printf`), or reading via an interpreter that builds the
-// name at runtime. Unexpanded globs are the same class: `cat *` can open a
-// symlink the matcher only ever saw as `*`. Perfect shell sandboxing is out
-// of scope; the goal is to force a prompt for the trivial, single-token
-// references that make exfiltration easy. Tool-result secret scrub still redacts credential-shaped output.
+// name at runtime. Unexpanded globs are narrowed, not closed: `?`/`[` prompt
+// only on file-operand-shaped tokens — URLs (`…?q=…`), regex operands
+// (`grep -E colou?r`), and bare `[`/`]` test syntax are exempt, and a pattern
+// with no `.`, `/`, or `\` cannot match a dotfile secret anyway — while `*`
+// prompts only when dotfile-rooted (`.*`, `.env*`) or lexically sensitive
+// (`*.pem`). What stays allowed, and why: bare `*` / `*.txt` cannot match a
+// leading dot and would fire on every benign `cat *`; non-dotfile-rooted `*`
+// (`.config/*`) and dotless-secret `?`/`[` forms (`id_rs?`) are already
+// reachable through bare `*`, so closing them alone buys nothing. Perfect
+// shell sandboxing is out of scope; the goal is to force a prompt for the
+// trivial, single-token references that make exfiltration easy. Tool-result secret scrub still redacts credential-shaped output.
 // Programs that only print directory names / metadata — listing a name never
 // dumps file contents. Single owner for this set: the resolve-leg skip below
 // and classify.ts's pure-listing exemption both read it, so a new names-only
@@ -229,9 +236,13 @@ export const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
 // unexpanded pattern, so `cat *.txt` cannot resolve without running the
 // shell — but a glob CAN expand into a symlink at runtime, which stays a
 // stated residual (see the threat model above), not something this filter
-// disproves. `?` and `[…]` patterns are not skipped: `cat .en?` reads `.env`
-// while the matcher only ever sees the pattern, so they fail closed to a
-// prompt in isSensitiveShellToken instead of resolving here.
+// disproves. The one exception lives in isSensitiveShellToken: dotfile-rooted
+// `*` patterns (`.*`, `.env*`) deterministically match `.env`, so they fail
+// closed to a prompt there. `?` and `[…]` patterns are likewise not skipped:
+// `cat .en?` reads `.env` while the matcher only ever sees the pattern, so
+// file-operand-shaped ones fail closed to a prompt in isSensitiveShellToken
+// instead of resolving here (URLs, regex operands, and bare `[`/`]` test
+// syntax are exempt — see that check).
 function isPathLikeShellToken(token: string): boolean {
   if (token.startsWith("-") || token.includes("*") || token.includes("`"))
     return false;
@@ -370,6 +381,16 @@ function isBareProbeCandidate(token: string): boolean {
   );
 }
 
+// Final path segment starts with a literal dot and holds a `*`: `.*`,
+// `.env*`, `sub/.*`. Bare `*` / `*.txt` never match a leading dot under
+// default shell semantics, so they stay out — as does anything rooted outside
+// a dotfile name (`.config/*`).
+function isDotfileRootedGlob(token: string): boolean {
+  if (!token.includes("*")) return false;
+  const segment = token.split(/[/\\]/).at(-1) ?? token;
+  return segment.startsWith(".") && segment.includes("*");
+}
+
 // CL-7790: the ONE shell-token matcher both secret-guard call sites share —
 // commandReferencesSensitivePath below and classify.ts's per-arg sensitive
 // check. The cheap lexical denylist runs first so the hot auto-allow path
@@ -421,9 +442,38 @@ export function isSensitiveShellToken(
   // A `?` or `[` glob expands at runtime into whatever names match, so the
   // matcher only ever sees the pattern while the shell can open a secret
   // (`cat .en?` and `cat .en[v]` both read `.env`). Fail closed to a prompt —
-  // the dual of the `*` exclusions in the filters above, which stay untouched.
-  // After the cmd device-path exemption so `\\?\…` names keep working.
-  if (expanded.includes("?") || expanded.includes("[")) return true;
+  // but only for file-operand-shaped tokens. The unscoped rule fired on
+  // non-file operands: query strings (`curl …/search?q=term`), regex operands
+  // (`grep -E colou?r`, `grep [0-9]`), and the `[` test builtin itself
+  // (`[ -f Makefile ]`). Three exemptions, each too narrow to reopen a
+  // bypass: tokens containing `://` are URLs, never a local file the shell
+  // opens (the lexical denylist above still catches `file://…/.env`); bare
+  // `[`/`]`/`[[`/`]]` are test syntax, not globs; and a `?`/`[` pattern with
+  // no `.`, `/`, or `\` cannot name a dotfile secret — `?`/`[…]` never match
+  // a leading dot under default shell semantics, so the literal dot must be
+  // present. Dotless secrets (`id_rsa`, `Cookies`) stay reachable through the
+  // accepted bare-`*` residual below, so exempting their `?`/`[` forms adds
+  // no new bypass. After the cmd device-path exemption so `\\?\…` names keep
+  // working.
+  if (
+    (expanded.includes("?") || expanded.includes("[")) &&
+    !expanded.includes("://") &&
+    expanded !== "[" &&
+    expanded !== "]" &&
+    expanded !== "[[" &&
+    expanded !== "]]" &&
+    (expanded.includes(".") ||
+      expanded.includes("/") ||
+      expanded.includes("\\"))
+  )
+    return true;
+  // Dotfile-rooted `*` globs (`.*`, `.env*`) deterministically match `.env`
+  // in any realistic cwd, so they prompt — the carve-out from the `*`
+  // exclusions in the filters above. Bare `*` / `*.txt` cannot match a
+  // leading dot and stay allowed, as do `*` globs rooted outside a dotfile
+  // name (`.config/*`). Runs post-expansion, so `${UNKNOWN_X:=.env*}`
+  // prompts while `${UNKNOWN_X:=fallback.txt}` stays free.
+  if (isDotfileRootedGlob(expanded)) return true;
   if (isPathLikeShellToken(expanded)) {
     if (isAbsolute(expanded)) {
       return (
