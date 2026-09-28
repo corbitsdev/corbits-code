@@ -72,6 +72,7 @@ describe("createOAuthProvider", () => {
     );
     const disk = await loadAuthState(linear, home);
     expect(disk.clientInformation).toBeUndefined();
+    expect((disk as { codeVerifier?: string }).codeVerifier).toBeUndefined();
   });
 
   test("keeps registered client and tokens when only the loopback port changed", async () => {
@@ -234,6 +235,38 @@ describe("createOAuthProvider", () => {
     );
     expect(await readFile(authFilePath(linear, home), "utf8")).not.toContain(
       "codeVerifier",
+    );
+  });
+
+  test("saveTokens does not re-persist a legacy on-disk verifier", async () => {
+    const home = await tempHome();
+    await mkdir(dirname(authFilePath(linear, home)), { recursive: true });
+    await writeFile(
+      authFilePath(linear, home),
+      JSON.stringify({
+        clientInformation: clientInfo(62000),
+        codeVerifier: "legacy-verifier",
+      }),
+    );
+
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await provider.saveTokens({
+      access_token: "tok-a",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "ref-a",
+    });
+
+    const raw = await readFile(authFilePath(linear, home), "utf8");
+    expect(raw).not.toContain("codeVerifier");
+    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
+      "tok-a",
     );
   });
 
@@ -410,9 +443,49 @@ describe("createOAuthProvider", () => {
       refresh_token: "ref-a",
     });
 
-    await saveAuthState(linear, { clientInformation: clientInfo(60435) }, home);
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:60435/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(b, clientInfo(60435));
 
     expect((await syncValue(a.tokens()))?.access_token).toBe("tok-a");
+    expect((await loadAuthState(linear, home)).tokens?.access_token).toBe(
+      "tok-a",
+    );
+  });
+
+  test("propagates a sibling logout to an existing provider", async () => {
+    const home = await tempHome();
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await a.saveTokens({
+      access_token: "tok-a",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "ref-a",
+    });
+    expect((await syncValue(b.tokens()))?.access_token).toBe("tok-a");
+
+    await b.resetAuthorization();
+
+    expect(await syncValue(a.tokens())).toBeUndefined();
+    expect((await loadAuthState(linear, home)).tokens).toBeUndefined();
   });
 
   test("does not adopt a different-port sibling DCR client without tokens", async () => {

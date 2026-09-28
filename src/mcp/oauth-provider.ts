@@ -135,6 +135,7 @@ export async function createOAuthProvider(
       identity,
       (state) => {
         dropStaleClientRegistration(state, opts.redirectUrl);
+        delete (state as { codeVerifier?: string }).codeVerifier;
       },
       home,
     );
@@ -177,7 +178,12 @@ export async function createOAuthProvider(
     if (next === undefined) return;
     seenStamp = stamp;
     const adoptClient = shouldAdoptClient(stored, next, opts.redirectUrl);
-    assignTokens(stored, next);
+    // A durable read that succeeds with no tokens key is an explicit logout
+    // (sibling resetAuthorization) — clear the mirror. A missing, corrupt, or
+    // unreadable file reads as undefined above and keeps the mirror, as does a
+    // sibling client-only write that preserves tokens through the merge chain.
+    if (next.tokens === undefined) delete stored.tokens;
+    else stored.tokens = next.tokens;
     if (adoptClient) assignClient(stored, next);
   };
 
