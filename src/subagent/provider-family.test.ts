@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   detectModelFamily,
+  isAstraLeafProvider,
   isClaudeLeafProvider,
   isGptProvider,
   isKimiLeafProvider,
@@ -229,16 +230,23 @@ describe("isGptProvider (CL-8310)", () => {
     ).toBe(true);
   });
 
-  test("covers every in-tree codex catalog model without naming cells", () => {
-    // No terra/sol/astra special-casing: every served codex id resolves via
-    // the generic codex-provider / gpt-* match, so future cells ride along.
+  test("astra branches to its own family; other cells ride the generic gpt match", () => {
+    // CL-9027 reverses the no-special-casing rule for astra only: the
+    // gpt-6-astra cell doom-loops, so it resolves to the astra family while
+    // sol/terra/luna and generic gpt ids keep the generic gpt match.
     for (const model of CODEX_DEFAULT_MODELS) {
       expect(isGptProvider({ providerName: "codex/default", model })).toBe(
         true,
       );
-      expect(detectModelFamily({ providerName: "codex/default", model })).toBe(
-        "gpt",
-      );
+      const family = detectModelFamily({
+        providerName: "codex/default",
+        model,
+      });
+      if (model.toLowerCase().startsWith("gpt-6-astra")) {
+        expect(family).toBe("astra");
+      } else {
+        expect(family).toBe("gpt");
+      }
     }
   });
 
@@ -262,5 +270,51 @@ describe("isGptProvider (CL-8310)", () => {
       }),
     ).toBe(false);
     expect(isGptProvider({ providerName: "anthropic" })).toBe(false);
+  });
+});
+
+describe("isAstraLeafProvider (CL-9027)", () => {
+  test("matches the served gpt-6-astra cell id on any provider", () => {
+    expect(
+      isAstraLeafProvider({
+        providerName: "codex/default",
+        model: "gpt-6-astra",
+      }),
+    ).toBe(true);
+    expect(
+      isAstraLeafProvider({
+        providerName: "openai-compat",
+        model: "GPT-6-ASTRA",
+      }),
+    ).toBe(true);
+    expect(
+      detectModelFamily({
+        providerName: "codex/default",
+        model: "gpt-6-astra",
+      }),
+    ).toBe("astra");
+  });
+
+  test("rejects sol, generic gpt, and other families", () => {
+    for (const input of [
+      { providerName: "codex/default", model: "gpt-5.6-sol" },
+      { providerName: "codex/default", model: "gpt-5.6-terra" },
+      { providerName: "codex/default", model: "gpt-5.6-luna" },
+      { providerName: "openai", model: "gpt-5.6" },
+      { providerName: "codex", model: "gpt-5.1" },
+      { providerName: "xai/default", model: "grok-4.6" },
+      { providerName: "anthropic", model: "claude-sonnet-4" },
+    ] as const) {
+      expect(isAstraLeafProvider(input)).toBe(false);
+    }
+    expect(
+      detectModelFamily({
+        providerName: "codex/default",
+        model: "gpt-5.6-sol",
+      }),
+    ).toBe("gpt");
+    expect(
+      detectModelFamily({ providerName: "openai", model: "gpt-5.6" }),
+    ).toBe("gpt");
   });
 });

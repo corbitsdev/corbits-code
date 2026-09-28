@@ -200,4 +200,200 @@ describe("resolveModelFamilyPolicy", () => {
     expect(gpt.toolDisciplineRules).toBeUndefined();
     expect(gpt.advertisedToolDeny).toEqual([]);
   });
+
+  describe("astra repro trace (CL-9027)", () => {
+    // Minimal failing session-trace fixture: 8 consecutive tool-only turns
+    // from a gpt-6-astra leaf (tool names + args + result sizes per turn).
+    // Fingerprint and repeat-count semantics mirror
+    // scripts/tool-fingerprint-forensics.ts (stableJson exact signatures,
+    // largest exact-repeat count per period 1-6): the shared threshold guard
+    // fires only on exact repeats, so a loop that varies trivial argument
+    // details escapes it. That is evasion, not threshold-tolerated waste —
+    // and the Step-3 residual forbids exactly this variation. The
+    // near-identical grouping below is test-only forensics; no signature
+    // normalization ships in first-party code.
+    interface ReproTurn {
+      tool: string;
+      args: Record<string, unknown>;
+      resultTokens: number;
+    }
+    const ASTRA_REPRO_TRACE: readonly ReproTurn[] = [
+      {
+        tool: "read",
+        args: { path: "src/agent/prompts.ts" },
+        resultTokens: 3200,
+      },
+      {
+        tool: "read",
+        args: { path: "./src/agent/prompts.ts" },
+        resultTokens: 3200,
+      },
+      {
+        tool: "read",
+        args: { path: "src/agent/prompts.ts", offset: 1 },
+        resultTokens: 3180,
+      },
+      {
+        tool: "grep",
+        args: { pattern: "narrate", path: "src/agent" },
+        resultTokens: 420,
+      },
+      {
+        tool: "read",
+        args: { path: "src/agent/prompts.ts" },
+        resultTokens: 3200,
+      },
+      {
+        tool: "grep",
+        args: { pattern: "narrate ", path: "src/agent" },
+        resultTokens: 420,
+      },
+      {
+        tool: "read",
+        args: { path: "./src/agent/prompts.ts", limit: 2000 },
+        resultTokens: 3200,
+      },
+      {
+        tool: "read",
+        args: { path: "src/agent/prompts.ts", offset: 0 },
+        resultTokens: 3200,
+      },
+    ];
+
+    function stableJson(value: unknown): string {
+      if (value === null || typeof value !== "object")
+        return JSON.stringify(value);
+      if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+      const obj = value as Record<string, unknown>;
+      const keys = Object.keys(obj).sort();
+      return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(",")}}`;
+    }
+
+    function fingerprint(turn: ReproTurn): string {
+      return `${turn.tool}:${stableJson(turn.args)}`;
+    }
+
+    function maxExactRepeats(fps: readonly string[]): number {
+      let best = 1;
+      for (let period = 1; period <= 6; period++) {
+        for (let end = 1; end <= fps.length; end++) {
+          const prefix = fps.slice(0, end);
+          let i = prefix.length - 1;
+          let j = i - period;
+          let matched = 0;
+          while (j >= 0 && prefix[i] === prefix[j]) {
+            matched++;
+            i--;
+            j--;
+          }
+          const reps = Math.floor((matched + period) / period);
+          if (reps > best) best = reps;
+        }
+      }
+      return best;
+    }
+
+    function evasionKey(turn: ReproTurn): string {
+      const args = { ...turn.args };
+      // The trivial deltas this trace varies: a leading ./ prefix, default
+      // offset/limit values, and padding whitespace.
+      if (typeof args.path === "string")
+        args.path = args.path.replace(/^\.\//, "");
+      if (args.offset === 0 || args.offset === 1) delete args.offset;
+      if (typeof args.limit === "number") delete args.limit;
+      if (typeof args.pattern === "string") args.pattern = args.pattern.trim();
+      return `${turn.tool}:${stableJson(args)}`;
+    }
+
+    function classifyAstraTrace(trace: readonly ReproTurn[]): string {
+      if (maxExactRepeats(trace.map(fingerprint)) >= 3) return "waste";
+      const groups = new Map<string, number>();
+      for (const turn of trace) {
+        const key = evasionKey(turn);
+        groups.set(key, (groups.get(key) ?? 0) + 1);
+      }
+      return Math.max(...groups.values()) >= 3 ? "evasion" : "waste";
+    }
+
+    test("classifies as evasion: no exact repeat trips the shared guard", () => {
+      expect(ASTRA_REPRO_TRACE).toHaveLength(8);
+      expect(maxExactRepeats(ASTRA_REPRO_TRACE.map(fingerprint))).toBeLessThan(
+        3,
+      );
+      expect(classifyAstraTrace(ASTRA_REPRO_TRACE)).toBe("evasion");
+    });
+
+    test("pins the offending pattern and the wasted turn/token delta", () => {
+      const groups = new Map<string, number>();
+      for (const turn of ASTRA_REPRO_TRACE) {
+        const key = evasionKey(turn);
+        groups.set(key, (groups.get(key) ?? 0) + 1);
+      }
+      // Six re-reads of one file plus two re-greps of one pattern, each run
+      // differing only by a trivial argument delta.
+      expect(groups.get('read:{"path":"src/agent/prompts.ts"}')).toBe(6);
+      expect(groups.get('grep:{"path":"src/agent","pattern":"narrate"}')).toBe(
+        2,
+      );
+      const wastedTokens = ASTRA_REPRO_TRACE.reduce(
+        (sum, turn) => sum + turn.resultTokens,
+        0,
+      );
+      expect(wastedTokens).toBe(20020);
+    });
+  });
+
+  test("astra resolves to astra with the composed residual; thresholds stay default (CL-9027)", () => {
+    const base = resolveModelFamilyPolicy({
+      providerName: "unknown-provider",
+      model: "unknown-model",
+    });
+    const gpt = resolveModelFamilyPolicy({
+      providerName: "openai",
+      model: "gpt-5.6",
+    });
+    for (const orchestrator of [false, true]) {
+      const astra = resolveModelFamilyPolicy({
+        providerName: "codex/default",
+        model: "gpt-6-astra",
+        orchestrator,
+      });
+      expect(astra.family).toBe("astra");
+      // Keeps the gpt narrate nudge and adds the evasion-specific rules.
+      expect(astra.promptResidual).toContain(
+        "Narrate before tools (GPT worker):",
+      );
+      expect(astra.promptResidual).toContain("trivial argument changes");
+      expect(astra.promptResidual).not.toBe(gpt.promptResidual);
+      // Evasion earns a forbidding residual, not tighter thresholds.
+      expect(astra.toolOnlyTurnNudgeAt).toBe(base.toolOnlyTurnNudgeAt);
+      expect(astra.subAgentStallTimeoutMs).toBe(base.subAgentStallTimeoutMs);
+      expect(astra.applyGrokFinishBias).toBe(false);
+      expect(astra.toolDisciplineRules).toBeUndefined();
+      expect(astra.advertisedToolDeny).toEqual([]);
+    }
+  });
+
+  test("sol and generic gpt stay gpt with the byte-identical narrate residual", () => {
+    const generic = resolveModelFamilyPolicy({
+      providerName: "openai",
+      model: "gpt-5.6",
+    });
+    for (const model of [
+      "gpt-5.6-sol",
+      "gpt-5.5",
+      "gpt-5.6-luna",
+      "gpt-5.6-terra",
+    ] as const) {
+      for (const orchestrator of [false, true]) {
+        const policy = resolveModelFamilyPolicy({
+          providerName: "codex/default",
+          model,
+          orchestrator,
+        });
+        expect(policy.family).toBe("gpt");
+        expect(policy.promptResidual).toBe(generic.promptResidual);
+      }
+    }
+  });
 });

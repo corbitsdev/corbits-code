@@ -3,6 +3,7 @@ import {
   type ModelFamily,
 } from "../subagent/provider-family.js";
 import {
+  astraResidual,
   claudeRow,
   gptRow,
   grokRow,
@@ -164,9 +165,12 @@ const CLAUDE_POLICY: Omit<ModelFamilyPolicy, "family"> = {
 // Deliberately not manage_tasks ceremony — that is CL-7769, not this text.
 // The text lives here (policy owns data); buildGptNarrateBeforeToolsNote
 // (prompts.ts) returns it verbatim so the prompt carries exactly one copy.
-// Served cells (astra/sol/terra/…) are never named here — CL-8265
-// characterizes them later. Single-sourced from the versioned
-// prompt-variance package (CL-8269); the name stays for existing importers.
+// Served cells (sol/terra/…) are never named here — CL-8265 characterizes
+// them later. Astra is the one exception: forensics (CL-9027) showed the
+// gpt-6-astra cell evading the shared threshold guard via trivial argument
+// deltas, so it carries its own residual below. Single-sourced from the
+// versioned prompt-variance package (CL-8269); the name stays for existing
+// importers.
 export const GPT_NARRATE_BEFORE_TOOLS_NOTE = gptRow.residual;
 
 // GPT (Codex / gpt-*) thresholds are provisional: we have no eval
@@ -179,6 +183,21 @@ const GPT_POLICY: Omit<ModelFamilyPolicy, "family"> = {
   // Primary and leaf alike, so unlike the grok finish-bias there is no
   // orchestrator carve-out: the resolver below returns this as-is.
   promptResidual: GPT_NARRATE_BEFORE_TOOLS_NOTE,
+};
+
+// Astra (served gpt-6-astra cell) is GPT plus the evasion residual. Forensics
+// on the repro trace (see model-family-policy.test.ts) classified the loop as
+// evasion — near-identical re-issued calls whose trivial argument deltas keep
+// every exact fingerprint under the shared threshold — so the residual forbids
+// that specific variation (muse-rule precedent, CL-7869) instead of tightening
+// thresholds: toolOnlyTurnNudgeAt stays at the permissive default. No
+// signature normalization ships in first-party code.
+export const ASTRA_PROMPT_RESIDUAL = `${GPT_NARRATE_BEFORE_TOOLS_NOTE}\n${astraResidual}`;
+
+const ASTRA_POLICY: Omit<ModelFamilyPolicy, "family"> = {
+  ...GPT_POLICY,
+  // Like gpt, primary and leaf alike: no orchestrator carve-out.
+  promptResidual: ASTRA_PROMPT_RESIDUAL,
 };
 
 export function resolveModelFamilyPolicy(input: {
@@ -217,6 +236,10 @@ export function resolveModelFamilyPolicy(input: {
     case "gpt":
       // Primary and leaf alike: no orchestrator carve-out.
       return { family, ...GPT_POLICY };
+    case "astra":
+      // Primary and leaf alike, like gpt: no orchestrator carve-out. Generic
+      // gpt prompts are byte-identical — only astra carries the residual.
+      return { family, ...ASTRA_POLICY };
     default:
       return { family: "default", ...DEFAULT_POLICY };
   }
