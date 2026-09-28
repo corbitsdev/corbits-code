@@ -1,6 +1,10 @@
 import { fromToolRunner, stringTool } from "@intx/agent";
 import type { AgentTool } from "@intx/agent";
-import type { ToolCall, ToolDefinition } from "@intx/types/runtime";
+import type {
+  RetryPolicy,
+  ToolCall,
+  ToolDefinition,
+} from "@intx/types/runtime";
 import { type } from "arktype";
 import { createPosixTools, type ToolPlugin } from "@intx/tools-posix";
 import {
@@ -268,6 +272,10 @@ export interface AgentToolsetArgs {
     // Opt-in: dispatch each sub-agent into its own git worktree instead of
     // sharing this session's cwd. See src/subagent/worktree.ts.
     useWorktree?: boolean;
+    // Retry-timing overrides forwarded to each spawned run — same seam the
+    // fleet deps document for tests; production callers omit them.
+    outerRetryDelayMs?: number;
+    retryPolicy?: RetryPolicy;
   };
   /**
    * Retained so callers that still pass the Codex family flag do not break.
@@ -600,6 +608,12 @@ export async function createAgentToolset(
         fleetRecords,
         ...(sa.useWorktree !== undefined
           ? { useWorktree: sa.useWorktree }
+          : {}),
+        ...(sa.outerRetryDelayMs !== undefined
+          ? { outerRetryDelayMs: sa.outerRetryDelayMs }
+          : {}),
+        ...(sa.retryPolicy !== undefined
+          ? { retryPolicy: sa.retryPolicy }
           : {}),
         ...(sa.onEvent !== undefined ? { onEvent: sa.onEvent } : {}),
         ...(sa.onProgress !== undefined ? { onProgress: sa.onProgress } : {}),

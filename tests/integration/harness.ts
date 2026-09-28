@@ -20,13 +20,18 @@ import {
   type Agent,
 } from "@intx/agent";
 import { noopAuditStore, permissiveAuthorize } from "@intx/agent/testing";
-import type { AuthzCallResult } from "@intx/inference";
+import type { AuthzCallResult, Dependencies } from "@intx/inference";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import { setupHarness, type Harness } from "@intx/inference-testing";
+import {
+  setupHarness,
+  type Harness,
+  type SetupHarnessOpts,
+} from "@intx/inference-testing";
 import type {
   ContextTransform,
   ContextStore,
   InferenceSource,
+  RetryPolicy,
   ToolDefinition,
 } from "@intx/types/runtime";
 import { type } from "arktype";
@@ -40,8 +45,12 @@ import { OPERATOR_ORIGINATED_FLAG } from "../../src/agent/message-provenance.js"
 import {
   readSourceCredentialMaterial,
   registerSourceCredentialRecord,
+  type SourceCredentialRecord,
 } from "../../src/config/source-credentials.js";
 import { createAgentToolset } from "../../src/agent/tools.js";
+import type { ToolAvailability } from "../../src/agent/tool-search.js";
+import type { SubAgentProvider } from "../../src/subagent/index.js";
+import type { SubAgentSessionStore } from "../../src/subagent/index.js";
 import { ID_PREFIX } from "../../src/branding.js";
 import type { PermissionGate } from "../../src/permission/gate.js";
 import { createOptimizedContextStore } from "../../src/session/optimized-context-store.js";
@@ -87,6 +96,8 @@ export interface IntegrationSession {
   workdir: string;
   agent: Agent;
   toolset: Awaited<ReturnType<typeof createAgentToolset>>;
+  /** The live chat director — credential-recovery arming lives on it. */
+  chatDirector: ChatDirector;
   updateToolDefinitions: (definitions: ToolDefinition[]) => void;
 }
 
@@ -111,16 +122,72 @@ export interface OpenIntegrationSessionOpts {
    * calibrated growth volumes still fold instead of fitting the live tail.
    */
   compactionShape?: Partial<CompactionShape>;
+  /**
+   * Mounts the real fleet tools (spawn_agent plus lifecycle verbs) on the
+   * session toolset, mirroring the exec runner's `subAgent` block. The
+   * worker's inference still resolves through `assembleInferenceBase` —
+   * callers route it onto this session's harness the same way
+   * tests/integration/subagent-permission.test.ts does.
+   */
+  subAgent?: {
+    provider: SubAgentProvider;
+    sessions: SubAgentSessionStore;
+    /** Fast retry overrides for spawned runs — see `CreateAgentFleetDeps`. */
+    outerRetryDelayMs?: number;
+    retryPolicy?: RetryPolicy;
+  };
+  /** Exec-primary opt-in; see `mountWaitAgents` on the toolset. */
+  mountWaitAgents?: boolean;
+  /** Fixed advertised availability for the session's life, as in production. */
+  toolAvailability?: ToolAvailability;
+  /**
+   * Forwarded to setupHarness — e.g. `enableInferenceTimers: true` so
+   * retry-delay timers fire in virtual time; without it a scripted
+   * retryable error response parks the send forever.
+   */
+  harnessOpts?: SetupHarnessOpts;
+  /**
+   * Replace the default single-source stack (e.g. a scenario that fails over
+   * to a second provider). `defaultSourceId` defaults to the first entry.
+   */
+  sources?: InferenceSource[];
+  defaultSourceId?: string;
+  /**
+   * Extra credential records registered beside the shared fixture key —
+   * distinct credentialIds per scenario keep the process-global cell from
+   * being clobbered by neighboring opens under --randomize.
+   */
+  credentialRecords?: Record<string, SourceCredentialRecord>;
+  /** Explicit director retry policy — skips the default Corbits policy. */
+  retryPolicy?: RetryPolicy;
+  /**
+   * Fields merged over `harness.deps` for the agent's inference stack —
+   * e.g. a real `createDefaultScheduler()` when a scenario must let
+   * production retry delays actually elapse (the harness scheduler is
+   * inert by default).
+   */
+  depsOverrides?: Partial<Dependencies>;
 }
 
 export async function openIntegrationSession(
   opts: OpenIntegrationSessionOpts,
 ): Promise<IntegrationSession> {
-  const harness = setupHarness();
+  const harness = setupHarness(opts.harnessOpts);
   registerSourceCredentialRecord(INTEGRATION_SOURCE.id, {
     provenance: { kind: "api-key" },
     material: { secret: INTEGRATION_SECRET },
   });
+  for (const [credentialId, record] of Object.entries(
+    opts.credentialRecords ?? {},
+  )) {
+    registerSourceCredentialRecord(credentialId, record);
+  }
+  const sources = opts.sources ?? [INTEGRATION_SOURCE];
+  const primarySource = sources[0];
+  if (primarySource === undefined) {
+    throw new Error("openIntegrationSession requires at least one source");
+  }
+  const defaultSource = opts.defaultSourceId ?? primarySource.id;
   const cwd = mkdtempSync(join(tmpdir(), "corbits-integration-cwd-"));
   const workdir = join(cwd, ".agent-state", "integration-session");
   const evidenceArchiveHolder: { current: CompactionArchive | undefined } = {
@@ -137,6 +204,25 @@ export async function openIntegrationSession(
     cwd,
     permissionGate: opts.permissionGate,
     onOperatorGate: async () => ({ kind: "cancel" }),
+    ...(opts.subAgent !== undefined
+      ? {
+          subAgent: {
+            provider: opts.subAgent.provider,
+            getWorkdirBase: () => join(workdir, "subagents"),
+            sessions: opts.subAgent.sessions,
+            ...(opts.subAgent.outerRetryDelayMs !== undefined
+              ? { outerRetryDelayMs: opts.subAgent.outerRetryDelayMs }
+              : {}),
+            ...(opts.subAgent.retryPolicy !== undefined
+              ? { retryPolicy: opts.subAgent.retryPolicy }
+              : {}),
+          },
+        }
+      : {}),
+    ...(opts.mountWaitAgents === true ? { mountWaitAgents: true } : {}),
+    ...(opts.toolAvailability !== undefined
+      ? { toolAvailability: opts.toolAvailability }
+      : {}),
     ...(opts.compactionCompletion !== undefined
       ? {
           getEvidenceArchive: () => evidenceArchiveHolder.current,
@@ -155,6 +241,9 @@ export async function openIntegrationSession(
         [...agentCtx.toolDefinitions],
         {
           inactivityTimeoutMs: 750_000,
+          ...(opts.retryPolicy !== undefined
+            ? { retryPolicy: opts.retryPolicy }
+            : {}),
         },
       );
       d.setClearDenials(() => opts.permissionGate.clearDenials());
@@ -178,8 +267,8 @@ export async function openIntegrationSession(
     inference: {
       sources: [
         {
-          provider: INTEGRATION_SOURCE.provider,
-          model: INTEGRATION_SOURCE.model,
+          provider: primarySource.provider,
+          model: primarySource.model,
         },
       ],
     },
@@ -236,8 +325,8 @@ export async function openIntegrationSession(
     authorize = wrapAuthorizeWithEvidenceArchive(baseAuthorize, () => archive);
   }
   const innerAgent = await startAgent(def, {
-    sources: [INTEGRATION_SOURCE],
-    defaultSource: INTEGRATION_SOURCE.id,
+    sources,
+    defaultSource,
     storage: storageForAgent,
     workdir,
     readCurrentMaterial: readSourceCredentialMaterial,
@@ -246,6 +335,7 @@ export async function openIntegrationSession(
       ...(opts.contextTransforms !== undefined
         ? { contextTransforms: opts.contextTransforms }
         : {}),
+      ...(opts.depsOverrides ?? {}),
     },
     audit: noopAuditStore(),
     authorize,
@@ -292,6 +382,10 @@ export async function openIntegrationSession(
       throw new Error("chat director is not available");
     director.updateToolDefinitions(definitions);
   };
+  const chatDirector = directorHolder.current;
+  if (chatDirector === undefined) {
+    throw new Error("chat director was not built during agent construction");
+  }
 
   return {
     harness,
@@ -300,6 +394,7 @@ export async function openIntegrationSession(
     agent,
     toolset,
     storage: storageForAgent,
+    chatDirector,
     updateToolDefinitions,
   };
 }
