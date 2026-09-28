@@ -203,7 +203,9 @@ export function createExtraDeniedPathMatcher(
 // Path-keyed tools stay hard-denied below.
 //
 // RESIDUAL THREAT MODEL: shell detection is best-effort. Token matching defeats
-// quoting/escaping and the common env-assignment and redirection forms, but not
+// quoting/escaping, the common env-assignment and redirection forms, and direct
+// variable references — `$VAR`, `${VAR}`, `${VAR:-default}`, and `~` expand
+// against process.env before matching, so `cat $HOME/.env` prompts — but not
 // dynamic construction of a path the matcher never sees as one token — e.g.
 // indirection through an unrelated variable (`F=.en; cat ${F}v`), character-by-
 // character assembly (`printf`), or reading via an interpreter that builds the
@@ -218,20 +220,18 @@ export function createExtraDeniedPathMatcher(
 export const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
 
 // Worth spending a realpath on: shaped like a path the shell could open
-// (a slash, an extension dot, or absolute), not a flag, variable, or fd
+// (a slash, an extension dot, or absolute), not a flag, glob, or fd
 // number — those can never name a file the shell opens, so they skip the
-// stat and the hot auto-allow path stays syscall-free for them. Globs are
-// skipped here for a different reason: the matcher only sees the unexpanded
-// pattern, so `cat *.txt` cannot resolve without running the shell — but a
-// glob CAN expand into a symlink at runtime, which stays a stated residual
-// (see the threat model below), not something this filter disproves.
+// stat and the hot auto-allow path stays syscall-free for them. Shell
+// variables reach here already expanded (see expandShellToken), so there is
+// no `$` exemption: an unexpandable token fails closed before this filter.
+// Globs are skipped here for a different reason: the matcher only sees the
+// unexpanded pattern, so `cat *.txt` cannot resolve without running the
+// shell — but a glob CAN expand into a symlink at runtime, which stays a
+// stated residual (see the threat model below), not something this filter
+// disproves.
 function isPathLikeShellToken(token: string): boolean {
-  if (
-    token.startsWith("-") ||
-    token.includes("$") ||
-    token.includes("*") ||
-    token.includes("`")
-  )
+  if (token.startsWith("-") || token.includes("*") || token.includes("`"))
     return false;
   return (
     isAbsolute(token) ||
@@ -252,16 +252,105 @@ export function expandHome(token: string): string {
   return token;
 }
 
+// Expand a shell token's `~` and `$` references against process.env only —
+// never shells out. Handles `$VAR`, `${VAR}`, `${VAR:-default}` /
+// `${VAR-default}`, and a single layer of surrounding quotes; `\$` is a
+// literal dollar and unset variables expand to empty. A `$` followed by any
+// other character (or at end of token) is a literal dollar, matching shell
+// behavior for `$.`, `$"`, and friends. A backtick or `$(` the tokenizer left
+// whole comes from single quotes, where the shell never substitutes — it is
+// matched as literal text. Returns expandable=false only when the token
+// cannot be resolved statically: a malformed `${…}` or an unsupported
+// operator (`:=`, `:?`, `:+`, `#`, `%`, `/`). Callers fail closed on
+// expandable=false: the shell would compute the value at runtime, so the
+// matcher must assume the worst.
+export interface ExpandedShellToken {
+  expanded: string;
+  expandable: boolean;
+}
+
+const SHELL_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
+const SHELL_BRACED_VAR = /^([A-Za-z_][A-Za-z0-9_]*)(:-(.*)|-(.*)|)$/s;
+
+export function expandShellToken(
+  token: string,
+  dialect: ShellDialect = "posix",
+): ExpandedShellToken {
+  let text = token;
+  if (
+    text.length >= 2 &&
+    ((text.startsWith('"') && text.endsWith('"')) ||
+      (text.startsWith("'") && text.endsWith("'")))
+  ) {
+    text = text.slice(1, -1);
+  }
+  if (text.includes("`") || text.includes("$(")) {
+    return { expanded: text, expandable: true };
+  }
+  if (text === "~") text = homedir();
+  else if (text.startsWith("~/")) text = joinPath(homedir(), text.slice(2));
+  // In cmd `$` is literal (`type .flaskenv::$DATA` names the default ADS
+  // stream — there is no `$VAR` expansion, only `%VAR%`), so expanding would
+  // corrupt the token before matching. Only posix-style dialects expand.
+  if (dialect === "cmd") return { expanded: text, expandable: true };
+  let expanded = "";
+  for (let i = 0; i < text.length;) {
+    const char = text[i] ?? "";
+    if (char === "\\" && text[i + 1] === "$") {
+      expanded += "$";
+      i += 2;
+      continue;
+    }
+    if (char !== "$") {
+      expanded += char;
+      i += 1;
+      continue;
+    }
+    const rest = text.slice(i + 1);
+    if (rest.startsWith("{")) {
+      const close = text.indexOf("}", i + 2);
+      if (close === -1) return { expanded: token, expandable: false };
+      const match = SHELL_BRACED_VAR.exec(text.slice(i + 2, close));
+      if (match === null) return { expanded: token, expandable: false };
+      const value = process.env[match[1] ?? ""];
+      const fallback = match[3] ?? match[4];
+      if (fallback === undefined) {
+        expanded += value ?? "";
+      } else if (
+        value === undefined ||
+        (match[3] !== undefined && value === "")
+      ) {
+        const inner = expandShellToken(fallback, dialect);
+        if (!inner.expandable) return { expanded: token, expandable: false };
+        expanded += inner.expanded;
+      } else {
+        expanded += value;
+      }
+      i = close + 1;
+      continue;
+    }
+    const name = SHELL_VAR_NAME.exec(rest)?.[0];
+    if (name !== undefined) {
+      expanded += process.env[name] ?? "";
+      i += 1 + name.length;
+      continue;
+    }
+    expanded += "$";
+    i += 1;
+  }
+  return { expanded, expandable: true };
+}
+
 // A bare token the shell could open as a cwd-relative file: not a flag,
-// variable, glob, or command substitution — same exclusions as the path-like
+// glob, or command substitution — same exclusions as the path-like
 // filter, minus the dot/slash shape requirement, so extensionless names
 // (`notes`, or `notes` split out of `--file=notes` / `cat -n notes`) still
-// get an existence probe below.
+// get an existence probe below. Shell variables reach here already expanded,
+// so there is no `$` exemption (see expandShellToken).
 function isBareProbeCandidate(token: string): boolean {
   return (
     token.length > 0 &&
     !token.startsWith("-") &&
-    !token.includes("$") &&
     !token.includes("*") &&
     !token.includes("`")
   );
@@ -277,11 +366,12 @@ function isBareProbeCandidate(token: string): boolean {
 // tokens first pay a single lstat existence probe against the cwd-resolved
 // path — a miss (the common `cat Makefile` case) costs exactly that one
 // lstat and skips the resolve, a hit (file or symlink, dangling included)
-// pays the realpath and matches on the target. Flags, variables, globs, and
+// pays the realpath and matches on the target. Flags, globs, and
 // backticks never probe, so the worst case per command is one lstat per bare
 // token plus one realpath per existing entry. Relative tokens resolve
-// against cwd first because the helper takes absolute paths; `~` expands to
-// the home directory before resolving for the same reason. That cwd is the
+// against cwd first because the helper takes absolute paths; `~` and
+// `$VAR`/`${VAR}` expand against process.env before resolving (see
+// expandShellToken) for the same reason. That cwd is the
 // session/process cwd, not a `cd` prefix inside the command —
 // `cd sub && cat notes.txt` resolves `notes.txt` against the session cwd
 // (absent) rather than cwd/sub (present). The chain still fails closed
@@ -303,7 +393,8 @@ export function isSensitiveShellToken(
   isExtraDenied: (value: string) => boolean = () => false,
   dialect: ShellDialect = nativeShellDialect(process.platform),
 ): boolean {
-  const expanded = expandHome(token);
+  const { expanded, expandable } = expandShellToken(token, dialect);
+  if (!expandable) return true;
   if (isSensitivePath(expanded, dialect)) return true;
   if (isExtraDenied(expanded)) return true;
   if (!resolveSymlinks) {

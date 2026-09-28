@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import { loadProjectApprovals } from "../permission/store.js";
 import {
   secretGuardPlugin,
   isSensitivePath,
+  isSensitiveShellToken,
   commandReferencesSensitivePath,
 } from "./secret-guard-plugin.js";
 
@@ -309,6 +310,53 @@ describe("commandReferencesSensitivePath", () => {
     "bun test",
   ];
   for (const c of allowed) {
+    test(`allows: ${c}`, () =>
+      expect(commandReferencesSensitivePath(c)).toBeUndefined());
+  }
+});
+
+describe("commandReferencesSensitivePath shell-variable expansion (CL-8999)", () => {
+  const CFG_VALUE = "/tmp/cl-8999-cfg/.corbits";
+  let savedCFG: string | undefined;
+  let savedUnknown: string | undefined;
+
+  beforeEach(() => {
+    savedCFG = process.env.CFG;
+    savedUnknown = process.env.UNKNOWN_X;
+    process.env.CFG = CFG_VALUE;
+    delete process.env.UNKNOWN_X;
+  });
+
+  afterEach(() => {
+    if (savedCFG === undefined) delete process.env.CFG;
+    else process.env.CFG = savedCFG;
+    if (savedUnknown === undefined) delete process.env.UNKNOWN_X;
+    else process.env.UNKNOWN_X = savedUnknown;
+  });
+
+  const expandedSensitive = [
+    "cat $HOME/.env",
+    "cat ${HOME}/.env",
+    'cat "$HOME/.env"',
+    "cat ${CFG}/settings.json",
+    "cat $CFG/settings.json",
+    "cat $UNKNOWN_X/.env",
+  ];
+  for (const c of expandedSensitive) {
+    test(`flags: ${c}`, () =>
+      expect(commandReferencesSensitivePath(c)).toBeDefined());
+  }
+
+  test("flags an unexpandable variable reference fail-closed", () => {
+    expect(isSensitiveShellToken("${BROKEN")).toBe(true);
+  });
+
+  test("flags a variable-expanded token directly", () => {
+    expect(isSensitiveShellToken("$CFG/settings.json")).toBe(true);
+  });
+
+  const expandedBenign = ["cat $HOME/README.md", "cat Makefile"];
+  for (const c of expandedBenign) {
     test(`allows: ${c}`, () =>
       expect(commandReferencesSensitivePath(c)).toBeUndefined());
   }
