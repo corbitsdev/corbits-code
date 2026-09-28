@@ -368,6 +368,12 @@ describe("text paste", () => {
   );
 
   pasteCase(
+    "composed Option glyphs pasted together remain literal",
+    async (h) => await h.mockInput.pasteBracketedText("çµ∂¥"),
+    "çµ∂¥",
+  );
+
+  pasteCase(
     "multi-line paste keeps its newlines and does not submit",
     async (h) =>
       await h.mockInput.pasteBracketedText(

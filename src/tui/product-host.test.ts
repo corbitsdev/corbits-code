@@ -664,15 +664,8 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.();
       await harness.renderOnce();
-      const composed = {
-        name: "∂",
-        sequence: "∂",
-        ctrl: false,
-        meta: false,
-        option: false,
-      } as KeyEvent;
-      expect(handleListFilterKey(host.shell, composed)).toBe(false);
-      expect(runOverlayAction(host.shell, composed)).toBe(true);
+      harness.pressKey("∂");
+      await harness.renderOnce();
       expect(defaults).toEqual([modelOptionId("codex/abk-labs", "gpt-5.5")]);
       expect(host.shell.overlayItems).not.toEqual(["(no matches)"]);
     } finally {
@@ -681,22 +674,17 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  test("composed Option+D (∂) remains filter text when setting a default is unavailable", async () => {
+  test("composed Option+D (∂) is globally claimed when setting a default is unavailable", async () => {
     const { harness, host } = await mountPicker();
     try {
+      host.shell.prompt.value = "draft";
       host.openModels?.();
       await harness.renderOnce();
-      const composed = {
-        name: "∂",
-        sequence: "∂",
-        ctrl: false,
-        meta: false,
-        option: false,
-      } as KeyEvent;
-      expect(handleListFilterKey(host.shell, composed)).toBe(true);
+      const items = host.shell.overlayItems;
+      harness.pressKey("∂");
       await harness.renderOnce();
-      expect(host.shell.overlayItems).toEqual(["(no matches)"]);
-      expect(runOverlayAction(host.shell, composed)).toBe(false);
+      expect(host.shell.overlayItems).toEqual(items);
+      expect(host.shell.prompt.value).toBe("draft");
     } finally {
       host.dispose();
       harness.destroy();

@@ -659,8 +659,11 @@ globally claimed Alt+C/M/D/Y chords (`ç`, `µ`, `∂`, `¥`) are normalized bef
 key dispatch. Consequently, typing those glyphs directly into the bare prompt
 is intentionally unavailable, matching Meta-on behavior. Composed `å`/`Å` is
 recognized only by a surface that claims Alt+A; otherwise it passes through and
-inserts normally. Paste is a separate event path and is never normalized or
-remapped.
+inserts normally. There is no composed fallback for Alt+E: with Option-as-Meta
+off, Option+E is a dead key, and following it with Space inserts the literal
+spacing acute (`´`) without expanding a row. With Option-as-Meta on, the flagged
+Alt+E chord still expands. Paste is a separate event path and is never normalized
+or remapped.
 
 The recovery environment could not drive GUI terminal settings, so no row below
 claims an observation that was not made. `UNVERIFIED` means the implementation
@@ -669,14 +672,14 @@ combination still needs a manual run. `UNFIXABLE` means macOS dead-key handling
 withholds the bare Option+E event from the application; no timeout or synthetic
 remapping is appropriate.
 
-| Terminal     | Option mode | Alt+C/M/D/Y                                                               | Alt+A                                                     | Alt+E                                                               | Bare prompt                                                        | Paste                                         |
-| ------------ | ----------- | ------------------------------------------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------- |
-| Terminal.app | Meta off    | **UNVERIFIED** — composed `ç`/`µ`/`∂`/`¥` normalize to the flagged chords | **UNVERIFIED** — `å`/`Å` acts as Alt+A only where claimed | **UNFIXABLE** — Option+E is a dead key and emits no immediate chord | **UNVERIFIED** — `ç`/`µ`/`∂`/`¥` do not insert; unclaimed `å` does | **UNVERIFIED** — pasted glyphs remain literal |
-| Terminal.app | Meta on     | **UNVERIFIED** — expected ESC-prefixed flagged chords                     | **UNVERIFIED** — expected ESC-prefixed flagged chord      | **UNVERIFIED** — expected ESC-prefixed flagged chord                | **UNVERIFIED** — chord bytes do not insert                         | **UNVERIFIED** — pasted glyphs remain literal |
-| iTerm2       | Meta off    | **UNVERIFIED** — composed `ç`/`µ`/`∂`/`¥` normalize to the flagged chords | **UNVERIFIED** — `å`/`Å` acts as Alt+A only where claimed | **UNFIXABLE** — Option+E is a dead key and emits no immediate chord | **UNVERIFIED** — `ç`/`µ`/`∂`/`¥` do not insert; unclaimed `å` does | **UNVERIFIED** — pasted glyphs remain literal |
-| iTerm2       | Meta on     | **UNVERIFIED** — expected ESC-prefixed flagged chords                     | **UNVERIFIED** — expected ESC-prefixed flagged chord      | **UNVERIFIED** — expected ESC-prefixed flagged chord                | **UNVERIFIED** — chord bytes do not insert                         | **UNVERIFIED** — pasted glyphs remain literal |
-| Ghostty      | Meta off    | **UNVERIFIED** — composed `ç`/`µ`/`∂`/`¥` normalize to the flagged chords | **UNVERIFIED** — `å`/`Å` acts as Alt+A only where claimed | **UNFIXABLE** — Option+E is a dead key and emits no immediate chord | **UNVERIFIED** — `ç`/`µ`/`∂`/`¥` do not insert; unclaimed `å` does | **UNVERIFIED** — pasted glyphs remain literal |
-| Ghostty      | Meta on     | **UNVERIFIED** — expected ESC-prefixed flagged chords                     | **UNVERIFIED** — expected ESC-prefixed flagged chord      | **UNVERIFIED** — expected ESC-prefixed flagged chord                | **UNVERIFIED** — chord bytes do not insert                         | **UNVERIFIED** — pasted glyphs remain literal |
+| Terminal     | Option mode | Alt+C/M/D/Y                                                               | Alt+A                                                     | Alt+E                                                                   | Bare prompt                                                        | Paste                                         |
+| ------------ | ----------- | ------------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------- |
+| Terminal.app | Meta off    | **UNVERIFIED** — composed `ç`/`µ`/`∂`/`¥` normalize to the flagged chords | **UNVERIFIED** — `å`/`Å` acts as Alt+A only where claimed | **UNFIXABLE** — dead key; then Space inserts literal `´`, never expands | **UNVERIFIED** — `ç`/`µ`/`∂`/`¥` do not insert; unclaimed `å` does | **UNVERIFIED** — pasted glyphs remain literal |
+| Terminal.app | Meta on     | **UNVERIFIED** — expected ESC-prefixed flagged chords                     | **UNVERIFIED** — expected ESC-prefixed flagged chord      | **UNVERIFIED** — expected ESC-prefixed flagged chord                    | **UNVERIFIED** — chord bytes do not insert                         | **UNVERIFIED** — pasted glyphs remain literal |
+| iTerm2       | Meta off    | **UNVERIFIED** — composed `ç`/`µ`/`∂`/`¥` normalize to the flagged chords | **UNVERIFIED** — `å`/`Å` acts as Alt+A only where claimed | **UNFIXABLE** — dead key; then Space inserts literal `´`, never expands | **UNVERIFIED** — `ç`/`µ`/`∂`/`¥` do not insert; unclaimed `å` does | **UNVERIFIED** — pasted glyphs remain literal |
+| iTerm2       | Meta on     | **UNVERIFIED** — expected ESC-prefixed flagged chords                     | **UNVERIFIED** — expected ESC-prefixed flagged chord      | **UNVERIFIED** — expected ESC-prefixed flagged chord                    | **UNVERIFIED** — chord bytes do not insert                         | **UNVERIFIED** — pasted glyphs remain literal |
+| Ghostty      | Meta off    | **UNVERIFIED** — composed `ç`/`µ`/`∂`/`¥` normalize to the flagged chords | **UNVERIFIED** — `å`/`Å` acts as Alt+A only where claimed | **UNFIXABLE** — dead key; then Space inserts literal `´`, never expands | **UNVERIFIED** — `ç`/`µ`/`∂`/`¥` do not insert; unclaimed `å` does | **UNVERIFIED** — pasted glyphs remain literal |
+| Ghostty      | Meta on     | **UNVERIFIED** — expected ESC-prefixed flagged chords                     | **UNVERIFIED** — expected ESC-prefixed flagged chord      | **UNVERIFIED** — expected ESC-prefixed flagged chord                    | **UNVERIFIED** — chord bytes do not insert                         | **UNVERIFIED** — pasted glyphs remain literal |
 
 ### Soft steer vs. follow-up
 

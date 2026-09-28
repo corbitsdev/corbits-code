@@ -1,5 +1,9 @@
 import { test, expect } from "bun:test";
 import { parseKeypress, type KeyEvent } from "@opentui/core";
+import { withTestRenderer, type Harness } from "../../../src/tui/harness.js";
+import { appendStreamRow } from "../../../src/tui/shell/chrome.js";
+import { createAppShell } from "../../../src/tui/shell/index.js";
+import type { AppShell } from "../../../src/tui/shell/internals.js";
 import {
   isAddProviderShortcutKey,
   isSetDefaultShortcutKey,
@@ -49,7 +53,6 @@ const CHORD_ROWS: {
 }[] = [
   { glyph: "∂", base: "d", flaggedName: "d" },
   { glyph: "¥", base: "y", flaggedName: "y" },
-  { glyph: "´", base: "e", flaggedName: "e" },
   { glyph: "ç", base: "c", flaggedName: "c" },
   { glyph: "µ", base: "m", flaggedName: "m" },
 ];
@@ -73,10 +76,95 @@ test("folded Alt+D/Alt+Y carry the kill-ring gate flags (keys.ts Alt+D/Alt+Y)", 
   }
 });
 
-test("folded Alt+E uses the exact expand name (keys.ts Alt+E matches EXPAND_KEY)", () => {
-  const folded = normalizeOptionKey(composed("´"));
-  expect(folded.name).toBe("e");
-});
+type OptionKeyVariant = {
+  readonly label: string;
+  readonly press: (harness: Harness) => void;
+};
+
+function optionKeyVariants(glyph: string, base: string): OptionKeyVariant[] {
+  return [
+    { label: "composed", press: (harness) => harness.pressKey(glyph) },
+    {
+      label: "flagged",
+      press: (harness) => harness.pressKey(base, { meta: true }),
+    },
+  ];
+}
+
+async function withWiredShell(
+  run: (shell: AppShell, harness: Harness) => Promise<void> | void,
+): Promise<void> {
+  await withTestRenderer(
+    async (harness) => {
+      const shell = createAppShell(harness.renderer, {
+        terminal: { columns: 80, rows: 24 },
+        wireKeys: true,
+      });
+      try {
+        shell.prompt.focus();
+        await run(shell, harness);
+      } finally {
+        shell.dispose();
+      }
+    },
+    { width: 80, height: 24 },
+  );
+}
+
+for (const variant of optionKeyVariants("ç", "c")) {
+  test(`${variant.label} Alt+C opens copy mode through the global dispatcher`, async () => {
+    await withWiredShell((shell, harness) => {
+      appendStreamRow(shell, { role: "assistant", text: "copy this" });
+      variant.press(harness);
+      expect(shell.overlayKind).toBe("copy");
+    });
+  });
+}
+
+for (const variant of optionKeyVariants("µ", "m")) {
+  test(`${variant.label} Alt+M toggles mouse capture through the global dispatcher`, async () => {
+    await withWiredShell((shell, harness) => {
+      let captured = false;
+      shell.mouseCapture = {
+        get: () => captured,
+        set: (enabled) => {
+          captured = enabled;
+        },
+      };
+      variant.press(harness);
+      expect(captured).toBe(true);
+    });
+  });
+}
+
+for (const variant of optionKeyVariants("∂", "d")) {
+  test(`${variant.label} Alt+D deletes the next word through the global dispatcher`, async () => {
+    await withWiredShell((shell, harness) => {
+      shell.prompt.value = "foo bar";
+      shell.prompt.cursorOffset = 0;
+      variant.press(harness);
+      expect(shell.prompt.value).toBe("bar");
+    });
+  });
+}
+
+for (const variant of optionKeyVariants("¥", "y")) {
+  test(`${variant.label} Alt+Y rotates the yank through the global dispatcher`, async () => {
+    await withWiredShell((shell, harness) => {
+      shell.prompt.value = "older";
+      shell.prompt.cursorOffset = 0;
+      harness.pressKey("k", { ctrl: true });
+      harness.pressKey("b", { ctrl: true });
+      shell.prompt.value = "newer";
+      shell.prompt.cursorOffset = 0;
+      harness.pressKey("k", { ctrl: true });
+      harness.pressKey("y", { ctrl: true });
+      expect(shell.prompt.value).toBe("newer");
+      variant.press(harness);
+      expect(shell.prompt.value).toBe("older");
+    });
+  });
+}
 
 test("palette Alt+A fires identically for å/Å and flagged Alt+A", () => {
   for (const glyph of ["å", "Å"]) {
@@ -91,9 +179,10 @@ test("palette Alt+A fires identically for å/Å and flagged Alt+A", () => {
   ).toBe(false);
 });
 
-test("palette Alt+D fires identically for ∂ and flagged Alt+D", () => {
-  expect(isSetDefaultShortcutKey(composed("∂"))).toBe(true);
+test("palette Alt+D accepts normalized and flagged chords", () => {
+  expect(isSetDefaultShortcutKey(normalizeOptionKey(composed("∂")))).toBe(true);
   expect(isSetDefaultShortcutKey(flagged("d"))).toBe(true);
+  expect(isSetDefaultShortcutKey(composed("∂"))).toBe(false);
   expect(isSetDefaultShortcutKey(ev({ name: "d", sequence: "d" }))).toBe(false);
 });
 
@@ -128,6 +217,13 @@ test("unclaimed å passes through unchanged and remains insertable", () => {
     expect(key.meta).toBe(false);
     expect(key.option).toBe(false);
   }
+});
+
+test("literal å inserts outside the picker through the global dispatcher", async () => {
+  await withWiredShell((shell, harness) => {
+    harness.pressKey("å");
+    expect(shell.prompt.value).toBe("å");
+  });
 });
 
 test("real parser output folds end to end: ∂ ≡ flagged Alt+D", () => {

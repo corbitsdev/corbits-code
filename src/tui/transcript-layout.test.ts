@@ -249,7 +249,7 @@ describe("transcript turn layout", () => {
     );
   });
 
-  test("Alt+E expands the newest collapsed row; a bare e always just types", async () => {
+  test("Alt+E expands the newest collapsed row; bare e and ´ only type", async () => {
     await withTestRenderer(
       async (h) => {
         const shell = createAppShell(h.renderer, {
@@ -272,6 +272,13 @@ describe("transcript turn layout", () => {
           await h.renderOnce();
           expect(h.captureCharFrame()).not.toContain("no emojis");
           expect(shell.prompt.value).toBe("e");
+
+          // Option+E then Space emits a literal spacing acute with no modifier.
+          // It remains text even while an expandable row is available.
+          h.pressKey("´");
+          await h.renderOnce();
+          expect(h.captureCharFrame()).not.toContain("no emojis");
+          expect(shell.prompt.value).toBe("e´");
 
           // Alt+E expands regardless of which widget nominally has focus —
           // the prompt still holds focus here, and it still fires.

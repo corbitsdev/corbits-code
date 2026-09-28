@@ -176,7 +176,6 @@ export function handlePaletteFilterKey(
  */
 const OPTION_COMPOSED_BASE: ReadonlyMap<string, string> = new Map([
   ["∂", "d"],
-  ["´", "e"],
   ["ç", "c"],
   ["µ", "m"],
   ["¥", "y"],
@@ -216,10 +215,6 @@ export function isAddProviderShortcutKey(key: KeyEvent): boolean {
 export function isSetDefaultShortcutKey(key: KeyEvent): boolean {
   if (key.ctrl) return false;
   const name = typeof key.name === "string" ? key.name.normalize("NFC") : "";
-  const seq =
-    typeof key.sequence === "string" ? key.sequence.normalize("NFC") : "";
-  if (OPTION_COMPOSED_BASE.get(name) === "d") return true;
-  if (OPTION_COMPOSED_BASE.get(seq) === "d") return true;
   return (key.meta || key.option) && name.toLowerCase() === "d";
 }
 
@@ -242,16 +237,6 @@ export function handleListFilterKey(shell: AppShell, key: KeyEvent): boolean {
     bag?.primaryBindings.addProviderHint === true &&
     shell.overlayKind === "model_picker" &&
     isAddProviderShortcutKey(key)
-  ) {
-    return false;
-  }
-
-  // setDefaultHint similarly gates the composed Option+D (∂) bypass. Outside
-  // this model-picker action context, ∂ remains ordinary filter text.
-  if (
-    bag?.primaryBindings.setDefaultHint === true &&
-    shell.overlayKind === "model_picker" &&
-    isSetDefaultShortcutKey(key)
   ) {
     return false;
   }
