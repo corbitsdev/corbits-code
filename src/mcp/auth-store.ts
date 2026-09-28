@@ -18,14 +18,15 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 
-// Per-server OAuth state persisted between sessions. Holding the PKCE verifier is
-// necessary because authorization spans a process boundary (browser round-trip);
-// tokens and dynamically-registered client info let later sessions reconnect
-// without any user interaction.
+// Per-server OAuth state persisted between sessions. Tokens and
+// dynamically-registered client info let later sessions reconnect
+// without any user interaction. The PKCE verifier is intentionally absent:
+// it lives only in the provider instance that started the flow and is never
+// written to disk. Parsing stays tolerant of older files that still carry
+// one; resetAuthorization scrubs the legacy key.
 export interface MCPAuthState {
   clientInformation?: OAuthClientInformationFull;
   tokens?: OAuthTokens;
-  codeVerifier?: string;
 }
 
 export interface MCPAuthIdentity {

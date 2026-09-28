@@ -70,7 +70,6 @@ function dropStaleClientRegistration(
   if (state.tokens !== undefined) return;
   if (redirectUrisInclude(state.clientInformation, redirectUrl)) return;
   delete state.clientInformation;
-  delete state.codeVerifier;
 }
 
 function shouldAdoptClient(
@@ -90,7 +89,6 @@ function shouldAdoptClient(
 
 function assignTokens(stored: MCPAuthState, next: MCPAuthState): void {
   if (next.tokens !== undefined) stored.tokens = next.tokens;
-  else delete stored.tokens;
 }
 
 function assignClient(stored: MCPAuthState, next: MCPAuthState): void {
@@ -132,13 +130,15 @@ export async function createOAuthProvider(
   // DCR are observed from disk so a sibling session's completed auth is picked
   // up. PKCE stays instance-local after this snapshot — a different-port sibling
   // must not clobber an in-progress verifier.
-  const stored: MCPAuthState = await updateAuthState(
-    identity,
-    (state) => {
-      dropStaleClientRegistration(state, opts.redirectUrl);
-    },
-    home,
-  );
+  const stored: MCPAuthState & { codeVerifier?: string } =
+    await updateAuthState(
+      identity,
+      (state) => {
+        dropStaleClientRegistration(state, opts.redirectUrl);
+      },
+      home,
+    );
+  delete stored.codeVerifier;
 
   const apply = async (
     mutator: (state: MCPAuthState) => void,
@@ -229,9 +229,7 @@ export async function createOAuthProvider(
     },
     saveCodeVerifier(codeVerifier: string): Promise<void> {
       stored.codeVerifier = codeVerifier;
-      return apply((state) => {
-        state.codeVerifier = codeVerifier;
-      });
+      return Promise.resolve();
     },
     codeVerifier(): string {
       if (stored.codeVerifier === undefined)
@@ -248,12 +246,14 @@ export async function createOAuthProvider(
         if (state.tokens?.access_token === previous) {
           delete state.tokens;
         }
-        delete state.codeVerifier;
+        // One-version migration: drop a verifier persisted by older builds.
+        delete (state as { codeVerifier?: string }).codeVerifier;
         // Next browser flow needs a client registered for *this* loopback port.
         if (!redirectUrisInclude(state.clientInformation, opts.redirectUrl)) {
           delete state.clientInformation;
         }
       });
+      if (stored.tokens?.access_token === previous) delete stored.tokens;
       delete stored.codeVerifier;
     },
     refreshToken: async (refreshToken: string): Promise<OAuthTokens> => {

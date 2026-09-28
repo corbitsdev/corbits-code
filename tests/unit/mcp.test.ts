@@ -373,14 +373,9 @@ describe("MCP auth store", () => {
     const home = await mkdtemp(join(tmpdir(), "intx-auth-"));
     try {
       expect(await loadAuthState(acmeAuthIdentity, home)).toEqual({});
-      await saveAuthState(
-        acmeAuthIdentity,
-        { tokens, codeVerifier: "verifier" },
-        home,
-      );
+      await saveAuthState(acmeAuthIdentity, { tokens }, home);
       expect(await loadAuthState(acmeAuthIdentity, home)).toEqual({
         tokens,
-        codeVerifier: "verifier",
       });
     } finally {
       await rm(home, { recursive: true, force: true });

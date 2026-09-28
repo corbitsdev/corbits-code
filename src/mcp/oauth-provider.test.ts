@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   authFilePath,
@@ -49,13 +49,13 @@ async function saveClient(
 describe("createOAuthProvider", () => {
   test("drops stale DCR client when redirect port changed and no tokens exist", async () => {
     const home = await tempHome();
-    await saveAuthState(
-      linear,
-      {
+    await mkdir(dirname(authFilePath(linear, home)), { recursive: true });
+    await writeFile(
+      authFilePath(linear, home),
+      JSON.stringify({
         clientInformation: clientInfo(60435),
         codeVerifier: "old-verifier",
-      },
-      home,
+      }),
     );
 
     const provider = await createOAuthProvider({
@@ -67,9 +67,11 @@ describe("createOAuthProvider", () => {
     });
 
     expect(await syncValue(provider.clientInformation())).toBeUndefined();
+    expect(() => provider.codeVerifier()).toThrow(
+      "No PKCE code verifier saved",
+    );
     const disk = await loadAuthState(linear, home);
     expect(disk.clientInformation).toBeUndefined();
-    expect(disk.codeVerifier).toBeUndefined();
   });
 
   test("keeps registered client and tokens when only the loopback port changed", async () => {
@@ -102,7 +104,7 @@ describe("createOAuthProvider", () => {
     expect((await syncValue(provider.tokens()))?.access_token).toBe("live");
   });
 
-  test("concurrent saveTokens and saveCodeVerifier from two providers keep both fields", async () => {
+  test("saveCodeVerifier stays in memory and never reaches disk", async () => {
     const home = await tempHome();
     await saveAuthState(linear, { clientInformation: clientInfo(1) }, home);
 
@@ -133,7 +135,30 @@ describe("createOAuthProvider", () => {
 
     const disk = await loadAuthState(linear, home);
     expect(disk.tokens?.access_token).toBe("tok-a");
-    expect(disk.codeVerifier).toBe("verifier-b");
+    expect("codeVerifier" in disk).toBe(false);
+    expect(await readFile(authFilePath(linear, home), "utf8")).not.toContain(
+      "codeVerifier",
+    );
+    expect(b.codeVerifier()).toBe("verifier-b");
+    expect(() => a.codeVerifier()).toThrow("No PKCE code verifier saved");
+  });
+
+  test("saveCodeVerifier leaves the auth file bytes unchanged", async () => {
+    const home = await tempHome();
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(provider, clientInfo(1));
+
+    const before = await readFile(authFilePath(linear, home), "utf8");
+    await provider.saveCodeVerifier("pkce-local");
+
+    expect(provider.codeVerifier()).toBe("pkce-local");
+    expect(await readFile(authFilePath(linear, home), "utf8")).toBe(before);
   });
 
   test("resetAuthorization clears client when redirect no longer matches registration", async () => {
@@ -148,7 +173,6 @@ describe("createOAuthProvider", () => {
           expires_in: 1,
           refresh_token: "r",
         },
-        codeVerifier: "v",
       },
       home,
     );
@@ -160,14 +184,57 @@ describe("createOAuthProvider", () => {
       onAuthURL: () => undefined,
       home,
     });
+    await provider.saveCodeVerifier("v");
 
     // Tokens present → client kept at create. Reset simulates failed refresh.
     await provider.resetAuthorization();
     expect(await syncValue(provider.tokens())).toBeUndefined();
     expect(await syncValue(provider.clientInformation())).toBeUndefined();
+    expect(() => provider.codeVerifier()).toThrow(
+      "No PKCE code verifier saved",
+    );
     const disk = await loadAuthState(linear, home);
     expect(disk.clientInformation).toBeUndefined();
     expect(disk.tokens).toBeUndefined();
+    expect(await readFile(authFilePath(linear, home), "utf8")).not.toContain(
+      "codeVerifier",
+    );
+  });
+
+  test("resetAuthorization scrubs a legacy on-disk verifier", async () => {
+    const home = await tempHome();
+    await mkdir(dirname(authFilePath(linear, home)), { recursive: true });
+    await writeFile(
+      authFilePath(linear, home),
+      JSON.stringify({
+        clientInformation: clientInfo(60435),
+        tokens: {
+          access_token: "live",
+          token_type: "bearer",
+          expires_in: 1,
+          refresh_token: "r",
+        },
+        codeVerifier: "legacy-verifier",
+      }),
+    );
+
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await provider.saveCodeVerifier("memory-verifier");
+
+    await provider.resetAuthorization();
+
+    expect(() => provider.codeVerifier()).toThrow(
+      "No PKCE code verifier saved",
+    );
+    expect(await readFile(authFilePath(linear, home), "utf8")).not.toContain(
+      "codeVerifier",
+    );
   });
 
   test("resetAuthorization does not delete a sibling's just-saved tokens", async () => {
@@ -321,6 +388,31 @@ describe("createOAuthProvider", () => {
     await b.saveCodeVerifier("pkce-b");
     expect(a.codeVerifier()).toBe("pkce-a");
     expect(b.codeVerifier()).toBe("pkce-b");
+    expect(await readFile(authFilePath(linear, home), "utf8")).not.toContain(
+      "codeVerifier",
+    );
+  });
+
+  test("keeps live tokens when a sibling writes client-only state", async () => {
+    const home = await tempHome();
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(a, clientInfo(62000));
+    await a.saveTokens({
+      access_token: "tok-a",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "ref-a",
+    });
+
+    await saveAuthState(linear, { clientInformation: clientInfo(60435) }, home);
+
+    expect((await syncValue(a.tokens()))?.access_token).toBe("tok-a");
   });
 
   test("does not adopt a different-port sibling DCR client without tokens", async () => {
