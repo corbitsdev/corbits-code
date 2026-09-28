@@ -71,6 +71,11 @@ const LOCK_STALE_MS = 5_000;
 // unique per call if writeAuthFile ever overlaps in-process.
 let tmpWriteCounter = 0;
 
+// Per-waiter unique lock claim (pid + counter). Two contenders never share a
+// claim, so a steal re-read that still matches names the same file, and the
+// post-create ownership check can tell our claim from a winner's.
+let lockClaimCounter = 0;
+
 // Same-process ops on one auth file queue here so a caller's lock deadline
 // starts when it actually runs, not when it was invoked — otherwise one lock
 // held past LOCK_TIMEOUT_MS fails the whole burst, not just the first waiter.
@@ -155,6 +160,26 @@ async function isLockStale(
   }
 }
 
+function lockTimeoutError(lockPath: string, cause: unknown): Error {
+  return new Error(
+    `Timed out waiting for OAuth credential lock ${lockPath}. ` +
+      "If no Corbits process is running, remove this lock file manually and retry.",
+    { cause },
+  );
+}
+
+// Pace one contention round: throw once the deadline passed, else sleep a
+// retry interval. Every wait path funnels here so steal contention never
+// hot-spins.
+async function paceLockWait(
+  deadline: number,
+  lockPath: string,
+  cause: unknown,
+): Promise<void> {
+  if (Date.now() >= deadline) throw lockTimeoutError(lockPath, cause);
+  await delay(LOCK_RETRY_MS);
+}
+
 export function createAuthStore<TTokens extends BaseTokens>(
   options: AuthStoreOptions<TTokens>,
 ): AuthStore<TTokens> {
@@ -207,13 +232,16 @@ export function createAuthStore<TTokens extends BaseTokens>(
     const lockPath = `${path}.lock`;
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const deadline = Date.now() + (options.lockTimeoutMs ?? LOCK_TIMEOUT_MS);
+    // holderPid reads the pid leg; the counter leg keeps every waiter's
+    // claim distinct.
+    const claim = `${process.pid}:${(lockClaimCounter += 1)}`;
     let lock;
 
     while (true) {
       try {
         const handle = await open(lockPath, "wx", 0o600);
         try {
-          await handle.writeFile(`${process.pid}`, "utf8");
+          await handle.writeFile(claim, "utf8");
         } catch (writeError) {
           try {
             await handle.close();
@@ -228,6 +256,20 @@ export function createAuthStore<TTokens extends BaseTokens>(
           }
           throw writeError;
         }
+        // A steal may have unlinked our fresh file and created its own
+        // between our create and write; the path then names a live
+        // winner. Never unlink here — close and re-contend so only the
+        // winner proceeds.
+        if ((await readLockContent(lockPath)) !== claim) {
+          try {
+            await handle.close();
+          } catch {
+            // The path already names a live winner; the close outcome
+            // must not mask the paced retry below.
+          }
+          await paceLockWait(deadline, lockPath, undefined);
+          continue;
+        }
         lock = handle;
         break;
       } catch (error) {
@@ -238,7 +280,12 @@ export function createAuthStore<TTokens extends BaseTokens>(
         const content = await readLockContent(lockPath);
         if (content !== null && (await isLockStale(lockPath, content))) {
           // Re-check before unlinking so a concurrent takeover winner's
-          // fresh lock is never mistaken for the stale entry just observed.
+          // fresh claim is never mistaken for the stale entry just
+          // observed — claims are unique per waiter, so a match still
+          // names the same file. A steal can still interleave between
+          // this re-read and the unlink; the post-create ownership
+          // check above then detects the loser and re-contends instead
+          // of running two holders.
           if ((await readLockContent(lockPath)) === content) {
             try {
               await unlink(lockPath);
@@ -247,16 +294,11 @@ export function createAuthStore<TTokens extends BaseTokens>(
               if (!isErrnoCode(unlinkError, "ENOENT")) throw unlinkError;
             }
           }
-          continue;
+          // Fall through to the deadline/sleep path: a steal that just
+          // lost to a concurrent winner paces like any other
+          // contention instead of hot-spinning.
         }
-        if (Date.now() >= deadline) {
-          throw new Error(
-            `Timed out waiting for OAuth credential lock ${lockPath}. ` +
-              "If no Corbits process is running, remove this lock file manually and retry.",
-            { cause: error },
-          );
-        }
-        await delay(LOCK_RETRY_MS);
+        await paceLockWait(deadline, lockPath, error);
       }
     }
 
