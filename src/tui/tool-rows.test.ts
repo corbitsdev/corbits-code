@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { toolCallRow } from "./diff";
 import { withTestRenderer } from "./harness";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";

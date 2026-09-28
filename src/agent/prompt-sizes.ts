@@ -50,7 +50,7 @@ export const CANONICAL_PROMPT_ENV: EnvironmentInfo = {
   isGitRepo: true,
   gitBranch: "main",
   gitDirtyCount: 0,
-  topLevel: "AGENTS.md  CONTRIBUTING.md  src/  tests/  docs/  plugins/",
+  topLevel: "AGENTS.md  CONTRIBUTING.md  src/  e2e/  docs/  plugins/",
 };
 
 const GROK_PROVIDER = { providerName: "xai/default", model: "grok-4.6" };

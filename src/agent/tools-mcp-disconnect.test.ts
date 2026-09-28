@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { withMockedModule } from "../../tests/helpers/mock-module.js";
+import { withMockedModule } from "../testkit/mock-module.js";
 import { type ResolvedMCPServerConfig } from "../mcp/exa.js";
 import type { MCPConnectOptions, MCPTool } from "../mcp/client.js";
 import { createPermissionGate } from "../permission/gate.js";

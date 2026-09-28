@@ -1,7 +1,8 @@
-import { defined } from "../tests/helpers/defined.js";
+import { defined } from "./testkit/defined.js";
 import { describe, test, expect } from "bun:test";
 import { isAbsolute, join } from "node:path";
 import {
+  parseModelsDevContextWindows,
   parseModelsDevPricing,
   parseModelsDevReasoning,
   fetchPricing,
@@ -327,5 +328,41 @@ describe("readPricingCache / writePricingCache", () => {
     );
     const result = await readPricingCache(path);
     expect(result).toBeNull();
+  });
+});
+
+describe("parseModelsDevContextWindows", () => {
+  test("reads limit.context per model", () => {
+    const windows = parseModelsDevContextWindows({
+      "z-ai": {
+        models: {
+          "glm-4.6": {
+            id: "z-ai/glm-4.6",
+            limit: { context: 64_000, output: 8_000 },
+          },
+        },
+      },
+      openai: {
+        models: {
+          "gpt-5.6": { id: "openai/gpt-5.6", limit: { context: 1_000_000 } },
+          "no-limit": { id: "openai/no-limit" },
+        },
+      },
+    });
+    expect(windows["z-ai/glm-4.6"]).toBe(64_000);
+    expect(windows["openai/gpt-5.6"]).toBe(1_000_000);
+    expect(windows["openai/no-limit"]).toBeUndefined();
+  });
+});
+
+describe("parseModelsDevPricing root array", () => {
+  test("walks a top-level array payload the same way the other collectors do", () => {
+    // A nesting level where the root itself is an array, rather than an object
+    // whose values are arrays. parseModelsDevReasoning and
+    // parseModelsDevContextWindows already handle this; pricing must match.
+    const models = parseModelsDevPricing([
+      { id: "m1", input_cost_per_million: 1, output_cost_per_million: 2 },
+    ]);
+    expect(models["m1"]).toBeDefined();
   });
 });

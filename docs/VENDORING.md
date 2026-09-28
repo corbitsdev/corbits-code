@@ -289,7 +289,7 @@ so `grep -rn "Locally patched" vendor/*/src` finds every divergence.
 **Markers are navigation; the SHA-diff is proof.** Run
 `bin/vendor-patch-diff` against a pristine upstream checkout at the
 recorded SHA to print exactly the lines that are ours. A correspondence
-test (`tests/unit/vendor-patch-ledger.test.ts`) fails if a marker anchor
+test (`scripts/vendor-patch-ledger.test.ts`) fails if a marker anchor
 does not resolve to a ledger heading, or if a ledger heading has no marker.
 
 ## Re-syncing a vendored package to a newer upstream commit
@@ -320,7 +320,7 @@ does not resolve to a ledger heading, or if a ledger heading has no marker.
    `Locally patched` markers to reflect what actually landed, including
    any patches dropped as superseded and why. Run the full gate
    (`typecheck`/`build`/`test`, including
-   `tests/unit/vendor-patch-ledger.test.ts`) and do not consider the sync
+   `scripts/vendor-patch-ledger.test.ts`) and do not consider the sync
    complete until it passes clean.
 4. Because `@intx/inference`, `@intx/types`, and `@intx/storage-isogit` are
    coupled (see above), a re-sync that moves any one of their commit hashes

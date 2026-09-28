@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import {
   OPEN_SPAN_CAPACITY,
   RING_CAPACITY,

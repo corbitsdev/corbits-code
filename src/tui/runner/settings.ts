@@ -12,14 +12,12 @@ import { getLogger } from "@intx/log";
 import {
   listFavoriteModels,
   listRecentModels,
-  loadLocalSettings,
   loadSettings,
   markLastChangelogVersion,
   markTelemetryNoticeShown,
   pushRecentModel,
   setDefaultModel,
   toggleFavoriteModel,
-  type LocalSettings,
   type ModelRef,
   type ResolvedProvider,
   type Settings,
@@ -61,22 +59,6 @@ const GRANT_SCOPE_LABEL: Record<GrantScope, string> = {
   global: "Global",
   "provider-model": "Provider / model",
 };
-
-/**
- * Resolve the base for a local-settings read-modify-write.
- * Absent file → empty object; unreadable/invalid → null (caller must skip write).
- */
-export async function loadLocalSettingsWriteBase(
-  path: string,
-  load: (path: string) => Promise<LocalSettings | null> = loadLocalSettings,
-): Promise<LocalSettings | null> {
-  try {
-    return (await load(path)) ?? {};
-  } catch {
-    // Unreadable or invalid local settings — caller must skip the write.
-    return null;
-  }
-}
 
 /** First-run telemetry disclosure to show before consent-by-proceeding applies. */
 export function telemetryStartupNotice(

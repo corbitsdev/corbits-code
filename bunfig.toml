@@ -1,7 +1,7 @@
 [test]
-preload = ["./tests/preload.ts"]
+preload = ["./src/testkit/preload.ts"]
 pathIgnorePatterns = [
-  "tests/fixtures/**",
+  "fixtures/**",
   "eval/tasks/**",
   "tmp/**",
   # Bundles vendor/intx-storage-isogit's browser entry point with Bun.build,

@@ -26,7 +26,7 @@ const CapabilityFilterSchema = type({
 
 // Reasoning-effort schema derived from the canonical array. arktype's `type()`
 // is statically typed for literal strings; a computed string requires a cast
-// through `unknown`. The schema is exercised by tests/unit/data-only-agent
+// through `unknown`. The schema is exercised by src/plugins/data-only-agent
 // and the runtime ReasoningEffort re-export, so drift is caught.
 const reasoningEffortLiteral = REASONING_EFFORTS.map((e) => `'${e}'`).join(
   " | ",

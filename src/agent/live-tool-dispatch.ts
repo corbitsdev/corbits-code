@@ -18,7 +18,7 @@ import {
 // Restore Map before createAgent awaits so only that snapshot is live.
 // Drop this wrapper when @intx/agent dispatches through the bundle's
 // current definitions (the characterization test in
-// tests/integration/mcp-late-dispatch.test.ts will fail first).
+// e2e/mcp-late-dispatch.test.ts will fail first).
 
 const OriginalMap = globalThis.Map;
 

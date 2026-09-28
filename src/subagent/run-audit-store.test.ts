@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AuditStore, ContextStore } from "@intx/types/runtime";
 
-import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
-import { defined } from "../../tests/helpers/defined.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { defined } from "../testkit/defined.js";
 import { createPermissionGate } from "../permission/gate.js";
 
 const permissionGate = createPermissionGate({

@@ -28,7 +28,7 @@ export const RUNTIME_TEARDOWN_DEADLINE_MS = 2_000;
 // Single-setter assumption: this is one process-global read by both
 // installCrashHandlers and installSignalHandlers, so the last installer call
 // wins. Production never sets it; the only setter is the reap-fixture
-// subprocess (tests/fixtures/exec-shutdown-reap/simulate-reap.ts), which sets
+// subprocess (fixtures/exec-shutdown-reap/simulate-reap.ts), which sets
 // it once per process before installing — never both installers with
 // different values in one process.
 let teardownDeadlineMs = RUNTIME_TEARDOWN_DEADLINE_MS;

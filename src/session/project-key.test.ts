@@ -11,7 +11,7 @@ import {
   projectSessionsRoot,
   projectsRoot,
 } from "./project-key.js";
-import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
+import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
 
 let root = "";
 

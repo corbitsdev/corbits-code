@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { defined } from "../../../tests/helpers/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { loadConfig } from "../../config/index.js";
 import { globalSettingsPath } from "../../config/settings.js";
 import { createCommandLayer } from "../runner/commands.js";

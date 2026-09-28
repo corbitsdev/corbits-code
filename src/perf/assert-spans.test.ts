@@ -16,7 +16,7 @@
  * - full observer pipeline → snapshot → rollup → assertions
  */
 
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
 import {

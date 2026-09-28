@@ -27,7 +27,7 @@ import {
   subAgentToolName,
   SUBAGENT_DEADLINE_MARGIN_MS,
 } from "./index.js";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 
 describe("sub-agent teardown", () => {
   test("disposeSubAgentSession closes agent, awaits stream, and disposes posix tools once", async () => {

@@ -1,7 +1,7 @@
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import { withMockedModule } from "../../tests/helpers/mock-module.js";
+import { withMockedModule } from "../testkit/mock-module.js";
 
 let callbackStarts = 0;
 let callbackCloses = 0;

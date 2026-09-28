@@ -2,7 +2,7 @@ import { describe, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { mailboxMailWakeLine } from "../subagent/mailbox-mail-drive.js";
 import type { PermissionRequest } from "../permission/types.js";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { buildShellBackgroundMessage } from "../session/runtime-assembly.js";
 import {

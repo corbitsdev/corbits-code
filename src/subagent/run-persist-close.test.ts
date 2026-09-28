@@ -13,8 +13,8 @@ import { join } from "node:path";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
-import { defined } from "../../tests/helpers/defined.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { defined } from "../testkit/defined.js";
 import { INTERN_TOOLS } from "../agent/directors/tool-sets.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { BackgroundShellRegistry } from "../shell/background-shell.js";

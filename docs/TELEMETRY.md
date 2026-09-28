@@ -112,7 +112,7 @@ part of the provider's rejection message is sent.
 
 The mapping is `src/telemetry/classify.ts`, and the tests that feed each
 emission site a deliberately identifying name and assert it reaches no part of
-the payload are in `tests/unit/telemetry-product-events.test.ts`.
+the payload are in `src/telemetry/product-events.test.ts`.
 
 ## AI observability events
 

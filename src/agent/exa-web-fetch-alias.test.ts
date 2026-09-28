@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolResult } from "@intx/types/runtime";
 import { stringTool, type AgentTool } from "@intx/agent";
-import { withMockedModule } from "../../tests/helpers/mock-module.js";
+import { withMockedModule } from "../testkit/mock-module.js";
 import {
   createExaMCPServerConfig,
   type ResolvedMCPServerConfig,

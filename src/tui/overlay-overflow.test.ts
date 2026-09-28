@@ -8,7 +8,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import type { PermissionRequest } from "../permission/types.js";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { withTestRenderer } from "./harness.js";
 import { OVERLAY_MAX_FRACTION } from "./geometry/index.js";
 import { appendStreamRow } from "./shell/chrome.js";

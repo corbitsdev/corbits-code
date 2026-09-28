@@ -74,7 +74,7 @@ src/
       registry.ts         DIRECTOR_REGISTRY, resolveDirector, packageToProfile
       tool-sets.ts        Shared allowlists (READ/IMPLEMENT/DOCS/REVIEW/…)
       <id>/package.ts     Per-director prompt, envelope, spawn, report
-    renderer.ts           Event-stream renderer (stderr + live cost; used by tests/utilities)
+    renderer.ts           Event-stream renderer (stderr + live cost; used by tests and utilities)
   session/
     index.ts              Session lifecycle
     state.ts              RunState JSON save/load
@@ -523,7 +523,7 @@ See `docs/PLUGINS.md` for the full design. Summary:
 
 ## Hardening wave — deferred and upstream-owned items
 
-Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `tests/`, and `scripts/` only. The `vendor/` tree is out of scope for that wave (`scripts/verify-corbits-only-scope.sh` enforces this on landing branches). The items below were **not** closed in Corbits Code because they do not apply to the default CLI/TUI path or require upstream Interchange packages.
+Corbits Code v0.3 memory and stall hardening is implemented under `src/`, `e2e/`, and `scripts/` only. The `vendor/` tree is out of scope for that wave (`scripts/verify-corbits-only-scope.sh` enforces this on landing branches). The items below were **not** closed in Corbits Code because they do not apply to the default CLI/TUI path or require upstream Interchange packages.
 
 ### Child-supervisor IPC awaiter deadlines
 
@@ -560,12 +560,11 @@ Run all three before declaring work complete.
 
 ## Testing
 
-- **Unit tests** are co-located with source as `*.test.ts` (e.g. `config.test.ts`, `director.test.ts`, `prompts.test.ts`, `renderer.test.ts`, `permission/permission.test.ts`, each `plugins/*.test.ts`, and TUI tests under `tui/`).
-- **`tests/unit/`** holds shared unit helpers and focused packages (e.g. TUI geometry tests).
-- **`tests/fixtures/`** holds fixture repos and comparison assets (e.g. `demo-comparison/`, `multi-file-service/`).
-- **`tests/integration/`** holds the reactor permission / multi-turn harness (scripted models via `@intx/inference-testing`). **`tests/e2e/`** (fixture-repo runs) is still planned. Until e2e exists, broader harness coverage also lives in co-located `*.test.ts` files and `tests/unit/`.
+- **Unit tests** are co-located with source as `*.test.ts` (e.g. `config.test.ts`, `director.test.ts`, `prompts.test.ts`, `renderer.test.ts`, `permission/permission.test.ts`, each `plugins/*.test.ts`, and TUI tests under `tui/`). Shared test helpers live in `src/testkit/`.
+- **`fixtures/`** holds fixture repos and comparison assets (e.g. `demo-comparison/`, `multi-file-service/`).
+- **`e2e/`** holds scenario tests driven over the production agent loop with scripted models (`@intx/inference-testing`) — fixture-repo seeding, `runUntilDone`/`runUntilSuspended`/`sendOperatorTurn` drivers (see `e2e/harness.ts`), and the reactor permission / multi-turn exercises formerly under `tests/integration/`.
 - **Capability evals** (`evals/capability/`) are **not** the integration harness: they drive the product path (`corbits exec` / `runExec`) with real models against fixture copies and objective `verify.sh` graders. Case format + loader tests live under `evals/capability/`; run with `bun run eval:capability` (see `evals/capability/README.md`). Use `--baseline` to detect improve/regress across models or commits.
-- **TUI tests** are co-located `*.test.ts` files under `src/tui/` (e.g. `shell.test.ts`, `runner-host.test.ts`, `stream.test.ts`), run as part of `bun test` along with everything else; there is no separate `test:tui` script or test-setup preload.
+- **TUI tests** are co-located `*.test.ts` files under `src/tui/` (e.g. `shell.test.ts`, `runner-host.test.ts`, `stream.test.ts`), run as part of `bun test` along with everything else; there is no separate `test:tui` script. `bunfig.toml` preloads `src/testkit/preload.ts` for every test file, which strips ambient env (`COLORTERM`, `CORBITS_*`, telemetry) and hard-fails when `rg` is absent.
 - **Parallel local runs** — `bun run test:parallel [N]` (default 4 workers) runs the same seeded suite with `--parallel=N`, wrapped in an output-stall watchdog (`scripts/test-parallel.ts`). Bun 1.4.x intermittently livelocks under `--parallel` (one worker spins at 100 % CPU holding a zombie git child while the main process idles; no output, no summary — upstream oven-sh/bun#36235), and `bun test` has no run-level timeout, so a stalled run hangs forever. The watchdog kills the suite's own process group after 90 s of silence and retries up to 3 times; a child that exits on its own (pass or fail) is never retried. CI keeps sharded sequential runs (`test:paths`) and does not use `--parallel`.
 
 ## Deployment

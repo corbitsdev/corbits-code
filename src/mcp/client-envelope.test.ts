@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { defined } from "../../tests/helpers/defined.js";
-import { withMockedModule } from "../../tests/helpers/mock-module.js";
+import { defined } from "../testkit/defined.js";
+import { withMockedModule } from "../testkit/mock-module.js";
 import { connectMCPServer } from "./client.js";
 
 let scriptedCallToolResult: unknown = { content: [] };

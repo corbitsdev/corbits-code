@@ -123,7 +123,7 @@ function waitUntilMailboxTerminal(
 describe("CL-8978 recoverable subagent failure", () => {
   // The full retryable-after-tools scenario (failed lane, continuable
   // marker, parent not stalled) runs end-to-end in
-  // tests/e2e/subagent-recoverable-failure.test.ts. The cases below stay
+  // e2e/subagent-recoverable-failure.test.ts. The cases below stay
   // unit-level: they exercise mailbox/deliver seams below e2e granularity.
   test("credential failure stays failed without a continuable marker", async () => {
     const deps = makeDeps(async () => {

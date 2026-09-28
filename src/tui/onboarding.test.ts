@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { Config, UnconfiguredConfig } from "../config/index.js";
 import type { ProviderSetupConfig } from "./provider/types.js";
 import type { WelcomeConfig } from "./welcome.js";
-import { withMockedModule } from "../../tests/helpers/mock-module.js";
+import { withMockedModule } from "../testkit/mock-module.js";
 
 let testHome = "";
 let setup: (config: ProviderSetupConfig) => Promise<void> = async () =>

@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { type Agent } from "@intx/agent";
+import { AgentContextLockError, type Agent } from "@intx/agent";
 import type { InferenceSource } from "@intx/types/runtime";
 
 import * as codexSession from "../../auth/codex/session.js";
@@ -18,21 +18,24 @@ import type {
   ReactorInboundEvent,
   ReactorState,
 } from "@intx/types/runtime";
-import { defined } from "../../../tests/helpers/defined.js";
+import { defined } from "../../testkit/defined.js";
 import {
   withMockedHomedir,
   withMockedModuleDuring,
-} from "../../../tests/helpers/mock-module.js";
-import { createTempDirs } from "../../../tests/helpers/temporary-dirs.js";
+} from "../../testkit/mock-module.js";
+import { createTempDirs } from "../../testkit/temporary-dirs.js";
 import {
   createDeliveryGeneration,
   createSessionOperationQueue,
 } from "../delivery-queue.js";
 import {
+  agentRebuildFailure,
+  closeAgentForRebuild,
   createRunLifecycle,
   finalizeTUIRun,
   resetSessionForRotation,
   resyncIdleWithFleetFlag,
+  startInterruptRebuild,
 } from "./exit.js";
 import {
   COMPACTION_ABORTED_REASON,
@@ -947,5 +950,168 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       initDir.mockRestore();
       contextDir.mockRestore();
     }
+  });
+});
+
+// CL-5753: an interrupt can hit close() while reactor.abort()/sendQueue.drain()
+// are mid-teardown, throwing before @intx/agent's close() ever reaches
+// lock.release(). Once that happens the agent is already marked closed, so a
+// retried close() is a silent no-op that can never free the lock either — the
+// workdir's lock is stuck held for the rest of the process. The next
+// buildAgent() for that same workdir is then guaranteed to throw
+// AgentContextLockError ("an agent is already open for workdir: ..."), which
+// is the crash from the ticket. These tests cover the two functions the
+// runner now routes every rebuild through so that failure is reported in
+// plain language rather than escaping as an unhandled rejection.
+describe("rebuild close helpers", () => {
+  function stubAgent(closeImpl: () => Promise<void>): Agent {
+    return { close: closeImpl } as unknown as Agent;
+  }
+
+  test("closeAgentForRebuild reports a failed close without throwing", async () => {
+    const agent = stubAgent(() =>
+      Promise.reject(new AgentContextLockError("/tmp/workdir")),
+    );
+    const closedCleanly = await closeAgentForRebuild(agent, "interrupt");
+    expect(closedCleanly).toBe(false);
+  });
+
+  test("closeAgentForRebuild reports success when close() resolves", async () => {
+    const agent = stubAgent(() => Promise.resolve());
+    const closedCleanly = await closeAgentForRebuild(agent, "interrupt");
+    expect(closedCleanly).toBe(true);
+  });
+
+  test("agentRebuildFailure turns a stale-lock AgentContextLockError into a plain-language message", () => {
+    // Simulates the second acquisition throwing after a failed close left the
+    // lock held: buildAgent() surfaces AgentContextLockError, which must not
+    // reach the caller as a raw stack trace.
+    const err = agentRebuildFailure(new AgentContextLockError("/tmp/workdir"));
+    expect(err.message).not.toContain("already open");
+    expect(err.message).toMatch(/restart/i);
+  });
+
+  test("agentRebuildFailure passes other errors through unchanged", () => {
+    const original = new Error("network unreachable");
+    expect(agentRebuildFailure(original)).toBe(original);
+  });
+
+  test("a failed close followed by a lock error never surfaces as a raw AgentContextLockError", async () => {
+    // End-to-end shape of the fix: close() throws (lock leaked in-process),
+    // the rebuild site short-circuits instead of calling buildAgent() again,
+    // and the resulting error is the plain-language one — never the raw
+    // AgentContextLockError a bare `throw` would have produced.
+    const agent = stubAgent(() =>
+      Promise.reject(new AgentContextLockError("/tmp/workdir")),
+    );
+    let rebuildError: Error | null = null;
+    try {
+      const closedCleanly = await closeAgentForRebuild(agent, "interrupt");
+      if (!closedCleanly) {
+        throw new AgentContextLockError("/tmp/workdir");
+      }
+    } catch (err) {
+      rebuildError = agentRebuildFailure(err);
+    }
+    expect(rebuildError).not.toBeNull();
+    expect(rebuildError).not.toBeInstanceOf(AgentContextLockError);
+    expect(defined(rebuildError, "rebuild error").message).toMatch(/restart/i);
+  });
+
+  // reloadIfIdle itself is a closure captured inside runTUI's single
+  // ~2500-line scope (currentAgent, buildAgent, streamPromise,
+  // workflowController, pendingReload/inFlight, fatalBuildError, etc. are all
+  // local variables of that function), with no seam to construct or call it
+  // in isolation short of standing up the full TUI runner — provider config,
+  // plugin discovery, MCP wiring, and a real OpenTUI host. What can be driven
+  // directly, and is exactly the failure this bug reports, is the real
+  // `delivery-queue.ts` queue exercised the same way every rebuild site uses
+  // it: `void enqueueOp(async () => { try { ... } catch (err) {
+  // fatalBuildError = ... } })`. `enqueue` is `tail = tail.then(op, op);
+  // return tail;` — if `op` rejects and nothing internally catches it, that
+  // returned promise is the only thing that ever observes the rejection, and
+  // `void` discards it, which is precisely how the unhandled rejection in the
+  // ticket escaped.
+  //
+  // A true negative control (reproducing reloadIfIdle's pre-fix shape — no
+  // try/catch around the queued op — and asserting the rejection escapes) was
+  // attempted here and deliberately removed: bun:test installs its own
+  // `unhandledRejection` listener that fails whichever test is running the
+  // instant one fires, regardless of what that test asserts, so a test
+  // designed to prove an unhandled rejection *does* escape cannot pass in
+  // this harness — it is intercepted before the assertion runs. The test
+  // below is the harness-compatible half of that pair: same real queue, same
+  // real helpers, proving the fixed shape produces no such failure.
+  test("a rejecting reload op through the real delivery-queue never triggers an unhandled rejection", async () => {
+    const { enqueue, awaitTail } = createSessionOperationQueue();
+    const agent = stubAgent(() =>
+      Promise.reject(new AgentContextLockError("/tmp/workdir")),
+    );
+
+    let unhandled: unknown = null;
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled = reason;
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    let fatalBuildError: Error | null = null;
+    try {
+      // Mirrors reloadIfIdle's body verbatim: close the current agent through
+      // closeAgentForRebuild, skip buildAgent() and throw instead of
+      // re-acquiring on a failed close, and land any failure in
+      // fatalBuildError via agentRebuildFailure — all behind `void enqueueOp`,
+      // exactly as the runner calls it.
+      void enqueue(async () => {
+        try {
+          const closedCleanly = await closeAgentForRebuild(agent, "reload");
+          if (!closedCleanly) {
+            throw new AgentContextLockError("/tmp/workdir");
+          }
+        } catch (err) {
+          fatalBuildError = agentRebuildFailure(err);
+        }
+      });
+
+      await awaitTail();
+      // Give any unhandled rejection queued by the engine a chance to fire
+      // before asserting its absence — it lands on a later microtask/macrotask
+      // than the awaited queue settlement.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+
+    expect(unhandled).toBeNull();
+    expect(fatalBuildError).not.toBeNull();
+    expect(fatalBuildError).not.toBeInstanceOf(AgentContextLockError);
+    expect(
+      defined<Error>(fatalBuildError, "fatal build error").message,
+    ).toMatch(/restart/i);
+  });
+
+  // Overlay accept/decline tests stub bump() inside resolveSuspended, so
+  // deleting the interrupt-site bump would not fail them. Drive the interrupt
+  // helper itself.
+  test("interrupt bumps delivery generation before enqueueing rebuild", () => {
+    const order: string[] = [];
+    startInterruptRebuild({
+      deliveryGeneration: {
+        bump: () => {
+          order.push("bump");
+        },
+      },
+      markSendAborted: () => {
+        order.push("abort");
+      },
+      enqueue: (op) => {
+        order.push("enqueue");
+        return op();
+      },
+      rebuild: async () => {
+        order.push("rebuild");
+      },
+    });
+    expect(order[0]).toBe("bump");
+    expect(order.indexOf("enqueue")).toBeGreaterThan(0);
   });
 });

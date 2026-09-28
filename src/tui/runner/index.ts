@@ -6,7 +6,6 @@
  * try/catch. Behavior lives in the sibling modules; this file owns ordering.
  */
 
-import { EventEmitter } from "node:events";
 import type { Config } from "../../config/index.js";
 import { listFavoriteModels, listRecentModels } from "../../config/settings.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
@@ -39,12 +38,6 @@ import { createRunnerState, liveAgent } from "./state.js";
 import { applyCredentialRecoverySelection } from "./credential-recovery.js";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
-
-export function createTUIEventEmitter(): EventEmitter {
-  return new EventEmitter();
-}
-
-export { getTUIRunSummaryStatus } from "../../session/run-sink.js";
 
 export async function runTUI(initialConfig: Config): Promise<number> {
   const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);

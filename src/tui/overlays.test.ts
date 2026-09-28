@@ -3,7 +3,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import {
   IDLE_TRANSCRIPT_FLOOR,
   OVERLAY_TRANSCRIPT_FLOOR,

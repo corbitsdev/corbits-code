@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { formatChangeDiff, MAX_DIFF_CHARS } from "./change-diff.js";
 
 describe("formatChangeDiff", () => {

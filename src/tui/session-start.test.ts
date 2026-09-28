@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import { setActiveRun, clearActiveRun } from "../session/active-run.js";
 import type { RunState } from "../session/state.js";
 

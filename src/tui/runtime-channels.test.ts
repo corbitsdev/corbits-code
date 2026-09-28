@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { createHarness } from "./harness.js";
 import { mountProductHost, type ProductHostConfig } from "./product-host.js";
 import { isLanding } from "./shell/internals.js";

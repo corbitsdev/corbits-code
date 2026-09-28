@@ -1,0 +1,647 @@
+import { test, expect, mock } from "bun:test";
+import type { ToolDefinition, ToolCall } from "@intx/types/runtime";
+import { TOOL_NAMES } from "@intx/tools-posix";
+import { createPermissionGate } from "../permission/gate.js";
+import { createSubAgentSessionStore } from "../subagent/session-store.js";
+import type { PermissionGate } from "../permission/gate.js";
+import { mcpServerFingerprint } from "../trust/project-trust.js";
+import { withMockedModule } from "../testkit/mock-module.js";
+
+const mockDispose = mock(async () => undefined);
+
+const mockPosixTools = {
+  definitions: [
+    {
+      name: "read_file",
+      description: "Read a file",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "write_file",
+      description: "Write a file",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "edit_file",
+      description: "Edit a file",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "delete_file",
+      description: "Delete a file",
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+  ] as ToolDefinition[],
+  run: mock(async (_call: ToolCall, _signal: AbortSignal) => ({
+    callId: "test",
+    content: "ok",
+    isError: false,
+  })),
+  dispose: mockDispose,
+};
+
+// withMockedModule captures each real module and registers its own afterAll
+// restore, so none of these mocks can outlive this file (Bun runs every test
+// file in one process, and an un-restored mock.module silently replaces the
+// real module for every file that runs after this one).
+const mockConnectMCPServer = mock(
+  async (
+    config: { name: string },
+    _options?: import("../mcp/client.js").MCPConnectOptions,
+  ) => ({
+    ok: false as const,
+    serverName: config.name,
+    error: "not connected",
+  }),
+);
+
+interface ModuleStub {
+  path: string;
+  impl: (real: never) => object;
+}
+
+// The sequential stub registrations, table-driven: one entry per mocked
+// module, installed in order through withMockedModule.
+const MODULE_STUBS: readonly ModuleStub[] = [
+  {
+    path: import.meta.resolve("@intx/tools-posix"),
+    impl: () => ({
+      createPosixTools: () => mockPosixTools,
+      TOOL_NAMES,
+    }),
+  },
+  {
+    path: import.meta.resolve("./posix-tool-plugins.js"),
+    impl: () => ({
+      buildCorePosixToolPlugins: () => [],
+    }),
+  },
+  {
+    path: import.meta.resolve("../mcp/client.js"),
+    impl: (real: typeof import("../mcp/client.js")) => ({
+      ...real,
+      connectMCPServer: mockConnectMCPServer,
+    }),
+  },
+  {
+    path: import.meta.resolve("../mcp/plugin.js"),
+    impl: () => ({
+      mcpClientTools: () => [],
+      mcpClientToAgentTools: () => [],
+    }),
+  },
+  {
+    path: import.meta.resolve("../plugins/path-escape-plugin.js"),
+    impl: () => ({
+      pathEscapePlugin: () => ({}),
+    }),
+  },
+  {
+    path: import.meta.resolve("../plugins/verify-plugin.js"),
+    impl: () => ({
+      verifyPlugin: () => ({}),
+    }),
+  },
+  {
+    path: import.meta.resolve("../plugins/permission-plugin.js"),
+    impl: () => ({
+      permissionPlugin: () => ({}),
+      gateAgentTools: (tools: unknown) => tools,
+      gateToolCall: async (
+        _gate: unknown,
+        call: ToolCall,
+        signal: AbortSignal,
+        next: (call: ToolCall, signal: AbortSignal) => Promise<unknown>,
+      ) => next(call, signal),
+    }),
+  },
+  {
+    path: import.meta.resolve("../plugins/secret-guard-plugin.js"),
+    impl: () => ({
+      secretGuardPlugin: () => ({}),
+    }),
+  },
+  {
+    path: import.meta.resolve("../plugins/shell-guard-plugin.js"),
+    impl: () => ({
+      shellGuardPlugin: () => ({}),
+      advertiseShellGuardTimeout: (defs: ToolDefinition[]) => defs,
+    }),
+  },
+  {
+    path: import.meta.resolve("../plugins/read-file-guard-plugin.js"),
+    impl: () => ({
+      readFileGuardPlugin: () => ({}),
+    }),
+  },
+  {
+    path: import.meta.resolve("../plugins/edit-file-line-range.js"),
+    impl: () => ({
+      advertiseEditFileLineRange: (defs: ToolDefinition[]) => defs,
+    }),
+  },
+  {
+    path: import.meta.resolve("./director.js"),
+    impl: () => ({
+      askOperatorDefinition: {
+        name: "ask_operator",
+        description: "Ask operator",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      } as ToolDefinition,
+      presentDefinition: {
+        name: "present",
+        description: "Present structured output",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      } as ToolDefinition,
+      submitOutputDefinition: {
+        name: "submit_output",
+        description: "Submit output",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      } as ToolDefinition,
+      createChatDirector: mock(() => ({})),
+    }),
+  },
+];
+
+for (const stub of MODULE_STUBS) {
+  await withMockedModule(stub.path, stub.impl);
+}
+
+const {
+  createAgentToolset,
+  ASK_OPERATOR_OPTION_MAX_CHARS,
+  ASK_OPERATOR_QUESTION_MAX_CHARS,
+} = await import("./tools.js");
+
+const fakePermissionGate: PermissionGate = {
+  evaluate: mock(async () => ({ allowed: true as const })),
+  authorizeCall: mock(async () => ({ effect: "allow" as const })),
+  executionVerdict: mock(async () => ({ effect: "allow" as const })),
+  resolveSuspended: mock(async () => undefined),
+  isReactorGated: () => false,
+  getApprovals: () => [],
+  reset: () => undefined,
+  clearDenials: () => undefined,
+  getSessionApprovals: () => [],
+  removeSessionApproval: () => undefined,
+  setSeededApprovals: () => undefined,
+  getAuto: () => false,
+  setAuto: () => undefined,
+  getSkipPermissions: () => false,
+  setSkipPermissions: () => undefined,
+  setProviderIdentity: () => undefined,
+  registerMcpClient: mock(() => undefined),
+  unregisterMcpServer: mock(() => undefined),
+  getTrustedPluginRoots: () => [],
+};
+
+const callOperator = async (
+  toolset: Awaited<ReturnType<typeof createAgentToolset>>,
+  args: Record<string, unknown>,
+): Promise<string> => {
+  const result = await toolset.dynamicRunner.run(
+    { id: "op", name: "ask_operator", arguments: args },
+    new AbortController().signal,
+  );
+  return String(result.content);
+};
+
+const callPresent = async (
+  toolset: Awaited<ReturnType<typeof createAgentToolset>>,
+  view: unknown,
+): Promise<string> => {
+  const result = await toolset.dynamicRunner.run(
+    { id: "p", name: "present", arguments: { view } },
+    new AbortController().signal,
+  );
+  return String(result.content);
+};
+
+test("present validates the view spec and gives self-correcting errors", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+  expect(
+    toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
+  ).toContain("present");
+  expect(await callPresent(toolset, { type: "text", text: "Hi" })).toBe(
+    "Rendered.",
+  );
+  expect(await callPresent(toolset, { type: "chart" })).toMatch(
+    /Invalid view spec/,
+  );
+});
+
+test("dynamicRunner contains posix tool names plus ask_operator", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+
+  const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+  expect(names).toContain("read_file");
+  expect(names).toContain("ask_operator");
+  // Primary Skywalker mounts product mutation tools for DIY tiny/bounded edits.
+  expect(names).toContain("write_file");
+  expect(names).toContain("edit_file");
+  expect(names).toContain("delete_file");
+  // apply_patch is Codex-only and stripped on primary even when mounted.
+  expect(names).not.toContain("apply_patch");
+});
+
+test("dynamicRunner omits ask_operator when onOperatorGate is not provided", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+  });
+
+  const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+  expect(names).not.toContain("ask_operator");
+  expect(names).toContain("read_file");
+});
+
+test("onOperatorGate callback is invoked when the operator tool handler is called", async () => {
+  let capturedQuestion = "";
+  let capturedOptions: string[] = [];
+
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async (question, options) => {
+      capturedQuestion = question;
+      capturedOptions = options;
+      return { kind: "option", index: 1 };
+    },
+  });
+
+  const result = await callOperator(toolset, {
+    question: "Which approach?",
+    options: ["A", "B", "C"],
+  });
+
+  expect(capturedQuestion).toBe("Which approach?");
+  expect(capturedOptions).toEqual(["A", "B", "C"]);
+  expect(result).toBe("B");
+});
+
+test("selecting Reject does not mint a shell grant even when command is declared", async () => {
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: true,
+    skipPermissions: false,
+    reactorGated: false,
+  });
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: gate,
+    onOperatorGate: async () => ({ kind: "option", index: 1 }),
+  });
+
+  const chosen = await callOperator(toolset, {
+    question: "Install dependencies?",
+    options: ["Allow", "Reject"],
+    command: "bun install",
+  });
+
+  expect(chosen).toBe("Reject");
+  expect(gate.getSessionApprovals()).toEqual([]);
+});
+
+test("clarification choices do not mint shell grants", async () => {
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: true,
+    skipPermissions: false,
+    reactorGated: false,
+  });
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: gate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+
+  const chosen = await callOperator(toolset, {
+    question: "Install dependencies?",
+    options: ["Allow", "Reject"],
+    command: "bun install",
+  });
+
+  expect(chosen).toBe("Allow");
+  expect(gate.getSessionApprovals()).toEqual([]);
+});
+
+test("operator tool returns the operator's free-form answer", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({
+      kind: "custom",
+      text: "use the second one but tweak the tone",
+    }),
+  });
+
+  const result = await callOperator(toolset, {
+    question: "Which approach?",
+    options: ["A", "B"],
+  });
+  expect(result).toBe("use the second one but tweak the tone");
+});
+
+test("operator tool tells the agent to proceed when the operator dismisses the question", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+  });
+
+  const result = await callOperator(toolset, {
+    question: "Which approach?",
+    options: ["A", "B"],
+  });
+  expect(result).toMatch(/dismissed the question/);
+});
+
+test("operator tool returns error when no options are provided", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+
+  expect(
+    await callOperator(toolset, { question: "Empty?", options: [] }),
+  ).toMatch(/requires at least one option/);
+});
+
+test("operator tool rejects over-long option labels without truncating", async () => {
+  let gated = false;
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => {
+      gated = true;
+      return { kind: "option", index: 0 };
+    },
+  });
+
+  const long = "x".repeat(ASK_OPERATOR_OPTION_MAX_CHARS + 1);
+  const result = await callOperator(toolset, {
+    question: "Which approach?",
+    options: ["short", long],
+  });
+
+  expect(gated).toBe(false);
+  expect(result).toMatch(/Error: ask_operator option 2/);
+  expect(result).toMatch(/transcript/);
+  expect(result).toMatch(/short option labels/);
+  expect(result).not.toContain("...");
+  expect(result).not.toContain("…");
+});
+
+test("operator tool accepts option labels at the character cap", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+  });
+
+  const atCap = "y".repeat(ASK_OPERATOR_OPTION_MAX_CHARS);
+  const result = await callOperator(toolset, {
+    question: "Which approach?",
+    options: [atCap],
+  });
+  expect(result).toBe(atCap);
+});
+
+test("operator tool rejects an over-long question", async () => {
+  let gated = false;
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => {
+      gated = true;
+      return { kind: "option", index: 0 };
+    },
+  });
+
+  const result = await callOperator(toolset, {
+    question: "q".repeat(ASK_OPERATOR_QUESTION_MAX_CHARS + 1),
+    options: ["A"],
+  });
+  expect(gated).toBe(false);
+  expect(result).toMatch(/Error: ask_operator question/);
+  expect(result).toMatch(/transcript/);
+});
+
+test("operator tool returns error for out-of-range index", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 99 }),
+  });
+
+  expect(
+    await callOperator(toolset, { question: "Pick one", options: ["X"] }),
+  ).toMatch(/invalid selection/);
+});
+
+const subAgentDeps = {
+  provider: () => ({
+    providerName: "test",
+    baseURL: "http://localhost",
+    apiKey: "k",
+    model: "m",
+  }),
+  getWorkdirBase: () => "/tmp",
+  sessions: createSubAgentSessionStore(),
+  profiles: () => [],
+};
+
+test("default session registers split fleet tools and search_agents", async () => {
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "option", index: 0 }),
+    sessionMode: "orchestrator",
+    subAgent: subAgentDeps,
+  });
+  const names = toolset.dynamicRunner.currentDefinitions().map((d) => d.name);
+  expect(names).not.toContain("task");
+  expect(names).toContain("spawn_agent");
+  // CL-7678: default (TUI) session leaves wait_agents unmounted — mailbox mail
+  // is the collect path. Exec primary opts in via mountWaitAgents.
+  expect(names).not.toContain("wait_agents");
+  expect(names).toContain("search_agents");
+});
+
+test("headless MCP connection does not wait for interactive OAuth", async () => {
+  mockConnectMCPServer.mockClear();
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [{ name: "granola", url: "https://example.test/mcp" }],
+    mcpServersSource: "global",
+  });
+
+  await toolset.connectMCP({
+    interactiveAuth: false,
+    onStatus: () => undefined,
+    onToolsChanged: () => undefined,
+  });
+
+  expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
+  expect(mockConnectMCPServer.mock.calls[0]?.[1]?.onAuthURL).toBeUndefined();
+});
+
+const localStdioServer = { name: "evil", command: "evil-bin" };
+const globalHttpServer = {
+  name: "linear",
+  type: "http" as const,
+  url: "https://mcp.example.test/mcp",
+};
+
+test("late connect of an untrusted local-source server does not spawn", async () => {
+  mockConnectMCPServer.mockClear();
+  const statuses: { name: string; state: string; error?: string }[] = [];
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [localStdioServer],
+    mcpServersSource: "local",
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [],
+      trustedGrantFingerprints: [],
+    },
+  });
+
+  await toolset.connectMCPServer(localStdioServer, {
+    interactiveAuth: false,
+    onStatus: (status) => statuses.push(status),
+    onToolsChanged: () => undefined,
+  });
+
+  expect(mockConnectMCPServer).not.toHaveBeenCalled();
+  expect(statuses).toHaveLength(1);
+  expect(statuses[0]?.name).toBe("evil");
+  expect(statuses[0]?.state).toBe("failed");
+  expect(statuses[0]?.error).toMatch(/Not trusted for this project/);
+  await toolset.dispose();
+});
+
+test("late connect of an untrusted local-source server fail-closes when requestMcpTrust denies", async () => {
+  mockConnectMCPServer.mockClear();
+  let trustAsks = 0;
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [localStdioServer],
+    mcpServersSource: "local",
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [],
+      trustedGrantFingerprints: [],
+    },
+    requestMcpTrust: async () => {
+      trustAsks += 1;
+      return false;
+    },
+  });
+
+  await toolset.connectMCPServer(localStdioServer, {
+    interactiveAuth: false,
+    onStatus: () => undefined,
+    onToolsChanged: () => undefined,
+  });
+
+  expect(trustAsks).toBe(1);
+  expect(mockConnectMCPServer).not.toHaveBeenCalled();
+  await toolset.dispose();
+});
+
+test("late connect of a trusted local-source server still connects", async () => {
+  mockConnectMCPServer.mockClear();
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [localStdioServer],
+    mcpServersSource: "local",
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [mcpServerFingerprint(localStdioServer)],
+      trustedGrantFingerprints: [],
+    },
+  });
+
+  await toolset.connectMCPServer(localStdioServer, {
+    interactiveAuth: false,
+    onStatus: () => undefined,
+    onToolsChanged: () => undefined,
+  });
+
+  expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
+  expect(mockConnectMCPServer.mock.calls[0]?.[0]).toEqual(localStdioServer);
+  await toolset.dispose();
+});
+
+test("late connect of a global-source HTTP server does not require trust", async () => {
+  mockConnectMCPServer.mockClear();
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [globalHttpServer],
+    mcpServersSource: "global",
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [],
+      trustedGrantFingerprints: [],
+    },
+  });
+
+  await toolset.connectMCPServer(globalHttpServer, {
+    interactiveAuth: false,
+    onStatus: () => undefined,
+    onToolsChanged: () => undefined,
+  });
+
+  expect(mockConnectMCPServer).toHaveBeenCalledTimes(1);
+  expect(mockConnectMCPServer.mock.calls[0]?.[0]).toEqual(globalHttpServer);
+  await toolset.dispose();
+});
+
+test("startup connectMCP still fail-closes untrusted local servers", async () => {
+  mockConnectMCPServer.mockClear();
+  const statuses: { name: string; state: string; error?: string }[] = [];
+  const toolset = await createAgentToolset({
+    cwd: "/fake",
+    permissionGate: fakePermissionGate,
+    onOperatorGate: async () => ({ kind: "cancel" }),
+    mcpServers: [localStdioServer],
+    mcpServersSource: "local",
+    projectTrust: {
+      trustedPluginPaths: [],
+      trustedMcpFingerprints: [],
+      trustedGrantFingerprints: [],
+    },
+  });
+
+  await toolset.connectMCP({
+    interactiveAuth: false,
+    onStatus: (status) => statuses.push(status),
+    onToolsChanged: () => undefined,
+  });
+
+  expect(mockConnectMCPServer).not.toHaveBeenCalled();
+  expect(statuses.some((s) => s.name === "evil" && s.state === "failed")).toBe(
+    true,
+  );
+  await toolset.dispose();
+});

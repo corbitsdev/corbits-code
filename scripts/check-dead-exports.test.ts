@@ -150,9 +150,7 @@ describe("allowlist entry shapes", () => {
       validateAllowlistEntry("src/auth/codex/usage.ts: fetchCodexUsage"),
     ).toBeUndefined();
     expect(
-      validateAllowlistEntry(
-        "tests/fixtures/plugins/implement-feature/src/index.ts",
-      ),
+      validateAllowlistEntry("fixtures/plugins/implement-feature/src/index.ts"),
     ).toBeUndefined();
   });
 
@@ -380,7 +378,7 @@ describe("deleted barrels stay deleted", () => {
     "auth/xai/index",
     "web/index",
   ];
-  const roots = ["src", "tests", "evals", "scripts", "packages"];
+  const roots = ["src", "e2e", "evals", "scripts", "fixtures", "packages"];
 
   test("the barrel files do not exist", () => {
     for (const barrel of barrels) {

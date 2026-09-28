@@ -75,7 +75,7 @@ const BUILT_IN_AGENT_NAMES: ReadonlySet<string> = new Set([
 // skills (plugins/corbits-skills/skills) whose names we ship ourselves, so
 // reporting one cannot identify the operator. The manifest carries only the
 // plugin id and kind — no skill list — so the closed set is spelled out here
-// and pinned by tests/unit/telemetry-product-events.test.ts.
+// and pinned by src/telemetry/product-events.test.ts.
 // `user-invocable: false` is a slash-surface flag, not a telemetry flag:
 // eleven bundled skills carry it — eight stay listed and loadable
 // (git-rebase, linear-issue-workflow, opsh, philosophy, style, typescript,

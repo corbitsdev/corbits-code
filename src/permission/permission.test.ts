@@ -1,4 +1,4 @@
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { describe, test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
@@ -43,7 +43,7 @@ import {
   resolveWorkspacePath,
 } from "./path-restriction.js";
 import type { Approval, ApprovalOutcome, PermissionRequest } from "./types.js";
-import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
+import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 import { pathEscapePlugin } from "../plugins/path-escape-plugin.js";
 

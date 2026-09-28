@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import type { ReactorEmittedEvent } from "@intx/inference";
-import { createRunSink } from "./run-sink.js";
+import { createRunSink, getTUIRunSummaryStatus } from "./run-sink.js";
 import type { LifecycleHookStatus } from "./hooks.js";
 import { createTurnObserver } from "../telemetry/ai-observability.js";
 import type { Telemetry } from "../telemetry/index.js";
@@ -575,4 +575,107 @@ describe("createRunSink", () => {
     expect(runSink.getRunError()).toBe("reactor gave up");
     expect(runSink.getStatus()).toBe("failed");
   });
+
+  test("no events leaves the run cancelled", () => {
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([enabledHook]),
+    });
+    expect(runSink.getStatus()).toBe("cancelled");
+    expect(runSink.getRunError()).toBeUndefined();
+  });
+
+  test("reactor.done marks the run done", () => {
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([enabledHook]),
+    });
+    runSink.sink(event("reactor.done", {}));
+    expect(runSink.getStatus()).toBe("done");
+    expect(runSink.getRunError()).toBeUndefined();
+  });
+
+  test("sink forwards every event through the emitter", () => {
+    const emitter = new EventEmitter();
+    const runSink = createRunSink({
+      emitter,
+      hookManager: stubHookManager([enabledHook]),
+    });
+    const received: unknown[] = [];
+    emitter.on("event", (e) => received.push(e));
+    const done = event("reactor.done", {});
+    runSink.sink(done);
+    expect(received).toEqual([done]);
+  });
+
+  // Session rotation: reset() clears accumulated state so the post-run hook
+  // for a new session only sees turns from that session, not the prior one.
+  test("reset clears status, error, and the turn collector between sessions", () => {
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: stubHookManager([enabledHook]),
+    });
+
+    runSink.sink(event("reactor.done", {}));
+    runSink.sink(event("reactor.error", { error: "oops" }));
+    expect(runSink.getStatus()).toBe("failed");
+    expect(runSink.getRunError()).toBe("oops");
+    const beforeReset = runSink.getTurnCollector();
+
+    runSink.reset();
+
+    expect(runSink.getStatus()).toBe("cancelled");
+    expect(runSink.getRunError()).toBeUndefined();
+    const collector = runSink.getTurnCollector();
+    expect(collector).not.toBeNull();
+    expect(collector).not.toBe(beforeReset);
+    expect(collector?.getTurns()).toHaveLength(0);
+    expect(collector?.getToolCallCount()).toBe(0);
+
+    runSink.sink(event("reactor.done", {}));
+    expect(runSink.getStatus()).toBe("done");
+  });
+
+  // onTurnComplete is telemetry's hook into turn completion, wired alongside
+  // (not instead of) the post-turn lifecycle hook — both must fire per turn.
+  test("onTurnComplete fires alongside dispatchPostTurn for each completed turn", () => {
+    const dispatched: unknown[] = [];
+    const completed: unknown[] = [];
+    const runSink = createRunSink({
+      emitter: new EventEmitter(),
+      hookManager: {
+        dispatchPostTurn: (ctx: unknown) => {
+          dispatched.push(ctx);
+        },
+        getStatuses: () => [],
+      },
+      onTurnComplete: (ctx) => {
+        completed.push(ctx);
+      },
+    });
+
+    runSink.sink(
+      event("inference.done", {
+        turn: { role: "assistant", content: [], model: "test", timestamp: 0 },
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
+        source: { provider: "test", model: "test" },
+      }),
+    );
+
+    expect(dispatched).toHaveLength(1);
+    expect(completed).toHaveLength(1);
+    expect(dispatched[0]).toBe(completed[0]);
+  });
+});
+
+test("getTUIRunSummaryStatus distinguishes done, failed, and cancelled runs", () => {
+  expect(getTUIRunSummaryStatus(true, undefined)).toBe("done");
+  expect(getTUIRunSummaryStatus(true, "network failed")).toBe("failed");
+  expect(getTUIRunSummaryStatus(false, undefined)).toBe("cancelled");
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import {
   beginYank,
   breakKillSequence,

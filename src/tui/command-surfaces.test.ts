@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 
 import {
   grantRowLabel,

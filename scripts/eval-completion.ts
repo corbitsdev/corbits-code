@@ -45,7 +45,7 @@ import {
   closeIntegrationSession,
   openIntegrationSession,
   type TurnResult,
-} from "../tests/integration/harness.js";
+} from "../e2e/integration-harness.js";
 import {
   CompletionReport,
   REPORT_VERSION,

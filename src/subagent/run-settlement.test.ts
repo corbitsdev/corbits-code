@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { SubAgentRunSettlement } from "./types.js";
 

@@ -4,7 +4,7 @@
  * pending must dim its gutter on the same node, not keep the live bronze.
  */
 import { describe, expect, test } from "bun:test";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import {
   BoxRenderable,
   TextRenderable,

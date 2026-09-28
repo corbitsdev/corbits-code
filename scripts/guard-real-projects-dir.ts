@@ -89,7 +89,7 @@ async function main(): Promise<void> {
         leaked.map((name) => `  ${name}`).join("\n") +
         "\n\nA test must pass an explicit `home` (mkdtemp'd) through to any " +
         "function that otherwise defaults to node:os homedir() — see " +
-        "tests/unit/workflow-host.test.ts for the pattern.\n",
+        "src/workflows/host.test.ts for the pattern.\n",
     );
     process.exit(1);
   }

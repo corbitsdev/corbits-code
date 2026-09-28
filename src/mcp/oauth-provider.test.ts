@@ -791,3 +791,73 @@ describe("createOAuthProvider", () => {
     expect(seen.some((signal) => signal === abort.signal)).toBe(true);
   });
 });
+
+describe("OAuth provider auth URL and state", () => {
+  const acme = {
+    serverName: "acme",
+    serverURL: "https://mcp.acme.app/mcp",
+  };
+
+  test("redirectToAuthorization surfaces the URL instead of opening a browser", async () => {
+    const home = await tempHome();
+    const seen: { name: string; url: string }[] = [];
+    const provider = await createOAuthProvider({
+      serverName: "acme",
+      serverURL: acme.serverURL,
+      redirectUrl: "http://127.0.0.1:5599/callback",
+      onAuthURL: (name, url) => seen.push({ name, url }),
+      home,
+    });
+    provider.redirectToAuthorization(
+      new URL("https://acme.app/oauth/authorize?client_id=abc"),
+    );
+    expect(seen).toEqual([
+      { name: "acme", url: "https://acme.app/oauth/authorize?client_id=abc" },
+    ]);
+    expect(provider.redirectUrl).toBe("http://127.0.0.1:5599/callback");
+    expect(provider.clientMetadata.redirect_uris).toEqual([
+      "http://127.0.0.1:5599/callback",
+    ]);
+  });
+
+  test("supplies a stable, non-empty OAuth state parameter", async () => {
+    const home = await tempHome();
+    const provider = await createOAuthProvider({
+      serverName: "acme",
+      serverURL: acme.serverURL,
+      redirectUrl: "http://127.0.0.1:0/cb",
+      onAuthURL: () => undefined,
+      home,
+    });
+    const first = await provider.state?.();
+    expect(first).toBeTruthy();
+    expect(await provider.state?.()).toBe(first);
+  });
+
+  test("can clear stale authorization before starting a fresh OAuth flow", async () => {
+    const home = await tempHome();
+    const provider = await createOAuthProvider({
+      serverName: "acme",
+      serverURL: acme.serverURL,
+      redirectUrl: "http://127.0.0.1:0/cb",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await provider.saveTokens({
+      access_token: "abc",
+      refresh_token: "stale",
+      token_type: "Bearer",
+    });
+    await provider.saveCodeVerifier("old-verifier");
+    const oldState = await provider.state?.();
+
+    await provider.resetAuthorization();
+
+    expect(provider.tokens()).toBeUndefined();
+    expect(() => provider.codeVerifier()).toThrow(
+      "No PKCE code verifier saved",
+    );
+    expect(await provider.state?.()).not.toBe(oldState);
+    expect(await loadAuthState(acme, home)).toEqual({});
+  });
+});

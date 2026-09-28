@@ -160,7 +160,7 @@ describe("codex refresh lock", () => {
   test("a lock held by another process blocks acquisition until released", async () => {
     const dir = await tempDir();
     const holderPath = new URL(
-      "../../../tests/fixtures/codex-refresh-lock/hold-lock.ts",
+      "../../../fixtures/codex-refresh-lock/hold-lock.ts",
       import.meta.url,
     ).pathname;
     const lock = join(dir, "refresh.lock");

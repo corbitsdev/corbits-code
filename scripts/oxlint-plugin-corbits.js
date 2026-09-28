@@ -7,7 +7,7 @@ const noBareMockModule = {
     },
     messages: {
       noBare:
-        "Use withMockedModule/withMockedModuleDuring from tests/helpers/mock-module.ts instead of bare mock.module — an un-restored mock.module leaks into every test file that runs after this one.",
+        "Use withMockedModule/withMockedModuleDuring from src/testkit/mock-module.ts instead of bare mock.module — an un-restored mock.module leaks into every test file that runs after this one.",
     },
   },
   create(context) {

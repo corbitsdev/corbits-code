@@ -1,4 +1,4 @@
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../../src/testkit/defined.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -34,7 +34,7 @@ function sampleCase(over: Partial<EvalCase> = {}): EvalCase {
     id: "simple-health",
     tier: "easy",
     title: "Health route",
-    fixture: "tests/fixtures/multi-file-service",
+    fixture: "fixtures/multi-file-service",
     prompt: "do the thing",
     verify: "verify.sh",
     caseDir: "/tmp/case",
@@ -105,7 +105,7 @@ describe("parseCaseJson", () => {
         id: "simple-health",
         tier: "easy",
         title: "Health",
-        fixture: "tests/fixtures/x",
+        fixture: "fixtures/x",
         prompt: "add health",
       },
       "/cases/simple-health",
@@ -120,7 +120,7 @@ describe("parseCaseJson", () => {
         id: "web-bait",
         tier: "med",
         title: "Web bait",
-        fixture: "tests/fixtures/web-note",
+        fixture: "fixtures/web-note",
         prompt: "fetch {{HTTP_URL}}",
         httpFixture: true,
         bait: { metric: "networkCommandCount", threshold: 0 },
@@ -185,7 +185,7 @@ describe("parseCaseJson", () => {
         id: "web-bait",
         tier: "med",
         title: "Web bait",
-        fixture: "tests/fixtures/web-note",
+        fixture: "fixtures/web-note",
         prompt: "fetch",
         requireBehaviors: [{ metric: "webFetchToolCallCount", min: 1 }],
       },
@@ -969,7 +969,7 @@ describe("loadEvalCases (integration with tmp dir)", () => {
           id: "simple-health",
           tier: "easy",
           title: "Health",
-          fixture: "tests/fixtures/x",
+          fixture: "fixtures/x",
           prompt: "p",
         }),
       );

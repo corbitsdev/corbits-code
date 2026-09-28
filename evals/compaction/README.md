@@ -8,7 +8,7 @@ scope has Greybeard approval; production `src/` remains unchanged.
 ## Reproduce
 
 ```bash
-bun test ./evals/compaction/metrics.test.ts ./tests/integration/compaction-baseline.test.ts
+bun test ./evals/compaction/metrics.test.ts ./e2e/compaction-baseline.test.ts
 ```
 
 The serial integration test uses the existing `openIntegrationSession`,
@@ -52,9 +52,9 @@ a commit revision. Recompute with `git hash-object` on these paths:
 
 - `evals/compaction/fixtures.ts`: `67f1fdfb45272464efc62111c1c7525ed067264b`
 - `evals/compaction/metrics.ts`: `3cc4efadb5dad1f8078b6db412287b0ab5c25e8f`
-- `tests/integration/compaction-baseline.test.ts`: `abed36b077cb16e30bc5015852144bb6bb7fb5b2`
+- `e2e/compaction-baseline.test.ts`: `abed36b077cb16e30bc5015852144bb6bb7fb5b2`
 - Original captured-run evaluator: `80a627549e0e009ca7c3079e26875baf3407e8e9`
-- `tests/integration/harness.ts`: `4567ac03433b70f1eed4f3238e2a3b5e1f5b4557`
+- `e2e/integration-harness.ts`: `4567ac03433b70f1eed4f3238e2a3b5e1f5b4557`
 
 The fixture module deterministically generates the exact input bytes: an early
 constraint, a later corrected decision, a failing `bun diagnose.ts` with decisive
@@ -141,7 +141,7 @@ fixture bytes, trigger schedule, and the observed 1/4 baseline recovery are unch
 Required regression and repository gates:
 
 ```bash
-bun test ./src/agent/compaction.test.ts ./src/context-compactor.test.ts ./src/session/runtime-assembly.test.ts ./src/session/optimized-context-store.test.ts ./tests/unit/compactor-pairing.test.ts
+bun test ./src/agent/compaction.test.ts ./src/context-compactor.test.ts ./src/session/runtime-assembly.test.ts ./src/session/optimized-context-store.test.ts ./src/session/compactor-pairing.test.ts
 bun run typecheck
 bun run build
 bun run test

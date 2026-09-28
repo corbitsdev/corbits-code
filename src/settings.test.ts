@@ -1474,3 +1474,198 @@ describe("recent and favorite model helpers", () => {
     expect(listRecentModels(s, 3)).toHaveLength(3);
   });
 });
+
+describe("isLocalSettings with mcpServers", () => {
+  test("accepts valid mcpServers array", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: [
+          { name: "acme", command: "npx", args: ["-y", "@acme/mcp"] },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  test("accepts mcpServers with env", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: [
+          {
+            name: "mymcp",
+            command: "node",
+            args: ["server.js"],
+            env: { TOKEN: "abc" },
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  test("accepts combined provider, model, and mcpServers", () => {
+    expect(
+      isLocalSettings({
+        provider: "zen",
+        model: "gpt-4o",
+        mcpServers: [{ name: "srv", command: "srv-bin" }],
+      }),
+    ).toBe(true);
+  });
+
+  test("rejects mcpServers entry missing name", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: [{ command: "bin" }],
+      }),
+    ).toBe(false);
+  });
+
+  test("rejects mcpServers entry missing command", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: [{ name: "srv" }],
+      }),
+    ).toBe(false);
+  });
+
+  test("rejects mcpServers entry with non-string args element", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: [{ name: "srv", command: "bin", args: [42] }],
+      }),
+    ).toBe(false);
+  });
+
+  test("rejects mcpServers entry with non-string env value", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: [{ name: "srv", command: "bin", env: { KEY: 123 } }],
+      }),
+    ).toBe(false);
+  });
+
+  test("still rejects unknown non-mcp keys", () => {
+    expect(isLocalSettings({ apiKey: "secret" })).toBe(false);
+  });
+
+  test("accepts valid mcpServers object format", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: {
+          acme: {
+            command: "npx",
+            args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"],
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  test("accepts mcpServers object format with env", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: {
+          srv: { command: "node", args: ["server.js"], env: { TOKEN: "abc" } },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  test("accepts mcpServers object format missing command", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: {
+          srv: { args: ["--flag"] },
+        },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("normalizeMcpServers transports", () => {
+  test("returns undefined for undefined input", () => {
+    expect(normalizeMcpServers(undefined)).toBeUndefined();
+  });
+
+  test("passes through array format unchanged", () => {
+    const input = [
+      { name: "acme", command: "npx", args: ["-y", "mcp-remote"] },
+    ];
+    expect(normalizeMcpServers(input)).toEqual(input);
+  });
+
+  test("converts object format to array format", () => {
+    const input = {
+      acme: {
+        command: "npx",
+        args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"],
+      },
+    };
+    expect(normalizeMcpServers(input)).toEqual([
+      {
+        name: "acme",
+        command: "npx",
+        args: ["-y", "mcp-remote", "https://mcp.acme.app/mcp"],
+      },
+    ]);
+  });
+
+  test("converts object format with env", () => {
+    const input = {
+      srv: { command: "node", env: { TOKEN: "abc" } },
+    };
+    expect(normalizeMcpServers(input)).toEqual([
+      { name: "srv", command: "node", env: { TOKEN: "abc" } },
+    ]);
+  });
+
+  test("converts multi-key object format", () => {
+    const input = {
+      a: { command: "cmd-a" },
+      b: { command: "cmd-b", args: ["--x"] },
+    };
+    const result = normalizeMcpServers(input);
+    expect(result).toHaveLength(2);
+    expect(result).toContainEqual({ name: "a", command: "cmd-a" });
+    expect(result).toContainEqual({
+      name: "b",
+      command: "cmd-b",
+      args: ["--x"],
+    });
+  });
+
+  test("returns undefined for invalid array entry", () => {
+    expect(normalizeMcpServers([{ command: "bin" }])).toBeUndefined();
+  });
+
+  test("returns undefined for invalid object entry", () => {
+    expect(normalizeMcpServers({ srv: { args: ["--flag"] } })).toBeUndefined();
+  });
+
+  test("accepts an http server by url", () => {
+    expect(
+      normalizeMcpServers({
+        acme: { type: "http", url: "https://mcp.acme.app/mcp" },
+      }),
+    ).toEqual([
+      { name: "acme", type: "http", url: "https://mcp.acme.app/mcp" },
+    ]);
+  });
+
+  test("infers http when only url is given", () => {
+    expect(
+      isLocalSettings({
+        mcpServers: { acme: { url: "https://mcp.acme.app/mcp" } },
+      }),
+    ).toBe(true);
+  });
+
+  test("rejects an http server with no url", () => {
+    expect(normalizeMcpServers({ acme: { type: "http" } })).toBeUndefined();
+  });
+
+  test("rejects an unknown transport type", () => {
+    expect(
+      normalizeMcpServers({ acme: { type: "ws", url: "wss://x" } }),
+    ).toBeUndefined();
+  });
+});

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 
 import { createPathRestriction } from "./path-restriction.js";
 import { projectSessionsRoot } from "../session/project-key.js";
-import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
 
 let cwd = "";
 let home = "";

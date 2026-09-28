@@ -1,4 +1,4 @@
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { describe, expect, it } from "bun:test";
 import type { AdapterRegistry } from "@intx/inference";
 import { createBuiltinRegistry } from "@intx/inference/providers";

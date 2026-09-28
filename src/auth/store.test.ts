@@ -23,7 +23,7 @@ const TEST_SETTINGS_DIR = ".test-settings";
 
 const authStoreWriter = join(
   import.meta.dirname,
-  "../../tests/fixtures/auth-store-writer.ts",
+  "../../fixtures/auth-store-writer.ts",
 );
 
 describe("createAuthStore", () => {

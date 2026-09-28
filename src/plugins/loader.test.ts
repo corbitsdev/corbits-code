@@ -1,4 +1,4 @@
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { describe, test, expect } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ import {
 } from "./loader.js";
 import { isPluginModuleEnabled } from "./register.js";
 import { disablePluginSettings } from "./uninstall.js";
+import { parsePluginManifest } from "./manifest.js";
 
 function repoDefaultEnabled(id: string): PluginModule {
   return {
@@ -224,5 +225,101 @@ describe("readManifestJson malformed vs missing", () => {
     expect(mod?.metadataOnly).toBe(true);
     expect(mod?.manifest?.name).toBe("cmo");
     expect(mod?.manifest?.description).toBe("Marketing ops");
+  });
+});
+
+describe("plugin path loading", () => {
+  test("loadPluginEntry loads a plugin directory by path and reads its manifest", async () => {
+    const mod = defined(
+      await loadPluginEntry("fixtures/plugins/exa"),
+      "plugin module",
+    );
+    expect(mod.manifest?.id).toBe("exa");
+    expect(mod.manifest?.kind).toBe("web");
+    expect(typeof mod.createWebProvider).toBe("function");
+  });
+
+  test("loadPluginEntry returns null for a non-existent path", async () => {
+    expect(await loadPluginEntry("/no/such/plugin/here")).toBeNull();
+  });
+
+  test("loadPluginsFromPaths resolves relative paths against cwd and skips bad ones", async () => {
+    const mods = await loadPluginsFromPaths(
+      ["fixtures/plugins/exa", "does-not-exist"],
+      process.cwd(),
+    );
+    expect(mods.map((m) => m.manifest?.id)).toEqual(["exa"]);
+  });
+
+  test("manifest requires a kind", () => {
+    expect(
+      parsePluginManifest({ id: "x", name: "X", kind: "web" }),
+    ).not.toBeNull();
+    expect(parsePluginManifest({ id: "x", name: "X" })).toBeNull();
+    expect(
+      parsePluginManifest({ id: "x", name: "X", kind: "bogus" }),
+    ).toBeNull();
+  });
+
+  test("manifest parses optional defaultEnabled", () => {
+    expect(
+      parsePluginManifest({
+        id: "x",
+        name: "X",
+        kind: "command",
+        defaultEnabled: true,
+      }),
+    ).toEqual({
+      id: "x",
+      name: "X",
+      kind: "command",
+      defaultEnabled: true,
+    });
+    expect(
+      parsePluginManifest({ id: "x", name: "X", kind: "command" })
+        ?.defaultEnabled,
+    ).toBeUndefined();
+    expect(
+      parsePluginManifest({
+        id: "x",
+        name: "X",
+        kind: "command",
+        defaultEnabled: "yes",
+      }),
+    ).toBeNull();
+  });
+
+  test("dedupePluginModules keeps the last module per id (path > user > repo)", () => {
+    const repo: PluginModule = {
+      manifest: { id: "dup", name: "Repo", kind: "command" },
+      commandPlugin: { commands: [] },
+    };
+    const user: PluginModule = {
+      manifest: { id: "dup", name: "User", kind: "command" },
+      commandPlugin: { commands: [] },
+    };
+    const other: PluginModule = {
+      manifest: { id: "other", name: "Other", kind: "web" },
+    };
+    const noManifest: PluginModule = { commandPlugin: { commands: [] } };
+    const out = dedupePluginModules([repo, other, user, noManifest]);
+    expect(out.find((m) => m.manifest?.id === "dup")?.manifest?.name).toBe(
+      "User",
+    );
+    expect(out.filter((m) => m.manifest?.id === "dup").length).toBe(1);
+    expect(out).toContain(noManifest); // kept (no id)
+    expect(out.length).toBe(3);
+  });
+
+  test("loadPluginEntry maps a default export to the factory for the manifest kind", async () => {
+    const toolMod = await loadPluginEntry("fixtures/plugins/example-tool");
+    expect(toolMod?.manifest?.kind).toBe("tool");
+    expect(typeof toolMod?.createToolPlugin).toBe("function");
+    expect(toolMod?.createWebProvider).toBeUndefined();
+
+    const webMod = await loadPluginEntry("fixtures/plugins/exa");
+    expect(webMod?.manifest?.kind).toBe("web");
+    expect(typeof webMod?.createWebProvider).toBe("function");
+    expect(webMod?.createToolPlugin).toBeUndefined();
   });
 });

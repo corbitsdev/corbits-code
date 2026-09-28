@@ -1,5 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import type { AgentTool } from "@intx/agent";
+import { submitOutputDefinition } from "../agent/director.js";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
+import {
+  BUILD_TOOLS,
+  REVIEW_TOOLS,
+  SKYWALKER_TOOLS,
+} from "../agent/directors/tool-sets.js";
+import {
+  advertisedToolNamesForSessionMode,
+  createToolIndex,
+  createToolSearchTool,
+} from "../agent/tool-search.js";
 import {
   CodexAuthError,
   codexAuthFailureDiagnostic,
@@ -7,7 +19,20 @@ import {
 } from "../auth/codex/session.js";
 import type { Config } from "../config/index.js";
 import { CREDENTIAL_FAILURE_USER_MESSAGE } from "../inference-error-message.js";
+import {
+  clearActiveRun,
+  getActiveRun,
+  setActiveRun,
+} from "../session/active-run.js";
 import { createAdvertisedToolset } from "../session/assemble-runtime.js";
+import { loadState } from "../session/state.js";
+import {
+  withMockedHomedir,
+  withMockedModuleDuring,
+} from "../testkit/mock-module.js";
+import { createTempDirs } from "../testkit/temporary-dirs.js";
+import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
+import { formatCaughtError } from "./dispose.js";
 import {
   armExecMcpHandshakeAbort,
   awaitExecMcpConnect,
@@ -22,9 +47,27 @@ import {
   refreshSelectedProviderCredential,
   resolveExecDirectorOverlay,
   resolveExecDirectorOverlayForPackage,
+  runExec,
 } from "./runner.js";
 
 const OUTSIDE_ALLOW = "mcp__linear__create_issue";
+
+function bareConfig(task: string): Config {
+  // Minimal unconfigured-shaped object is not enough — runExec only needs
+  // `task` for the empty-prompt early return before any bootstrap.
+  return {
+    command: "exec",
+    task,
+    cwd: process.cwd(),
+    configured: true,
+    providerName: "test",
+    model: "test",
+    providers: {},
+    dangerouslySkipPermissions: true,
+    autoMode: false,
+    sessionId: "test-session",
+  } as unknown as Config;
+}
 
 describe("exec director allowlist", () => {
   test("explorer overlay narrows advertised tools to the package allow list", () => {
@@ -375,5 +418,334 @@ describe("exec credential failure surface", () => {
     const throughWrapper = execUserFailureMessage(cfg, wrapped, false);
     expect(throughWrapper).toContain(lockPath);
     expect(throughWrapper).not.toBe(CREDENTIAL_FAILURE_USER_MESSAGE);
+  });
+});
+
+describe("selected provider refresh failures", () => {
+  test("a non-provider failure remains distinct after inference has run", () => {
+    expect(
+      execUserFailureMessage(
+        bareConfig("hello"),
+        new Error("disk full"),
+        false,
+      ),
+    ).toBe("disk full");
+  });
+
+  test("pre-inference OAuth failure keeps diagnostics internal and returns safe copy", async () => {
+    const config = {
+      ...bareConfig("hello"),
+      providerName: "codex/work",
+      settings: { providers: { "codex/work": { name: "Codex" } } },
+    } as unknown as Config;
+    const rawDiagnostic = '401 {"error":"refresh token rejected"}';
+
+    try {
+      await refreshSelectedProviderCredential(() =>
+        Promise.reject(new Error(rawDiagnostic)),
+      );
+      throw new Error("expected refresh to fail");
+    } catch (err) {
+      expect(formatCaughtError(err)).toBe(rawDiagnostic);
+      const userMessage = execUserFailureMessage(config, err, false);
+      expect(userMessage).not.toContain(rawDiagnostic);
+    }
+  });
+});
+
+describe("runExec", () => {
+  test("empty prompt exits 2 with stderr message without bootstrapping", async () => {
+    const previous = getActiveRun();
+    clearActiveRun();
+    const stderrChunks: string[] = [];
+    const origWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((
+      chunk: string | Uint8Array,
+      ...rest: unknown[]
+    ) => {
+      stderrChunks.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return origWrite(chunk as never, ...(rest as never[]));
+    }) as typeof process.stderr.write;
+
+    try {
+      const result = await runExec(bareConfig("   "));
+      expect(result.exitCode).toBe(2);
+      expect(result.status).toBe("failed");
+      expect(result.error).toMatch(/missing prompt|empty prompt/i);
+      expect(stderrChunks.join("")).toMatch(
+        /missing prompt|empty prompt|Usage: corbits exec/i,
+      );
+      expect(getActiveRun()).toBeNull();
+    } finally {
+      process.stderr.write = origWrite;
+      if (previous !== null) setActiveRun(previous);
+      else clearActiveRun();
+    }
+  });
+
+  test("bootstrap throw after running write leaves terminal run.json and no active run", async () => {
+    const previous = getActiveRun();
+    clearActiveRun();
+    const { cwd, home, cleanup } = createTempDirs(
+      "corbits-exec-boot-cwd-",
+      "corbits-exec-boot-home-",
+    );
+    const sessionId = "exec-bootstrap-fail";
+    try {
+      await withMockedHomedir(home, async () => {
+        await withMockedModuleDuring(
+          import.meta.resolve("../session/assemble-runtime.js"),
+          (real: typeof import("../session/assemble-runtime.js")) => ({
+            ...real,
+            assembleInferenceBase: () =>
+              Promise.reject(new Error("bootstrap failed")),
+          }),
+          async () => {
+            const { runExec: runExecUnderMock } = await import("./runner.js");
+            const result = await runExecUnderMock({
+              ...bareConfig("do the thing"),
+              cwd,
+              sessionId,
+            });
+            expect(result.exitCode).toBe(1);
+            expect(result.status).toBe("failed");
+            const persisted = await loadState(cwd, sessionId, home);
+            expect(persisted.kind).toBe("ok");
+            if (persisted.kind !== "ok") return;
+            expect(persisted.state.status).toBe("failed");
+            expect(persisted.state.status).not.toBe("running");
+            expect(persisted.state.finishedAt).toBeGreaterThan(0);
+            expect(persisted.state.task).toBe("do the thing");
+            expect(persisted.state.error).toBe("bootstrap failed");
+            expect(getActiveRun()).toBeNull();
+          },
+        );
+      });
+    } finally {
+      if (previous !== null) setActiveRun(previous);
+      else clearActiveRun();
+      cleanup();
+    }
+  });
+});
+
+describe("resolveExecDirectorOverlay", () => {
+  test("builder exec primary does not mount fleet", () => {
+    const overlay = resolveExecDirectorOverlay("builder");
+    expect(overlay.mountFleet).toBe(false);
+    expect(overlay.advertisedAllow).toBeDefined();
+    expect(overlay.advertisedAllow).toEqual([...BUILD_TOOLS]);
+    const buildToolSet = new Set<string>(BUILD_TOOLS);
+    const fleetVerbs = SKYWALKER_TOOLS.filter(
+      (name) => !buildToolSet.has(name),
+    );
+    expect(fleetVerbs.length).toBeGreaterThan(0);
+    for (const verb of fleetVerbs) {
+      expect(overlay.advertisedAllow).not.toContain(verb);
+    }
+    expect(overlay.systemPrompt).toContain("BuilderDirector");
+  });
+
+  test("greybeard exec primary is a leaf overlay without fleet verbs (CL-7670)", () => {
+    const overlay = resolveExecDirectorOverlay("greybeard");
+    expect(overlay.mountFleet).toBe(false);
+    expect(overlay.advertisedAllow).toBeDefined();
+    expect(overlay.advertisedAllow).toEqual([...REVIEW_TOOLS]);
+    expect(overlay.advertisedAllow).not.toContain("spawn_agent");
+    expect(overlay.advertisedAllow).not.toContain("wait_agents");
+    expect(overlay.advertisedAllow).not.toContain("search_agents");
+    expect(overlay.advertisedAllow).toContain("write_file");
+    expect(overlay.systemPrompt).toContain("GreybeardDirector");
+  });
+
+  test("skywalker default still can mount fleet", () => {
+    expect(resolveExecDirectorOverlay(undefined).mountFleet).toBe(true);
+    expect(resolveExecDirectorOverlay(undefined).systemPrompt).toBeUndefined();
+    expect(
+      resolveExecDirectorOverlay(undefined).advertisedAllow,
+    ).toBeUndefined();
+    expect(resolveExecDirectorOverlay("skywalker").mountFleet).toBe(true);
+    expect(
+      resolveExecDirectorOverlay("skywalker").systemPrompt,
+    ).toBeUndefined();
+  });
+});
+
+describe("exec advertised tools vs TUI", () => {
+  const sessionMode = "orchestrator" as const;
+
+  test("non-TTY exec advertised tools exclude ask_operator", () => {
+    const overlay = resolveExecDirectorOverlay("skywalker");
+    const names =
+      overlay.advertisedAllow ??
+      advertisedToolNamesForSessionMode(sessionMode, {
+        languageServerAvailable: false,
+        operatorAvailable: false,
+      });
+    expect(names).not.toContain("ask_operator");
+    const { computeAdvertised } = createAdvertisedToolset({
+      sessionMode,
+      toolAvailability: {
+        languageServerAvailable: false,
+        operatorAvailable: false,
+      },
+      getProvider: () => ({ providerName: "test", model: "test" }),
+    });
+    expect(
+      computeAdvertised([
+        {
+          name: "ask_operator",
+          description: "ask",
+          inputSchema: { type: "object", properties: {} },
+        },
+        {
+          name: "read_file",
+          description: "read",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ]).map((d) => d.name),
+    ).not.toContain("ask_operator");
+  });
+
+  test("TUI advertised tools still include ask_operator", () => {
+    const names = advertisedToolNamesForSessionMode(sessionMode, {
+      languageServerAvailable: false,
+      operatorAvailable: true,
+    });
+    expect(names).toContain("ask_operator");
+    const { isAdvertised } = createAdvertisedToolset({
+      sessionMode,
+      toolAvailability: {
+        languageServerAvailable: false,
+        operatorAvailable: true,
+      },
+      getProvider: () => ({ providerName: "test", model: "test" }),
+    });
+    expect(isAdvertised("ask_operator")).toBe(true);
+  });
+});
+
+describe("exec tool call gate and promoter", () => {
+  const stringTool = (
+    name: string,
+    reply: string,
+    description: string,
+  ): AgentTool => ({
+    kind: "string",
+    definition: {
+      name,
+      description,
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    handler: async () => reply,
+  });
+
+  function wireExecDiscovery() {
+    const runner = createDynamicToolRunner([
+      stringTool("read_file", "core", "read a file"),
+      stringTool(
+        "mcp__linear__save_issue",
+        "saved",
+        "Save an issue in the Linear tracker",
+      ),
+      stringTool(
+        "present",
+        "view",
+        "search and render layout primitives for pages",
+      ),
+      stringTool("plugin__notes__save", "noted", "Save granola notes"),
+      stringTool(submitOutputDefinition.name, "submitted", "submit output"),
+    ]);
+    const { activated, isAdvertised, computeAdvertised, flushPromotions } =
+      createAdvertisedToolset({
+        sessionMode: "orchestrator",
+        toolAvailability: { languageServerAvailable: false },
+        getProvider: () => ({ providerName: "test", model: "test" }),
+      });
+    runner.setCallGate(createExecToolCallGate(isAdvertised));
+    let persistCount = 0;
+    const promote = createExecToolPromoter({
+      activate: (names) => activated.activate(names),
+      isAllowed: () => true,
+      persist: () => {
+        persistCount += 1;
+      },
+      commitWire: () => {
+        flushPromotions();
+      },
+    });
+    const search = createToolSearchTool({
+      search: (query) =>
+        createToolIndex(() => runner.currentDefinitions()).search(query),
+      lookup: (name) =>
+        runner.currentDefinitions().find((d) => d.name === name),
+      promote,
+    });
+    return {
+      runner,
+      persistCount: () => persistCount,
+      computeAdvertised,
+      flushPromotions,
+      search,
+    };
+  }
+
+  async function dispatch(
+    runner: ReturnType<typeof createDynamicToolRunner>,
+    name: string,
+  ) {
+    return runner.run(
+      { id: name, name, arguments: {} },
+      new AbortController().signal,
+    );
+  }
+
+  test("tool_search then MCP dispatch with the gate on", async () => {
+    const { runner, search, persistCount, computeAdvertised } =
+      wireExecDiscovery();
+    const blocked = await dispatch(runner, "mcp__linear__save_issue");
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content).toContain("tool_search");
+
+    if (search.kind !== "string") throw new Error("expected string tool");
+    await search.handler({ query: "linear" }, new AbortController().signal);
+    expect(persistCount()).toBe(1);
+
+    const allowed = await dispatch(runner, "mcp__linear__save_issue");
+    expect(allowed.content).toBe("saved");
+    expect(allowed.isError).toBeUndefined();
+    expect(
+      computeAdvertised(runner.currentDefinitions()).map((d) => d.name),
+    ).toContain("mcp__linear__save_issue");
+  });
+
+  test("present and plugin names pass the gate after tool_search promote", async () => {
+    const { runner, search } = wireExecDiscovery();
+    expect((await dispatch(runner, "present")).isError).toBe(true);
+    expect((await dispatch(runner, "plugin__notes__save")).isError).toBe(true);
+
+    if (search.kind !== "string") throw new Error("expected string tool");
+    await search.handler(
+      { query: "render layout" },
+      new AbortController().signal,
+    );
+    await search.handler(
+      { query: "granola notes" },
+      new AbortController().signal,
+    );
+
+    expect((await dispatch(runner, "present")).content).toBe("view");
+    expect((await dispatch(runner, "plugin__notes__save")).content).toBe(
+      "noted",
+    );
+  });
+
+  test("gate admits submit_output without activation", async () => {
+    const { runner } = wireExecDiscovery();
+    const result = await dispatch(runner, submitOutputDefinition.name);
+    expect(result.content).toBe("submitted");
+    expect(result.isError).toBeUndefined();
   });
 });

@@ -18,7 +18,7 @@ import {
 import { createPathRestriction } from "./path-restriction.js";
 import { createWorktreeRootsProvider } from "./worktree-roots.js";
 import type { Approval, PermissionRequest } from "./types.js";
-import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
+import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
 
 const shellCall = (command: string): ToolCall => ({
   id: "c",

@@ -1,4 +1,4 @@
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { describe, expect, test } from "bun:test";
 import { CREDENTIAL_REDACTION } from "../plugins/tool-result-secret-scrub.js";
 import {

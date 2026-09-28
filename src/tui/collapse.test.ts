@@ -4,7 +4,7 @@
  * shared gutter on its way there.
  */
 import { describe, expect, test } from "bun:test";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { toolCallRow } from "./diff";
 import { resolveSideMargin } from "./geometry/zones";
 import { withTestRenderer } from "./harness";

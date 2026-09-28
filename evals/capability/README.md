@@ -14,12 +14,12 @@ One run can **try different things**: multiple cases × multiple provider/model 
 
 ## The suite is four cases, one per difficulty tier
 
-| Tier    | Case         | Fixture                     | Turns | Target pass rate | What only this case can tell you                                                                                                                                      |
-| ------- | ------------ | --------------------------- | ----- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `easy`  | `tier-easy`  | `tests/fixtures/tier-easy`  | 15    | ~100%            | Floor tripwire: the product path still works at all. Saturation here is _intentional_.                                                                                |
-| `med`   | `tier-med`   | `tests/fixtures/tier-med`   | 25    | 70–90%           | Authority resolution: three decoys (a doc, a config, an unused module) disagree with the tests. Only fixing the _imported_ source counts.                             |
-| `hard`  | `tier-hard`  | `tests/fixtures/tier-hard`  | 30    | 30–60%           | The crash surfaces in the wrong module next to a decoy TODO; the cause is one hop away. Masking the crash site goes green and fails held-out assertions.              |
-| `xhard` | `tier-xhard` | `tests/fixtures/tier-xhard` | 40    | 0–25%            | The functional suite is **already green**. Grades production shape — versioned migrations, multi-worker-safe claiming, dead-letter inspection, no in-process polling. |
+| Tier    | Case         | Fixture               | Turns | Target pass rate | What only this case can tell you                                                                                                                                      |
+| ------- | ------------ | --------------------- | ----- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `easy`  | `tier-easy`  | `fixtures/tier-easy`  | 15    | ~100%            | Floor tripwire: the product path still works at all. Saturation here is _intentional_.                                                                                |
+| `med`   | `tier-med`   | `fixtures/tier-med`   | 25    | 70–90%           | Authority resolution: three decoys (a doc, a config, an unused module) disagree with the tests. Only fixing the _imported_ source counts.                             |
+| `hard`  | `tier-hard`  | `fixtures/tier-hard`  | 30    | 30–60%           | The crash surfaces in the wrong module next to a decoy TODO; the cause is one hop away. Masking the crash site goes green and fails held-out assertions.              |
+| `xhard` | `tier-xhard` | `fixtures/tier-xhard` | 40    | 0–25%            | The functional suite is **already green**. Grades production shape — versioned migrations, multi-worker-safe claiming, dead-letter inspection, no in-process polling. |
 
 ### Why four and not nineteen
 
@@ -322,6 +322,6 @@ if any cell's pass rate regressed.
 
 ## Non-goals
 
-- Replacing `tests/integration` (fake/scripted models)
+- Replacing `e2e/` (fake/scripted models)
 - TUI layout checks
 - Subjective quality rubrics without an objective verify script

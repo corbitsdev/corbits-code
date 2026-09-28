@@ -12,7 +12,7 @@
 import { describe, expect, test } from "bun:test";
 import { TextRenderable } from "@opentui/core";
 
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { withTestRenderer } from "./harness";
 import { appendStreamRow, replaceStreamRowAt } from "./shell/chrome";
 import { createAppShell } from "./shell/index";

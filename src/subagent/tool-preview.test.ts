@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { TOOL_PREVIEW_MAX, toolCallPreview } from "./tool-preview";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 
 describe("toolCallPreview", () => {
   test("a shell call's subject is the command, not the tool name", () => {

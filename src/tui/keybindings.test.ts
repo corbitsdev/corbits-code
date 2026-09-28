@@ -16,7 +16,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input.js";
 import { SHELL_SHORTCUTS } from "./keybindings.js";
 import { createHarness, withTestRenderer, type Harness } from "./harness.js";

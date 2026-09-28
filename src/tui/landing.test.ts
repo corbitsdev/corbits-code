@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { CapturedSpan } from "@opentui/core";
 import { rgbToHex } from "@opentui/core";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { makePermissionItems, withTestRenderer, type Harness } from "./harness";
 import {
   appendStreamRow,

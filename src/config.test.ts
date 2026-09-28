@@ -1,4 +1,4 @@
-import { defined } from "../tests/helpers/defined.js";
+import { defined } from "./testkit/defined.js";
 import { afterEach, beforeEach, describe, test, expect } from "bun:test";
 import {
   mkdtemp,
@@ -65,7 +65,7 @@ import { createOptimizedContextStore } from "./session/optimized-context-store.j
 import { projectSessionsRoot } from "./session/project-key.js";
 import { filterMcpServersForConnect } from "./trust/project-trust.js";
 import { createExaMCPServerConfig } from "./mcp/exa.js";
-import { withFileLogSink } from "../tests/helpers/file-log-sink.js";
+import { withFileLogSink } from "./testkit/file-log-sink.js";
 import { setProviderContextWindowOverrides } from "./provider/context-window.js";
 
 const BUILTIN_EXA_MCP = createExaMCPServerConfig();

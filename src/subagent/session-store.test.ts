@@ -12,7 +12,7 @@ import { formatAgentsPanel } from "../tui/chrome-state.js";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 
 function startCall(seq: number, callId: string, name: string) {
   return {
@@ -2010,5 +2010,176 @@ describe("CL-7344 follow-up stash", () => {
         content: expect.stringContaining("steer now"),
       }),
     );
+  });
+});
+
+describe("transcript and store contract basics", () => {
+  const ev = (type: string, data: unknown): ReactorEmittedEvent =>
+    ({ type, seq: 1, data }) as unknown as ReactorEmittedEvent;
+
+  test("appendEvent folds deltas into text, tool, and tool_result entries", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+
+    store.appendEvent(
+      session.id,
+      ev("inference.text.delta", { token: "Hello " }),
+    );
+    store.appendEvent(
+      session.id,
+      ev("inference.text.delta", { token: "world" }),
+    );
+    store.appendEvent(
+      session.id,
+      ev("inference.tool_call.start", { name: "grep", callId: "c1" }),
+    );
+    store.appendEvent(
+      session.id,
+      ev("inference.tool_call.end", {
+        name: "grep",
+        callId: "c1",
+        arguments: { pattern: "foo" },
+      }),
+    );
+    store.appendEvent(
+      session.id,
+      ev("tool.done", {
+        result: { callId: "c1", content: "match at a.ts:1", isError: false },
+      }),
+    );
+
+    const stored = store.get(session.id);
+    expect(stored?.toolNames).toEqual(["grep"]);
+    expect(stored?.currentToolName).toBeNull();
+    expect(stored?.entries).toEqual([
+      { kind: "text", content: "Hello world" },
+      {
+        kind: "tool",
+        callId: "c1",
+        name: "grep",
+        arguments: JSON.stringify({ pattern: "foo" }),
+      },
+      {
+        kind: "tool_result",
+        callId: "c1",
+        name: "grep",
+        content: "match at a.ts:1",
+        isError: false,
+      },
+    ]);
+  });
+
+  // Two open calls interleave argument fragments; each fragment must land on
+  // the entry that owns its callId, not the most recent tool entry.
+  test("interleaved parallel tool_call deltas attach to their own callId", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+
+    store.appendEvent(
+      session.id,
+      ev("inference.tool_call.start", { name: "read", callId: "a" }),
+    );
+    store.appendEvent(
+      session.id,
+      ev("inference.tool_call.start", { name: "grep", callId: "b" }),
+    );
+    store.appendEvent(
+      session.id,
+      ev("inference.tool_call.delta", {
+        callId: "a",
+        argumentFragment: '{"path":',
+      }),
+    );
+    store.appendEvent(
+      session.id,
+      ev("inference.tool_call.delta", {
+        callId: "b",
+        argumentFragment: '{"pattern":',
+      }),
+    );
+    store.appendEvent(
+      session.id,
+      ev("inference.tool_call.delta", {
+        callId: "a",
+        argumentFragment: '"a.ts"}',
+      }),
+    );
+
+    const toolEntries =
+      store.get(session.id)?.entries.filter((e) => e.kind === "tool") ?? [];
+    expect(toolEntries).toEqual([
+      { kind: "tool", callId: "a", name: "read", arguments: '{"path":"a.ts"}' },
+      { kind: "tool", callId: "b", name: "grep", arguments: '{"pattern":' },
+    ]);
+  });
+
+  test("fail appends the failure as a report entry", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.fail(session.id, "provider 500");
+    expect(store.get(session.id)?.entries.at(-1)).toEqual({
+      kind: "report",
+      content: "Error: provider 500",
+    });
+  });
+
+  test("complete appends the report as the last transcript entry", () => {
+    const store = createSubAgentSessionStore();
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.complete(session.id, "## Summary\nDone.");
+    expect(store.get(session.id)?.entries.at(-1)).toEqual({
+      kind: "report",
+      content: "## Summary\nDone.",
+    });
+  });
+
+  test("subscribe notifies on each mutation; unsubscribe stops them", () => {
+    const store = createSubAgentSessionStore();
+    let ticks = 0;
+    const unsub = store.subscribe(() => {
+      ticks += 1;
+    });
+    const session = store.start({ description: "d", agentId: "a", brief: "b" });
+    store.appendEvent(session.id, textDelta("x"));
+    store.complete(session.id, "done");
+    expect(ticks).toBe(3);
+    unsub();
+    store.clear();
+    expect(ticks).toBe(3);
+  });
+
+  test("listForStrip puts running sessions ahead of completed ones", () => {
+    let t = 0;
+    const store = createSubAgentSessionStore({ now: () => ++t });
+    const done = store.start({
+      description: "old-done",
+      agentId: "a",
+      brief: "b",
+    });
+    store.complete(done.id, "ok");
+    store.start({ description: "live", agentId: "a", brief: "b" });
+    const strip = store.listForStrip();
+    expect(strip[0]?.description).toBe("live");
+    expect(strip[0]?.status).toBe("running");
+    expect(strip[1]?.description).toBe("old-done");
+  });
+
+  test("cancelAll aborts running sessions, returns their ids, skips finished ones", async () => {
+    const store = createSubAgentSessionStore();
+    const a = store.start({ description: "a", agentId: "w", brief: "b" });
+    const b = store.start({ description: "b", agentId: "w", brief: "b" });
+    const done = store.start({ description: "done", agentId: "w", brief: "b" });
+    store.complete(done.id, "ok");
+    const aborted: string[] = [];
+    store.registerCancel(a.id, () => aborted.push(a.id));
+    store.registerCancel(b.id, () => aborted.push(b.id));
+    store.registerCancel(done.id, () => aborted.push(done.id));
+
+    const cancelled = await store.cancelAll("Parent stop");
+    expect(cancelled.sort()).toEqual([a.id, b.id].sort());
+    expect(aborted.sort()).toEqual([a.id, b.id].sort());
+    expect(store.get(a.id)?.status).toBe("cancelled");
+    expect(store.get(b.id)?.status).toBe("cancelled");
+    expect(store.get(done.id)?.status).toBe("done");
   });
 });

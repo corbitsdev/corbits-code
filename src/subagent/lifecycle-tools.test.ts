@@ -17,7 +17,7 @@ import {
   DEFAULT_MAX_ENTRY_CHARS,
 } from "./session-store.js";
 import { createAdmissionQueue } from "./admission.js";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 
 function parseFleetJson(content: string): Record<string, unknown> {
   expect(content).toContain("\n");
@@ -96,34 +96,6 @@ describe("close_agent", () => {
 
     const missing = await callTool(closeAgent, { target: "does-not-exist" });
     expect(missing.status).toBe("not_found");
-  });
-
-  test("a wedged descendant hits its own deadline instead of hanging the whole close", async () => {
-    const sessions = createSubAgentSessionStore();
-    const parent = sessions.start({
-      description: "parent",
-      agentId: "a",
-      brief: "b",
-    });
-    const wedgedChild = sessions.start({
-      description: "child",
-      agentId: "a",
-      brief: "b",
-      parentSessionId: parent.id,
-    });
-    sessions.registerClose(
-      wedgedChild.id,
-      () => new Promise<void>(() => undefined),
-    );
-    sessions.registerClose(parent.id, async () => undefined);
-
-    // Exercise the store directly with a short deadline (the tool itself
-    // uses the real ~30s bound, which would make this test slow).
-    const started = Date.now();
-    await expect(sessions.closeOne(wedgedChild.id, 25)).rejects.toThrow(
-      /session close exceeded 25ms/,
-    );
-    expect(Date.now() - started).toBeLessThan(500);
   });
 
   test("closes remaining siblings after a leftover-child throw, then fails", async () => {

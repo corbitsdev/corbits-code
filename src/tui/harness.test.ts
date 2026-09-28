@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BoxRenderable, TextRenderable, type KeyEvent } from "@opentui/core";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { createHarness, withTestRenderer } from "./harness.js";
 
 describe("withTestRenderer", () => {

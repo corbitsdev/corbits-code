@@ -13,7 +13,7 @@ import {
 import { SubAgentDirector } from "./nudge-director.js";
 import type { AdmissionQueue } from "./admission.js";
 import { createTestCapabilities } from "./director-test-harness.js";
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 
 const state = { turns: [] } as unknown as ReactorState;
 const longState = {

@@ -1,4 +1,4 @@
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { describe, test, expect } from "bun:test";
 import { ProtocolMismatchError } from "@intx/inference";
 import type { ConversationTurn, InferenceOptions } from "@intx/types/runtime";

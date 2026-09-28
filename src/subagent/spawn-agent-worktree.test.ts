@@ -12,8 +12,8 @@ import { createSubAgentSessionStore } from "./session-store.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 import type { Telemetry } from "../telemetry/index.js";
-import { initTemporaryGitRepo } from "../../tests/helpers/temporary-git-repo.js";
-import { defined } from "../../tests/helpers/defined.js";
+import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
+import { defined } from "../testkit/defined.js";
 
 const run = promisify(execFile);
 

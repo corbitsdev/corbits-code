@@ -14,7 +14,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import { createPermissionGate } from "../permission/gate.js";
 import {
   workerSkillSearchDefinition,

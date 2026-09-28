@@ -63,7 +63,7 @@ export function advanceRevealChars(
 /**
  * Live reasoning as a short wrapped paragraph of the newest *revealed* text.
  * `revealChars` is the bounded-rate reveal position from `advanceRevealChars`;
- * omitting it shows whatever has arrived so far (tests/fixtures).
+ * omitting it shows whatever has arrived so far (fixtures).
  */
 export function thinkingLivePreviewLines(
   text: string,

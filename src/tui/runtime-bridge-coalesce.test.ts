@@ -8,7 +8,7 @@ import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
 import { createAppShell } from "./shell/index";
 import { streamRowAt, streamRowCount } from "./shell/transcript";
 import { withTestRenderer } from "./harness";
-import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import type { AppShell } from "./shell/internals.js";
 import type { StreamRow } from "./stream.js";
 

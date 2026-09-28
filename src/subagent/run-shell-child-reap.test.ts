@@ -20,8 +20,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
-import { defined } from "../../tests/helpers/defined.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { defined } from "../testkit/defined.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 

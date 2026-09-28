@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { isNonTerminalInferenceError } from "./inference-abort.js";
+import {
+  INFERENCE_ABORT_INTERNAL_RECOVERY,
+  INFERENCE_ABORT_USER_STOP,
+  isInternalRecoveryAbortRaw,
+  isNonTerminalInferenceError,
+} from "./inference-abort.js";
 
 const HTML_503 =
   "<!DOCTYPE html><html><body>503 Service Unavailable</body></html>";
@@ -23,5 +28,35 @@ describe("isNonTerminalInferenceError", () => {
         raw: { bad: true },
       }),
     ).toBe(false);
+  });
+
+  test("distinguishes internal abort from user-stop", () => {
+    expect(isNonTerminalInferenceError({ category: "timeout" })).toBe(true);
+    expect(isNonTerminalInferenceError({ category: "retryable" })).toBe(true);
+    expect(
+      isNonTerminalInferenceError({
+        category: "aborted",
+        raw: { origin: INFERENCE_ABORT_INTERNAL_RECOVERY },
+      }),
+    ).toBe(true);
+    expect(
+      isNonTerminalInferenceError({
+        category: "aborted",
+        raw: { origin: INFERENCE_ABORT_USER_STOP },
+      }),
+    ).toBe(false);
+    expect(isNonTerminalInferenceError({ category: "fatal" })).toBe(false);
+  });
+});
+
+describe("isInternalRecoveryAbortRaw", () => {
+  test("matches internal-recovery origin", () => {
+    expect(
+      isInternalRecoveryAbortRaw({ origin: INFERENCE_ABORT_INTERNAL_RECOVERY }),
+    ).toBe(true);
+    expect(
+      isInternalRecoveryAbortRaw({ origin: INFERENCE_ABORT_USER_STOP }),
+    ).toBe(false);
+    expect(isInternalRecoveryAbortRaw(undefined)).toBe(false);
   });
 });

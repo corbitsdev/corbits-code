@@ -7,7 +7,7 @@ import {
   test,
 } from "bun:test";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import { withMockedModule } from "../../tests/helpers/mock-module.js";
+import { withMockedModule } from "../testkit/mock-module.js";
 
 let finishAuthCalls = 0;
 let finishAuthError: Error | undefined = new Error("finishAuth exploded");

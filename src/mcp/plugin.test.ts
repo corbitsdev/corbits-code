@@ -1,4 +1,4 @@
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { describe, test, expect } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -666,5 +666,153 @@ describe("mcpClientToAgentTools", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("caller stopped");
+  });
+});
+
+function makeFakeClient(serverName: string, toolNames: string[]): MCPClient {
+  return {
+    serverName,
+    tools: toolNames.map((name) => ({
+      name,
+      description: `${name} tool`,
+      inputSchema: { type: "object", properties: {} },
+    })),
+    async call() {
+      return "result";
+    },
+    async close() {
+      return undefined;
+    },
+  };
+}
+
+describe("mcpClientToAgentTools (production gated path)", () => {
+  test("namespaces tools as mcp__<server>__<tool>", () => {
+    const client = makeFakeClient("acme", ["list_issues", "create_issue"]);
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
+    });
+    gate.registerMcpClient(client);
+    const tools = mcpClientToAgentTools(client, gate);
+    expect(tools.map((t) => t.definition.name)).toEqual([
+      "mcp__acme__list_issues",
+      "mcp__acme__create_issue",
+    ]);
+  });
+
+  test("prefixes description with server name", () => {
+    const client = makeFakeClient("github", ["search_repos"]);
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
+    });
+    const tools = mcpClientToAgentTools(client, gate);
+    expect(defined(tools[0], "mcp tool").definition.description).toBe(
+      "[github] search_repos tool",
+    );
+  });
+
+  test("tool handler returns call result", async () => {
+    let capturedName: string | undefined;
+    let capturedArgs: Record<string, unknown> | undefined;
+
+    const client: MCPClient = {
+      serverName: "myserver",
+      tools: [
+        {
+          name: "do_thing",
+          description: "does thing",
+          inputSchema: { type: "object" },
+        },
+      ],
+      async call(toolName, args) {
+        capturedName = toolName;
+        capturedArgs = args;
+        return "done";
+      },
+      async close() {
+        return undefined;
+      },
+    };
+
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
+    });
+    const tool = defined(mcpClientToAgentTools(client, gate)[0], "mcp tool");
+    const result = await tool.handler(
+      { id: "c1", name: "mcp__myserver__do_thing", arguments: { x: 1 } },
+      new AbortController().signal,
+    );
+
+    expect(capturedName).toBe("do_thing");
+    expect(capturedArgs).toEqual({ x: 1 });
+    if (typeof result === "string")
+      throw new Error("expected structured ToolResult");
+    expect(result.content).toBe("done");
+    expect(result.isError).toBeUndefined();
+  });
+
+  test("tool handler returns error result on throw", async () => {
+    const client: MCPClient = {
+      serverName: "srv",
+      tools: [{ name: "fail", description: "", inputSchema: {} }],
+      async call() {
+        throw new Error("server error");
+      },
+      async close() {
+        return undefined;
+      },
+    };
+
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: true,
+      reactorGated: false,
+    });
+    const tool = defined(mcpClientToAgentTools(client, gate)[0], "mcp tool");
+    const result = await tool.handler(
+      { id: "c1", name: "mcp__srv__fail", arguments: {} },
+      new AbortController().signal,
+    );
+
+    if (typeof result === "string")
+      throw new Error("expected structured ToolResult");
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("server error");
+  });
+
+  test("permission gate blocks mutating MCP when not skipped", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async () => {
+        asked++;
+        return { allow: false };
+      },
+    });
+    const client = makeFakeClient("acme", ["save_issue"]);
+    gate.registerMcpClient(client);
+    const tool = defined(mcpClientToAgentTools(client, gate)[0], "mcp tool");
+    const result = await tool.handler(
+      { id: "c1", name: "mcp__acme__save_issue", arguments: { id: "X-1" } },
+      new AbortController().signal,
+    );
+    expect(asked).toBe(1);
+    if (typeof result === "string")
+      throw new Error("expected structured ToolResult");
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Blocked by permission policy");
   });
 });

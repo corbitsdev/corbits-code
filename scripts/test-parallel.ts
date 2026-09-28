@@ -175,7 +175,7 @@ if (import.meta.main) {
     args: [
       "test",
       "./src",
-      "./tests",
+      "./e2e",
       "./evals",
       "./scripts",
       "--randomize",

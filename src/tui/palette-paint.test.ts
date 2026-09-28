@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { KeyEvent } from "@opentui/core";
 
-import { defined } from "../../tests/helpers/defined.js";
+import { defined } from "../testkit/defined.js";
 import { withTestRenderer } from "./harness";
 import {
   commandItemsFromRegistry,
