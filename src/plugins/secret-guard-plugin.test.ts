@@ -13,6 +13,7 @@ import {
   isSensitiveShellToken,
   commandReferencesSensitivePath,
   expandShellToken,
+  inspectShellSecretReference,
 } from "./secret-guard-plugin.js";
 
 const next = async (call: ToolCall): Promise<ToolResult> => ({
@@ -567,6 +568,90 @@ describe("secret-guard file URL normalization", () => {
       malformedOverlength,
     ]) {
       expect(commandReferencesSensitivePath(`curl '${url}'`)).toBeDefined();
+    }
+  });
+
+  test.skipIf(Bun.which("curl") === null)(
+    "flags proto-default file after real curl reads an encoded .env",
+    async () => {
+      const cwd = await mkdtemp(join(tmpdir(), "secret-guard-proto-default-"));
+      try {
+        await writeFile(join(cwd, ".env"), "CURL_PROTO_PROOF=exfiltrated\n");
+        const operand = `${cwd}/%2Eenv`;
+        const result = Bun.spawnSync([
+          "curl",
+          "--silent",
+          "--show-error",
+          "--proto-default",
+          "file",
+          operand,
+        ]);
+
+        expect(result.stdout.toString()).toContain(
+          "CURL_PROTO_PROOF=exfiltrated",
+        );
+        expect(
+          commandReferencesSensitivePath(
+            `curl --silent --proto-default file '${operand}'`,
+            cwd,
+          ),
+        ).toBeDefined();
+      } finally {
+        await rm(cwd, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("classifies proto-default file operands across supported spellings", () => {
+    const cwd = "/tmp/proto-default-fixture";
+    for (const command of [
+      "curl --proto-default file /tmp/proto-default-fixture/%2Eenv",
+      "curl /tmp/proto-default-fixture/%2Eenv --proto-default file",
+      "curl --proto-default=file /tmp/proto-default-fixture/%2Eenv",
+      "curl --proto-default=FILE /tmp/proto-default-fixture/%2Eenv",
+      "curl --proto-default FILE /tmp/proto-default-fixture/%2Eenv",
+      "curl --proto-default file --url /tmp/proto-default-fixture/%2Eenv",
+      "curl --proto-default file ./%2Eenv",
+      "curl --proto-default file $PWD/%2Eenv",
+      "curl --proto-default file //localhost/tmp/proto-default-fixture/%2Eenv",
+      "curl --proto-default file README.md /tmp/proto-default-fixture/%2Eenv",
+      "env curl --proto-default file /tmp/proto-default-fixture/%2Eenv",
+      "bash -c 'curl --proto-default file /tmp/proto-default-fixture/%2Eenv'",
+      "sh -c 'curl --proto-default file /tmp/proto-default-fixture/%2Eenv'",
+    ]) {
+      expect(commandReferencesSensitivePath(command, cwd)).toBeDefined();
+    }
+  });
+
+  test("decodes inferred file operands exactly once", () => {
+    expect(
+      commandReferencesSensitivePath("curl --proto-default file /tmp/%252Eenv"),
+    ).toBeUndefined();
+  });
+
+  test("keeps explicit and default HTTPS operands remote", () => {
+    for (const command of [
+      "curl --proto-default file https://example.com/%2Eenv",
+      "curl --proto-default FILE HTTP://example.com/%2Eenv",
+      "curl --proto-default https example.com/%2Eenv",
+      "curl example.com/%2Eenv",
+      "curl --output /tmp/%2Eenv --proto-default file https://example.com",
+      "curl --header /tmp/%2Eenv --proto-default file https://example.com",
+    ]) {
+      expect(commandReferencesSensitivePath(command)).toBeUndefined();
+    }
+  });
+
+  test("fails closed for malformed or ambiguous proto-default file options", () => {
+    for (const command of [
+      "curl /tmp/%2Eenv --proto-default",
+      "curl --proto-default= /tmp/%2Eenv",
+      "curl --proto-default file --proto-default https /tmp/%2Eenv",
+    ]) {
+      const inspection = inspectShellSecretReference(command);
+      expect(inspection.opaque || inspection.reference !== undefined).toBe(
+        true,
+      );
     }
   });
 

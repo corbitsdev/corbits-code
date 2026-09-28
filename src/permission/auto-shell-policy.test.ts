@@ -87,6 +87,39 @@ describe("local file URL glob expansion", () => {
   });
 });
 
+describe("curl proto-default file", () => {
+  test("requires approval for inferred local file operands through wrappers", () => {
+    for (const command of [
+      "curl --silent --proto-default file $PWD/%2Eenv",
+      "curl --proto-default=file /tmp/%2Eenv",
+      "curl --proto-default FILE ./%2Eenv",
+      "curl /tmp/%2Eenv --proto-default file",
+      "curl --proto-default file //localhost/tmp/%2Eenv",
+      "curl --proto-default file README.md /tmp/%2Eenv",
+      "env curl --proto-default file /tmp/%2Eenv",
+      "bash -c 'curl --proto-default file /tmp/%2Eenv'",
+      "sh -c 'curl --proto-default file /tmp/%2Eenv'",
+    ]) {
+      expect(autoShellRuleForCall(shellCall(command))).toMatchObject({
+        name: "sensitive-path",
+        effect: "ask",
+      });
+    }
+  });
+
+  test("keeps explicit and default HTTPS operands unflagged", () => {
+    for (const command of [
+      "curl --proto-default file https://example.com/%2Eenv",
+      "curl --proto-default FILE HTTP://example.com/%2Eenv",
+      "curl --proto-default https example.com/%2Eenv",
+      "curl example.com/%2Eenv",
+      "curl --output /tmp/%2Eenv --proto-default file https://example.com",
+    ]) {
+      expect(autoShellRuleForCall(shellCall(command))).toBeUndefined();
+    }
+  });
+});
+
 // Base git-global-config routing (--global/--system/--edit, --file targets,
 // unset/reassignment of GIT_CONFIG_GLOBAL, repo-local pass-through) is pinned
 // in classify-security.test.ts. This file pins the surface that file does not:

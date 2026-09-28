@@ -978,6 +978,158 @@ interface LiteralPathCandidates {
   opaque: boolean;
 }
 
+const CURL_LONG_VALUE_OPTIONS = new Set(
+  `--abstract-unix-socket --alt-svc --aws-sigv4 --cacert --capath --cert
+  --cert-type --ciphers --config --connect-timeout --connect-to --continue-at
+  --cookie --cookie-jar --create-file-mode --crlfile --curves --data
+  --data-ascii --data-binary --data-raw --data-urlencode --delegation
+  --dns-interface --dns-ipv4-addr --dns-ipv6-addr --dns-servers --doh-url
+  --dump-header --egd-file --engine --etag-compare --etag-save
+  --expect100-timeout --form --form-string --ftp-account
+  --ftp-alternative-to-user --ftp-method --ftp-port --ftp-ssl-ccc-mode
+  --happy-eyeballs-timeout-ms --haproxy-clientip --header --help
+  --hostpubmd5 --hostpubsha256 --hsts --interface --ipfs-gateway --json
+  --keepalive-time --key --key-type --krb --libcurl --limit-rate
+  --local-port --login-options --mail-auth --mail-from --mail-rcpt
+  --max-filesize --max-redirs --max-time --netrc-file --noproxy
+  --oauth2-bearer --output --output-dir --parallel-max --pass --pinnedpubkey
+  --proto --proto-default --proto-redir --proxy-cacert --proxy-capath
+  --proxy-cert --proxy-cert-type --proxy-ciphers --proxy-crlfile
+  --proxy-header --proxy-key --proxy-key-type --proxy-pass
+  --proxy-pinnedpubkey --proxy-service-name --proxy-tls13-ciphers
+  --proxy-tlsauthtype --proxy-tlspassword --proxy-tlsuser --proxy-user
+  --proxy1.0 --pubkey --quote --random-file --range --rate --referer
+  --request --request-target --resolve --retry --retry-delay --retry-max-time
+  --sasl-authzid --service-name --socks4 --socks4a --socks5
+  --socks5-gssapi-service --socks5-hostname --speed-limit --speed-time
+  --stderr --telnet-option --tftp-blksize --time-cond --tls-max
+  --tls13-ciphers --tlsauthtype --tlspassword --tlsuser --trace
+  --trace-ascii --trace-config --unix-socket --upload-file --url
+  --url-query --user --user-agent --variable --write-out`
+    .split(/\s+/)
+    .filter(Boolean),
+);
+const CURL_SHORT_VALUE_OPTIONS = new Set(
+  "AbcCdDeEFhHKmoPQrtTuUwXyYz".split(""),
+);
+const EXPLICIT_URL_SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*:/;
+
+interface CurlFileOperandInspection {
+  values: string[];
+  opaque: boolean;
+}
+
+function normalizeCurlFileOperand(
+  operand: string,
+  dialect: ShellDialect,
+): { value?: string; opaque: boolean } {
+  const expansion = expandShellToken(operand, dialect);
+  if (!expansion.expandable) return { opaque: true };
+  let localPath = expansion.expanded;
+  if (localPath.startsWith("//")) {
+    const localhost = /^\/\/localhost(?=\/|$)/i.exec(localPath)?.[0];
+    if (localhost === undefined) return { opaque: true };
+    localPath = localPath.slice(localhost.length) || "/";
+  }
+  try {
+    localPath = decodeURIComponent(localPath);
+  } catch {
+    return { opaque: true };
+  }
+  if (/[{}]/.test(localPath)) return { opaque: true };
+  return { value: localPath, opaque: false };
+}
+
+function curlFileOperands(
+  command: readonly string[],
+  executableIndex: number,
+  program: string,
+  dialect: ShellDialect,
+): CurlFileOperandInspection {
+  if (program !== "curl" || dialect !== "posix") {
+    return { values: [], opaque: false };
+  }
+
+  const operands: string[] = [];
+  const protocols: string[] = [];
+  let malformedProtocol = false;
+  let optionsEnded = false;
+
+  for (let index = executableIndex + 1; index < command.length; index++) {
+    const token = command[index] ?? "";
+    if (!optionsEnded && token === "--") {
+      optionsEnded = true;
+      continue;
+    }
+    if (!optionsEnded && token === "--proto-default") {
+      const protocol = command[index + 1];
+      if (protocol === undefined || protocol.startsWith("-")) {
+        malformedProtocol = true;
+      } else {
+        protocols.push(protocol.toLowerCase());
+        index++;
+      }
+      continue;
+    }
+    if (!optionsEnded && token.startsWith("--proto-default=")) {
+      const protocol = token.slice("--proto-default=".length);
+      if (protocol.length === 0) malformedProtocol = true;
+      else protocols.push(protocol.toLowerCase());
+      continue;
+    }
+    if (!optionsEnded && token === "--url") {
+      const operand = command[index + 1];
+      if (operand === undefined) malformedProtocol = true;
+      else {
+        operands.push(operand);
+        index++;
+      }
+      continue;
+    }
+    if (!optionsEnded && token.startsWith("--url=")) {
+      operands.push(token.slice("--url=".length));
+      continue;
+    }
+    if (!optionsEnded && token.startsWith("--")) {
+      const equalsIndex = token.indexOf("=");
+      const option = equalsIndex === -1 ? token : token.slice(0, equalsIndex);
+      if (equalsIndex === -1 && CURL_LONG_VALUE_OPTIONS.has(option)) index++;
+      continue;
+    }
+    if (!optionsEnded && token.startsWith("-") && token !== "-") {
+      const options = token.slice(1);
+      for (let optionIndex = 0; optionIndex < options.length; optionIndex++) {
+        if (!CURL_SHORT_VALUE_OPTIONS.has(options[optionIndex] ?? "")) continue;
+        if (optionIndex === options.length - 1) index++;
+        break;
+      }
+      continue;
+    }
+    operands.push(token);
+  }
+
+  const protocolSet = new Set(protocols);
+  const fileCapable = protocolSet.has("file");
+  let opaque =
+    operands.length > 0 &&
+    (malformedProtocol || (fileCapable && protocolSet.size > 1));
+  if (!fileCapable) return { values: [], opaque };
+
+  const values: string[] = [];
+  for (const operand of operands) {
+    const expansion = expandShellToken(operand, dialect);
+    if (!expansion.expandable) {
+      opaque = true;
+      continue;
+    }
+    if (EXPLICIT_URL_SCHEME.test(expansion.expanded)) continue;
+    const normalized = normalizeCurlFileOperand(operand, dialect);
+    opaque ||= normalized.opaque;
+    if (normalized.value !== undefined) values.push(normalized.value);
+  }
+  return { values, opaque };
+}
+
 function literalPathCandidates(
   commands: string[][],
   dialect: ShellDialect,
@@ -1002,6 +1154,14 @@ function literalPathCandidates(
       );
       candidates.push(...fileOptions.values);
       opaque ||= fileOptions.opaque;
+      const curlOperands = curlFileOperands(
+        command,
+        transparent.executableIndex,
+        program,
+        dialect,
+      );
+      candidates.push(...curlOperands.values);
+      opaque ||= curlOperands.opaque;
       for (const token of command) {
         if (token.startsWith("--env-file=")) {
           candidates.push(token.slice("--env-file=".length));
