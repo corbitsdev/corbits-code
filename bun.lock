@@ -8,7 +8,7 @@
         "@corbits/agent-intern": "workspace:*",
         "@corbits/codex-provider": "0.1.1",
         "@corbits/oauth-core": "0.2.0",
-        "@corbits/openai-responses": "0.2.0",
+        "@corbits/openai-responses": "0.2.1",
         "@corbits/xai-provider": "0.1.1",
         "@intx/agent": "workspace:*",
         "@intx/authz": "workspace:*",
@@ -255,7 +255,7 @@
 
     "@corbits/oauth-core": ["@corbits/oauth-core@0.2.0", "", { "dependencies": { "@intx/db": "^0.4.0", "@intx/hub-api": "^0.4.0", "@intx/hub-common": "^0.4.0", "@intx/types": "^0.4.0", "arktype": "^2.2.3", "drizzle-orm": "^0.45.2", "hono": "^4.11.9" } }, "sha512-1pNMfxPUALwwXzpBzate3hDs61DOmv+fWo8/+aWfMhgXTxq8xtqeYk7Ue4uf/mW+FT0fUV/9vC2hZHyrm8+8KA=="],
 
-    "@corbits/openai-responses": ["@corbits/openai-responses@0.2.0", "", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-6E06ktrleDHmGjuylELe3NZPb7AMXXKiW8Mzq0tqXESvpQoP/1Wna7tzNle/j+M6qVw1GDX3yN7m9+qiX2E8Ew=="],
+    "@corbits/openai-responses": ["@corbits/openai-responses@0.2.1", "", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-jhT1opXhFNoeq+Og8n1j3FaXlqxAsJGfNlVTwuN+2+Ee29z15mU4dzJ4JwY6njAOHVXvBk6mgYCGRu+NjU9rmw=="],
 
     "@corbits/prompt-variance": ["@corbits/prompt-variance@workspace:packages/prompt-variance"],
 

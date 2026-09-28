@@ -149,12 +149,13 @@ describe("codex-sse fixtures (golden parse)", () => {
     ).toBe(true);
   });
 
-  test("incomplete stream emits partial text and is terminal without usage", () => {
+  test("incomplete stream emits partial text and usage and is terminal", () => {
     const out = parseFixture("incomplete.json");
 
     expect(eventTypes(out)).toEqual([
       "inference.text.delta",
       "inference.text.delta",
+      "inference.usage",
     ]);
     expect(out[0]).toMatchObject({
       type: "inference.text.delta",
@@ -164,8 +165,22 @@ describe("codex-sse fixtures (golden parse)", () => {
       type: "inference.text.delta",
       data: { token: "answer", index: 0 },
     });
-    // response.incomplete is intentionally not mapped to usage (completed-only).
-    expect(out.some((e) => e.type === "inference.usage")).toBe(false);
+    // A truncated turn is still billed: the backend reports usage for the
+    // partial turn (input plus output emitted before the cap), so
+    // response.incomplete maps to usage like response.completed does.
+    expect(out[2]).toMatchObject({
+      type: "inference.usage",
+      data: {
+        usage: {
+          input: 50,
+          output: 8,
+          cacheRead: 0,
+          cacheWrite: 0,
+          thinking: 0,
+        },
+        source: SOURCE,
+      },
+    });
 
     const lastPayload = defined(
       loadFixture("incomplete.json").at(-1),
