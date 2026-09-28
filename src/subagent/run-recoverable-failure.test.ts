@@ -121,72 +121,10 @@ function waitUntilMailboxTerminal(
 }
 
 describe("CL-8978 recoverable subagent failure", () => {
-  test("retryable-after-tools failure is wait-terminal failed with a continuable marker, and the parent can spawn/wait a successor", async () => {
-    const deps = makeDeps(async () => {
-      throw retryableAfterToolsFailure();
-    });
-    const spawn = createSpawnAgentTool(deps);
-    const wait = createWaitAgentsTool({
-      sessions: deps.sessions,
-      fleetRecords: deps.fleetRecords,
-    });
-
-    const spawned = await callTool(spawn, {
-      description: "flaky job",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const id = spawned.agent_id as string;
-    expect(typeof id).toBe("string");
-
-    const waited = await callTool(wait, {
-      targets: [id],
-      timeout_ms: 5000,
-      mode: "all",
-    });
-    expect(waited.timed_out).toBe(false);
-    const results = waited.results as Record<string, unknown>[];
-    expect(results).toHaveLength(1);
-    expect(results[0]?.status).toBe("failed");
-    expect(typeof results[0]?.error).toBe("string");
-    // Machine-readable continuable marker plus single-successor guidance.
-    expect(results[0]?.continuable).toBe(true);
-    expect(typeof results[0]?.continue_with).toBe("string");
-
-    // The failure is terminal, never stuck running.
-    const snap = deps.fleetRecords.peek(id);
-    expect(snap?.status).toBe("failed");
-    expect(isLiveWaitStatus(snap?.status ?? "running")).toBe(false);
-
-    // The parent handle still works: spawn and wait a successor.
-    const deps2 = makeDeps(async () => ({ report: "successor done" }));
-    // Share the fleet so the successor is a true sibling lane.
-    const spawn2 = createSpawnAgentTool({
-      ...deps2,
-      sessions: deps.sessions,
-      fleetRecords: deps.fleetRecords,
-    });
-    const wait2 = createWaitAgentsTool({
-      sessions: deps.sessions,
-      fleetRecords: deps.fleetRecords,
-    });
-    const spawned2 = await callTool(spawn2, {
-      description: "successor job",
-      prompt: "do it again",
-      intent: "explore",
-    });
-    const id2 = spawned2.agent_id as string;
-    expect(id2).not.toBe(id);
-    const waited2 = await callTool(wait2, {
-      targets: [id2],
-      timeout_ms: 5000,
-      mode: "all",
-    });
-    expect(waited2.timed_out).toBe(false);
-    const results2 = waited2.results as Record<string, unknown>[];
-    expect(results2[0]?.status).toBe("done");
-  });
-
+  // The full retryable-after-tools scenario (failed lane, continuable
+  // marker, parent not stalled) runs end-to-end in
+  // tests/e2e/subagent-recoverable-failure.test.ts. The cases below stay
+  // unit-level: they exercise mailbox/deliver seams below e2e granularity.
   test("credential failure stays failed without a continuable marker", async () => {
     const deps = makeDeps(async () => {
       throw createResolvedProviderFailureError("test-provider", {

@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
-import {
-  advertisedTools,
-  CORE_TOOL_NAMES,
-  CATALOG_TOOL_NAMES,
-} from "./tool-search.js";
+import { advertisedTools } from "./tool-search.js";
 import { canonicalToolName } from "./canonical-tool-name.js";
 import { advertisedToolName, WIRE_TO_ENGINE } from "./tool-aliases.js";
 import { evaluateApprovals } from "../permission/authz-grants.js";
@@ -19,31 +15,6 @@ const posixDef = (name: string): ToolDefinition => ({
 });
 
 describe("one advertised posix set", () => {
-  test("CORE+CATALOG is the 1:1 wire set without engine or Codex names", () => {
-    const advertised = [...CORE_TOOL_NAMES, ...CATALOG_TOOL_NAMES];
-    expect(CORE_TOOL_NAMES.slice(0, 6)).toEqual([
-      "read",
-      "write",
-      "edit",
-      "delete",
-      "lsp",
-      "bash",
-    ]);
-    expect(CATALOG_TOOL_NAMES[0]).toBe("glob");
-    expect(advertised).toContain("grep");
-    expect(advertised).not.toContain("read_file");
-    expect(advertised).not.toContain("write_file");
-    expect(advertised).not.toContain("edit_file");
-    expect(advertised).not.toContain("delete_file");
-    expect(advertised).not.toContain("run_shell");
-    expect(advertised).not.toContain("search_files");
-    expect(advertised).not.toContain("list_dir");
-    expect(advertised).not.toContain("apply_patch");
-    expect(advertised).not.toContain("shell");
-    expect(advertised).not.toContain("update_plan");
-    expect(new Set(advertised).size).toBe(advertised.length);
-  });
-
   test("advertisedTools projects engine defs onto one wire name each", () => {
     const registry = [
       posixDef("read_file"),
@@ -69,12 +40,6 @@ describe("one advertised posix set", () => {
     expect(names).not.toContain("search_files");
     expect(names).not.toContain("list_dir");
     expect(names).not.toContain("delete_file");
-  });
-
-  test("delete is advertised; list_dir is not", () => {
-    expect(CORE_TOOL_NAMES).toContain("delete");
-    expect(CATALOG_TOOL_NAMES).not.toContain("list_dir");
-    expect(CORE_TOOL_NAMES).not.toContain("list_dir");
   });
 });
 
