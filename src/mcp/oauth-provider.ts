@@ -20,6 +20,7 @@ import type {
 import type { FetchLike } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   authFilePath,
+  isValidAuthTokens,
   tryLoadAuthStateSync,
   updateAuthState,
   type MCPAuthIdentity,
@@ -45,9 +46,9 @@ function redirectUrisInclude(
   info: OAuthClientInformationFull | undefined,
   redirectUrl: string,
 ): boolean {
-  const uris = info?.redirect_uris;
-  if (uris === undefined || uris.length === 0) return true;
-  return uris.includes(redirectUrl);
+  const uris: unknown = info?.redirect_uris;
+  if (!Array.isArray(uris) || uris.length === 0) return true;
+  return (uris as unknown[]).includes(redirectUrl);
 }
 
 function isAbortError(err: unknown): boolean {
@@ -77,12 +78,20 @@ function shouldAdoptClient(
   next: MCPAuthState,
   redirectUrl: string,
 ): boolean {
-  if (next.clientInformation === undefined) return false;
+  // Malformed disk must never throw or poison the mirror: adoption requires a
+  // client object and valid tokens. next.tokens is boundary-validated upstream,
+  // but the guards below keep this total even if that contract is bypassed.
+  if (
+    typeof next.clientInformation !== "object" ||
+    next.clientInformation === null ||
+    Array.isArray(next.clientInformation)
+  )
+    return false;
   if (redirectUrisInclude(next.clientInformation, redirectUrl)) return true;
   // Other-port DCR is a sibling's in-progress registration unless they also
   // published new tokens (completed re-auth).
   return (
-    next.tokens !== undefined &&
+    isValidAuthTokens(next.tokens) &&
     next.tokens.access_token !== stored.tokens?.access_token
   );
 }
@@ -264,6 +273,16 @@ export async function createOAuthProvider(
     },
     refreshToken: async (refreshToken: string): Promise<OAuthTokens> => {
       try {
+        // Snapshot the durable access token before the network round-trip. A
+        // sibling resetAuthorization (logout) or rotation that lands mid-refresh
+        // must win over this stale grant: the post-refresh write re-checks disk
+        // and drops the refreshed tokens instead of resurrecting revoked ones.
+        // There is no server-side revocation, so the durable file is the only
+        // source of truth for "logged out". Sync read: refreshToken callers may
+        // busy-wait on microtasks alone, which an async disk read could never
+        // resolve behind.
+        const preRefreshAccess = tryLoadAuthStateSync(identity, home)?.tokens
+          ?.access_token;
         const fetchFn = opts.fetchFn;
         if (
           authorizationServerMetadata === undefined ||
@@ -312,9 +331,19 @@ export async function createOAuthProvider(
           resource: resourceURL,
           ...(fetchFn === undefined ? {} : { fetchFn }),
         });
+        let refreshSuperseded = false;
         await apply((state) => {
+          if (state.tokens?.access_token !== preRefreshAccess) {
+            refreshSuperseded = true;
+            return;
+          }
           state.tokens = tokens;
         });
+        if (refreshSuperseded) {
+          const disk = tryLoadAuthStateSync(identity, home);
+          if (disk?.tokens !== undefined) stored.tokens = disk.tokens;
+          else delete stored.tokens;
+        }
         return tokens;
       } catch (err) {
         if (isAbortError(err) || err instanceof UnauthorizedError) throw err;

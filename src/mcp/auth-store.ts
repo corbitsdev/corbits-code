@@ -77,11 +77,28 @@ function isEnoent(err: unknown): boolean {
   );
 }
 
+function isAuthRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function isValidAuthTokens(value: unknown): value is OAuthTokens {
+  return isAuthRecord(value) && typeof value.access_token === "string";
+}
+
 function parseAuthState(raw: string): MCPAuthState | undefined {
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null)
-      return parsed as MCPAuthState;
+    // The discriminator is explicit shape, not "parses to object": arrays,
+    // null, and primitives are corrupt. Tokens crossing from disk into memory
+    // must be absent (a missing key is an explicit logout write) or an object
+    // carrying a string access_token; anything else reads as unreadable so
+    // the caller keeps its in-memory mirror and never stores the malformed
+    // value.
+    if (!isAuthRecord(parsed)) return undefined;
+    const state = parsed as MCPAuthState;
+    if (state.tokens !== undefined && !isValidAuthTokens(state.tokens))
+      return undefined;
+    return state;
   } catch {
     // A corrupt auth file should not wedge the session; treat it as no state and
     // let a fresh authorization overwrite it.

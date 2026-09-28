@@ -738,6 +738,169 @@ describe("createOAuthProvider", () => {
     expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
   });
 
+  test("keeps the mirror when the auth file holds a JSON array", async () => {
+    const home = await tempHome();
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:1/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(provider, clientInfo(1));
+    await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
+
+    await writeFile(authFilePath(linear, home), "[]");
+
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+    expect((await syncValue(provider.clientInformation()))?.client_id).toBe(
+      "client-on-1",
+    );
+  });
+
+  test("treats malformed disk tokens as unreadable and never throws", async () => {
+    const malformed = [
+      `{"tokens":null}`,
+      `{"tokens":"tok-a"}`,
+      `{"tokens":{}}`,
+      `{"tokens":[]}`,
+    ];
+    for (const raw of malformed) {
+      const home = await tempHome();
+      const provider = await createOAuthProvider({
+        serverName: "linear",
+        serverURL: linear.serverURL,
+        redirectUrl: "http://127.0.0.1:1/callback",
+        onAuthURL: () => undefined,
+        home,
+      });
+      await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
+
+      await writeFile(authFilePath(linear, home), raw);
+
+      expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
+      expect(await syncValue(provider.clientInformation())).toBeUndefined();
+    }
+  });
+
+  test("never throws when disk holds an other-port client with null tokens", async () => {
+    const home = await tempHome();
+    const provider = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+    await saveClient(provider, clientInfo(62000));
+    await provider.saveTokens({
+      access_token: "tok-a",
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: "ref-a",
+    });
+
+    await writeFile(
+      authFilePath(linear, home),
+      JSON.stringify({
+        clientInformation: clientInfo(60435),
+        tokens: null,
+      }),
+    );
+
+    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok-a");
+    expect((await syncValue(provider.clientInformation()))?.client_id).toBe(
+      "client-on-62000",
+    );
+  });
+
+  test("a mid-refresh sibling logout is not resurrected by the refresh write", async () => {
+    const home = await tempHome();
+    let releaseRefresh!: () => void;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    let refreshPosted!: () => void;
+    const refreshPostedGate = new Promise<void>((resolve) => {
+      refreshPosted = resolve;
+    });
+    const fetchFn = async (
+      url: string | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const href = String(url);
+      if (init?.method === "POST") {
+        refreshPosted();
+        await refreshGate;
+        return new Response(
+          JSON.stringify({
+            access_token: "resurrected",
+            token_type: "bearer",
+            expires_in: 3600,
+            refresh_token: "ref-b",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (href.includes("oauth-protected-resource")) {
+        return new Response(
+          JSON.stringify({
+            resource: "https://mcp.linear.app/mcp",
+            authorization_servers: ["https://mcp.linear.app"],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (
+        href.includes("oauth-authorization-server") ||
+        href.includes("openid-configuration")
+      ) {
+        return new Response(
+          JSON.stringify({
+            issuer: "https://mcp.linear.app",
+            authorization_endpoint: "https://mcp.linear.app/authorize",
+            token_endpoint: "https://mcp.linear.app/oauth/token",
+            response_types_supported: ["code"],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 404 });
+    };
+
+    const a = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+      fetchFn,
+    });
+    await saveClient(a, clientInfo(62000));
+    await a.saveTokens({
+      access_token: "stale",
+      token_type: "bearer",
+      expires_in: 1,
+      refresh_token: "ref-a",
+    });
+    const b = await createOAuthProvider({
+      serverName: "linear",
+      serverURL: linear.serverURL,
+      redirectUrl: "http://127.0.0.1:62000/callback",
+      onAuthURL: () => undefined,
+      home,
+    });
+
+    const pending = a.refreshToken("ref-a");
+    await refreshPostedGate;
+    await b.resetAuthorization();
+    releaseRefresh();
+    await pending;
+
+    expect((await loadAuthState(linear, home)).tokens).toBeUndefined();
+    expect(await syncValue(a.tokens())).toBeUndefined();
+  });
+
   test("keeps the mirror through an unreadable auth file and recovers once readable", async () => {
     const home = await tempHome();
     const provider = await createOAuthProvider({
