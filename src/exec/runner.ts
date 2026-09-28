@@ -103,6 +103,7 @@ import {
   loadState,
   saveState,
   type ConnectedMcpServer,
+  type RunState,
 } from "../session/state.js";
 import { resolveExecRunStatus, type RunSink } from "../session/run-sink.js";
 import { createRunSummary } from "../session/hooks.js";
@@ -452,10 +453,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
       provider: config.providerName,
       model: config.model,
     };
-    liveTelemetry.capture(
-      "session_end",
-      execSessionEndProperties(result, Date.now(), 0),
-    );
+    // Deliberate funnel gap: a missing prompt is a usage error (exit 2) and
+    // no run ever started, so there is no session to close. Emitting a
+    // failed session_end here would pollute failed counts with invocations
+    // that never ran.
     return result;
   }
 
@@ -463,12 +464,46 @@ export async function runExec(config: Config): Promise<ExecResult> {
     config.sessionId.length > 0 ? config.sessionId : generateSessionId();
   const startedAt = Date.now();
   const workdir = sessionContextDir(config.cwd, sessionId);
-  await initSessionDir(config.cwd, sessionId);
-  const prior =
-    config.sessionId.length > 0
-      ? await loadState(config.cwd, config.sessionId)
-      : undefined;
-  const priorState = prior?.kind === "ok" ? prior.state : undefined;
+  // Setup runs before the main try below: initSessionDir/loadState hit disk
+  // before any session_end coverage exists, so an EACCES/EROFS here would
+  // reject with zero session_end and orphan the cli_start funnel. Emit a
+  // minimal failed session_end on this window instead of letting it throw.
+  let priorState: RunState | undefined;
+  try {
+    await initSessionDir(config.cwd, sessionId);
+    const prior =
+      config.sessionId.length > 0
+        ? await loadState(config.cwd, config.sessionId)
+        : undefined;
+    priorState = prior?.kind === "ok" ? prior.state : undefined;
+  } catch (err) {
+    const message = formatCaughtError(err);
+    logger.error("exec setup failed: {error}", { error: message });
+    stderr.write(`Error: ${message}\n`);
+    liveTelemetry.capture(
+      "session_end",
+      execSessionEndProperties(undefined, startedAt, 0),
+    );
+    return {
+      exitCode: 1,
+      sessionId,
+      text: "",
+      error: message,
+      status: "failed",
+      durationMs: Date.now() - startedAt,
+      turnsUsed: 0,
+      toolCallCount: 0,
+      tokenUsage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
+      provider: config.providerName,
+      model: config.model,
+    };
+  }
 
   let connectedMcp: ConnectedMcpServer[] = [];
   let agent: Agent | null = null;

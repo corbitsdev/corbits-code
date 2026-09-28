@@ -203,7 +203,7 @@ function bareConfig(task: string): Config {
   } as unknown as Config;
 }
 
-test("runExec with a missing prompt emits exactly one failed exec session_end", async () => {
+test("runExec with a missing prompt emits no session_end: usage is not a session", async () => {
   const { fetchFn, events } = recordingFetch();
   const telemetry = createTelemetry({
     settings: settingsWithId(),
@@ -221,13 +221,7 @@ test("runExec with a missing prompt emits exactly one failed exec session_end", 
   }
   await telemetry.flush();
   const ends = events().filter((event) => event.event === "session_end");
-  expect(ends).toHaveLength(1);
-  const body = defined(ends[0], "session_end");
-  expect(body.properties.status).toBe("failed");
-  expect(body.properties.turn_count).toBe(0);
-  expect(body.properties.duration_ms).toBe(0);
-  expect(body.properties.session_mode).toBe("exec");
-  expect(body.properties.exit_reason).toBe("error");
+  expect(ends).toHaveLength(0);
 });
 
 test("runExec bootstrap failure emits exactly one failed exec session_end", async () => {
@@ -283,22 +277,206 @@ test("runExec bootstrap failure emits exactly one failed exec session_end", asyn
   expect(body.properties.exit_reason).toBe("error");
 });
 
-function writeSandboxSettings(root: string): void {
+test("runExec pre-try setup failure returns failed and still closes the funnel", async () => {
+  const previous = getActiveRun();
+  clearActiveRun();
+  const { cwd, home, cleanup } = createTempDirs(
+    "corbits-session-end-setup-",
+    "corbits-session-end-setup-home-",
+  );
+  const { fetchFn, events } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWithId(),
+    env: {},
+    fetchFn,
+    apiKey: "test-key",
+  });
+  setTelemetry(telemetry);
+  const restoreStderr = silenceStderr();
+  try {
+    await withMockedHomedir(home, async () => {
+      await withMockedModuleDuring(
+        import.meta.resolve("../../src/session/index.js"),
+        (real: typeof import("../../src/session/index.js")) => ({
+          ...real,
+          initSessionDir: () =>
+            Promise.reject(new Error("EACCES: permission denied")),
+        }),
+        async () => {
+          const { runExec: runExecUnderMock } =
+            await import("../../src/exec/runner.js");
+          const result = await runExecUnderMock({
+            ...bareConfig("do the thing"),
+            cwd,
+            sessionId: "exec-session-end-setup",
+          });
+          expect(result.exitCode).toBe(1);
+          expect(result.status).toBe("failed");
+        },
+      );
+    });
+  } finally {
+    restoreStderr();
+    if (previous !== null) setActiveRun(previous);
+    else clearActiveRun();
+    cleanup();
+  }
+  await telemetry.flush();
+  const ends = events().filter((event) => event.event === "session_end");
+  expect(ends).toHaveLength(1);
+  const body = defined(ends[0], "session_end");
+  expect(body.properties.status).toBe("failed");
+  expect(body.properties.turn_count).toBe(0);
+  expect(body.properties.session_mode).toBe("exec");
+  expect(body.properties.exit_reason).toBe("error");
+});
+
+test("runExec success emits exactly one done exec session_end", async () => {
+  const previous = getActiveRun();
+  clearActiveRun();
+  const { cwd, home, cleanup } = createTempDirs(
+    "corbits-session-end-done-",
+    "corbits-session-end-done-home-",
+  );
+  const { fetchFn, events } = recordingFetch();
+  const telemetry = createTelemetry({
+    settings: settingsWithId(),
+    env: {},
+    fetchFn,
+    apiKey: "test-key",
+  });
+  setTelemetry(telemetry);
+  const restoreStderr = silenceStderr();
+  async function* emptyEvents(): AsyncGenerator<never> {
+    // No agent events: the run completes without turns or tool calls.
+  }
+  const fakeAgent = {
+    send: async () => ({ type: "completed" }),
+    stream: () => emptyEvents(),
+    close: async () => undefined,
+    deliver: () => undefined,
+  };
+  const fakeToolset = {
+    dynamicRunner: {
+      setCallGate: () => undefined,
+      currentDefinitions: () => [],
+    },
+    skills: [],
+    setToolPromoter: () => undefined,
+    dispose: async () => undefined,
+  };
+  const fakeSink = {
+    getTurnCollector: () => null,
+    getTurnCount: () => 0,
+    getTokenUsage: () => ({
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      thinking: 0,
+    }),
+    getToolCallCount: () => 0,
+    getStatus: () => "cancelled",
+    getRunError: () => undefined,
+  };
+  try {
+    await withMockedHomedir(home, async () => {
+      await withMockedModuleDuring(
+        import.meta.resolve("../../src/session/assemble-runtime.js"),
+        (real: typeof import("../../src/session/assemble-runtime.js")) => ({
+          ...real,
+          assembleInferenceBase: async () => ({}),
+          resolveLiveSessionSources: () => ({
+            sources: [],
+            defaultSource: [],
+            selected: { id: "test-source", credentialId: "test-cred" },
+          }),
+          assembleSessionTrust: async () => ({
+            projectTrust: {},
+            pluginModules: [],
+            diagnostics: { warnings: [] },
+          }),
+          assembleSessionGate: async () => ({
+            gate: { clearDenials: () => undefined },
+          }),
+          assembleSessionLifecycle: async () => ({
+            hookManager: { dispatchPostRun: async () => undefined },
+            runSink: fakeSink,
+            cycleRecorder: {
+              handleEvent: () => undefined,
+              dispose: async () => undefined,
+            },
+          }),
+          assembleChatAgent: (opts: {
+            onBuilt: (agent: unknown, storage: unknown) => void;
+          }) => ({
+            directorHolder: { instance: undefined },
+            buildAgent: async () => {
+              opts.onBuilt(fakeAgent, {});
+              return fakeAgent;
+            },
+          }),
+          loadSessionLocalSettings: async () => undefined,
+        }),
+        async () => {
+          await withMockedModuleDuring(
+            import.meta.resolve("../../src/agent/tools.js"),
+            (real: typeof import("../../src/agent/tools.js")) => ({
+              ...real,
+              createAgentToolset: async () => fakeToolset,
+            }),
+            async () => {
+              const { runExec: runExecUnderMock } =
+                await import("../../src/exec/runner.js");
+              const result = await runExecUnderMock({
+                ...bareConfig("do the thing"),
+                cwd,
+                sessionId: "exec-session-end-done",
+                globalSettingsPath: join(home, "global.json"),
+                providers: [],
+              });
+              expect(result.exitCode).toBe(0);
+              expect(result.status).toBe("done");
+            },
+          );
+        },
+      );
+    });
+  } finally {
+    restoreStderr();
+    if (previous !== null) setActiveRun(previous);
+    else clearActiveRun();
+    cleanup();
+  }
+  await telemetry.flush();
+  const ends = events().filter((event) => event.event === "session_end");
+  expect(ends).toHaveLength(1);
+  const body = defined(ends[0], "session_end");
+  expect(body.properties.status).toBe("done");
+  expect(body.properties.session_mode).toBe("exec");
+  expect(body.properties.exit_reason).toBe("done");
+});
+
+function writeSandboxSettings(root: string, configured = true): void {
   const settingsDir = join(root, "home", ".corbits");
   mkdirSync(settingsDir, { recursive: true });
   writeFileSync(
     join(settingsDir, "settings.json"),
-    JSON.stringify({
-      providers: {
-        "test-provider": {
-          baseURL: "http://localhost:1234",
-          apiKey: "test-key",
-          models: ["test-model"],
-          defaultModel: "test-model",
-        },
-      },
-      defaultProvider: "test-provider",
-    }),
+    JSON.stringify(
+      configured
+        ? {
+            providers: {
+              "test-provider": {
+                baseURL: "http://localhost:1234",
+                apiKey: "test-key",
+                models: ["test-model"],
+                defaultModel: "test-model",
+              },
+            },
+            defaultProvider: "test-provider",
+          }
+        : { providers: {} },
+    ),
   );
   mkdirSync(join(root, "project"), { recursive: true });
 }
@@ -319,12 +497,13 @@ async function withoutTelemetryKills(fn: () => Promise<void>): Promise<void> {
   }
 }
 
-async function cliStartSurfaces(
+async function runMainWithStub(
   subcommand: readonly string[],
   rest: readonly string[] = [],
-): Promise<unknown[]> {
+  configured = true,
+) {
   const sandbox = mkdtempSync(join(tmpdir(), "corbits-session-end-cli-"));
-  writeSandboxSettings(sandbox);
+  writeSandboxSettings(sandbox, configured);
   resetPricingMetadataRefreshForTests();
   schedulePricingMetadataRefresh({
     cachePath: join(
@@ -350,6 +529,14 @@ async function cliStartSurfaces(
     flush: async () => undefined,
     discard: () => undefined,
   };
+  let outcome:
+    | {
+        code: number;
+        runTUI: unknown;
+        runExec: unknown;
+        runOnboarding: unknown;
+      }
+    | undefined;
   try {
     await withoutTelemetryKills(async () => {
       await withMockedModuleDuring(
@@ -378,7 +565,7 @@ async function cliStartSurfaces(
               const runTUI = mock((_config: Config) => Promise.resolve(0));
               const runExec = mock((_config: Config) => Promise.resolve(0));
               const runOnboarding = mock(() => Promise.resolve(0));
-              await mainWithRunners(
+              const code = await mainWithRunners(
                 [
                   ...subcommand,
                   "--cwd",
@@ -389,6 +576,7 @@ async function cliStartSurfaces(
                 ],
                 { runTUI, runExec, runOnboarding },
               );
+              outcome = { code, runTUI, runExec, runOnboarding };
             },
           );
         },
@@ -397,6 +585,14 @@ async function cliStartSurfaces(
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }
+  return { ...defined(outcome, "main outcome"), captured };
+}
+
+async function cliStartSurfaces(
+  subcommand: readonly string[],
+  rest: readonly string[] = [],
+): Promise<unknown[]> {
+  const { captured } = await runMainWithStub(subcommand, rest);
   return captured
     .filter((entry) => entry.event === "cli_start")
     .map((entry) => entry.properties?.surface);
@@ -408,4 +604,29 @@ test("startup cli_start carries surface exec on the exec path", async () => {
 
 test("startup cli_start carries surface tui on the interactive path", async () => {
   expect(await cliStartSurfaces([])).toEqual(["tui"]);
+});
+
+test("unconfigured exec closes the funnel with one failed session_end", async () => {
+  const restoreStderr = silenceStderr();
+  try {
+    const { code, captured, runExec } = await runMainWithStub(
+      ["exec"],
+      ["say hello"],
+      false,
+    );
+    expect(code).toBe(2);
+    expect(runExec).not.toHaveBeenCalled();
+    const surfaces = captured
+      .filter((entry) => entry.event === "cli_start")
+      .map((entry) => entry.properties?.surface);
+    expect(surfaces).toEqual(["exec"]);
+    const ends = captured.filter((entry) => entry.event === "session_end");
+    expect(ends).toHaveLength(1);
+    const body = defined(ends[0], "session_end");
+    expect(body.properties?.status).toBe("failed");
+    expect(body.properties?.session_mode).toBe("exec");
+    expect(body.properties?.exit_reason).toBe("error");
+  } finally {
+    restoreStderr();
+  }
 });
