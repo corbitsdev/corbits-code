@@ -139,6 +139,38 @@ describe("thrash pure module", () => {
     expect(state.readCounts.get("grep::needle::src")).toBe(2);
   });
 
+  test("wire names classify onto the same evidence as engine names", () => {
+    // Persisted blocks keep the name the model emitted on the wire; the
+    // evidence sets are engine-keyed, so wire names must canonicalize or
+    // every advertised call slips past read/search/mutation tracking.
+    const state = applyAll([
+      {
+        type: "tool_call",
+        name: "read",
+        arguments: { path: "a.ts" },
+      },
+      {
+        type: "tool_call",
+        name: "write",
+        arguments: { path: "b.ts", content: "x" },
+      },
+      {
+        type: "tool_call",
+        name: "glob",
+        arguments: { pattern: "*.ts", path: "src" },
+      },
+      {
+        type: "tool_call",
+        name: "bash",
+        arguments: { command: "head -n 5 src/c.ts" },
+      },
+    ]);
+    expect(state.readCounts.get("a.ts")).toBe(1);
+    expect(state.editedPaths.has("b.ts")).toBe(true);
+    expect(state.readCounts.get("search_files::*.ts::src")).toBe(1);
+    expect(state.readCounts.get("src/c.ts")).toBe(1);
+  });
+
   test("salvagePathsFromThrash lists edited first, then read paths, capped", () => {
     const state = applyAll([
       read("src/read.ts"),
