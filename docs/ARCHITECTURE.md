@@ -126,8 +126,8 @@ The interactive TUI may offer an explicit alternate-provider/model selector only
 - Product non-TUI agent path that **shares** the TUI stack (session mode, ChatDirector, toolset, permission gate, MCP, plugins, hooks, run-sink) without the OpenTUI shell
 - Bootstrap consumes the shared session assembly (`src/session/assemble-runtime.ts`, layered over `src/session/runtime-assembly.ts`) instead of hand-wiring a second copy. Intentional deltas vs TUI:
   - No workflow controller (`isWorkflowActive` is always false)
-  - Non-interactive permission gate by default
-  - `ask_operator` is unmounted when stdin/stdout are not TTYs (no cancel stub on the wire); TTY exec still prompts on stdin
+  - Non-interactive permission gate when stdin is not a TTY (piped stdout with TTY stdin stays interactive; prompts go to stderr)
+  - `ask_operator` is unmounted when stdin is not a TTY (no cancel stub on the wire); TTY-stdin exec still prompts on stdin, with prompts on stderr when stdout is piped
   - MCP connect is awaited before workflow resume and first inference, abort-capped at 15s so a hung handshake cannot block the run. A rejected batch does not disarm that abort while sibling dials are still in flight. A 1s log fires if connect is still in progress; remaining dials keep running until settle or abort. The TUI still fire-and-forgets connect (no rewrite). `tool_search` does not treat an empty catalog as a definitive miss while servers are still connecting.
 - Entry: `corbits exec "prompt"` (alias `corbits run`); `loadConfig` sets `command: "exec"`
 - Streams assistant text deltas to stdout; lifecycle errors to stderr

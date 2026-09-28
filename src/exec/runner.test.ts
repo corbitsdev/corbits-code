@@ -56,6 +56,27 @@ describe("exec piped-stdout interactivity (CL-9002 Option A)", () => {
       outputPiped: true,
     });
   });
+
+  test("absent stdio shape is headless and piped", () => {
+    expect(resolveExecInteractivity(undefined, undefined)).toEqual({
+      interactive: false,
+      outputPiped: true,
+    });
+  });
+
+  test("absent stdin denies even when stdout is a TTY", () => {
+    expect(resolveExecInteractivity(undefined, true)).toEqual({
+      interactive: false,
+      outputPiped: false,
+    });
+  });
+
+  test("stdin TTY with absent stdout stays interactive and piped", () => {
+    expect(resolveExecInteractivity(true, undefined)).toEqual({
+      interactive: true,
+      outputPiped: true,
+    });
+  });
 });
 
 describe("exec director allowlist", () => {
