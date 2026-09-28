@@ -538,6 +538,17 @@ export function classifyToolFamily(canonicalName: string): ToolFamily {
   }
 }
 
+// Resolve a raw tool.start name onto the engine id classifyToolFamily keys
+// on. Prod traffic carries wire names (bash/glob/read/…) and decorated
+// variants (`default.bash`, `bash__P1`); classifying those raw lands in
+// "other". The `__…` instance-suffix strip is telemetry-local: grants and
+// dispatch keep matching full names, and `mcp__server__tool` names still
+// fall into "other" either way.
+function bucketToolName(name: string): string {
+  const cut = name.indexOf("__");
+  return canonicalToolName(cut > 0 ? name.slice(0, cut) : name);
+}
+
 const submitResultDefinition: ToolDefinition = {
   name: "submit_result",
   description:
@@ -1344,7 +1355,7 @@ async function runSubAgentInner(
       if (name !== null) {
         toolNamesUsed.push(name);
         telemetryRollup.tool_call_count += 1;
-        switch (classifyToolFamily(name)) {
+        switch (classifyToolFamily(bucketToolName(name))) {
           case "read":
             telemetryRollup.tool_read_count += 1;
             break;
