@@ -106,7 +106,7 @@ export function getSessionId(): string {
 // capture() appends ($app_version, service_version, os_type, os_arch,
 // schema_version, session_id), this bounds everything telemetry can ever contain.
 const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
-  cli_start: [],
+  cli_start: ["surface"],
   session_end: [
     "status",
     "turn_count",

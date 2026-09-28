@@ -371,6 +371,33 @@ export interface ExecResult {
   model?: string;
 }
 
+/**
+ * Builds the `session_end` payload for exec runs, mirroring the TUI exit
+ * reporter's status/exit_reason contract. Falls back to the live turn count
+ * and wall clock when the run never produced a result.
+ */
+export function execSessionEndProperties(
+  result: ExecResult | undefined,
+  startedAt: number,
+  sinkTurns: number,
+): {
+  status: "done" | "failed" | "cancelled";
+  turn_count: number;
+  duration_ms: number;
+  session_mode: "exec";
+  exit_reason: "done" | "error" | "cancelled";
+} {
+  const status = result?.status ?? "failed";
+  return {
+    status,
+    turn_count: result?.turnsUsed ?? sinkTurns,
+    duration_ms: result?.durationMs ?? Date.now() - startedAt,
+    session_mode: "exec",
+    exit_reason:
+      status === "done" ? "done" : status === "failed" ? "error" : "cancelled",
+  };
+}
+
 export function createExecToolCallGate(
   isAdvertised: (name: string) => boolean,
 ): (name: string) => boolean {
@@ -406,7 +433,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
   const task = config.task.trim();
   if (task.length === 0) {
     stderr.write('Usage: corbits exec "<prompt>"\n');
-    return {
+    const result: ExecResult = {
       exitCode: 2,
       sessionId: config.sessionId,
       text: "",
@@ -425,6 +452,11 @@ export async function runExec(config: Config): Promise<ExecResult> {
       provider: config.providerName,
       model: config.model,
     };
+    liveTelemetry.capture(
+      "session_end",
+      execSessionEndProperties(result, Date.now(), 0),
+    );
+    return result;
   }
 
   const sessionId =
@@ -1307,6 +1339,14 @@ export async function runExec(config: Config): Promise<ExecResult> {
         result.error = `runtime dispose failed: ${message}`;
       }
     }
+    liveTelemetry.capture(
+      "session_end",
+      execSessionEndProperties(
+        result,
+        startedAt,
+        runSink?.getTurnCount() ?? turnsUsed,
+      ),
+    );
     clearActiveDisposeHost();
   }
 }

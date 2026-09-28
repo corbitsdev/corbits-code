@@ -60,6 +60,7 @@ export async function activateHeldTelemetry(
   globalSettingsPath: string,
   confirmIntent: () => boolean = () => true,
   deps: FirstRunDeps = defaultDeps,
+  surface: "tui" | "exec" = "tui",
 ): Promise<void> {
   try {
     await deps.markTelemetryNoticeShown(globalSettingsPath);
@@ -89,5 +90,5 @@ export async function activateHeldTelemetry(
   if (!confirmIntent()) return;
   const telemetry = deps.createTelemetry({ settings });
   deps.setTelemetry(telemetry);
-  telemetry.capture("cli_start");
+  telemetry.capture("cli_start", { surface });
 }

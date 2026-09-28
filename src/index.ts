@@ -79,7 +79,9 @@ export async function mainWithRunners(
     if (settings?.telemetry?.noticeShown === true) {
       const telemetry = createTelemetry({ settings });
       setTelemetry(telemetry);
-      telemetry.capture("cli_start");
+      telemetry.capture("cli_start", {
+        surface: config.command === "exec" ? "exec" : "tui",
+      });
     }
   }
 
