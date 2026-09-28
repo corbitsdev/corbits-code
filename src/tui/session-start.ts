@@ -50,6 +50,9 @@ export interface ResumeSeed {
   // Present only when the prior run stamped an Anthropic-protocol cache write.
   lastCacheWriteAt?: number;
   cacheWriteModel?: string;
+  // The prior run's resolved provider:model, split for restore. Absent for a
+  // fresh run and for legacy records that predate the model field.
+  storedModel?: { providerName: string; model: string };
 }
 
 const FRESH_RESUME_SEED: ResumeSeed = {
@@ -57,6 +60,23 @@ const FRESH_RESUME_SEED: ResumeSeed = {
   mcpServers: [],
   activatedTools: [],
 };
+
+/**
+ * Split a run.json `provider:model` identity on its first colon so model ids
+ * containing colons survive. Absent or malformed values yield undefined and
+ * the caller keeps the launch default; this never throws.
+ */
+function splitStoredModel(
+  value: string | undefined,
+): { providerName: string; model: string } | undefined {
+  if (value === undefined) return undefined;
+  const colon = value.indexOf(":");
+  if (colon <= 0 || colon === value.length - 1) return undefined;
+  return {
+    providerName: value.slice(0, colon),
+    model: value.slice(colon + 1),
+  };
+}
 
 /**
  * Fold a resumed session's run.json into a concrete seed once, at the
@@ -68,10 +88,12 @@ const FRESH_RESUME_SEED: ResumeSeed = {
  */
 export function resolveResumeSeed(pickedState: RunState | null): ResumeSeed {
   if (pickedState === null) return FRESH_RESUME_SEED;
+  const storedModel = splitStoredModel(pickedState.model);
   return {
     turnsUsed: pickedState.turnsUsed,
     mcpServers: pickedState.mcpServers ?? [],
     activatedTools: pickedState.activatedTools ?? [],
+    ...(storedModel !== undefined ? { storedModel } : {}),
     ...(pickedState.lastCacheWriteAt !== undefined
       ? {
           lastCacheWriteAt: pickedState.lastCacheWriteAt,
@@ -288,6 +310,19 @@ export async function prepareTUISession(
     if (pickedState !== null) {
       startedAt = pickedState.startedAt;
     }
+  }
+
+  // A resume without explicit --provider/--model keeps the stored session's
+  // model: the launch default would otherwise clobber it on both resume
+  // branches above. An explicit flag wins, so the restore is gated on the
+  // parse-time signal rather than any value comparison. Fresh runs and
+  // legacy model-less records carry no storedModel and keep the default.
+  if (config.modelOverride !== true && resumeSeed.storedModel !== undefined) {
+    config = {
+      ...config,
+      providerName: resumeSeed.storedModel.providerName,
+      model: resumeSeed.storedModel.model,
+    };
   }
 
   const workdir = sessionContextDir(config.cwd, sessionId);

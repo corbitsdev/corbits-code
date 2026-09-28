@@ -650,6 +650,13 @@ export interface Config {
    * id; `"pick"` opens the interactive picker. Omitted for a fresh session.
    */
   resumeMode?: "id" | "pick";
+  /**
+   * True when this invocation passed --provider and/or --model. Resume keeps
+   * the stored session's model unless this is set; the override is a
+   * parse-time fact, never inferred by comparing launch values against the
+   * stored record.
+   */
+  modelOverride?: boolean;
 
   // Deprecated no-op retained for CLI compatibility.
   noWorkflow: boolean;
@@ -1181,6 +1188,9 @@ export async function loadConfig(
         }
       : {}),
     ...(resumePicker ? { resumePicker: true } : {}),
+    ...(provider !== undefined || model !== undefined
+      ? { modelOverride: true as const }
+      : {}),
     ...(settings?.defaultProvider !== undefined
       ? { globalDefaultProvider: settings.defaultProvider }
       : {}),
