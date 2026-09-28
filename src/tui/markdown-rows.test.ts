@@ -27,6 +27,49 @@ const shellOpts = {
   wireKeys: false,
 } as const;
 
+interface FrozenWork {
+  assignments: number;
+  chars: number;
+}
+
+function splitMarkdownNodes(
+  shell: ReturnType<typeof createAppShell>,
+  index = 0,
+) {
+  const rowNode = defined(shell.transcript.getChildren().slice(1)[index]);
+  const [, bodyNode] = (rowNode as BoxRenderable).getChildren();
+  const [frozenNode, liveNode] = (bodyNode as BoxRenderable).getChildren();
+  return {
+    frozenNode: frozenNode as MarkdownRenderable,
+    liveNode: liveNode as MarkdownRenderable,
+  };
+}
+
+function observeFrozenAssignments(
+  node: MarkdownRenderable,
+  run: () => void,
+): FrozenWork {
+  const descriptor = defined(
+    Object.getOwnPropertyDescriptor(MarkdownRenderable.prototype, "content"),
+  );
+  const work: FrozenWork = { assignments: 0, chars: 0 };
+  Object.defineProperty(node, "content", {
+    configurable: true,
+    get: () => descriptor.get?.call(node),
+    set: (value: string) => {
+      work.assignments += 1;
+      work.chars += value.length;
+      descriptor.set?.call(node, value);
+    },
+  });
+  try {
+    run();
+  } finally {
+    Reflect.deleteProperty(node, "content");
+  }
+  return work;
+}
+
 /**
  * Highlighting runs on a worker outside the render scheduler, so the
  * scheduler goes idle before the highlighted frame lands. Pass a predicate
@@ -254,36 +297,141 @@ describe("markdown transcript rows", () => {
     }, WIDE);
   });
 
-  test("the settled heading renderer is never rewritten while the prose after it keeps streaming", async () => {
+  test("append-only prose never reassigns the settled heading", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts);
+      const prefix = ["### Title", "", "Some"].join("\n");
+      appendStreamRow(shell, {
+        role: "assistant",
+        streaming: true,
+        text: prefix,
+      });
+      const { frozenNode, liveNode } = splitMarkdownNodes(shell);
+      const work = observeFrozenAssignments(frozenNode, () => {
+        replaceStreamRowAt(shell, shell.streamLog.length - 1, {
+          role: "assistant",
+          streaming: true,
+          text: `${prefix} body text that keeps growing.`,
+        });
+      });
+
+      expect(work).toEqual({ assignments: 0, chars: 0 });
+      expect(liveNode.content).toBe("Some body text that keeps growing.");
+    }, WIDE);
+  });
+
+  test("a mid-stream edit repaints the frozen half", async () => {
     await withTestRenderer(async (h) => {
       const shell = createAppShell(h.renderer, shellOpts);
       appendStreamRow(shell, {
         role: "assistant",
         streaming: true,
-        text: ["### Title", "", "Some"].join("\n"),
+        text: ["### Title", "", "original tail"].join("\n"),
       });
-      const children = shell.transcript.getChildren().slice(1);
-      const [, bodyNode] = (children[0] as BoxRenderable).getChildren();
-      const [frozenNode] = (bodyNode as BoxRenderable).getChildren();
-      const before = (frozenNode as MarkdownRenderable).content;
+      const { frozenNode, liveNode } = splitMarkdownNodes(shell);
+      const work = observeFrozenAssignments(frozenNode, () => {
+        replaceStreamRowAt(shell, shell.streamLog.length - 1, {
+          role: "assistant",
+          streaming: true,
+          text: ["### Title", "", "edited tail"].join("\n"),
+        });
+      });
 
-      replaceStreamRowAt(shell, shell.streamLog.length - 1, {
+      expect(work).toEqual({ assignments: 1, chars: "### Title".length });
+      expect(liveNode.content).toBe("edited tail");
+    }, WIDE);
+  });
+
+  test("a newly settled heading moves and repaints the frozen boundary", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts);
+      const initial = ["### First", "", "first tail"].join("\n");
+      const moved = [initial, "", "### Second", "", "second tail"].join("\n");
+      appendStreamRow(shell, {
         role: "assistant",
         streaming: true,
-        text: [
-          "### Title",
-          "",
-          "Some body text that keeps growing and growing.",
-        ].join("\n"),
+        text: initial,
       });
-      const childrenAfter = shell.transcript.getChildren().slice(1);
-      const [, bodyNodeAfter] = (
-        childrenAfter[0] as BoxRenderable
-      ).getChildren();
-      const [frozenNodeAfter] = (bodyNodeAfter as BoxRenderable).getChildren();
+      const { frozenNode, liveNode } = splitMarkdownNodes(shell);
+      const work = observeFrozenAssignments(frozenNode, () => {
+        replaceStreamRowAt(shell, shell.streamLog.length - 1, {
+          role: "assistant",
+          streaming: true,
+          text: moved,
+        });
+      });
 
-      expect(frozenNodeAfter).toBe(frozenNode);
-      expect((frozenNodeAfter as MarkdownRenderable).content).toBe(before);
+      const expectedFrozen = [initial, "", "### Second"].join("\n");
+      expect(work).toEqual({
+        assignments: 1,
+        chars: expectedFrozen.length,
+      });
+      expect(frozenNode.content).toBe(expectedFrozen);
+      expect(liveNode.content).toBe("second tail");
+    }, WIDE);
+  });
+
+  test("a fenced pseudo-heading does not move the frozen boundary", async () => {
+    await withTestRenderer(async (h) => {
+      const shell = createAppShell(h.renderer, shellOpts);
+      const initial = ["### Title", "", "```bash", "# shell comment"].join(
+        "\n",
+      );
+      appendStreamRow(shell, {
+        role: "assistant",
+        streaming: true,
+        text: initial,
+      });
+      const { frozenNode, liveNode } = splitMarkdownNodes(shell);
+      const work = observeFrozenAssignments(frozenNode, () => {
+        replaceStreamRowAt(shell, shell.streamLog.length - 1, {
+          role: "assistant",
+          streaming: true,
+          text: `${initial}\necho done`,
+        });
+      });
+
+      expect(work).toEqual({ assignments: 0, chars: 0 });
+      expect(liveNode.content).toContain("# shell comment\necho done");
+    }, WIDE);
+  });
+
+  test("frozen assignment work stays constant when stream size doubles", async () => {
+    await withTestRenderer(async (h) => {
+      function measure(size: number): FrozenWork {
+        const shell = createAppShell(h.renderer, shellOpts);
+        const frozen = [
+          ...Array.from({ length: size }, (_, i) => `settled line ${i}`),
+          "### Title",
+        ].join("\n");
+        const initial = `${frozen}\n\nx`;
+        appendStreamRow(shell, {
+          role: "assistant",
+          streaming: true,
+          text: initial,
+        });
+        const { frozenNode } = splitMarkdownNodes(shell);
+        const work = observeFrozenAssignments(frozenNode, () => {
+          for (let i = 1; i <= size; i += 1) {
+            replaceStreamRowAt(shell, shell.streamLog.length - 1, {
+              role: "assistant",
+              streaming: true,
+              text: `${initial}${"x".repeat(i)}`,
+            });
+          }
+        });
+        shell.dispose();
+        return work;
+      }
+
+      const n = measure(20);
+      const twoN = measure(40);
+      const ratio = (twoN.chars + 1) / (n.chars + 1);
+      expect({ n, twoN, ratio }).toEqual({
+        n: { assignments: 0, chars: 0 },
+        twoN: { assignments: 0, chars: 0 },
+        ratio: 1,
+      });
     }, WIDE);
   });
 

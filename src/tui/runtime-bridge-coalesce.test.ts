@@ -4,10 +4,13 @@
  * close/settle seam must apply the accumulated tail exactly.
  */
 import { describe, expect, test } from "bun:test";
+import { BoxRenderable, MarkdownRenderable } from "@opentui/core";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge";
+import { replaceStreamRowAt } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import { streamRowAt, streamRowCount } from "./shell/transcript";
 import { withTestRenderer } from "./harness";
+import { defined } from "../../tests/helpers/defined.js";
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
 import type { AppShell } from "./shell/internals.js";
 import type { StreamRow } from "./stream.js";
@@ -87,6 +90,60 @@ describe("runtime-bridge stream row coalescing", () => {
         { width: 80, height: 24 },
       );
     });
+  });
+
+  test("closing a stream clears its frozen markdown paint state", async () => {
+    await withTestRenderer(
+      async (h) => {
+        const shell = createAppShell(h.renderer, {
+          terminal: { columns: 80, rows: 24 },
+          wireKeys: false,
+          run: "idle",
+        });
+        const bridge = attachSessionBridge(shell, createRecordingPort(), {
+          schedule: () => () => undefined,
+        });
+        try {
+          const text = ["### Title", "", "body"].join("\n");
+          bridge.handle({ type: "assistant.delta", text });
+          await h.renderOnce();
+          const rowNode = defined(shell.transcript.getChildren().slice(1)[0]);
+          const [, bodyNode] = (rowNode as BoxRenderable).getChildren();
+          const [frozenNode] = (bodyNode as BoxRenderable).getChildren();
+          const markdown = frozenNode as MarkdownRenderable;
+          const descriptor = defined(
+            Object.getOwnPropertyDescriptor(
+              MarkdownRenderable.prototype,
+              "content",
+            ),
+          );
+          let assignments = 0;
+          Object.defineProperty(markdown, "content", {
+            configurable: true,
+            get: () => descriptor.get?.call(markdown),
+            set: (value: string) => {
+              assignments += 1;
+              descriptor.set?.call(markdown, value);
+            },
+          });
+          try {
+            bridge.handle({ type: "system", text: "done" });
+            expect(assignments).toBe(1);
+            replaceStreamRowAt(shell, 0, {
+              role: "assistant",
+              text,
+            });
+            expect(assignments).toBe(2);
+          } finally {
+            Reflect.deleteProperty(markdown, "content");
+          }
+        } finally {
+          bridge.dispose();
+          shell.dispose();
+        }
+      },
+      { width: 80, height: 24 },
+    );
   });
 
   test("thinking deltas coalesce the same way and flush their tail on close", async () => {

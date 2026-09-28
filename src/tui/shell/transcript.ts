@@ -16,8 +16,10 @@ import { armLinkLine, buildLinkLine, paintLinkLine } from "../url-links.js";
 import { findLinks, splitLinkSpans } from "../link-spans.js";
 import { splitWrappedLinkSpans } from "../link-wrap.js";
 import {
+  nextStreamMarkdownState,
   splitAtSettledHeading,
   withholdIncompleteHeading,
+  type StreamMarkdownState,
 } from "../markdown-parser.js";
 import { diffLineChunks, retextStyledKindRow } from "./row-retext.js";
 import {
@@ -160,6 +162,38 @@ export function transcriptRowOffset(shell: AppShell): number {
 }
 
 /**
+ * What a split markdown body was last painted with, per body node. Keying by
+ * node (not row index) keeps the memory correct across retention trims and
+ * window rebuilds: a rebuilt row gets fresh nodes, so it can never inherit a
+ * stale "already painted" claim. Entries die with their nodes; the bridge
+ * drops the open row's entry at its close/settle seam so the memory never
+ * outlives the stream either.
+ */
+const streamMarkdownStates = new WeakMap<object, StreamMarkdownState>();
+
+function dropStreamMarkdownStateForNode(node: BaseRenderable): void {
+  streamMarkdownStates.delete(node);
+  if (node instanceof BoxRenderable) {
+    for (const child of node.getChildren()) {
+      dropStreamMarkdownStateForNode(child);
+    }
+  }
+}
+
+/**
+ * Forget a row's streaming-markdown memory at its close/settle seam. The seam
+ * paint already finalized the row, so the next repaint (if any) simply paints
+ * it whole again; dropping here bounds the memory to rows still streaming.
+ * No-op for evicted rows and outside the main transcript.
+ */
+export function dropStreamMarkdownState(shell: AppShell, index: number): void {
+  if (shell.observe !== null) return;
+  const node = transcriptRowChildren(shell)[index - shell.streamLogBase];
+  if (node === undefined) return;
+  dropStreamMarkdownStateForNode(node);
+}
+
+/**
  * Rewrite a row's body on its existing paint node.
  *
  * Every row kind retextes in place — streaming markdown keeps the parser's
@@ -240,12 +274,28 @@ function retextStreamRowBody(
   ) {
     return false;
   }
+  // Incremental freeze: an append-only delta whose frozen half has not moved
+  // leaves the frozen renderer untouched (reassigning it would re-parse and
+  // re-highlight settled text); the live tail always repaints. Anything else
+  // — first paint, mid-stream edit, resize, settle, moved boundary — repaints
+  // both halves.
   bodyNode.width = width;
-  frozenNode.width = width;
-  frozenNode.content = split.frozen;
+  const streaming = row.streaming === true;
+  const transition = nextStreamMarkdownState(
+    streamMarkdownStates.get(bodyNode) ?? null,
+    content,
+    split,
+    width,
+    streaming,
+  );
+  streamMarkdownStates.set(bodyNode, transition.state);
+  if (transition.paintFrozen) {
+    frozenNode.width = width;
+    frozenNode.content = split.frozen;
+  }
   liveNode.width = width;
   liveNode.content = split.live;
-  liveNode.streaming = row.streaming === true;
+  liveNode.streaming = streaming;
   liveNode.marginTop = split.gapRows;
   return true;
 }
@@ -487,6 +537,14 @@ function createMarkdownBody(
       marginTop: split.gapRows,
     }),
   );
+  // Seed the incremental-freeze memory the retext path reads: the first
+  // retext after this build skips the frozen half unless the boundary moved.
+  streamMarkdownStates.set(column, {
+    content,
+    frozen: split.frozen,
+    width,
+    streaming: row.streaming === true,
+  });
   return column;
 }
 

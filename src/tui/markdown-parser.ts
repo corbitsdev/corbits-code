@@ -854,3 +854,51 @@ export function splitAtSettledHeading(text: string): MarkdownSplit | null {
     gapRows: firstContent > 0 ? 1 : 0,
   };
 }
+
+/**
+ * Per-row memory for incremental streaming markdown. The transcript keeps one
+ * of these per split body node: what full content it was last painted with,
+ * what frozen half it was last handed, and the width and streaming flag behind
+ * that paint.
+ */
+export interface StreamMarkdownState {
+  readonly content: string;
+  readonly frozen: string | null;
+  readonly width: number;
+  readonly streaming: boolean;
+}
+
+export interface StreamMarkdownTransition {
+  readonly state: StreamMarkdownState;
+  /**
+   * False when the frozen half is unchanged and must not be reassigned: handing
+   * a `MarkdownRenderable` the text it already holds still re-parses it, so an
+   * append-only delta must touch the live tail only.
+   */
+  readonly paintFrozen: boolean;
+}
+
+/**
+ * Decide what a streaming retext must repaint. Append-only growth with an
+ * unchanged frozen half skips the frozen assignment entirely; anything else —
+ * a first paint, a non-append edit (the new content no longer extends the
+ * old), a width change, a streaming-flag flip, or a moved freeze boundary —
+ * repaints the frozen half too. The live tail is always the caller's to paint.
+ */
+export function nextStreamMarkdownState(
+  prev: StreamMarkdownState | null,
+  content: string,
+  split: MarkdownSplit | null,
+  width: number,
+  streaming: boolean,
+): StreamMarkdownTransition {
+  const frozen = split === null ? null : split.frozen;
+  const append = prev !== null && content.startsWith(prev.content);
+  const paintFrozen =
+    prev === null ||
+    !append ||
+    width !== prev.width ||
+    streaming !== prev.streaming ||
+    frozen !== prev.frozen;
+  return { state: { content, frozen, width, streaming }, paintFrozen };
+}

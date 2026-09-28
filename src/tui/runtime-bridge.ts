@@ -34,7 +34,11 @@ import {
   type AppShell,
 } from "./shell/internals.js";
 import { applyShellInterrupt, surfaceSystemNotice } from "./shell/prompt.js";
-import { streamRowAt, streamRowCount } from "./shell/transcript.js";
+import {
+  dropStreamMarkdownState,
+  streamRowAt,
+  streamRowCount,
+} from "./shell/transcript.js";
 import { rampAnimating } from "./ramp.js";
 import { OPERATOR_ORIGINATED_FLAG } from "../agent/message-provenance.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
@@ -868,6 +872,10 @@ function closeOpenRow(shell: AppShell, bag: BridgeBag): void {
     open.index,
     openRowContent(open.kind, open.text, false, thought),
   );
+  // The seam paint above finalized the row; its streaming-markdown memory must
+  // not outlive the stream. Coalescing is untouched — this runs once per close,
+  // never per delta or per frame.
+  dropStreamMarkdownState(shell, open.index);
 }
 
 /**
