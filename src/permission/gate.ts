@@ -1002,8 +1002,8 @@ export function createPermissionGate(
             "deny",
           );
           const reason = anySecret
-            ? `${request.action} references a sensitive path and requires operator approval, which is unavailable in a non-interactive run.`
-            : `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`;
+            ? `${request.action} references a sensitive path and requires operator approval, which is unavailable because stdin is not a TTY (no operator attached).`
+            : `${request.action} requires operator approval, which is unavailable because stdin is not a TTY (no operator attached). Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`;
           denialMemory.record(stableId, reason);
           return { kind: "deny", reason };
         }
@@ -1047,7 +1047,7 @@ export function createPermissionGate(
 
       if (!interactive || requestApproval === undefined) {
         recordAutoDecision(request.tool, "non-interactive", "deny");
-        const reason = `${request.action} requires operator approval, which is unavailable in a non-interactive run. Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`;
+        const reason = `${request.action} requires operator approval, which is unavailable because stdin is not a TTY (no operator attached). Re-run with --dangerously-skip-permissions to bypass, or narrow the action.`;
         denialMemory.record(stableId, reason);
         return { kind: "deny", reason };
       }

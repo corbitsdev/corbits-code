@@ -23,9 +23,40 @@ import {
   refreshSelectedProviderCredential,
   resolveExecDirectorOverlay,
   resolveExecDirectorOverlayForPackage,
+  resolveExecInteractivity,
 } from "./runner.js";
 
 const OUTSIDE_ALLOW = "mcp__linear__create_issue";
+
+describe("exec piped-stdout interactivity (CL-9002 Option A)", () => {
+  test("stdout piped plus stdin TTY stays interactive", () => {
+    expect(resolveExecInteractivity(true, false)).toEqual({
+      interactive: true,
+      outputPiped: true,
+    });
+  });
+
+  test("stdin piped denies even when stdout is a TTY", () => {
+    expect(resolveExecInteractivity(false, true)).toEqual({
+      interactive: false,
+      outputPiped: false,
+    });
+  });
+
+  test("fully attached stdio stays interactive and unpiped", () => {
+    expect(resolveExecInteractivity(true, true)).toEqual({
+      interactive: true,
+      outputPiped: false,
+    });
+  });
+
+  test("fully piped stdio is headless", () => {
+    expect(resolveExecInteractivity(false, false)).toEqual({
+      interactive: false,
+      outputPiped: true,
+    });
+  });
+});
 
 describe("exec director allowlist", () => {
   test("explorer overlay narrows advertised tools to the package allow list", () => {

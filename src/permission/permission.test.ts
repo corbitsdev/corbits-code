@@ -1335,6 +1335,37 @@ describe("createPermissionGate", () => {
     expect(verdict.allowed).toBe(false);
   });
 
+  test("headless deny names stdin and keeps the non-interactive rule", async () => {
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: false,
+      skipPermissions: false,
+      reactorGated: false,
+    });
+    const verdict = await gate.evaluate(shellCall("curl x"));
+    expect(verdict.allowed).toBe(false);
+    if (verdict.allowed === false) {
+      expect(verdict.reason).toMatch(/stdin is not a TTY/);
+    }
+  });
+
+  test("interactive headless-shaped request resolves via the approval mock", async () => {
+    let asked = 0;
+    const gate = createPermissionGate({
+      approvals: [],
+      requestApproval: async () => {
+        asked++;
+        return { allow: true };
+      },
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+    });
+    const verdict = await gate.evaluate(shellCall("curl x"));
+    expect(verdict.allowed).toBe(true);
+    expect(asked).toBe(1);
+  });
+
   test("pre-approved patterns pass without asking", async () => {
     let asked = 0;
     const gate = createPermissionGate({

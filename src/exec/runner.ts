@@ -271,6 +271,21 @@ export function isExecOverlayToolAllowed(
   );
 }
 
+/**
+ * CL-9002 Option A: stdin-present means an operator is present. A piped
+ * stdout must not disable prompts — it carries only command output while
+ * prompts stay on stderr. `outputPiped` is a diagnostic flag only.
+ */
+export function resolveExecInteractivity(
+  stdinIsTTY: boolean | undefined,
+  stdoutIsTTY: boolean | undefined,
+): { interactive: boolean; outputPiped: boolean } {
+  return {
+    interactive: stdinIsTTY === true,
+    outputPiped: stdoutIsTTY !== true,
+  };
+}
+
 export function resolveExecDirectorOverlayForPackage(
   pkg: DirectorPackage,
 ): ExecDirectorOverlay {
@@ -597,7 +612,13 @@ export async function runExec(config: Config): Promise<ExecResult> {
       resolveSessionMode(config.settings, localSettingsForMode) ??
       "orchestrator";
 
-    const interactive = input.isTTY === true && output.isTTY === true;
+    const { interactive, outputPiped } = resolveExecInteractivity(
+      input.isTTY,
+      output.isTTY,
+    );
+    if (outputPiped) {
+      logger.debug("exec stdout is piped; prompts stay on stderr");
+    }
 
     if (config.skipPermissionsFromSettings) {
       stderr.write(
