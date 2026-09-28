@@ -225,11 +225,13 @@ export const PURE_DIRECTORY_LISTING_PROGRAMS = new Set(["ls", "tree"]);
 // stat and the hot auto-allow path stays syscall-free for them. Shell
 // variables reach here already expanded (see expandShellToken), so there is
 // no `$` exemption: an unexpandable token fails closed before this filter.
-// Globs are skipped here for a different reason: the matcher only sees the
+// `*` globs are skipped here for a different reason: the matcher only sees the
 // unexpanded pattern, so `cat *.txt` cannot resolve without running the
 // shell — but a glob CAN expand into a symlink at runtime, which stays a
-// stated residual (see the threat model below), not something this filter
-// disproves.
+// stated residual (see the threat model above), not something this filter
+// disproves. `?` and `[…]` patterns are not skipped: `cat .en?` reads `.env`
+// while the matcher only ever sees the pattern, so they fail closed to a
+// prompt in isSensitiveShellToken instead of resolving here.
 function isPathLikeShellToken(token: string): boolean {
   if (token.startsWith("-") || token.includes("*") || token.includes("`"))
     return false;
@@ -254,14 +256,15 @@ export function expandHome(token: string): string {
 
 // Expand a shell token's `~` and `$` references against process.env only —
 // never shells out. Handles `$VAR`, `${VAR}`, `${VAR:-default}` /
-// `${VAR-default}`, and a single layer of surrounding quotes; `\$` is a
+// `${VAR-default}`, `${VAR:=default}`, and `${VAR:+alt}` / `${VAR+alt}`,
+// plus a single layer of surrounding quotes; `\$` is a
 // literal dollar and unset variables expand to empty. A `$` followed by any
 // other character (or at end of token) is a literal dollar, matching shell
 // behavior for `$.`, `$"`, and friends. A backtick or `$(` the tokenizer left
 // whole comes from single quotes, where the shell never substitutes — it is
 // matched as literal text. Returns expandable=false only when the token
 // cannot be resolved statically: a malformed `${…}` or an unsupported
-// operator (`:=`, `:?`, `:+`, `#`, `%`, `/`). Callers fail closed on
+// operator (`:?`, `#`, `%`, `/`). Callers fail closed on
 // expandable=false: the shell would compute the value at runtime, so the
 // matcher must assume the worst.
 export interface ExpandedShellToken {
@@ -270,7 +273,8 @@ export interface ExpandedShellToken {
 }
 
 const SHELL_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*/;
-const SHELL_BRACED_VAR = /^([A-Za-z_][A-Za-z0-9_]*)(:-(.*)|-(.*)|)$/s;
+const SHELL_BRACED_VAR =
+  /^([A-Za-z_][A-Za-z0-9_]*)(:=(.*)|:-(.*)|-(.*)|:\+(.*)|\+(.*)|)$/s;
 
 export function expandShellToken(
   token: string,
@@ -313,19 +317,29 @@ export function expandShellToken(
       const match = SHELL_BRACED_VAR.exec(text.slice(i + 2, close));
       if (match === null) return { expanded: token, expandable: false };
       const value = process.env[match[1] ?? ""];
-      const fallback = match[3] ?? match[4];
-      if (fallback === undefined) {
+      const fallback = match[3] ?? match[4] ?? match[5];
+      const alternate = match[6] ?? match[7];
+      if (fallback === undefined && alternate === undefined) {
         expanded += value ?? "";
       } else if (
-        value === undefined ||
-        (match[3] !== undefined && value === "")
+        fallback !== undefined &&
+        (value === undefined || (match[5] === undefined && value === ""))
       ) {
         const inner = expandShellToken(fallback, dialect);
         if (!inner.expandable) return { expanded: token, expandable: false };
         expanded += inner.expanded;
-      } else {
+      } else if (
+        alternate !== undefined &&
+        value !== undefined &&
+        (match[6] === undefined || value !== "")
+      ) {
+        const inner = expandShellToken(alternate, dialect);
+        if (!inner.expandable) return { expanded: token, expandable: false };
+        expanded += inner.expanded;
+      } else if (fallback !== undefined) {
         expanded += value;
       }
+      // Otherwise the alternate form expands to empty — append nothing.
       i = close + 1;
       continue;
     }
@@ -404,6 +418,12 @@ export function isSensitiveShellToken(
     );
   }
   if (dialect === "cmd" && /^\\\\[?.]\\/.test(expanded)) return false;
+  // A `?` or `[` glob expands at runtime into whatever names match, so the
+  // matcher only ever sees the pattern while the shell can open a secret
+  // (`cat .en?` and `cat .en[v]` both read `.env`). Fail closed to a prompt —
+  // the dual of the `*` exclusions in the filters above, which stay untouched.
+  // After the cmd device-path exemption so `\\?\…` names keep working.
+  if (expanded.includes("?") || expanded.includes("[")) return true;
   if (isPathLikeShellToken(expanded)) {
     if (isAbsolute(expanded)) {
       return (

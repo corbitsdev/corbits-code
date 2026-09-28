@@ -12,6 +12,7 @@ import {
   isSensitivePath,
   isSensitiveShellToken,
   commandReferencesSensitivePath,
+  expandShellToken,
 } from "./secret-guard-plugin.js";
 
 const next = async (call: ToolCall): Promise<ToolResult> => ({
@@ -271,6 +272,11 @@ describe("commandReferencesSensitivePath", () => {
     // Relative-dot prefixes resolve to the same anchored match as a raw token.
     "cat ./.env",
     "cat ./secrets/.env",
+    // `?`/`[…]` globs read a secret the matcher only sees as a pattern.
+    "cat .en?",
+    "cat .e?v",
+    "cat .en[v]",
+    "head -c 100 .en?",
     // Runtime env-file loaders — detected so the gate can ask, not hard-deny.
     "bun --env-file=../../.env.staging run bin/publish.ts",
     "bun --env-file=.env run -e 'console.log(1)'",
@@ -308,6 +314,10 @@ describe("commandReferencesSensitivePath", () => {
     "sed --f=.envrc input.txt",
     "grep --fil=.envrc needle",
     "bun test",
+    // `*` stays an accepted residual: it cannot resolve without running the
+    // shell, and prompting on it would fire on every benign `cat *`.
+    "cat *",
+    "cat *.txt",
   ];
   for (const c of allowed) {
     test(`allows: ${c}`, () =>
@@ -319,12 +329,18 @@ describe("commandReferencesSensitivePath shell-variable expansion (CL-8999)", ()
   const CFG_VALUE = "/tmp/cl-8999-cfg/.corbits";
   let savedCFG: string | undefined;
   let savedUnknown: string | undefined;
+  let savedPort: string | undefined;
+  let savedEmpty: string | undefined;
 
   beforeEach(() => {
     savedCFG = process.env.CFG;
     savedUnknown = process.env.UNKNOWN_X;
+    savedPort = process.env.PORT;
+    savedEmpty = process.env.EMPTY_X;
     process.env.CFG = CFG_VALUE;
     delete process.env.UNKNOWN_X;
+    delete process.env.PORT;
+    delete process.env.EMPTY_X;
   });
 
   afterEach(() => {
@@ -332,6 +348,10 @@ describe("commandReferencesSensitivePath shell-variable expansion (CL-8999)", ()
     else process.env.CFG = savedCFG;
     if (savedUnknown === undefined) delete process.env.UNKNOWN_X;
     else process.env.UNKNOWN_X = savedUnknown;
+    if (savedPort === undefined) delete process.env.PORT;
+    else process.env.PORT = savedPort;
+    if (savedEmpty === undefined) delete process.env.EMPTY_X;
+    else process.env.EMPTY_X = savedEmpty;
   });
 
   const expandedSensitive = [
@@ -341,6 +361,8 @@ describe("commandReferencesSensitivePath shell-variable expansion (CL-8999)", ()
     "cat ${CFG}/settings.json",
     "cat $CFG/settings.json",
     "cat $UNKNOWN_X/.env",
+    "cat ${UNKNOWN_X:-$CFG/settings.json}",
+    "cat ${UNKNOWN_X:=.env}",
   ];
   for (const c of expandedSensitive) {
     test(`flags: ${c}`, () =>
@@ -355,7 +377,66 @@ describe("commandReferencesSensitivePath shell-variable expansion (CL-8999)", ()
     expect(isSensitiveShellToken("$CFG/settings.json")).toBe(true);
   });
 
-  const expandedBenign = ["cat $HOME/README.md", "cat Makefile"];
+  test("resolves := without prompting when the default is benign", () => {
+    expect(isSensitiveShellToken("${UNKNOWN_X:=fallback.txt}")).toBe(false);
+  });
+
+  test("allows := / :+ port defaults without a prompt", () => {
+    expect(
+      commandReferencesSensitivePath("bun --port ${PORT:=3000} run x"),
+    ).toBeUndefined();
+    process.env.PORT = "4000";
+    expect(
+      commandReferencesSensitivePath("bun --port ${PORT:=3000} run x"),
+    ).toBeUndefined();
+    delete process.env.PORT;
+    expect(
+      commandReferencesSensitivePath("bun --port ${PORT:+3000} run x"),
+    ).toBeUndefined();
+  });
+
+  test("expands := like :- for unset and empty variables", () => {
+    expect(expandShellToken("${UNKNOWN_X:=dflt}")).toEqual({
+      expanded: "dflt",
+      expandable: true,
+    });
+    expect(expandShellToken("${CFG:=dflt}").expanded).toBe(CFG_VALUE);
+    process.env.EMPTY_X = "";
+    expect(expandShellToken("${EMPTY_X:=dflt}").expanded).toBe("dflt");
+  });
+
+  test("expands :+ and + only when the variable is set", () => {
+    expect(expandShellToken("${CFG:+alt}").expanded).toBe("alt");
+    expect(expandShellToken("${CFG+alt}").expanded).toBe("alt");
+    expect(expandShellToken("${UNKNOWN_X:+alt}")).toEqual({
+      expanded: "",
+      expandable: true,
+    });
+    expect(expandShellToken("${UNKNOWN_X+alt}").expanded).toBe("");
+    process.env.EMPTY_X = "";
+    expect(expandShellToken("${EMPTY_X:+alt}").expanded).toBe("");
+    expect(expandShellToken("${EMPTY_X+alt}").expanded).toBe("alt");
+  });
+
+  test("keeps :?, #, %, / and offsets fail-closed", () => {
+    for (const token of [
+      "${CFG:?must be set}",
+      "${CFG#prefix}",
+      "${CFG%post}",
+      "${CFG/a/b}",
+      "${CFG:1}",
+      "${CFG:1:2}",
+      "${UNKNOWN_X:-${BROKEN}",
+    ]) {
+      expect(expandShellToken(token).expandable).toBe(false);
+    }
+  });
+
+  const expandedBenign = [
+    "cat $HOME/README.md",
+    "cat Makefile",
+    "cat ${UNKNOWN_X:-prefix}",
+  ];
   for (const c of expandedBenign) {
     test(`allows: ${c}`, () =>
       expect(commandReferencesSensitivePath(c)).toBeUndefined());
