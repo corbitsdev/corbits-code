@@ -5,6 +5,7 @@ import {
   findSourceCredentialRecord,
   rotateSourceCredentialMaterialIfCurrent,
   type SourceCredentialProvenance,
+  type SourceCredentialRecord,
 } from "../config/source-credentials.js";
 import { getValidCodexToken } from "./codex/session.js";
 import { getValidXaiToken } from "./xai/session.js";
@@ -39,7 +40,20 @@ export async function refreshSourceCredentialByProvenance(
   credentialId: string,
 ): Promise<boolean> {
   const record = findSourceCredentialRecord(credentialId);
-  if (record?.provenance.kind !== "oauth") return false;
+  if (record === undefined) return false;
+  return refreshSourceCredentialFromRecord(credentialId, record);
+}
+
+/**
+ * Refreshes from a caller-held record snapshot. The snapshot must be taken
+ * before the caller's first await so a deferred refresh still compares
+ * against the registration it started from and cannot overwrite a newer one.
+ */
+export async function refreshSourceCredentialFromRecord(
+  credentialId: string,
+  record: SourceCredentialRecord,
+): Promise<boolean> {
+  if (record.provenance.kind !== "oauth") return false;
   const material = await resolveOAuthCredentialMaterial(record.provenance);
   return rotateSourceCredentialMaterialIfCurrent(
     credentialId,

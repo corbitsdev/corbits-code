@@ -89,7 +89,10 @@ import { generateSessionId } from "../session/index.js";
 import { consumeStream } from "../session/stream-consumer.js";
 import { createCycleTextRecorder } from "../session/stream-journal.js";
 import { onTurnBoundary } from "../agent/reactor-events.js";
-import { refreshInferenceSourceBundle } from "./refresh-inference-source.js";
+import {
+  refreshInferenceSourceBundle,
+  withContinuationOAuthRefresh,
+} from "./refresh-inference-source.js";
 import {
   createResolvedProviderFailureError,
   isResolvedProviderFailureError,
@@ -1091,7 +1094,16 @@ async function runSubAgentInner(
         director.observeInterventions((event) => {
           interventions(event);
         });
-        return director;
+        // Continuation infers run after tool results land, possibly long after
+        // the attempt-start refresh. The wrapper ensures the OAuth credential
+        // is fresh and pushes it to the live agent before the reactor executes
+        // the infer; decide() itself stays pure.
+        return withContinuationOAuthRefresh(director, {
+          getAgent: () => agent,
+          sources: bundle.sources,
+          defaultSource: bundle.defaultSource,
+          catalog: params.catalog,
+        });
       },
     });
 
