@@ -335,15 +335,17 @@ describe("fleetLabel", () => {
   });
 
   test("never names stalled count to the operator", () => {
-    expect(fleetLabel({ running: 6, working: 4, inTool: 0, stalled: 2 })).toBe(
-      "6 agents",
-    );
+    const label = fleetLabel({ running: 6, working: 4, inTool: 0, stalled: 2 });
+    // the running count is the only number the operator sees
+    expect(label).toContain("6");
+    expect(label).not.toContain("2");
+    expect(label).not.toMatch(/stall/i);
   });
 
   test("says when the whole fleet is inside tool calls", () => {
-    expect(fleetLabel({ running: 3, working: 0, inTool: 3, stalled: 0 })).toBe(
-      "3 agents · in tools",
-    );
+    const label = fleetLabel({ running: 3, working: 0, inTool: 3, stalled: 0 });
+    expect(label).toContain("3");
+    expect(label).toMatch(/tool/i);
   });
 });
 

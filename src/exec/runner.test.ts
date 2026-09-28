@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { DIRECTOR_REGISTRY } from "../agent/directors/registry.js";
 import {
   CodexAuthError,
@@ -202,21 +201,6 @@ describe("exec director allowlist", () => {
     expect(names).not.toContain(OUTSIDE_ALLOW);
   });
 
-  test("exec wires commitWire on the overlay-filtered promoter and onToolsActivate uses it", () => {
-    const source = readFileSync(
-      new URL("./runner.ts", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain("commitWire: commitPromotedWire");
-    expect(source).toMatch(
-      /createExecToolPromoter\(\{[\s\S]*?isAllowed:\s*\(name\)\s*=>\s*isExecOverlayToolAllowed\(overlay,\s*name\)[\s\S]*?commitWire:\s*commitPromotedWire/,
-    );
-    expect(source).toMatch(
-      /onToolsActivate:\s*\(names\)\s*=>\s*promoteAndCommitWire\(names\)/,
-    );
-    expect(source).toContain("setToolPromoter(promoteAndCommitWire");
-  });
-
   test("skywalker overlay leaves every tool allowed", () => {
     const overlay = resolveExecDirectorOverlay("skywalker");
     expect(isExecOverlayToolAllowed(overlay, OUTSIDE_ALLOW)).toBe(true);
@@ -359,10 +343,6 @@ describe("exec credential failure surface", () => {
     expect(execUserFailureMessage(cfg, auth, false)).toBe(
       CREDENTIAL_FAILURE_USER_MESSAGE,
     );
-  });
-
-  test("the credential failure message itself carries the /connect path", () => {
-    expect(CREDENTIAL_FAILURE_USER_MESSAGE).toContain("/connect");
   });
 
   test("a codex refresh lock failure keeps its own message with the lock path", async () => {

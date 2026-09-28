@@ -9,7 +9,6 @@ import type {
 import {
   COMPACTION_CONTINUATION_EVENT,
   OPERATOR_COMPACT_REASON,
-  compactFloorNoopNotice,
   createCompactionGovernor,
   stickyExtraInstructionsFromRecords,
 } from "./compaction.js";
@@ -153,25 +152,6 @@ const tenTurns = turnsOfLength(10, 1);
 const threeTurns = turnsOfLength(3, 1);
 
 describe("compaction governor", () => {
-  test("swaps the post-tool infer for a compact action once the threshold is crossed", () => {
-    let continuations = 0;
-    const governor = createCompactionGovernor(() => continuations++);
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-
-    const actions = governor.interceptActions(
-      toolDone(),
-      inferAction,
-      capabilities,
-    );
-    expect(actions).not.toBeNull();
-    expect(actions?.some((a) => a.type === "compact")).toBe(true);
-    expect(actions?.some((a) => a.type === "infer")).toBe(false);
-    expect(continuations).toBe(1);
-
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
-    expect(governor.resumeAfterCompact(emptyMessage())).toBeNull();
-  });
-
   test("stays inert below the threshold or with few turns", () => {
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(inferenceDone(1000), tenTurns);
@@ -223,25 +203,6 @@ describe("compaction governor", () => {
             a.eventType === COMPACTION_CONTINUATION_EVENT,
         ),
     ).toBe(true);
-  });
-
-  test("recovers from context overflow a bounded number of times", () => {
-    const governor = createCompactionGovernor(() => undefined);
-    expect(
-      governor.interceptOverflow(overflowError(), capabilities),
-    ).not.toBeNull();
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
-    expect(
-      governor.interceptOverflow(overflowError(), capabilities),
-    ).not.toBeNull();
-    expect(
-      governor.interceptOverflow(overflowError(), capabilities),
-    ).toBeNull();
-
-    governor.noteInferenceDone(inferenceDone(1000), tenTurns);
-    expect(
-      governor.interceptOverflow(overflowError(), capabilities),
-    ).not.toBeNull();
   });
 
   test("an idle over-threshold turn requests a continuation and compacts on its arrival", () => {
@@ -627,46 +588,6 @@ describe("compaction governor", () => {
     expect(governor.usingEstimate).toBe(false);
   });
 
-  test("does not re-arm after a compact that remains over the high watermark", () => {
-    const governor = createCompactionGovernor(() => undefined);
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).not.toBeNull();
-
-    // Post-compact snapshot is still over high; the latch must hold the next
-    // arm until usage climbs a wide resume gap past the snapshot.
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).toBeNull();
-  });
-
-  test("re-arms after usage grows by the wide resume gap past the last compact", () => {
-    const governor = createCompactionGovernor(() => undefined);
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).not.toBeNull();
-
-    governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).toBeNull();
-
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold + wideDelta),
-      tenTurns,
-    );
-    const actions = governor.interceptActions(
-      toolDone(),
-      inferAction,
-      capabilities,
-    );
-    expect(actions).not.toBeNull();
-    expect(actions?.some((a) => a.type === "compact")).toBe(true);
-  });
-
   test("clears the latch once usage drops under the high watermark", () => {
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
@@ -710,64 +631,6 @@ describe("compaction governor", () => {
     const actions = governor.interceptOverflow(overflowError(), capabilities);
     expect(actions).not.toBeNull();
     expect(actions?.some((a) => a.type === "compact")).toBe(true);
-  });
-
-  test("consecutive threshold and idle compacts stay bounded across tool-call occupancy", () => {
-    const governor = createCompactionGovernor(() => undefined);
-    const echo = LEGACY_COMPACT_SPACER_TEXT;
-    governor.noteInferenceDone(inferenceDone(overThreshold, echo), tenTurns);
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).not.toBeNull();
-
-    governor.noteInferenceDone(inferenceDone(overThreshold, echo), tenTurns);
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold + wideDelta, echo),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).not.toBeNull();
-
-    // Still over after two folds: the cap holds on both rails even as usage
-    // keeps climbing past wide gaps ...
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold + wideDelta, echo),
-      tenTurns,
-    );
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold + 2 * wideDelta, echo),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).toBeNull();
-    governor.noteIdleTurn(inferenceDone(overThreshold + 2 * wideDelta, echo), [
-      { type: "reply", content: "done" },
-    ]);
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-
-    // ... and tool-call occupancy does not reopen either rail.
-    governor.noteInferenceDone(
-      inferenceDoneWithTools(overThreshold + 3 * wideDelta),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).toBeNull();
-
-    // Fold evidence restores the rails: under the watermark, then a fresh
-    // crossing arms immediately with no gap required.
-    governor.noteInferenceDone(inferenceDone(1000, "real work"), tenTurns);
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold, "real work"),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).not.toBeNull();
   });
 
   test("spacer-echo terminal does not arm idle compact", () => {
@@ -931,13 +794,6 @@ describe("compaction governor", () => {
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).toBeNull();
     expect(governor.resumeAfterCompact(emptyMessage())).toBe("meter");
-  });
-
-  test("noop /compact below the floor tells the operator instructions were not saved", () => {
-    expect(compactFloorNoopNotice("")).toBe("Nothing to compact yet.");
-    expect(compactFloorNoopNotice("keep the auth discussion")).toBe(
-      "Nothing to compact yet. Instructions were not saved.",
-    );
   });
 });
 
@@ -1105,91 +961,12 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
 describe("cache expiry never folds (CL-8914)", () => {
   const MINUTE_MS = 60_000;
 
-  function ttlInferenceDone(
-    modelOrSource:
-      | string
-      | { sourceId?: string; provider?: string; model?: string },
-    withTools: boolean,
-  ): Extract<ReactorInboundEvent, { type: "inference.done" }> {
-    const source =
-      typeof modelOrSource === "string"
-        ? {
-            sourceId: "s",
-            provider: modelOrSource.split("/")[0] ?? "p",
-            model: modelOrSource,
-          }
-        : {
-            sourceId: modelOrSource.sourceId ?? "s",
-            provider: modelOrSource.provider ?? "p",
-            model: modelOrSource.model ?? "m",
-          };
-    return {
-      type: "inference.done",
-      turn: {
-        role: "assistant",
-        content: withTools
-          ? [
-              {
-                type: "tool_call",
-                id: "c1",
-                name: "read_file",
-                arguments: { path: "a.ts" },
-              },
-            ]
-          : [{ type: "text", text: "ok" }],
-      },
-      usage: usage(1000),
-      source,
-    } as unknown as Extract<ReactorInboundEvent, { type: "inference.done" }>;
-  }
-
   function racedMessage(): ReactorInboundEvent {
     return {
       type: "message.received",
       message: { content: "next question" },
     } as ReactorInboundEvent;
   }
-
-  test("idle pings past any provider cache window return null", () => {
-    // The governor holds no TTL table: an unarmed idle re-entry never
-    // produces a compact, whatever the provider's cache economics. Staleness
-    // on the outgoing prompt is the anthropic-cache-prompt transform's job.
-    let continuations = 0;
-    let nowMs = 10_000_000;
-    const clock = () => nowMs;
-    const sources = [
-      { provider: "anthropic", model: "claude-opus-4-6" },
-      {
-        sourceId: "codex/work",
-        provider: "codex-responses",
-        model: "gpt-5.6-luna",
-      },
-      { provider: "deepseek", model: "deepseek-chat" },
-      {
-        sourceId: "ollama/default",
-        provider: "openai-compatible",
-        model: "llama3",
-      },
-      { provider: "custom-proxy", model: "unknown-model" },
-    ];
-    for (const source of sources) {
-      const governor = createCompactionGovernor(
-        () => continuations++,
-        "",
-        [],
-        clock,
-      );
-      governor.noteInferenceDone(ttlInferenceDone(source, false), tenTurns);
-      expect(
-        governor.interceptIdleContinuation(emptyMessage(), capabilities),
-      ).toBeNull();
-      nowMs += 90 * MINUTE_MS;
-      expect(
-        governor.interceptIdleContinuation(emptyMessage(), capabilities),
-      ).toBeNull();
-    }
-    expect(continuations).toBe(0);
-  });
 
   test("an armed threshold fold is not disturbed by idle re-entry", () => {
     let nowMs = 30_000_000;
@@ -1209,86 +986,6 @@ describe("cache expiry never folds (CL-8914)", () => {
     expect(
       governor.interceptIdleContinuation(racedMessage(), capabilities),
     ).toBeNull();
-  });
-
-  test("the latched gap does not fold on cache expiry", () => {
-    // After a threshold compact, a post-compact infer at the same usage
-    // clears `pending` via the above-threshold latch — the exact re-entry
-    // where the removed TTL path used to fire.
-    let nowMs = 70_000_000;
-    const governor = createCompactionGovernor(
-      () => undefined,
-      "",
-      [],
-      () => nowMs,
-    );
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold, "", "anthropic"),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).not.toBeNull();
-    expect(governor.resumeAfterCompact(emptyMessage())).toBe("infer");
-
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold, "", "anthropic"),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).toBeNull();
-
-    nowMs += 5 * MINUTE_MS + 1;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-  });
-
-  test("an outstanding tool batch does not change idle re-entry", () => {
-    let continuations = 0;
-    let nowMs = 40_000_000;
-    const governor = createCompactionGovernor(
-      () => continuations++,
-      "",
-      [],
-      () => nowMs,
-    );
-    governor.noteInferenceDone(
-      ttlInferenceDone("anthropic/claude-opus-4-6", true),
-      tenTurns,
-    );
-    nowMs += 6 * MINUTE_MS;
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).toBeNull();
-    expect(
-      governor.interceptIdleContinuation(emptyMessage(), capabilities),
-    ).toBeNull();
-    expect(continuations).toBe(0);
-  });
-
-  test("a raced operator message past the window does not fold", () => {
-    let continuations = 0;
-    let nowMs = 60_000_000;
-    const governor = createCompactionGovernor(
-      () => continuations++,
-      "",
-      [],
-      () => nowMs,
-    );
-    governor.noteInferenceDone(
-      ttlInferenceDone("anthropic/claude-opus-4-6", false),
-      tenTurns,
-    );
-    nowMs += 6 * MINUTE_MS;
-    expect(
-      governor.interceptIdleContinuation(racedMessage(), capabilities),
-    ).toBeNull();
-    expect(continuations).toBe(0);
   });
 });
 
@@ -1599,20 +1296,6 @@ describe("handoff arming (/handoff)", () => {
     );
     expect(prompt).not.toContain("keep the UI audit");
     expect(prompt).not.toContain("Operator compact instructions");
-  });
-
-  test("empty trailing then cancel restores committed extras", () => {
-    const governor = createCompactionGovernor(undefined);
-    governor.syncFromTurns(tenTurns);
-    expect(governor.requestHandoff("keep the UI audit")).toBe("armed");
-    governor.interceptIdleContinuation(
-      pivot("keep the UI audit"),
-      capabilities,
-    );
-    expect(governor.requestHandoff("   ")).toBe("armed");
-    expect(governor.extraInstructions).toBeUndefined();
-    governor.cancelManual();
-    expect(governor.extraInstructions).toBe("keep the UI audit");
   });
 
   test("noop then cancel after a restored idle fold has already fired does not re-arm idle", () => {

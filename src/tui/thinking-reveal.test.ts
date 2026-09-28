@@ -103,20 +103,6 @@ describe("thinkingLivePreviewLines with a reveal position", () => {
     expect(lines.join(" ")).toContain("clause-39");
     expect(lines.join(" ")).not.toContain("clause-0");
   });
-
-  test("sample frames across a few rates, printed for eyeballing", () => {
-    const sample =
-      "we need to check whether the cache key already accounts for the locale";
-    for (const rate of [15, 20, 28, 40, 60]) {
-      const frames = [200, 500, 1000, 1500].map((ms) => {
-        const chars = advanceRevealChars(0, sample.length, ms, rate);
-        return thinkingLivePreviewLines(sample, 30, chars);
-      });
-      expect(frames).toHaveLength(4);
-      expect(frames.every((row) => row.length > 0)).toBe(true);
-    }
-    expect(true).toBe(true);
-  });
 });
 
 describe("the reveal position through the bridge", () => {

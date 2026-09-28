@@ -208,7 +208,9 @@ export async function openIntegrationSession(
       ? {
           subAgent: {
             provider: opts.subAgent.provider,
-            getWorkdirBase: () => join(workdir, "subagents"),
+            // run.ts joins `subagents/<id>` itself — the base is the session
+            // state dir, as production's sessionDir(cwd, sessionId).
+            getWorkdirBase: () => workdir,
             sessions: opts.subAgent.sessions,
             ...(opts.subAgent.outerRetryDelayMs !== undefined
               ? { outerRetryDelayMs: opts.subAgent.outerRetryDelayMs }

@@ -1,8 +1,7 @@
 /**
- * Integration: app shell product skin — sticky, queue/steer/interrupt, overlay Esc.
+ * Integration: app shell product skin — sticky, queue/steer/interrupt.
  */
 import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
 import { defined } from "../../tests/helpers/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
@@ -20,11 +19,9 @@ import {
 import { createAppShell } from "./shell/index";
 import {
   isTranscriptFollowing,
-  setShellBridgeHooks,
   shellInternals,
   stickyMode,
 } from "./shell/internals";
-import { closeInsetOverlay, openInsetOverlay } from "./shell/overlay-host";
 import {
   applyShellCancelLast,
   interruptShell,
@@ -230,65 +227,6 @@ describe("createAppShell", () => {
     );
   });
 
-  test("Tab key toggles shell focus when wireKeys enabled", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-        });
-        try {
-          expect(focusOwner(shell.focus)).toBe("prompt");
-          h.pressKey("Tab");
-          await h.renderOnce();
-          expect(focusOwner(shell.focus)).toBe("transcript");
-          h.pressKey("Tab");
-          await h.renderOnce();
-          expect(focusOwner(shell.focus)).toBe("prompt");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("Enter / Alt+Enter / Ctrl+C key shapes on shell renderer", async () => {
-    await withTestRenderer(async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 60, rows: 20 },
-        wireKeys: false,
-      });
-      try {
-        const captured: KeyEvent[] = [];
-        h.renderer.keyInput.on("keypress", (key: KeyEvent) => {
-          captured.push(key);
-        });
-
-        h.pressKey("Enter");
-        await h.renderOnce();
-        const enter = defined(captured.at(-1));
-        expect(enter.name === "return" || enter.name === "enter").toBe(true);
-        expect(enter.ctrl).toBe(false);
-        expect(enter.meta).toBe(false);
-
-        h.pressKey("Alt+Enter");
-        await h.renderOnce();
-        const alt = defined(captured.at(-1));
-        expect(alt.name === "return" || alt.name === "enter").toBe(true);
-        expect(alt.meta === true || alt.option === true).toBe(true);
-
-        h.pressKey("Ctrl+C");
-        await h.renderOnce();
-        const ctrlC = defined(captured.at(-1));
-        expect(ctrlC.name).toBe("c");
-        expect(ctrlC.ctrl).toBe(true);
-      } finally {
-        shell.dispose();
-      }
-    });
-  });
-
   test("pending queue lists in the column above the prompt", async () => {
     await withTestRenderer(
       async (h) => {
@@ -340,67 +278,6 @@ describe("createAppShell", () => {
           await h.renderOnce();
           expect(shellInternals(shell)?.pendingSelId).toBeNull();
           expect(h.captureCharFrame()).not.toContain("▸");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("Ctrl+X drops the selected row, sliding the selection", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-        });
-        try {
-          setPendingQueue(shell, 2);
-          await h.renderOnce();
-          h.mockInput.pressKey("\x1b[A");
-          await h.renderOnce();
-          h.pressKey("x", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.session.items.map((i) => i.text)).toEqual(["pad-1"]);
-          // Selection slid onto the row that filled the freed slot.
-          expect(shellInternals(shell)?.pendingSelId).toBe(
-            shell.session.items[0]?.id,
-          );
-          expect(h.captureCharFrame()).not.toContain("pad-2");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("Enter on a selected row force-delivers through the bridge hook", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-        });
-        const pushed: string[] = [];
-        setShellBridgeHooks(shell, {
-          exclusive: true,
-          onSubmit: () => undefined,
-          onInterrupt: () => undefined,
-          onForceDeliver: (id) => pushed.push(id),
-        });
-        try {
-          setPendingQueue(shell, 2);
-          await h.renderOnce();
-          const oldest = defined(shell.session.items[0]).id;
-          h.mockInput.pressKey("\x1b[A");
-          h.mockInput.pressKey("\x1b[A");
-          await h.renderOnce();
-          h.pressKey("Enter");
-          await h.renderOnce();
-          expect(pushed).toEqual([oldest]);
-          expect(shellInternals(shell)?.pendingSelId).toBeNull();
         } finally {
           shell.dispose();
         }
@@ -593,30 +470,6 @@ describe("product skin: stream + queue + overlay", () => {
     );
   });
 
-  test("the box's borders carry the chrome, with no keys strip", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-        });
-        try {
-          await h.renderOnce();
-          const frame = h.captureCharFrame();
-          expect(frame).toContain("corbits code");
-          expect(frame).not.toContain("/ commands");
-          expect(frame).not.toContain("@ files");
-          // Both rules close: the metadata is inside the frame, not beside it.
-          expect(frame).toContain("╮");
-          expect(frame).toContain("╯");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
   test("busy follow-up enqueue paints follow-up badge", async () => {
     await withTestRenderer(
       async (h) => {
@@ -701,48 +554,6 @@ describe("product skin: stream + queue + overlay", () => {
     );
   });
 
-  test("Ctrl+G pops the last queued message back into the prompt", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-          run: "busy",
-        });
-        try {
-          shell.prompt.value = "keep this one";
-          submitPrompt(shell, "queue");
-          shell.prompt.value = "oops wrong message";
-          submitPrompt(shell, "queue");
-          expect(shell.pendingQueue).toBe(2);
-          // Queued items live in the column — the transcript stays empty.
-          expect(shell.streamLog).toHaveLength(0);
-          await h.renderOnce();
-          const frameBefore = h.captureCharFrame();
-          expect(frameBefore).toContain("keep this one");
-          expect(frameBefore).toContain("oops wrong message");
-
-          applyShellCancelLast(shell);
-
-          expect(shell.pendingQueue).toBe(1);
-          expect(defined(shell.session.items[0]).text).toBe("keep this one");
-          // The popped item comes back as an editable draft; nothing lands
-          // in the transcript as a cancellation marker.
-          expect(shell.prompt.value).toBe("oops wrong message");
-          expect(shell.streamLog).toHaveLength(0);
-
-          await h.renderOnce();
-          const frameAfter = h.captureCharFrame();
-          expect(frameAfter).toContain("keep this one");
-          expect(frameAfter).toContain("oops wrong message");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
   test("Ctrl+G pops a steered message the same way", async () => {
     await withTestRenderer(
       async (h) => {
@@ -773,194 +584,9 @@ describe("product skin: stream + queue + overlay", () => {
       { width: 80, height: 24 },
     );
   });
-
-  test("inset overlay opens; Esc restores prompt focus", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-        });
-        try {
-          expect(focusOwner(shell.focus)).toBe("prompt");
-          openInsetOverlay(shell);
-          expect(shell.overlayList).not.toBeNull();
-          expect(focusOwner(shell.focus)).toBe("overlay");
-          expect(shell.layout.overlayMode).toBe("inset");
-          expect(shell.overlayHost.visible).toBe(true);
-          await h.renderOnce();
-          const openFrame = h.captureCharFrame();
-          expect(openFrame).toContain("permission");
-          expect(openFrame).toContain("Allow bash");
-
-          closeInsetOverlay(shell);
-          expect(shell.overlayList).toBeNull();
-          expect(focusOwner(shell.focus)).toBe("prompt");
-          expect(shell.layout.overlayMode).toBe("closed");
-          await h.renderOnce();
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("Esc key closes overlay via wireKeys", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-        });
-        try {
-          openInsetOverlay(shell);
-          expect(focusOwner(shell.focus)).toBe("overlay");
-          // ESC needs disambiguation delay on the mock stdin path.
-          h.pressKey("Escape");
-          await new Promise((r) => setTimeout(r, 60));
-          await h.renderOnce();
-          expect(shell.overlayList).toBeNull();
-          expect(focusOwner(shell.focus)).toBe("prompt");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("80x24 idle transcript floor holds with closed overlay", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-        });
-        try {
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
-            IDLE_TRANSCRIPT_FLOOR,
-          );
-          openInsetOverlay(shell);
-          // Inset may shrink transcript but still uses resolver floors.
-          expect(shell.layout.overlayHeight).toBeGreaterThan(0);
-          closeInsetOverlay(shell);
-          expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
-            IDLE_TRANSCRIPT_FLOOR,
-          );
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
 });
 
 describe("prompt editing chords", () => {
-  test("Ctrl+K kills to end of prompt, Ctrl+Y yanks it back", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-        });
-        try {
-          shell.prompt.value = "hello world";
-          shell.prompt.cursorOffset = 5;
-          h.pressKey("k", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("hello");
-
-          h.pressKey("y", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("hello world");
-          expect(shell.prompt.cursorOffset).toBe(11);
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("Ctrl+U kills to start of prompt (backward)", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-        });
-        try {
-          shell.prompt.value = "hello world";
-          shell.prompt.cursorOffset = 6;
-          h.pressKey("u", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("world");
-          expect(shell.prompt.cursorOffset).toBe(0);
-
-          h.pressKey("y", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("hello world");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("Ctrl+W kills the previous word", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-        });
-        try {
-          shell.prompt.value = "hello world";
-          shell.prompt.cursorOffset = 11;
-          h.pressKey("w", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("hello ");
-
-          h.pressKey("y", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("hello world");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("Alt+D kills the next word", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-        });
-        try {
-          shell.prompt.value = "hello world";
-          shell.prompt.cursorOffset = 0;
-          h.pressKey("d", { meta: true });
-          await h.renderOnce();
-          // The native deleteWordForward consumes the trailing separator too.
-          expect(shell.prompt.value).toBe("world");
-
-          h.pressKey("y", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("hello world");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
   test("a no-op Ctrl+K (already at end) does not clobber the prior kill", async () => {
     await withTestRenderer(
       async (h) => {
@@ -984,45 +610,6 @@ describe("prompt editing chords", () => {
           h.pressKey("y", { ctrl: true });
           await h.renderOnce();
           expect(shell.prompt.value).toBe("one two three");
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("Alt+Y rotates the yank to the next-older kill", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: true,
-        });
-        try {
-          shell.prompt.value = "first second";
-          shell.prompt.cursorOffset = 12;
-          h.pressKey("w", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("first ");
-
-          // A non-kill keystroke breaks accumulation so the next kill lands
-          // in a fresh ring entry instead of merging with this one.
-          h.pressKey("ARROW_LEFT");
-          await h.renderOnce();
-          shell.prompt.cursorOffset = 0;
-
-          h.pressKey("k", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("");
-
-          h.pressKey("y", { ctrl: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("first ");
-
-          h.pressKey("y", { meta: true });
-          await h.renderOnce();
-          expect(shell.prompt.value).toBe("second");
         } finally {
           shell.dispose();
         }

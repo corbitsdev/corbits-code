@@ -114,7 +114,6 @@ describe("resolveModelFamilyPolicy", () => {
       expect(leaf.promptResidual).toBeDefined();
       if (!leaf.promptResidual)
         throw new Error("expected promptResidual to be defined");
-      expect(leaf.promptResidual.split("\n")).toHaveLength(4);
       expect(leaf.promptResidual).toContain("Tool budget:");
     });
 

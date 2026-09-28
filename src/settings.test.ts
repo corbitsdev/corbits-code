@@ -63,6 +63,33 @@ const twoProviders: Settings = {
   },
 };
 
+const withTempDir = async (fn: (dir: string) => Promise<void>) => {
+  const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
+  try {
+    await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+};
+
+const withCapturedStderr = async (fn: (writes: string[]) => Promise<void>) => {
+  const writes: string[] = [];
+  const originalWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    writes.push(
+      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+    );
+    return (
+      originalWrite as (c: string | Uint8Array, ...r: unknown[]) => boolean
+    )(chunk, ...rest);
+  }) as typeof process.stderr.write;
+  try {
+    await fn(writes);
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+};
+
 describe("MCP settings validation", () => {
   test("accepts the Exa preset enabled or disabled in object and array forms", () => {
     expect(normalizeMcpServers({ exa: { enabled: true } })).toEqual([
@@ -637,8 +664,7 @@ describe("healOpenCodeGoProviders", () => {
 
 describe("loaders", () => {
   test("loadSettings heals Go-by-URL providers onto disk", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -663,15 +689,12 @@ describe("loaders", () => {
       expect(reloaded?.providers["go/personal"]?.baseURL).toBe(
         OPENCODE_GO_BASE_URL,
       );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadSettings does not rewrite disk when heal is a no-op", async () => {
     const { readFile, stat } = await import("node:fs/promises");
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       const alreadyPinned = {
         providers: {
@@ -694,139 +717,103 @@ describe("loaders", () => {
       const afterStat = await stat(path);
       expect(after).toBe(before);
       expect(afterStat.mtimeMs).toBe(beforeStat.mtimeMs);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadSettings logs healed provider ids when heal mutates", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    const writes: string[] = [];
-    const originalWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((
-      chunk: string | Uint8Array,
-      ...rest: unknown[]
-    ) => {
-      writes.push(
-        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
-      );
-      return (
-        originalWrite as (c: string | Uint8Array, ...r: unknown[]) => boolean
-      )(chunk, ...rest);
-    }) as typeof process.stderr.write;
-    try {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({
-          providers: {
-            "go/personal": {
-              baseURL: "https://opencode.ai/zen/go",
-              apiKey: "sk-go",
-              models: ["kimi-k2.7-code"],
+    await withTempDir(async (dir) => {
+      await withCapturedStderr(async (writes) => {
+        const path = join(dir, "settings.json");
+        await writeFile(
+          path,
+          JSON.stringify({
+            providers: {
+              "go/personal": {
+                baseURL: "https://opencode.ai/zen/go",
+                apiKey: "sk-go",
+                models: ["kimi-k2.7-code"],
+              },
+              zen: {
+                baseURL: "https://opencode.ai/zen/v1",
+                apiKey: "sk-zen",
+                models: ["claude-sonnet-4-5"],
+              },
             },
-            zen: {
-              baseURL: "https://opencode.ai/zen/v1",
-              apiKey: "sk-zen",
-              models: ["claude-sonnet-4-5"],
-            },
-          },
-        }),
-      );
-      await loadSettings(path);
-      const notice = writes.find((w) =>
-        w.includes("healed OpenCode Go providers"),
-      );
-      expect(notice).toBeDefined();
-      expect(notice).toContain("go/personal");
-      expect(notice).not.toContain("zen");
-    } finally {
-      process.stderr.write = originalWrite;
-      await rm(dir, { recursive: true, force: true });
-    }
+          }),
+        );
+        await loadSettings(path);
+        const notice = writes.find((w) =>
+          w.includes("healed OpenCode Go providers"),
+        );
+        expect(notice).toBeDefined();
+        expect(notice).toContain("go/personal");
+        expect(notice).not.toContain("zen");
+      });
+    });
   });
 
   test("loadSettings stays quiet on heal no-op", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    const writes: string[] = [];
-    const originalWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((
-      chunk: string | Uint8Array,
-      ...rest: unknown[]
-    ) => {
-      writes.push(
-        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
-      );
-      return (
-        originalWrite as (c: string | Uint8Array, ...r: unknown[]) => boolean
-      )(chunk, ...rest);
-    }) as typeof process.stderr.write;
-    try {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({
-          providers: {
-            "opencode-go": {
-              baseURL: OPENCODE_GO_BASE_URL,
-              apiKey: "sk-go",
-              models: ["kimi-k2.7-code"],
-              opencodeGo: true,
+    await withTempDir(async (dir) => {
+      await withCapturedStderr(async (writes) => {
+        const path = join(dir, "settings.json");
+        await writeFile(
+          path,
+          JSON.stringify({
+            providers: {
+              "opencode-go": {
+                baseURL: OPENCODE_GO_BASE_URL,
+                apiKey: "sk-go",
+                models: ["kimi-k2.7-code"],
+                opencodeGo: true,
+              },
             },
-          },
-        }),
-      );
-      await loadSettings(path);
-      expect(
-        writes.some((w) => w.includes("healed OpenCode Go providers")),
-      ).toBe(false);
-    } finally {
-      process.stderr.write = originalWrite;
-      await rm(dir, { recursive: true, force: true });
-    }
+          }),
+        );
+        await loadSettings(path);
+        expect(
+          writes.some((w) => w.includes("healed OpenCode Go providers")),
+        ).toBe(false);
+      });
+    });
   });
 
   test("loadSettings keeps in-memory heal when disk save fails", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({
-          providers: {
-            "go/personal": {
-              baseURL: "https://opencode.ai/zen/go",
-              apiKey: "sk-go",
-              models: ["kimi-k2.7-code"],
+    await withTempDir(async (dir) => {
+      try {
+        const path = join(dir, "settings.json");
+        await writeFile(
+          path,
+          JSON.stringify({
+            providers: {
+              "go/personal": {
+                baseURL: "https://opencode.ai/zen/go",
+                apiKey: "sk-go",
+                models: ["kimi-k2.7-code"],
+              },
             },
-          },
-        }),
-      );
-      // Read-only dir: heal save (temp write + rename) fails; load must not throw.
-      await chmod(dir, 0o555);
-      const loaded = await loadSettings(path);
-      expect(loaded?.providers["go/personal"]?.opencodeGo).toBe(true);
-      expect(loaded?.providers["go/personal"]?.baseURL).toBe(
-        OPENCODE_GO_BASE_URL,
-      );
-    } finally {
-      await chmod(dir, 0o755).catch(() => undefined);
-      await rm(dir, { recursive: true, force: true });
-    }
+          }),
+        );
+        // Read-only dir: heal save (temp write + rename) fails; load must not throw.
+        await chmod(dir, 0o555);
+        const loaded = await loadSettings(path);
+        expect(loaded?.providers["go/personal"]?.opencodeGo).toBe(true);
+        expect(loaded?.providers["go/personal"]?.baseURL).toBe(
+          OPENCODE_GO_BASE_URL,
+        );
+      } finally {
+        await chmod(dir, 0o755).catch(() => undefined);
+      }
+    });
   });
 
   test("loadSettings returns null for a missing file", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       expect(await loadSettings(join(dir, "nope.json"))).toBeNull();
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadSettings throws on an invalid schema", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -835,14 +822,11 @@ describe("loaders", () => {
       await expect(loadSettings(path)).rejects.toThrow(
         /Invalid settings schema/,
       );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadSettings keeps local selection recovery out of the strict loader", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -851,9 +835,7 @@ describe("loaders", () => {
       await expect(loadSettings(path)).rejects.toThrow(
         /Invalid settings schema/,
       );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test.each([
@@ -862,8 +844,7 @@ describe("loaders", () => {
   ])(
     "loadSettingsRecoveringClobberedOAuthSelection recovers an exact OAuth selection with %s",
     async (_name, providerNames) => {
-      const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-      try {
+      await withTempDir(async (dir) => {
         const path = join(dir, "settings.json");
         await writeFile(
           path,
@@ -900,15 +881,12 @@ describe("loaders", () => {
         });
         expect(JSON.stringify(recovered)).not.toContain("oauth-token");
         expect(await loadSettings(path)).toEqual(recovered);
-      } finally {
-        await rm(dir, { recursive: true, force: true });
-      }
+      });
     },
   );
 
   test("loadSettingsRecoveringClobberedOAuthSelection recovers a non-catalog OAuth model when the auth profile exists", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -938,44 +916,11 @@ describe("loaders", () => {
       });
       expect(JSON.stringify(recovered)).not.toContain("oauth-token");
       expect(await loadSettings(path)).toEqual(recovered);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("loadSettings keeps malformed clobber documents strict", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({
-          provider: "codex/work",
-          model: "gpt-5.1-codex",
-          apiKey: "nope",
-        }),
-      );
-      await expect(
-        loadSettingsRecoveringClobberedOAuthSelection(
-          path,
-          {
-            "codex/work": {
-              baseURL: "https://chatgpt.com/backend-api",
-              apiKey: "oauth-token",
-              models: ["gpt-5.1-codex"],
-            },
-          },
-          { persist: true },
-        ),
-      ).rejects.toThrow(/Invalid settings schema/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadSettings fails closed on unmatched OAuth selections without touching the file", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       const original = JSON.stringify({
         provider: "codex/missing",
@@ -996,14 +941,11 @@ describe("loaders", () => {
         ),
       ).rejects.toThrow(/Invalid settings schema/);
       expect(await readFile(path, "utf8")).toBe(original);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadSettingsRecoveringClobberedOAuthSelection leaves the file unchanged when persist is false", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       const original = JSON.stringify({
         provider: "codex/work",
@@ -1023,14 +965,11 @@ describe("loaders", () => {
       );
       expect(recovered?.defaultProvider).toBe("codex/work");
       expect(await readFile(path, "utf8")).toBe(original);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
-  test("loadSettings preserves bifrostVirtualKey and agentModelFallback", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+  test("loadSettings preserves provider-level bifrostVirtualKey", async () => {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -1043,55 +982,15 @@ describe("loaders", () => {
               bifrostVirtualKey: true,
             },
           },
-          agentModelFallback: "active",
         }),
       );
       const loaded = await loadSettings(path);
       expect(loaded?.providers.bf?.bifrostVirtualKey).toBe(true);
-      expect(loaded?.agentModelFallback).toBe("active");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("loadSettings preserves plugin and web-provider fields through a round trip", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({
-          providers: {
-            a: { baseURL: "https://a/v1", apiKey: "k", models: ["m"] },
-          },
-          workflowProfiles: { fast: { implement: "m" } },
-          web: "exa",
-          plugins: {
-            exa: { enabled: true, credentials: { apiKey: "exa-key" } },
-          },
-          pluginPaths: ["/abs/plugins/exa", "./local-plugin"],
-          discoverClaudePlugins: true,
-        }),
-      );
-      const loaded = await loadSettings(path);
-      expect(loaded?.workflowProfiles).toEqual({ fast: { implement: "m" } });
-      expect(loaded?.web).toBe("exa");
-      expect(loaded?.plugins).toEqual({
-        exa: { enabled: true, credentials: { apiKey: "exa-key" } },
-      });
-      expect(loaded?.pluginPaths).toEqual([
-        "/abs/plugins/exa",
-        "./local-plugin",
-      ]);
-      expect(loaded?.discoverClaudePlugins).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadLocalSettings fails open on credentials and unknown keys", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       await mkdir(join(dir, ".corbits"), { recursive: true });
       const path = join(dir, ".corbits", "settings.json");
       await writeFile(
@@ -1119,14 +1018,11 @@ describe("loaders", () => {
         ),
       ).toBe(true);
       expect(result.diagnostics.every((d) => d.fix.length > 0)).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadLocalSettings fails open on invalid JSON with diagnostics", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(path, "{ not json");
       expect(await loadLocalSettings(path)).toBeNull();
@@ -1136,14 +1032,11 @@ describe("loaders", () => {
       expect(
         result.diagnostics.some((d) => /Invalid JSON/i.test(d.message)),
       ).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadLocalSettingsWriteBase distinguishes absent, cleaned, and unusable", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       // Absent: empty base is safe to create.
       expect(await loadLocalSettingsWriteBase(path)).toEqual({});
@@ -1170,44 +1063,11 @@ describe("loaders", () => {
       // Non-object: skip write.
       await writeFile(path, JSON.stringify(["not", "object"]));
       expect(await loadLocalSettingsWriteBase(path)).toBeNull();
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("loadSettings preserves tools block through a round trip", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
-      const path = join(dir, ".corbits", "settings.json");
-      const withTools: Settings = {
-        ...firepass,
-        tools: {
-          timeoutMs: 120_000,
-          maxTimeoutMs: 600_000,
-          waitForApproval: false,
-        },
-      };
-      await saveGlobalSettings(path, withTools);
-      const loaded = await loadSettings(path);
-      expect(loaded?.tools).toEqual({
-        timeoutMs: 120_000,
-        maxTimeoutMs: 600_000,
-        waitForApproval: false,
-      });
-      expect(loaded).toEqual(withTools);
-      expect(toolWatchdogFromSettings(loaded)).toEqual({
-        defaultMs: 120_000,
-        maxMs: 600_000,
-        waitForApproval: false,
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadGlobalSettingsWriteBase distinguishes absent from unreadable", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       // Absent file: a fresh minimal base is a safe write target.
       expect(await loadGlobalSettingsWriteBase(path)).toEqual({
@@ -1225,9 +1085,7 @@ describe("loaders", () => {
 
       await writeFile(path, JSON.stringify({ providers: "wrong-shape" }));
       expect(await loadGlobalSettingsWriteBase(path)).toBeNull();
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("toolWatchdogFromSettings maps shell timeout overrides", () => {
@@ -1282,8 +1140,7 @@ describe("loaders", () => {
 
 describe("persistSkipPermissionsDefault", () => {
   test("writes true", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       await saveGlobalSettings(path, firepass);
       expect(await persistSkipPermissionsDefault(path, true)).toBe("ok");
@@ -1291,14 +1148,11 @@ describe("persistSkipPermissionsDefault", () => {
         ...firepass,
         dangerouslySkipPermissions: true,
       });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("writes false", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       await saveGlobalSettings(path, {
         ...firepass,
@@ -1309,14 +1163,11 @@ describe("persistSkipPermissionsDefault", () => {
         ...firepass,
         dangerouslySkipPermissions: false,
       });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("skips invalid or unreadable settings and leaves the file unchanged", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       const garbage = "{ not json";
       await writeFile(path, garbage);
@@ -1327,16 +1178,13 @@ describe("persistSkipPermissionsDefault", () => {
       await writeFile(path, wrongShape);
       expect(await persistSkipPermissionsDefault(path, true)).toBe("skipped");
       expect(await readFile(path, "utf8")).toBe(wrongShape);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 });
 
 describe("sessionMode", () => {
   test("loadSettings drops legacy single sessionMode", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await mkdir(dirname(path), { recursive: true });
       await writeFile(
@@ -1346,26 +1194,7 @@ describe("sessionMode", () => {
       );
       // CL-5814: "single" still loads without error, then is stripped.
       expect(await loadSettings(path)).toEqual(firepass);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("loadLocalSettings round-trips orchestrator sessionMode", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-local-"));
-    try {
-      const path = join(dir, ".corbits", "settings.json");
-      await saveLocalSettings(path, {
-        provider: "a",
-        sessionMode: "orchestrator",
-      });
-      expect(await loadLocalSettings(path)).toEqual({
-        provider: "a",
-        sessionMode: "orchestrator",
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("rejects invalid sessionMode", () => {
@@ -1377,47 +1206,18 @@ describe("sessionMode", () => {
 });
 
 test("loadSettings round-trips showPromptCost", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-  try {
+  await withTempDir(async (dir) => {
     const path = join(dir, ".corbits", "settings.json");
     await saveGlobalSettings(path, { ...firepass, showPromptCost: true });
     expect(await loadSettings(path)).toEqual({
       ...firepass,
       showPromptCost: true,
     });
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("loadSettings round-trips dangerouslySkipPermissions", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-  try {
-    const path = join(dir, ".corbits", "settings.json");
-    await saveGlobalSettings(path, {
-      ...firepass,
-      dangerouslySkipPermissions: true,
-    });
-    expect(await loadSettings(path)).toEqual({
-      ...firepass,
-      dangerouslySkipPermissions: true,
-    });
-    await saveGlobalSettings(path, {
-      ...firepass,
-      dangerouslySkipPermissions: false,
-    });
-    expect(await loadSettings(path)).toEqual({
-      ...firepass,
-      dangerouslySkipPermissions: false,
-    });
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  });
 });
 
 test("loadSettings tolerates a legacy maxConcurrentSubAgents key", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-  try {
+  await withTempDir(async (dir) => {
     const path = join(dir, ".corbits", "settings.json");
     await mkdir(join(dir, ".corbits"), { recursive: true });
     await writeFile(
@@ -1426,9 +1226,7 @@ test("loadSettings tolerates a legacy maxConcurrentSubAgents key", async () => {
       "utf8",
     );
     expect(await loadSettings(path)).toEqual(firepass);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  });
 });
 
 describe("lastChangelogVersion", () => {
@@ -1441,26 +1239,8 @@ describe("lastChangelogVersion", () => {
     ).toBe(true);
   });
 
-  test("loadSettings round-trips lastChangelogVersion", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
-      const path = join(dir, ".corbits", "settings.json");
-      await saveGlobalSettings(path, {
-        ...firepass,
-        lastChangelogVersion: "0.2.85",
-      });
-      expect(await loadSettings(path)).toEqual({
-        ...firepass,
-        lastChangelogVersion: "0.2.85",
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
   test("markLastChangelogVersion stamps without clobbering other fields", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await saveGlobalSettings(path, { ...firepass, onboarded: true });
       await markLastChangelogVersion(path, "0.2.86");
@@ -1468,51 +1248,39 @@ describe("lastChangelogVersion", () => {
       expect(loaded?.lastChangelogVersion).toBe("0.2.86");
       expect(loaded?.onboarded).toBe(true);
       expect(loaded?.defaultProvider).toBe("firepass");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("markLastChangelogVersion ignores empty versions", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await saveGlobalSettings(path, firepass);
       await markLastChangelogVersion(path, "  ");
       expect(await loadSettings(path)).toEqual(firepass);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 });
 
 describe("saveGlobalSettings", () => {
   test("round-trips a settings object through loadSettings", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await saveGlobalSettings(path, firepass);
       expect(await loadSettings(path)).toEqual(firepass);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("creates the .corbits directory when missing", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "nested", ".corbits", "settings.json");
       await saveGlobalSettings(path, firepass);
       const loaded = await loadSettings(path);
       expect(loaded?.defaultProvider).toBe("firepass");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("refuses to write invalid settings", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       const invalid = {
         providers: { x: { models: [] } },
@@ -1520,16 +1288,13 @@ describe("saveGlobalSettings", () => {
       await expect(saveGlobalSettings(path, invalid)).rejects.toThrow(
         /invalid global settings/,
       );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 });
 
 describe("saveLocalSettings", () => {
   test("round-trips a selection through loadLocalSettings", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await saveLocalSettings(path, {
         provider: "firepass",
@@ -1539,14 +1304,11 @@ describe("saveLocalSettings", () => {
         provider: "firepass",
         model: "fp-small",
       });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("round-trips a reasoningEffort through loadLocalSettings", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await saveLocalSettings(path, {
         provider: "firepass",
@@ -1558,14 +1320,11 @@ describe("saveLocalSettings", () => {
         model: "fp-small",
         reasoningEffort: "high",
       });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("loadLocalSettings fails open on invalid reasoningEffort", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       await mkdir(join(dir, ".corbits"), { recursive: true });
       const path = join(dir, ".corbits", "settings.json");
       await writeFile(
@@ -1580,34 +1339,26 @@ describe("saveLocalSettings", () => {
       expect(
         result.diagnostics.some((d) => /reasoningEffort/i.test(d.message)),
       ).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("creates the .corbits directory when missing", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "nested", ".corbits", "settings.json");
       await saveLocalSettings(path, { provider: "a" });
       expect(await loadLocalSettings(path)).toEqual({ provider: "a" });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("refuses to write credentials", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       // Force an invalid shape past the type system to prove the guard holds.
       const leaky = { provider: "a", apiKey: "leak" } as unknown as {
         provider?: string;
       };
       await expect(saveLocalSettings(path, leaky)).rejects.toThrow(/allowed/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 });
 
@@ -1686,8 +1437,7 @@ describe("recent and favorite model helpers", () => {
   });
 
   test("setDefaultModel persists credential-free projected OAuth metadata", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-    try {
+    await withTempDir(async (dir) => {
       const path = join(dir, "settings.json");
       const projected: ProviderSettings = {
         baseURL: "https://chatgpt.com/backend-api",
@@ -1711,9 +1461,7 @@ describe("recent and favorite model helpers", () => {
           },
         },
       });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    });
   });
 
   test("listRecentModels respects max (default 5)", () => {

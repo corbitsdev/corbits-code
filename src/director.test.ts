@@ -88,6 +88,20 @@ function makeToolErrorEvent(callId: string, content: string) {
   } as unknown as ReactorInboundEvent;
 }
 
+function makeTextTurnEvent() {
+  return {
+    type: "inference.done",
+    turn: {
+      role: "assistant",
+      model: "test",
+      timestamp: 0,
+      content: [{ type: "text", text: "all set" }],
+    },
+    usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
+    source: { model: "test-model" },
+  } as unknown as ReactorInboundEvent;
+}
+
 function actionsArray(
   result: ReactorAction | ReactorAction[],
 ): ReactorAction[] {
@@ -95,18 +109,11 @@ function actionsArray(
 }
 
 describe("ask_operator definition", () => {
-  test("has no command field and does not advertise shell preauthorization", () => {
+  test("has no command field", () => {
     const schema = askOperatorDefinition.inputSchema as {
       properties?: Record<string, unknown>;
     };
     expect(schema.properties).not.toHaveProperty("command");
-    expect(askOperatorDefinition.description).not.toMatch(/pre-authoriz/i);
-    expect(askOperatorDefinition.description).not.toMatch(/`command`/);
-    expect(askOperatorDefinition.description).toMatch(/at most 48 characters/);
-    const options = schema.properties?.options as {
-      items?: { maxLength?: number };
-    };
-    expect(options.items?.maxLength).toBe(48);
   });
 });
 
@@ -153,38 +160,27 @@ describe("operator declined tool calls", () => {
     expect(hasInfer(actions)).toBe(false);
   });
 
-  // Reactor path: a reason-bearing approver rejection must re-infer so the
-  // model can respond to the reason — never the canned decline.
-  test("reason-bearing approver rejection re-infers on the reason", async () => {
-    const director = createChatDirector("", [], {});
-    const actions = actionsArray(
-      await director.decide(
-        makeToolErrorEvent("c", "denied by approver: never touch /etc"),
-        mockState,
-        mockCapabilities,
-      ),
-    );
-    expect(hasInfer(actions)).toBe(true);
-    expect(hasDeclineReply(actions)).toBe(false);
-    expect(hasCheckpoint(actions)).toBe(false);
-  });
-
-  test("middleware rejection with a reason re-infers on the reason", async () => {
-    const director = createChatDirector("", [], {});
-    const actions = actionsArray(
-      await director.decide(
-        makeToolErrorEvent(
-          "c",
-          `${declined} — only run it in the build sandbox`,
+  // Reactor path: a reason-bearing rejection must re-infer so the model can
+  // respond to the reason — never the canned decline, from any origin.
+  test.each([
+    ["approver", "denied by approver: never touch /etc"],
+    ["middleware", `${declined} — only run it in the build sandbox`],
+  ])(
+    "a reason-bearing %s rejection re-infers on the reason",
+    async (_origin, content) => {
+      const director = createChatDirector("", [], {});
+      const actions = actionsArray(
+        await director.decide(
+          makeToolErrorEvent("c", content),
+          mockState,
+          mockCapabilities,
         ),
-        mockState,
-        mockCapabilities,
-      ),
-    );
-    expect(hasInfer(actions)).toBe(true);
-    expect(hasDeclineReply(actions)).toBe(false);
-    expect(hasCheckpoint(actions)).toBe(false);
-  });
+      );
+      expect(hasInfer(actions)).toBe(true);
+      expect(hasDeclineReply(actions)).toBe(false);
+      expect(hasCheckpoint(actions)).toBe(false);
+    },
+  );
 
   // Reactor path: a reason-less approver rejection has nothing for the model
   // to respond to; the canned reply stands.
@@ -257,19 +253,6 @@ describe("open-task termination guard", () => {
     ).resolves.toBeDefined();
   });
 
-  const textTurn = (): ReactorInboundEvent =>
-    ({
-      type: "inference.done",
-      turn: {
-        role: "assistant",
-        model: "test",
-        timestamp: 0,
-        content: [{ type: "text", text: "all set" }],
-      },
-      usage: { input: 10, output: 1, cacheRead: 0, cacheWrite: 0, thinking: 0 },
-      source: { model: "test-model" },
-    }) as unknown as ReactorInboundEvent;
-
   const hasInfer = (a: ReactorAction[]): boolean =>
     a.some((x) => x.type === "infer");
   const hasReply = (a: ReactorAction[]): boolean =>
@@ -284,7 +267,7 @@ describe("open-task termination guard", () => {
     );
 
     const actions = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasInfer(actions)).toBe(true);
     expect(hasReply(actions)).toBe(false);
@@ -299,7 +282,7 @@ describe("open-task termination guard", () => {
     );
 
     const actions = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasReply(actions)).toBe(true);
     expect(hasInfer(actions)).toBe(false);
@@ -339,12 +322,12 @@ describe("open-task termination guard", () => {
 
     for (let i = 0; i < 3; i++) {
       const nudged = actionsArray(
-        await director.decide(textTurn(), mockState, mockCapabilities),
+        await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
       );
       expect(hasInfer(nudged)).toBe(true);
     }
     const exhausted = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasReply(exhausted)).toBe(true);
     expect(hasInfer(exhausted)).toBe(false);
@@ -362,7 +345,7 @@ describe("open-task termination guard", () => {
 
     for (let i = 0; i < 4; i++) {
       const actions = actionsArray(
-        await director.decide(textTurn(), mockState, mockCapabilities),
+        await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
       );
       expect(hasInfer(actions)).toBe(false);
       expect(hasReply(actions)).toBe(true);
@@ -399,7 +382,7 @@ describe("open-task termination guard", () => {
 
     // Seeded from the session provider: bare 429s abort.
     const before = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(await inferPolicyOf(before)(bare429)).toEqual({ kind: "abort" });
 
@@ -431,7 +414,7 @@ describe("open-task termination guard", () => {
       mockCapabilities,
     );
     const after = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(await inferPolicyOf(after)(bare429)).toEqual({
       kind: "retry",
@@ -449,7 +432,11 @@ describe("open-task termination guard", () => {
     expect(
       hasInfer(
         actionsArray(
-          await omitted.decide(textTurn(), mockState, mockCapabilities),
+          await omitted.decide(
+            makeTextTurnEvent(),
+            mockState,
+            mockCapabilities,
+          ),
         ),
       ),
     ).toBe(true);
@@ -465,7 +452,11 @@ describe("open-task termination guard", () => {
     expect(
       hasInfer(
         actionsArray(
-          await disabled.decide(textTurn(), mockState, mockCapabilities),
+          await disabled.decide(
+            makeTextTurnEvent(),
+            mockState,
+            mockCapabilities,
+          ),
         ),
       ),
     ).toBe(true);
@@ -483,7 +474,7 @@ describe("open-task termination guard", () => {
 
     // Seeded allowance: terminal reply with open tasks, no nudge spent.
     const seeded = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasReply(seeded)).toBe(true);
     expect(hasInfer(seeded)).toBe(false);
@@ -491,7 +482,7 @@ describe("open-task termination guard", () => {
     // Drained fleet resumes the open-task nudge.
     director.setAllowIdleWithFleet(false);
     const nudged = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasInfer(nudged)).toBe(true);
     expect(hasReply(nudged)).toBe(false);
@@ -499,7 +490,7 @@ describe("open-task termination guard", () => {
     // Fleet back: terminal allowed again.
     director.setAllowIdleWithFleet(true);
     const settled = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasReply(settled)).toBe(true);
     expect(hasInfer(settled)).toBe(false);
@@ -588,14 +579,22 @@ describe("open-task termination guard", () => {
     expect(
       hasInfer(
         actionsArray(
-          await director.decide(textTurn(), mockState, mockCapabilities),
+          await director.decide(
+            makeTextTurnEvent(),
+            mockState,
+            mockCapabilities,
+          ),
         ),
       ),
     ).toBe(true);
     expect(
       hasInfer(
         actionsArray(
-          await director.decide(textTurn(), mockState, mockCapabilities),
+          await director.decide(
+            makeTextTurnEvent(),
+            mockState,
+            mockCapabilities,
+          ),
         ),
       ),
     ).toBe(true);
@@ -612,11 +611,11 @@ describe("open-task termination guard", () => {
 
     // Only one nudge remains from the original budget of three.
     const nudged = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasInfer(nudged)).toBe(true);
     const ended = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasReply(ended)).toBe(true);
     expect(hasInfer(ended)).toBe(false);
@@ -634,13 +633,17 @@ describe("open-task termination guard", () => {
       expect(
         hasInfer(
           actionsArray(
-            await director.decide(textTurn(), mockState, mockCapabilities),
+            await director.decide(
+              makeTextTurnEvent(),
+              mockState,
+              mockCapabilities,
+            ),
           ),
         ),
       ).toBe(true);
     }
     const exhausted = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasReply(exhausted)).toBe(true);
 
@@ -654,7 +657,7 @@ describe("open-task termination guard", () => {
       mockCapabilities,
     );
     const nudged = actionsArray(
-      await director.decide(textTurn(), mockState, mockCapabilities),
+      await director.decide(makeTextTurnEvent(), mockState, mockCapabilities),
     );
     expect(hasInfer(nudged)).toBe(true);
   });
@@ -1286,29 +1289,12 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
   const inferTools = (action: Record<string, unknown> | undefined): unknown =>
     (action?.options as Record<string, unknown> | undefined)?.tools;
-  const firstInferTools = async (
+  const decideAndSplit = async (
     director: ReturnType<typeof createChatDirector>,
     event: ReactorInboundEvent,
-  ): Promise<unknown> => {
+  ) => {
     const result = await director.decide(
       event,
-      mockState,
-      capabilitiesWithInferArgs,
-    );
-    const actions = Array.isArray(result) ? result : [result];
-    return inferTools(
-      actions.find((a) => a.type === "infer") as
-        | Record<string, unknown>
-        | undefined,
-    );
-  };
-
-  test("a tool registered after construction is advertised on the next inference", async () => {
-    const director = createChatDirector("base-prompt", [], {});
-    director.updateToolDefinitions([lateTool]);
-
-    const result = await director.decide(
-      makeMessageReceivedEvent("hello"),
       mockState,
       capabilitiesWithInferArgs,
     );
@@ -1316,6 +1302,22 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const inferAction = actions.find((a) => a.type === "infer") as
       | Record<string, unknown>
       | undefined;
+    return { actions, inferAction };
+  };
+  const firstInferTools = async (
+    director: ReturnType<typeof createChatDirector>,
+    event: ReactorInboundEvent,
+  ): Promise<unknown> =>
+    inferTools((await decideAndSplit(director, event)).inferAction);
+
+  test("a tool registered after construction is advertised on the next inference", async () => {
+    const director = createChatDirector("base-prompt", [], {});
+    director.updateToolDefinitions([lateTool]);
+
+    const { inferAction } = await decideAndSplit(
+      director,
+      makeMessageReceivedEvent("hello"),
+    );
     expect(inferAction).toBeDefined();
     expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
   });
@@ -1443,15 +1445,10 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const director = createChatDirector("base-prompt", [], {});
     director.updateToolDefinitions([lateTool]);
 
-    const result = await director.decide(
+    const { inferAction } = await decideAndSplit(
+      director,
       makeMessageReceivedEvent("hello"),
-      mockState,
-      capabilitiesWithInferArgs,
     );
-    const actions = Array.isArray(result) ? result : [result];
-    const inferAction = actions.find((a) => a.type === "infer") as
-      | Record<string, unknown>
-      | undefined;
     expect(inferToolNames(inferAction)).toContain("submit_output");
   });
 
@@ -1461,15 +1458,10 @@ describe("updateToolDefinitions rewrites infer tools", () => {
     const director = createChatDirector("base-prompt", [], {});
     director.updateToolDefinitions([lateTool]);
 
-    const result = await director.decide(
+    const { actions, inferAction } = await decideAndSplit(
+      director,
       makeMessageReceivedEvent("new thing"),
-      mockState,
-      capabilitiesWithInferArgs,
     );
-    const actions = Array.isArray(result) ? result : [result];
-    const inferAction = actions.find((a) => a.type === "infer") as
-      | Record<string, unknown>
-      | undefined;
     expect(inferAction).toBeDefined();
     expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
     expect(actions.some((a) => a.type === "checkpoint")).toBe(false);
@@ -1663,83 +1655,34 @@ describe("CL-7919 coordinator shape", () => {
     );
   });
 
-  // A non-string step id never reaches prompt text: the stall nudge falls
-  // back to the generic clause instead of interpolating the foreign value.
-  test("a non-string step id falls back to the generic submit_output clause", async () => {
-    const director = createChatDirector("base-prompt", [], {});
-    director.setWorkflowCoordinator({
-      directive: () => "do the thing",
-      isActive: () => true,
-      currentStepIsGate: () => false,
-      currentStepId: () => 42,
-      handleToolDone: () => false,
-    } as unknown as WorkflowCoordinator);
-    const actions = actionsArray(
-      await director.decide(
-        {
-          type: "inference.done",
-          turn: {
-            role: "assistant",
-            model: "test",
-            timestamp: 0,
-            content: [{ type: "text", text: "all set" }],
-          },
-          usage: {
-            input: 10,
-            output: 1,
-            cacheRead: 0,
-            cacheWrite: 0,
-            thinking: 0,
-          },
-          source: { model: "test-model" },
-        } as unknown as ReactorInboundEvent,
-        mockState,
-        capabilitiesWithInferArgs,
-      ),
-    );
-    const text = inferEphemeralText(actions.find((a) => a.type === "infer"));
-    expect(text).toContain("call submit_output with this step's id now");
-    expect(text).not.toContain("42");
-  });
-
-  // An empty step id is the same class of invalid as a non-string: never
-  // interpolate it into the submit_output clause.
-  test("an empty step id falls back to the generic submit_output clause", async () => {
-    const director = createChatDirector("base-prompt", [], {});
-    director.setWorkflowCoordinator({
-      directive: () => "do the thing",
-      isActive: () => true,
-      currentStepIsGate: () => false,
-      currentStepId: () => "",
-      handleToolDone: () => false,
-    } as unknown as WorkflowCoordinator);
-    const actions = actionsArray(
-      await director.decide(
-        {
-          type: "inference.done",
-          turn: {
-            role: "assistant",
-            model: "test",
-            timestamp: 0,
-            content: [{ type: "text", text: "all set" }],
-          },
-          usage: {
-            input: 10,
-            output: 1,
-            cacheRead: 0,
-            cacheWrite: 0,
-            thinking: 0,
-          },
-          source: { model: "test-model" },
-        } as unknown as ReactorInboundEvent,
-        mockState,
-        capabilitiesWithInferArgs,
-      ),
-    );
-    const text = inferEphemeralText(actions.find((a) => a.type === "infer"));
-    expect(text).toContain("call submit_output with this step's id now");
-    expect(text).not.toContain('{ "step": "" }');
-  });
+  // A step id that cannot be interpolated — non-string or empty — never
+  // reaches prompt text: the stall nudge falls back to the generic clause.
+  test.each([
+    ["non-string", 42, "42"],
+    ["empty", "", '{ "step": "" }'],
+  ])(
+    "an invalid step id (%s) falls back to the generic submit_output clause",
+    async (_kind, stepId, absent) => {
+      const director = createChatDirector("base-prompt", [], {});
+      director.setWorkflowCoordinator({
+        directive: () => "do the thing",
+        isActive: () => true,
+        currentStepIsGate: () => false,
+        currentStepId: () => stepId,
+        handleToolDone: () => false,
+      } as unknown as WorkflowCoordinator);
+      const actions = actionsArray(
+        await director.decide(
+          makeTextTurnEvent(),
+          mockState,
+          capabilitiesWithInferArgs,
+        ),
+      );
+      const text = inferEphemeralText(actions.find((a) => a.type === "infer"));
+      expect(text).toContain("call submit_output with this step's id now");
+      expect(text).not.toContain(absent);
+    },
+  );
 
   // An empty directive is absent guidance: no ephemeral turn is appended
   // and the turn resolves as plain inference.

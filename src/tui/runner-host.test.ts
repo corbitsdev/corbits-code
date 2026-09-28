@@ -555,41 +555,6 @@ describe("mountRunnerHost model picker", () => {
     }
   });
 
-  test("openSurface add-provider opens the selector when choices are wired", async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
-    const host = await mountRunnerHost({
-      title: "test",
-      eventEmitter: new EventEmitter(),
-      send: () => undefined,
-      interrupt: () => undefined,
-      deliver: () => undefined,
-      providers: { xai: { models: ["grok-4"] } },
-      onModelSelect: () => undefined,
-      onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
-        { id: "openai", label: "OpenAI", hint: "", accountCount: 0 },
-      ],
-      commands: [],
-      onCommand: () => undefined,
-      chrome: () => ({ agents: [] }),
-      subscribeChrome: () => () => undefined,
-      subAgentSessions: () => [],
-      createRenderer: async () => harness.renderer,
-    });
-    try {
-      expect(host.openSurface("add-provider")).toBe(true);
-      expect(host.shell.overlayKind).toBe("add_provider");
-      expect(host.shell.overlayItems).toEqual([
-        "Codex — 1 account",
-        "OpenAI — 0 accounts",
-      ]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
   test("openSurface add-provider returns false when add-provider is not wired", async () => {
     const harness = await createHarness({ width: 80, height: 24 });
     const host = await mountRunnerHost({

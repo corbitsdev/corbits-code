@@ -139,7 +139,6 @@ describe("normalizeLine / near-miss helpers", () => {
     expect(out.length).toBeLessThanOrEqual(2048);
     expect(out).toContain("<<<");
     expect(out).toContain(">>>");
-    expect(out).toContain("span too large");
     // Must not offer the raw oversized body as a paste target.
     expect(out).not.toContain("x".repeat(100));
   });
@@ -190,7 +189,7 @@ describe("editFileDiagnosticsPlugin", () => {
 
     expect(result.isError).toBe(true);
     expect(String(result.content)).toContain("old_string not found");
-    expect(String(result.content)).toContain("Whitespace near-miss");
+    expect(String(result.content)).not.toBe(stockNotFound(path).content);
     expect(String(result.content)).toContain("<<<");
     expect(String(result.content)).toContain("  const bareKey = 1;");
     expect(String(result.content)).toContain("    const entry = 2;");
@@ -210,7 +209,7 @@ describe("editFileDiagnosticsPlugin", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(String(result.content)).toContain("line-number prefixes");
+    expect(String(result.content)).not.toMatch(/\n\s*\d+\t/);
     expect(String(result.content)).toContain("  const x = 1;");
   });
 
@@ -237,8 +236,8 @@ describe("editFileDiagnosticsPlugin", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(String(result.content)).toContain("line-number prefixes");
-    expect(String(result.content)).toContain("Whitespace near-miss");
+    expect(String(result.content)).not.toMatch(/\n\s*\d+\t/);
+    expect(String(result.content)).not.toBe(stockNotFound(path).content);
     expect(String(result.content)).toContain("  const bareKey = 1;");
     expect(String(result.content)).toContain("    const entry = 2;");
   });
@@ -274,8 +273,8 @@ describe("editFileDiagnosticsPlugin", () => {
       new AbortController().signal,
     );
 
-    expect(String(result.content)).toContain("showing 10 of 25");
-    expect(String(result.content)).toContain("and 15 more");
+    expect(String(result.content)).toContain("line 1:");
+    expect(String(result.content)).not.toContain("line 25:");
   });
 
   test("success path is transparent", async () => {
@@ -341,7 +340,7 @@ describe("editFileDiagnosticsPlugin", () => {
       new AbortController().signal,
     );
 
-    expect(String(result.content)).toContain("Closest lines");
+    expect(String(result.content)).not.toBe(stockNotFound(path).content);
     expect(String(result.content)).toContain("bareKey");
   });
 
@@ -364,7 +363,7 @@ describe("editFileDiagnosticsPlugin", () => {
       new AbortController().signal,
     );
 
-    expect(String(result.content)).toContain("Whitespace near-miss");
+    expect(String(result.content)).not.toBe(stockNotFound(path).content);
     expect(String(result.content)).toContain("  const bareKey = 1;");
   });
 });

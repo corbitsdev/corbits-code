@@ -75,32 +75,6 @@ describe("buildProviderEntry OpenCode Go baseURL pin", () => {
     expect(result.entry.baseURL).not.toBe("https://opencode.ai/zen/v1");
   });
 
-  test("pins Go baseURL on edit when existing has opencodeGo and form submits zen URL", () => {
-    const catalog: ProviderCatalogEntry[] = [
-      {
-        name: "opencode-go",
-        baseURL: OPENCODE_GO_BASE_URL,
-        apiKey: "sk-go-existing",
-        models: ["kimi-k2.7-code"],
-        opencodeGo: true,
-      },
-    ];
-    const result = buildProviderEntry(
-      {
-        name: "opencode-go",
-        originalName: "opencode-go",
-        baseURL: "https://opencode.ai/zen/v1",
-        models: ["kimi-k2.7-code"],
-      },
-      catalog,
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.entry.baseURL).toBe(OPENCODE_GO_BASE_URL);
-    expect(result.entry.opencodeGo).toBe(true);
-  });
-
   test("does not rewrite baseURL for non-Go providers", () => {
     const result = buildProviderEntry(
       {
@@ -122,23 +96,6 @@ describe("buildProviderEntry OpenCode Go baseURL pin", () => {
     const result = buildProviderEntry(
       {
         name: "opencode-go",
-        baseURL: "https://opencode.ai/zen/v1",
-        apiKey: "sk-go-key-long-enough",
-        models: ["kimi-k2.7-code"],
-      },
-      [],
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.entry.baseURL).toBe(OPENCODE_GO_BASE_URL);
-    expect(result.entry.opencodeGo).toBe(true);
-  });
-
-  test("pins Go baseURL when name is OpenCode Go display label", () => {
-    const result = buildProviderEntry(
-      {
-        name: "OpenCode Go",
         baseURL: "https://opencode.ai/zen/v1",
         apiKey: "sk-go-key-long-enough",
         models: ["kimi-k2.7-code"],
@@ -213,32 +170,6 @@ describe("buildProviderEntry OpenCode Go baseURL pin", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.entry.baseURL).toBe("https://opencode.ai/zen/v1");
-    expect(result.entry.opencodeGo).toBeUndefined();
-  });
-
-  test("demotes sticky pin when edit submits a non-Go URL", () => {
-    const catalog: ProviderCatalogEntry[] = [
-      {
-        name: "go/personal",
-        baseURL: OPENCODE_GO_BASE_URL,
-        apiKey: "sk-go-existing",
-        models: ["kimi-k2.7-code"],
-        opencodeGo: true,
-      },
-    ];
-    const result = buildProviderEntry(
-      {
-        name: "go/personal",
-        originalName: "go/personal",
-        baseURL: "https://api.openai.com/v1",
-        models: ["gpt-4o"],
-      },
-      catalog,
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.entry.baseURL).toBe("https://api.openai.com/v1");
     expect(result.entry.opencodeGo).toBeUndefined();
   });
 

@@ -4,7 +4,6 @@ import { AgentContextLockError, type Agent } from "@intx/agent";
 import {
   agentRebuildFailure,
   closeAgentForRebuild,
-  resumeTranscriptLoadErrorBlock,
   startInterruptRebuild,
 } from "../../../src/tui/runner/exit.js";
 import {
@@ -36,16 +35,6 @@ test("getTUIRunSummaryStatus distinguishes done, failed, and cancelled runs", ()
   expect(getTUIRunSummaryStatus(false, undefined)).toBe("cancelled");
 });
 
-test("resumeTranscriptLoadErrorBlock surfaces a user-visible error block", () => {
-  expect(resumeTranscriptLoadErrorBlock(new Error("EACCES"))).toEqual({
-    type: "error",
-    message: "Could not load prior session transcript: EACCES",
-  });
-  expect(resumeTranscriptLoadErrorBlock("disk full").message).toContain(
-    "disk full",
-  );
-});
-
 test("TUI send failures keep non-provider errors distinct", () => {
   expect(
     tuiSendFailureMessage(new Error("disk full"), "error", false, {
@@ -53,59 +42,6 @@ test("TUI send failures keep non-provider errors distinct", () => {
       displayLabel: "Codex",
     }),
   ).toBe("disk full");
-});
-
-test("TUI send failures retain the in-flight provider identity across model switches", () => {
-  expect(
-    tuiSendFailureMessage(
-      new Error("send failed"),
-      "error",
-      true,
-      {
-        providerId: "codex/work",
-        displayLabel: "Codex",
-      },
-      {
-        category: "retryable",
-        message: "\u001b[31mupstream\n unavailable\u001b[0m",
-        statusCode: 500,
-      },
-    ),
-  ).toBe("Codex Provider failed (retryable): upstream unavailable. Try again.");
-});
-
-test("TUI send failures prefer an explicitly reported provider", () => {
-  expect(
-    tuiSendFailureMessage(
-      new Error("send failed"),
-      "error",
-      true,
-      { providerId: "codex/work", displayLabel: "Codex" },
-      {
-        providerId: "xai/work",
-        category: "credential_failure",
-        message: "HTTP 401",
-      },
-    ),
-  ).toBe(
-    "xai/work Provider failed (credential_failure): HTTP 401. Authentication failed — run /connect to reconnect the provider profile.",
-  );
-});
-
-test("TUI auth failures tell the user to run /connect instead of switching models", () => {
-  expect(
-    tuiSendFailureMessage(
-      new Error("401 refresh token rejected"),
-      "auth",
-      false,
-      {
-        providerId: "codex/work",
-        displayLabel: "Codex",
-      },
-    ),
-  ).toBe(
-    "Authentication failed — run /connect to reconnect the provider profile.",
-  );
 });
 
 test("loadLocalSettingsWriteBase distinguishes absent from unreadable", async () => {

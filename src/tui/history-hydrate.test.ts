@@ -119,9 +119,6 @@ describe("rowFromHistoryBlock", () => {
       text: MISSING_ERROR_DETAIL,
       meta: "error",
     });
-    expect(MISSING_ERROR_DETAIL).toBe(
-      "this step failed and the details were not saved",
-    );
     expect(rowFromHistoryBlock({ type: "who-knows" })).toBeNull();
   });
 

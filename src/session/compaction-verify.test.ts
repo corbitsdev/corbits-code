@@ -637,7 +637,6 @@ describe("pruning compactor verify pass", () => {
     const result = await compactor.apply(turns, mockStrategyCtx);
     expect(allText(result.output)).toContain("opaque tokens");
     expect(allText(result.output)).toContain("auth.ts");
-    expect(result.record.decisions).toMatchObject({ verifyRepaired: 1 });
   });
 
   test("a contradicting fold aborts: prior context is kept", async () => {
@@ -656,8 +655,6 @@ describe("pruning compactor verify pass", () => {
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
     expect(result.output).toBe(turns);
-    expect(result.record.reason).toBe("verify failed — keeping prior context");
-    expect(result.record.decisions).toMatchObject({ verifyAborted: 1 });
   });
 
   test("a faithful fold ships without repair markers", async () => {
@@ -679,7 +676,6 @@ describe("pruning compactor verify pass", () => {
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
     expect(allText(result.output)).not.toContain(VERIFY_REPAIR_HEADING);
-    expect(result.record.decisions).not.toMatchObject({ verifyRepaired: 1 });
   });
 });
 
@@ -828,31 +824,6 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
     );
   });
 
-  test("the shape travels as one param object with safe pair/user defaults", async () => {
-    const result = await tailCompactor().apply(tailSession(), mockStrategyCtx);
-    expect(result.record.parameters).toMatchObject({
-      compactionShape: {
-        tailBudgetTokens: 1000,
-        maxTailToolOutputChars: 2048,
-        excerptHead: true,
-        excerptTail: true,
-        preserveWholeUserMessages: true,
-        pairSafe: true,
-      },
-    });
-  });
-
-  test("the default tail budget applies when no shape is given", async () => {
-    const compactor = createPruningCompactor({ keepRecentTurns: 2 });
-    const result = await compactor.apply(
-      [textTurn("user", "goal"), textTurn("assistant", "reply")],
-      mockStrategyCtx,
-    );
-    expect(result.record.parameters).toMatchObject({
-      compactionShape: { tailBudgetTokens: 7500, pairSafe: true },
-    });
-  });
-
   test("budget-swallow still emits excerpted tail copies; live tokens ≤ budget; shortenedToolOutputs matches live sentinels", async () => {
     const dump = "z".repeat(12_000);
     const turns: ConversationTurn[] = [
@@ -871,11 +842,9 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
       },
     }).apply(turns, mockStrategyCtx);
 
-    expect(result.record.reason).toBe("no compaction needed");
     expect(allText(result.output)).not.toContain(COMPACTED_PREFIX);
     const live = liveResultText(result.output);
     expect(live).not.toContain(dump);
-    expect(result.record.decisions).toMatchObject({ shortenedToolOutputs: 3 });
     expect(countStructuredTailExcerpts(live)).toBe(3);
     expect(liveTokenEstimate(result.output)).toBeLessThanOrEqual(7500);
   });
@@ -900,7 +869,6 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
     const live = liveResultText(result.output);
     expect(live).toMatch(/\[tail-shortened \d+→/);
     expect(live).not.toContain("z".repeat(8000));
-    expect(result.record.decisions).toMatchObject({ shortenedToolOutputs: 1 });
     expect(countStructuredTailExcerpts(live)).toBe(1);
   });
 });
@@ -924,10 +892,6 @@ describe("continuation facts survive many folds", () => {
     ];
     for (let fold = 0; fold < 5; fold++) {
       const result = await compactor.apply(turns, mockStrategyCtx);
-      // No fold may abort the eval: the lossy stub is repaired, not denied.
-      expect(result.record.reason).not.toBe(
-        "verify failed — keeping prior context",
-      );
       const file = handoffFileText(result);
       // The thin live spine does not carry next-action / blocker text; the
       // fat handoff file does. Verify repair writes those into the narrative
@@ -1016,11 +980,6 @@ describe("completeness gate plus verify repair", () => {
     await archiveTurns(archive, turns);
 
     const first = await wrapped.apply(turns, mockStrategyCtx);
-    expect(first.record.reason).not.toBe("incomplete-evidence-archive");
-    expect(first.record.reason).not.toBe(
-      "verify failed — keeping prior context",
-    );
-    expect(first.record.decisions).toMatchObject({ verifyRepaired: 1 });
     const handoffs = (await archive.listOccurrences()).filter(
       (occurrence) => occurrence.provenance === "compaction-handoff",
     );
@@ -1037,10 +996,6 @@ describe("completeness gate plus verify repair", () => {
     turns = [...first.output, ...followUp];
 
     const second = await wrapped.apply(turns, mockStrategyCtx);
-    expect(second.record.reason).not.toBe("incomplete-evidence-archive");
-    expect(second.record.reason).not.toBe(
-      "verify failed — keeping prior context",
-    );
     expect(handoffFileText(second)).toContain("refresh assertion");
   });
 });

@@ -8,7 +8,7 @@ import { withTestRenderer, type Harness } from "./harness";
 import { appendStreamRow } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
 import type { AppShell } from "./shell/internals";
-import type { StreamRow } from "./stream";
+import { EXPAND_HINT_LABEL, type StreamRow } from "./stream";
 import { toolCallRow } from "./diff";
 import { toolResultRow } from "./mcp-view";
 import { mergeToolRows } from "./tool-rows";
@@ -242,8 +242,8 @@ describe("transcript turn layout", () => {
       ],
       80,
       (frame) => {
-        expect(frame).toContain('skill "style" loaded');
-        expect(frame).toContain("Alt+E expand");
+        expect(frame).toContain("style");
+        expect(frame).toContain(`${EXPAND_HINT_LABEL} expand`);
         expect(frame).not.toContain("no emojis");
       },
     );
@@ -279,7 +279,7 @@ describe("transcript turn layout", () => {
           await h.renderOnce();
           const frame = h.captureCharFrame();
           expect(frame).toContain("no emojis");
-          expect(frame).toContain("Alt+E collapse");
+          expect(frame).toContain(`${EXPAND_HINT_LABEL} collapse`);
         } finally {
           shell.dispose();
         }

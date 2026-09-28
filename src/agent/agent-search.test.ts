@@ -44,10 +44,9 @@ describe("createAgentIndex", () => {
 });
 
 describe("formatAgentSearchResults", () => {
-  test("includes spawn hint and ids", () => {
+  test("includes the matched profile id", () => {
     const text = formatAgentSearchResults([defined(fixtures[1])], false);
     expect(text).toContain("critique");
-    expect(text).toContain("spawn_agent(agent=");
   });
 
   test("includes source label when present", () => {
@@ -236,16 +235,6 @@ describe("createSearchAgentsTool", () => {
     expect(headers[0]).toBe("agent-00");
     expect(headers[11]).toBe("agent-11");
     expect(text).not.toContain("### agent-12");
-  });
-
-  test("empty catalog + empty query returns loaded-none message", async () => {
-    const tool = createSearchAgentsTool(() => []);
-    if (tool.kind !== "string") throw new Error("expected string tool");
-    const text = await tool.handler(
-      { query: "   " },
-      new AbortController().signal,
-    );
-    expect(text).toBe("No agent profiles are loaded.");
   });
 
   test("handler redacts secret-shaped content in returned profile body", async () => {

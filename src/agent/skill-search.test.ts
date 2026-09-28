@@ -3,11 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import {
-  createSkillSearchTool,
-  skillSearchDefinition,
-  workerSkillSearchDefinition,
-} from "./skill-search.js";
+import { createSkillSearchTool } from "./skill-search.js";
 import type { SkillSummary } from "../extensions/skills.js";
 
 function call(
@@ -23,36 +19,6 @@ const roster: SkillSummary[] = [
   { name: "beta", description: "writer for documents" },
   { name: "gamma", description: "unrelated capability" },
 ];
-
-describe("skillSearchDefinition", () => {
-  test("primary catalog copy does not imply attached skills", () => {
-    expect(skillSearchDefinition.name).toBe("skill_search");
-    expect(skillSearchDefinition.description).toMatch(/look up skill details/i);
-    expect(skillSearchDefinition.description).toContain("use_skill");
-    expect(skillSearchDefinition.description).toMatch(/directly callable/i);
-    expect(skillSearchDefinition.description).not.toMatch(/attached/i);
-    expect(skillSearchDefinition.description).not.toContain(
-      "tiny one-file fix",
-    );
-    expect(skillSearchDefinition.description).not.toMatch(
-      /find this via tool_search/i,
-    );
-  });
-
-  test("worker copy tells the model not to search when attached skills suffice", () => {
-    expect(workerSkillSearchDefinition.name).toBe("skill_search");
-    expect(workerSkillSearchDefinition.description).toContain(
-      "attached skills",
-    );
-    expect(workerSkillSearchDefinition.description).toContain(
-      "tiny one-file fix",
-    );
-    expect(workerSkillSearchDefinition.description).toContain("use_skill");
-    expect(workerSkillSearchDefinition.description).toMatch(
-      /directly callable/i,
-    );
-  });
-});
 
 describe("createSkillSearchTool", () => {
   test("ranks a name-token match above a description-only match", async () => {

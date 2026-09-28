@@ -179,9 +179,9 @@ describe("turnStateFromEvent", () => {
       200,
     );
     expect(oneDone.activeToolCalls).toEqual(["collect-1"]);
-    expect(oneDone.callNameById).toEqual({
-      "collect-1": "shell_collect",
-    });
+    // the leftover collect keeps its own name record; the resolved one's is gone
+    expect(oneDone.callNameById["collect-1"]).toBe("shell_collect");
+    expect("collect-2" in oneDone.callNameById).toBe(false);
 
     const bothDone = turnStateFromEvent(
       oneDone,

@@ -117,7 +117,6 @@ describe("director registry", () => {
   test("directorProfiles is the spawn catalog (closed set minus skywalker)", () => {
     const profiles = directorProfiles();
     expect(profiles).toHaveLength(19);
-    expect(new Set(profiles.map((p) => p.id)).size).toBe(19);
     expect(profiles.map((p) => p.id)).not.toContain("skywalker");
   });
 

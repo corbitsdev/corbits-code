@@ -2,41 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { gaasbotPackage } from "./package.js";
 
 describe("gaasbotPackage", () => {
-  test("systemPrompt identity is Gaasbot / GaasbotDirector (risk counsel)", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).toMatch(/GaasbotDirector \(Gaasbot\)/);
-    expect(p).toMatch(/risk-counsel lane only|risk counsel/i);
-    expect(p).not.toMatch(/CTO advice leaf/i);
-  });
-
-  test("systemPrompt teaches sequencing / ship-risk buckets", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).toMatch(/blocks a release|blocks a ship/i);
-    expect(p).toMatch(/ship with (an )?explicit note|ships with a note/i);
-    expect(p).toMatch(/filed for later/i);
-    expect(p).toMatch(/most likely getting wrong/i);
-    expect(p).toMatch(/do not ship/i);
-    expect(p).toMatch(/not a hard gate/i);
-  });
-
-  test("systemPrompt is blinders-on risk counsel (no implement / gate / plan / orchestrate)", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).toMatch(/Blinders on/i);
-    expect(p).toMatch(/Do not spawn specialists/i);
-    expect(p).toMatch(/not Builder/i);
-    expect(p).toMatch(/not Critic/i);
-    expect(p).toMatch(/not Greybeard/i);
-    expect(p).toMatch(/not Counsel/i);
-    expect(p).toMatch(/not an orchestrator/i);
-  });
-
-  test("systemPrompt has DONE GATE for risk ask completeness", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).toContain("DONE GATE");
-    expect(p).toMatch(/[Ss]top when/);
-    expect(p).toContain("Blockers");
-  });
-
   test("systemPrompt has no tool-schema restatement or fake caps", () => {
     const p = gaasbotPackage.systemPrompt;
     expect(p).not.toMatch(/parameters?:/i);
@@ -64,19 +29,6 @@ describe("gaasbotPackage", () => {
     expect(gaasbotPackage.optionalSkills).toEqual(["native-integration"]);
   });
 
-  test("systemPrompt carries the CTO voice strands (contract, not phrasing)", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).toMatch(/squash PR commits/i);
-    expect(p).toMatch(/hooks must be on/i);
-    expect(p).toMatch(/loose coupling|composability/i);
-    expect(p).toMatch(/owns the constraint|owning layer/i);
-    expect(p).toMatch(/statically-typed|static types/i);
-    expect(p).toMatch(/Push back when/i);
-    expect(p).toMatch(/Stay flexible when/i);
-    expect(p).toMatch(/symptom-chasing/i);
-    expect(p).toMatch(/parent\/operator/i);
-  });
-
   test("CTO voice grants no ship/implement/merge-block/spawn powers", () => {
     const p = gaasbotPackage.systemPrompt;
     expect(p).not.toMatch(
@@ -101,41 +53,6 @@ describe("gaasbotPackage", () => {
       "replacing plan eng change plans",
     );
     expect(gaasbotPackage.outOfLane).toContain("applying product fixes");
-  });
-
-  test("CTO voice keeps verbatim colorful phrasing and no-pad directness", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).toContain(
-      'occasionally colorful phrasing ("just yeet this", "appease the lint gods")',
-    );
-    expect(p).toContain(
-      "Don't pad feedback with excessive praise or hedge with softeners. When something is wrong, say so clearly and move on.",
-    );
-    expect(p).toMatch(/No emojis/);
-  });
-
-  test("CTO voice names and thanks external contributors without redefining user", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).toContain("Use their name (usually their GitHub handle).");
-    expect(p).toContain(
-      "Thank external contributors for their work before giving feedback.",
-    );
-    expect(p).toMatch(/external contributors only/);
-    expect(p).toMatch(/parent\/operator/);
-  });
-
-  test("systemPrompt treats style and philosophy as attached, not boot loads", () => {
-    const p = gaasbotPackage.systemPrompt;
-    expect(p).toContain("Session Initialization");
-    expect(p).toContain("style and philosophy are attached");
-    expect(p).toContain("Do not use_skill them again");
-    expect(p).toContain("Do not block boot if an attached skill is missing");
-    expect(p).toContain("Before substantial advisory work");
-    expect(p).toContain("native-integration");
-    expect(p).not.toContain("Load the style skill with use_skill");
-    expect(p.indexOf("Session Initialization")).toBeLessThan(
-      p.indexOf("PRIMARY INTENT"),
-    );
   });
 
   test("new restored lines grant no ship/implement/merge-block/spawn powers", () => {

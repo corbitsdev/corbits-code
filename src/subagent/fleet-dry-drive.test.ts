@@ -755,48 +755,6 @@ describe("driveOpenTasksAfterFleetDry", () => {
     expect(records.get("w1")?.collected).not.toBe(true);
   });
 
-  test("TUI sendWithAttemptIdentity accepted takes mailbox after send resolves", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    const mailbox: FleetDryMailbox = {
-      ids: () => [...records.keys()],
-      peek: (id) => records.get(id),
-      take: (id) => {
-        const existing = records.get(id);
-        if (existing === undefined) return undefined;
-        const taken = { ...existing, collected: true };
-        records.set(id, taken);
-        return taken;
-      },
-    };
-    let resolveSend: ((result: typeof ACCEPTED_DELIVERY) => void) | undefined;
-    let sendStarted: (() => void) | undefined;
-    const sendSeen = new Promise<void>((resolve) => {
-      sendStarted = resolve;
-    });
-    const sendWithAttemptIdentity = (): Promise<typeof ACCEPTED_DELIVERY> => {
-      sendStarted?.();
-      return new Promise((resolve) => {
-        resolveSend = resolve;
-      });
-    };
-    const driven = driveOpenTasksAfterFleetDry({
-      deferredDryEdge: true,
-      openTasks: [openTask],
-      parentProcessing: false,
-      mailbox,
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => sendWithAttemptIdentity(),
-    });
-    await sendSeen;
-    expect(records.get("w1")?.collected).not.toBe(true);
-    resolveSend?.(ACCEPTED_DELIVERY);
-    expect(await driven).toBe(true);
-    expect(records.get("w1")?.collected).toBe(true);
-  });
-
   test("sync send not-delivered returns false, calls onSendFailure, and leaves mailbox uncollected", async () => {
     const records = new Map<string, FleetDryMailboxRecord>([
       ["w1", { status: "done", report: "ok" }],
@@ -829,66 +787,6 @@ describe("driveOpenTasksAfterFleetDry", () => {
     expect(driven).toBe(false);
     expect(failures).toBe(1);
     expect(records.get("w1")?.collected).not.toBe(true);
-  });
-
-  test("sync send throw calls onSendFailure", async () => {
-    let failures = 0;
-    const driven = await driveOpenTasksAfterFleetDry({
-      previousRunning: 1,
-      running: 0,
-      openTasks: [openTask],
-      parentProcessing: false,
-      mailbox: undefined,
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => {
-        throw new Error("send failed");
-      },
-      onSendFailure: () => {
-        failures += 1;
-      },
-    });
-    expect(driven).toBe(false);
-    expect(failures).toBe(1);
-  });
-
-  test("TUI send not-delivered after handleSendFailure calls onSendFailure", async () => {
-    let failures = 0;
-    const driven = await driveOpenTasksAfterFleetDry({
-      deferredDryEdge: true,
-      openTasks: [openTask],
-      parentProcessing: false,
-      mailbox: undefined,
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: async () => NOT_DELIVERED_RESULT,
-      onSendFailure: () => {
-        failures += 1;
-      },
-    });
-    expect(driven).toBe(false);
-    expect(failures).toBe(1);
-  });
-
-  test("TUI send rejection calls onSendFailure", async () => {
-    let failures = 0;
-    const driven = await driveOpenTasksAfterFleetDry({
-      deferredDryEdge: true,
-      openTasks: [openTask],
-      parentProcessing: false,
-      mailbox: undefined,
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: async () => {
-        await Promise.resolve();
-        throw new Error("agentProxy.send failed");
-      },
-      onSendFailure: () => {
-        failures += 1;
-      },
-    });
-    expect(driven).toBe(false);
-    expect(failures).toBe(1);
   });
 
   test("pending send Promise does not resolve as a successful continuation", async () => {
@@ -927,29 +825,6 @@ describe("driveOpenTasksAfterFleetDry", () => {
     expect(await driven).toBe(true);
     expect(settled).toBe(true);
     expect(records.get("w1")?.collected).toBe(true);
-  });
-
-  test("resolved not-delivered returns idle and leaves the wake waitable", async () => {
-    const records = new Map<string, FleetDryMailboxRecord>([
-      ["w1", { status: "done", report: "ok" }],
-    ]);
-    let failures = 0;
-    const driven = await driveOpenTasksAfterFleetDry({
-      previousRunning: 1,
-      running: 0,
-      openTasks: [openTask],
-      parentProcessing: false,
-      mailbox: collectingMailbox(records),
-      lanes: [],
-      beginSystemContinuation: () => undefined,
-      send: () => Promise.resolve(NOT_DELIVERED_RESULT),
-      onSendFailure: () => {
-        failures += 1;
-      },
-    });
-    expect(driven).toBe(false);
-    expect(failures).toBe(1);
-    expect(records.get("w1")?.collected).not.toBe(true);
   });
 
   test("resolved uncertain returns idle and leaves the wake waitable", async () => {

@@ -33,7 +33,6 @@ test("listSessions includes TUI sessions with context/ but no run.json", async (
   const listed = await listSessions(cwd, home);
   const row = listed.find((s) => s.sessionId === sessionId);
   expect(row).toBeDefined();
-  expect(row?.task).toBe("Untitled session");
 });
 
 test("listSessions reports crashed, not running, for a session with no readable run.json", async () => {

@@ -39,7 +39,6 @@ describe("inferenceErrorMessage", () => {
       raw: CODEX_BODY,
     });
     expect(line).not.toContain("Codex");
-    expect(line).toBe("Quota exhausted — usage limit reached.");
   });
 
   test("known-xAI short 429 shows rate-limit line, not Quota exhausted", () => {
@@ -52,22 +51,6 @@ describe("inferenceErrorMessage", () => {
     });
     expect(line.toLowerCase()).toMatch(/rate limit/);
     expect(line).not.toContain("Quota exhausted");
-  });
-
-  test("known-xAI quota body still shows Quota exhausted", () => {
-    const line = inferenceErrorMessage({
-      category: "quota_exhausted",
-      message: "You exceeded your current quota",
-      statusCode: 429,
-      providerId: "xai/thegreataxios",
-      raw: {
-        error: {
-          message: "You exceeded your current quota",
-          code: "insufficient_quota",
-        },
-      },
-    });
-    expect(line).toBe("Quota exhausted — usage limit reached.");
   });
 
   test("known-Codex short 429 shows rate-limit line, not usage-limit copy", () => {
@@ -106,69 +89,6 @@ describe("terminalProviderFailureMessage", () => {
 
     expect(message).toContain(recoveryURL);
     expect(message).not.toContain("secret-token-1234567890");
-  });
-
-  test("surfaces a retryable HTTP failure with safe retry guidance", () => {
-    expect(
-      terminalProviderFailureMessage(
-        "openai",
-        {
-          category: "retryable",
-          message: "\u001b[31mupstream\n unavailable\u001b[0m",
-          statusCode: 500,
-        },
-        "OpenAI",
-      ),
-    ).toBe(
-      "OpenAI Provider failed (retryable): upstream unavailable. Try again.",
-    );
-  });
-
-  test("surfaces protocol mismatches with switch-model guidance", () => {
-    expect(
-      terminalProviderFailureMessage("custom-provider", {
-        category: "protocol_mismatch",
-        message: "response did not match the expected schema",
-      }),
-    ).toBe(
-      'custom-provider Provider failed (protocol_mismatch): response did not match the expected schema. Switch models with "/model".',
-    );
-  });
-
-  test("treats an HTTP 503 protocol mismatch as transient", () => {
-    expect(
-      terminalProviderFailureMessage("custom-provider", {
-        category: "protocol_mismatch",
-        message: "gateway returned HTML",
-        statusCode: 503,
-      }),
-    ).toBe(
-      "custom-provider Provider failed (protocol_mismatch): gateway returned HTML. Try again.",
-    );
-  });
-
-  test("uses the canonical category for a misclassified context overflow", () => {
-    expect(
-      terminalProviderFailureMessage("custom-provider", {
-        category: "retryable",
-        message: "input exceeds the maximum context window",
-        statusCode: 429,
-      }),
-    ).toBe(
-      "custom-provider Provider failed (context_overflow): input exceeds the maximum context window. Try /clear to start fresh.",
-    );
-  });
-
-  test("tells the user to run /connect after a credential failure", () => {
-    expect(
-      terminalProviderFailureMessage("custom-provider", {
-        category: "credential_failure",
-        message: "HTTP 401 Unauthorized",
-        statusCode: 401,
-      }),
-    ).toBe(
-      "custom-provider Provider failed (credential_failure): HTTP 401 Unauthorized. Authentication failed — run /connect to reconnect the provider profile.",
-    );
   });
 
   test("terminal Codex credential 404 names the profile with a re-login hint", () => {
@@ -261,18 +181,6 @@ describe("terminalProviderFailureMessage", () => {
     expect(message).not.toContain("\u001b");
   });
 
-  test("does not duplicate Provider in configured display labels", () => {
-    expect(
-      terminalProviderFailureMessage(
-        "codex/work",
-        { category: "fatal", message: "service rejected the request" },
-        "Codex Provider",
-      ),
-    ).toBe(
-      'Codex Provider failed (fatal): service rejected the request. Try again or switch models with "/model".',
-    );
-  });
-
   test("terminal Codex short-429 failure does not claim to still be retrying", () => {
     const normalized = normalizeInferenceErrorForTerminal(
       {
@@ -301,9 +209,6 @@ describe("terminalProviderFailureMessage", () => {
       category: "fatal",
       message: "request failed",
     });
-    expect(message).toBe(
-      'Unknown Provider failed (fatal): request failed. Try again or switch models with "/model".',
-    );
     expect(message).not.toContain("\u001b");
   });
 

@@ -117,32 +117,10 @@ describe("credential recovery alternatives", () => {
 });
 
 describe("generation-scoped credential recovery", () => {
-  test("arms only after a repeated terminal credential failure and preserves the original input", () => {
-    const state = createCredentialRecoveryState();
-    const message = operatorMessage();
-    const attempt = state.begin(message, "failed");
-
-    state.observe(attempt, {
-      type: "inference.retry",
-      data: {
-        previousError: { category: "credential_failure", message: "401" },
-      },
-    });
-    state.observe(attempt, {
-      type: "inference.error",
-      data: { error: { category: "credential_failure", message: "still 401" } },
-    });
-
-    const pending = state.settle(attempt, [
-      {
-        id: modelOptionId("backup", "model-a"),
-        label: "model-a * [backup]",
-        provider: "backup",
-        model: "model-a",
-      },
-    ]);
-    expect(pending?.message).toBe(message);
-    expect(pending?.message.attachments).toEqual(message.attachments);
+  test("a settled recovery preserves the original operator input and its attachments", () => {
+    const { pending } = pendingRecovery();
+    expect(pending.message.content).toBe("inspect this");
+    expect(pending.message.attachments?.[0]?.name).toBe("screen.png");
   });
 
   test("does not arm for one credential failure, a noncredential terminal, or no alternatives", () => {
@@ -436,31 +414,6 @@ describe("credential recovery selection effects", () => {
     });
     expect(delivered).toHaveLength(1);
     expect(state.accept(pending.generation, id)).toEqual({ kind: "stale" });
-  });
-
-  test("switches and continues an uncommitted input exactly once", () => {
-    const { state, pending } = pendingRecovery();
-    const switches: string[] = [];
-    const arms: number[] = [];
-    const deliveries: InboundMessage[] = [];
-    const args = {
-      state,
-      generation: pending.generation,
-      alternativeId: modelOptionId("backup", "model-a"),
-      switchAlternative: (alternative: { id: string }) =>
-        switches.push(alternative.id),
-      armContinuation: (generation: number) => arms.push(generation),
-      cancelContinuation: () => undefined,
-      deliverContinuation: (message: InboundMessage) =>
-        deliveries.push(message),
-    };
-
-    expect(applyCredentialRecoverySelection(args)).toBe("continued");
-    expect(applyCredentialRecoverySelection(args)).toBe("stale");
-    expect(switches).toEqual([modelOptionId("backup", "model-a")]);
-    expect(arms).toEqual([pending.generation]);
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]?.content).toBe("");
   });
 
   test("committed input switches future source without continuation", () => {

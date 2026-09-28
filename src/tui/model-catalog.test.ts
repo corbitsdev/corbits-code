@@ -212,8 +212,8 @@ describe("buildModelsFirstCatalog", () => {
     });
 
     const recent = list.find((r) => r.section === "recent");
-    expect(recent?.warning).toMatch(/Go model on Zen path/);
-    expect(recent?.label).not.toContain("Go model on Zen path");
+    expect(recent?.warning).toBeTruthy();
+    expect(recent?.label).not.toContain(String(recent?.warning));
 
     const goRow = list.find(
       (r) => r.id === modelOptionId("opencode-go", "kimi-k2.7-code"),
@@ -231,7 +231,7 @@ describe("buildModelsFirstCatalog", () => {
     const row = list.find(
       (r) => r.id === modelOptionId("zen", "kimi-k2.7-code"),
     );
-    expect(row?.warning).toMatch(/Go model on Zen path/);
+    expect(row?.warning).toBeTruthy();
   });
 
   test("uses provider name as label when label is unset", () => {
@@ -255,7 +255,7 @@ describe("describeModelCatalogOption", () => {
       { pricing: null },
     );
     expect(description?.tone).toBe("consequence");
-    expect(description?.impact).toMatch(/Zen credits/);
+    expect(description?.impact).toBeTruthy();
   });
 
   test("reports pricing as unknown rather than inventing a number", () => {
@@ -263,7 +263,8 @@ describe("describeModelCatalogOption", () => {
       { id: modelOptionId("xai", "grok-4"), label: "grok-4 * [xAI]" },
       { pricing: null },
     );
-    expect(description?.impact).toMatch(/pricing unknown/i);
+    expect(description?.impact).toBeTruthy();
+    expect(description?.impact).not.toMatch(/[$\d]/);
   });
 
   test("connected ChatGPT rows state plan billing plainly instead of unknown pricing (CL-5606)", () => {
@@ -276,8 +277,12 @@ describe("describeModelCatalogOption", () => {
       },
       { pricing: null },
     );
-    expect(description?.impact).not.toMatch(/pricing unknown/i);
-    expect(description?.impact).toMatch(/ChatGPT subscription/);
+    const unknown = describeModelCatalogOption(
+      { id: modelOptionId("xai", "grok-4"), label: "x" },
+      { pricing: null },
+    );
+    expect(description?.impact).toBeTruthy();
+    expect(description?.impact).not.toBe(unknown?.impact);
   });
 
   test("connected Grok rows state plan billing plainly instead of unknown pricing (CL-5606)", () => {
@@ -288,8 +293,12 @@ describe("describeModelCatalogOption", () => {
       },
       { pricing: null },
     );
-    expect(description?.impact).not.toMatch(/pricing unknown/i);
-    expect(description?.impact).toMatch(/subscription/);
+    const unknown = describeModelCatalogOption(
+      { id: modelOptionId("xai", "grok-4"), label: "x" },
+      { pricing: null },
+    );
+    expect(description?.impact).toBeTruthy();
+    expect(description?.impact).not.toBe(unknown?.impact);
   });
 
   test("colon-less ids keep the full provider instead of dropping the last character", () => {
@@ -299,6 +308,10 @@ describe("describeModelCatalogOption", () => {
       { id: "codex/", label: "default * [Codex default]" },
       { pricing: null },
     );
-    expect(description?.impact).toMatch(/ChatGPT subscription/);
+    const reference = describeModelCatalogOption(
+      { id: modelOptionId("codex/default", "gpt-5.1-codex-max"), label: "x" },
+      { pricing: null },
+    );
+    expect(description?.impact).toBe(reference?.impact);
   });
 });

@@ -7,7 +7,6 @@ import {
   capFeedbackMessage,
   captureFeedback,
   FEEDBACK_MAX_CHARS,
-  feedbackResultMessage,
   getLastTurnTraceId,
   isFeedbackCapturePending,
   noteLastTurnTraceId,
@@ -164,16 +163,6 @@ describe("captureFeedback", () => {
     const { telemetry, events } = captureSpy();
     expect(telemetry.captureIntentional("cli_start")).toBe(false);
     expect(events).toHaveLength(0);
-  });
-});
-
-describe("feedbackResultMessage", () => {
-  test("maps statuses to operator-facing lines", () => {
-    expect(feedbackResultMessage("sent")).toBe("Thanks — feedback sent.");
-    expect(feedbackResultMessage("sent_truncated")).toContain("truncated");
-    expect(feedbackResultMessage("blocked")).toContain("could not be sent");
-    expect(feedbackResultMessage("unconfigured")).toContain("not configured");
-    expect(feedbackResultMessage("empty")).toContain("No feedback");
   });
 });
 

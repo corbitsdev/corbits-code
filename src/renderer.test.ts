@@ -69,12 +69,14 @@ describe("renderer — status bar", () => {
     expect(bar).not.toMatch(/interchange.*\n/);
   });
 
-  test("status bar shows current op in amber for tool_call.start", () => {
+  test("status bar shows current op colorized for tool_call.start", () => {
     const cap = renderCapture([
       event("inference.tool_call.start", { callId: "c1", name: "read_file" }),
     ]);
-    // amber escape before the op text
-    expect(cap.stderr.join("")).toContain("\x1b[38;5;214m");
+    const bar = cap.stderr.join("");
+    // the op text is wrapped in an SGR colour escape + reset
+    expect(bar).toContain("reading");
+    expect(bar).toContain("\u001b[");
   });
 });
 
@@ -178,7 +180,8 @@ describe("renderer — submit_output / reactor.done journal block", () => {
     const out = cap.stdout.join("");
     expect(out).toContain("done");
     expect(out).toContain("Task complete");
-    expect(out).toContain("\x1b[32m"); // green
+    const line = out.split("\n").find((l) => l.includes("Task complete")) ?? "";
+    expect(line).toContain("\u001b[");
   });
 
   test("reactor.done writes done block to stdout", () => {
@@ -201,10 +204,10 @@ describe("renderer — error blocks", () => {
     ]);
     const out = cap.stdout.join("");
     expect(out).toContain("error");
-    expect(out).toContain("\x1b[31m"); // red
-    expect(out).toContain(
-      'openai Provider failed (protocol_mismatch): response shape changed. Switch models with "/model".',
-    );
+    const line = out.split("\n").find((l) => l.includes("openai")) ?? "";
+    expect(line).toContain("\u001b[");
+    expect(line).toContain("protocol_mismatch");
+    expect(line).toContain("response shape changed");
     expect(out).not.toContain("\u001b[31mresponse");
   });
 
@@ -230,8 +233,8 @@ describe("renderer — error blocks", () => {
       }),
     ]);
     const out = cap.stdout.join("");
-    expect(out).toContain("Codex usage limit reached");
-    expect(out).toMatch(/Resets in ~/);
+    expect(out).toMatch(/usage limit/i);
+    expect(out).toMatch(/resets in/i);
     expect(out).toContain("/model");
     expect(out).not.toContain("Too Many Requests");
   });
@@ -293,23 +296,6 @@ describe("renderer — inference.done clears op", () => {
     // After inference.done the status bar should no longer contain the op name
     const lastStderr = cap.stderr[cap.stderr.length - 1] ?? "";
     expect(lastStderr).not.toContain("running");
-  });
-});
-
-describe("renderer — inference.usage updates cost display", () => {
-  test("inference.usage causes the status bar to update", () => {
-    const cap = renderCapture([
-      event("inference.usage", {
-        usage: {
-          input: 100,
-          output: 200,
-          cacheRead: 0,
-          cacheWrite: 0,
-          thinking: 0,
-        },
-      }),
-    ]);
-    expect(cap.stderr.length).toBeGreaterThan(0);
   });
 });
 

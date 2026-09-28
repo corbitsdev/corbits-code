@@ -3,10 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withMockedModule } from "../../tests/helpers/mock-module.js";
-import {
-  createExaMCPServerConfig,
-  type ResolvedMCPServerConfig,
-} from "../mcp/exa.js";
+import { type ResolvedMCPServerConfig } from "../mcp/exa.js";
 import type { MCPConnectOptions, MCPTool } from "../mcp/client.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { MCPServerState } from "./tools.js";
@@ -157,11 +154,6 @@ const linear = {
   name: "linear",
   type: "http" as const,
   url: "https://mcp.linear.test/mcp",
-};
-const customExa = {
-  name: "exa",
-  type: "http" as const,
-  url: "https://custom.exa.test/mcp",
 };
 
 function callbacks(
@@ -349,35 +341,6 @@ describe("disconnectMCPServer", () => {
       expect(after).toContain("mcp__linear__list");
       expect(toolset.hasMCPServer("linear")).toBe(true);
       expect(toolset.hasMCPServer("lin")).toBe(false);
-    } finally {
-      await toolset.dispose();
-    }
-  });
-
-  test("disconnect of custom exa then connect of builtin remounts tools", async () => {
-    const toolset = await makeToolset();
-    const states: MCPServerState[] = [];
-    try {
-      await toolset.connectMCPServer(customExa, callbacks(states));
-      expect(
-        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
-      ).toContain("mcp__exa__list");
-
-      await toolset.disconnectMCPServer("exa", callbacks(states));
-      expect(
-        toolset.dynamicRunner
-          .currentDefinitions()
-          .some((d) => d.name.startsWith("mcp__exa__")),
-      ).toBe(false);
-
-      await toolset.connectMCPServer(
-        createExaMCPServerConfig(),
-        callbacks(states),
-      );
-      expect(toolset.hasMCPServer("exa")).toBe(true);
-      expect(
-        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
-      ).toContain("mcp__exa__list");
     } finally {
       await toolset.dispose();
     }

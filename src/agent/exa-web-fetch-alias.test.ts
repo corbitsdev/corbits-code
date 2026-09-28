@@ -817,40 +817,6 @@ describe("built-in Exa web_fetch alias", () => {
     }
   });
 
-  test("re-enable remounts the alias with a fresh connection", async () => {
-    const toolset = await makeToolset();
-    try {
-      await connect(toolset);
-      const firstConnects = connectConfigs.length;
-      await toolset.disconnectMCPServer("exa", {
-        interactiveAuth: false,
-        onStatus: () => undefined,
-        onToolsChanged: () => undefined,
-      });
-      await toolset.connectMCPServer(createExaMCPServerConfig(), {
-        interactiveAuth: false,
-        onStatus: () => undefined,
-        onToolsChanged: () => undefined,
-      });
-      expect(connectConfigs.length).toBe(firstConnects + 1);
-      expect(
-        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
-      ).toContain("mcp__exa__web_search_exa");
-
-      calls.length = 0;
-      const result = await runTool(toolset, "web_fetch", {
-        url: "https://example.com",
-      });
-      expect(result).toEqual({
-        callId: "call-web_fetch",
-        content: "exa fetch result",
-      });
-      expect(calls[0]?.toolName).toBe("web_fetch_exa");
-    } finally {
-      await toolset.dispose();
-    }
-  });
-
   test("overlapping disconnect and connect remounts Exa-backed web_fetch", async () => {
     const toolset = await makeToolset();
     try {

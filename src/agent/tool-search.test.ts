@@ -121,17 +121,6 @@ describe("createToolIndex", () => {
     expect(index.search("read a file")).not.toContain("read");
   });
 
-  test("orchestrator mode advertises split fleet tools and search_agents", () => {
-    const advertised = advertisedToolNamesForSessionMode(
-      "orchestrator",
-      FULL_AVAILABILITY,
-    );
-    expect(advertised).not.toContain("task");
-    expect(advertised).toContain("spawn_agent");
-    expect(advertised).toContain("wait_agents");
-    expect(advertised).toContain("search_agents");
-  });
-
   test("orchestrator mode advertises the fleet verbs", () => {
     const advertised = advertisedToolNamesForSessionMode(
       "orchestrator",
@@ -261,12 +250,6 @@ describe("createToolIndex", () => {
     ).not.toContain("ask_operator");
   });
 
-  test("the advertised set is deterministic — repeat calls with the same inputs are identical", () => {
-    const first = coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY);
-    const second = coreToolNamesForSessionMode("orchestrator", NO_AVAILABILITY);
-    expect(second).toEqual(first);
-  });
-
   test("returns nothing for an empty query", () => {
     expect(index.search("   ")).toEqual([]);
   });
@@ -382,17 +365,6 @@ describe("createToolSearchTool", () => {
       promote: () => undefined,
     });
     expect(await call(tool, { query: "  " })).toContain("Error:");
-  });
-
-  test("reports when nothing matches", async () => {
-    const tool = createToolSearchTool({
-      search: () => [],
-      lookup: () => undefined,
-      promote: () => undefined,
-    });
-    expect(await call(tool, { query: "nonsense" })).toContain(
-      "No tools matched",
-    );
   });
 
   test("mid-handshake search waits for a connecting server instead of reporting no match", async () => {

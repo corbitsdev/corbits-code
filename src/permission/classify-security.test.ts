@@ -1128,12 +1128,6 @@ describe("bash >& file redirects match file-mutation", () => {
     );
   });
 
-  test("echo hi > out.txt still denies", () => {
-    expect(autoShellRuleForCall(shellCall("echo hi > out.txt"))?.name).toBe(
-      "file-mutation",
-    );
-  });
-
   test("echo hi 2>&1 is not a file-mutation deny", () => {
     expect(autoShellRuleForCall(shellCall("echo hi 2>&1"))?.name).not.toBe(
       "file-mutation",

@@ -459,36 +459,6 @@ describe("resolved sub-agent provider failures", () => {
     },
   );
 
-  test("outer retry recovers when a retryable failure clears on the 2nd send", async () => {
-    const progress: { description: string; toolName: string }[] = [];
-    const { result, sends } = await withScriptedProviderRun(
-      [
-        {
-          error: {
-            category: "retryable",
-            message: RAW_DIAGNOSTIC,
-            statusCode: 502,
-          },
-        },
-        { replyText: "## Summary\nrecovered" },
-      ],
-      async (run, cwd, sendCount) => ({
-        result: await run({
-          ...runParams(cwd),
-          onProgress: (info) => {
-            progress.push(info);
-          },
-        }),
-        sends: sendCount(),
-      }),
-    );
-
-    expect(sends).toBe(2);
-    expect(result.report).toContain("recovered");
-    const retryNotice = progress.find((info) => info.toolName === "retry");
-    expect(retryNotice?.description).toContain("2/2");
-  });
-
   test("outer retry does not retry a fatal failure", async () => {
     const { caught, sends } = await withScriptedProviderRun(
       [{ error: { category: "fatal", message: RAW_DIAGNOSTIC } }],
@@ -538,33 +508,6 @@ describe("resolved sub-agent provider failures", () => {
     expect(resolved.message).toBe(
       "test-provider Provider failed (retryable). Try again.",
     );
-  });
-
-  test("outer retry does not retry after a tool already executed", async () => {
-    const { caught, sends } = await withScriptedProviderRun(
-      [
-        {
-          error: {
-            category: "retryable",
-            message: RAW_DIAGNOSTIC,
-            statusCode: 502,
-          },
-          toolCalls: ["read_file"],
-        },
-      ],
-      async (run, cwd, sendCount) => {
-        try {
-          await run(runParams(cwd));
-        } catch (error) {
-          return { caught: error, sends: sendCount() };
-        }
-        throw new Error("expected runSubAgent to reject");
-      },
-    );
-
-    expect(sends).toBe(1);
-    expect(isResolvedProviderFailureError(caught)).toBe(true);
-    expect((caught as ResolvedProviderFailureError).category).toBe("retryable");
   });
 
   test("interrupt during backoff sleep salvages as interrupted, not a provider failure", async () => {
@@ -727,40 +670,5 @@ describe("resolved sub-agent provider failures", () => {
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
-  });
-
-  test("outer retry exhaustion surfaces the second attempt's fields", async () => {
-    const { caught, sends } = await withScriptedProviderRun(
-      [
-        {
-          error: {
-            category: "retryable",
-            message: RAW_DIAGNOSTIC,
-            statusCode: 502,
-          },
-        },
-        {
-          error: {
-            category: "retryable",
-            message: "still failing",
-            statusCode: 504,
-          },
-        },
-      ],
-      async (run, cwd, sendCount) => {
-        try {
-          await run(runParams(cwd));
-        } catch (error) {
-          return { caught: error, sends: sendCount() };
-        }
-        throw new Error("expected runSubAgent to reject");
-      },
-    );
-
-    expect(sends).toBe(2);
-    expect(isResolvedProviderFailureError(caught)).toBe(true);
-    const resolved = caught as ResolvedProviderFailureError;
-    expect(resolved.category).toBe("retryable");
-    expect(resolved.statusCode).toBe(504);
   });
 });

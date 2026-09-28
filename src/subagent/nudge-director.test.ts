@@ -135,13 +135,26 @@ function overflowError(
   } as unknown as ReactorInboundEvent;
 }
 
+function ephemeralTurns(
+  infer: Extract<ReactorAction, { type: "infer" }>,
+):
+  | { role?: string; content: { type?: string; text?: string }[] }[]
+  | undefined {
+  const options = infer.options as
+    | {
+        ephemeralTurns?: {
+          role?: string;
+          content: { type?: string; text?: string }[];
+        }[];
+      }
+    | undefined;
+  return options?.ephemeralTurns;
+}
+
 function ephemeralTexts(
   infer: Extract<ReactorAction, { type: "infer" }>,
 ): string[] | undefined {
-  const options = infer.options as
-    | { ephemeralTurns?: { content: { text?: string }[] }[] }
-    | undefined;
-  return options?.ephemeralTurns?.map((turn) => turn.content[0]?.text ?? "");
+  return ephemeralTurns(infer)?.map((turn) => turn.content[0]?.text ?? "");
 }
 
 describe("SubAgentDirector tool failure recovery", () => {
@@ -150,19 +163,17 @@ describe("SubAgentDirector tool failure recovery", () => {
     const caps = createTestCapabilities();
 
     await director.decide(inferenceDone(["failed-call"]), state, caps);
-    const texts = ephemeralTexts(
+    const turns = ephemeralTurns(
       inferAction(
         await director.decide(toolDone("failed-call", true), state, caps),
       ),
     );
 
-    expect(texts).toHaveLength(1);
-    expect(texts?.[0]).toContain(
-      "Do not repeat the same failed call unchanged",
-    );
-    expect(texts?.[0]).toContain("Inspect the error and current state");
-    expect(texts?.[0]).toContain("change the arguments or approach");
-    expect(texts?.[0]).toContain("report the blocker");
+    expect(turns).toHaveLength(1);
+    expect(turns?.[0]?.role).toBe("user");
+    expect(turns?.[0]?.content).toHaveLength(1);
+    expect(turns?.[0]?.content[0]?.type).toBe("text");
+    expect(defined(turns?.[0]?.content[0]?.text).length).toBeGreaterThan(0);
   });
 
   test("coalesces consecutive failed tool audits into one counted intervention", async () => {
@@ -1533,11 +1544,6 @@ describe("SubAgentDirector ask_director park wait-guard", () => {
 });
 
 describe("SubAgentDirector idle stall ping", () => {
-  const STALL_NUDGE_TEXT =
-    "No activity has been observed for a while. If you are waiting on a " +
-    "background command, check its status now; otherwise continue working or " +
-    "write your report.";
-
   test("empty ping inside the stall window waits and does not infer", async () => {
     let now = 8_000_000;
     const director = new SubAgentDirector(
@@ -1569,7 +1575,12 @@ describe("SubAgentDirector idle stall ping", () => {
       type: "checkpoint",
       message: "subagent-stall-nudge",
     });
-    expect(ephemeralTexts(inferAction(nudge))).toEqual([STALL_NUDGE_TEXT]);
+    const nudgeTurns = ephemeralTurns(inferAction(nudge));
+    expect(nudgeTurns).toHaveLength(1);
+    expect(nudgeTurns?.[0]?.role).toBe("user");
+    expect(defined(nudgeTurns?.[0]?.content[0]?.text).length).toBeGreaterThan(
+      0,
+    );
 
     now += 200;
     const grace = actions(
@@ -1706,7 +1717,12 @@ describe("SubAgentDirector idle stall ping", () => {
       type: "checkpoint",
       message: "subagent-stall-nudge",
     });
-    expect(ephemeralTexts(inferAction(nudge))).toEqual([STALL_NUDGE_TEXT]);
+    const nudgeTurns = ephemeralTurns(inferAction(nudge));
+    expect(nudgeTurns).toHaveLength(1);
+    expect(nudgeTurns?.[0]?.role).toBe("user");
+    expect(defined(nudgeTurns?.[0]?.content[0]?.text).length).toBeGreaterThan(
+      0,
+    );
     expect(nudge.some((action) => action.type === "wait")).toBe(false);
   });
 

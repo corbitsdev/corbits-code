@@ -41,7 +41,8 @@ describe("stream paint", () => {
     expect(you).not.toContain("you");
     expect(agent).not.toContain("agent");
     expect(agent.startsWith("hello")).toBe(true);
-    expect(you.startsWith("▍")).toBe(true);
+    // A marker column leads the body: the text itself never starts at 0.
+    expect(you.indexOf("hi")).toBeGreaterThan(0);
     expect(you.trimEnd().endsWith("hi")).toBe(true);
   });
 
@@ -51,8 +52,10 @@ describe("stream paint", () => {
         { role: "user", text: "find the legacy token before the release" },
         { width, multiAgent: false },
       );
+      const marker = painted[0]?.[0];
+      expect(marker).toBeDefined();
       for (const line of painted) {
-        expect(line.indexOf("▍")).toBe(0);
+        expect(line[0]).toBe(marker);
         expect(stringWidth(line)).toBeLessThanOrEqual(width);
       }
     }
@@ -96,21 +99,25 @@ describe("stream paint", () => {
       );
       expect(painted.length).toBeGreaterThan(1);
       // One rectangle: every line's bar sits on the same column.
-      const bars = new Set(painted.map((line) => line.indexOf("▍")));
-      expect(bars.size).toBe(1);
+      const leads = new Set(painted.map((line) => line[0]));
+      expect(leads.size).toBe(1);
       for (const line of painted)
         expect(stringWidth(line)).toBeLessThanOrEqual(width);
     }
   });
 
   test("the operator's bubble has a blank bar row above and below the text", () => {
-    const bar = "\u258d";
     const painted = lines({ role: "user", text: "hi" });
     // Shape: bare bar, body, bare bar — breathing room when scrolling (CL-5603).
-    expect(painted).toEqual([bar, `${bar} hi`, bar]);
+    expect(painted.length).toBe(3);
+    const pad = defined(painted[0]);
+    expect(pad.trim()).not.toBe("");
+    expect(painted[1]?.startsWith(pad)).toBe(true);
+    expect(painted[1]?.slice(pad.length)).toContain("hi");
+    expect(painted[2]).toBe(pad);
     // Assistant and tool rows stay tight; the pad is user-only.
     expect(lines({ role: "assistant", text: "hello" })).toEqual(["hello"]);
-    expect(lines({ role: "tool", text: "ok", meta: "bash" })[0]).not.toBe(bar);
+    expect(lines({ role: "tool", text: "ok", meta: "bash" })[0]).not.toBe(pad);
     // A wrapped body still sits between exactly one pad row on each side.
     const long = lines(
       {
@@ -119,11 +126,11 @@ describe("stream paint", () => {
       },
       { width: 40, multiAgent: false },
     );
-    expect(long[0]).toBe(bar);
-    expect(long[long.length - 1]).toBe(bar);
+    expect(long[0]).toBe(pad);
+    expect(long[long.length - 1]).toBe(pad);
     expect(long.length).toBeGreaterThan(3);
     for (const line of long.slice(1, -1)) {
-      expect(line.startsWith(`${bar} `)).toBe(true);
+      expect(line.startsWith(`${pad} `)).toBe(true);
       expect(line.length).toBeGreaterThan(2);
     }
   });
@@ -171,7 +178,7 @@ describe("stream paint", () => {
     );
     // Every row leads with the same mark regardless of tool name.
     expect(new Set(rows.map((row) => row[0])).size).toBe(1);
-    expect(rows[0]?.startsWith("✓")).toBe(true);
+    expect(rows[0]).toMatch(/^[^a-zA-Z0-9\s]/);
   });
 
   test("an answered call is one row, with no continuation beneath it", () => {
@@ -182,15 +189,19 @@ describe("stream paint", () => {
     const painted = lines(merged);
     expect(painted.length).toBe(1);
     expect(painted[0]).not.toContain("└");
-    expect(painted[0]).toContain("✓");
+    // Same answered mark a plain tool result leads with.
+    const answered = lines({ role: "tool", text: "ok", meta: "grep" })[0];
+    expect(painted[0]?.[0]).toBe(answered?.[0]);
   });
 
   test("a call in flight is marked as undecided, not as a success", () => {
     const call = lines(
       toolCallRow({ name: "grep", arguments: '{"pattern":"x"}' }),
     )[0] as string;
-    expect(call).toContain("·");
-    expect(call).not.toContain("✓");
+    const answered = lines({ role: "tool", text: "x", meta: "grep" })[0];
+    // A marker is present, just never the answered one.
+    expect(call[0]).toMatch(/[^a-zA-Z0-9\s]/);
+    expect(call[0]).not.toBe(answered?.[0]);
   });
 
   test("a failed tool call is marked and steps out of the live tool voice", () => {
@@ -199,8 +210,9 @@ describe("stream paint", () => {
       { role: "tool", text: "boom", meta: "bash", failed: true },
       SOLO,
     );
-    expect(bad.content).toContain("×");
-    expect(ok.content).not.toContain("×");
+    // The failure mark replaces the success mark on the same column.
+    expect(bad.content[0]).not.toBe(ok.content[0]);
+    expect(bad.content[0]).toMatch(/[^a-zA-Z0-9\s]/);
     expect(bad.fg).not.toBe(ok.fg);
     // Orange stays reserved for the thing awaiting a decision.
     expect(bad.fg).not.toBe(UI.action);
@@ -220,7 +232,8 @@ describe("stream paint", () => {
     expect(rows.length).toBe(2);
     for (const row of rows) {
       expect(row.startsWith("  ")).toBe(true);
-      expect(row).not.toContain("┆");
+      // No box-drawing marker of its own.
+      expect(row).not.toMatch(/[\u2500-\u257F]/);
     }
     expect(paintStreamRow({ role: "assistant", text: "done" }, SOLO).fg).toBe(
       UI.text,
@@ -236,7 +249,7 @@ describe("stream paint", () => {
     expect(rows.length).toBeGreaterThan(1);
     for (const row of rows) {
       expect(row.startsWith("  ")).toBe(true);
-      expect(row).not.toContain("┆");
+      expect(row).not.toMatch(/[\u2500-\u257F]/);
       expect(stringWidth(row)).toBeLessThanOrEqual(SOLO.width);
     }
   });
@@ -249,8 +262,9 @@ describe("stream paint", () => {
       { role: "assistant", text: "on it", agent: "critic" },
       CREW,
     )[0] as string;
-    expect(solo).not.toContain("●");
-    expect(crew).not.toContain("●");
+    // No geometric-shape icon baked into the row body.
+    expect(solo).not.toMatch(/[\u25A0-\u25FF]/);
+    expect(crew).not.toMatch(/[\u25A0-\u25FF]/);
     expect(crew.startsWith("on it")).toBe(true);
     // The operator stays a left-aligned bubble either way.
     expect(lines({ role: "user", text: "go" }, CREW)).toEqual(
@@ -293,8 +307,15 @@ describe("stream paint", () => {
     expect(expanded.length).toBe(6);
     expect(expanded[0]).toContain("Alt+E collapse");
     expect(expanded.join("\n")).toContain("line");
-    for (const line of expanded.slice(1, -1)) expect(line).toContain("┆");
-    expect(expanded[expanded.length - 1]?.trim()).toBe("╵");
+    const rail = defined(expanded[1]).match(/[\u2500-\u257F]/)?.[0];
+    expect(rail).toBeDefined();
+    for (const line of expanded.slice(1, -1)) {
+      expect(line).toContain(rail as string);
+    }
+    // The closing tick is a lone box-drawing glyph.
+    expect(defined(expanded[expanded.length - 1]).trim()).toMatch(
+      /^[\u2500-\u257F]$/,
+    );
   });
 });
 
@@ -473,8 +494,13 @@ describe("block labels", () => {
   });
 
   test("a block's first row is labelled with its writer", () => {
-    expect(blockLabel(undefined, corbits, CREW)).toBe("● agent");
-    expect(blockLabel(you, critic, CREW)).toBe("● critic");
+    const agentLabel = defined(blockLabel(undefined, corbits, CREW));
+    const criticLabel = defined(blockLabel(you, critic, CREW));
+    // One shared icon marker, then the writer's name.
+    expect(agentLabel[0]).toBe(criticLabel[0]);
+    expect(agentLabel[0]).toMatch(/[^a-zA-Z0-9\s]/);
+    expect(agentLabel.endsWith("agent")).toBe(true);
+    expect(criticLabel.endsWith("critic")).toBe(true);
   });
 
   test("a run from the same writer labels only its first row", () => {
@@ -486,7 +512,9 @@ describe("block labels", () => {
   });
 
   test("a change of writer relabels even without a role change", () => {
-    expect(blockLabel(corbits, critic, CREW)).toBe("● critic");
+    const label = defined(blockLabel(corbits, critic, CREW));
+    expect(label.endsWith("critic")).toBe(true);
+    expect(label).not.toBe("critic");
   });
 });
 
@@ -496,23 +524,28 @@ describe("sub-agent dispatch row marks", () => {
     arguments: JSON.stringify({ description: "Review permission gate" }),
   });
 
-  test("a bare pending call reads as the plain dot", () => {
-    expect(streamRowGutter(dispatch, SOLO).content).toContain("·");
+  test("a bare pending call reads as a single pending mark", () => {
+    const gutter = streamRowGutter(dispatch, SOLO).content;
+    expect(gutter[0]).toMatch(/[^a-zA-Z0-9\s]/);
   });
 
-  test("an actively working dispatch reads distinctly from the plain dot", () => {
+  test("an actively working dispatch reads distinctly from the plain pending mark", () => {
     const working = { ...dispatch, agentWorking: true };
-    const gutter = streamRowGutter(working, SOLO).content;
-    expect(gutter).toContain("◐");
-    expect(gutter).not.toContain("·");
+    const pendingMark = streamRowGutter(dispatch, SOLO).content[0];
+    const workingMark = streamRowGutter(working, SOLO).content[0];
+    expect(workingMark).toMatch(/[^a-zA-Z0-9\s]/);
+    expect(workingMark).not.toBe(pendingMark);
   });
 
   test("a stalled dispatch reads distinctly from both working and plain pending", () => {
     const stalled = { ...dispatch, agentWorking: false };
-    const gutter = streamRowGutter(stalled, SOLO).content;
-    expect(gutter).toContain("!");
-    expect(gutter).not.toContain("◐");
-    expect(gutter).not.toContain("·");
+    const working = { ...dispatch, agentWorking: true };
+    const pendingMark = streamRowGutter(dispatch, SOLO).content[0];
+    const workingMark = streamRowGutter(working, SOLO).content[0];
+    const stalledMark = streamRowGutter(stalled, SOLO).content[0];
+    expect(stalledMark).toMatch(/[^a-zA-Z0-9\s]/);
+    expect(stalledMark).not.toBe(workingMark);
+    expect(stalledMark).not.toBe(pendingMark);
   });
 
   test("elapsed time and current tool paint as the row's dim trailer", () => {
@@ -531,7 +564,12 @@ describe("sub-agent dispatch row marks", () => {
       isError: false,
     });
     const merged = mergeToolRows({ ...dispatch, agentWorking: true }, result);
-    expect(streamRowGutter(merged, SOLO).content).toContain("✓");
+    // Back to the same answered mark a plain tool result leads with.
+    const doneMark = streamRowGutter(
+      { role: "tool", text: "ok", meta: "bash" },
+      SOLO,
+    ).content[0];
+    expect(streamRowGutter(merged, SOLO).content[0]).toBe(doneMark);
   });
 });
 

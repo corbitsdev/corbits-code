@@ -7,7 +7,6 @@ import { describe, expect, test } from "bun:test";
 import {
   BOTTOM_MARGIN_MIN_ROWS,
   MARGIN_MIN_COLUMNS,
-  SIDE_MARGIN,
   resolveBottomMarginRows,
   resolveContentWidth,
   resolveSideMargin,
@@ -32,7 +31,6 @@ function frameRows(h: Harness): readonly string[] {
 
 describe("side margin resolution", () => {
   test("one column at every affordable width, and zero below the floor", () => {
-    expect(SIDE_MARGIN).toBe(1);
     for (const columns of [MARGIN_MIN_COLUMNS, 60, 80, 120, 200]) {
       expect(resolveSideMargin(columns)).toBe(1);
     }

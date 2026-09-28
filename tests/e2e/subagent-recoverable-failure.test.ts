@@ -1,62 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { type } from "arktype";
-import type { RequestPredicate } from "@intx/inference-testing";
 
 import { createSubAgentSessionStore } from "../../src/subagent/index.js";
 import { withMockedModuleDuring } from "../helpers/mock-module.js";
+import {
+  fromHost,
+  waitAgentsResults,
+  WORKER_HOST,
+  WORKER_PROVIDER,
+} from "./fleet.js";
 import {
   closeE2ESession,
   e2ePermissionGate,
   openE2ESession,
   runUntilDone,
   seedFile,
-  toolDoneEvents,
 } from "./harness.js";
-
-const RequestURL = type({ url: "string" });
-const fromHost =
-  (host: string): RequestPredicate =>
-  (request) =>
-    RequestURL.assert(request).url.includes(host);
-
-// The worker's own model rides the same scripted fetch layer as the parent
-// (assembleInferenceBase is mocked onto the session harness inside the turn)
-// on a distinct baseURL, so predicates split parent and worker requests.
-const WORKER_HOST = "worker.invalid";
-const WORKER_PROVIDER = {
-  providerName: "openai",
-  baseURL: `https://${WORKER_HOST}/v1`,
-  model: "test-model",
-};
-
-const WaitAgentsResult = type({
-  results: type({
-    agent_id: "string",
-    status: "string",
-    "continuable?": "boolean",
-    "continue_with?": "string",
-    "error?": "string",
-  }).array(),
-  timed_out: "boolean",
-});
-
-function waitAgentsResult(
-  events: Parameters<typeof toolDoneEvents>[0],
-): typeof WaitAgentsResult.infer {
-  let callId: string | undefined;
-  for (const event of events) {
-    if (event.type === "tool.start" && event.data.call.name === "wait_agents") {
-      callId = event.data.call.id;
-      break;
-    }
-  }
-  if (callId === undefined) throw new Error("wait_agents was never called");
-  const done = toolDoneEvents(events).find(
-    (event) => event.data.result.callId === callId,
-  );
-  if (done === undefined) throw new Error("wait_agents produced no result");
-  return WaitAgentsResult.assert(JSON.parse(String(done.data.result.content)));
-}
 
 describe("e2e — recoverable worker failure does not stall the parent", () => {
   test.serial(
@@ -131,9 +89,9 @@ describe("e2e — recoverable worker failure does not stall the parent", () => {
           () => runUntilDone(session, "Run the flaky job"),
         );
 
-        const result = waitAgentsResult(events);
-        expect(result.timed_out).toBe(false);
-        const lane = result.results[0];
+        const [result] = waitAgentsResults(events);
+        expect(result?.timed_out).toBe(false);
+        const lane = result?.results[0];
         expect(lane?.status).toBe("failed");
         expect(lane?.continuable).toBe(true);
         expect(lane?.continue_with).toBeString();

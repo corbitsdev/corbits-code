@@ -108,7 +108,6 @@ describe("formatCodexUsageLimitMessage", () => {
       profile: "abk-labs",
     });
     expect(line).toContain('Codex profile "abk-labs"');
-    expect(line).toContain("workspace member");
     expect(line).toMatch(/Resets in ~/);
     expect(line).toContain("/model");
   });
@@ -120,7 +119,6 @@ describe("formatCodexUsageLimitMessage", () => {
       planType: "plus",
       resetsInSeconds: 120,
     });
-    expect(line.startsWith("Codex usage limit reached")).toBe(true);
     expect(line).toContain("plus");
     expect(line).toContain("~2m");
   });

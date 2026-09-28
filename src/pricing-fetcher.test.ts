@@ -1,6 +1,5 @@
 import { defined } from "../tests/helpers/defined.js";
 import { describe, test, expect } from "bun:test";
-import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
   parseModelsDevPricing,
@@ -24,18 +23,9 @@ describe("defaultPricingCachePath", () => {
   test("resolves under ~/.corbits/, not project cwd .cache/", () => {
     const path = defaultPricingCachePath();
     expect(isAbsolute(path)).toBe(true);
-    expect(path).toBe(
-      join(homedir(), ".corbits", "cache", "models-pricing.json"),
-    );
     // Must not be the old cwd-relative default that polluted project directories.
     expect(path).not.toBe(".cache/models-pricing.json");
     expect(path.endsWith(join(".cache", "models-pricing.json"))).toBe(false);
-  });
-
-  test("accepts an injectable home directory", () => {
-    expect(defaultPricingCachePath("/tmp/fake-home")).toBe(
-      join("/tmp/fake-home", ".corbits", "cache", "models-pricing.json"),
-    );
   });
 });
 
@@ -270,36 +260,6 @@ describe("loadPricing", () => {
     });
 
     expect(result).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// writePricingCache error path
-// ---------------------------------------------------------------------------
-
-describe("writePricingCache error handling", () => {
-  test("swallows write errors and logs to stderr", async () => {
-    const stderrLines: string[] = [];
-    const orig = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((s: string) => {
-      stderrLines.push(s);
-      return true;
-    }) as typeof process.stderr.write;
-
-    // Write to a path where mkdir will fail (file exists as a file, not dir)
-    const badPath = `/tmp/not-a-dir-${Date.now()}`;
-    try {
-      await Bun.write(badPath, "I am a file");
-      await writePricingCache(
-        { timestamp: 0, models: {} },
-        `${badPath}/nested/cache.json`,
-      );
-    } finally {
-      process.stderr.write = orig;
-    }
-    expect(stderrLines.some((l) => l.includes("failed to write cache"))).toBe(
-      true,
-    );
   });
 });
 

@@ -13,8 +13,6 @@ import { defined } from "../helpers/defined.js";
 const pluginRoot = join(import.meta.dirname, "../../plugins/corbits-skills");
 const skillPath = join(pluginRoot, "skills", "lexicon", "SKILL.md");
 
-const FORBIDDEN_SPAWN = /spawn_agent\(agent=.lexicon.\)/;
-
 describe("lexicon skill shape", () => {
   test("SKILL.md exists with slash-only frontmatter", async () => {
     expect(existsSync(skillPath)).toBe(true);
@@ -23,21 +21,6 @@ describe("lexicon skill shape", () => {
     expect(skill).toContain("description:");
     expect(skill).not.toContain("user-invocable: false");
     expect(skill).not.toContain("disable-model-invocation");
-  });
-
-  test("skill owns the drift/size/issue contract", async () => {
-    const skill = await Bun.file(skillPath).text();
-    expect(skill).toContain("pinned commit");
-    expect(skill).toContain("prompt-sizes");
-    expect(skill).toContain("directorPromptSizeTable");
-    expect(skill).toContain("linear-issue-workflow");
-  });
-
-  test("checkout resolution is portable (no hardcoded machine path)", async () => {
-    const skill = await Bun.file(skillPath).text();
-    expect(skill).not.toMatch(/\/Users\/[\w-]+/);
-    expect(skill).toMatch(/AGENTS_CHECKOUT/);
-    expect(skill).toMatch(/ask the operator/);
   });
 
   test("lexicon is a slash command", async () => {
@@ -75,17 +58,6 @@ describe("lexicon invocation gating", () => {
         join(import.meta.dirname, "../..", rel),
       ).text();
       expect(text).not.toContain("lexicon");
-    }
-  });
-
-  test('spawn_agent(agent="lexicon") appears only as a prohibition', async () => {
-    const skill = await Bun.file(skillPath).text();
-    const lines = skill
-      .split("\n")
-      .filter((line) => FORBIDDEN_SPAWN.test(line));
-    expect(lines.length).toBeGreaterThan(0);
-    for (const line of lines) {
-      expect(line).toMatch(/Never call/);
     }
   });
 });

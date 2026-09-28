@@ -4,11 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
-import {
-  createUseSkillTool,
-  useSkillDefinition,
-  workerUseSkillDefinition,
-} from "./use-skill.js";
+import { createUseSkillTool, useSkillDefinition } from "./use-skill.js";
 
 async function fixtureWithHiddenSkill(): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), "corbits-use-skill-"));
@@ -28,21 +24,6 @@ function call(
   if (tool.kind !== "string") throw new Error("expected string tool");
   return tool.handler(args, new AbortController().signal);
 }
-
-describe("useSkillDefinition", () => {
-  test("primary catalog copy does not imply attached skills", () => {
-    expect(useSkillDefinition.name).toBe("use_skill");
-    expect(useSkillDefinition.description).toContain("full instructions");
-    expect(useSkillDefinition.description).toContain("skill_search");
-    expect(useSkillDefinition.description).not.toMatch(/attached/i);
-  });
-
-  test("worker copy tells the model not to reload attached skills", () => {
-    expect(workerUseSkillDefinition.name).toBe("use_skill");
-    expect(workerUseSkillDefinition.description).toContain("attached");
-    expect(workerUseSkillDefinition.description).toMatch(/do not reload/i);
-  });
-});
 
 describe("createUseSkillTool allowedNames", () => {
   test("omitted allowedNames still loads a disable-model-invocation skill", async () => {

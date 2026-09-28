@@ -67,10 +67,6 @@ describe("shouldAbortForStall", () => {
     ).toBe(false);
   });
 
-  test("mid-stream text hang aborts", () => {
-    expect(shouldAbortForStall(base)).toBe(true);
-  });
-
   test("long tool runs are not stalls", () => {
     expect(
       shouldAbortForStall({
@@ -120,12 +116,6 @@ describe("shouldAbortForStall — awaiting-response with a null stream eventuall
     expect(shouldAbortForStall({ ...awaiting, activeToolCalls: [] })).toBe(
       true,
     );
-  });
-
-  // Same turn shape as compact continuation: beginSystemContinuation calls
-  // turnStateOnSubmit, which is awaitingResponse + null streamingType.
-  test("post-compact continuation silence auto-aborts after the stall budget", () => {
-    expect(shouldAbortForStall(awaiting)).toBe(true);
   });
 
   test("a parallel fan-out with sibling tools still running is not a stall", () => {

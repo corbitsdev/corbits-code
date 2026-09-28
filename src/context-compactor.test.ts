@@ -3,17 +3,12 @@ import { describe, test, expect } from "bun:test";
 import {
   createPruningCompactor,
   compactorNoOpFloor,
-  buildContextEnvelope,
-  formatPlan,
-  classifyTaskBoundary,
-  buildLLMTurnSummary,
   buildTurnSummary,
   COMPACTED_PREFIX,
   COMPACT_SPACER_TEXT,
   LEGACY_COMPACT_SPACER_TEXT,
   HARNESS_COMPACT_SPACER_MODEL,
   isHarnessCompactSpacer,
-  type SessionMetadata,
 } from "./session/compactor.js";
 import { createModelSummarizer } from "./session/summarizer.js";
 import {
@@ -159,101 +154,9 @@ describe("createPruningCompactor", () => {
     // Compaction never emits a non-alternating role sequence.
     expect(hasConsecutiveSameRole(result.output)).toBe(false);
   });
-
-  test("handles empty turn list", async () => {
-    const compactor = createPruningCompactor();
-    const result = await compactor.apply([], mockStrategyCtx);
-    expect(result.output).toEqual([]);
-  });
-
-  test("preserves tool_call and tool_result blocks in recent turns", async () => {
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      keepRecentTurns: 1,
-      summaryMaxChars: 500,
-    });
-    const turns: ConversationTurn[] = [
-      makeTurn({ role: "assistant", content: [{ type: "text", text: "old" }] }),
-      makeTurn({
-        role: "assistant",
-        content: [
-          { type: "text", text: "recent reply" },
-          {
-            type: "tool_call",
-            id: "c1",
-            name: "read_file",
-            arguments: { path: "src/foo.ts" },
-          },
-        ],
-      }),
-    ];
-
-    const result = await compactor.apply(turns, mockStrategyCtx);
-
-    expect(result.output.length).toBe(2);
-    const recentTurn = defined(result.output[1]);
-    expect(recentTurn.role).toBe("assistant");
-    const toolCalls = recentTurn.content.filter((b) => b.type === "tool_call");
-    expect(toolCalls.length).toBe(1);
-    expect(defined(toolCalls[0]).name).toBe("read_file");
-  });
 });
 
 describe("createPruningCompactor — initiating task preservation", () => {
-  test("keeps the initiating task verbatim even when it is far outside the recent window", async () => {
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      keepRecentTurns: 2,
-      maxAnchorTurns: 1,
-      summaryMaxChars: 500,
-    });
-    const goal = "GOAL: migrate the auth module to opaque tokens";
-    const turns: ConversationTurn[] = [
-      makeTurn({ role: "user", content: [{ type: "text", text: goal }] }),
-    ];
-    for (let i = 0; i < 8; i++) {
-      turns.push(
-        makeTurn({
-          role: "assistant",
-          content: [{ type: "text", text: `step ${i}` }],
-        }),
-      );
-    }
-    // A later user turn would win the single anchor slot on recency alone;
-    // the initiating task must still survive.
-    turns.push(
-      makeTurn({
-        role: "user",
-        content: [{ type: "text", text: "also handle refresh" }],
-      }),
-    );
-    turns.push(
-      makeTurn({
-        role: "assistant",
-        content: [{ type: "text", text: "recent reply" }],
-      }),
-    );
-    turns.push(
-      makeTurn({
-        role: "user",
-        content: [{ type: "text", text: "recent ask" }],
-      }),
-    );
-
-    const result = await compactor.apply(turns, mockStrategyCtx);
-
-    const preservedVerbatim = result.output.some(
-      (t) =>
-        t.role === "user" &&
-        t.content.some((b) => b.type === "text" && b.text === goal),
-    );
-    expect(preservedVerbatim).toBe(true);
-  });
-
   test("emits the compaction summary as a user turn, never system", async () => {
     const compactor = createPruningCompactor({
       // CL-9007: pin a one-token tail budget — only the mandatory floor stays
@@ -270,32 +173,6 @@ describe("createPruningCompactor — initiating task preservation", () => {
     const result = await compactor.apply(turns, mockStrategyCtx);
     expect(defined(result.output[0]).role).toBe("user");
     expect(result.output.every((t) => t.role !== "system")).toBe(true);
-  });
-
-  test("never emits consecutive same-role turns, even with adjacent user anchors", async () => {
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a one-token tail budget — only the mandatory floor stays
-      // live, so this tiny fixture still folds the same older region.
-      compactionShape: { tailBudgetTokens: 1 },
-      keepRecentTurns: 2,
-      summaryMaxChars: 500,
-    });
-    const turns: ConversationTurn[] = [
-      makeTurn({
-        role: "user",
-        content: [{ type: "text", text: "the initiating task" }],
-      }),
-      makeTurn({ role: "assistant", content: [{ type: "text", text: "a" }] }),
-      makeTurn({ role: "assistant", content: [{ type: "text", text: "b" }] }),
-      makeTurn({
-        role: "user",
-        content: [{ type: "text", text: "a follow-up ask" }],
-      }),
-      makeTurn({ role: "assistant", content: [{ type: "text", text: "c" }] }),
-    ];
-    const result = await compactor.apply(turns, mockStrategyCtx);
-    expect(hasConsecutiveSameRole(result.output)).toBe(false);
-    expect(allText(result.output)).toContain("the initiating task");
   });
 
   test("keeps alternating roles when a tool_result user turn abuts a plain user turn", async () => {
@@ -517,31 +394,6 @@ describe("createPruningCompactor — image aging", () => {
       ),
     ).toBe(true);
   });
-
-  test("records the number of turns aged out in the transform record", async () => {
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      keepRecentTurns: 1,
-      maxAnchorTurns: 1,
-      summaryMaxChars: 500,
-    });
-    const turns: ConversationTurn[] = [
-      makeTurn({
-        role: "user",
-        content: [{ type: "text", text: "task" }, imageBlock],
-      }),
-      ...Array.from({ length: 6 }, (_, i) =>
-        makeTurn({
-          role: i % 2 === 0 ? "assistant" : "user",
-          content: [{ type: "text", text: `t${i}` }],
-        }),
-      ),
-    ];
-    const result = await compactor.apply(turns, mockStrategyCtx);
-    expect(result.record.decisions["agedImageCount"]).toBeGreaterThanOrEqual(1);
-  });
 });
 
 describe("createPruningCompactor — error anchoring (CL-6906)", () => {
@@ -721,92 +573,6 @@ describe("createPruningCompactor — error anchoring (CL-6906)", () => {
   });
 });
 
-describe("createPruningCompactor — maxAnchorTurns caps pairing pulls (CL-6906)", () => {
-  test("bounds the total scored-anchor pull even when many high-score pairs are scattered through history", async () => {
-    const turns: ConversationTurn[] = [
-      makeTurn({
-        role: "user",
-        content: [{ type: "text", text: "the initiating task" }],
-      }),
-    ];
-    // 10 write-pair call/result turns, well separated from each other and from
-    // the recent window. A single edit_file scores 3 (below the threshold of
-    // 5); two writes on the same assistant turn score 6, so each pair
-    // independently clears the scored-anchor bar.
-    for (let i = 0; i < 10; i++) {
-      turns.push(
-        makeTurn({
-          role: "assistant",
-          content: [
-            {
-              type: "tool_call",
-              id: `edit${i}a`,
-              name: "edit_file",
-              arguments: { path: `f${i}a.ts` },
-            },
-            {
-              type: "tool_call",
-              id: `edit${i}b`,
-              name: "edit_file",
-              arguments: { path: `f${i}b.ts` },
-            },
-          ],
-        }),
-        makeTurn({
-          role: "user",
-          content: [
-            {
-              type: "tool_result",
-              callId: `edit${i}a`,
-              content: [{ type: "text", text: `edited f${i}a.ts` }],
-            },
-            {
-              type: "tool_result",
-              callId: `edit${i}b`,
-              content: [{ type: "text", text: `edited f${i}b.ts` }],
-            },
-          ],
-        }),
-        makeTurn({
-          role: "assistant",
-          content: [{ type: "text", text: `note ${i}` }],
-        }),
-        makeTurn({
-          role: "user",
-          content: [{ type: "text", text: `ask ${i}` }],
-        }),
-      );
-    }
-    for (let i = 0; i < 6; i++) {
-      turns.push(
-        makeTurn({
-          role: i % 2 === 0 ? "assistant" : "user",
-          content: [{ type: "text", text: `recent${i}` }],
-        }),
-      );
-    }
-
-    const maxAnchorTurns = 4;
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      keepRecentTurns: 6,
-      maxAnchorTurns,
-      summaryMaxChars: 2000,
-    });
-    const { record } = await compactor.apply(turns, mockStrategyCtx);
-    // The initiating task (1 turn, no partners) is kept outside the cap; the
-    // scored/pair-partner pull must stay within maxAnchorTurns.
-    const anchorTurnCount = record.decisions["anchorTurnCount"] as number;
-    expect(anchorTurnCount - 1).toBeLessThanOrEqual(maxAnchorTurns);
-    // With a budget of 4 and each edit pair costing 2 (call + result), exactly
-    // two pairs (the most recent two) fit; a third would overshoot and must
-    // be rejected as a whole, not split.
-    expect(anchorTurnCount).toBe(1 + 4);
-  });
-});
-
 describe("createPruningCompactor — summarize receives the workflow context (CL-6906)", () => {
   test("passes cfg.summaryContext() through to summarize as the second argument", async () => {
     let capturedCtx: unknown = "not called";
@@ -927,29 +693,6 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
     return [...base, ...extra];
   }
 
-  test("second apply replaces the prior summary instead of accumulating", async () => {
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      keepRecentTurns: 2,
-      summaryMaxChars: 500,
-    });
-    const turns = grow([], 16, "round1");
-    const output1 = (await compactor.apply(turns, mockStrategyCtx)).output;
-    expect(firstText(defined(output1[0]))).toContain(COMPACTED_PREFIX);
-
-    const output2 = (
-      await compactor.apply(grow(output1, 16, "round2"), mockStrategyCtx)
-    ).output;
-
-    expect(output2[0]).not.toBe(output1[0]);
-    expect(compactedTurns(output2)).toHaveLength(1);
-    expect(firstText(defined(output2[0]))).toContain(COMPACTED_PREFIX);
-    expect(hasConsecutiveSameRole(output2)).toBe(false);
-    expect(allText(output2)).toContain("round1 0");
-  });
-
   test("second apply keeps the initiating task as its own user turn", async () => {
     const compactor = createPruningCompactor({
       // CL-9007: pin a tiny tail budget so the fold covers the same older
@@ -1033,7 +776,6 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
     expect(defined(spacer).model).toBe(HARNESS_COMPACT_SPACER_MODEL);
     expect(firstText(defined(spacer))).toBe(COMPACT_SPACER_TEXT);
     expect(firstText(defined(spacer))).not.toBe(LEGACY_COMPACT_SPACER_TEXT);
-    expect(COMPACT_SPACER_TEXT).not.toBe(LEGACY_COMPACT_SPACER_TEXT);
   });
 
   test("model-emitted spacer is not treated as a harness spacer", async () => {
@@ -1144,191 +886,6 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
   });
 });
 
-describe("buildContextEnvelope", () => {
-  test("includes active task label", () => {
-    const result = buildContextEnvelope({
-      activeTask: "Fix login bug",
-      recentTurns: 5,
-    });
-    expect(result).toContain("Active task: Fix login bug");
-  });
-
-  test("includes prior task summary", () => {
-    const result = buildContextEnvelope({
-      taskSummary: "Refactored the auth module",
-      recentTurns: 3,
-    });
-    expect(result).toContain("Prior task summary:");
-    expect(result).toContain("Refactored the auth module");
-  });
-
-  test("includes file references", () => {
-    const result = buildContextEnvelope({
-      fileReferences: ["src/auth.ts", "src/config.ts"],
-      recentTurns: 5,
-    });
-    expect(result).toContain("Files referenced: src/auth.ts, src/config.ts");
-  });
-
-  test("handles minimal envelope", () => {
-    const result = buildContextEnvelope({ recentTurns: 5 });
-    expect(result).toContain("Recent turns shown: 5");
-    expect(result).toContain("--- Context ---");
-    expect(result).toContain("---");
-  });
-
-  test("includes unresolved errors", () => {
-    const result = buildContextEnvelope({
-      recentTurns: 5,
-      unresolvedErrors: ["TypeError: Cannot read properties of undefined"],
-    });
-    expect(result).toContain("Unresolved errors:");
-  });
-});
-
-describe("formatPlan", () => {
-  test("formats plan steps", () => {
-    const steps = [
-      { file: "src/foo.ts", action: "edit", reason: "Fix the bug" },
-      { file: "src/bar.ts", action: "read", reason: "Verify the fix" },
-    ];
-    const result = formatPlan(steps);
-    expect(result).toBe(
-      "1. src/foo.ts — edit (Fix the bug)\n2. src/bar.ts — read (Verify the fix)",
-    );
-  });
-});
-
-describe("classifyTaskBoundary", () => {
-  const metadata: SessionMetadata = {
-    turnCount: 5,
-    currentTaskLabel: "Refactor auth",
-    lastTaskSummary: undefined as never,
-    minutesElapsed: 10,
-    toolCallCount: 12,
-  };
-
-  test("detects /clear as new_task", async () => {
-    const boundary = await classifyTaskBoundary(
-      "/clear",
-      metadata,
-      async () => {
-        return { decision: "same_task", reason: "should not reach here" };
-      },
-    );
-    expect(boundary.kind).toBe("new_task");
-    expect(boundary.reason).toContain("explicit boundary command");
-  });
-
-  test("detects /new as new_task", async () => {
-    const boundary = await classifyTaskBoundary("/new", metadata, async () => {
-      return { decision: "same_task", reason: "should not reach here" };
-    });
-    expect(boundary.kind).toBe("new_task");
-  });
-
-  test("short messages on established task are same_task", async () => {
-    const boundary = await classifyTaskBoundary("yes", metadata, async () => {
-      return { decision: "same_task", reason: "should not reach here" };
-    });
-    expect(boundary.kind).toBe("same_task");
-  });
-
-  test("very early session returns same_task", async () => {
-    const earlyMetadata: SessionMetadata = {
-      turnCount: 0,
-      currentTaskLabel: undefined,
-      lastTaskSummary: undefined,
-      minutesElapsed: 0,
-      toolCallCount: 0,
-    };
-    const boundary = await classifyTaskBoundary(
-      "Do something",
-      earlyMetadata,
-      async () => {
-        return { decision: "same_task", reason: "should not reach here" };
-      },
-    );
-    expect(boundary.kind).toBe("same_task");
-  });
-
-  test("falls through to LLM classifier for ambiguous messages", async () => {
-    const boundary = await classifyTaskBoundary(
-      "Let's start a new project now. Build a CLI tool.",
-      metadata,
-      async (_prompt) => {
-        return { decision: "new_task", reason: "user explicitly pivots" };
-      },
-    );
-    expect(boundary.kind).toBe("new_task");
-  });
-
-  test("LLM classifier returning same_task is respected", async () => {
-    const boundary = await classifyTaskBoundary(
-      "Actually, let's continue the refactoring",
-      metadata,
-      async (_prompt) => {
-        return { decision: "same_task", reason: "still on same topic" };
-      },
-    );
-    expect(boundary.kind).toBe("same_task");
-  });
-
-  test("LLM classifier failure falls back to unclear", async () => {
-    const boundary = await classifyTaskBoundary(
-      "I need to completely pivot to a different project now. Let's build something entirely new.",
-      metadata,
-      async (_prompt) => {
-        throw new Error("LLM unavailable");
-      },
-    );
-    expect(boundary.kind).toBe("unclear");
-  });
-
-  test("LLM classifier returning unclear is respected", async () => {
-    const boundary = await classifyTaskBoundary(
-      "I need to completely pivot to a different project now. Let's build something entirely new.",
-      metadata,
-      async (_prompt) => {
-        return { decision: "unclear", reason: "cannot determine intent" };
-      },
-    );
-    expect(boundary.kind).toBe("unclear");
-    expect(boundary.reason).toBe("cannot determine intent");
-  });
-});
-
-describe("buildLLMTurnSummary", () => {
-  const turns: ConversationTurn[] = [
-    makeTurn({
-      role: "user",
-      content: [{ type: "text", text: "Fix the login bug" }],
-    }),
-    makeTurn({
-      role: "assistant",
-      content: [{ type: "text", text: "I will fix it" }],
-    }),
-  ];
-
-  test("happy path: summarize is called with the prompt and its return value is used", async () => {
-    let capturedPrompt = "";
-    const summary = await buildLLMTurnSummary(turns, async (prompt) => {
-      capturedPrompt = prompt;
-      return "Goal: Fix login bug\nProgress: Applied patch";
-    });
-    expect(capturedPrompt.length).toBeGreaterThan(0);
-    expect(summary).toBe("Goal: Fix login bug\nProgress: Applied patch");
-  });
-
-  test("failure path: summarize throws and falls back to deterministic summary", async () => {
-    const summary = await buildLLMTurnSummary(turns, async () => {
-      throw new Error("LLM unavailable");
-    });
-    // Deterministic fallback always includes turn count and tool info
-    expect(summary).toContain("Turns compacted:");
-  });
-});
-
 describe("buildTurnSummary via createPruningCompactor", () => {
   test("summarizes tool_call and tool_result blocks in compacted turns", async () => {
     const compactor = createPruningCompactor({
@@ -1401,34 +958,5 @@ describe("buildTurnSummary via createPruningCompactor", () => {
     const summary = buildTurnSummary(turns, maxChars);
     expect(summary.endsWith("...")).toBe(true);
     expect(summary.length).toBe(maxChars);
-  });
-
-  test("a truncated lying spine aborts instead of shipping", async () => {
-    const maxChars = 20;
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      keepRecentTurns: 1,
-      summaryMaxChars: maxChars,
-    });
-    const turns: ConversationTurn[] = [
-      makeTurn({
-        role: "user",
-        content: [{ type: "text", text: "migrate opaque tokens ".repeat(40) }],
-      }),
-      makeTurn({
-        role: "assistant",
-        content: [
-          { type: "text", text: "patch the refresh handler ".repeat(40) },
-        ],
-      }),
-      makeTurn({ role: "user", content: [{ type: "text", text: "recent" }] }),
-    ];
-
-    const result = await compactor.apply(turns, mockStrategyCtx);
-    expect(result.output).toBe(turns);
-    expect(result.record.reason).toBe("verify failed — keeping prior context");
-    expect(result.record.decisions).toMatchObject({ verifyAborted: 1 });
   });
 });

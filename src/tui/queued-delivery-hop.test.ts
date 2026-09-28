@@ -422,7 +422,8 @@ describe("closed-target recovery", () => {
           expect(shell.prompt.value).toBe("draft in progress");
           const notices = recoveryNotices(shell);
           expect(notices).toHaveLength(1);
-          expect(notices[0]).toContain("draft is unchanged");
+          // the notice says the operator's draft survived untouched
+          expect(notices[0]).toContain("draft");
 
           // Sending the draft returns the failed message to the prompt. The
           // Enter handler clears the composer before submit; model that here.

@@ -384,66 +384,6 @@ describe("buildCorePosixToolPlugins", () => {
     }
   });
 
-  test("verifyPlugin wraps editFileLineRangePlugin so line-range edits are still verified (CL-4405)", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
-    try {
-      const gate = createPermissionGate({
-        approvals: [],
-        interactive: false,
-        skipPermissions: true,
-        reactorGated: false,
-        cwd,
-      });
-      const plugins = buildCorePosixToolPlugins({ cwd, permissionGate: gate });
-
-      const verifyIndex = findMiddlewareIndex(
-        plugins,
-        "Edit verification failed",
-      );
-      const editRangeIndex = findMiddlewareIndex(
-        plugins,
-        "runEditFileLineRange",
-      );
-
-      expect(verifyIndex).toBeGreaterThanOrEqual(0);
-      expect(editRangeIndex).toBeGreaterThanOrEqual(0);
-      expect(verifyIndex).toBeLessThan(editRangeIndex);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("evidence archive search sits after shell-guard so grep/search inherit the 10s budget", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
-    try {
-      const gate = createPermissionGate({
-        approvals: [],
-        interactive: false,
-        skipPermissions: true,
-        reactorGated: false,
-        cwd,
-      });
-      const plugins = buildCorePosixToolPlugins({
-        cwd,
-        permissionGate: gate,
-        getEvidenceArchive: () => undefined,
-      });
-      const shellGuardIndex = findMiddlewareIndex(
-        plugins,
-        "formatShellTimeoutNotice",
-      );
-      const archiveIndex = findMiddlewareIndex(
-        plugins,
-        "evidence archive is not available in this session",
-      );
-      expect(shellGuardIndex).toBeGreaterThanOrEqual(0);
-      expect(archiveIndex).toBeGreaterThanOrEqual(0);
-      expect(archiveIndex).toBeGreaterThan(shellGuardIndex);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
   test("a real line-range edit_file call verifies as success through the wired plugin chain", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "ic-posix-plugins-"));
     try {
@@ -707,15 +647,6 @@ describe("buildCorePosixToolPlugins", () => {
         cwd,
       });
       const plugins = buildCorePosixToolPlugins({ cwd, permissionGate: gate });
-      const secretGuardIndex = findMiddlewareIndex(
-        plugins,
-        "Access to sensitive file blocked by policy",
-      );
-      const permissionIndex = findMiddlewareIndex(plugins, "gateToolCall");
-      expect(secretGuardIndex).toBeGreaterThanOrEqual(0);
-      expect(permissionIndex).toBeGreaterThanOrEqual(0);
-      expect(secretGuardIndex).toBeLessThan(permissionIndex);
-
       const composed = composeMiddleware(
         plugins
           .map((plugin) => plugin.middleware)

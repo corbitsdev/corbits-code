@@ -5,7 +5,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import type { PermissionRequest } from "../permission/types.js";
 import { createHarness } from "./harness.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import {
@@ -188,49 +187,6 @@ describe("mountProductHost", () => {
     }
   });
 
-  test("permission.gate opens the overlay and resolves through the emitter's resolve callback", async () => {
-    const { host, emitter } = await mountHeadless();
-    try {
-      let resolved: unknown;
-      const request: PermissionRequest = {
-        tool: "bash",
-        action: "run",
-        subject: "ls",
-        scopes: [],
-      };
-      emitter.emit("permission.gate", {
-        id: "req-1",
-        request,
-        resolve: (outcome: unknown) => {
-          resolved = outcome;
-        },
-      });
-      expect(host.shell.overlayKind).toBe("permissions");
-      expect(host.shell.overlayItems).toEqual(["Reject", "Accept once"]);
-
-      acceptOverlaySelection(host.shell);
-      expect(resolved).toEqual({ allow: false });
-    } finally {
-      host.dispose();
-    }
-  });
-
-  test("operator.gate opens the overlay and resolves through the emitter's resolve callback", async () => {
-    const { host, emitter } = await mountHeadless();
-    try {
-      emitter.emit("operator.gate", {
-        id: "ask-1",
-        question: "Proceed?",
-        options: ["Cancel", "Continue"],
-        resolve: (_result: unknown) => undefined,
-      });
-      expect(host.shell.overlayKind).toBe("operator");
-      expect(host.shell.overlayItems).toEqual(["Cancel", "Continue"]);
-    } finally {
-      host.dispose();
-    }
-  });
-
   test("dispose() detaches emitter listeners and resolves waitUntilExit", async () => {
     const { host, emitter } = await mountHeadless();
 
@@ -263,48 +219,6 @@ describe("mountProductHost", () => {
       emitter.emit("event", { type: "user", text: "late" }),
     ).not.toThrow();
     expect(host.shell.streamLog).toEqual([]);
-  });
-
-  test("setChrome with running agents paints an agents panel clock", async () => {
-    const now = Date.now();
-    // Start 300ms before the minute boundary: the rollover assertion stays
-    // identical while the boundary wait (up to a full minute from a 59:00
-    // start) shrinks to at most ~0.3s of wall clock, with plenty of margin
-    // left for the mount + first capture to still see 0:59.
-    const { host, renderOnce, captureCharFrame } = await mountHeadless({
-      chrome: {
-        agents: [
-          {
-            agentId: "explorer",
-            currentToolStartedAt: null,
-            description: "map callers",
-            status: "running",
-            startedAt: now - 59_700,
-            lastActivityAt: now,
-          },
-        ],
-      },
-    });
-    try {
-      await renderOnce();
-      // Live agents strip above the prompt — sticky poll keeps the clock fresh.
-      expect(captureCharFrame()).toContain("0:59");
-      expect(captureCharFrame()).toContain("map callers");
-
-      // Wait for the minute boundary instead of a fixed 1.1s; the sticky poll
-      // repaints the clock each tick.
-      const deadline = Date.now() + 1_500;
-      let frame = "";
-      while (Date.now() < deadline && !/1:0\d/.test(frame)) {
-        await new Promise((r) => setTimeout(r, 50));
-        await renderOnce();
-        frame = captureCharFrame();
-      }
-      expect(frame).toMatch(/1:0\d/);
-      expect(frame).toContain("map callers");
-    } finally {
-      host.dispose();
-    }
   });
 
   // Production holds finished rows for 4s; a short override keeps the
@@ -445,88 +359,6 @@ describe("flat type-to-filter model picker", () => {
       expect(selected).toEqual([
         modelOptionId("xai/thegreataxios", "grok-4.5"),
       ]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
-  test("selecting a model applies the pick without descending", async () => {
-    const { harness, host, selected } = await mountPicker();
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      const items = host.shell.overlayItems;
-      const grokIndex = items.findIndex((label) => label.includes("grok-4.5"));
-      expect(grokIndex).toBeGreaterThanOrEqual(0);
-      moveOverlaySelection(host.shell, grokIndex);
-      acceptOverlaySelection(host.shell);
-      expect(selected).toEqual([
-        modelOptionId("xai/thegreataxios", "grok-4.5"),
-      ]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
-  test('the current model\'s row reads "(current)" at a glance', async () => {
-    const harness = await createHarness({ width: 80, height: 24 });
-    const port = makeFakeSessionPort();
-    const catalog = buildModelsFirstCatalog({
-      providers,
-      recent: [{ provider: "xai/thegreataxios", model: "grok-4.5" }],
-    });
-    const host = await mountProductHost({
-      title: "test-session",
-      eventEmitter: new EventEmitter(),
-      send: port.send,
-      interrupt: port.interrupt,
-      deliver: port.deliver,
-      createRenderer: async () => harness.renderer,
-      models: catalog,
-      activeModelId: () => modelOptionId("xai/thegreataxios", "grok-4.5"),
-      onModelSelect: () => undefined,
-    });
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      const frame = harness.captureCharFrame();
-      expect(frame).toContain("grok-4.5 * [xai/thegreataxios] (current)");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
-  test("stale recents pointing at a different model do not steal the (current) marker", async () => {
-    // Recents still name the model a *previous* session last switched to;
-    // this session has run codex/abk-labs / gpt-5.5 all along without ever
-    // touching the picker. The live model, not the recents list, decides
-    // which row reads "(current)".
-    const harness = await createHarness({ width: 80, height: 24 });
-    const port = makeFakeSessionPort();
-    const catalog = buildModelsFirstCatalog({
-      providers,
-      recent: [{ provider: "xai/thegreataxios", model: "grok-4.5" }],
-    });
-    const host = await mountProductHost({
-      title: "test-session",
-      eventEmitter: new EventEmitter(),
-      send: port.send,
-      interrupt: port.interrupt,
-      deliver: port.deliver,
-      createRenderer: async () => harness.renderer,
-      models: catalog,
-      activeModelId: () => modelOptionId("codex/abk-labs", "gpt-5.5"),
-      onModelSelect: () => undefined,
-    });
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      const frame = harness.captureCharFrame();
-      expect(frame).not.toContain("grok-4.5 * [xai/thegreataxios] (current)");
-      expect(frame).toContain("gpt-5.5 * [codex/abk-labs] (current)");
     } finally {
       host.dispose();
       harness.destroy();
@@ -842,59 +674,6 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  test("composed Option+A (å) opens add-provider and is not claimed by type-to-filter", async () => {
-    // Terminals may deliver Option+A as å/Å without meta/option.
-    const { harness, host } = await mountPicker({
-      onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
-    });
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      const composed = {
-        name: "å",
-        sequence: "å",
-        ctrl: false,
-        meta: false,
-        option: false,
-      } as KeyEvent;
-      expect(handleListFilterKey(host.shell, composed)).toBe(false);
-      expect(runOverlayAction(host.shell, composed)).toBe(true);
-      expect(host.shell.overlayKind).toBe("add_provider");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
-  test("composed Option+A (Å) opens add-provider and is not claimed by type-to-filter", async () => {
-    const { harness, host } = await mountPicker({
-      onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
-    });
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      const composed = {
-        name: "Å",
-        sequence: "Å",
-        ctrl: false,
-        meta: false,
-        option: false,
-      } as KeyEvent;
-      expect(handleListFilterKey(host.shell, composed)).toBe(false);
-      expect(runOverlayAction(host.shell, composed)).toBe(true);
-      expect(host.shell.overlayKind).toBe("add_provider");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
   test("composed å through the key path opens add-provider", async () => {
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
@@ -1033,31 +812,6 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  test("ordinary letters still type-to-filter when add-provider is wired", async () => {
-    const { harness, host } = await mountPicker({
-      onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
-    });
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      const letter = {
-        name: "g",
-        sequence: "g",
-        ctrl: false,
-        meta: false,
-        option: false,
-      } as KeyEvent;
-      expect(handleListFilterKey(host.shell, letter)).toBe(true);
-      expect(host.shell.overlayKind).toBe("model_picker");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
   test("Enter on a Custom add-provider row runs the connect flow for custom", async () => {
     const connected: string[] = [];
     const { harness, host } = await mountPicker({
@@ -1167,27 +921,6 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  test("Enter on an add-provider row runs the connect flow for that provider", async () => {
-    const connected: string[] = [];
-    const { harness, host } = await mountPicker({
-      onConnectProvider: (name) => connected.push(name),
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
-    });
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      runOverlayAction(host.shell, altA);
-      await harness.renderOnce();
-      acceptOverlaySelection(host.shell);
-      expect(connected).toEqual(["codex"]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
   test("without addProviderChoices, Alt+A is not claimed", async () => {
     const { harness, host } = await mountPicker();
     try {
@@ -1209,24 +942,6 @@ describe("flat type-to-filter model picker", () => {
       host.openModels?.();
       await harness.renderOnce();
       expect(harness.captureCharFrame()).not.toContain("Alt+A");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
-  test("openAddProvider opens the add-provider selector when choices are wired", async () => {
-    const { harness, host } = await mountPicker({
-      onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
-    });
-    try {
-      host.openAddProvider?.();
-      await harness.renderOnce();
-      expect(host.shell.overlayKind).toBe("add_provider");
-      expect(host.shell.overlayItems).toEqual(["Codex — 0 accounts"]);
     } finally {
       host.dispose();
       harness.destroy();

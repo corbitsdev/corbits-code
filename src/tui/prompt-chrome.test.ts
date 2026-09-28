@@ -17,6 +17,7 @@ import {
   setPromptWorkspace,
   submitPrompt,
 } from "./shell/prompt";
+import { BORDER } from "./prompt-border";
 import { RUNTIME_FLASH_MS } from "./runtime-notices";
 import { UI } from "./theme";
 
@@ -107,13 +108,22 @@ function ruleOf(rule: { content: unknown }): string {
   return (chunks ?? []).map((c) => c.text ?? "").join("");
 }
 
+/** Plain top rule: open corner, an unbroken horizontal run, close corner. */
+function expectPlainTopRule(text: string): void {
+  expect(text.startsWith(BORDER.topLeft)).toBe(true);
+  expect(text.endsWith(BORDER.topRight)).toBe(true);
+  expect([...text.slice(1, -1)].every((c) => c === BORDER.horizontal)).toBe(
+    true,
+  );
+}
+
 describe("the model label rides the top border", () => {
   test("an unnamed session shows nothing — no placeholder, no session name", async () => {
     await withShell((shell) => {
       expect(shell.modelLabel).toBeNull();
       const top = ruleOf(shell.promptTopRule);
       expect(top).not.toContain(shell.baseTitle);
-      expect(top).toMatch(/^╭─+╮$/u);
+      expectPlainTopRule(top);
     });
   });
 
@@ -125,8 +135,12 @@ describe("the model label rides the top border", () => {
         effort: "high",
       });
       const top = ruleOf(shell.promptTopRule);
-      expect(top).toContain("anthropic · opus · high");
-      expect(top).toMatch(/^╭─+ anthropic · opus · high ─╮$/u);
+      const label = "anthropic · opus · high";
+      const idx = top.indexOf(label);
+      expect(idx).toBeGreaterThan(1);
+      // frame resumes between the label and the closing corner
+      expect(top.slice(idx + label.length)).toContain(BORDER.horizontal);
+      expect(top.endsWith(BORDER.topRight)).toBe(true);
       expect(top.length).toBe(shell.layout.contentWidth);
     });
   });
@@ -136,7 +150,7 @@ describe("the model label rides the top border", () => {
       setPromptModelLabel(shell, { model: "opus" });
       setPromptModelLabel(shell, {});
       expect(shell.modelLabel).toBeNull();
-      expect(ruleOf(shell.promptTopRule)).toMatch(/^╭─+╮$/u);
+      expectPlainTopRule(ruleOf(shell.promptTopRule));
     });
   });
 });
@@ -147,7 +161,10 @@ describe("mcp attention rides the top border", () => {
       setPromptModelLabel(shell, { profile: "xai", model: "grok 4.6" });
       setMcpNeedsAuth(shell, ["granola"]);
       const top = ruleOf(shell.promptTopRule);
-      expect(top).toMatch(/^╭─+ mcp ! ─ xai · grok 4.6 ─╮$/u);
+      const markIdx = top.indexOf("mcp !");
+      expect(markIdx).toBeGreaterThan(-1);
+      expect(markIdx).toBeLessThan(top.indexOf("xai · grok 4.6"));
+      expect(top.endsWith(BORDER.topRight)).toBe(true);
       expect(noticeText(shell)).toBe("");
       expect(shell.layout.heights.notice).toBe(0);
     });
@@ -158,7 +175,10 @@ describe("mcp attention rides the top border", () => {
       setPromptModelLabel(shell, { profile: "xai", model: "grok 4.6" });
       setMcpNeedsAuth(shell, ["granola"]);
       setMcpNeedsAuth(shell, []);
-      expect(ruleOf(shell.promptTopRule)).toMatch(/^╭─+ xai · grok 4.6 ─╮$/u);
+      const top = ruleOf(shell.promptTopRule);
+      expect(top).toContain("xai · grok 4.6");
+      expect(top).not.toContain("mcp !");
+      expect(top.endsWith(BORDER.topRight)).toBe(true);
     });
   });
 });
@@ -169,7 +189,10 @@ describe("plugin attention rides the top border", () => {
       setPromptModelLabel(shell, { profile: "xai", model: "grok 4.6" });
       setPluginNeedsAttention(shell, true);
       const top = ruleOf(shell.promptTopRule);
-      expect(top).toMatch(/^╭─+ plugin ! ─ xai · grok 4.6 ─╮$/u);
+      const markIdx = top.indexOf("plugin !");
+      expect(markIdx).toBeGreaterThan(-1);
+      expect(markIdx).toBeLessThan(top.indexOf("xai · grok 4.6"));
+      expect(top.endsWith(BORDER.topRight)).toBe(true);
       expect(noticeText(shell)).toBe("");
     });
   });
@@ -180,7 +203,13 @@ describe("plugin attention rides the top border", () => {
       setMcpNeedsAuth(shell, ["granola"]);
       setPluginNeedsAttention(shell, true);
       const top = ruleOf(shell.promptTopRule);
-      expect(top).toMatch(/^╭─+ mcp ! · plugin ! ─ xai · grok 4.6 ─╮$/u);
+      // one combined attention run, still left of the model label
+      const mcpIdx = top.indexOf("mcp !");
+      const pluginIdx = top.indexOf("plugin !");
+      const labelIdx = top.indexOf("xai · grok 4.6");
+      expect(mcpIdx).toBeGreaterThan(-1);
+      expect(pluginIdx).toBeGreaterThan(mcpIdx);
+      expect(pluginIdx).toBeLessThan(labelIdx);
     });
   });
 
@@ -189,7 +218,10 @@ describe("plugin attention rides the top border", () => {
       setPromptModelLabel(shell, { profile: "xai", model: "grok 4.6" });
       setPluginNeedsAttention(shell, true);
       setPluginNeedsAttention(shell, false);
-      expect(ruleOf(shell.promptTopRule)).toMatch(/^╭─+ xai · grok 4.6 ─╮$/u);
+      const top = ruleOf(shell.promptTopRule);
+      expect(top).toContain("xai · grok 4.6");
+      expect(top).not.toContain("plugin !");
+      expect(top.endsWith(BORDER.topRight)).toBe(true);
     });
   });
 });
@@ -202,9 +234,14 @@ describe("the workspace rides the bottom border", () => {
         branch: "migration/opentui-tui",
       });
       const bottom = ruleOf(shell.promptBottomRule);
-      expect(bottom).toMatch(
-        /^╰─ .*corbits code ─+ \/src\/corbits-code \(migration\/opentui-tui\) ─╯$/u,
+      // lockup left of the workspace label, corners intact
+      expect(bottom.startsWith(BORDER.bottomLeft)).toBe(true);
+      expect(bottom.endsWith(BORDER.bottomRight)).toBe(true);
+      expect(bottom.indexOf("corbits code")).toBeGreaterThan(-1);
+      expect(bottom.indexOf("corbits code")).toBeLessThan(
+        bottom.indexOf("/src/corbits-code"),
       );
+      expect(bottom).toContain("(migration/opentui-tui)");
       expect(bottom.length).toBe(shell.layout.contentWidth);
     });
   });
@@ -213,7 +250,9 @@ describe("the workspace rides the bottom border", () => {
     await withShell((shell) => {
       setPromptWorkspace(shell, { cwd: "/src/corbits-code", branch: null });
       const bottom = ruleOf(shell.promptBottomRule);
-      expect(bottom).toContain("/src/corbits-code ─╯");
+      // the path is the last run before the closing corner
+      expect(bottom).toContain("/src/corbits-code");
+      expect(bottom.endsWith(BORDER.bottomRight)).toBe(true);
       expect(bottom).not.toContain("(");
     });
   });
@@ -246,10 +285,11 @@ describe("narrow terminals degrade the rules instead of corrupting them", () => 
       });
       const top = ruleOf(shell.promptTopRule);
       const bottom = ruleOf(shell.promptBottomRule);
-      expect(top).toMatch(/^╭─+ xai · grok 4.5 ─╮$/u);
+      expect(top).toContain("xai · grok 4.5");
+      expect(top.endsWith(BORDER.topRight)).toBe(true);
       expect(bottom).toContain("corbits code");
       expect(bottom).toContain("(migration/opentui-tui)");
-      expect(bottom).toEndWith("─╯");
+      expect(bottom.endsWith(BORDER.bottomRight)).toBe(true);
       expect(bottom.length).toBe(shell.layout.contentWidth);
     }, 60);
   });
@@ -263,13 +303,14 @@ describe("narrow terminals degrade the rules instead of corrupting them", () => 
       });
       const top = ruleOf(shell.promptTopRule);
       const bottom = ruleOf(shell.promptBottomRule);
-      expect(top).toMatch(/^╭─+ xai · grok 4.5 ─╮$/u);
+      expect(top).toContain("xai · grok 4.5");
+      expect(top.endsWith(BORDER.topRight)).toBe(true);
       expect(bottom).not.toContain("corbits code");
       expect(bottom).toContain("(migration/opentui-tui)");
       // The elision is marked, and both corners still close the rule.
       expect(bottom).toContain("…");
-      expect(bottom.startsWith("╰")).toBe(true);
-      expect(bottom.endsWith("╯")).toBe(true);
+      expect(bottom.startsWith(BORDER.bottomLeft)).toBe(true);
+      expect(bottom.endsWith(BORDER.bottomRight)).toBe(true);
       expect(bottom.length).toBe(shell.layout.contentWidth);
     }, 48);
   });
@@ -284,8 +325,14 @@ describe("narrow terminals degrade the rules instead of corrupting them", () => 
         cwd: "/src/deep/nesting/corbits-code",
         branch: "a-very-long-branch-name-indeed",
       });
-      expect(ruleOf(shell.promptTopRule)).toMatch(/^╭─+╮$/u);
-      expect(ruleOf(shell.promptBottomRule)).toBe("╰─ corbits code ─────╯");
+      expectPlainTopRule(ruleOf(shell.promptTopRule));
+      const bottom = ruleOf(shell.promptBottomRule);
+      // only the brand survives; the workspace label is gone entirely
+      expect(bottom).toContain("corbits code");
+      expect(bottom).not.toContain("/src/");
+      expect(bottom.startsWith(BORDER.bottomLeft)).toBe(true);
+      expect(bottom.endsWith(BORDER.bottomRight)).toBe(true);
+      expect(bottom.length).toBe(shell.layout.contentWidth);
     }, 22);
   });
 });

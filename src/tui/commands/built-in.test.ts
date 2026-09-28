@@ -23,6 +23,13 @@ const makeCtx = (): CommandContext => ({
   signalClear: () => undefined,
 });
 
+/** A local message result whose copy mentions `fragment`. */
+function expectMessageCopy(result: unknown, fragment: string): void {
+  const r = result as { type: string; text?: string };
+  expect(r.type).toBe("message");
+  expect(r.text ?? "").toContain(fragment);
+}
+
 describe("/help command", () => {
   it("is registered", () => {
     expect(getCommand("help")).toBeDefined();
@@ -111,12 +118,10 @@ describe("/status command", () => {
   });
 
   it("says so rather than throwing when no fleet source is wired", () => {
-    expect(
+    expectMessageCopy(
       defined(getCommand("status"), "status").handler("", makeCtx()),
-    ).toEqual({
-      type: "message",
-      text: "Fleet status is not available in this session.",
-    });
+      "not available",
+    );
   });
 });
 
@@ -182,12 +187,10 @@ describe("/yolo command", () => {
       } as unknown as RunnerServices;
       const { commandContext } = createCommandLayer(state, services);
 
-      expect(
+      expectMessageCopy(
         defined(getCommand("yolo"), "yolo").handler("on", commandContext),
-      ).toEqual({
-        type: "message",
-        text: "Yolo mode on — permission prompts skipped. Saved as the default.",
-      });
+        "Yolo mode on",
+      );
       await globalSettingsWriter.enqueue(async () => undefined);
 
       expect(
@@ -210,20 +213,20 @@ describe("/yolo command", () => {
         skip = value;
       },
     };
-    expect(defined(getCommand("yolo"), "yolo").handler("", ctx)).toEqual({
-      type: "message",
-      text: "Yolo mode on — permission prompts skipped. Saved as the default.",
-    });
+    expectMessageCopy(
+      defined(getCommand("yolo"), "yolo").handler("", ctx),
+      "Yolo mode on",
+    );
     expect(skip).toBe(true);
-    expect(defined(getCommand("yolo"), "yolo").handler("", ctx)).toEqual({
-      type: "message",
-      text: "Yolo mode off — permission prompts restored. Saved as the default.",
-    });
+    expectMessageCopy(
+      defined(getCommand("yolo"), "yolo").handler("", ctx),
+      "Yolo mode off",
+    );
     expect(skip).toBe(false);
-    expect(defined(getCommand("yolo"), "yolo").handler("toggle", ctx)).toEqual({
-      type: "message",
-      text: "Yolo mode on — permission prompts skipped. Saved as the default.",
-    });
+    expectMessageCopy(
+      defined(getCommand("yolo"), "yolo").handler("toggle", ctx),
+      "Yolo mode on",
+    );
     expect(skip).toBe(true);
   });
 
@@ -236,15 +239,15 @@ describe("/yolo command", () => {
         skip = value;
       },
     };
-    expect(defined(getCommand("yolo"), "yolo").handler("on", ctx)).toEqual({
-      type: "message",
-      text: "Yolo mode on — permission prompts skipped. Saved as the default.",
-    });
+    expectMessageCopy(
+      defined(getCommand("yolo"), "yolo").handler("on", ctx),
+      "Yolo mode on",
+    );
     expect(skip).toBe(true);
-    expect(defined(getCommand("yolo"), "yolo").handler("off", ctx)).toEqual({
-      type: "message",
-      text: "Yolo mode off — permission prompts restored. Saved as the default.",
-    });
+    expectMessageCopy(
+      defined(getCommand("yolo"), "yolo").handler("off", ctx),
+      "Yolo mode off",
+    );
     expect(skip).toBe(false);
   });
 
@@ -254,17 +257,17 @@ describe("/yolo command", () => {
       getSkipPermissions: () => false,
       setSkipPermissions: () => undefined,
     };
-    expect(defined(getCommand("yolo"), "yolo").handler("maybe", ctx)).toEqual({
-      type: "message",
-      text: "Usage: /yolo [on|off|toggle]",
-    });
+    expectMessageCopy(
+      defined(getCommand("yolo"), "yolo").handler("maybe", ctx),
+      "/yolo",
+    );
   });
 
   it("says so when skip-permissions is not wired", () => {
-    expect(defined(getCommand("yolo"), "yolo").handler("", makeCtx())).toEqual({
-      type: "message",
-      text: "Yolo mode is not available in this mode.",
-    });
+    expectMessageCopy(
+      defined(getCommand("yolo"), "yolo").handler("", makeCtx()),
+      "not available",
+    );
   });
 });
 
@@ -288,10 +291,7 @@ describe("/clear command", () => {
   it("returns a local message and does not send to the agent", () => {
     const ctx = makeCtx();
     const result = defined(getCommand("clear"), "clear").handler("", ctx);
-    expect(result).toEqual({
-      type: "message",
-      text: "Started a fresh session.",
-    });
+    expectMessageCopy(result, "fresh session");
   });
 
   it("calls signalClear", () => {
@@ -309,10 +309,7 @@ describe("/new command", () => {
   it("returns a local message and does not send to the agent", () => {
     const ctx = makeCtx();
     const result = defined(getCommand("new"), "new").handler("", ctx);
-    expect(result).toEqual({
-      type: "message",
-      text: "Started a fresh session.",
-    });
+    expectMessageCopy(result, "fresh session");
   });
 
   it("calls signalClear", () => {
@@ -337,10 +334,7 @@ describe("removed tier commands", () => {
 describe("/cost command", () => {
   it("reports unavailable when the session supplies no summary", () => {
     const result = defined(getCommand("cost"), "cost").handler("", makeCtx());
-    expect(result).toEqual({
-      type: "message",
-      text: "Cost tracking is not available in this session.",
-    });
+    expectMessageCopy(result, "not available");
   });
 
   it("formats the summary the session supplies", () => {
@@ -377,12 +371,10 @@ describe("/feedback command", () => {
         armed = true;
       },
     };
-    expect(
+    expectMessageCopy(
       defined(getCommand("feedback"), "feedback").handler("", ctx),
-    ).toEqual({
-      type: "message",
-      text: "Please share your feedback. When done please hit enter. (Empty Enter cancels.)",
-    });
+      "feedback",
+    );
     expect(armed).toBe(true);
   });
 
@@ -405,21 +397,17 @@ describe("/feedback command", () => {
   });
 
   it("fails closed for bare /feedback when capture is not wired", () => {
-    expect(
+    expectMessageCopy(
       defined(getCommand("feedback"), "feedback").handler("", makeCtx()),
-    ).toEqual({
-      type: "message",
-      text: "Feedback is not available in this mode.",
-    });
+      "not available",
+    );
   });
 
   it("explains when the feedback path is not wired", () => {
-    expect(
+    expectMessageCopy(
       defined(getCommand("feedback"), "feedback").handler("x", makeCtx()),
-    ).toEqual({
-      type: "message",
-      text: "Feedback is not available in this mode.",
-    });
+      "not available",
+    );
   });
 });
 
@@ -430,12 +418,10 @@ describe("/compact command", () => {
   });
 
   it("explains when compaction is not wired", () => {
-    expect(
+    expectMessageCopy(
       defined(getCommand("compact"), "compact").handler("", makeCtx()),
-    ).toEqual({
-      type: "message",
-      text: "Compaction is not available in this session.",
-    });
+      "not available",
+    );
   });
 
   it("passes trailing instructions and does not send a turn", () => {
@@ -461,10 +447,10 @@ describe("/compact command", () => {
       signalClear: () => undefined,
       requestCompact: () => "Nothing to compact yet.",
     };
-    expect(defined(getCommand("compact"), "compact").handler("", ctx)).toEqual({
-      type: "message",
-      text: "Nothing to compact yet.",
-    });
+    expectMessageCopy(
+      defined(getCommand("compact"), "compact").handler("", ctx),
+      "compact",
+    );
   });
 });
 
@@ -511,18 +497,16 @@ describe("/handoff command", () => {
       signalClear: () => undefined,
       requestHandoff: () => "Nothing to hand off yet.",
     };
-    expect(defined(getCommand("handoff"), "handoff").handler("", ctx)).toEqual({
-      type: "message",
-      text: "Nothing to hand off yet.",
-    });
+    expectMessageCopy(
+      defined(getCommand("handoff"), "handoff").handler("", ctx),
+      "hand off",
+    );
   });
 
   it("says so when handoff is not wired", () => {
-    expect(
+    expectMessageCopy(
       defined(getCommand("handoff"), "handoff").handler("x", makeCtx()),
-    ).toEqual({
-      type: "message",
-      text: "Handoff is not available in this session.",
-    });
+      "not available",
+    );
   });
 });

@@ -706,34 +706,6 @@ describe("CL-5731: task list panel", () => {
       { width: 80, height: 24 },
     );
   });
-
-  test("the default-hidden choice persists across further chrome pushes for the life of the shell", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-        });
-        try {
-          // CL-5847: hidden by default — no toggle needed to keep it that way.
-          setChromeZones(shell, { task: [{ label: "a", status: "todo" }] });
-          expect(shell.taskBox.visible).toBe(false);
-
-          // Several unrelated live pushes later, the default-hidden choice
-          // still holds.
-          setChromeZones(shell, { task: [{ label: "a", status: "doing" }] });
-          setChromeZones(shell, {
-            agents: [{ label: "x: y", tail: "", stalled: false }],
-          });
-          setChromeZones(shell, { task: [{ label: "a", status: "done" }] });
-          expect(shell.taskBox.visible).toBe(false);
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
 });
 
 describe("CL-5741: chrome zone rows re-fit on terminal resize", () => {

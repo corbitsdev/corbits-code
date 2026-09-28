@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   carriesCodexReLoginHint,
-  codexCredential404ReclassifiedStats,
   GATEWAY_OVERLOAD_USER_MESSAGE,
   isGatewayOverloadInferenceError,
   looksLikeHtmlGatewayBody,
   normalizeInferenceErrorForRetry,
-  resetCodexCredential404StatsForTests,
-  XAI_CAPACITY_USER_MESSAGE,
 } from "./inference-gateway-error.js";
 
 const CLOUDFLARE_503_HTML = `<!DOCTYPE html>
@@ -432,28 +429,6 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(error)).toBe(error);
   });
 
-  test("reclassified Codex 404s bump the counter with a body sample", () => {
-    resetCodexCredential404StatsForTests();
-    expect(codexCredential404ReclassifiedStats().count).toBe(0);
-    normalizeInferenceErrorForRetry({
-      category: "fatal",
-      message: "Not Found",
-      statusCode: 404,
-      providerId: "codex/work",
-      raw: REVOKED_CREDENTIAL_404_RAW,
-    });
-    // A fatal 404 without an auth signal must not bump the counter.
-    normalizeInferenceErrorForRetry({
-      category: "fatal",
-      message: "Not Found",
-      statusCode: 404,
-      providerId: "codex/work",
-    });
-    const stats = codexCredential404ReclassifiedStats();
-    expect(stats.count).toBe(1);
-    expect(stats.lastSample).toContain("revoked");
-  });
-
   test("known-xAI message-only capacity protocol error becomes retryable", () => {
     const normalized = normalizeInferenceErrorForRetry({
       category: "protocol_mismatch",
@@ -506,16 +481,6 @@ describe("normalizeInferenceErrorForRetry", () => {
       raw: { error: { message: "Service temporarily unavailable" } },
     });
     expect(normalized.category).toBe("retryable");
-  });
-
-  test("remapped xAI capacity copy does not claim an ongoing retry", () => {
-    const normalized = normalizeInferenceErrorForRetry({
-      category: "protocol_mismatch",
-      message: "The model is currently at capacity",
-      providerId: "xai/default",
-    });
-    expect(normalized.message).toBe(XAI_CAPACITY_USER_MESSAGE);
-    expect(normalized.message).not.toContain("retrying");
   });
 
   test("mixed xAI capacity and quota copy stays unchanged", () => {

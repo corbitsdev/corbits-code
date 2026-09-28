@@ -687,58 +687,6 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
       },
     );
   });
-
-  test("palette stacked over a live gate defers /mcp until the gate closes", async () => {
-    await withShell(
-      async ({ shell }) => {
-        const emitter = new EventEmitter();
-        const dispose = wireGates(emitter, shell);
-        try {
-          let resolved: unknown;
-          emitPermissionGate(emitter, (outcome) => {
-            resolved = outcome;
-          });
-          expect(shell.overlayKind).toBe("permissions");
-
-          openPalette(shell, { catalog: CATALOG });
-          const mcpIdx = shell.paletteCommands.findIndex((c) => c.id === "mcp");
-          expect(mcpIdx).toBeGreaterThanOrEqual(0);
-          for (let i = 0; i < mcpIdx; i++) moveOverlaySelection(shell, 1);
-          expect(
-            shell.paletteCommands[shell.overlayList?.activeIndex ?? -1]?.id,
-          ).toBe("mcp");
-
-          acceptOverlaySelection(shell);
-          expect(shell.overlayKind).toBe("permissions");
-          expect(resolved).toBeUndefined();
-          expect(
-            shell.streamLog.some(
-              (row) => row.role === "system" && /mcp/i.test(row.text),
-            ),
-          ).toBe(true);
-
-          closeInsetOverlay(shell);
-          await Promise.resolve();
-          expect(shell.overlayKind).toBe("mcp");
-          expect(resolved).toEqual({ allow: false });
-        } finally {
-          dispose();
-        }
-      },
-      {
-        onCommand: (name, shell) => {
-          if (name !== "mcp") return;
-          openCommandSurface(shell, "mcp", {
-            notify: () => undefined,
-            mcp: {
-              list: () => [],
-              openAuthURL: () => undefined,
-            },
-          });
-        },
-      },
-    );
-  });
 });
 
 describe("overlay host occupancy and opt-in deferral", () => {

@@ -16,10 +16,6 @@ import type { StreamRow } from "./stream.js";
 import { createStreamMapContext } from "./stream-event-map.js";
 import { appendObserveStreamRow, appendStreamRow } from "./shell/chrome.js";
 import { createAppShell } from "./shell/index.js";
-import {
-  getPaletteOnObserveRequest,
-  setPaletteOnObserveRequest,
-} from "./shell/internals.js";
 import { enterSubagentObserve, leaveSubagentObserve } from "./shell/observe.js";
 
 function liveChildSession(
@@ -339,61 +335,6 @@ describe("live subagent observe", () => {
               (r) => r.role === "tool" && r.text === "6 hits",
             ),
           ).toBe(true);
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-});
-
-describe("observe request handler injection point", () => {
-  // No UI surface calls this anymore (the palette action that did is gone
-  // with Ctrl+O); the host-injection API itself stays available for a future
-  // trigger, so it is proven directly here rather than through a key chord.
-  test("host can resolve and use its own live session", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          run: "idle",
-        });
-        try {
-          setPaletteOnObserveRequest(shell, () =>
-            liveChildSession([{ role: "system", text: "host seed" }], {
-              agentId: "worker",
-              description: "host-supplied task",
-            }),
-          );
-
-          const session = getPaletteOnObserveRequest(shell)?.();
-          expect(session).not.toBeNull();
-          if (session) enterSubagentObserve(shell, session);
-
-          expect(shell.observe?.sessionId).toBe("live-child-1");
-          expect(shell.observe?.agentId).toBe("worker");
-          expect(shell.streamLog.some((r) => r.text === "host seed")).toBe(
-            true,
-          );
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("resolves to null when the host has nothing to offer", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          run: "idle",
-        });
-        try {
-          setPaletteOnObserveRequest(shell, () => null);
-          expect(getPaletteOnObserveRequest(shell)?.()).toBeNull();
         } finally {
           shell.dispose();
         }

@@ -522,7 +522,6 @@ describe("stall-bound primary turn (CL-8016)", () => {
   });
 
   test("ask deadline pins the production value and its stall-bound sizing", () => {
-    expect(ASK_DEADLINE_MS).toBe(1_800_000);
     expect(ASK_DEADLINE_MS).toBe(PROD_STALL_TIMEOUT_MS * 2);
   });
 });

@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   createPluginLoadDiagnostics,
   emitPluginWarningLog,
@@ -277,30 +276,6 @@ describe("interactive plugin diagnostics never hit raw stderr", () => {
       expect(message).toBeDefined();
     });
     expect(writes).toBe(0);
-  });
-});
-
-describe("plugin warnings route to plugin ! / /plugins, not startup notices", () => {
-  test("runner does not push formatPluginWarningsSummary into startupPluginNotices", async () => {
-    // Product lock: discovery / tool-plugin / profile skill-miss summaries must
-    // never become fire-and-forget surfaceSystemNotice chatter. They drive
-    // standingPluginWarnings → setPluginNeedsAttention + /plugins instead.
-    // CL-6791 phase 4 split runner.ts into runner/*; the lock spans the
-    // directory.
-    const runnerDir = fileURLToPath(new URL("./runner/", import.meta.url));
-    const src = Array.from(new Bun.Glob("*.ts").scanSync({ cwd: runnerDir }))
-      .filter((f) => !f.endsWith(".test.ts"))
-      .map(async (f) => await Bun.file(`${runnerDir}${f}`).text());
-    const sources = (await Promise.all(src)).join("\n");
-    expect(sources).toContain("standingPluginWarnings");
-    expect(sources).toContain("setPluginNeedsAttention");
-    expect(sources).not.toMatch(
-      /startupPluginNotices\.push\(\s*(discoveryNotice|toolPluginNotice|profileNotice)/,
-    );
-    // Unverified provider-key notice is still allowed on the startup path.
-    expect(sources).toMatch(
-      /startupPluginNotices\.push\([\s\S]*couldn't confirm your/,
-    );
   });
 });
 

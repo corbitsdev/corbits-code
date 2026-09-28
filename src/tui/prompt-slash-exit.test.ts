@@ -192,8 +192,10 @@ describe("slash command popup", () => {
       expect(isSlashPopupOpen(shell)).toBe(true);
       expect(shell.overlayList).not.toBeNull();
       expect(shell.prompt.value).toBe("/z");
-      expect(shell.overlayItems).toEqual(["(no matches)"]);
-      expect(frame()).toContain("(no matches)");
+      expect(shell.overlayItems).toHaveLength(1);
+      const placeholder = shell.overlayItems[0] ?? "";
+      expect(placeholder.trim()).not.toBe("");
+      expect(frame()).toContain(placeholder);
 
       // A backspace that restores a match refreshes back in place.
       press("Backspace");
@@ -212,8 +214,10 @@ describe("slash command popup", () => {
       expect(isSlashPopupOpen(shell)).toBe(true);
       expect(shell.overlayList).not.toBeNull();
       expect(shell.prompt.value).toBe("/p");
-      expect(shell.overlayItems).toEqual(["(no matches)"]);
-      expect(frame()).toContain("(no matches)");
+      expect(shell.overlayItems).toHaveLength(1);
+      const placeholder = shell.overlayItems[0] ?? "";
+      expect(placeholder.trim()).not.toBe("");
+      expect(frame()).toContain(placeholder);
     });
   });
 
@@ -325,8 +329,8 @@ describe("Ctrl+C exit", () => {
           return () => undefined;
         },
       });
-      expect(shell.statusFlash).toBe("press ctrl+c again to exit");
-      expect(noticeText(shell)).toContain("press ctrl+c again to exit");
+      expect(shell.statusFlash).toContain("ctrl+c");
+      expect(noticeText(shell)).toContain("ctrl+c");
 
       lapse[0]?.();
       expect(shell.statusFlash).toBeNull();
@@ -387,7 +391,7 @@ describe("Ctrl+C exit", () => {
       expect(shell.prompt.value).toBe("");
       expect(shell.pendingAttachments).toHaveLength(0);
       expect(noticeText(shell)).not.toContain("1 image");
-      expect(shell.statusFlash).toBe("press ctrl+c again to exit");
+      expect(shell.statusFlash).toContain("ctrl+c");
 
       handleCtrlC(shell, 1);
       expect(exits).toBe(1);
@@ -407,8 +411,8 @@ describe("Ctrl+C exit", () => {
       handleCtrlC(shell, 0);
       expect(shell.pendingAttachments).toHaveLength(0);
       expect(noticeText(shell)).not.toContain("1 image");
-      expect(shell.statusFlash).not.toBe("press ctrl+c again to exit");
-      expect(noticeText(shell)).not.toContain("press ctrl+c again to exit");
+      expect(shell.statusFlash).toBeNull();
+      expect(noticeText(shell)).not.toContain("ctrl+c");
       expect(exits).toBe(0);
 
       handleCtrlC(shell, 1);

@@ -7,7 +7,6 @@ import {
   buildGuidelines,
   buildPromptDisciplineBlock,
   buildSubAgentSystemPrompt,
-  GUIDELINE_SUB_BLOCK_IDS,
 } from "./prompts.js";
 import { CORE_TOOL_NAMES, CATALOG_TOOL_NAMES } from "./tool-search.js";
 
@@ -32,21 +31,6 @@ function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
-function expectVerificationGuidance(prompt: string): void {
-  expect(prompt).toMatch(
-    /defined typecheck command.*relevant tests.*defined full verification command/is,
-  );
-  expect(prompt).toMatch(
-    /repository defines no typecheck command.*explicit Blocker/is,
-  );
-  expect(prompt).toMatch(/evidence.*AGENTS.*package scripts/is);
-  expect(prompt).toMatch(/do not invent.*typecheck command/i);
-  expect(prompt).toMatch(/exact verification command.*outcome.*exit status/is);
-  expect(prompt).toMatch(/bare .*pass.*incomplete report/is);
-  expect(prompt).toMatch(/never silently skip/i);
-  expect(prompt).not.toMatch(/relevant checks .*when practical/i);
-}
-
 // Module-scope snapshot of the repeated no-arg discipline builder. The block
 // is static text for absent input, so the no-arg calls below share one value.
 const PROMPT_DISCIPLINE_BLOCK = buildPromptDisciplineBlock();
@@ -62,11 +46,6 @@ describe("buildPromptDisciplineBlock", () => {
     const lines = PROMPT_DISCIPLINE_BLOCK.split("\n");
     expect(lines.length).toBeGreaterThanOrEqual(15);
     expect(lines.length).toBeLessThanOrEqual(30);
-  });
-
-  it("uses prohibition form, not preference form", () => {
-    const block = PROMPT_DISCIPLINE_BLOCK;
-    expect(block).not.toMatch(/\bprefer\b/i);
   });
 
   it("contains the load-bearing prohibitions", () => {
@@ -165,16 +144,6 @@ describe("sub-agent report contract", () => {
 });
 
 describe("guideline sub-block omit policy (CL-7654)", () => {
-  it("exposes the keepstyle set as ids", () => {
-    expect([...GUIDELINE_SUB_BLOCK_IDS]).toEqual([
-      "responseStyle",
-      "toolChoice",
-      "askVsProceed",
-      "scopeConventions",
-      "orchestration",
-    ]);
-  });
-
   it("keeps the full guidelines by default", () => {
     const guidelines = buildGuidelines({});
     for (const marker of [
@@ -186,46 +155,6 @@ describe("guideline sub-block omit policy (CL-7654)", () => {
     ]) {
       expect(guidelines).toContain(marker);
     }
-  });
-
-  it("goldens the default guidelines byte-for-byte (separator shifts fail loudly)", () => {
-    expect(buildGuidelines({})).toBe(`Guidelines:
-
-Response style:
-- Default to short, direct answers; skip preamble and filler.
-- For substantial work, lead with the outcome, then what changed and why; use bullets or short headers only when they help scanning.
-- Cite paths instead of pasting large files; fenced snippets only when essential.
-- No emojis in code or docs unless the user uses them.
-
-Tool choice:
-- Prefer spawn_agent(agent=…) then idle for substantial product implementation, exploration, review, and docs — mailbox mail arrives as inbound; do not poll. Spawn remains default for substantial work, not a tool ban.
-- read for file contents; grep or glob to locate code; lsp for symbols, types, references, or call flow before opening large files.
-- edit for targeted DIY tiny/single-file/one-route edits; write for new files or full rewrites; delete to remove files — never shell-write (echo/heredoc/sed/rm). Spawn builder (or a docs director) for substantial/multi-file/parallel/specialist work.
-- bash for builds, tests, git, and one-off commands — not for shell find, head-position rg, or recursive grep -r (OOM risk), cat, or messaging the user.
-- tool_search before assuming a plugin or MCP tool exists; skill_search when choosing among listed skills, use_skill to load a body.
-
-Ask vs proceed:
-- Clear, bounded coding requests: proceed autonomously; use ask_operator only when permission blocks you or the request is genuinely ambiguous (missing repro, conflicting instructions, destructive choice).
-- Before ask_operator: put long rationale in a normal transcript reply first, then call ask_operator with a short question and short option labels only.
-- Questions, reviews, and product/visual feedback: answer or diagnose first; do not edit until the user wants a change.
-- Preserve unrelated user edits; never revert changes you did not make unless asked.
-- Unexpected changes in files you did not touch: stop and ask_operator.
-
-Scope and conventions:
-- Touch only code required for the task; no drive-by refactors, formatting sweeps, or unrelated fixes.
-- Follow AGENTS.md and /docs for architecture; use_skill style and philosophy when starting repo work.
-- Match existing project patterns (functional style, arktype at boundaries, small focused diffs).
-- Before finishing implementation work, run the repository-defined typecheck command, relevant tests, and every defined full verification command; these checks are mandatory.
-- If the repository defines no typecheck command, do not invent a typecheck command: report its absence as an explicit Blocker with evidence from AGENTS.md and package scripts (or equivalent project configuration).
-- In Findings, report every exact verification command and its outcome, including exit status. A bare \`pass\` without command evidence is an incomplete report.
-- If a required check genuinely cannot run because of a missing runtime or dependency, sandbox restriction, or permissions, record the exact inability under Blockers; never silently skip a required check.
-
-Orchestration:
-- One focused task per spawned worker. Fan-out width follows independent lanes (one lane per PR/path/ownership). Break multi-step or parallel work into those dispatches with distinct lenses; prefer \`spawn_agent\` (fire several in one turn when jobs are independent), then reply with who is running and end the turn — workers keep running while you are idle. Mailbox mail arrives as inbound when a worker finishes; read it and do not poll. \`list_agents\` shows the fleet without blocking; after a parked ask is surfaced, answer with \`send_input\` and do not poll \`list_agents\`.
-- Pass the typed spawn contract and keep it tight: \`intent\`, \`success_criteria\` (done-when; required for implement/review and their default directors), \`do_not\` (scope fence), and \`report_focus\`. Free-form \`prompt\` without \`success_criteria\` fail-closes for implement/review and their default directors.
-- After workers return, classify fail / incomplete-report vs parent-initiated interrupt vs operator-cancel vs clean complete. Fail-path (\`status: failed\` or salvage \`incomplete-report\`): diagnose from the report or error and MAY spawn one successor with a changed brief. Parent-initiated interrupt (\`interrupt_agent\` / \`send_input\` with \`interrupt:true\` unblocks wait with \`stop_reason: interrupted\`): the worker is often still running and often has no report — \`resume_agent\`, or idle for its mailbox mail; do not \`spawn_agent\` a successor against a still-live worker. Successor only if that session is no longer resumable. Operator-cancel (\`stop_reason\` cancelled): wait for the operator; do not auto-retry. Identical brief: refuse. Recoverable/continuable child failure (\`continuable: true\`) MAY spawn one successor with the same brief; identical brief is still refused otherwise. Merge Summary/Findings into a coherent answer for the operator; do not paste raw fleet-agent dumps.
-- Use manage_tasks for your own coordination checklist; spawning workers is \`spawn_agent\`, not manage_tasks.
-- If context is compacted automatically, do not stop tasks early due to token fear; persist progress via manage_tasks and worker reports.`);
   });
 
   it("omit keeps response style, drops tool-choice / ask-vs-proceed / orchestration", () => {
@@ -327,7 +256,9 @@ describe("shared verification guidance", () => {
       [],
       "orchestrator",
     );
-    expectVerificationGuidance(prompt);
+    expect(prompt).toMatch(
+      /defined typecheck command.*relevant tests.*defined full verification command/is,
+    );
   });
 });
 

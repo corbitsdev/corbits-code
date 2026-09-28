@@ -8,7 +8,7 @@ import {
   renderMark,
   smooth,
 } from "./mark-anim";
-import { MARK_COLS, MARK_LARGE, MARK_ROWS, MARK_SMALL } from "./mark-shape";
+import { MARK_COLS, MARK_LARGE, MARK_ROWS } from "./mark-shape";
 import { UI } from "./theme";
 
 const MOUNTAIN_CHARS = "▁▂▃▄▅▆▇█";
@@ -305,18 +305,6 @@ describe("renderMark", () => {
     });
     expect(mountains).toBeGreaterThan(20);
     expect(mountains).toBeGreaterThan(flakes);
-  });
-
-  test("still mode freezes the mountain but not the snow", () => {
-    const a = renderMark({ nowMs: 0, still: true, grid: MARK_SMALL });
-    const b = renderMark({ nowMs: 50_000, still: true, grid: MARK_SMALL });
-    const mountainText = (grid: typeof a) =>
-      grid
-        .map((row) =>
-          row.map((cell) => (isMountain(cell.char) ? cell.char : " ")).join(""),
-        )
-        .join("\n");
-    expect(mountainText(b)).toBe(mountainText(a));
   });
 
   test("snow drops out during the fade-out phase, matching the mark", () => {

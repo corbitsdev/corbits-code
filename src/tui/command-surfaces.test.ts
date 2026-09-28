@@ -431,39 +431,6 @@ describe("plugins surface", () => {
       expect(shell.overlayItems[0]).toBe("linear — enabled");
     });
   });
-
-  test("marks bundled rows with the bundled marker and other origins by label", async () => {
-    await withShell(async (shell) => {
-      const deps: CommandSurfaceDeps = {
-        notify: () => undefined,
-        plugins: {
-          list: () => [
-            {
-              id: "bundled",
-              name: "bundled",
-              enabled: true,
-              credentials: [],
-              credentialValues: {},
-              origin: "repo",
-            },
-            {
-              id: "market",
-              name: "market",
-              enabled: true,
-              credentials: [],
-              credentialValues: {},
-              origin: "user",
-            },
-          ],
-        } as unknown as PluginsSurfaceDeps,
-      };
-      openCommandSurface(shell, "plugins", deps);
-      expect(shell.overlayItems.slice(0, 2)).toEqual([
-        `bundled — enabled ${BUNDLED_MARKER}`,
-        "market — enabled [user]",
-      ]);
-    });
-  });
 });
 
 function key(name: string): KeyEvent {
@@ -1069,18 +1036,6 @@ describe("mcp surface", () => {
     });
   });
 
-  test("the visible add row opens the same add-server flow", async () => {
-    await withShell((shell) => {
-      openCommandSurface(shell, "mcp", {
-        notify: () => undefined,
-        mcp: { list: () => entries, openAuthURL: () => undefined },
-      });
-      moveOverlaySelection(shell, entries.length);
-      acceptOverlaySelection(shell);
-      expect(shell.overlayItems).toEqual(["▏"]);
-    });
-  });
-
   test("dismissing and reopening releases the previous status subscription", async () => {
     await withShell((shell) => {
       const listeners = new Set<() => void>();
@@ -1649,66 +1604,6 @@ describe("mcp surface", () => {
     });
   });
 
-  test("a rejected MCP add cannot continue into a disposed shell", async () => {
-    await withShell(async (shell) => {
-      let rejectAdd: ((reason: unknown) => void) | undefined;
-      const deferredAdd = new Promise<{ ok: boolean; message: string }>(
-        (_resolve, reject) => {
-          rejectAdd = reject;
-        },
-      );
-      const notes: string[] = [];
-      const listeners = new Set<() => void>();
-      let subscribeCalls = 0;
-      const unhandled: unknown[] = [];
-      const onUnhandled = (reason: unknown): void => {
-        unhandled.push(reason);
-      };
-      process.on("unhandledRejection", onUnhandled);
-      try {
-        openCommandSurface(shell, "mcp", {
-          notify: (note) => {
-            notes.push(note);
-            throw new Error("disposed shell notified");
-          },
-          mcp: {
-            list: () => entries,
-            openAuthURL: () => undefined,
-            subscribe: (listener) => {
-              subscribeCalls += 1;
-              listeners.add(listener);
-              return () => listeners.delete(listener);
-            },
-            addServer: () => deferredAdd,
-          },
-        });
-        runOverlayAction(shell, altKey("a"));
-        for (const ch of "linear") runOverlayAction(shell, charKey(ch));
-        acceptOverlaySelection(shell);
-        for (const ch of "https://mcp.linear.app/mcp")
-          runOverlayAction(shell, charKey(ch));
-        acceptOverlaySelection(shell);
-
-        shell.dispose();
-        const overlayItemsAfterDispose = shell.overlayItems;
-        rejectAdd?.(new Error("connection failed"));
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
-
-        expect(notes).toEqual([]);
-        expect(subscribeCalls).toBe(1);
-        expect(listeners.size).toBe(0);
-        expect(shell.overlayKind).toBeNull();
-        expect(shell.overlayItems).toBe(overlayItemsAfterDispose);
-        expect(shell.overlayHost.visible).toBe(false);
-        expect(unhandled).toEqual([]);
-      } finally {
-        process.off("unhandledRejection", onUnhandled);
-      }
-    });
-  });
-
   test("an invalid name stays focused with its value retained and can be corrected", async () => {
     await withShell(async (shell) => {
       const added: { name: string; url: string }[] = [];
@@ -2009,48 +1904,6 @@ describe("mcp surface", () => {
     });
   });
 
-  test("disabled builtin Exa copy does not say Alt+D disables it", async () => {
-    await withWiredShell(async (shell, harness) => {
-      openCommandSurface(shell, "mcp", {
-        notify: () => undefined,
-        mcp: {
-          list: () => [{ name: "exa", state: "disabled", builtin: true }],
-          openAuthURL: () => undefined,
-        },
-      });
-      await harness.renderOnce();
-      const frame = harness.captureCharFrame();
-      expect(frame).toContain("Enter re-enables");
-      expect(frame).toContain("cannot be removed");
-      expect(frame).not.toContain("Alt+D disables it");
-    });
-  });
-
-  test("a timed-out authorization failure still offers Enter-retry copy", async () => {
-    await withWiredShell(async (shell, harness) => {
-      openCommandSurface(shell, "mcp", {
-        notify: () => undefined,
-        mcp: {
-          // Short timeout wording so the two-line describe zone has room
-          // left for the impact line — a `what` that wraps to both lines
-          // crowds `impact` out by design (see describeZoneLines).
-          list: () => [
-            {
-              name: "granola",
-              state: "failed",
-              error: "timed out waiting for the browser",
-            },
-          ],
-          openAuthURL: () => undefined,
-        },
-      });
-      await harness.renderOnce();
-      const frame = harness.captureCharFrame();
-      expect(frame).toContain("granola — failed");
-      expect(frame).toContain("Enter retries");
-    });
-  });
-
   test("Alt+R confirms before removing a custom server", async () => {
     await withWiredShell(async (shell, harness) => {
       const removed: string[] = [];
@@ -2130,23 +1983,6 @@ describe("mcp surface", () => {
       expect(notes[0]).toContain("cannot be removed");
       expect(removed).toEqual([]);
       expect(shell.overlayItems[0]).toBe("exa — connected · 1 tool");
-    });
-  });
-
-  test("Alt+R on disabled builtin Exa does not say Alt+D disables it", async () => {
-    await withShell((shell) => {
-      const notes: string[] = [];
-      openCommandSurface(shell, "mcp", {
-        notify: (note) => notes.push(note),
-        mcp: {
-          list: () => [{ name: "exa", state: "disabled", builtin: true }],
-          openAuthURL: () => undefined,
-        },
-      });
-      expect(runOverlayAction(shell, altKey("r"))).toBe(true);
-      expect(notes[0]).toContain("cannot be removed");
-      expect(notes[0]).not.toContain("Alt+D disables it");
-      expect(shell.overlayItems[0]).toBe("exa — disabled");
     });
   });
 

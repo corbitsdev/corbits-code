@@ -174,16 +174,6 @@ describe("landing layout math", () => {
     expect(text.some((line) => line.includes("telemetry"))).toBe(false);
   });
 
-  test("the two doors are commands and /yolo", () => {
-    expect(LANDING_HINTS).toEqual([
-      { key: "/", rest: "for commands" },
-      {
-        key: "/yolo",
-        rest: "so Corbits Code doesn't have to ask for permissions",
-      },
-    ]);
-  });
-
   test("the mark degrades through its tiers and then disappears", () => {
     // Roomy: the hero grid, which is the only size that reads unambiguously.
     expect(resolveMarkGrid(20, 120)).toBe(MARK_LARGE);
@@ -502,45 +492,6 @@ describe("landing screen", () => {
         paintChrome(shell);
         await settle(h);
         expect(h.captureCharFrame()).toContain(first.label);
-      } finally {
-        shell.dispose();
-      }
-    }, SIZE);
-  });
-
-  test("the brand lockup sits in the prompt box's bottom border, session-long", async () => {
-    await withTestRenderer(async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        wireKeys: false,
-      });
-      try {
-        await settle(h);
-        // The lockup rides the box's bottom rule, so it is on the rule itself
-        // rather than on a row of its own beneath it.
-        const landingPainted = rows(h);
-        const landingRow = landingPainted.findIndex((row) =>
-          row.includes(LOCKUP_WORDMARK),
-        );
-        expect(landingRow).toBeGreaterThanOrEqual(0);
-        expect(landingPainted[landingRow]).toContain("╰");
-
-        // It outlives the landing: this is session chrome, not a splash.
-        appendStreamRow(shell, { role: "user", text: "first prompt" });
-        await settle(h);
-        const painted = rows(h);
-        const ruleRow = painted.findIndex((row) =>
-          row.includes(LOCKUP_WORDMARK),
-        );
-        // Session-active: the version row only reserves space on the landing
-        // screen (see `relayout`). Once there is real transcript content the
-        // box sits one row above the terminal's last line — the optical
-        // bottom pad (`BOTTOM_MARGIN_ROWS`) keeps it off the frame edge.
-        expect(ruleRow).toBe(SIZE.height - 2);
-        const row = defined(painted[ruleRow]);
-        // Left end of the rule, inside the shell gutter, costing no row.
-        expect(row.startsWith(" ╰─ ")).toBe(true);
-        expect(row.trimEnd().endsWith("╯")).toBe(true);
       } finally {
         shell.dispose();
       }

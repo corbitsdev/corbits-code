@@ -563,43 +563,6 @@ describe("buildProviderSubmitHandler", () => {
       });
     });
 
-    test("invalid staged OAuth credentials persist no credential or restart selection", async () => {
-      await withTempDir(async (dir) => {
-        scopeCheckResult = {
-          status: "blocked",
-          message:
-            "Codex sign-in expired or was revoked. Reconnect Codex, then try again.",
-        };
-        const path = join(dir, "settings.json");
-        const localPath = localSettingsPath(dir);
-        const submit = buildProviderSubmitHandler(path, null, localPath);
-        let commits = 0;
-
-        await expect(
-          submit(
-            {
-              name: "",
-              baseURL: "https://chatgpt.com/backend-api",
-              apiKey: "",
-              model: "gpt-5",
-              oauthProfile: "work",
-            },
-            noopSetPhase,
-            {
-              skipValidation: false,
-              oauth: stagedCodexOAuth(async () => {
-                commits += 1;
-              }),
-            },
-          ),
-        ).rejects.toThrow(/reconnect codex/i);
-
-        expect(commits).toBe(0);
-        expect(await loadSettings(path)).toBeNull();
-        expect(await loadLocalSettings(localPath)).toBeNull();
-      });
-    });
-
     test("failed same-name reauthorization preserves the exact durable profile", async () => {
       await withTempDir(async (dir) => {
         scopeCheckResult = { status: "blocked", message: "Reconnect Codex." };

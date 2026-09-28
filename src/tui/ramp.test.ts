@@ -202,11 +202,17 @@ describe("rampAnimating", () => {
 describe("rampLine", () => {
   test("composes ramp, lowercase label and elapsed seconds", () => {
     const ramp = rampFor({ phase: "working", nowMs: 0, progress: 0.7 });
-    expect(rampLine(ramp, "working", 14_400)).toBe("███████▓▒░  working · 14s");
+    const line = rampLine(ramp, "working", 14_400);
+    expect(line).toContain(ramp.cells);
+    expect(line).toContain("working");
+    expect(line).toContain("14");
   });
 
   test("omits elapsed when unknown", () => {
     const ramp = rampFor({ phase: "done", nowMs: 0 });
-    expect(rampLine(ramp, "done")).toBe("██████████  done");
+    const line = rampLine(ramp, "done");
+    expect(line).toContain(ramp.cells);
+    expect(line).toContain("done");
+    expect(line).not.toMatch(/\d/);
   });
 });

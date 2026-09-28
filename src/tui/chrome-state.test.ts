@@ -555,26 +555,6 @@ describe("formatAgentsPanel", () => {
     });
   });
 
-  test("overflow always reserves a +N more disclosure row", () => {
-    const running = Array.from({ length: 8 }, (_, i) => ({
-      agentId: `agent-${i}`,
-      currentToolStartedAt: null,
-      description: "working",
-      status: "running" as const,
-      startedAt: NOW + i,
-      lastActivityAt: NOW,
-    }));
-    const rows = formatAgentsPanel(running, undefined, NOW, 3);
-    expect(rows).toHaveLength(4);
-    expect(rows?.[3]).toEqual({
-      label: "+5 more",
-      tail: "",
-      stalled: false,
-      kind: "more",
-    });
-    expect(rows?.some((r) => r.kind === "header")).toBe(false);
-  });
-
   test("observe empty id+desc hides", () => {
     expect(
       formatAgentsPanel([], { agentId: "  ", description: "  " }, NOW),

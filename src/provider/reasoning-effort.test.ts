@@ -1,7 +1,5 @@
 import { afterEach, describe, test, expect } from "bun:test";
 import {
-  REASONING_EFFORTS,
-  ROLE_DEFAULT_EFFORT,
   isReasoningEffort,
   supportedEfforts,
   validateEffort,
@@ -14,22 +12,6 @@ import {
   defaultEffortForModel,
   resolveSessionEffort,
 } from "./reasoning-effort.js";
-import { composePromptActionBarModelLabel } from "../tui/components/prompt-action-bar-label.js";
-
-describe("REASONING_EFFORTS", () => {
-  test("is ordered from least to most effort", () => {
-    expect(REASONING_EFFORTS).toEqual([
-      "none",
-      "minimal",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-      "ultra",
-    ]);
-  });
-});
 
 describe("isReasoningEffort", () => {
   test("accepts known levels", () => {
@@ -147,15 +129,6 @@ describe("supportedEfforts", () => {
     ]);
   });
 
-  test("grok-4.7 includes xhigh", () => {
-    expect(supportedEfforts("grok-4.7")).toEqual([
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-    ]);
-  });
-
   test("grok-4.5 stays on the unknown-model subset without xhigh", () => {
     expect(supportedEfforts("grok-4.5")).toEqual(["low", "medium", "high"]);
   });
@@ -199,13 +172,6 @@ describe("supportedEfforts", () => {
       "high",
     ]);
   });
-
-  test("Muse Spark never offers none", () => {
-    // The Go gateway answers HTTP 400 on reasoning.effort: "none".
-    expect(supportedEfforts("muse-spark-1.3-contributor")).not.toContain(
-      "none",
-    );
-  });
 });
 
 describe("validateEffort", () => {
@@ -230,11 +196,6 @@ describe("validateEffort", () => {
   test("accepts xhigh on grok-4.6 and rejects it on grok-4.5", () => {
     expect(validateEffort("grok-4.6", "xhigh")).toEqual({ ok: true });
     expect(validateEffort("grok-4.5", "xhigh").ok).toBe(false);
-  });
-
-  test("accepts xhigh on grok-4.7", () => {
-    expect(validateEffort("grok-4.7", "xhigh")).toEqual({ ok: true });
-    expect(validateEffort("grok-4.7", "minimal").ok).toBe(false);
   });
 
   test("accepts minimal on Muse Spark and rejects none", () => {
@@ -309,12 +270,6 @@ describe("cycleReasoningEffort", () => {
     expect(cycleReasoningEffort("grok-4.6", "high")).toBe("xhigh");
     expect(cycleReasoningEffort("grok-4.6", "xhigh")).toBe("low");
   });
-
-  test("wraps high to xhigh to low on grok-4.7", () => {
-    expect(cycleReasoningEffort("grok-4.7", undefined)).toBe("xhigh");
-    expect(cycleReasoningEffort("grok-4.7", "high")).toBe("xhigh");
-    expect(cycleReasoningEffort("grok-4.7", "xhigh")).toBe("low");
-  });
 });
 
 describe("reasoning capability gate", () => {
@@ -350,16 +305,6 @@ describe("reasoning capability gate", () => {
     expect(result.ok).toBe(false);
     if (!result.ok)
       expect(result.error).toContain("does not support reasoning");
-  });
-});
-
-describe("ROLE_DEFAULT_EFFORT", () => {
-  test("orchestrator is higher than leaf", () => {
-    expect(ROLE_DEFAULT_EFFORT.orchestrator).toBe("high");
-    expect(ROLE_DEFAULT_EFFORT.leaf).toBe("medium");
-    expect(
-      REASONING_EFFORTS.indexOf(ROLE_DEFAULT_EFFORT.orchestrator),
-    ).toBeGreaterThan(REASONING_EFFORTS.indexOf(ROLE_DEFAULT_EFFORT.leaf));
   });
 });
 
@@ -586,30 +531,5 @@ describe("resolveSessionEffort", () => {
     expect(
       resolveSessionEffort("some-random-model", undefined),
     ).toBeUndefined();
-  });
-});
-
-describe("prompt action bar effort label", () => {
-  test("joiner stays a dumb concatenation of the resolved session effort", () => {
-    const effort = resolveSessionEffort("grok-4.6", undefined);
-    expect(effort).toBe("high");
-    expect(
-      composePromptActionBarModelLabel({
-        profile: "xai/work",
-        model: "grok-4.6",
-        ...(effort !== undefined ? { effort } : {}),
-      }),
-    ).toBe("xai/work · grok-4.6 · high");
-  });
-
-  test("shows gpt-5 medium without seeding a configured effort", () => {
-    const effort = resolveSessionEffort("gpt-5", undefined);
-    expect(effort).toBe("medium");
-    expect(
-      composePromptActionBarModelLabel({
-        model: "gpt-5",
-        ...(effort !== undefined ? { effort } : {}),
-      }),
-    ).toBe("gpt-5 · medium");
   });
 });

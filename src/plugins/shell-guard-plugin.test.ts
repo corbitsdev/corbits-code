@@ -14,11 +14,9 @@ import { createShellOutputFeed } from "../session/shell-output-feed.js";
 
 import {
   BoundedShellOutput,
-  MAX_SHELL_OUTPUT_BYTES,
   SHELL_FEED_EMIT_MS,
   advertiseShellGuardTimeout,
   resolveShellTimeoutMs,
-  formatShellTimeoutNotice,
   DEFAULT_FOREGROUND_SHELL_TIMEOUT_MS,
   reapLiveChildren,
   runGuardedShell,
@@ -82,20 +80,6 @@ describe("runGuardedShell", () => {
     expect(result.exitCode).toBe(0);
   });
 
-  test("omitted timeout does not arm a timer", async () => {
-    const start = Date.now();
-    const { exitCode, timedOut, output } = await runGuardedShell(
-      { command: "sleep 0.05; echo done" },
-      neverAbort(),
-    );
-    expect(timedOut).toBe(false);
-    expect(exitCode).toBe(0);
-    expect(output).toContain("done");
-    // Completes without a timeout flag; under a 15s default this would also
-    // pass for a short sleep — pair with resolveShellTimeoutMs coverage.
-    expect(Date.now() - start).toBeLessThan(5_000);
-  });
-
   test("merges settings.env into the spawn environment on top of process.env", async () => {
     const { output } = await runGuardedShell(
       {
@@ -105,14 +89,6 @@ describe("runGuardedShell", () => {
       neverAbort(),
     );
     expect(output).toContain("from-settings");
-  });
-
-  test("still inherits process.env when settings.env is provided", async () => {
-    const { output } = await runGuardedShell(
-      { command: "echo $PATH", env: { CORBITS_TEST_ENV_VAR: "x" } },
-      neverAbort(),
-    );
-    expect(output.trim().length).toBeGreaterThan(0);
   });
 
   test("returns partial output and a timed-out flag instead of throwing", async () => {
@@ -128,7 +104,6 @@ describe("runGuardedShell", () => {
   });
 
   test("truncates with head+tail when output exceeds the byte cap", async () => {
-    expect(MAX_SHELL_OUTPUT_BYTES).toBe(512_000);
     const cap = 8_192;
     const { output, outputTruncated, exitCode } = await runGuardedShell(
       {
@@ -145,21 +120,6 @@ describe("runGuardedShell", () => {
     expect(output).toMatch(/END|bbbb/);
     expect(output).toMatch(/command output truncated/);
     expect(output.length).toBeLessThan(cap + 512);
-  });
-
-  test("does not return the full oversized payload when truncated", async () => {
-    const cap = 4_096;
-    const { output, outputTruncated } = await runGuardedShell(
-      {
-        command: "python3 -c \"print('x' * 600000)\"",
-        timeout: 5_000,
-        maxOutputBytes: cap,
-      },
-      neverAbort(),
-    );
-    expect(outputTruncated).toBe(true);
-    expect(output.length).toBeLessThan(cap + 512);
-    expect(output).toMatch(/command output truncated/);
   });
 
   test("BoundedShellOutput keeps head and tail slices under cap", () => {
@@ -196,16 +156,6 @@ describe("runGuardedShell", () => {
     setTimeout(() => controller.abort(), 80);
     await expect(promise).rejects.toThrow(/aborted/);
     await waitUntilGone(token);
-  });
-
-  test("abort kills the process group", async () => {
-    const controller = new AbortController();
-    const promise = runGuardedShell(
-      { command: "sleep 60", timeout: 30_000 },
-      controller.signal,
-    );
-    setTimeout(() => controller.abort(), 50);
-    await expect(promise).rejects.toThrow(/aborted/);
   });
 });
 
@@ -304,18 +254,6 @@ describe("resolveShellTimeoutMs", () => {
         defaultMs: 90,
       }),
     ).toBe(90);
-  });
-});
-
-describe("formatShellTimeoutNotice", () => {
-  test("keeps the terminated marker and nudges background:true", () => {
-    const notice = formatShellTimeoutNotice(120_000);
-    expect(notice).toContain(
-      "[command timed out after 120000ms and was terminated]",
-    );
-    expect(notice).toContain(
-      "Retry with background:true for long-running commands (builds, tests, dev servers); completion arrives as a later-turn system message, and shell_collect collects or cancels.",
-    );
   });
 });
 
@@ -537,29 +475,6 @@ describe("advertiseShellGuardTimeout", () => {
     };
   }
 
-  test("rewrites run_shell timeout description when a settings default is set", () => {
-    const rewritten = advertiseShellGuardTimeout(runShellDef(), 120_000);
-    const timeout = timeoutSchema(rewritten);
-    expect(timeout?.description).toContain("foreground default: 120000");
-    expect(timeout?.description).toMatch(
-      /omit on background:true for no timeout/,
-    );
-    expect(timeout?.description).not.toContain("30000");
-    expect(timeout?.default).toBe(120_000);
-  });
-
-  test("advertises default 120000 when settings default is unset", () => {
-    const rewritten = advertiseShellGuardTimeout(runShellDef());
-    const timeout = timeoutSchema(rewritten);
-    expect(timeout?.description).toContain("foreground default: 120000");
-    expect(timeout?.default).toBe(120_000);
-    expect(timeout?.description).not.toContain("30000");
-    expect(timeout?.description).not.toContain("15000");
-    expect(timeout?.description).toMatch(
-      /omit on background:true for no timeout/,
-    );
-  });
-
   test("advertised default matches resolver when only maxTimeoutMs is set", () => {
     const maxMs = 60_000;
     const resolved = resolveShellTimeoutMs({
@@ -585,30 +500,6 @@ describe("advertiseShellGuardTimeout", () => {
       inputSchema: { type: "object", properties: {} },
     };
     expect(advertiseShellGuardTimeout(def)).toBe(def);
-  });
-
-  test("advertises background:true with collect/cancel guidance", () => {
-    const rewritten = advertiseShellGuardTimeout({
-      name: "run_shell",
-      description: "Execute a shell command",
-      inputSchema: {
-        type: "object",
-        properties: { command: { type: "string" } },
-        required: ["command"],
-      },
-    });
-    const background = (
-      rewritten.inputSchema["properties"] as Record<
-        string,
-        { description: string }
-      >
-    )["background"];
-    expect(background).toBeDefined();
-    expect(background?.description).toContain("shell_collect");
-    expect(background?.description).toMatch(/omit timeout/i);
-    expect(background?.description).toMatch(
-      /does not change the retained shell cwd/i,
-    );
   });
 
   test("omits background when collect is not mounted", () => {

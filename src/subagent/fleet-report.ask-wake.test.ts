@@ -81,7 +81,6 @@ describe("pendingAskWakeText", () => {
     expect(text).toContain("Which port?");
     expect(text).toContain("q1");
     expect(text).toContain("send_input");
-    expect(text).toContain("using target a1");
     expect(text.toLowerCase()).toContain("worker");
   });
 

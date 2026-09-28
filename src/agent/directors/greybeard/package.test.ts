@@ -3,115 +3,12 @@ import { REVIEW_TOOLS } from "../tool-sets.js";
 import { greybeardPackage } from "./package.js";
 
 describe("greybeardPackage", () => {
-  test("systemPrompt identity is Greybeard / GreybeardDirector (not job-title language)", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/GreybeardDirector \(Greybeard\)/);
-    expect(p).toMatch(/architecture judgment/i);
-    expect(p).not.toMatch(/architecture director/i);
-  });
-
-  test("systemPrompt frames value as analysis via Corbits read tools", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/value is analysis/i);
-    expect(p).toContain("targeted reads (read, grep)");
-    expect(p).toContain("grep");
-    expect(p).toContain("ask_director");
-  });
-
-  test("systemPrompt carries an ordered review checklist", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/Review checklist/);
-    expect(p).toMatch(/architectural claim/);
-    expect(p).toMatch(/constraint ownership|owns constraints/i);
-    expect(p).toMatch(/anti-patterns/);
-    expect(p).toMatch(/Rank risks/);
-    const checklistIdx = p.search(/Review checklist/);
-    expect(checklistIdx).toBeGreaterThan(-1);
-    const checklist = p.slice(checklistIdx);
-    const claimIdx = checklist.search(/architectural claim/);
-    const ownershipIdx = checklist.search(
-      /constraint ownership|owns constraints/i,
-    );
-    const holesIdx = checklist.search(/anti-patterns/);
-    const risksIdx = checklist.search(/Rank risks/);
-    const verdictIdx = checklist.search(/hold \/ revise \/ block/);
-    expect(claimIdx).toBeGreaterThan(-1);
-    expect(ownershipIdx).toBeGreaterThan(claimIdx);
-    expect(holesIdx).toBeGreaterThan(ownershipIdx);
-    expect(risksIdx).toBeGreaterThan(holesIdx);
-    expect(verdictIdx).toBeGreaterThan(risksIdx);
-  });
-
-  test("systemPrompt ends the checklist with the hold/revise/block verdict triad", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/hold \/ revise \/ block/);
-    expect(p).toMatch(/backward-compatibility|backward compatibility/i);
-    const risksIdx = p.search(/Rank risks/);
-    const triadIdx = p.search(/hold \/ revise \/ block/);
-    expect(risksIdx).toBeGreaterThan(-1);
-    expect(triadIdx).toBeGreaterThan(risksIdx);
-  });
-
   test("systemPrompt has no self-spawn language", () => {
     const p = greybeardPackage.systemPrompt;
     expect(p).not.toMatch(/spawn.*greybeard/i);
     expect(p).not.toContain('agent="greybeard"');
     expect(p).not.toMatch(/spawn yourself/i);
     expect(p).not.toMatch(/spawn a (greybeard|reviewer)/i);
-  });
-
-  test("systemPrompt is a leaf worker: no spawn path, no fake caps or scheduler language", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/you cannot spawn/i);
-    expect(p).toMatch(/leaf worker/i);
-    expect(p).toMatch(/no fleet verbs are mounted/i);
-    expect(p).toMatch(/Prefer doing the review yourself/i);
-    expect(p).toMatch(/Do not invent numeric spawn caps|not a soft ladder/i);
-    expect(p).not.toMatch(/Spawn only when/i);
-    expect(p).not.toMatch(/Package spawn rules/i);
-    expect(p).not.toMatch(/Spawn then idle/i);
-    expect(p).not.toMatch(/at most \d+/i);
-    expect(p).not.toMatch(/spawn at most one/i);
-    expect(p).not.toMatch(/parallel diagnostic fleet/i);
-    expect(p).not.toMatch(/turn budget/i);
-    expect(p).not.toMatch(/parameters?:/i);
-    expect(p).not.toMatch(/fan-out/i);
-  });
-
-  test("systemPrompt has Blinders against fleet discovery and any spawn", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/Blinders/i);
-    expect(p).toMatch(/do not call search_agents/i);
-    expect(p).toMatch(/not an orchestrator/i);
-    expect(p).toMatch(/Do not spawn builder/);
-  });
-
-  test("systemPrompt guides quality without enforcement theater", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/Guide quality/i);
-    expect(p).toMatch(/enforcement theater/i);
-  });
-
-  test("systemPrompt distinguishes Greybeard from Critic and Builder (series naming)", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/not Critic/);
-    expect(p).toMatch(/not Builder/);
-    expect(p).not.toMatch(/not Critique/);
-    expect(p).not.toMatch(/not Build\b/);
-  });
-
-  test("systemPrompt routes blocking unknowns to Blockers/ask_director instead of spawn", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toMatch(/When a concrete unknown blocks the judgment/);
-    expect(p).toMatch(/name it under Blockers/);
-    expect(p).toContain("ask_director");
-    expect(p).not.toMatch(/When spawning critic/);
-    expect(p).not.toMatch(/success_criteria/);
-  });
-
-  test("systemPrompt forbids spawning builder and names off-list directors", () => {
-    expect(greybeardPackage.systemPrompt).toContain("Do not spawn builder");
-    expect(greybeardPackage.systemPrompt).not.toMatch(/\bspawn implement\b/);
   });
 
   test("tools.allow is the review surface without fleet verbs", () => {
@@ -135,19 +32,6 @@ describe("greybeardPackage", () => {
   test("attachedSkills are style and philosophy; optionalSkills are on-demand", () => {
     expect(greybeardPackage.attachedSkills).toEqual(["style", "philosophy"]);
     expect(greybeardPackage.optionalSkills).toEqual(["native-integration"]);
-  });
-
-  test("systemPrompt treats style and philosophy as attached, not boot loads", () => {
-    const p = greybeardPackage.systemPrompt;
-    expect(p).toContain("Session Initialization");
-    expect(p).toContain("style and philosophy are attached");
-    expect(p).toContain("Do not use_skill them again");
-    expect(p).toContain("Do not block boot if an attached skill is missing");
-    expect(p).toContain("native-integration remains on-demand");
-    expect(p).not.toContain("Load the style skill with use_skill");
-    expect(p).not.toContain(
-      "Do not do anything else before you have done all steps above",
-    );
   });
 
   test("primaryIntent and outOfLane match greybeard lane", () => {

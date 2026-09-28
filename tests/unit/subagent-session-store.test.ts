@@ -223,31 +223,6 @@ describe("createSubAgentSessionStore", () => {
     expect(strip[1]?.description).toBe("old-done");
   });
 
-  test("cancel marks status, fires abort handle, and ignores late complete", () => {
-    const store = createSubAgentSessionStore({ createId: () => "s-cancel" });
-    store.start({ description: "stuck", agentId: "worker", brief: "loop" });
-    let aborted = 0;
-    store.registerCancel("s-cancel", () => {
-      aborted += 1;
-    });
-    expect(store.cancel("s-cancel", "operator kill")).toBe(true);
-    const session = store.get("s-cancel");
-    expect(session?.status).toBe("cancelled");
-    expect(session?.error).toBe("operator kill");
-    expect(session?.entries.at(-1)).toEqual({
-      kind: "report",
-      content: "Cancelled: operator kill",
-    });
-    expect(aborted).toBe(1);
-    // Late complete from the child must not resurrect a cancelled session.
-    store.complete("s-cancel", "should not win");
-    expect(store.get("s-cancel")?.status).toBe("cancelled");
-    expect(store.get("s-cancel")?.report).toBeUndefined();
-    // Idempotent: second cancel is a no-op.
-    expect(store.cancel("s-cancel")).toBe(false);
-    expect(aborted).toBe(1);
-  });
-
   test("cancelAll aborts every running session", async () => {
     let n = 0;
     const store = createSubAgentSessionStore({
@@ -289,9 +264,9 @@ describe("createSubAgentSessionStore", () => {
     expect(orchestrator.parentSessionId).toBeUndefined();
   });
 
-  test("cancel is not resumable and complete after cancel no-ops", () => {
+  test("cancel marks status, fires abort handle, is not resumable, and ignores late complete", () => {
     const store = createSubAgentSessionStore({
-      createId: () => "s-cancel-resume",
+      createId: () => "s-cancel",
     });
     store.start({
       description: "stuck",
@@ -299,18 +274,32 @@ describe("createSubAgentSessionStore", () => {
       brief: "loop",
       retained: true,
     });
-    store.markRunning("s-cancel-resume");
-    store.registerFollowup("s-cancel-resume", async () => "nope");
-    expect(store.cancel("s-cancel-resume", "operator kill")).toBe(true);
-    const session = store.get("s-cancel-resume");
+    store.markRunning("s-cancel");
+    store.registerFollowup("s-cancel", async () => "nope");
+    let aborted = 0;
+    store.registerCancel("s-cancel", () => {
+      aborted += 1;
+    });
+    expect(store.cancel("s-cancel", "operator kill")).toBe(true);
+    const session = store.get("s-cancel");
     expect(session?.status).toBe("cancelled");
+    expect(session?.error).toBe("operator kill");
     expect(session?.lifecycle.state).toBe("cancelled");
     expect(session?.lifecycleStatus).toBe("interrupted");
     expect(session?.retained).toBe(false);
-    expect(store.resumeOne("s-cancel-resume", "more").ok).toBe(false);
-    store.complete("s-cancel-resume", "should not win");
-    expect(store.get("s-cancel-resume")?.lifecycle.state).toBe("cancelled");
-    expect(store.get("s-cancel-resume")?.report).toBeUndefined();
+    expect(session?.entries.at(-1)).toEqual({
+      kind: "report",
+      content: "Cancelled: operator kill",
+    });
+    expect(aborted).toBe(1);
+    expect(store.resumeOne("s-cancel", "more").ok).toBe(false);
+    // Late complete from the child must not resurrect a cancelled session.
+    store.complete("s-cancel", "should not win");
+    expect(store.get("s-cancel")?.status).toBe("cancelled");
+    expect(store.get("s-cancel")?.report).toBeUndefined();
+    // Idempotent: second cancel is a no-op.
+    expect(store.cancel("s-cancel")).toBe(false);
+    expect(aborted).toBe(1);
   });
 
   test("interruptOne stays strip-running and resumable when retained", () => {

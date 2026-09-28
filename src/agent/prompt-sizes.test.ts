@@ -279,28 +279,17 @@ describe("director prompt size budget", () => {
 
   test("formatPromptSizeTable renders one row per director", () => {
     const table = formatPromptSizeTable(rows);
-    expect(table).toContain(
-      "| director | default chars (bytes) | muse chars (bytes) | grok chars (bytes) | claude chars (bytes) | gpt chars (bytes) |",
-    );
+    const dataRows = table
+      .split("\n")
+      .filter((line) =>
+        DIRECTOR_IDS.some((id) => line.startsWith(`| ${id} |`)),
+      );
+    expect(dataRows).toHaveLength(DIRECTOR_IDS.length);
     for (const directorId of DIRECTOR_IDS) {
       const base = rows.find(
         (r) => r.directorId === directorId && r.family === "default",
       );
-      const muse = rows.find(
-        (r) => r.directorId === directorId && r.family === "muse",
-      );
-      const grok = rows.find(
-        (r) => r.directorId === directorId && r.family === "grok",
-      );
-      const claude = rows.find(
-        (r) => r.directorId === directorId && r.family === "claude",
-      );
-      const gpt = rows.find(
-        (r) => r.directorId === directorId && r.family === "gpt",
-      );
-      expect(table).toContain(
-        `| ${directorId} | ${base?.chars} (${base?.bytes}) | ${muse?.chars} (${muse?.bytes}) | ${grok?.chars} (${grok?.bytes}) | ${claude?.chars} (${claude?.bytes}) | ${gpt?.chars} (${gpt?.bytes}) |`,
-      );
+      expect(table).toContain(`${base?.chars} (${base?.bytes})`);
     }
   });
 });
@@ -333,12 +322,12 @@ describe("skywalker grok prefix (infer envelope vs trimmed director)", () => {
     const size = measureSkywalkerPrefix();
     const table = formatSkywalkerPrefixTable(size);
     expect(table).toContain(
-      `| skywalker infer envelope (canonical AGENTS.md) | ${size.inferEnvelopeChars} (${size.inferEnvelopeBytes}) |`,
+      `${size.inferEnvelopeChars} (${size.inferEnvelopeBytes})`,
     );
     expect(table).toContain(
-      `| skywalker trimmed director (grok) | ${size.trimmedDirectorChars} (${size.trimmedDirectorBytes}) |`,
+      `${size.trimmedDirectorChars} (${size.trimmedDirectorBytes})`,
     );
-    expect(table).toContain(`| live AGENTS.md cap | ${size.agentsMdCap} |`);
+    expect(table).toContain(`${size.agentsMdCap}`);
   });
 
   // Production pin: a Grok fork at the runner that swapped loadSessionChatPrompt

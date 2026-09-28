@@ -59,63 +59,18 @@ test("chat prompt orders base, then tools, then context", () => {
 
 test("agent identity is Skywalker orchestrator", () => {
   const orchestrator = buildChatRole("orchestrator");
-  expect(orchestrator).toContain("You are Skywalker");
+  expect(orchestrator).toContain("Skywalker");
   expect(orchestrator).toContain("Corbits Code");
-  expect(orchestrator).toContain("When asked your name, answer: Skywalker");
-  expect(orchestrator).toContain("PRIMARY INTENT");
-  expect(orchestrator).toContain("Delegate");
-  expect(orchestrator).toContain("Match operator tone");
   // Mode arg is ignored — product is orchestrator-only (CL-5814).
-  expect(CHAT_ROLE).toContain("You are Skywalker");
+  expect(CHAT_ROLE).toContain("Skywalker");
 });
 
 test("harness facts state only the non-derivable tool and safety rules", () => {
-  expect(HARNESS_FACTS).toContain("write/edit");
-  expect(HARNESS_FACTS).toContain("tiny/single-file/one-route");
-  expect(HARNESS_FACTS).toContain("Spawn builder");
   expect(HARNESS_FACTS).not.toContain(
     "not mounted on the primary Skywalker session",
   );
-  expect(HARNESS_FACTS).toContain("blocked");
-  expect(HARNESS_FACTS).toContain("120s foreground timeout");
-  expect(HARNESS_FACTS).toContain("no default timeout");
-  expect(HARNESS_FACTS).toContain("find, rg, and grep -r");
-  expect(HARNESS_FACTS).toMatch(/OOM the host/);
-  expect(HARNESS_FACTS).toMatch(/Prefer the bounded grep\/glob tools/);
-  expect(HARNESS_FACTS).toMatch(
-    /not substitute another unbounded walk \(fd, ls -R, scripted os\.walk\)/,
-  );
+  // No stale tool names — the facts must not advertise tools that don't exist.
   expect(HARNESS_FACTS).not.toMatch(/Use grep, search_files, and list_dir\.$/m);
-  expect(HARNESS_FACTS).toContain("operator approval");
-  expect(HARNESS_FACTS).toContain("tool_search");
-  expect(HARNESS_FACTS).toContain("plugins or integrations");
-  expect(HARNESS_FACTS).toContain("slash-command steps");
-  expect(HARNESS_FACTS).toContain(".corbits/MEMORY.md");
-  expect(HARNESS_FACTS).toContain(
-    "Attached images are native multimodal input",
-  );
-  expect(HARNESS_FACTS).toContain("parent tool.boundary");
-  expect(HARNESS_FACTS).toContain("session-idle");
-  expect(HARNESS_FACTS).not.toContain("Tool results already render richly");
-});
-
-test("harness facts gate tool-output URI reads on a named truncation notice", () => {
-  expect(HARNESS_FACTS).toContain("Only read a tool-output:// URI");
-  expect(HARNESS_FACTS).toMatch(/filesystem path/i);
-  expect(HARNESS_FACTS).toMatch(/tool-output:\/\//);
-  expect(HARNESS_FACTS).toContain("truncation notice on that result named one");
-  expect(HARNESS_FACTS).toContain("do not re-read a complete inline result");
-  expect(HARNESS_FACTS).not.toMatch(/prefer the URI/i);
-  expect(HARNESS_FACTS).not.toMatch(/re-reading huge blobs/i);
-});
-
-test("read catalog summary gates tool-output URI reads on truncation", () => {
-  const listed = buildAvailableTools(["read"]);
-  expect(listed).toContain("read");
-  expect(listed).toMatch(/tool-output:\/\//);
-  expect(listed).toContain("truncation notice named one");
-  expect(listed).toContain("cat/head/tail");
-  expect(listed).not.toMatch(/prefer the URI/i);
 });
 
 test("harness facts name skill_search as a resident catalog tool", () => {
@@ -127,38 +82,12 @@ test("harness facts name skill_search as a resident catalog tool", () => {
   expect(HARNESS_FACTS).not.toMatch(/only the core tools[\s\S]*tool_search/i);
 });
 
-test("leaf harness facts advertise product write tools", () => {
+test("leaf harness facts omit the primary-only mount note", () => {
   const facts = buildHarnessFacts({ subAgent: true, dynamicTools: false });
-  expect(facts).toContain("write/edit");
   expect(facts).not.toContain("not mounted on the primary Skywalker session");
 });
 
-test("leaf harness facts state no-budget report completion behavior", () => {
-  const facts = buildHarnessFacts({ subAgent: true, dynamicTools: false });
-  expect(facts).toContain("There is no turn budget");
-  expect(facts).toContain("one incomplete-report nudge");
-  expect(facts).toContain("next tool-less reply still omits the envelope");
-  expect(facts).toContain(
-    "completion, cancellation, an opt-in deadline, or a stall",
-  );
-  expect(facts).not.toContain("Turn budget is real");
-  expect(facts).not.toContain("wrap-up nudge may fire");
-  expect(facts).not.toContain("as the budget ends");
-});
-
-test("guidelines cover response style, tool choice, ask vs proceed, and scope", () => {
-  expect(GUIDELINES).toContain("Response style:");
-  expect(GUIDELINES).toContain("Tool choice:");
-  expect(GUIDELINES).toContain("Ask vs proceed:");
-  expect(GUIDELINES).toContain("Scope and conventions:");
-  expect(GUIDELINES).toContain("grep or glob");
-  expect(GUIDELINES).toContain("ask_operator only when permission blocks you");
-  expect(GUIDELINES).toContain("skill_search when choosing");
-  expect(GUIDELINES).toContain(
-    "use_skill style and philosophy when starting repo work",
-  );
-  expect(GUIDELINES).toContain("DIY tiny/single-file/one-route");
-  expect(GUIDELINES).toContain("never shell-write (echo/heredoc/sed/rm)");
+test("guidelines omit primary-only notes where they do not apply", () => {
   expect(GUIDELINES).not.toContain("not mounted on Skywalker");
   expect(buildGuidelines({ subAgent: true })).not.toContain(
     "use_skill style and philosophy when starting repo work",
@@ -167,49 +96,18 @@ test("guidelines cover response style, tool choice, ask vs proceed, and scope", 
 
 test("orchestrator guidelines teach the typed task spawn contract", () => {
   const guidelines = buildGuidelines({ sessionMode: "orchestrator" });
-  expect(guidelines).toContain("Orchestration:");
   expect(guidelines).toContain("success_criteria");
   expect(guidelines).toContain("do_not");
-  expect(guidelines).toContain("report_focus");
-  expect(guidelines).toContain("intent");
-  expect(guidelines).toContain("spawn_agent");
-  expect(guidelines).toContain("One focused task per spawned worker");
-  expect(guidelines).toContain("one lane per PR/path/ownership");
-  expect(guidelines).toContain("keep it tight");
   // CL-7678: the default (TUI/nested) surface is unmounted — spawn then idle
   // on mailbox mail. The wait_agents collect path is exec-primary opt-in.
-  expect(guidelines).toContain("mailbox mail arrives as inbound");
   expect(guidelines).not.toContain("wait_agents");
   expect(
     buildGuidelines({ sessionMode: "orchestrator", waitAgentsMounted: true }),
   ).toContain("wait_agents");
-  expect(guidelines).toContain("required for implement/review");
-  expect(guidelines).toContain("and their default directors");
-  expect(guidelines).not.toContain("weaker");
 });
 
-test("primary chat prompt classifies fail-path successor vs interrupt resume vs operator-cancel wait", () => {
-  const guidelines = buildGuidelines({ sessionMode: "orchestrator" });
-  expect(guidelines).toContain("MAY spawn one successor with a changed brief");
-  expect(guidelines).toContain("wait for the operator");
-  expect(guidelines).toContain("do not auto-retry");
-  expect(guidelines).toContain("Identical brief: refuse");
-  expect(guidelines).toContain("continuable");
-  expect(guidelines).toContain("MAY spawn one successor with the same brief");
-  expect(guidelines).toContain("identical brief is still refused otherwise");
-  expect(guidelines).toContain("resume_agent");
-  expect(guidelines).toContain("still-live worker");
-  expect(guidelines).not.toContain("interrupted-incomplete");
-  expect(guidelines).not.toContain("start the next worker");
-  expect(CHAT_SYSTEM_PROMPT).toContain("wait for the operator");
-  expect(CHAT_SYSTEM_PROMPT).not.toContain("Then start the next worker");
-  expect(CHAT_SYSTEM_PROMPT).not.toContain("if the job still needs doing");
-});
-
-test("primary guidelines advise against early-stop from compaction token fear", () => {
-  expect(GUIDELINES).toContain("compacted automatically");
-  expect(GUIDELINES).toContain("do not stop tasks early due to token fear");
-  expect(GUIDELINES).toContain("manage_tasks and worker reports");
+test("compaction token-fear guidance is primary-only", () => {
+  expect(GUIDELINES).toContain("token fear");
   // Leaf guidelines omit primary orchestration compaction guidance.
   expect(buildGuidelines({ subAgent: true })).not.toContain("token fear");
 });

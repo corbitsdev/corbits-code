@@ -2,7 +2,7 @@
  * Wave 5: primary overlays — open / navigate / Esc restore + resize floors.
  */
 import { describe, expect, test } from "bun:test";
-import { rgbToHex, type KeyEvent } from "@opentui/core";
+import type { KeyEvent } from "@opentui/core";
 import { defined } from "../../tests/helpers/defined.js";
 import {
   IDLE_TRANSCRIPT_FLOOR,
@@ -38,38 +38,6 @@ import {
   pageOverlaySelection,
 } from "./shell/overlay-list";
 import { handleListFilterKey } from "./shell/palette";
-import { UI } from "./theme";
-
-function colorHex(c: unknown): string {
-  if (typeof c === "string") return c.toLowerCase();
-  return rgbToHex(c as Parameters<typeof rgbToHex>[0])
-    .toLowerCase()
-    .slice(0, 7);
-}
-
-describe("overlay host chrome", () => {
-  test("border and title stay textDim after create and open", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-        });
-        try {
-          expect(colorHex(shell.overlayHost.borderColor)).toBe(UI.textDim);
-          expect(colorHex(shell.overlayTitle.fg)).toBe(UI.textDim);
-
-          openOperatorOverlay(shell, makeOperatorQuestion());
-          expect(colorHex(shell.overlayHost.borderColor)).toBe(UI.textDim);
-          expect(colorHex(shell.overlayTitle.fg)).toBe(UI.textDim);
-        } finally {
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-});
 
 describe("wrapOverlayText", () => {
   test("splits long lines and caps", () => {

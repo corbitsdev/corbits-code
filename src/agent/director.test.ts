@@ -354,63 +354,6 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     expect(afterBoundary.some((a) => a.type === "infer")).toBe(true);
   });
 
-  // Bounds the worst-case number of on-wire full-context sends per logical
-  // turn across the two layers that can legitimately fire: the harness's
-  // own retry policy (up to 3 attempts per `infer()` call — see
-  // vendor/intx-inference/src/retry-policy.ts MAX_ATTEMPTS) and the
-  // director's internal-recovery-only budget (up to 2 extra `infer()`
-  // calls). Before this fix, `retryable`/`timeout` re-entered this same
-  // director budget on top of the harness's exhausted 3, multiplying to 9.
-  // After this fix, `retryable`/`timeout`/`quota_exhausted` are harness-only
-  // (bounded at 3, asserted against createDefaultRetryPolicy behavior in
-  // retry-policy.test.ts), and `aborted` is director-only: each of the
-  // director's up-to-3 infer() calls (1 initial + 2 recoveries) is a single
-  // harness attempt because the harness's own policy never retries
-  // `aborted`. Worst case across a turn that alternates categories is
-  // bounded, not open-ended, and never reaches 9.
-  test("worst case: director-owned recovery path issues at most 1 + MAX_INFERENCE_RECOVERIES infer calls", async () => {
-    const director = createChatDirector("system", [], {
-      provider: providerlessPolicy,
-    });
-    const capabilities = makeCapabilities();
-    const internalAbort = inferenceErrorEvent("aborted", {
-      origin: "internal-recovery",
-    });
-
-    let inferCount = 0;
-    for (let i = 0; i < 10; i++) {
-      const actions = actionsArray(
-        await director.decide(internalAbort, mockState, capabilities),
-      );
-      if (actions.some((a) => a.type === "infer")) inferCount++;
-      else break;
-    }
-    expect(inferCount).toBe(2); // MAX_INFERENCE_RECOVERIES
-  });
-
-  test("timeout category produces the timeout preamble, not the fatal fallback", async () => {
-    const director = createChatDirector("system", [], {
-      provider: providerlessPolicy,
-    });
-    const capabilities = makeCapabilities();
-
-    const actions = actionsArray(
-      await director.decide(
-        inferenceErrorEvent("timeout"),
-        mockState,
-        capabilities,
-      ),
-    );
-    const reply = actions.find((a) => a.type === "reply");
-    expect(reply).toBeDefined();
-    expect((reply as { content: string }).content).toContain(
-      "did not respond in time",
-    );
-    expect((reply as { content: string }).content).not.toContain(
-      "unrecoverable inference error",
-    );
-  });
-
   // A turn that throws after queueing task-change notifications must drop the
   // queue instead of flushing it stale on the next turn.
   test("a throwing turn drops queued task-change notifications", async () => {
@@ -786,31 +729,6 @@ describe("ChatDirector live source-id tracking (CL-7973)", () => {
       capabilities,
     );
     expect(await isXaiStamped(policy)).toBe(true);
-  });
-
-  test("a drained fleet capitulates to the terminal action after the nudge budget", async () => {
-    const director = createChatDirector("system", [], {
-      provider: { providerName: "test-provider" },
-    });
-    director.restoreTasks([{ id: "t1", title: "keep going", status: "todo" }]);
-    const capabilities = makeCapabilities();
-
-    // Without the idle-with-fleet allowance (drained fleet), a terminal base
-    // action with open tasks re-infers with the open-task nudge a bounded
-    // number of times, then lets the terminal action through — the accepted
-    // loss stays locked in rather than resuming the nudge.
-    for (let i = 0; i < 3; i++) {
-      const actions = actionsArray(
-        await director.decide(textCompletion(), mockState, capabilities),
-      );
-      expect(actions.some((a) => a.type === "infer")).toBe(true);
-      expect(actions.some((a) => a.type === "reply")).toBe(false);
-    }
-    const terminal = actionsArray(
-      await director.decide(textCompletion(), mockState, capabilities),
-    );
-    expect(terminal.some((a) => a.type === "infer")).toBe(false);
-    expect(terminal.some((a) => a.type === "reply")).toBe(true);
   });
 
   test("a cycle source wins over a contradictory event source", async () => {

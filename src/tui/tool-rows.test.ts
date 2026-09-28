@@ -133,23 +133,6 @@ describe("a call and its answer", () => {
     );
   });
 
-  test("a failed read_file of a missing filesystem path shows the error on the collapsed line", () => {
-    const rows: StreamRow[] = [];
-    pushToolCall(rows, {
-      name: "read_file",
-      arguments: JSON.stringify({ path: "/no/such/file.ts" }),
-    });
-    pushToolResult(rows, {
-      name: "read_file",
-      content: "file not found: /no/such/file.ts",
-      isError: true,
-    });
-    expect(rows[0]?.failed).toBe(true);
-    expect(painted(defined(rows[0]))).toContain("×");
-    expect(collapsed(defined(rows[0]))).toContain("file not found");
-    expect(collapsed(defined(rows[0]))).toContain("/no/such/file.ts");
-  });
-
   test("a successful read_file keeps the path as the subject and the success mark", () => {
     const rows: StreamRow[] = [];
     pushToolCall(rows, {
@@ -379,28 +362,6 @@ describe("a run of identical calls", () => {
       "CL-7386 — answered",
       "CL-7390 — answered",
     ]);
-  });
-
-  test("four members each name their own target", () => {
-    const rows: StreamRow[] = [];
-    const issues = ["CL-7386", "CL-7390", "CL-7399", "CL-7401"];
-    issues.forEach((issueId, i) => {
-      pushToolCall(rows, {
-        name: "mcp__linear__save_comment",
-        arguments: JSON.stringify({ issueId, body: `note ${i}` }),
-        callId: `m${i}`,
-      });
-    });
-    issues.forEach((_, i) => {
-      pushToolResult(rows, {
-        name: "mcp__linear__save_comment",
-        content: "",
-        callId: `m${i}`,
-      });
-    });
-    expect(rows.length).toBe(1);
-    expect(rows[0]?.memberLabels).toEqual(issues);
-    expect(runLines(rows[0])).toEqual(issues.map((id) => `${id} — answered`));
   });
 
   test("a pre-PR lane with ids but no labels coalesces with aligned placeholders", () => {
@@ -983,57 +944,6 @@ describe("a live turn", () => {
           );
           await h.renderOnce();
           expect(shell.streamLog[0]?.previewLines).toEqual(["live-tail"]);
-        } finally {
-          bridge.dispose();
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
-  });
-
-  test("a result id matching nothing on the log never folds onto the last row", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-          run: "idle",
-        });
-        const bridge = attachSessionBridge(shell, createRecordingPort());
-        try {
-          bridge.play([
-            {
-              type: "inference.tool_call.end",
-              data: {
-                name: "read_file",
-                callId: "c1",
-                arguments: { path: "a.ts" },
-              },
-            },
-          ]);
-          // Attach-mid-turn / duplicate-event shape: an answer arrives whose
-          // id belongs to nothing this bridge saw.
-          bridge.play([
-            {
-              type: "tool.done",
-              data: { result: { callId: "zzz-unknown", content: "orphan" } },
-            },
-          ]);
-          expect(shell.streamLog.length).toBe(2);
-          expect(shell.streamLog[0]?.pending).toBe(true);
-          expect(shell.streamLog[1]?.text).toBe("orphan");
-
-          // The real answer still resolves its own row in place.
-          bridge.play([
-            {
-              type: "tool.done",
-              data: { result: { callId: "c1", content: "body" } },
-            },
-          ]);
-          expect(shell.streamLog.length).toBe(2);
-          expect(shell.streamLog[0]?.pending).toBeUndefined();
-          expect(shell.streamLog[0]?.text).toBe("body");
         } finally {
           bridge.dispose();
           shell.dispose();

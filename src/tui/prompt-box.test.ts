@@ -70,7 +70,9 @@ describe("prompt box height", () => {
     await withShell({ columns: 80, rows: 40 }, async (shell, h) => {
       await compose(shell, h, lines(6));
       expect(promptRowCount(shell.prompt)).toBe(6);
-      expect(shell.layout.heights.prompt).toBe(8);
+      expect(shell.layout.heights.prompt).toBe(
+        promptRowCount(shell.prompt) + 2,
+      );
       expect(shell.prompt.height).toBe(6);
     });
   });
@@ -148,7 +150,8 @@ describe("prompt box height", () => {
     await withShell({ columns: 80, rows: 31 }, async (shell, h) => {
       await compose(shell, h, lines(5));
       const box = defined(shell.layout.regions.prompt);
-      expect(box.y + box.height).toBe(30);
+      const frameRows = h.captureCharFrame().trimEnd().split("\n").length;
+      expect(box.y + box.height).toBe(frameRows - 1);
     });
   });
 });

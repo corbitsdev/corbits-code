@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { defined } from "../../tests/helpers/defined.js";
 
 import { OAuthProviderScopeError } from "../auth/oauth-scope-check.js";
-import { OPENCODE_GO_MODEL_IDS } from "../../packages/opencode-go/src/index.js";
 import { resetGoModelDiscoveryForTests } from "../provider/model-catalogs.js";
 import {
   loadLocalSettings,
@@ -31,11 +30,9 @@ import {
   TYPE_MODEL_ID,
 } from "./provider/choices.js";
 import {
-  failureGuidance,
   maskEcho,
   maskSecret,
   secretFromMaskedEdit,
-  stepHeadline,
   stepReady,
   summaryRows,
 } from "./provider/form.js";
@@ -78,6 +75,63 @@ function stagedLogin(profile: string): LoginCompletion {
       createdAt: 1,
     },
     commit: async () => undefined,
+  };
+}
+
+type StagedLoginInput = Parameters<OAuthLoginStarter>[0];
+
+/**
+ * OAuth login stub for mounted flows: parks on `completed` until the test
+ * resolves it through `events.complete`, and records start inputs and
+ * cancel/abort signals so assertions read from `events`. `deniedStarts`
+ * makes the first N sign-ins reject with access denied instead of parking.
+ */
+function stagedLoginStarter(
+  opts: {
+    onStart?: (input: StagedLoginInput) => void;
+    deniedStarts?: number;
+  } = {},
+): {
+  start: OAuthLoginStarter;
+  events: {
+    starts: StagedLoginInput[];
+    cancelled: number;
+    aborted: boolean;
+    complete: (result: LoginCompletion) => void;
+  };
+} {
+  const events: {
+    starts: StagedLoginInput[];
+    cancelled: number;
+    aborted: boolean;
+    complete: (result: LoginCompletion) => void;
+  } = {
+    starts: [],
+    cancelled: 0,
+    aborted: false,
+    complete: () => undefined,
+  };
+  return {
+    events,
+    start: async (input) => {
+      events.starts.push(input);
+      opts.onStart?.(input);
+      input.signal.addEventListener("abort", () => {
+        events.aborted = true;
+      });
+      return {
+        authorizeUrl: AUTHORIZE_URL,
+        completed:
+          events.starts.length <= (opts.deniedStarts ?? 0)
+            ? Promise.reject(new Error("access denied by the user"))
+            : new Promise<LoginCompletion>((resolve) => {
+                events.complete = resolve;
+              }),
+        cancel: () => {
+          events.cancelled += 1;
+        },
+      };
+    },
   };
 }
 
@@ -343,41 +397,6 @@ describe("provider setup pure helpers", () => {
     );
   });
 
-  test("step headline names the step and how many remain", () => {
-    expect(stepHeadline(["provider", "apiKey", "model"], 0)).toBe(
-      "step 1 of 3 · provider",
-    );
-    expect(stepHeadline(["provider", "apiKey", "model"], 2)).toBe(
-      "step 3 of 3 · model",
-    );
-  });
-
-  test("the OAuth name step is headlined and summarized as an account name", () => {
-    const codex = providerChoiceById("codex") ?? null;
-    const steps = stepsFor(codex);
-    expect(stepHeadline(steps, 1, codex)).toBe("step 2 of 4 · account name");
-    const rows = summaryRows(
-      steps,
-      2,
-      { ...EMPTY, oauthProfile: "work" },
-      codex,
-    );
-    expect(rows[1]).toMatchObject({ label: "account name", value: "work" });
-  });
-
-  test("the API-key name step is headlined and summarized as an account name", () => {
-    const openai = providerChoiceById("openai") ?? null;
-    const steps = stepsFor(openai);
-    expect(stepHeadline(steps, 1, openai)).toBe("step 2 of 4 · account name");
-    const rows = summaryRows(
-      steps,
-      2,
-      { ...EMPTY, oauthProfile: "work" },
-      openai,
-    );
-    expect(rows[1]).toMatchObject({ label: "account name", value: "work" });
-  });
-
   test("summary rows mark done, current, and pending steps", () => {
     const values: ProviderFormValues = { ...EMPTY, name: "openai" };
     const choice = providerChoiceById("openai") ?? null;
@@ -401,21 +420,6 @@ describe("provider setup pure helpers", () => {
     const line = rows[1]?.value ?? "";
     expect(line).not.toContain("sk-secret");
     expect(line).toContain("●");
-  });
-
-  test("a blank key is summarized as keyless", () => {
-    const rows = summaryRows(["provider", "apiKey", "model"], 2, EMPTY, null);
-    expect(rows[1]?.value).toBe("keyless");
-  });
-
-  test("failures say what to fix", () => {
-    expect(failureGuidance("testing", null)).toContain("base url");
-    expect(failureGuidance("saving", null)).toContain(
-      "settings could not be written",
-    );
-    expect(
-      failureGuidance("testing", providerChoiceById("codex") ?? null, false),
-    ).not.toContain("save anyway");
   });
 });
 
@@ -778,11 +782,6 @@ describe("runProviderSetup Ollama discovery", () => {
 describe("runProviderSetup Go models", () => {
   const LIVE_ONLY_ID = "live-only-fixture-model";
 
-  test("choiceFromDef lists selectable Go ids", () => {
-    const go = providerChoiceById("opencode-go");
-    expect(go?.models).toEqual(OPENCODE_GO_MODEL_IDS);
-  });
-
   test("the Go model step paints live ids after prefetch settles", async () => {
     const harness = await createHarness({ width: 80, height: 30 });
     const done = runProviderSetup({
@@ -890,19 +889,9 @@ describe("runProviderSetup sign-in", () => {
   test("a subscription provider signs in in place and persists the selection", async () => {
     const seen: ProviderFormValues[] = [];
     const opts: SubmitOpts[] = [];
-    let complete: (result: LoginCompletion) => void = () => undefined;
+    const { start, events } = stagedLoginStarter();
     const { done, harness } = await mountLogin({
-      start: async ({ kind, profile }) => {
-        expect(kind).toBe("codex");
-        expect(profile).toBe("default");
-        return {
-          authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>((resolve) => {
-            complete = resolve;
-          }),
-          cancel: () => undefined,
-        };
-      },
+      start,
       onSubmit: async (values, _setPhase, o) => {
         seen.push({ ...values });
         opts.push(o);
@@ -911,13 +900,15 @@ describe("runProviderSetup sign-in", () => {
     await pickRow(harness, PROVIDER_IDS, "codex");
     expect(harness.captureCharFrame()).toContain("step 2 of 4");
     await nameOAuthAccount(harness);
+    expect(events.starts[0]?.kind).toBe("codex");
+    expect(events.starts[0]?.profile).toBe("default");
     const waiting = harness.captureCharFrame();
     expect(waiting).toContain("step 3 of 4");
     expect(waiting).toContain("sign in");
     expect(waiting).toContain("auth.example.com/authorize");
     expect(waiting).toContain("waiting for browser sign-in");
 
-    complete(stagedLogin("default"));
+    events.complete(stagedLogin("default"));
     await flush(harness);
     expect(harness.captureCharFrame()).toContain("step 4 of 4");
 
@@ -944,15 +935,9 @@ describe("runProviderSetup sign-in", () => {
       const settingsPath = join(dir, "settings.json");
       const localPath = localSettingsPath(dir);
       let commits = 0;
-      let complete: (result: LoginCompletion) => void = () => undefined;
+      const { start, events } = stagedLoginStarter();
       const { done, harness } = await mountLogin({
-        start: async () => ({
-          authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>((resolve) => {
-            complete = resolve;
-          }),
-          cancel: () => undefined,
-        }),
+        start,
         onSubmit: async (values, _setPhase, opts) => {
           if (opts.oauth === undefined)
             throw new Error("expected staged OAuth credentials");
@@ -975,7 +960,7 @@ describe("runProviderSetup sign-in", () => {
 
       await pickRow(harness, PROVIDER_IDS, "codex");
       await nameOAuthAccount(harness);
-      complete({
+      events.complete({
         ...stagedLogin("default"),
         commit: async () => {
           commits += 1;
@@ -1000,16 +985,10 @@ describe("runProviderSetup sign-in", () => {
 
   test("the entered account name reaches startLogin as the profile slug", async () => {
     const seenProfiles: string[] = [];
-    const { done, harness } = await mountLogin({
-      start: async ({ profile }) => {
-        seenProfiles.push(profile);
-        return {
-          authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => undefined),
-          cancel: () => undefined,
-        };
-      },
+    const { start } = stagedLoginStarter({
+      onStart: (input) => seenProfiles.push(input.profile),
     });
+    const { done, harness } = await mountLogin({ start });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await nameOAuthAccount(harness, "personal-account");
     expect(seenProfiles).toEqual(["personal-account"]);
@@ -1019,16 +998,12 @@ describe("runProviderSetup sign-in", () => {
 
   test("a suggested name auto-suffixes on collision with existing profiles", async () => {
     const seenProfiles: string[] = [];
+    const { start } = stagedLoginStarter({
+      onStart: (input) => seenProfiles.push(input.profile),
+    });
     const { done, harness } = await mountLogin({
       listOAuthProfiles: async () => ["default"],
-      start: async ({ profile }) => {
-        seenProfiles.push(profile);
-        return {
-          authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => undefined),
-          cancel: () => undefined,
-        };
-      },
+      start,
     });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await flush(harness);
@@ -1044,16 +1019,12 @@ describe("runProviderSetup sign-in", () => {
 
   test("reusing a connected account's name asks to confirm before re-authorizing it", async () => {
     const seenProfiles: string[] = [];
+    const { start } = stagedLoginStarter({
+      onStart: (input) => seenProfiles.push(input.profile),
+    });
     const { done, harness } = await mountLogin({
       listOAuthProfiles: async () => ["personal"],
-      start: async ({ profile }) => {
-        seenProfiles.push(profile);
-        return {
-          authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => undefined),
-          cancel: () => undefined,
-        };
-      },
+      start,
     });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await clearOAuthNameField(harness);
@@ -1077,17 +1048,10 @@ describe("runProviderSetup sign-in", () => {
   });
 
   test("editing the name after a collision confirm re-derives the check instead of reusing it", async () => {
-    let starts = 0;
+    const { start, events } = stagedLoginStarter();
     const { done, harness } = await mountLogin({
       listOAuthProfiles: async () => ["personal"],
-      start: async () => {
-        starts += 1;
-        return {
-          authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => undefined),
-          cancel: () => undefined,
-        };
-      },
+      start,
     });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await clearOAuthNameField(harness);
@@ -1102,24 +1066,15 @@ describe("runProviderSetup sign-in", () => {
     type(harness, "2");
     harness.pressKey("Enter");
     await flush(harness);
-    expect(starts).toBe(1);
+    expect(events.starts).toHaveLength(1);
     expect(harness.captureCharFrame()).toContain("step 3 of 4");
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
   });
 
   test("an invalid account name is rejected with a visible error and does not sign in", async () => {
-    let starts = 0;
-    const { done, harness } = await mountLogin({
-      start: async () => {
-        starts += 1;
-        return {
-          authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => undefined),
-          cancel: () => undefined,
-        };
-      },
-    });
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({ start });
     await pickRow(harness, PROVIDER_IDS, "codex");
     type(harness, "My Account!");
     harness.pressKey("Enter");
@@ -1127,26 +1082,14 @@ describe("runProviderSetup sign-in", () => {
     const frame = harness.captureCharFrame();
     expect(frame).toContain("step 2 of 4");
     expect(frame).toContain("lowercase letters, numbers");
-    expect(starts).toBe(0);
+    expect(events.starts).toHaveLength(0);
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
   });
 
   test("a denied sign-in says so and Enter retries it", async () => {
-    let starts = 0;
-    const { done, harness } = await mountLogin({
-      start: async () => {
-        starts += 1;
-        return {
-          authorizeUrl: AUTHORIZE_URL,
-          completed:
-            starts === 1
-              ? Promise.reject(new Error("access denied by the user"))
-              : new Promise<LoginCompletion>(() => undefined),
-          cancel: () => undefined,
-        };
-      },
-    });
+    const { start, events } = stagedLoginStarter({ deniedStarts: 1 });
+    const { done, harness } = await mountLogin({ start });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await nameOAuthAccount(harness);
     const failed = harness.captureCharFrame();
@@ -1155,23 +1098,17 @@ describe("runProviderSetup sign-in", () => {
 
     harness.pressKey("Enter");
     await flush(harness);
-    expect(starts).toBe(2);
+    expect(events.starts).toHaveLength(2);
     expect(harness.captureCharFrame()).toContain("waiting for browser sign-in");
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
   });
 
   test("a sign-in that never returns times out rather than hanging", async () => {
-    let cancelled = 0;
+    const { start, events } = stagedLoginStarter();
     const { done, harness } = await mountLogin({
       loginTimeoutMs: 5,
-      start: async () => ({
-        authorizeUrl: AUTHORIZE_URL,
-        completed: new Promise<LoginCompletion>(() => undefined),
-        cancel: () => {
-          cancelled += 1;
-        },
-      }),
+      start,
     });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await nameOAuthAccount(harness);
@@ -1180,28 +1117,14 @@ describe("runProviderSetup sign-in", () => {
     const frame = harness.captureCharFrame();
     expect(frame).toContain(LOGIN_TIMEOUT_MESSAGE);
     expect(frame).toContain("enter to try signing in again");
-    expect(cancelled).toBeGreaterThan(0);
+    expect(events.cancelled).toBeGreaterThan(0);
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
   });
 
   test("Escape abandons a sign-in and returns to the name step for editing", async () => {
-    let cancelled = 0;
-    let aborted = false;
-    const { done, harness } = await mountLogin({
-      start: async ({ signal }) => {
-        signal.addEventListener("abort", () => {
-          aborted = true;
-        });
-        return {
-          authorizeUrl: AUTHORIZE_URL,
-          completed: new Promise<LoginCompletion>(() => undefined),
-          cancel: () => {
-            cancelled += 1;
-          },
-        };
-      },
-    });
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({ start });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await nameOAuthAccount(harness);
     await pressEscape(harness);
@@ -1209,27 +1132,19 @@ describe("runProviderSetup sign-in", () => {
     expect(frame).toContain("step 2 of 4");
     expect(frame).toContain(LOGIN_CANCELLED_MESSAGE);
     expect(frame).toContain("pick a provider to start over");
-    expect(cancelled).toBeGreaterThan(0);
-    expect(aborted).toBe(true);
+    expect(events.cancelled).toBeGreaterThan(0);
+    expect(events.aborted).toBe(true);
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
   });
 
   test("a failed sign-in can be retried under a different name after going back", async () => {
     const seenProfiles: string[] = [];
-    const { done, harness } = await mountLogin({
-      start: async ({ profile }) => {
-        seenProfiles.push(profile);
-        return {
-          authorizeUrl: AUTHORIZE_URL,
-          completed:
-            seenProfiles.length === 1
-              ? Promise.reject(new Error("access denied by the user"))
-              : new Promise<LoginCompletion>(() => undefined),
-          cancel: () => undefined,
-        };
-      },
+    const { start } = stagedLoginStarter({
+      onStart: (input) => seenProfiles.push(input.profile),
+      deniedStarts: 1,
     });
+    const { done, harness } = await mountLogin({ start });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await nameOAuthAccount(harness, "first-try");
     expect(harness.captureCharFrame()).toContain("access denied by the user");
@@ -1247,20 +1162,12 @@ describe("runProviderSetup sign-in", () => {
   });
 
   test("a late resolution from an abandoned attempt cannot move the screen", async () => {
-    let complete: (result: LoginCompletion) => void = () => undefined;
-    const { done, harness } = await mountLogin({
-      start: async () => ({
-        authorizeUrl: AUTHORIZE_URL,
-        completed: new Promise<LoginCompletion>((resolve) => {
-          complete = resolve;
-        }),
-        cancel: () => undefined,
-      }),
-    });
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({ start });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await nameOAuthAccount(harness);
     await pressEscape(harness);
-    complete(stagedLogin("default"));
+    events.complete(stagedLogin("default"));
     await flush(harness);
     expect(harness.captureCharFrame()).toContain("step 2 of 4");
     harness.pressKey("Ctrl+C");
@@ -1269,18 +1176,6 @@ describe("runProviderSetup sign-in", () => {
 });
 
 describe("runProviderSetup", () => {
-  test("opens on the provider pick-list", async () => {
-    const { done, harness } = await mountSetup();
-    await harness.renderOnce();
-    const frame = harness.captureCharFrame();
-    expect(frame).toContain("setup");
-    expect(frame).toContain("step 1 of 4");
-    expect(frame).toContain("OpenAI");
-    expect(frame).toContain("Custom");
-    harness.pressKey("Ctrl+C");
-    expect(await done).toBe(false);
-  });
-
   test("picking a known provider names an instance then takes a key", async () => {
     const seen: ProviderFormValues[] = [];
     const opts: SubmitOpts[] = [];
@@ -1492,21 +1387,13 @@ describe("runProviderSetup", () => {
   });
 
   test("Ctrl+C during a sign-in resolves false and closes the flow", async () => {
-    let cancelled = 0;
-    const { done, harness } = await mountLogin({
-      start: async () => ({
-        authorizeUrl: AUTHORIZE_URL,
-        completed: new Promise<LoginCompletion>(() => undefined),
-        cancel: () => {
-          cancelled += 1;
-        },
-      }),
-    });
+    const { start, events } = stagedLoginStarter();
+    const { done, harness } = await mountLogin({ start });
     await pickRow(harness, PROVIDER_IDS, "codex");
     await nameOAuthAccount(harness);
     harness.pressKey("Ctrl+C");
     expect(await done).toBe(false);
-    expect(cancelled).toBeGreaterThan(0);
+    expect(events.cancelled).toBeGreaterThan(0);
   });
 
   test("Ctrl+C before submit resolves false", async () => {

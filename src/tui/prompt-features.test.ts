@@ -88,7 +88,7 @@ describe("image attachments", () => {
       expect(shell.pendingAttachments).toHaveLength(1);
       const notice = noticeText(shell);
       expect(notice).toContain("1 image");
-      expect(notice).toContain("attached clipboard.png");
+      expect(notice).toContain(CLIP.name);
     });
   });
 
@@ -135,7 +135,7 @@ describe("image attachments", () => {
           attachment: CLIP,
         }));
         expect(await attachClipboardImage(shell)).toBe(true);
-        expect(shell.statusFlash).toContain("attached clipboard.png");
+        expect(shell.statusFlash).toContain(CLIP.name);
         expect(lapse).toHaveLength(1);
         lapse[0]?.();
         expect(shell.statusFlash).toBeNull();
@@ -145,7 +145,7 @@ describe("image attachments", () => {
           attachment: CLIP_SAME_CONTENT,
         }));
         expect(await attachClipboardImage(shell)).toBe(false);
-        expect(shell.statusFlash).toContain(`${CLIP.name} is already attached`);
+        expect(shell.statusFlash).toContain(CLIP.name);
         expect(lapse).toHaveLength(2);
         lapse[1]?.();
         expect(shell.statusFlash).toBeNull();
@@ -239,7 +239,7 @@ describe("image attachments", () => {
       // Names the attachment already sitting in the pending set (CLIP), not
       // the rejected paste (CLIP_SAME_CONTENT) -- the operator never saw the
       // rejected paste's filename, so naming it would read as a bug.
-      expect(shell.statusFlash).toContain(`${CLIP.name} is already attached`);
+      expect(shell.statusFlash).toContain(CLIP.name);
       expect(shell.statusFlash).not.toContain(CLIP_SAME_CONTENT.name);
     });
   });

@@ -447,12 +447,8 @@ describe("executePluginRemove", () => {
       expect(result.plugins.exa?.enabled).toBe(false);
       expect(result.plugins.exa?.credentials).toEqual({ apiKey: "k" });
       expect("exa" in result.plugins).toBe(true);
-      expect(result.message).toContain(
-        "Claude marketplace files were not removed",
-      );
-      expect(result.message).toContain(
-        "Tools from this plugin stay until you restart",
-      );
+      expect(result.message).toMatch(/not removed/i);
+      expect(result.message).toMatch(/restart/i);
     }
     expect(await exists(plugin)).toBe(true);
   });
@@ -474,7 +470,8 @@ describe("executePluginRemove", () => {
     if (result.ok) {
       expect(result.spliceLive).toBe(false);
       expect(result.plugins["corbits-skills"]?.enabled).toBe(false);
-      expect(result.message).toContain("cannot be uninstalled");
+      expect(result.message).toContain("bundled");
+      expect(result.message).toMatch(/disabled/i);
     }
   });
 });

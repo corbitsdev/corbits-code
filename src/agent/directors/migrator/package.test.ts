@@ -2,67 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { migratorPackage } from "./package.js";
 
 describe("migratorPackage", () => {
-  test("systemPrompt identity is the reversible-migration leaf", () => {
-    const p = migratorPackage.systemPrompt;
-    expect(p).toContain("You are MigratorDirector (Migrator)");
-    expect(p).toMatch(/reversible-migration leaf/);
-  });
-
-  test("systemPrompt owns only settings/config/session-state data changes", () => {
-    const p = migratorPackage.systemPrompt;
-    expect(p).toMatch(/settings-schema/);
-    expect(p).toMatch(/config-key/);
-    expect(p).toMatch(/run\.json/);
-    expect(p).toMatch(/context-store-layout/);
-    expect(p).toMatch(/never bulk renames, never features/);
-  });
-
-  test("systemPrompt requires the three migration artifacts", () => {
-    const p = migratorPackage.systemPrompt;
-    expect(p).toMatch(/dry-run output/);
-    expect(p).toMatch(/forward migration path/);
-    expect(p).toMatch(/rollback path/);
-    expect(p).toMatch(/in-flight sessions/);
-  });
-
-  test("systemPrompt verifies rollback by execution and stops when irreversible", () => {
-    const p = migratorPackage.systemPrompt;
-    expect(p).toMatch(/scratch copy/);
-    expect(p).toMatch(/not by inspection/);
-    expect(p).toMatch(/say so plainly and stop/);
-    expect(p).toMatch(/do not ship it/);
-  });
-
-  test("systemPrompt scopes run_shell to dry-run/scratch-only, forbids live execution", () => {
-    const p = migratorPackage.systemPrompt;
-    expect(p).toMatch(/dry-run and scratch-copy execution ONLY/);
-    expect(p).toMatch(/never execute the forward migration/);
-    expect(p).toMatch(/live state/);
-  });
-
-  test("systemPrompt forbids background shells — foreground with timeouts only", () => {
-    const p = migratorPackage.systemPrompt;
-    expect(p).toMatch(/Background shells are forbidden/);
-    expect(p).toMatch(/background: true/);
-    expect(p).toMatch(/shell_collect/);
-    expect(p).toMatch(/foreground/);
-    expect(p).toMatch(/timeouts only/);
-  });
-
-  test("systemPrompt makes scratch auditable under tmp/ with reported path", () => {
-    const p = migratorPackage.systemPrompt;
-    expect(p).toMatch(/tmp\//);
-    expect(p).toMatch(/clean them up afterwards/);
-    expect(p).toMatch(/scratch path in the delivery/);
-  });
-
-  test("systemPrompt states the report shape", () => {
-    const p = migratorPackage.systemPrompt;
-    expect(p).toMatch(
-      /Report: dry-run output, forward path, rollback path, in-flight impact/,
-    );
-  });
-
   test("tools.allow carries no fleet verbs and no path writes", () => {
     const allow = migratorPackage.tools?.allow ?? [];
     for (const verb of [

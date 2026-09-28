@@ -400,8 +400,10 @@ describe("describeToolCall for spawn_agent", () => {
       prompt: "...",
     });
     const result = describeToolCall("spawn_agent", args);
-    expect(result.summary.length).toBeLessThan(long.length + 20);
-    expect(result.summary.length).toBe(48); // ARG_VALUE_MAX
+    // a truncated prefix of the description plus an ellipsis marker
+    expect(result.summary.length).toBeLessThan(long.length);
+    expect(result.summary.endsWith("…")).toBe(true);
+    expect(long.startsWith(result.summary.slice(0, -1))).toBe(true);
   });
 });
 

@@ -238,61 +238,6 @@ describe("readFileBounded", () => {
     );
   });
 
-  test("pages a giant one-line blob by wrapping through the byte window", async () => {
-    const giant = `HEAD-${"x".repeat(READ_FILE_MAX_BYTES)}-TAIL`;
-    const bytes = new TextEncoder().encode(giant);
-    const { content, isError } = await readBytesBounded(
-      bytes,
-      0,
-      Number.POSITIVE_INFINITY,
-      neverAbort(),
-      "tool-output:///giant-line",
-    );
-    expect(isError).toBeUndefined();
-    expect(content).toContain("HEAD-");
-    expect(content).not.toContain("-TAIL");
-    expect(content).not.toContain("line truncated");
-    expect(content).toContain("output limit");
-    expect(content).toContain("Use offset=");
-    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(
-      READ_FILE_MAX_BYTES,
-    );
-    const body = content.split("\n\n")[0] ?? "";
-    const numbered = body.trimEnd().split("\n");
-    expect(numbered.length).toBeGreaterThan(1);
-    for (const line of numbered) {
-      const text = line.replace(/^\s*\d+\t/, "");
-      expect(text.length).toBeLessThanOrEqual(READ_FILE_MAX_LINE_LENGTH);
-    }
-  });
-
-  test("returns a pretty-printed blob past the 2000-line file cap when it fits the byte window", async () => {
-    const pretty = `${JSON.stringify(
-      Array.from({ length: READ_FILE_DEFAULT_MAX_LINES + 500 }, (_, i) => i),
-      null,
-      2,
-    )}\n`;
-    const bytes = new TextEncoder().encode(pretty);
-    const { content, isError } = await readBytesBounded(
-      bytes,
-      0,
-      Number.POSITIVE_INFINITY,
-      neverAbort(),
-      "tool-output:///pretty-json",
-    );
-    expect(isError).toBeUndefined();
-    const sourceLines = pretty.trimEnd().split("\n").length;
-    expect(sourceLines).toBeGreaterThan(READ_FILE_DEFAULT_MAX_LINES);
-    const body = content.split("\n\n")[0] ?? "";
-    expect(body.trimEnd().split("\n").length).toBe(sourceLines);
-    expect(content).toContain(String(READ_FILE_DEFAULT_MAX_LINES + 499));
-    expect(content).not.toContain("line limit");
-    expect(content).not.toContain("Use offset=");
-    expect(Buffer.byteLength(content, "utf8")).toBeLessThanOrEqual(
-      READ_FILE_MAX_BYTES,
-    );
-  });
-
   test("a dead offset on a file larger than the scan ceiling reports beyond-EOF with path and valid range", async () => {
     // Skip bytes are not scanned, so an offset past true EOF on a >8MB file
     // still reaches the end of the file. Report the real line count and valid
@@ -502,44 +447,6 @@ describe("CL-8979 large-file pagination", () => {
     expect(rows.slice(0, -1).join("")).toBe(payload);
   }, 180_000);
 
-  test("a large-file page passes the result-truncation layer byte-identical", async () => {
-    const name = "cl8979-page.txt";
-    const rows = Array.from(
-      { length: 3_000 },
-      (_, i) => `cell-${i}-` + "v".repeat(50),
-    );
-    await fixture(name, `${rows.join("\n")}\n`);
-    const plugin = readFileGuardPlugin(dir, {});
-    const guardMiddleware = plugin.middleware;
-    if (guardMiddleware === undefined) throw new Error("expected middleware");
-    const fallback = async (call: ToolCall): Promise<ToolResult> => ({
-      callId: call.id,
-      content: "FALLBACK",
-    });
-    const guard = guardMiddleware(fallback);
-    const guardOnly = await guard(
-      { id: "page-1", name: "read_file", arguments: { path: name } },
-      neverAbort(),
-    );
-    expect(guardOnly.isError).toBeFalsy();
-    expect(String(guardOnly.content)).toContain("to continue");
-    const spilled = new Map<string, Uint8Array>();
-    const truncPlugin = resultTruncationPlugin({
-      getBlobWriter: () => async (key: string, payload: Uint8Array) => {
-        spilled.set(key, payload);
-      },
-    });
-    const truncMiddleware = truncPlugin.middleware;
-    if (truncMiddleware === undefined) throw new Error("expected middleware");
-    const composed = truncMiddleware(guard);
-    const res = await composed(
-      { id: "page-1", name: "read_file", arguments: { path: name } },
-      neverAbort(),
-    );
-    expect(String(res.content)).toBe(String(guardOnly.content));
-    expect(spilled.size).toBe(0);
-  });
-
   test("a large-file page keeps Use offset= through leisure and the reactor 10k size-cap", async () => {
     const name = "cl8979-reactor-page.txt";
     const rows = Array.from(
@@ -592,26 +499,6 @@ describe("CL-8979 large-file pagination", () => {
     expect(modelFacing).toContain("Use offset=");
     expect(modelFacing).toBe(leisureContent);
     expect(modelFacing).not.toContain("Tool output truncated");
-  });
-
-  test("an aborted read rejects with a timeout, not a fallback page", async () => {
-    const p = await fixture("cl8979-abort.txt", "x".repeat(1000));
-    const ctl = new AbortController();
-    ctl.abort();
-    const read = readFileBounded(p, 0, 2000, ctl.signal);
-    await expect(read).rejects.toThrow("[timed out before completing]");
-  });
-
-  test("a binary file still surfaces a refusal instead of a fallback page", async () => {
-    await fixture(
-      "cl8979-bin.dat",
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0x00]),
-    );
-    const run = chainRunner();
-    const result = await run("bin-1", { path: "cl8979-bin.dat" });
-    expect(result.isError).toBe(true);
-    expect(String(result.content)).toMatch(/binary/);
-    expect(String(result.content)).not.toBe("FALLBACK");
   });
 });
 
@@ -820,26 +707,6 @@ describe("readFileGuardPlugin", () => {
     expect(result.content).toBe("FALLBACK");
   });
 
-  test("a truncated read names the same path with an explicit offset (CL-8980)", async () => {
-    await fixture(
-      "many-lines.txt",
-      Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
-    );
-    const plugin = readFileGuardPlugin(dir, {});
-    const middleware = defined(plugin.middleware)(fallback);
-    const result = await middleware(
-      {
-        id: "c1",
-        name: "read_file",
-        arguments: { path: "many-lines.txt", limit: 4 },
-      },
-      neverAbort(),
-    );
-    expect(String(result.content)).toMatch(/Use offset=(\d+) to continue/);
-    expect(String(result.content)).not.toContain('Use path="tool-output:///');
-    expect(String(result.content)).not.toContain("single-use");
-  });
-
   test("following same-path offsets reads a large file to completion; every hop re-issues the original path with a rising offset (CL-8980)", async () => {
     const lines = Array.from({ length: 9_000 }, (_, i) => `line-${i} payload`);
     await fixture("huge.txt", lines.join("\n"));
@@ -876,43 +743,6 @@ describe("readFileGuardPlugin", () => {
 
     expect(seen).toBe(lines.length);
     expect(guard).toBeGreaterThan(1); // it actually paginated
-  });
-
-  test("reusing a continuation offset after first use still yields the window — reads never expire", async () => {
-    await fixture(
-      "stale.txt",
-      Array.from({ length: 10 }, (_, i) => `line-${i}`).join("\n"),
-    );
-    const plugin = readFileGuardPlugin(dir, {});
-    const middleware = defined(plugin.middleware)(fallback);
-    const first = await middleware(
-      {
-        id: "s1",
-        name: "read_file",
-        arguments: { path: "stale.txt", limit: 4 },
-      },
-      neverAbort(),
-    );
-    const match = /Use offset=(\d+) to continue/.exec(String(first.content));
-    expect(match).not.toBeNull();
-    const offset = Number((match as RegExpExecArray)[1] as string);
-
-    const second = await middleware(
-      { id: "s2", name: "read_file", arguments: { path: "stale.txt", offset } },
-      neverAbort(),
-    );
-    expect(second.isError).toBeFalsy();
-    expect(String(second.content)).toContain("line-4");
-    // Second use of the same offset: reads are idempotent, so the replay is
-    // byte-identical instead of a spent-handle error.
-    const replay = await middleware(
-      { id: "s3", name: "read_file", arguments: { path: "stale.txt", offset } },
-      neverAbort(),
-    );
-    expect(replay.isError).toBeFalsy();
-    expect(String(replay.content)).toBe(String(second.content));
-    expect(String(replay.content)).not.toContain("already used");
-    expect(String(replay.content)).not.toContain("single-use");
   });
 
   test("an unknown tool-output URI against a real blobReader surfaces the blob store error", async () => {

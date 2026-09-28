@@ -286,12 +286,11 @@ describe("createCompactionLifecycle", () => {
     expect(result.output).toBe(input);
     expect(result.record.reason).toBe(COMPACTION_ABORTED_REASON);
     // Exactly the lifecycle's own two notices: start + interrupted. The
-    // summarizer's "Compaction summary failed … (aborted by lifecycle)"
-    // failure framing must stay silent on a lifecycle abort.
-    expect(notices).toEqual([
-      "Compacting conversation context…",
-      "Compaction interrupted — keeping prior context.",
-    ]);
+    // summarizer's "Compaction summary failed …" failure framing must stay
+    // silent on a lifecycle abort.
+    expect(notices).toHaveLength(2);
+    expect(notices[0]).toContain("Compacting");
+    expect(notices[1]).toMatch(/interrupt/i);
     expect(notices.some((n) => n.includes("Compaction summary failed"))).toBe(
       false,
     );

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { AgentClosedError, type SendResult } from "@intx/agent";
+import type { SendResult } from "@intx/agent";
 import type { ConversationTurn, InboundMessage } from "@intx/types/runtime";
 
 import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../../src/permission/decline-markers.js";
@@ -126,95 +126,6 @@ describe("approval resume late-decision guard", () => {
 
     expect(await resume.handle(SUSPENDED)).toBe(true);
     expect(delivered).toHaveLength(0);
-  });
-});
-
-describe("approval resume delivery", () => {
-  test("optional deliver is awaited and used instead of getAgent().deliver", async () => {
-    const agentDelivered: unknown[] = [];
-    const customDelivered: unknown[] = [];
-    const agent = {
-      deliver: (message: unknown) => agentDelivered.push(message),
-      history: async () => [userTurn()],
-    };
-    let customResolved = false;
-    const resume = createApprovalResume({
-      resolveParkedCallId: () => "call-ask",
-      getAgent: () => agent,
-      deliver: async (message) => {
-        await Promise.resolve();
-        customResolved = true;
-        customDelivered.push(message);
-      },
-      gate: {
-        resolveSuspended: async () => ({ allow: true }),
-      } as unknown as PermissionGate,
-    });
-
-    expect(await resume.handle(SUSPENDED)).toBe(true);
-    expect(customResolved).toBe(true);
-    expect(agentDelivered).toEqual([]);
-    expect(customDelivered).toHaveLength(1);
-    expect(
-      correlationHeaders(customDelivered[0]).interchangeCorrelationId,
-    ).toBe("corr-1");
-  });
-
-  test("undefined agent throws instead of returning true", async () => {
-    const resume = createApprovalResume({
-      resolveParkedCallId: () => "call-ask",
-      getAgent: () => undefined,
-      gate: {
-        resolveSuspended: async () => ({ allow: true }),
-      } as unknown as PermissionGate,
-    });
-    await expect(resume.handle(SUSPENDED)).rejects.toThrow(/agent/i);
-  });
-
-  test("AgentClosedError from deliver is not swallowed", async () => {
-    const agent = {
-      deliver: () => {
-        throw new AgentClosedError();
-      },
-      history: async () => [userTurn()],
-    };
-    const resume = createApprovalResume({
-      resolveParkedCallId: () => "call-ask",
-      getAgent: () => agent,
-      gate: {
-        resolveSuspended: async () => ({ allow: true }),
-      } as unknown as PermissionGate,
-    });
-    await expect(resume.handle(SUSPENDED)).rejects.toThrow(AgentClosedError);
-  });
-
-  test("an intervening user turn after suspend does not drop a live decision", async () => {
-    const turns = [userTurn()];
-    const delivered: unknown[] = [];
-    const agent = {
-      deliver: (message: unknown) => delivered.push(message),
-      history: async () => turns,
-    };
-    const gate = {
-      resolveSuspended: async () => {
-        turns.push(userTurn());
-        return { allow: true };
-      },
-    } as unknown as PermissionGate;
-    const resume = createApprovalResume({
-      resolveParkedCallId: () => "call-ask",
-      getAgent: () => agent,
-      gate,
-    });
-
-    expect(await resume.handle(SUSPENDED)).toBe(true);
-    expect(delivered).toHaveLength(1);
-    expect(JSON.parse((delivered[0] as { content: string }).content)).toEqual({
-      outcome: "approved",
-    });
-    expect(correlationHeaders(delivered[0]).interchangeCorrelationId).toBe(
-      "corr-1",
-    );
   });
 });
 

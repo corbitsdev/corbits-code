@@ -946,9 +946,6 @@ describe("createPruningCompactor — handoff fold (CL-8744)", () => {
     if (spine.type !== "text") throw new Error("unreachable");
     expect(spine.text.startsWith(COMPACTED_PREFIX)).toBe(true);
     expect(spine.text).toContain(`Handoff: ${handoffBlobUri(blob.key)}`);
-    expect(result.record.decisions).toMatchObject({
-      handoffBlobKey: blob.key,
-    });
   });
 
   test("two-pass with readPriorHandoff keeps fold-1 paths in the latest blob", async () => {

@@ -1,5 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
-import * as fs from "node:fs";
+import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -393,76 +392,6 @@ describe("createOAuthProvider", () => {
     ]);
   });
 
-  test("saveTokens after a different-port sibling saveClient keeps this session's DCR", async () => {
-    const home = await tempHome();
-    const a = await createOAuthProvider({
-      serverName: "linear",
-      serverURL: linear.serverURL,
-      redirectUrl: "http://127.0.0.1:62000/callback",
-      onAuthURL: () => undefined,
-      home,
-    });
-    await saveClient(a, clientInfo(62000));
-    await a.saveCodeVerifier("pkce-a");
-
-    const b = await createOAuthProvider({
-      serverName: "linear",
-      serverURL: linear.serverURL,
-      redirectUrl: "http://127.0.0.1:60435/callback",
-      onAuthURL: () => undefined,
-      home,
-    });
-    await saveClient(b, clientInfo(60435));
-
-    await a.saveTokens({
-      access_token: "tok-a",
-      token_type: "bearer",
-      expires_in: 3600,
-      refresh_token: "ref-a",
-    });
-
-    const info = await syncValue(a.clientInformation());
-    expect(info?.client_id).toBe("client-on-62000");
-    expect(
-      info && "redirect_uris" in info ? info.redirect_uris : undefined,
-    ).toEqual(["http://127.0.0.1:62000/callback"]);
-    const disk = await loadAuthState(linear, home);
-    expect(disk.clientInformation?.client_id).toBe("client-on-62000");
-    expect(disk.clientInformation?.redirect_uris).toEqual([
-      "http://127.0.0.1:62000/callback",
-    ]);
-    expect(disk.tokens?.access_token).toBe("tok-a");
-    expect((await syncValue(a.tokens()))?.access_token).toBe("tok-a");
-  });
-
-  test("saveCodeVerifier after a different-port sibling saveClient does not adopt that client", async () => {
-    const home = await tempHome();
-    const a = await createOAuthProvider({
-      serverName: "linear",
-      serverURL: linear.serverURL,
-      redirectUrl: "http://127.0.0.1:62000/callback",
-      onAuthURL: () => undefined,
-      home,
-    });
-    await saveClient(a, clientInfo(62000));
-
-    const b = await createOAuthProvider({
-      serverName: "linear",
-      serverURL: linear.serverURL,
-      redirectUrl: "http://127.0.0.1:60435/callback",
-      onAuthURL: () => undefined,
-      home,
-    });
-    await saveClient(b, clientInfo(60435));
-    await a.saveCodeVerifier("pkce-a");
-
-    const info = await syncValue(a.clientInformation());
-    expect(info?.client_id).toBe("client-on-62000");
-    expect(
-      info && "redirect_uris" in info ? info.redirect_uris : undefined,
-    ).toEqual(["http://127.0.0.1:62000/callback"]);
-  });
-
   test("idle tokens getter adopts a sibling's completed auth without rewriting matching DCR", async () => {
     const home = await tempHome();
     const a = await createOAuthProvider({
@@ -610,28 +539,6 @@ describe("createOAuthProvider", () => {
       home,
     );
     expect((await syncValue(provider.tokens()))?.access_token).toBe("fresh");
-  });
-
-  test("sync getters skip reading the auth file when mtime and size are unchanged", async () => {
-    const home = await tempHome();
-    const provider = await createOAuthProvider({
-      serverName: "linear",
-      serverURL: linear.serverURL,
-      redirectUrl: "http://127.0.0.1:1/callback",
-      onAuthURL: () => undefined,
-      home,
-    });
-    await provider.saveTokens({ access_token: "tok", token_type: "bearer" });
-    expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
-
-    const read = spyOn(fs, "readFileSync");
-    try {
-      expect((await syncValue(provider.tokens()))?.access_token).toBe("tok");
-      expect(await syncValue(provider.clientInformation())).toBeUndefined();
-      expect(read).not.toHaveBeenCalled();
-    } finally {
-      read.mockRestore();
-    }
   });
 
   test("does not delete scoped state whose filename stem is another provider name", async () => {

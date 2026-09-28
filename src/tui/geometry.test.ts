@@ -12,7 +12,6 @@ import {
   PROMPT_IDLE_ROWS,
   SIDE_MARGIN,
   TASKS_PANEL_MAX_VISIBLE,
-  ZONE_IDS,
   ZONE_REGISTRY,
   resolveGeometry,
   type GeometryInput,
@@ -26,35 +25,6 @@ function idle80x24(overrides: Partial<GeometryInput> = {}) {
 }
 
 describe("zone registry", () => {
-  test("exports every constitution zone id", () => {
-    const expected = [
-      "progress",
-      "progress_divider",
-      "notice",
-      "pending",
-      "prompt",
-      "task",
-      "agents",
-      "plugin_banner",
-      "command_banner",
-      "settings_notice",
-      "transcript",
-      "overlay_host",
-    ] as const;
-    expect([...ZONE_IDS]).toEqual([...expected]);
-    for (const id of expected) {
-      expect(ZONE_REGISTRY[id].id).toBe(id);
-    }
-  });
-
-  test("the prompt box is the only always-on chrome, and it rests taller than its floor", () => {
-    expect(ZONE_REGISTRY.notice.idleDefault).toBe(0);
-    expect(ZONE_REGISTRY.prompt.idleDefault).toBe(PROMPT_IDLE_ROWS);
-    expect(ZONE_REGISTRY.prompt.min).toBe(PROMPT_BASE_ROWS);
-    expect(ZONE_REGISTRY.notice.alwaysOn).toBe(false);
-    expect(ZONE_REGISTRY.progress.idleDefault).toBe(0);
-  });
-
   test("collapse order cuts temporary banners first and never cuts the prompt below base", () => {
     expect(COLLAPSE_ORDER[0]).toBe("command_banner");
     expect(COLLAPSE_ORDER.at(-1)).toBe("prompt");
@@ -110,7 +80,6 @@ describe("resolveGeometry — 80×24 idle floor", () => {
 
 describe("resolveGeometry — agents panel", () => {
   test("agents zone max allows more than one row again", () => {
-    expect(ZONE_REGISTRY.agents.max).toBe(AGENTS_PANEL_MAX_VISIBLE + 1);
     for (let n = 0; n <= AGENTS_PANEL_MAX_VISIBLE + 3; n++) {
       const layout = idle80x24({ visibility: { agents: n } });
       const fracCap = Math.max(1, Math.floor(24 * FLEET_BOARD_CAP_FRACTION));

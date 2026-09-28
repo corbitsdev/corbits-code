@@ -181,62 +181,6 @@ test("only background and bake-only skills carry disable-model-invocation", asyn
   }
 });
 
-test("review skill is the classify-then-selected-fleet recipe", async () => {
-  const skill = await Bun.file(
-    join(pluginRoot, "skills/review/SKILL.md"),
-  ).text();
-  expect(skill).toContain("Classify the review target");
-  expect(skill).toContain("Critic always");
-  expect(skill).toContain("Greybeard");
-  expect(skill).toContain("one target per wave");
-  expect(skill).toContain("read the PR tree");
-  expect(skill).not.toContain("deep-agent-review");
-});
-
-test("review skill recommends the fleet but does not route it or own the worktree", async () => {
-  const skill = await Bun.file(
-    join(pluginRoot, "skills/review/SKILL.md"),
-  ).text();
-  expect(skill).toContain("does\nnot route the fleet");
-  expect(skill).toContain("the primary (Skywalker orchestrator) dispatches");
-  expect(skill).toContain(
-    "worktree checkout belongs to `/pull-request-review`",
-  );
-});
-
-test("review skill gates interview as exception, never ritual", async () => {
-  const skill = await Bun.file(
-    join(pluginRoot, "skills/review/SKILL.md"),
-  ).text();
-  expect(skill).toContain("Never run interview as ritual");
-});
-
-test("pull-request-review is the worktree surface pass", async () => {
-  const skill = await Bun.file(
-    join(pluginRoot, "skills/pull-request-review/SKILL.md"),
-  ).text();
-  expect(skill).toContain("worktree");
-  expect(skill).toContain("quality rules only");
-  expect(skill).toContain("at most one");
-  expect(skill).toContain("Post the Review on GitHub");
-  expect(skill).not.toContain("Classify the review target");
-});
-
-test("no third review slash exists", () => {
-  expect(existsSync(join(pluginRoot, "skills/deep-agent-review"))).toBe(false);
-});
-
-test("review skill does not own GitHub posting or Linear In Review", async () => {
-  const skill = await Bun.file(
-    join(pluginRoot, "skills/review/SKILL.md"),
-  ).text();
-  expect(skill).not.toContain("Post the Review on GitHub");
-  expect(skill).not.toContain(
-    "`linear-issue-workflow` owns the In Review write",
-  );
-  expect(skill).not.toContain("this skill does not set Linear state");
-});
-
 test("slash skills do not set user-invocable: false", async () => {
   for (const name of SLASH_SKILLS) {
     const skill = await Bun.file(

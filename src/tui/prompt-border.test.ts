@@ -32,7 +32,12 @@ describe("border characters", () => {
 describe("composeRule", () => {
   test("a label sits right-aligned with rule either side of it", () => {
     const parts = composeRule({ width: 40, corners: TOP, label: "grok 4.5" });
-    expect(ruleText(parts)).toBe("╭─────────────────────────── grok 4.5 ─╮");
+    const labelIdx = parts.findIndex((p) => p.role === "label");
+    expect(parts[labelIdx - 1]?.role).toBe("rule");
+    expect(parts[labelIdx + 1]?.role).toBe("rule");
+    // the label hugs the right corner, not the left
+    expect(parts.at(-1)?.text).toBe(BORDER.topRight);
+    expect(ruleText(parts)).toContain("grok 4.5");
     expect(ruleWidth(parts)).toBe(40);
   });
 
@@ -46,7 +51,12 @@ describe("composeRule", () => {
   test("no label leaves an unbroken run of frame characters", () => {
     const parts = composeRule({ width: 20, corners: TOP });
     expect(isPlainRule(parts)).toBe(true);
-    expect(ruleText(parts)).toBe("╭──────────────────╮");
+    const text = ruleText(parts);
+    expect(text.startsWith(BORDER.topLeft)).toBe(true);
+    expect(text.endsWith(BORDER.topRight)).toBe(true);
+    expect([...text.slice(1, -1)].every((c) => c === BORDER.horizontal)).toBe(
+      true,
+    );
   });
 
   test("brand and label share a rule wide enough for both", () => {
@@ -56,8 +66,11 @@ describe("composeRule", () => {
       brand: "▃▅██▆ corbits code",
       label: "~/x (main)",
     });
-    expect(ruleText(parts)).toBe(
-      "╰─ ▃▅██▆ corbits code ──────────────────────── ~/x (main) ─╯",
+    const text = ruleText(parts);
+    // brand left of the label, both inside the corners
+    expect(text.indexOf("corbits code")).toBeGreaterThan(-1);
+    expect(text.indexOf("corbits code")).toBeLessThan(
+      text.indexOf("~/x (main)"),
     );
     expect(ruleWidth(parts)).toBe(60);
     expect(parts.some((p) => p.role === "brand")).toBe(true);
@@ -84,7 +97,10 @@ describe("composeRule", () => {
       label: "~/very/long/path (main)",
     });
     expect(isPlainRule(parts)).toBe(true);
-    expect(ruleText(parts)).toBe("╰────────╯");
+    const text = ruleText(parts);
+    expect(text.startsWith(BORDER.bottomLeft)).toBe(true);
+    expect(text.endsWith(BORDER.bottomRight)).toBe(true);
+    expect(ruleWidth(parts)).toBe(10);
   });
 
   test("brand, meter and label all seat when the rule is wide enough", () => {
@@ -96,9 +112,14 @@ describe("composeRule", () => {
       meterCompact: "██████████ 68%",
       label: "~/x",
     });
-    expect(ruleText(parts)).toBe(
-      "╰─ corbits code ──────────── ██████████ 68% · $0.42 ─ ~/x ─╯",
-    );
+    const text = ruleText(parts);
+    // seat order left to right: brand, meter, label
+    const brandIdx = text.indexOf("corbits code");
+    const meterIdx = text.indexOf("68%");
+    const labelIdx = text.indexOf("~/x");
+    expect(brandIdx).toBeGreaterThan(-1);
+    expect(brandIdx).toBeLessThan(meterIdx);
+    expect(meterIdx).toBeLessThan(labelIdx);
     expect(ruleWidth(parts)).toBe(60);
     expect(parts.some((p) => p.role === "meter")).toBe(true);
     expect(parts.some((p) => p.role === "label")).toBe(true);
@@ -149,7 +170,8 @@ describe("composeRule", () => {
       attention: "mcp !",
       label: "xai · grok",
     });
-    expect(ruleText(parts)).toBe("╭───────────────── mcp ! ─ xai · grok ─╮");
+    const text = ruleText(parts);
+    expect(text.indexOf("mcp !")).toBeLessThan(text.indexOf("xai · grok"));
     expect(ruleWidth(parts)).toBe(40);
     expect(parts.some((p) => p.role === "attention")).toBe(true);
     expect(parts.some((p) => p.role === "label")).toBe(true);
@@ -157,14 +179,16 @@ describe("composeRule", () => {
 
   test("combined mcp and plugin attention seats as one run", () => {
     const attention = composeAttentionLabel({ mcp: true, plugin: true });
-    expect(attention).toBe("mcp ! · plugin !");
+    expect(attention).toBe(
+      `${MCP_ATTENTION_LABEL} · ${PLUGIN_ATTENTION_LABEL}`,
+    );
     const parts = composeRule({
       width: 48,
       corners: TOP,
       attention: defined(attention),
       label: "xai · grok",
     });
-    expect(ruleText(parts)).toContain("mcp ! · plugin !");
+    expect(ruleText(parts)).toContain(attention as string);
     expect(parts.filter((p) => p.role === "attention")).toHaveLength(1);
   });
 
@@ -175,13 +199,17 @@ describe("composeRule", () => {
       PLUGIN_ATTENTION_LABEL,
     );
     expect(composeAttentionLabel({ mcp: true, plugin: true })).toBe(
-      "mcp ! · plugin !",
+      `${MCP_ATTENTION_LABEL} · ${PLUGIN_ATTENTION_LABEL}`,
     );
   });
 
   test("attention alone still seats when there is no model label", () => {
     const parts = composeRule({ width: 20, corners: TOP, attention: "mcp !" });
-    expect(ruleText(parts)).toBe("╭────────── mcp ! ─╮");
+    const text = ruleText(parts);
+    expect(text).toContain("mcp !");
+    expect(text.startsWith(BORDER.topLeft)).toBe(true);
+    expect(text.endsWith(BORDER.topRight)).toBe(true);
+    expect(ruleWidth(parts)).toBe(20);
     expect(parts.some((p) => p.role === "attention")).toBe(true);
   });
 

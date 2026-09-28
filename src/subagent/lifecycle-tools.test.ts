@@ -766,7 +766,14 @@ describe("interrupt_agent", () => {
 });
 
 describe("send_input", () => {
-  test("send_input interrupt then successful follow-up wait is done without leftover interrupted stop_reason", async () => {
+  function liveLane(
+    opts: {
+      inFlight?: boolean;
+      interrupt?: () => void;
+      followup?: (message: string) => Promise<string>;
+      deliver?: (message: string) => void;
+    } = {},
+  ) {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
     const worker = sessions.start({
@@ -776,16 +783,26 @@ describe("send_input", () => {
       retained: true,
     });
     sessions.markRunning(worker.id);
-    sessions.registerInterrupt(worker.id, () => undefined);
+    if (opts.inFlight === true) sessions.markRunInFlight(worker.id);
+    if (opts.interrupt !== undefined)
+      sessions.registerInterrupt(worker.id, opts.interrupt);
+    if (opts.followup !== undefined)
+      sessions.registerFollowup(worker.id, opts.followup);
+    if (opts.deliver !== undefined)
+      sessions.registerDeliver(worker.id, opts.deliver);
+    fleetRecords.register(worker.id);
+    return { sessions, fleetRecords, worker };
+  }
+
+  test("send_input interrupt then successful follow-up wait is done without leftover interrupted stop_reason", async () => {
     let finish: (reply: string) => void = () => undefined;
-    sessions.registerFollowup(
-      worker.id,
-      () =>
+    const { sessions, fleetRecords, worker } = liveLane({
+      interrupt: () => undefined,
+      followup: () =>
         new Promise<string>((resolve) => {
           finish = resolve;
         }),
-    );
-    fleetRecords.register(worker.id);
+    });
 
     const sendInput = createSendInputTool({ sessions, fleetRecords });
     const wait = createWaitAgentsTool({ sessions, fleetRecords });
@@ -821,20 +838,12 @@ describe("send_input", () => {
   });
 
   test("followup throw after interrupt wait still has stop_reason interrupted", async () => {
-    const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetMailbox(sessions);
-    const worker = sessions.start({
-      description: "worker",
-      agentId: "a",
-      brief: "b",
-      retained: true,
+    const { sessions, fleetRecords, worker } = liveLane({
+      interrupt: () => undefined,
+      followup: async () => {
+        throw new Error("send failed");
+      },
     });
-    sessions.markRunning(worker.id);
-    sessions.registerInterrupt(worker.id, () => undefined);
-    sessions.registerFollowup(worker.id, async () => {
-      throw new Error("send failed");
-    });
-    fleetRecords.register(worker.id);
 
     const sendInput = createSendInputTool({ sessions, fleetRecords });
     const wait = createWaitAgentsTool({ sessions, fleetRecords });
@@ -863,17 +872,11 @@ describe("send_input", () => {
   });
 
   test("soft-delivers without flipping lifecycle or awaiting a reply", async () => {
-    const sessions = createSubAgentSessionStore();
-    const worker = sessions.start({
-      description: "worker",
-      agentId: "a",
-      brief: "b",
-      retained: true,
-    });
-    sessions.markRunning(worker.id);
     const delivered: string[] = [];
-    sessions.registerDeliver(worker.id, (message) => {
-      delivered.push(message);
+    const { sessions, worker } = liveLane({
+      deliver: (message) => {
+        delivered.push(message);
+      },
     });
 
     const sendInput = createSendInputTool({ sessions });
@@ -888,27 +891,21 @@ describe("send_input", () => {
   });
 
   test("interrupt:true queues followup without awaiting and refuses when followup is missing", async () => {
-    const sessions = createSubAgentSessionStore();
-    const worker = sessions.start({
-      description: "worker",
-      agentId: "a",
-      brief: "b",
-      retained: true,
-    });
-    sessions.markRunning(worker.id);
     let interrupted = false;
     let followupStarted = false;
-    sessions.registerInterrupt(worker.id, () => {
-      interrupted = true;
-    });
-    sessions.registerFollowup(worker.id, async (message) => {
-      followupStarted = true;
-      expect(message).toBe("patch only the test");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      return "queued turn finished";
-    });
-    sessions.registerDeliver(worker.id, () => {
-      throw new Error("interrupt:true should not soft-deliver");
+    const { sessions, worker } = liveLane({
+      interrupt: () => {
+        interrupted = true;
+      },
+      followup: async (message) => {
+        followupStarted = true;
+        expect(message).toBe("patch only the test");
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return "queued turn finished";
+      },
+      deliver: () => {
+        throw new Error("interrupt:true should not soft-deliver");
+      },
     });
 
     const sendInput = createSendInputTool({ sessions });
@@ -951,25 +948,17 @@ describe("send_input", () => {
   });
 
   test("completion during interrupt delivers the stashed steer as a follow-up", async () => {
-    const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetMailbox(sessions);
-    const worker = sessions.start({
-      description: "worker",
-      agentId: "a",
-      brief: "b",
-      retained: true,
+    let followupStarted = false;
+    const { sessions, fleetRecords, worker } = liveLane({
+      inFlight: true,
+      followup: async () => {
+        followupStarted = true;
+        return "follow-up report";
+      },
     });
-    sessions.markRunning(worker.id);
-    sessions.markRunInFlight(worker.id);
     sessions.registerInterrupt(worker.id, () => {
       sessions.complete(worker.id, "original report");
     });
-    let followupStarted = false;
-    sessions.registerFollowup(worker.id, async () => {
-      followupStarted = true;
-      return "follow-up report";
-    });
-    fleetRecords.register(worker.id);
 
     const sendInput = createSendInputTool({ sessions, fleetRecords });
     const wait = createWaitAgentsTool({ sessions, fleetRecords });
@@ -1001,79 +990,15 @@ describe("send_input", () => {
     );
   });
 
-  test("CL-7344: interrupt:true stashes until attachReport; resume stays fail-closed", async () => {
-    const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetMailbox(sessions);
-    const worker = sessions.start({
-      description: "worker",
-      agentId: "a",
-      brief: "b",
-      retained: true,
-    });
-    sessions.markRunning(worker.id);
-    sessions.markRunInFlight(worker.id);
-    sessions.registerInterrupt(worker.id, () => undefined);
-    let followupStarted = false;
-    sessions.registerFollowup(worker.id, async (message) => {
-      followupStarted = true;
-      expect(message).toBe("patch only the test");
-      return "queued turn finished";
-    });
-    fleetRecords.register(worker.id);
-
-    const sendInput = createSendInputTool({ sessions, fleetRecords });
-    const resume = createResumeAgentTool({ sessions, fleetRecords });
-    const wait = createWaitAgentsTool({ sessions, fleetRecords });
-    const result = await callTool(sendInput, {
-      target: worker.id,
-      message: "patch only the test",
-      interrupt: true,
-    });
-    expect(result).toEqual({ agent_id: worker.id, status: "interrupted" });
-    expect(followupStarted).toBe(false);
-    expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
-    if (resume.kind !== "full") throw new Error("expected full tool");
-    const resumed = await resume.handler(
-      {
-        id: "resume-during-stash",
-        name: "resume_agent",
-        arguments: { target: worker.id, message: "x" },
-      },
-      new AbortController().signal,
-    );
-    expect(resumed.isError).toBe(true);
-    expect(String(resumed.content)).toContain("status: running");
-    const pending = await callTool(wait, {
-      targets: [worker.id],
-      timeout_ms: 50,
-    });
-    expect(pending.timed_out).toBe(true);
-    expect(defined((pending.results as { status: string }[])[0]).status).toBe(
-      "running",
-    );
-
-    sessions.attachReport(worker.id, "salvage", { stopReason: "interrupted" });
-    await Promise.resolve();
-    expect(followupStarted).toBe(true);
-  });
-
   test("CL-7344: AgentClosedError follow-up wait collects failed", async () => {
     const { AgentClosedError } = await import("@intx/agent");
-    const sessions = createSubAgentSessionStore();
-    const fleetRecords = createFleetMailbox(sessions);
-    const worker = sessions.start({
-      description: "worker",
-      agentId: "a",
-      brief: "b",
-      retained: true,
+    const { sessions, fleetRecords, worker } = liveLane({
+      inFlight: true,
+      interrupt: () => undefined,
+      followup: async () => {
+        throw new AgentClosedError();
+      },
     });
-    sessions.markRunning(worker.id);
-    sessions.markRunInFlight(worker.id);
-    sessions.registerInterrupt(worker.id, () => undefined);
-    sessions.registerFollowup(worker.id, async () => {
-      throw new AgentClosedError();
-    });
-    fleetRecords.register(worker.id);
     const sendInput = createSendInputTool({ sessions, fleetRecords });
     const wait = createWaitAgentsTool({ sessions, fleetRecords });
     const list = createListAgentsTool({ sessions, fleetRecords });
@@ -1287,7 +1212,7 @@ describe("nested lifecycle authority", () => {
     };
   }
 
-  test("interrupt_agent denies a sibling and allows a descendant", async () => {
+  function nestedSetup(retained = false) {
     const sessions = createSubAgentSessionStore();
     const nested = sessions.start({
       id: "nested",
@@ -1301,20 +1226,28 @@ describe("nested lifecycle authority", () => {
       agentId: "a",
       brief: "b",
       parentSessionId: nested.id,
+      ...(retained ? { retained: true } : {}),
     });
     const sibling = sessions.start({
       id: "sibling",
       description: "s",
       agentId: "a",
       brief: "b",
+      ...(retained ? { retained: true } : {}),
     });
+    const fleetRecords = createFleetMailbox(sessions);
+    return { sessions, nested, child, sibling, fleetRecords };
+  }
+
+  test("interrupt_agent denies a sibling and allows a descendant", async () => {
+    const { sessions, nested, child, sibling, fleetRecords } = nestedSetup();
     for (const s of [child, sibling]) {
       sessions.markRunning(s.id);
       sessions.registerInterrupt(s.id, () => undefined);
     }
     const interrupt = createInterruptAgentTool({
       sessions,
-      fleetRecords: createFleetMailbox(sessions),
+      fleetRecords,
       authority: nestAuthority(sessions, nested.id),
     });
     expect((await callTool(interrupt, { target: child.id })).status).toBe(
@@ -1329,31 +1262,12 @@ describe("nested lifecycle authority", () => {
   });
 
   test("close_agent denies a sibling and allows a descendant", async () => {
-    const sessions = createSubAgentSessionStore();
-    const nested = sessions.start({
-      id: "nested",
-      description: "n",
-      agentId: "a",
-      brief: "b",
-    });
-    const child = sessions.start({
-      id: "child",
-      description: "c",
-      agentId: "a",
-      brief: "b",
-      parentSessionId: nested.id,
-    });
-    const sibling = sessions.start({
-      id: "sibling",
-      description: "s",
-      agentId: "a",
-      brief: "b",
-    });
+    const { sessions, nested, child, sibling, fleetRecords } = nestedSetup();
     for (const s of [child, sibling])
       sessions.registerClose(s.id, async () => undefined);
     const close = createCloseAgentTool({
       sessions,
-      fleetRecords: createFleetMailbox(sessions),
+      fleetRecords,
       authority: nestAuthority(sessions, nested.id),
     });
     expect((await callTool(close, { target: child.id })).status).toBe(
@@ -1369,35 +1283,15 @@ describe("nested lifecycle authority", () => {
   });
 
   test("resume_agent denies a sibling and allows a descendant", async () => {
-    const sessions = createSubAgentSessionStore();
-    const nested = sessions.start({
-      id: "nested",
-      description: "n",
-      agentId: "a",
-      brief: "b",
-    });
-    const child = sessions.start({
-      id: "child",
-      description: "c",
-      agentId: "a",
-      brief: "b",
-      parentSessionId: nested.id,
-      retained: true,
-    });
-    const sibling = sessions.start({
-      id: "sibling",
-      description: "s",
-      agentId: "a",
-      brief: "b",
-      retained: true,
-    });
+    const { sessions, nested, child, sibling, fleetRecords } =
+      nestedSetup(true);
     for (const s of [child, sibling]) {
       sessions.complete(s.id, "done");
       sessions.registerFollowup(s.id, async () => "reply");
     }
     const resume = createResumeAgentTool({
       sessions,
-      fleetRecords: createFleetMailbox(sessions),
+      fleetRecords,
       authority: nestAuthority(sessions, nested.id),
     });
     expect(

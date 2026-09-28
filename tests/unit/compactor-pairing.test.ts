@@ -478,92 +478,57 @@ function assistantQuery(
 }
 
 describe("pruning compactor extends superseded-result stubbing to query tools (CL-6906)", () => {
-  test("stubs an older successful grep call repeated with byte-identical arguments", async () => {
-    const oldBody = "OLD_MATCHES_" + "a".repeat(200);
-    const newBody = "NEW_MATCHES_" + "b".repeat(200);
-    const args = { pattern: "TODO", path: "src" };
-    const turns: ConversationTurn[] = [
-      userText("start"),
-      userText("a"),
-      userText("b"),
-      userText("c"),
-      assistantQuery("g1", "grep", args),
-      userReadResult("g1", oldBody),
-      assistantQuery("g2", "grep", args),
-      userReadResult("g2", newBody),
-      userText("d"),
-      userText("e"),
-    ];
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      keepRecentTurns: 6,
-      maxAnchorTurns: 2,
+  // search_files's second case also pins key-order-insensitive argument
+  // identity: `{ query, limit }` and `{ limit, query }` are the same call.
+  for (const { tool, args } of [
+    {
+      tool: "grep",
+      args: [
+        { pattern: "TODO", path: "src" },
+        { pattern: "TODO", path: "src" },
+      ],
+    },
+    {
+      tool: "search_files",
+      args: [
+        { query: "widget", limit: 20 },
+        { limit: 20, query: "widget" },
+      ],
+    },
+    {
+      tool: "list_dir",
+      args: [{ path: "src/components" }, { path: "src/components" }],
+    },
+  ] as const) {
+    test(`stubs an older successful ${tool} call repeated with identical arguments`, async () => {
+      const oldBody = "OLD_" + "a".repeat(200);
+      const newBody = "NEW_" + "b".repeat(200);
+      const turns: ConversationTurn[] = [
+        userText("start"),
+        userText("a"),
+        userText("b"),
+        userText("c"),
+        assistantQuery("q1", tool, args[0]),
+        userReadResult("q1", oldBody),
+        assistantQuery("q2", tool, args[1]),
+        userReadResult("q2", newBody),
+        userText("d"),
+        userText("e"),
+      ];
+      const compactor = createPruningCompactor({
+        // CL-9007: pin a tiny tail budget so the fold covers the same older
+        // region the old keepRecentTurns cut folded.
+        compactionShape: { tailBudgetTokens: 10 },
+        keepRecentTurns: 6,
+        maxAnchorTurns: 2,
+      });
+      const { output } = await compactor.apply(turns, {} as never);
+      const older = resultText(output, "q1");
+      expect(resultText(output, "q2")).toBe(newBody);
+      expect(older).toBeDefined();
+      expect(older).not.toBe(oldBody);
     });
-    const { output } = await compactor.apply(turns, {} as never);
-    const older = resultText(output, "g1");
-    expect(resultText(output, "g2")).toBe(newBody);
-    expect(older).toBeDefined();
-    expect(older).not.toBe(oldBody);
-    expect(older).toMatch(/omitted|chars/);
-  });
-
-  test("stubs an older successful search_files call with argument key order irrelevant", async () => {
-    const oldBody = "OLD_SEARCH_" + "a".repeat(200);
-    const newBody = "NEW_SEARCH_" + "b".repeat(200);
-    const turns: ConversationTurn[] = [
-      userText("start"),
-      userText("a"),
-      userText("b"),
-      userText("c"),
-      assistantQuery("s1", "search_files", { query: "widget", limit: 20 }),
-      userReadResult("s1", oldBody),
-      // Same arguments, different key order — must still be treated as identical.
-      assistantQuery("s2", "search_files", { limit: 20, query: "widget" }),
-      userReadResult("s2", newBody),
-      userText("d"),
-      userText("e"),
-    ];
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      keepRecentTurns: 6,
-      maxAnchorTurns: 2,
-    });
-    const { output } = await compactor.apply(turns, {} as never);
-    expect(resultText(output, "s2")).toBe(newBody);
-    expect(resultText(output, "s1")).not.toBe(oldBody);
-  });
-
-  test("stubs an older successful list_dir call repeated on the same path", async () => {
-    const oldBody = "OLD_LISTING_" + "a".repeat(200);
-    const newBody = "NEW_LISTING_" + "b".repeat(200);
-    const args = { path: "src/components" };
-    const turns: ConversationTurn[] = [
-      userText("start"),
-      userText("a"),
-      userText("b"),
-      userText("c"),
-      assistantQuery("l1", "list_dir", args),
-      userReadResult("l1", oldBody),
-      assistantQuery("l2", "list_dir", args),
-      userReadResult("l2", newBody),
-      userText("d"),
-      userText("e"),
-    ];
-    const compactor = createPruningCompactor({
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      keepRecentTurns: 6,
-      maxAnchorTurns: 2,
-    });
-    const { output } = await compactor.apply(turns, {} as never);
-    expect(resultText(output, "l2")).toBe(newBody);
-    expect(resultText(output, "l1")).not.toBe(oldBody);
-  });
+  }
 
   test("does not supersede a grep call with different arguments", async () => {
     const body1 = "MATCHES_TODO_" + "a".repeat(200);

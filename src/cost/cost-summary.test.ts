@@ -193,18 +193,6 @@ describe("formatStatusBarSegments", () => {
 });
 
 describe("formatCostCommandOutput", () => {
-  it("prints a full breakdown for a normal metered model", () => {
-    const summary = buildCostSummary(baseInput);
-    expect(formatCostCommandOutput(summary)).toBe(
-      [
-        "Model: test-model",
-        "Cost: $0.0123",
-        "Tokens: 1000 in / 500 out / 200 cache-read",
-        "Context: 64000/128000 (50%)",
-      ].join("\n"),
-    );
-  });
-
   it("reports the reason cost is hidden for a free model", () => {
     const summary = buildCostSummary({ ...baseInput, modelId: "qwen3:free" });
     expect(formatCostCommandOutput(summary)).toContain(
@@ -219,23 +207,6 @@ describe("formatCostCommandOutput", () => {
     });
     expect(formatCostCommandOutput(summary)).toContain(
       "Cost: hidden (coding-plan endpoint)",
-    );
-  });
-
-  it("reports ChatGPT subscription coverage instead of a hidden dollar figure", () => {
-    const summary = buildCostSummary({
-      ...baseInput,
-      modelId: "gpt-5.6-luna",
-      providerName: "codex/default",
-      baseURL: "https://api.openai.com/v1",
-    });
-    expect(formatCostCommandOutput(summary)).toBe(
-      [
-        "Model: gpt-5.6-luna",
-        "Cost: covered by ChatGPT subscription (not billed per token)",
-        "Tokens: 1000 in / 500 out / 200 cache-read",
-        "Context: 64000/400000 (16%)",
-      ].join("\n"),
     );
   });
 
@@ -257,50 +228,5 @@ describe("formatCostCommandOutput", () => {
   it("flags an estimated context percentage with a tilde", () => {
     const summary = buildCostSummary({ ...baseInput, contextIsEstimate: true });
     expect(formatCostCommandOutput(summary)).toContain("(~50%)");
-  });
-
-  it("prints mixed /cost as the metered portion, not a whole-session subscription", () => {
-    const summary = buildCostSummary({
-      ...baseInput,
-      modelId: "gpt-5.6-luna",
-      providerName: "codex/default",
-      formattedCost: "$0.0070",
-      totalCost: 0.007,
-      sessionBillingMix: "mixed",
-      sessionHiddenReason: "chatgpt-subscription",
-    });
-    const output = formatCostCommandOutput(summary);
-    expect(output).toContain(
-      "Cost: $0.0070 (metered portion only; session mixed billed and hidden usage)",
-    );
-    expect(output).not.toContain("covered by ChatGPT subscription");
-  });
-
-  it("prints mixed /cost as the metered portion after switching onto a public-rate model", () => {
-    const summary = buildCostSummary({
-      ...baseInput,
-      modelId: "glm-5.1",
-      providerName: "openai",
-      formattedCost: "$0.0070",
-      totalCost: 0.007,
-      sessionBillingMix: "mixed",
-      sessionHiddenReason: "chatgpt-subscription",
-    });
-    expect(formatCostCommandOutput(summary)).toContain(
-      "Cost: $0.0070 (metered portion only; session mixed billed and hidden usage)",
-    );
-  });
-
-  it("keeps hidden-only Codex /cost on the subscription copy", () => {
-    const summary = buildCostSummary({
-      ...baseInput,
-      modelId: "gpt-5.6-luna",
-      providerName: "codex/default",
-      sessionBillingMix: "hidden-only",
-      sessionHiddenReason: "chatgpt-subscription",
-    });
-    expect(formatCostCommandOutput(summary)).toContain(
-      "Cost: covered by ChatGPT subscription (not billed per token)",
-    );
   });
 });

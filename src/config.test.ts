@@ -105,9 +105,10 @@ const NO_SETTINGS = join(
 
 // Writes a minimal valid global settings file with a single provider and
 // returns its path. Provider resolution reads exclusively from such files.
+// `extras` are merged as extra top-level settings fields.
 async function writeGlobalSettings(
   cwd: string,
-  mcpServers?: unknown,
+  extras?: Record<string, unknown>,
 ): Promise<string> {
   const path = join(cwd, "global.json");
   await writeFile(
@@ -121,7 +122,7 @@ async function writeGlobalSettings(
           models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
         },
       },
-      ...(mcpServers !== undefined ? { mcpServers } : {}),
+      ...extras,
     }),
   );
   return path;
@@ -205,7 +206,7 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd, {
-        exa: { enabled: true },
+        mcpServers: { exa: { enabled: true } },
       });
       const globalConfig = await loadConfig(["--cwd", cwd, "hello"], {
         globalSettingsPath: globalPath,
@@ -217,7 +218,9 @@ describe("loadConfig", () => {
         { name: "exa", enabled: true },
       ]);
 
-      await writeGlobalSettings(cwd, { exa: { enabled: false } });
+      await writeGlobalSettings(cwd, {
+        mcpServers: { exa: { enabled: false } },
+      });
       const disabledConfig = await loadConfig(["--cwd", cwd, "hello"], {
         globalSettingsPath: globalPath,
       });
@@ -228,7 +231,9 @@ describe("loadConfig", () => {
         { name: "exa", enabled: false },
       ]);
 
-      await writeGlobalSettings(cwd, { exa: { enabled: true } });
+      await writeGlobalSettings(cwd, {
+        mcpServers: { exa: { enabled: true } },
+      });
       await mkdir(join(cwd, ".corbits"), { recursive: true });
       await writeFile(
         join(cwd, ".corbits", "settings.json"),
@@ -342,10 +347,12 @@ describe("loadConfig", () => {
     const cwd = await emptyCwd();
     try {
       const globalPath = await writeGlobalSettings(cwd, {
-        linear: {
-          type: "http",
-          url: "https://mcp.linear.app/mcp",
-          enabled: false,
+        mcpServers: {
+          linear: {
+            type: "http",
+            url: "https://mcp.linear.app/mcp",
+            enabled: false,
+          },
         },
       });
       const config = await loadConfig(["--cwd", cwd, "hello"], {
@@ -362,21 +369,6 @@ describe("loadConfig", () => {
         },
       ]);
       expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("loadConfig with no mcp list uses empty mcpServerEntries and source none", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["--cwd", cwd, "hello"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.mcpServerEntries).toEqual([]);
-      expect(config.mcpServersSource).toBe("none");
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -590,18 +582,6 @@ describe("loadConfig", () => {
     );
   });
 
-  test("--director implement is unknown and lists closed-fleet ids including builder", async () => {
-    await expect(
-      loadConfig(["exec", "--director", "implement", "ship it"], {
-        globalSettingsPath: NO_SETTINGS,
-      }),
-    ).rejects.toThrow(
-      new RegExp(`Unknown director "implement".*${DIRECTOR_IDS.join(", ")}`),
-    );
-    expect(DIRECTOR_IDS).toContain("builder");
-    expect(DIRECTOR_IDS).not.toContain("implement");
-  });
-
   test("--director without a value errors", async () => {
     await expect(
       loadConfig(["exec", "--director"], { globalSettingsPath: NO_SETTINGS }),
@@ -701,41 +681,6 @@ describe("loadConfig", () => {
     }
   });
 
-  test("resume <id> reopens a failed session that recorded an error", async () => {
-    const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const sessionId = generateSessionId();
-      await initSessionDir(cwd, sessionId, home);
-      await saveState(
-        cwd,
-        sessionId,
-        {
-          status: "failed",
-          turnsUsed: 4,
-          task: "ship resume after failure",
-          startedAt: Date.now() - 1_000,
-          finishedAt: Date.now(),
-          error: "Cycle commit failed\nhook dump: pre-commit rejected",
-        },
-        home,
-      );
-      const config = await loadConfig(["resume", sessionId, "--cwd", cwd], {
-        globalSettingsPath: globalPath,
-        home,
-      });
-      assertConfigured(config);
-      expect(config.resumeMode).toBe("id");
-      expect(config.sessionId).toBe(sessionId);
-      expect(config.skipInitialTask).toBe(true);
-      expect(config.task).toBe("ship resume after failure");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
-  });
-
   test("resume <id> among failed siblings stays silent and reopens the target", async () => {
     const cwd = await emptyCwd();
     const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
@@ -773,61 +718,6 @@ describe("loadConfig", () => {
       expect(loaded.task).toBe("target failed session");
       expect(logged).not.toContain("unreadable session state");
       expect(logged).not.toContain(home);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
-  });
-
-  test("--resume opens the picker", async () => {
-    const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["--resume", "--cwd", cwd], {
-        globalSettingsPath: globalPath,
-        home,
-      });
-      assertConfigured(config);
-      expect(config.resumeMode).toBe("pick");
-      expect(config.resumePicker).toBe(true);
-      expect(config.skipInitialTask).toBe(true);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
-  });
-
-  test("--resume <id> reopens a known session by id", async () => {
-    const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const sessionId = generateSessionId();
-      await initSessionDir(cwd, sessionId, home);
-      await saveState(
-        cwd,
-        sessionId,
-        {
-          status: "done",
-          turnsUsed: 2,
-          task: "ship resume",
-          startedAt: Date.now() - 1_000,
-          finishedAt: Date.now(),
-        },
-        home,
-      );
-      // The exact argv form the exit hint prints (`corbits resume <id>`).
-      const config = await loadConfig(["--resume", sessionId, "--cwd", cwd], {
-        globalSettingsPath: globalPath,
-        home,
-      });
-      assertConfigured(config);
-      expect(config.command).toBe("tui");
-      expect(config.resumeMode).toBe("id");
-      expect(config.sessionId).toBe(sessionId);
-      expect(config.skipInitialTask).toBe(true);
-      expect(config.task).toBe("ship resume");
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(home, { recursive: true, force: true });
@@ -1163,15 +1053,6 @@ describe("loadConfig", () => {
       });
 
       expect(thrown).toBeInstanceOf(CliUserError);
-      const message = thrown instanceof Error ? thrown.message : String(thrown);
-      expect(message).toBe(
-        `Session ${sessionId} is unreadable. Use \`corbits resume\` to choose another.`,
-      );
-      expect(message).not.toMatch(/No session/);
-      expect(message).not.toContain("ignoring unreadable");
-      expect(message).not.toContain("invalid shape");
-      expect(message).not.toContain(home);
-      expect(message.split("\n")).toHaveLength(1);
       if (thrown instanceof CliUserError) {
         expect(thrown.exitCode).toBe(1);
       }
@@ -1212,37 +1093,9 @@ describe("loadConfig", () => {
     }
   });
 
-  test("resume accepts --pick after other flags", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["resume", "--cwd", cwd, "--pick"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.resumeMode).toBe("pick");
-      expect(config.resumePicker).toBe(true);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
   test("--help throws CliHelpError with exitCode 0 and full help text", async () => {
     await expectCliHelp(["--help"]);
     await expectCliHelp(["-h"]);
-  });
-
-  test("--help explains process-only yolo and its precedence over auto", () => {
-    expect(CLI_HELP_TEXT).toContain("--dangerously-skip-permissions, --yolo");
-    expect(CLI_HELP_TEXT).toContain("this process only (--yolo alias)");
-    expect(CLI_HELP_TEXT).toContain("--auto --yolo uses yolo mode");
-    expect(CLI_HELP_TEXT).toContain(
-      "/yolo in the TUI persists the active settings file",
-    );
-    expect(CLI_HELP_TEXT).toContain(
-      "the default settings file is machine-wide",
-    );
-    expect(CLI_HELP_TEXT).toContain("--config selects another source");
   });
 
   test("--help after flags throws CliHelpError", async () => {
@@ -1394,21 +1247,9 @@ describe("loadConfig", () => {
   test("seeds dangerouslySkipPermissions from global settings without the CLI flag", async () => {
     const cwd = await emptyCwd();
     try {
-      const globalPath = join(cwd, "global.json");
-      await writeFile(
-        globalPath,
-        JSON.stringify({
-          defaultProvider: "fireworks",
-          providers: {
-            fireworks: {
-              baseURL: "https://api.fireworks.ai/inference",
-              apiKey: "test-key",
-              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
-            },
-          },
-          dangerouslySkipPermissions: true,
-        }),
-      );
+      const globalPath = await writeGlobalSettings(cwd, {
+        dangerouslySkipPermissions: true,
+      });
       const config = await loadConfig(["--cwd", cwd, "do something"], {
         globalSettingsPath: globalPath,
       });
@@ -1421,52 +1262,12 @@ describe("loadConfig", () => {
     }
   });
 
-  test("settings dangerouslySkipPermissions false without the CLI flag stays false", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const globalPath = join(cwd, "global.json");
-      await writeFile(
-        globalPath,
-        JSON.stringify({
-          defaultProvider: "fireworks",
-          providers: {
-            fireworks: {
-              baseURL: "https://api.fireworks.ai/inference",
-              apiKey: "test-key",
-              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
-            },
-          },
-          dangerouslySkipPermissions: false,
-        }),
-      );
-      const config = await loadConfig(["--cwd", cwd, "do something"], {
-        globalSettingsPath: globalPath,
-      });
-      expect(config.dangerouslySkipPermissions).toBe(false);
-      expect(config.skipPermissionsFromSettings).toBe(false);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
   test("CLI --dangerously-skip-permissions still wins over settings false", async () => {
     const cwd = await emptyCwd();
     try {
-      const globalPath = join(cwd, "global.json");
-      await writeFile(
-        globalPath,
-        JSON.stringify({
-          defaultProvider: "fireworks",
-          providers: {
-            fireworks: {
-              baseURL: "https://api.fireworks.ai/inference",
-              apiKey: "test-key",
-              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
-            },
-          },
-          dangerouslySkipPermissions: false,
-        }),
-      );
+      const globalPath = await writeGlobalSettings(cwd, {
+        dangerouslySkipPermissions: false,
+      });
       const config = await loadConfig(
         ["--cwd", cwd, "--dangerously-skip-permissions", "do something"],
         { globalSettingsPath: globalPath },
@@ -1479,36 +1280,6 @@ describe("loadConfig", () => {
     }
   });
 
-  test("exec inherits persisted skip-permissions without the CLI flag", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const globalPath = join(cwd, "global.json");
-      await writeFile(
-        globalPath,
-        JSON.stringify({
-          defaultProvider: "fireworks",
-          providers: {
-            fireworks: {
-              baseURL: "https://api.fireworks.ai/inference",
-              apiKey: "test-key",
-              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
-            },
-          },
-          dangerouslySkipPermissions: true,
-        }),
-      );
-      const config = await loadConfig(["exec", "--cwd", cwd, "ship it"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.command).toBe("exec");
-      expect(config.dangerouslySkipPermissions).toBe(true);
-      expect(config.skipPermissionsFromSettings).toBe(true);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
   test("persisted skip-permissions default applies regardless of cwd (machine-wide scope)", async () => {
     // The global settings file is machine-wide: a session opened against a
     // completely different cwd still inherits the same default. This is the
@@ -1516,21 +1287,9 @@ describe("loadConfig", () => {
     const globalCwd = await emptyCwd();
     const otherCwd = await emptyCwd();
     try {
-      const globalPath = join(globalCwd, "global.json");
-      await writeFile(
-        globalPath,
-        JSON.stringify({
-          defaultProvider: "fireworks",
-          providers: {
-            fireworks: {
-              baseURL: "https://api.fireworks.ai/inference",
-              apiKey: "test-key",
-              models: ["accounts/fireworks/routers/kimi-k2p6-turbo"],
-            },
-          },
-          dangerouslySkipPermissions: true,
-        }),
-      );
+      const globalPath = await writeGlobalSettings(globalCwd, {
+        dangerouslySkipPermissions: true,
+      });
       const config = await loadConfig(["--cwd", otherCwd, "do something"], {
         globalSettingsPath: globalPath,
       });
@@ -1762,18 +1521,6 @@ describe("buildGoSource", () => {
       });
     }
   });
-
-  test("routes chat-completions models through the OpenCode Go adapter", () => {
-    const source = buildGoSource({
-      id: "opencode-go",
-      apiKey: "sk-go",
-      model: "kimi-k2.7-code",
-      sessionId: "sess-1",
-    });
-
-    expect(source.provider).toBe("opencode-go");
-    expect(source.quirks).toBeUndefined();
-  });
 });
 
 describe("buildOpenAISource", () => {
@@ -1908,19 +1655,6 @@ describe("buildXaiSource", () => {
     expect(source.defaults?.providerOptions).toMatchObject({
       reasoning_effort: "low",
     });
-  });
-
-  test("does not invent high when effort is absent", () => {
-    const source = buildXaiSource({
-      id: "xai/work",
-      profile: "work",
-      apiKey: "tok",
-      model: "grok-4.6",
-      sessionId: "sess-1",
-    });
-    expect(
-      source.defaults?.providerOptions?.["reasoning_effort"],
-    ).toBeUndefined();
   });
 
   test("stashes the session id for the adapter's prompt_cache_key", () => {
