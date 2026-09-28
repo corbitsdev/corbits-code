@@ -223,6 +223,99 @@ async function readPluginMetadataOnly(
   };
 }
 
+// JS entry filenames a plugin directory may carry. A directory with one of
+// these can export its manifest inline (no manifest.json), so presence alone
+// marks the entry as plugin-shaped — see loadPluginEntryMetadata.
+const PLUGIN_JS_ENTRY_CANDIDATES = ["src/index.ts", "index.ts", "index.js"];
+
+/**
+ * No-import metadata probe for explicit add-by-path: reports whether
+ * `entryPath` resolves to something a post-consent `loadPluginEntry` could
+ * load, without executing any plugin code. Returns a metadata-only stub when
+ * plugin-shaped, null when bogus (missing/unreadable, or nothing loadable).
+ * Manifest-backed and data-only layouts resolve their manifest now; a JS
+ * entry with no manifest.json may still export an inline manifest, so its
+ * presence alone counts — the full load after the trust grant re-derives the
+ * manifest and reports the same user-facing errors. Exported so the /plugins
+ * UI can grant path trust before the first import.
+ */
+export async function loadPluginEntryMetadata(
+  entryPath: string,
+  opts: {
+    cwd?: string;
+    onWarning?: (msg: string) => void;
+    diagnostics?: PluginLoadDiagnostics;
+    origin: PluginOrigin;
+  },
+): Promise<PluginModule | null> {
+  const cwd = opts.cwd ?? process.cwd();
+  // Prefer diagnostics collector; else explicit onWarning; else stderrPluginWarning.
+  const onWarning = resolvePluginWarningHandler(
+    opts.diagnostics !== undefined
+      ? { diagnostics: opts.diagnostics }
+      : opts.onWarning !== undefined
+        ? { onWarning: opts.onWarning }
+        : { onWarning: stderrPluginWarning },
+  );
+  let dir = entryPath;
+  try {
+    const info = await stat(entryPath);
+    if (!info.isDirectory()) dir = dirname(entryPath);
+  } catch {
+    // Path missing or unreadable — not a plugin.
+    return null;
+  }
+  const abs = resolve(dir);
+  const manifest =
+    (await readManifestJson(abs, onWarning)) ??
+    (await readClaudeFormatManifestJson(
+      join(abs, ".claude-plugin"),
+      onWarning,
+    ));
+  if (manifest !== null) {
+    return {
+      dir: abs,
+      manifest,
+      origin: opts.origin,
+      pluginPath: abs,
+      metadataOnly: true,
+    };
+  }
+  // Manifest-less data-only layout (agents/commands/skills markdown): no JS
+  // to import, so resolving it now is safe.
+  const dataOnly = await loadDataOnlyPlugin(abs, {
+    cwd,
+    ...(opts.diagnostics !== undefined
+      ? { diagnostics: opts.diagnostics }
+      : { onWarning }),
+  });
+  if (dataOnly !== null) {
+    return {
+      dir: abs,
+      manifest: dataOnly.manifest,
+      origin: opts.origin,
+      pluginPath: abs,
+      metadataOnly: true,
+    };
+  }
+  // JS entry whose manifest may be an inline export — knowable only by
+  // importing, which happens after the trust grant.
+  for (const candidate of PLUGIN_JS_ENTRY_CANDIDATES) {
+    try {
+      await stat(join(abs, candidate));
+      return {
+        dir: abs,
+        origin: opts.origin,
+        pluginPath: abs,
+        metadataOnly: true,
+      };
+    } catch {
+      // Candidate missing; try the next index filename.
+    }
+  }
+  return null;
+}
+
 // Attempt to load a single plugin directory entry (a file or a directory with
 // an index file). Returns null if the entry cannot be resolved to a module.
 // Exported so the /plugins UI can register a plugin from an arbitrary path.
@@ -265,7 +358,7 @@ export async function loadPluginEntry(
     if (info.isDirectory()) {
       pluginDir = entryPath;
       // Prefer src/index.ts, then index.ts, then index.js.
-      for (const candidate of ["src/index.ts", "index.ts", "index.js"]) {
+      for (const candidate of PLUGIN_JS_ENTRY_CANDIDATES) {
         const candidatePath = join(entryPath, candidate);
         try {
           await stat(candidatePath);
