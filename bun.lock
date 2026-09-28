@@ -9,7 +9,7 @@
         "@corbits/codex-provider": "0.1.1",
         "@corbits/oauth-core": "0.2.0",
         "@corbits/openai-responses": "github:corbitsdev/corbits-openai-responses",
-        "@corbits/xai-provider": "github:corbitsdev/corbits-xai-provider",
+        "@corbits/xai-provider": "0.1.1",
         "@intx/agent": "workspace:*",
         "@intx/authz": "workspace:*",
         "@intx/crypto": "0.3.0",
@@ -265,7 +265,7 @@
 
     "@corbits/workflows-stub": ["@corbits/workflows-stub@workspace:workflows/_stub"],
 
-    "@corbits/xai-provider": ["@corbits/xai-provider@github:corbitsdev/corbits-xai-provider#cadf9b9", { "dependencies": { "@corbits/oauth-core": "github:corbitsdev/corbits-oauth-core", "@corbits/openai-responses": "github:corbitsdev/corbits-openai-responses", "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": ">=0.3.0", "@intx/types": ">=0.3.0" } }, "corbitsdev-corbits-xai-provider-cadf9b9", "sha512-dVY4lQJWdCVPxwnK4pQNc3JgfgASaNj/GACKTnR22Y/s6CKSwlcZyGzZ0QEjIr21SZRk4+QP6ehOBf/OtHSJRw=="],
+    "@corbits/xai-provider": ["@corbits/xai-provider@0.1.1", "", { "dependencies": { "arktype": "^2.2.3" }, "peerDependencies": { "@corbits/oauth-core": "^0.2.0", "@corbits/openai-responses": "^0.2.0", "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-VbXdu5M300oQYQnP4Q8F0z6/Rm9kYTnIkBfo9svGlSus4rFRqEOArNhncKgFvu3Nwf9Qgooov3i8OU8gQCo/TQ=="],
 
     "@gar/promise-retry": ["@gar/promise-retry@1.0.3", "", {}, "sha512-GmzA9ckNokPypTg10pgpeHNQe7ph+iIKKmhKu3Ob9ANkswreCx7R3cKmY781K8QK3AqVL3xVh9A42JvIAbkkSA=="],
 
