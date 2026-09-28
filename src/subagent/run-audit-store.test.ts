@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { AuditStore, ContextStore } from "@intx/types/runtime";
@@ -59,19 +59,6 @@ function runParams(cwd: string, id: string) {
   };
 }
 
-async function eventuallyExists(path: string): Promise<boolean> {
-  for (let attempt = 0; attempt < 50; attempt++) {
-    if (
-      await stat(path)
-        .then(() => true)
-        .catch(() => false)
-    )
-      return true;
-    await Bun.sleep(1);
-  }
-  return false;
-}
-
 test("runSubAgent threads the isogit audit store and session id into createAgent", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "corbits-run-audit-"));
   const store = fakeStore();
@@ -125,61 +112,88 @@ test("runSubAgent threads the isogit audit store and session id into createAgent
 test("runSubAgent overlaps store creation with workdir setup", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "corbits-run-store-overlap-"));
   const store = fakeStore();
+  let releaseMkdir: (() => void) | undefined;
+  let signalMkdirStarted: (() => void) | undefined;
+  let signalMkdirFinished: (() => void) | undefined;
+  const pendingMkdir = new Promise<void>((resolve) => {
+    releaseMkdir = resolve;
+  });
+  const mkdirStarted = new Promise<void>((resolve) => {
+    signalMkdirStarted = resolve;
+  });
+  const mkdirFinished = new Promise<void>((resolve) => {
+    signalMkdirFinished = resolve;
+  });
   let resolveStores:
     | ((stores: { storage: ContextStore; audit: AuditStore }) => void)
     | undefined;
-  let signalStoreStarted: (() => void) | undefined;
-  const storeStarted = new Promise<void>((resolve) => {
-    signalStoreStarted = resolve;
-  });
   const pendingStores = new Promise<{
     storage: ContextStore;
     audit: AuditStore;
   }>((resolve) => {
     resolveStores = resolve;
   });
+  let storeStarted = false;
   let agentConstructed = false;
 
   try {
     await withMockedModuleDuring(
-      import.meta.resolve("../session/optimized-context-store.js"),
-      (real: typeof import("../session/optimized-context-store.js")) => ({
+      import.meta.resolve("node:fs/promises"),
+      (real: typeof import("node:fs/promises")) => ({
         ...real,
-        createSessionStores: () => {
-          defined(signalStoreStarted, "store start signal")();
-          return pendingStores;
+        mkdir: () => {
+          defined(signalMkdirStarted, "mkdir start signal")();
+          return pendingMkdir.then(() => {
+            defined(signalMkdirFinished, "mkdir finish signal")();
+            return undefined;
+          });
         },
       }),
       async () => {
         await withMockedModuleDuring(
-          import.meta.resolve("../agent/live-tool-dispatch.js"),
-          (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+          import.meta.resolve("../session/optimized-context-store.js"),
+          (real: typeof import("../session/optimized-context-store.js")) => ({
             ...real,
-            createAgentWithLiveToolDispatch: async () => {
-              agentConstructed = true;
-              return stubAgent() as unknown as Awaited<
-                ReturnType<typeof real.createAgentWithLiveToolDispatch>
-              >;
+            createSessionStores: () => {
+              storeStarted = true;
+              return pendingStores;
             },
           }),
           async () => {
-            const { runSubAgent } = await import("./run.js");
-            const run = runSubAgent(runParams(cwd, "overlap-child"));
-            await storeStarted;
+            await withMockedModuleDuring(
+              import.meta.resolve("../agent/live-tool-dispatch.js"),
+              (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+                ...real,
+                createAgentWithLiveToolDispatch: async () => {
+                  agentConstructed = true;
+                  return stubAgent() as unknown as Awaited<
+                    ReturnType<typeof real.createAgentWithLiveToolDispatch>
+                  >;
+                },
+              }),
+              async () => {
+                const { runSubAgent } = await import("./run.js");
+                const run = runSubAgent(runParams(cwd, "overlap-child"));
+                await mkdirStarted;
 
-            const workdir = join(cwd, ".ctx", "subagents", "overlap-child");
-            expect(await eventuallyExists(workdir)).toBe(true);
-            expect(agentConstructed).toBe(false);
+                expect(storeStarted).toBe(true);
+                expect(agentConstructed).toBe(false);
 
-            defined(
-              resolveStores,
-              "store resolver",
-            )({
-              storage: store,
-              audit: store,
-            });
-            await run;
-            expect(agentConstructed).toBe(true);
+                defined(releaseMkdir, "mkdir resolver")();
+                await mkdirFinished;
+                expect(agentConstructed).toBe(false);
+
+                defined(
+                  resolveStores,
+                  "store resolver",
+                )({
+                  storage: store,
+                  audit: store,
+                });
+                await run;
+                expect(agentConstructed).toBe(true);
+              },
+            );
           },
         );
       },
