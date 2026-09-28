@@ -2,13 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import {
-  OAuthRefreshFailedError,
-  OAuthTokenEndpointError,
-} from "@corbits/oauth-core";
+import { OAuthRefreshFailedError } from "@corbits/oauth-core";
 import { errorMessage } from "../../agent/error-message.js";
 import { saveCodexProfile } from "../../config/oauth-stores.js";
 import { formatSubAgentSpawnAuthFailureMessage } from "../../subagent/inference-auth-failure.js";
+import { isOAuthTokenEndpointError } from "../token-session-boundary.js";
 import {
   codexAuthFailureDiagnostic,
   CodexAuthError,
@@ -150,13 +148,13 @@ describe("codex auth failure surface", () => {
         .catch((error: unknown) => error);
       expect(normal).toBeInstanceOf(OAuthRefreshFailedError);
       const normalCause = (normal as OAuthRefreshFailedError).cause;
-      expect(normalCause).toBeInstanceOf(OAuthTokenEndpointError);
+      expect(isOAuthTokenEndpointError(normalCause)).toBe(true);
       expect(normalCause).toMatchObject({ status: 401 });
 
       const staged = await refreshStagedCodexTokens({ ...tokens }, now).catch(
         (error: unknown) => error,
       );
-      expect(staged).toBeInstanceOf(OAuthTokenEndpointError);
+      expect(isOAuthTokenEndpointError(staged)).toBe(true);
       expect(staged).toMatchObject({ status: 401 });
 
       for (const failure of [normal, staged]) {
@@ -164,7 +162,7 @@ describe("codex auth failure surface", () => {
         while (current instanceof Error) {
           expect(current.message).not.toContain(refresh);
           expect(current.stack).not.toContain(refresh);
-          if (current instanceof OAuthTokenEndpointError)
+          if (isOAuthTokenEndpointError(current))
             expect(current.detail).not.toContain(refresh);
           current = current.cause;
         }

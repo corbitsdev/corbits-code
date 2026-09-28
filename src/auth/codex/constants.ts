@@ -1,4 +1,5 @@
-import { CODEX_REDIRECT_URI } from "@corbits/codex-provider";
+import { callbackTargetFor } from "@corbits/oauth-core";
+import { codexOAuthConfig } from "@corbits/codex-provider";
 
 export {
   CODEX_BASE_URL,
@@ -7,9 +8,10 @@ export {
   CODEX_RESPONSES_PATH,
 } from "@corbits/codex-provider";
 
-const codexRedirect = new URL(CODEX_REDIRECT_URI);
-export const CODEX_CALLBACK_PORT = Number(codexRedirect.port);
-export const CODEX_CALLBACK_PATH = codexRedirect.pathname;
+const callbackTarget = callbackTargetFor(codexOAuthConfig);
+export const CODEX_CALLBACK_HOST = callbackTarget.host;
+export const CODEX_CALLBACK_PORT = callbackTarget.port;
+export const CODEX_CALLBACK_PATH = callbackTarget.path;
 
 // The account's available model catalog. The models endpoint requires a
 // client_version query param.

@@ -10,6 +10,22 @@ export function replaceMutableTokens<TTokens extends object>(
   Object.assign(target, replacement);
 }
 
+// Sibling provider packages may still ship a distinct @corbits/oauth-core
+// copy, so `instanceof` against this host's class identity is not reliable.
+export type OAuthTokenEndpointFailure = Error & {
+  status: number;
+  detail: string;
+};
+
+export function isOAuthTokenEndpointError(
+  err: unknown,
+): err is OAuthTokenEndpointFailure {
+  if (!(err instanceof Error) || err.name !== "OAuthTokenEndpointError")
+    return false;
+  if (!("status" in err) || typeof err.status !== "number") return false;
+  return "detail" in err && typeof err.detail === "string";
+}
+
 export function sanitizedRefreshFailure(
   error: unknown,
   refreshToken: string,

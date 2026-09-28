@@ -2,13 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import {
-  OAuthRefreshFailedError,
-  OAuthTokenEndpointError,
-} from "@corbits/oauth-core";
+import { OAuthRefreshFailedError } from "@corbits/oauth-core";
 import { errorMessage } from "../../agent/error-message.js";
 import { loadXaiProfile, saveXaiProfile } from "../../config/oauth-stores.js";
 import { formatSubAgentSpawnAuthFailureMessage } from "../../subagent/inference-auth-failure.js";
+import { isOAuthTokenEndpointError } from "../token-session-boundary.js";
 import {
   createXaiTokenSession,
   getValidXaiToken,
@@ -285,14 +283,14 @@ describe("xAI shared-credential refresh race", () => {
         .catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(OAuthRefreshFailedError);
       const cause = (failure as OAuthRefreshFailedError).cause;
-      expect(cause).toBeInstanceOf(OAuthTokenEndpointError);
+      expect(isOAuthTokenEndpointError(cause)).toBe(true);
       expect(cause).toMatchObject({ status: 403 });
 
       let current: unknown = failure;
       while (current instanceof Error) {
         expect(current.message).not.toContain(refresh);
         expect(current.stack).not.toContain(refresh);
-        if (current instanceof OAuthTokenEndpointError)
+        if (isOAuthTokenEndpointError(current))
           expect(current.detail).not.toContain(refresh);
         current = current.cause;
       }

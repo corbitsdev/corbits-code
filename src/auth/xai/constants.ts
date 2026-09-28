@@ -1,9 +1,10 @@
-import { XAI_REDIRECT_URI } from "@corbits/xai-provider";
-
+import { callbackTargetFor } from "@corbits/oauth-core";
 import {
   XAI_DEFAULT_MODELS as VENDOR_XAI_DEFAULT_MODELS,
   XAI_OAUTH_PROXY_BASE_URL as XAI_BASE_URL,
+  XAI_REDIRECT_URI,
   XAI_REFRESH_SKEW_MS,
+  xaiOAuthConfig,
 } from "@corbits/xai-provider";
 
 export { XAI_BASE_URL, XAI_REDIRECT_URI, XAI_REFRESH_SKEW_MS };
@@ -33,9 +34,10 @@ export const XAI_DEFAULT_MODELS = extendVendorXaiDefaultModels(
   VENDOR_XAI_DEFAULT_MODELS,
 );
 
-const xaiRedirect = new URL(XAI_REDIRECT_URI);
-export const XAI_CALLBACK_PORT = Number(xaiRedirect.port);
-export const XAI_CALLBACK_PATH = xaiRedirect.pathname;
+const callbackTarget = callbackTargetFor(xaiOAuthConfig);
+export const XAI_CALLBACK_HOST = callbackTarget.host;
+export const XAI_CALLBACK_PORT = callbackTarget.port;
+export const XAI_CALLBACK_PATH = callbackTarget.path;
 
 // The CLI chat proxy speaks the OpenAI Responses API and authenticates the
 // caller by client headers in addition to the bearer token. Values mirror the

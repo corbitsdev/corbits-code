@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { CallbackPageCopy } from "../callback-page.js";
-import { XAI_CALLBACK_PORT } from "./constants.js";
+import { XAI_CALLBACK_PATH, XAI_CALLBACK_PORT } from "./constants.js";
 import { startXaiCallbackServer } from "./callback-server.js";
 
 const copy: CallbackPageCopy = {
@@ -12,12 +13,13 @@ const copy: CallbackPageCopy = {
   githubLabel: "github.com/fixture",
 };
 
-const base = `http://127.0.0.1:${String(XAI_CALLBACK_PORT)}/callback`;
+const base = `http://127.0.0.1:${String(XAI_CALLBACK_PORT)}${XAI_CALLBACK_PATH}`;
 
 describe("xAI callback server", () => {
   test("accepts a matching state and returns the code", async () => {
     const server = await startXaiCallbackServer("expected", copy);
     try {
+      expect(server.port).toBe(XAI_CALLBACK_PORT);
       const wait = server.waitForCode(new AbortController().signal);
       const res = await fetch(`${base}?code=abc&state=expected`);
       expect(res.status).toBe(200);
@@ -27,20 +29,21 @@ describe("xAI callback server", () => {
     }
   });
 
-  test("rejects state mismatches before accepting a code", async () => {
+  test("keeps waiting after a state mismatch until a matching redirect", async () => {
     const server = await startXaiCallbackServer("expected", copy);
     try {
-      const wait = server.waitForCode(new AbortController().signal).then(
-        () => ({ ok: true as const }),
-        (err: unknown) => ({ ok: false as const, err }),
-      );
-      const res = await fetch(`${base}?code=abc&state=wrong`);
-      expect(res.status).toBe(400);
-      const result = await wait;
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.err).toBeInstanceOf(Error);
-      if (!result.ok && result.err instanceof Error)
-        expect(result.err.message).toMatch(/state did not match/);
+      const wait = server.waitForCode(new AbortController().signal);
+      const mismatch = await fetch(`${base}?code=abc&state=wrong`);
+      expect(mismatch.status).toBe(400);
+      expect(
+        await Promise.race([
+          wait.then(() => "settled"),
+          delay(50).then(() => "pending"),
+        ]),
+      ).toBe("pending");
+      const match = await fetch(`${base}?code=abc&state=expected`);
+      expect(match.status).toBe(200);
+      await expect(wait).resolves.toBe("abc");
     } finally {
       server.close();
     }

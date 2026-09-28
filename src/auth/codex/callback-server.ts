@@ -5,7 +5,11 @@ import {
   callbackPageHtml,
   type CallbackPageCopy,
 } from "../callback-page.js";
-import { CODEX_CALLBACK_PATH, CODEX_CALLBACK_PORT } from "./constants.js";
+import {
+  CODEX_CALLBACK_HOST,
+  CODEX_CALLBACK_PATH,
+  CODEX_CALLBACK_PORT,
+} from "./constants.js";
 
 export type CodexCallbackServer = CallbackServer;
 
@@ -18,7 +22,7 @@ export async function startCodexCallbackServer(
   return startCallbackServer(expectedState, {
     port: CODEX_CALLBACK_PORT,
     // Codex's registered redirect_uri uses localhost (not 127.0.0.1).
-    host: "localhost",
+    host: CODEX_CALLBACK_HOST,
     path: CODEX_CALLBACK_PATH,
     doneHtml: authorizationDoneHtml("Codex", copy),
     failedHtml: (reason) =>

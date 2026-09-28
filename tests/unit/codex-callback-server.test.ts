@@ -1,4 +1,5 @@
 import { test, expect, describe, afterEach } from "bun:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { productCallbackCopy } from "../../src/branding.js";
 import { startCodexCallbackServer } from "../../src/auth/codex/callback-server.js";
 import {
@@ -40,6 +41,7 @@ describe("startCodexCallbackServer", () => {
       productCallbackCopy,
     );
     active = server;
+    expect(server.port).toBe(CODEX_CALLBACK_PORT);
     const result = settle(server, new AbortController().signal);
     await fetch(`${base}?code=the-code&state=good-state`).catch(
       () => undefined,
@@ -48,32 +50,46 @@ describe("startCodexCallbackServer", () => {
     expect(r).toEqual({ ok: true, code: "the-code" });
   });
 
-  test("rejects when the state does not match (CSRF guard)", async () => {
+  test("keeps waiting when the state does not match", async () => {
     const server = await startCodexCallbackServer(
       "expected-state",
       productCallbackCopy,
     );
     active = server;
     const result = settle(server, new AbortController().signal);
-    await fetch(`${base}?code=the-code&state=attacker-state`).catch(
+    const mismatch = await fetch(`${base}?code=the-code&state=attacker-state`);
+    expect(mismatch.status).toBe(400);
+    expect(
+      await Promise.race([
+        result.then(() => "settled"),
+        delay(50).then(() => "pending"),
+      ]),
+    ).toBe("pending");
+    await fetch(`${base}?code=the-code&state=expected-state`).catch(
       () => undefined,
     );
-    const r = await result;
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.message).toMatch(/state did not match/i);
+    expect(await result).toEqual({ ok: true, code: "the-code" });
   });
 
-  test("rejects when the redirect carries no state at all", async () => {
+  test("keeps waiting when the redirect carries no state at all", async () => {
     const server = await startCodexCallbackServer(
       "expected-state",
       productCallbackCopy,
     );
     active = server;
     const result = settle(server, new AbortController().signal);
-    await fetch(`${base}?code=the-code`).catch(() => undefined);
-    const r = await result;
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.message).toMatch(/state did not match/i);
+    const missing = await fetch(`${base}?code=the-code`);
+    expect(missing.status).toBe(400);
+    expect(
+      await Promise.race([
+        result.then(() => "settled"),
+        delay(50).then(() => "pending"),
+      ]),
+    ).toBe("pending");
+    await fetch(`${base}?code=the-code&state=expected-state`).catch(
+      () => undefined,
+    );
+    expect(await result).toEqual({ ok: true, code: "the-code" });
   });
 
   test("rejects when the authorization server returns an error", async () => {

@@ -5,7 +5,11 @@ import {
   callbackPageHtml,
   type CallbackPageCopy,
 } from "../callback-page.js";
-import { XAI_CALLBACK_PATH, XAI_CALLBACK_PORT } from "./constants.js";
+import {
+  XAI_CALLBACK_HOST,
+  XAI_CALLBACK_PATH,
+  XAI_CALLBACK_PORT,
+} from "./constants.js";
 
 export type XaiCallbackServer = CallbackServer;
 
@@ -15,7 +19,7 @@ export async function startXaiCallbackServer(
 ): Promise<XaiCallbackServer> {
   return startCallbackServer(expectedState, {
     port: XAI_CALLBACK_PORT,
-    host: "127.0.0.1",
+    host: XAI_CALLBACK_HOST,
     path: XAI_CALLBACK_PATH,
     doneHtml: authorizationDoneHtml("xAI", copy),
     failedHtml: (reason) =>

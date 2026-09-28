@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { OAuthTokenEndpointError } from "@corbits/oauth-core";
-import { sanitizedRefreshFailure } from "./token-session-boundary.js";
+import {
+  isOAuthTokenEndpointError,
+  sanitizedRefreshFailure,
+} from "./token-session-boundary.js";
 
 describe("sanitizedRefreshFailure", () => {
   test("scrubs already-materialized stacks recursively without losing classification", () => {
@@ -26,5 +29,29 @@ describe("sanitizedRefreshFailure", () => {
     expect(endpoint.message).not.toContain(refresh);
     expect(endpoint.detail).not.toContain(refresh);
     expect(endpoint.stack).not.toContain(refresh);
+  });
+});
+
+describe("isOAuthTokenEndpointError", () => {
+  test("accepts the host class and a foreign copy with the same name", () => {
+    const local = new OAuthTokenEndpointError(401, "denied");
+    expect(isOAuthTokenEndpointError(local)).toBe(true);
+
+    const foreign = Object.assign(
+      new Error("OAuth token endpoint returned 401"),
+      {
+        name: "OAuthTokenEndpointError",
+        status: 401,
+        detail: "denied",
+      },
+    );
+    expect(foreign).not.toBeInstanceOf(OAuthTokenEndpointError);
+    expect(isOAuthTokenEndpointError(foreign)).toBe(true);
+  });
+
+  test("rejects errors that only share a message", () => {
+    expect(
+      isOAuthTokenEndpointError(new Error("OAuth token endpoint returned 401")),
+    ).toBe(false);
   });
 });

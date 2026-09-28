@@ -10,7 +10,7 @@
 // Never logs or persists the token or any response body — only the HTTP
 // status is inspected to classify the result.
 
-import { OAuthTokenEndpointError } from "@corbits/oauth-core";
+import { isOAuthTokenEndpointError } from "./token-session-boundary.js";
 
 import {
   CODEX_BASE_URL,
@@ -81,7 +81,7 @@ export function isBlockingOAuthScopeCheckResult(
 }
 
 function isDefinitiveRefreshAuthRejection(err: unknown): boolean {
-  if (!(err instanceof OAuthTokenEndpointError)) return false;
+  if (!isOAuthTokenEndpointError(err)) return false;
   if (err.status === 401 || err.status === 403) return true;
   return /invalid_grant|revoked/i.test(err.detail);
 }
