@@ -391,6 +391,15 @@ function isDotfileRootedGlob(token: string): boolean {
   return segment.startsWith(".") && segment.includes("*");
 }
 
+// `file:` URLs are local reads (`curl file:///home/u/.env` opens `.env`),
+// so only non-file URL schemes receive the `?`/`[` fatigue exemption below.
+// Scheme matching is case-insensitive and covers `file:`, `file://`, and
+// `FILE://` variants.
+function isFileSchemeURL(token: string): boolean {
+  const scheme = /^[A-Za-z][A-Za-z0-9+.-]*:/.exec(token)?.[0];
+  return scheme?.toLowerCase() === "file:";
+}
+
 // CL-7790: the ONE shell-token matcher both secret-guard call sites share —
 // commandReferencesSensitivePath below and classify.ts's per-arg sensitive
 // check. The cheap lexical denylist runs first so the hot auto-allow path
@@ -446,8 +455,9 @@ export function isSensitiveShellToken(
   // non-file operands: query strings (`curl …/search?q=term`), regex operands
   // (`grep -E colou?r`, `grep [0-9]`), and the `[` test builtin itself
   // (`[ -f Makefile ]`). Three exemptions, each too narrow to reopen a
-  // bypass: tokens containing `://` are URLs, never a local file the shell
-  // opens (the lexical denylist above still catches `file://…/.env`); bare
+  // bypass: tokens containing `://` with a non-file URL scheme receive the
+  // fatigue exemption, while `file:` URLs are local reads and stay guarded
+  // (see isFileSchemeURL); bare
   // `[`/`]`/`[[`/`]]` are test syntax, not globs; and a `?`/`[` pattern with
   // no `.`, `/`, or `\` cannot name a dotfile secret — `?`/`[…]` never match
   // a leading dot under default shell semantics, so the literal dot must be
@@ -457,7 +467,7 @@ export function isSensitiveShellToken(
   // working.
   if (
     (expanded.includes("?") || expanded.includes("[")) &&
-    !expanded.includes("://") &&
+    (!expanded.includes("://") || isFileSchemeURL(expanded)) &&
     expanded !== "[" &&
     expanded !== "]" &&
     expanded !== "[[" &&

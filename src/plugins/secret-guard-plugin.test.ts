@@ -360,6 +360,23 @@ describe("secret-guard glob narrowing (CL-8999)", () => {
       expect(commandReferencesSensitivePath(c)).toBeDefined());
   }
 
+  // `file:`-scheme URLs are local reads, so the `://` exemption must not
+  // cover them: query-suffixed and globbed secret names still prompt.
+  const fileBlocked = [
+    "curl file:/home/u/.env?q=x",
+    "curl file:///home/u/.env?q=x",
+    "cat file:///home/u/.env?q=x",
+    "wget file:///home/u/.env?q=x",
+    "curl file:///home/u/id_rsa?q=x",
+    "curl file:///home/u/.en?",
+    "curl file:///home/u/.en[v]",
+    "curl FILE:///home/u/.env?q=x",
+  ];
+  for (const c of fileBlocked) {
+    test(`flags: ${c}`, () =>
+      expect(commandReferencesSensitivePath(c)).toBeDefined());
+  }
+
   test("keeps bare * allowed", () => {
     expect(commandReferencesSensitivePath("cat *")).toBeUndefined();
     expect(commandReferencesSensitivePath("cat *.txt")).toBeUndefined();
