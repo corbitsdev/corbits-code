@@ -145,7 +145,7 @@ host_label() {
 # `codesign` only exists on macOS hosts, which is where darwin releases are cut.
 compile_bin() {  # compile_bin BUN_TARGET OUTFILE
   local target=$1 out=$2
-  bun build ./src/index.ts --compile --target="$target" --minify \
+  bun build ./src/index.ts --compile --target="$target" --minify --sourcemap \
     --define process.env.NODE_ENV='"production"' \
     --define process.env.DEV='"false"' \
     --outfile "$out" >/dev/null
