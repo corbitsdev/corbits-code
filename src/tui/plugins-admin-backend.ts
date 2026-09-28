@@ -302,17 +302,22 @@ export function createPluginsAdmin(args: {
       if (probe === null)
         return { ok: false, message: `Could not load a plugin at ${path}` };
       // Persist global path trust only once the path resolves to a real
-      // plugin, so a bogus path never leaves a dangling entry. Expand
-      // marketplaces so each member is trusted (exact-path match on reload).
+      // plugin, so a bogus path never leaves a dangling entry. The granted
+      // identity is the probe's normalized pluginPath (the containing dir for
+      // a file entry), not the raw typed path: loadPluginEntry stamps
+      // pluginPath=dirname for file entries and revokeTrust removes exactly
+      // that stamped path, so granting the raw file path would leave a grant
+      // no revoke can clear. Expand marketplaces so each member is trusted
+      // (exact-path match on reload).
       // `onSkip` collects into `addDiag` instead of a raw stderr write — a raw
       // write lands mid-frame and corrupts the rendered transcript.
+      const grantBase = probe.pluginPath ?? abs;
       const addDiag = createPluginLoadDiagnostics();
-      const members = await expandPluginPath(abs, {
+      const members = await expandPluginPath(grantBase, {
         onSkip: expandSkipDiagnosticsHandler(addDiag),
       });
-      state.pathTrust = await trustPathPlugins(
-        members.length > 0 ? members : [abs],
-      );
+      const granted = members.length > 0 ? members : [grantBase];
+      state.pathTrust = await trustPathPlugins(granted);
       // Only now import plugin code: the grant above is the user's explicit
       // consent. A failed import keeps the grant and reports the same load
       // error as before — only bogus paths return grantless above.
@@ -365,18 +370,29 @@ export function createPluginsAdmin(args: {
         descriptor.id,
       );
       registerCommandPluginModule(mod, () => state.pluginConfig);
-      // Persist the resolved absolute path so it reloads regardless of the cwd
-      // the next session starts from.
-      if (!state.pluginPaths.includes(abs)) state.pluginPaths.push(abs);
+      // Persist the normalized identity (not the raw typed path) so reload-time
+      // trust checks match the grant: a file entry reloads as its containing
+      // dir, which is exactly what was granted above.
+      if (!state.pluginPaths.includes(grantBase))
+        state.pluginPaths.push(grantBase);
       await persistPluginSettings();
       const warnings = formatPluginWarningsSummary(addDiag.warnings);
       args.noteWarnings(addDiag.warnings);
+      // Member-aware consent: a hybrid root (own manifest plus marketplace
+      // members) grants its expanded members, not just the typed path — the
+      // result names exactly what was granted so the operator consents to the
+      // siblings too. A single-path grant keeps the plain message.
+      const grantedSuffix =
+        granted.length === 1 && granted[0] === grantBase
+          ? ""
+          : ` (trusted ${granted.length} marketplace member${granted.length === 1 ? "" : "s"}: ${granted.join(", ")})`;
+      const addedMessage = `Added ${descriptor.name}${grantedSuffix}`;
       return {
         ok: true,
         message:
           warnings === undefined
-            ? `Added ${descriptor.name}`
-            : `Added ${descriptor.name} (${warnings})`,
+            ? addedMessage
+            : `${addedMessage} (${warnings})`,
         id: descriptor.id,
       };
     },
