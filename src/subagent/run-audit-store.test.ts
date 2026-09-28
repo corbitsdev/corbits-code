@@ -203,6 +203,91 @@ test("runSubAgent overlaps store creation with workdir setup", async () => {
   }
 });
 
+test("runSubAgent waits for workdir setup after stores resolve", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "corbits-run-mkdir-barrier-"));
+  const store = fakeStore();
+  let releaseMkdir: (() => void) | undefined;
+  let signalMkdirStarted: (() => void) | undefined;
+  const pendingMkdir = new Promise<void>((resolve) => {
+    releaseMkdir = resolve;
+  });
+  const mkdirStarted = new Promise<void>((resolve) => {
+    signalMkdirStarted = resolve;
+  });
+  let resolveStores:
+    | ((stores: { storage: ContextStore; audit: AuditStore }) => void)
+    | undefined;
+  const pendingStores = new Promise<{
+    storage: ContextStore;
+    audit: AuditStore;
+  }>((resolve) => {
+    resolveStores = resolve;
+  });
+  let agentStores: { storage: ContextStore; audit: AuditStore } | undefined;
+
+  try {
+    await withMockedModuleDuring(
+      import.meta.resolve("node:fs/promises"),
+      (real: typeof import("node:fs/promises")) => ({
+        ...real,
+        mkdir: () => {
+          defined(signalMkdirStarted, "mkdir start signal")();
+          return pendingMkdir;
+        },
+      }),
+      async () => {
+        await withMockedModuleDuring(
+          import.meta.resolve("../session/optimized-context-store.js"),
+          (real: typeof import("../session/optimized-context-store.js")) => ({
+            ...real,
+            createSessionStores: () => pendingStores,
+          }),
+          async () => {
+            await withMockedModuleDuring(
+              import.meta.resolve("../agent/live-tool-dispatch.js"),
+              (real: typeof import("../agent/live-tool-dispatch.js")) => ({
+                ...real,
+                createAgentWithLiveToolDispatch: async (
+                  _def: unknown,
+                  env: { storage: ContextStore; audit: AuditStore },
+                ) => {
+                  agentStores = env;
+                  return stubAgent() as unknown as Awaited<
+                    ReturnType<typeof real.createAgentWithLiveToolDispatch>
+                  >;
+                },
+              }),
+              async () => {
+                const { runSubAgent } = await import("./run.js");
+                const run = runSubAgent(runParams(cwd, "mkdir-barrier-child"));
+                await mkdirStarted;
+
+                defined(
+                  resolveStores,
+                  "store resolver",
+                )({
+                  storage: store,
+                  audit: store,
+                });
+                await pendingStores;
+                expect(agentStores).toBeUndefined();
+
+                defined(releaseMkdir, "mkdir resolver")();
+                await run;
+                expect(defined(agentStores).storage).toBe(store);
+                expect(defined(agentStores).audit).toBe(store);
+              },
+            );
+          },
+        );
+      },
+    );
+  } finally {
+    releaseMkdir?.();
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("runSubAgent keeps session stores isolated between workers", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "corbits-run-store-isolation-"));
   const storesBySession = new Map<string, ContextStore & AuditStore>();
