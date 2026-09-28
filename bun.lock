@@ -8,7 +8,7 @@
         "@corbits/agent-intern": "workspace:*",
         "@corbits/codex-provider": "0.1.1",
         "@corbits/oauth-core": "0.2.0",
-        "@corbits/openai-responses": "github:corbitsdev/corbits-openai-responses",
+        "@corbits/openai-responses": "0.2.0",
         "@corbits/xai-provider": "0.1.1",
         "@intx/agent": "workspace:*",
         "@intx/authz": "workspace:*",
@@ -255,7 +255,7 @@
 
     "@corbits/oauth-core": ["@corbits/oauth-core@0.2.0", "", { "dependencies": { "@intx/db": "^0.4.0", "@intx/hub-api": "^0.4.0", "@intx/hub-common": "^0.4.0", "@intx/types": "^0.4.0", "arktype": "^2.2.3", "drizzle-orm": "^0.45.2", "hono": "^4.11.9" } }, "sha512-1pNMfxPUALwwXzpBzate3hDs61DOmv+fWo8/+aWfMhgXTxq8xtqeYk7Ue4uf/mW+FT0fUV/9vC2hZHyrm8+8KA=="],
 
-    "@corbits/openai-responses": ["@corbits/openai-responses@github:corbitsdev/corbits-openai-responses#1d20dbb", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": ">=0.3.0", "@intx/types": ">=0.3.0" } }, "corbitsdev-corbits-openai-responses-1d20dbb", "sha512-lSJz1KkKD8mEUYiQ57dJprD9JavdJGt3OBRa42tvXLsikt1fJ6qX2mGCwaEXzkfZNc2XY5o7ZpxK5swSJX+LnA=="],
+    "@corbits/openai-responses": ["@corbits/openai-responses@0.2.0", "", { "dependencies": { "arktype": "2.2.3" }, "peerDependencies": { "@intx/inference": "^0.4.0", "@intx/types": "^0.4.0" } }, "sha512-6E06ktrleDHmGjuylELe3NZPb7AMXXKiW8Mzq0tqXESvpQoP/1Wna7tzNle/j+M6qVw1GDX3yN7m9+qiX2E8Ew=="],
 
     "@corbits/prompt-variance": ["@corbits/prompt-variance@workspace:packages/prompt-variance"],
 
@@ -948,8 +948,6 @@
     "zod": ["zod@4.5.4", "", {}, "sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA=="],
 
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
-
-    "@corbits/xai-provider/@corbits/oauth-core": ["@corbits/oauth-core@github:corbitsdev/corbits-oauth-core#e1e69e6", { "dependencies": { "arktype": "2.2.3" } }, "corbitsdev-corbits-oauth-core-e1e69e6", "sha512-wUrD73iVyk/Dtb4yRn3hCh6N8syfsEvAkRz4XYqT0FIB3sYDSMYEWHcDMJx9nq64my/HBOeN1J6PHIOtpjhtPg=="],
 
     "@intx/db/@intx/crypto": ["@intx/crypto@0.4.0", "", { "dependencies": { "@intx/types": "0.4.0" } }, "sha512-4/qWypC90GevbV9u1i/93tn46jsXhj8wE1Pn+awg8/ECpwhHnhPLT5Uy423Arr9eGmRmF6HiMyXcEgH1Z9/Rkw=="],
 
