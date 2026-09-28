@@ -29,14 +29,14 @@ const USE_SKILL_INPUT_SCHEMA = {
 export const useSkillDefinition: ToolDefinition = {
   name: "use_skill",
   description:
-    "Load the full instructions for a skill. Names are listed under 'Skills' in the system prompt; call skill_search for descriptions, then this tool with the skill's name to load the body. The returned instructions stay in effect for the rest of the task.",
+    "Load the full instructions for a skill; locate details first with skill_search. See Guidelines: Tool choice.",
   inputSchema: USE_SKILL_INPUT_SCHEMA,
 };
 
 export const workerUseSkillDefinition: ToolDefinition = {
   name: "use_skill",
   description:
-    "Load a skill you already know by name (brief or search). Do not reload skills listed as attached or already in context. The returned instructions stay in effect for the rest of the task.",
+    "Load a skill by name; do not reload attached skills or bodies already in context. See Guidelines: Tool choice.",
   inputSchema: USE_SKILL_INPUT_SCHEMA,
 };
 

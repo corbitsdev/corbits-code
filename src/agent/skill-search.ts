@@ -4,6 +4,7 @@ import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
 import type { SkillSummary } from "../extensions/skills.js";
+import { firstLine } from "../extensions/skills.js";
 import {
   lexicalFields,
   rankAndCut,
@@ -31,14 +32,14 @@ const SKILL_SEARCH_INPUT_SCHEMA = {
 export const skillSearchDefinition: ToolDefinition = {
   name: "skill_search",
   description:
-    "Look up skill details by capability. Skill names are listed in the system prompt; call this for descriptions, then use_skill to load a body. Directly callable — do not tool_search for this.",
+    "Look up skill details by capability, then use_skill to load a body. Directly callable. See Guidelines: Tool choice.",
   inputSchema: SKILL_SEARCH_INPUT_SCHEMA,
 };
 
 export const workerSkillSearchDefinition: ToolDefinition = {
   name: "skill_search",
   description:
-    "Find a skill during prep when attached skills are not enough. Do not search on a tiny one-file fix. Directly callable — do not tool_search for this. Returns name + description; load a body with use_skill.",
+    "Prep lookup for a skill when attached skills are not enough; skip tiny one-file fixes. Directly callable; load via use_skill. See Guidelines: Tool choice.",
   inputSchema: SKILL_SEARCH_INPUT_SCHEMA,
 };
 
@@ -105,7 +106,7 @@ export function createSkillSearchTool(
         return `No skills matched "${query}". Try different keywords describing the capability.`;
       }
       return matches
-        .map((skill) => `- ${skill.name}: ${skill.description}`)
+        .map((skill) => `- ${skill.name}: ${firstLine(skill.description)}`)
         .join("\n");
     },
   });

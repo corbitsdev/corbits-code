@@ -5,8 +5,19 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 
 import {
   discoverSkills,
+  firstLine,
   resolveSkillBody,
 } from "../../src/extensions/skills.js";
+import {
+  createSkillSearchTool,
+  skillSearchDefinition,
+  workerSkillSearchDefinition,
+} from "../../src/agent/skill-search.js";
+import {
+  useSkillDefinition,
+  workerUseSkillDefinition,
+} from "../../src/agent/use-skill.js";
+import { spawnAgentToolDefinition } from "../../src/subagent/agent-fleet.js";
 import { defined } from "../helpers/defined.js";
 
 const fixtureCwd = join(import.meta.dirname, "../fixtures/skill-workspace");
@@ -259,5 +270,50 @@ describe("path-like skill refs", () => {
     } finally {
       await rm(outsideDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("description caps (CL-8854)", () => {
+  const MAX_DESCRIPTION_CHARS = 160;
+
+  test("all five registration descriptions are one line within the cap", () => {
+    const skillDescriptions = [
+      skillSearchDefinition.description,
+      workerSkillSearchDefinition.description,
+      useSkillDefinition.description,
+      workerUseSkillDefinition.description,
+    ];
+    for (const description of skillDescriptions) {
+      expect(description).not.toContain("\n");
+      expect(description.length).toBeLessThanOrEqual(MAX_DESCRIPTION_CHARS);
+      expect(description.endsWith("See Guidelines: Tool choice.")).toBe(true);
+    }
+    expect(spawnAgentToolDefinition.description).not.toContain("\n");
+    expect(spawnAgentToolDefinition.description.length).toBeLessThanOrEqual(
+      MAX_DESCRIPTION_CHARS,
+    );
+    expect(
+      spawnAgentToolDefinition.description.endsWith(
+        "See Guidelines: Orchestration.",
+      ),
+    ).toBe(true);
+  });
+
+  test("firstLine keeps only the first line", () => {
+    expect(firstLine("one\ntwo\nthree")).toBe("one");
+    expect(firstLine("  padded  \nrest")).toBe("padded");
+    expect(firstLine("single")).toBe("single");
+  });
+
+  test("a multi-line catalog description renders as a single result line", async () => {
+    const tool = createSkillSearchTool({
+      skills: [{ name: "scribe", description: "write docs\nsecond line" }],
+    });
+    if (tool.kind !== "string") throw new Error("expected string tool");
+    const out = await tool.handler(
+      { query: "scribe" },
+      new AbortController().signal,
+    );
+    expect(out).toBe("- scribe: write docs");
   });
 });

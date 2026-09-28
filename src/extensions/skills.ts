@@ -174,6 +174,12 @@ export async function resolveSkillBody(
   return undefined;
 }
 
+// Registration strings and result lines stay one line: keep the first line so
+// a multi-line frontmatter description cannot leak extra lines onto the wire.
+export function firstLine(value: string): string {
+  return value.split("\n", 1)[0]?.trim() ?? "";
+}
+
 // Discover every available skill (name + one-line description). Deduped by name:
 // the first base dir that provides a skill wins, so a higher-precedence dir
 // shadows a lower one. Descriptions feed skill_search and the slash picker; the
@@ -200,7 +206,10 @@ export async function discoverSkills(
       // First-wins: claim the name even when skipping the listing.
       seen.add(entry.name);
       if (fm.disableModelInvocation) continue;
-      skills.push({ name: entry.name, description: fm.description ?? "" });
+      skills.push({
+        name: entry.name,
+        description: firstLine(fm.description ?? ""),
+      });
     }
   }
   return skills;
