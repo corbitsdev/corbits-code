@@ -414,7 +414,7 @@ describe("markdown transcript rows", () => {
             text: `${frozen}\n\nx`,
           });
           await h.renderOnce();
-          const { frozenNode } = splitMarkdownNodes(shell);
+          const { frozenNode, liveNode } = splitMarkdownNodes(shell);
           const descriptor = defined(
             Object.getOwnPropertyDescriptor(
               MarkdownRenderable.prototype,
@@ -435,11 +435,16 @@ describe("markdown transcript rows", () => {
             for (let i = 0; i < size; i += 1) {
               bridge.handle({ type: "assistant.delta", text: "x" });
               await h.renderOnce();
-              expect(splitMarkdownNodes(shell).frozenNode).toBe(frozenNode);
+              const current = splitMarkdownNodes(shell);
+              expect(current.frozenNode).toBe(frozenNode);
+              expect(current.liveNode).toBe(liveNode);
+              expect(current.liveNode.streaming).toBe(true);
             }
-            expect(splitMarkdownNodes(shell).liveNode.content).toBe(
-              "x".repeat(size + 1),
-            );
+            const current = splitMarkdownNodes(shell);
+            expect(current.frozenNode).toBe(frozenNode);
+            expect(current.liveNode).toBe(liveNode);
+            expect(current.liveNode.content).toBe("x".repeat(size + 1));
+            expect(current.liveNode.streaming).toBe(true);
           } finally {
             Reflect.deleteProperty(frozenNode, "content");
           }
@@ -452,12 +457,8 @@ describe("markdown transcript rows", () => {
 
       const n = await measure(20);
       const twoN = await measure(40);
-      const ratio = (twoN.chars + 1) / (n.chars + 1);
-      const headingTransitions = 0;
-      const maxAssignments = headingTransitions + 1;
-      expect(ratio).toBeLessThan(3);
-      expect(n.assignments).toBeLessThanOrEqual(maxAssignments);
-      expect(twoN.assignments).toBeLessThanOrEqual(maxAssignments);
+      expect(n).toEqual({ assignments: 0, chars: 0 });
+      expect(twoN).toEqual({ assignments: 0, chars: 0 });
     }, WIDE);
   });
 
