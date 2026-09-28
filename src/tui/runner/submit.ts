@@ -54,6 +54,7 @@ import {
 } from "./state.js";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 import { buildCredentialRecoveryAlternatives } from "./credential-recovery.js";
+import { listCommands } from "../commands/registry.js";
 
 const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
 
@@ -63,24 +64,50 @@ export type SubmissionRoute =
   | { kind: "prompt"; text: string };
 
 /**
- * Decide what a submitted composer line is. A leading `/` means a slash command
- * — it must never reach the model as a prompt, whether it was typed directly or
- * picked from the palette.
+ * Command names a leading-`/` token may dispatch to. Call sites own the set —
+ * registry `listCommands()` names, the same source the `/` popup catalog
+ * (`stripUneditedSlashHint`) searches. A supplier stays fresh across registry
+ * reloads; a plain set or array is a snapshot.
  */
-export function routeSubmission(raw: string): SubmissionRoute {
+export type KnownCommandNames =
+  | readonly string[]
+  | ReadonlySet<string>
+  | (() => readonly string[] | ReadonlySet<string>);
+
+function hasKnownCommand(known: KnownCommandNames, name: string): boolean {
+  const raw = typeof known === "function" ? known() : known;
+  const wanted = name.toLowerCase();
+  for (const candidate of raw) {
+    if (candidate.toLowerCase() === wanted) return true;
+  }
+  return false;
+}
+
+/**
+ * Decide what a submitted composer line is. A leading `/` is a slash command
+ * only when its first token (to whitespace, lowercased) exactly matches a
+ * registered command id; anything else — paths like `/Users/you/notes`,
+ * typos like `/cler` — is a model prompt and reaches it verbatim. Bare `/`
+ * stays empty. Callers that omit `knownCommands` (tests and non-registry
+ * surfaces) keep the legacy any-leading-slash-is-a-command rule; every
+ * product call site passes the registry set.
+ */
+export function routeSubmission(
+  raw: string,
+  knownCommands?: KnownCommandNames,
+): SubmissionRoute {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return { kind: "empty" };
-  const body = trimmed.startsWith("/") ? trimmed.slice(1).trim() : trimmed;
   if (!trimmed.startsWith("/")) return { kind: "prompt", text: trimmed };
+  const body = trimmed.slice(1).trim();
   if (body.length === 0) return { kind: "empty" };
   const sep = body.search(/\s/);
-  return sep === -1
-    ? { kind: "command", name: body, args: "" }
-    : {
-        kind: "command",
-        name: body.slice(0, sep),
-        args: body.slice(sep + 1).trim(),
-      };
+  const name = sep === -1 ? body : body.slice(0, sep);
+  const args = sep === -1 ? "" : body.slice(sep + 1).trim();
+  if (knownCommands !== undefined && !hasKnownCommand(knownCommands, name)) {
+    return { kind: "prompt", text: trimmed };
+  }
+  return { kind: "command", name, args };
 }
 
 export interface SubmitHandlerDeps {
@@ -89,6 +116,8 @@ export interface SubmitHandlerDeps {
     text: string,
     attachments?: readonly PendingImageAttachment[],
   ) => void;
+  /** Registry names a leading-`/` token may dispatch to (see routeSubmission). */
+  knownCommands?: KnownCommandNames;
   /** Consent-by-proceeding hook: runs only for real prompts, never commands. */
   onPromptSubmitted?: () => void;
   /**
@@ -105,9 +134,10 @@ export interface SubmitHandlerDeps {
 }
 
 /**
- * Composer submit handler. Slash input is dispatched against the command
- * registry instead of being sent to the model. When feedback capture is armed
- * (bare `/feedback`), the next non-command line is captured as survey text.
+ * Composer submit handler. Leading-`/` input dispatches against the command
+ * registry only on a registered-id hit; anything else is sent to the model
+ * as a prompt. When feedback capture is armed (bare `/feedback`), the next
+ * non-command line is captured as survey text.
  *
  * Returns an outcome so the session bridge can keep local-only submits off the
  * agent busy path and out of the mid-run queue.
@@ -115,9 +145,10 @@ export interface SubmitHandlerDeps {
 export type SubmitOutcome = "agent" | "local" | "empty";
 
 /**
- * Classify a composer line without side effects. Local = slash command or
- * armed multi-turn feedback text; empty = no-op (or cancel-feedback); agent =
- * real model turn.
+ * Classify a composer line without side effects. Local = registered slash
+ * command or armed multi-turn feedback text; empty = no-op (or
+ * cancel-feedback); agent = real model turn (including paths and unknown
+ * slash names when the registry set is provided).
  */
 export function classifySubmission(
   text: string,
@@ -125,9 +156,10 @@ export function classifySubmission(
     hasAttachments?: boolean;
     feedbackPending?: boolean;
     feedbackCaptureEnabled?: boolean;
+    knownCommands?: KnownCommandNames;
   } = {},
 ): SubmitOutcome {
-  const route = routeSubmission(text);
+  const route = routeSubmission(text, options.knownCommands);
   const hasAttachments = options.hasAttachments === true;
   if (route.kind === "empty" && !hasAttachments) return "empty";
   if (route.kind === "command") return "local";
@@ -148,7 +180,7 @@ export function createSubmitHandler(
   attachments?: readonly PendingImageAttachment[],
 ) => SubmitOutcome {
   return (text, attachments) => {
-    const route = routeSubmission(text);
+    const route = routeSubmission(text, deps.knownCommands);
     const hasAttachments = attachments !== undefined && attachments.length > 0;
     const feedbackPending = deps.isFeedbackCapturePending?.() === true;
     const feedbackCaptureEnabled = deps.onFeedbackText !== undefined;
@@ -156,6 +188,9 @@ export function createSubmitHandler(
       hasAttachments,
       feedbackPending,
       feedbackCaptureEnabled,
+      ...(deps.knownCommands !== undefined
+        ? { knownCommands: deps.knownCommands }
+        : {}),
     });
 
     // Empty Enter while /feedback is armed cancels instead of trapping the
@@ -375,6 +410,9 @@ export function createSubmitPath(
 
   const send = createSubmitHandler({
     dispatchCommand: (name, args) => state.dispatchCommand?.(name, args),
+    // Live registry names: a leading `/` dispatches only on an exact id hit,
+    // so absolute paths (`/Users/…`) fall through to the model as prompts.
+    knownCommands: () => listCommands().map((c) => c.name),
     sendPrompt: (text, attachments) => {
       void sendUserPrompt(text, attachments ?? []).catch((error: unknown) => {
         handleSendFailure(error, live.attemptIdentity(), {

@@ -1050,13 +1050,16 @@ export function isSlashPopupOpen(shell: AppShell): boolean {
 
 /**
  * Popup query = prompt text after the leading `/`. Null once the operator has
- * typed whitespace: at that point the name is settled and the rest is arguments.
+ * typed whitespace (the name is settled, the rest is arguments) or a second
+ * `/` (a path like `/Users/…`, never a command).
  */
 export function slashPopupQuery(shell: AppShell): string | null {
   const value = shell.prompt.value;
   if (!value.startsWith("/")) return null;
   const head = value.slice(1);
-  return /\s/.test(head) ? null : head;
+  if (/\s/.test(head)) return null;
+  if (head.includes("/")) return null;
+  return head;
 }
 
 /** Second-stage arg parse: `/name` + whitespace + typed arg tail. */
@@ -1078,8 +1081,11 @@ export function slashArgQuery(shell: AppShell): SlashArgQuery | null {
   const head = value.slice(1);
   const gap = /\s/.exec(head);
   if (gap === null) return null;
+  const name = head.slice(0, gap.index);
+  // Path heads (`/Users/you notes`) are prompts, never arg-stage commands.
+  if (name.includes("/")) return null;
   return {
-    name: head.slice(0, gap.index),
+    name,
     arg: head.slice(gap.index + gap[0].length),
   };
 }

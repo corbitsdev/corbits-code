@@ -119,6 +119,7 @@ export async function runTUI(initialConfig: Config): Promise<number> {
           hasAttachments: attachments !== undefined && attachments.length > 0,
           feedbackPending: isFeedbackCapturePending(),
           feedbackCaptureEnabled: true,
+          knownCommands: listCommands().map((c) => c.name),
         }),
       interrupt: lifecycle.interrupt,
       deliver: createDeliverRouting(state, services, live),
@@ -173,7 +174,10 @@ export async function runTUI(initialConfig: Config): Promise<number> {
             : {}),
         })),
       onCommand: (name) => {
-        const route = routeSubmission(name);
+        const route = routeSubmission(
+          name,
+          listCommands().map((c) => c.name),
+        );
         if (route.kind === "empty") return;
         if (route.kind === "command") {
           state.dispatchCommand?.(route.name, route.args);

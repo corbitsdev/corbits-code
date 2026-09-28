@@ -8,7 +8,13 @@ import {
 } from "./runner/submit.js";
 import { telemetryStartupNotice } from "./runner/settings.js";
 import type { PendingImageAttachment } from "./image-attachments.js";
+import { stripUneditedSlashHint } from "./command-catalog.js";
 import { TELEMETRY_NOTICE } from "../telemetry/index.js";
+import {
+  slashArgQuery,
+  slashPopupQuery,
+  type AppShell,
+} from "./shell/internals.js";
 import {
   armFeedbackCapture,
   cancelFeedbackCapture,
@@ -25,11 +31,14 @@ interface Dispatched {
   args: string;
 }
 
+const KNOWN_COMMANDS = ["clear", "rename", "help", "feedback", "model"];
+
 function harness(options?: {
   isFeedbackCapturePending?: () => boolean;
   onFeedbackText?: (text: string) => string;
   cancelFeedbackCapture?: () => void;
   onSystemNotice?: (text: string) => void;
+  knownCommands?: readonly string[];
 }) {
   const dispatched: Dispatched[] = [];
   const prompts: string[] = [];
@@ -41,6 +50,7 @@ function harness(options?: {
     onPromptSubmitted: () => {
       promptSubmissions += 1;
     },
+    knownCommands: options?.knownCommands ?? KNOWN_COMMANDS,
     ...(options?.isFeedbackCapturePending !== undefined
       ? { isFeedbackCapturePending: options.isFeedbackCapturePending }
       : {}),
@@ -81,11 +91,57 @@ describe("composer submit handler", () => {
     expect(h.prompts).toEqual([]);
   });
 
-  test("dispatches unknown slash names so the registry can report them", () => {
+  test("unknown slash names reach the model as prompts, not the registry", () => {
     const h = harness();
-    expect(h.submit("/not-a-command")).toBe("local");
-    expect(h.dispatched).toEqual([{ name: "not-a-command", args: "" }]);
+    expect(h.submit("/not-a-command")).toBe("agent");
+    expect(h.dispatched).toEqual([]);
+    expect(h.prompts).toEqual(["/not-a-command"]);
+    expect(h.telemetry()).toBe(1);
+  });
+
+  test("absolute paths reach the model verbatim as prompts", () => {
+    const h = harness();
+    expect(h.submit("  /Users/you/notes.txt  ")).toBe("agent");
+    expect(h.prompts).toEqual(["/Users/you/notes.txt"]);
+    expect(h.dispatched).toEqual([]);
+    expect(h.telemetry()).toBe(1);
+  });
+
+  test("short absolute paths reach the model as prompts", () => {
+    const h = harness();
+    expect(h.submit("/tmp/x")).toBe("agent");
+    expect(h.prompts).toEqual(["/tmp/x"]);
+    expect(h.dispatched).toEqual([]);
+  });
+
+  test("multi-slash input reaches the model as a prompt", () => {
+    const h = harness();
+    expect(h.submit("//not-a-command")).toBe("agent");
+    expect(h.prompts).toEqual(["//not-a-command"]);
+    expect(h.dispatched).toEqual([]);
+  });
+
+  test("command matching ignores case", () => {
+    const h = harness();
+    expect(h.submit("/CLEAR")).toBe("local");
+    expect(h.dispatched).toEqual([{ name: "CLEAR", args: "" }]);
     expect(h.prompts).toEqual([]);
+  });
+
+  test("a leading-slash path is captured as feedback while armed", () => {
+    const feedbackTexts: string[] = [];
+    const h = harness({
+      isFeedbackCapturePending: () => isFeedbackCapturePending(),
+      onFeedbackText: (text) => {
+        feedbackTexts.push(text);
+        return "Thanks — feedback sent.";
+      },
+    });
+    armFeedbackCapture();
+    expect(h.submit("/tmp/x")).toBe("local");
+    expect(feedbackTexts).toEqual(["/tmp/x"]);
+    expect(h.prompts).toEqual([]);
+    expect(h.dispatched).toEqual([]);
   });
 
   test("sends ordinary prompts to the agent", () => {
@@ -166,9 +222,27 @@ describe("composer submit handler", () => {
 });
 
 describe("classifySubmission", () => {
-  test("slash commands are local", () => {
-    expect(classifySubmission("/feedback hi")).toBe("local");
-    expect(classifySubmission("/clear")).toBe("local");
+  test("registered slash commands are local", () => {
+    expect(
+      classifySubmission("/feedback hi", { knownCommands: KNOWN_COMMANDS }),
+    ).toBe("local");
+    expect(
+      classifySubmission("/clear", { knownCommands: KNOWN_COMMANDS }),
+    ).toBe("local");
+  });
+
+  test("paths and unknown slash names are agent turns", () => {
+    expect(
+      classifySubmission("/Users/you/notes.txt", {
+        knownCommands: KNOWN_COMMANDS,
+      }),
+    ).toBe("agent");
+    expect(
+      classifySubmission("/tmp/x", { knownCommands: KNOWN_COMMANDS }),
+    ).toBe("agent");
+    expect(
+      classifySubmission("/not-a-command", { knownCommands: KNOWN_COMMANDS }),
+    ).toBe("agent");
   });
 
   test("ordinary prompts are agent", () => {
@@ -197,8 +271,8 @@ describe("classifySubmission", () => {
 });
 
 describe("routeSubmission", () => {
-  test("classifies leading slash as a command", () => {
-    expect(routeSubmission("/model gpt")).toEqual({
+  test("classifies a registered leading slash as a command", () => {
+    expect(routeSubmission("/model gpt", KNOWN_COMMANDS)).toEqual({
       kind: "command",
       name: "model",
       args: "gpt",
@@ -206,9 +280,64 @@ describe("routeSubmission", () => {
   });
 
   test("classifies plain text as a prompt", () => {
-    expect(routeSubmission("do the thing")).toEqual({
+    expect(routeSubmission("do the thing", KNOWN_COMMANDS)).toEqual({
       kind: "prompt",
       text: "do the thing",
+    });
+  });
+
+  test("routes paths and unknown slash names to the model verbatim", () => {
+    expect(routeSubmission("/Users/you/notes.txt", KNOWN_COMMANDS)).toEqual({
+      kind: "prompt",
+      text: "/Users/you/notes.txt",
+    });
+    expect(routeSubmission("  /tmp/x  ", KNOWN_COMMANDS)).toEqual({
+      kind: "prompt",
+      text: "/tmp/x",
+    });
+    expect(routeSubmission("/not-a-command", KNOWN_COMMANDS)).toEqual({
+      kind: "prompt",
+      text: "/not-a-command",
+    });
+    expect(routeSubmission("//double", KNOWN_COMMANDS)).toEqual({
+      kind: "prompt",
+      text: "//double",
+    });
+  });
+
+  test("bare slash stays empty", () => {
+    expect(routeSubmission("/", KNOWN_COMMANDS)).toEqual({ kind: "empty" });
+    expect(routeSubmission("  /  ", KNOWN_COMMANDS)).toEqual({ kind: "empty" });
+  });
+});
+
+function fakeShellWithPrompt(value: string): AppShell {
+  return { prompt: { value } } as unknown as AppShell;
+}
+
+describe("slash routing guards", () => {
+  test("stripUneditedSlashHint leaves path-like values alone", () => {
+    const catalog = [
+      { id: "release", label: "/release", argumentHint: "<id>" },
+    ];
+    expect(stripUneditedSlashHint(catalog, "/Users/you <id>")).toBeNull();
+    expect(stripUneditedSlashHint(catalog, "/a/b <id>")).toBeNull();
+    expect(stripUneditedSlashHint(catalog, "/release <id>")).toBe("/release ");
+  });
+
+  test("slashPopupQuery is null for path heads", () => {
+    expect(slashPopupQuery(fakeShellWithPrompt("/Users/you"))).toBeNull();
+    expect(slashPopupQuery(fakeShellWithPrompt("/tmp/x"))).toBeNull();
+    expect(slashPopupQuery(fakeShellWithPrompt("/model"))).toBe("model");
+    expect(slashPopupQuery(fakeShellWithPrompt("/"))).toBe("");
+    expect(slashPopupQuery(fakeShellWithPrompt("plain"))).toBeNull();
+  });
+
+  test("slashArgQuery is null for path heads", () => {
+    expect(slashArgQuery(fakeShellWithPrompt("/Users/you notes"))).toBeNull();
+    expect(slashArgQuery(fakeShellWithPrompt("/model gpt"))).toEqual({
+      name: "model",
+      arg: "gpt",
     });
   });
 });

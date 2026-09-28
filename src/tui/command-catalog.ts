@@ -156,6 +156,8 @@ export function stripUneditedSlashHint(
   if (!value.startsWith("/")) return null;
   const space = value.indexOf(" ");
   if (space < 0) return null;
+  // Path-like heads (`/Users/you …`) are prompts, never hint bases.
+  if (value.slice(1, space).includes("/")) return null;
   const tail = value.slice(space + 1);
   if (tail.length === 0) return null;
   const cmd = catalog.find(
