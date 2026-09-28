@@ -7,6 +7,7 @@
  */
 
 import { getLogger } from "@intx/log";
+import { spawnSync } from "node:child_process";
 import {
   loadSettings,
   listFavoriteModels,
@@ -47,7 +48,19 @@ import {
   RESUME_TRANSCRIPT_BLOCK_LIMIT,
   turnsToContentBlocks,
 } from "../turns-to-blocks.js";
-import { setPluginNeedsAttention, setStatusFlash } from "../shell/chrome.js";
+import {
+  setPluginNeedsAttention,
+  setStatusFlash,
+  repaintTranscriptWindow,
+} from "../shell/chrome.js";
+import { UI, setTheme } from "../theme.js";
+import {
+  detectOsAppearance,
+  resolveDetectedTheme,
+  resolveThemeSetting,
+  sniffSyncTheme,
+  syncEnvFromRecord,
+} from "../theme-detect.js";
 import {
   setEffortCycleHandler,
   setMentionSuggestionSource,
@@ -489,6 +502,39 @@ export function wirePostStartup(
         error: err instanceof Error ? err.message : String(err),
       });
     });
+
+  // Async theme upgrade (CL-8993): the sync answer already painted, so a
+  // slower OS-appearance read that disagrees swaps the live binding and
+  // repaints once. Fire-and-forget and spawn-capped — a missing `defaults`
+  // binary abstains to dark rather than stalling startup.
+  void (async () => {
+    const setting = resolveThemeSetting(state.config.settings?.theme);
+    if (setting !== "auto") return;
+    const syncEnv = syncEnvFromRecord(process.env);
+    if (sniffSyncTheme(syncEnv) !== null) return;
+    const os = detectOsAppearance(process.platform, (command, args) => {
+      try {
+        const out = spawnSync(command, [...args], {
+          encoding: "utf8",
+          timeout: 500,
+        });
+        if (out.error !== undefined) return undefined;
+        if (out.status !== 0) return null;
+        return typeof out.stdout === "string" ? out.stdout : undefined;
+      } catch {
+        return undefined;
+      }
+    });
+    const next = resolveDetectedTheme({ setting, syncEnv, osc: null, os });
+    if (next === UI.name) return;
+    setTheme(next);
+    const host = services.hostHolder.instance;
+    if (host !== undefined) repaintTranscriptWindow(host.shell);
+  })().catch((err: unknown) => {
+    tuiLogger.debug("async theme detect failed: {error}", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
   if (!state.resumeSkipInitialTask && state.config.task.trim().length > 0) {
     // The operator's initial task, typed as a CLI argument before launch —

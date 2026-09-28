@@ -37,6 +37,12 @@ import { wireMcp } from "./mcp.js";
 import { wirePostStartup } from "./wiring.js";
 import { createRunnerState, liveAgent } from "./state.js";
 import { applyCredentialRecoverySelection } from "./credential-recovery.js";
+import { setTheme } from "../theme.js";
+import {
+  resolveDetectedTheme,
+  resolveThemeSetting,
+  syncEnvFromRecord,
+} from "../theme-detect.js";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
@@ -51,6 +57,19 @@ export async function runTUI(initialConfig: Config): Promise<number> {
   const start = await prepareTUISession(initialConfig, liveTelemetry);
   if (start === null) return 0;
   const state = createRunnerState(start);
+
+  // Sync theme answer (CL-8993): the explicit setting wins, else the
+  // COLORFGBG/TERM_PROGRAM sniff, else dark. Paints correctly on first frame;
+  // the async OS-appearance upgrade in wirePostStartup repaints if it lands
+  // lighter. Unknown terminals stay dark.
+  setTheme(
+    resolveDetectedTheme({
+      setting: resolveThemeSetting(state.config.settings?.theme),
+      syncEnv: syncEnvFromRecord(process.env),
+      osc: null,
+      os: null,
+    }),
+  );
 
   const { pluginModules } = start.trust;
   // /plugins UI backend state: discovered modules plus live, persisted config

@@ -186,6 +186,9 @@ export interface Settings {
   // results on the outgoing prompt only. Default off: sessions do not depend
   // on that shrink.
   anthropicCachePrompt?: boolean;
+  // Terminal palette selection (CL-8993). "auto" (default when unset) follows
+  // the terminal/OS detection chain; "light"/"dark" pin the palette.
+  theme?: "auto" | "light" | "dark";
 }
 
 function modelRefKey(ref: ModelRef): string {
@@ -599,6 +602,7 @@ const SettingsSchema = type({
   "showPromptCost?": "boolean",
   "dangerouslySkipPermissions?": "boolean",
   "anthropicCachePrompt?": "boolean",
+  "theme?": "'auto' | 'light' | 'dark'",
 });
 
 // Per-entry MCP shape without the name key. The "exactly one transport" rule is
@@ -803,6 +807,7 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "favoriteModels",
   "dangerouslySkipPermissions",
   "anthropicCachePrompt",
+  "theme",
 ] as const satisfies readonly (keyof OptionalSettingsFields)[];
 
 /** Optional local settings keys the load path is required to consider. */
@@ -973,6 +978,10 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
     anthropicCachePrompt:
       s.anthropicCachePrompt !== undefined
         ? Boolean(s.anthropicCachePrompt)
+        : undefined,
+    theme:
+      s.theme === "light" || s.theme === "dark" || s.theme === "auto"
+        ? s.theme
         : undefined,
   };
   return {

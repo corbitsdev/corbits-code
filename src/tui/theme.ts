@@ -100,5 +100,63 @@ export const corbitsDark: Theme = {
   error: ERROR_RED,
 };
 
-/** Semantic roles. Everything outside this file paints through these. */
-export const UI: Theme = corbitsDark;
+/**
+ * Light companion to `corbitsDark`: the same roles on a warm light ground.
+ *
+ * Data-only — no interface change. Every value was picked by relative
+ * luminance against the cream ground, not by eye: body text holds ~14:1
+ * (near the dark theme's ~15:1), secondary roles hold >=5:1, and the lowest
+ * emphasis plus the dimmed action hold >=3:1. Orange still appears once per
+ * screen (action/actionDim); it is darkened here because Breakthrough Orange
+ * itself is ~2.3:1 on cream and unreadable as text. The bronze ramp is
+ * darkened for the same reason SAND is ~1.8:1 on cream.
+ */
+export const corbitsLight: Theme = {
+  name: "corbits-light",
+  ground: BRAND.canvasCream,
+  text: "#221d18",
+  textDim: "#6b5f50",
+  textFaint: "#8a7f70",
+  action: "#8f4f16",
+  actionDim: "#b35c12",
+  inFlight: "#6f5427",
+  inFlightBright: "#7a5a22",
+  heading: "#7c4f24",
+  done: "#3f6b3a",
+  warning: "#7a5a22",
+  error: "#b03a30",
+};
+
+const THEMES = {
+  "corbits-dark": corbitsDark,
+  "corbits-light": corbitsLight,
+} as const;
+
+export type ThemeName = keyof typeof THEMES;
+
+/** Resolve a theme name to its palette. Unknown names fall back to dark. */
+export function resolveThemeName(name: string): Theme {
+  return (THEMES as Record<string, Theme>)[name] ?? corbitsDark;
+}
+
+/**
+ * Semantic roles. Everything outside this file paints through these.
+ *
+ * A settable live binding, not a frozen value: `setTheme` copies the next
+ * palette onto this same object so every existing `UI.text`-style reader
+ * picks the change up without re-importing. Never reassign or destructure
+ * this binding — `const { text } = UI` snapshots the old palette forever.
+ */
+export const UI: Theme = { ...corbitsDark };
+
+/** Switch the live `UI` binding to the named theme, keeping the reference. */
+export function setTheme(name: ThemeName | string): Theme {
+  const next = resolveThemeName(name);
+  Object.assign(UI, next);
+  return UI;
+}
+
+// Known-divergent follow-up: `semantic-theme.ts` still carries its own
+// dark-only palette and `color()` helper for syntax/markdown/diff roles.
+// It is untouched here and stays dark until it learns the same live
+// binding; see the CL-8993 follow-up.
