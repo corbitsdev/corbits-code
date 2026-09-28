@@ -397,6 +397,13 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
         reasoning_tokens: 0,
         tool_call_count: 3,
         tool_error_count: 1,
+        tool_read_count: 1,
+        tool_write_count: 1,
+        tool_shell_count: 1,
+        tool_search_count: 0,
+        tool_agent_count: 0,
+        tool_other_count: 0,
+        hydrate_ms: 0,
         error_count: 0,
         duration_ms: 10,
         model: "test-model",
@@ -448,6 +455,14 @@ test('subagent events bucket a project-defined profile id to "custom"', async ()
   expect(end?.properties.input_tokens).toBe(10);
   expect(end?.properties.output_tokens).toBe(5);
   expect(end?.properties.stop_reason).toBe("deadline");
+  expect(typeof end?.properties.setup_ms).toBe("number");
+  expect(end?.properties.tool_read_count).toBe(1);
+  expect(end?.properties.tool_write_count).toBe(1);
+  expect(end?.properties.tool_shell_count).toBe(1);
+  expect(end?.properties.tool_search_count).toBe(0);
+  expect(end?.properties.tool_agent_count).toBe(0);
+  expect(end?.properties.tool_other_count).toBe(0);
+  expect(end?.properties.hydrate_ms).toBe(0);
   // No in-flight parent turn was noted — omit rather than invent.
   expect(end?.properties.parent_trace_id).toBeUndefined();
   expect(await wire()).not.toContain("acmecorp");
@@ -528,6 +543,7 @@ test("buildSubagentEndProperties shapes rollup fields and omits empty parentTrac
     agentName: "builder",
     status: "completed",
     durationMs: 42,
+    setupMs: 7,
     model: "gpt-test",
     stopReason: "deadline",
     parentTraceId: "sess:turn:3",
@@ -540,12 +556,20 @@ test("buildSubagentEndProperties shapes rollup fields and omits empty parentTrac
       reasoning_tokens: 3,
       tool_call_count: 7,
       tool_error_count: 1,
+      tool_read_count: 2,
+      tool_write_count: 1,
+      tool_shell_count: 1,
+      tool_search_count: 1,
+      tool_agent_count: 1,
+      tool_other_count: 1,
+      hydrate_ms: 5,
     },
   });
   expect(withRollup).toEqual({
     agent_name: "builder",
     status: "completed",
     duration_ms: 42,
+    setup_ms: 7,
     model: "gpt-test",
     stop_reason: "deadline",
     parent_trace_id: "sess:turn:3",
@@ -557,6 +581,13 @@ test("buildSubagentEndProperties shapes rollup fields and omits empty parentTrac
     reasoning_tokens: 3,
     tool_call_count: 7,
     tool_error_count: 1,
+    tool_read_count: 2,
+    tool_write_count: 1,
+    tool_shell_count: 1,
+    tool_search_count: 1,
+    tool_agent_count: 1,
+    tool_other_count: 1,
+    hydrate_ms: 5,
   });
 
   const bare = buildSubagentEndProperties({
@@ -565,6 +596,14 @@ test("buildSubagentEndProperties shapes rollup fields and omits empty parentTrac
     durationMs: 1,
     parentTraceId: "",
   });
+  expect(bare.setup_ms).toBeUndefined();
+  expect(bare.tool_read_count).toBeUndefined();
+  expect(bare.tool_write_count).toBeUndefined();
+  expect(bare.tool_shell_count).toBeUndefined();
+  expect(bare.tool_search_count).toBeUndefined();
+  expect(bare.tool_agent_count).toBeUndefined();
+  expect(bare.tool_other_count).toBeUndefined();
+  expect(bare.hydrate_ms).toBeUndefined();
   expect(bare.parent_trace_id).toBeUndefined();
   expect(bare.turn_count).toBeUndefined();
   // Must not invent a parent from last-completed feedback state.

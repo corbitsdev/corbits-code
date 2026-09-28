@@ -36,6 +36,7 @@ import type {
   ReactorState,
 } from "@intx/types/runtime";
 import { defined } from "../../tests/helpers/defined.js";
+import { classifyToolFamily } from "./run.js";
 
 describe("sub-agent teardown", () => {
   test("disposeSubAgentSession closes agent, awaits stream, and disposes posix tools once", async () => {
@@ -1422,5 +1423,32 @@ describe("buildDispatchBrief typed spawn contract", () => {
     expect(both).toContain("1. done check");
     expect(both).toContain("## Suggested checklist");
     expect(both).toContain("1. manage_tasks seed");
+  });
+});
+
+describe("classifyToolFamily", () => {
+  test("maps canonical engine names onto the six telemetry buckets", () => {
+    expect(classifyToolFamily("read_file")).toBe("read");
+    expect(classifyToolFamily("write_file")).toBe("write");
+    expect(classifyToolFamily("edit_file")).toBe("write");
+    expect(classifyToolFamily("delete_file")).toBe("write");
+    expect(classifyToolFamily("run_shell")).toBe("shell");
+    expect(classifyToolFamily("shell_collect")).toBe("shell");
+    expect(classifyToolFamily("grep")).toBe("search");
+    expect(classifyToolFamily("search_files")).toBe("search");
+    expect(classifyToolFamily("search_agents")).toBe("search");
+    expect(classifyToolFamily("spawn_agent")).toBe("agent");
+    expect(classifyToolFamily("wait_agents")).toBe("agent");
+    expect(classifyToolFamily("ask_director")).toBe("agent");
+    expect(classifyToolFamily("submit_result")).toBe("agent");
+  });
+
+  test("falls back to other for orchestration, web, and unknown tools", () => {
+    expect(classifyToolFamily("manage_tasks")).toBe("other");
+    expect(classifyToolFamily("web_fetch")).toBe("other");
+    expect(classifyToolFamily("web_search")).toBe("other");
+    expect(classifyToolFamily("mcp__plugin_tool")).toBe("other");
+    expect(classifyToolFamily("something_unknown")).toBe("other");
+    expect(classifyToolFamily("")).toBe("other");
   });
 });

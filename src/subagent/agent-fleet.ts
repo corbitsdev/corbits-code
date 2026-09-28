@@ -1118,6 +1118,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const parentTraceId = getCurrentTurnTraceId();
       telemetry.capture("subagent_start", { agent_name: agentName });
       const startedAt = Date.now();
+      let setupEndMs: number | undefined;
       let settlement: Readonly<SubAgentRunSettlement> | undefined;
       let endFinalized = false;
       let runInterrupted = false;
@@ -1136,6 +1137,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           agentName,
           status: setupFailed ? "failed" : status,
           durationMs: Date.now() - startedAt,
+          setupMs: (setupEndMs ?? Date.now()) - startedAt,
           model: settlement?.model ?? provider.model,
           stopReason: setupFailed
             ? "setup_error"
@@ -1149,6 +1151,13 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             reasoning_tokens: 0,
             tool_call_count: 0,
             tool_error_count: 0,
+            tool_read_count: 0,
+            tool_write_count: 0,
+            tool_shell_count: 0,
+            tool_search_count: 0,
+            tool_agent_count: 0,
+            tool_other_count: 0,
+            hydrate_ms: 0,
           },
           ...(parentTraceId !== undefined ? { parentTraceId } : {}),
         });
@@ -1503,6 +1512,9 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
           // Fire and forget: this handler must return before the worker finishes.
           // Wait JSON projects stored WorkerLifecycle plus the per-install overlay.
+          // Setup (worktree snapshot, admission, lane checks) ends here; the
+          // worker run owns the remaining duration.
+          setupEndMs = Date.now();
           deps
             .run(params)
             .then((result) => {

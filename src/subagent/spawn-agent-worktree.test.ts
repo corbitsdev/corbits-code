@@ -197,6 +197,77 @@ describe("spawn_agent worktree isolation", () => {
       tool_error_count: 0,
     });
     expect(typeof ends[0]?.properties.duration_ms).toBe("number");
+    expect(typeof ends[0]?.properties.setup_ms).toBe("number");
+  });
+
+  test("emits setup_ms bounded by duration_ms on the success path", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "corbits-setup-ms-"));
+    tempDirs.push(cwd);
+    const { telemetry, events } = telemetryCapture();
+    const sessions = createSubAgentSessionStore();
+    const tool = createSpawnAgentTool({
+      permissionGate: testPermissionGate,
+      cwd,
+      getWorkdirBase: () => cwd,
+      provider,
+      sessions,
+      fleetRecords: createFleetMailbox(sessions),
+      admission: unlimitedAdmissionQueue(),
+      run: async (params) => {
+        params.onAgentReady?.({
+          close: async () => undefined,
+          interrupt: () => undefined,
+          followup: async () => "",
+          deliver: () => undefined,
+        });
+        params.onRunSettled?.({
+          turn_count: 1,
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_read_tokens: 0,
+          cache_write_tokens: 0,
+          reasoning_tokens: 0,
+          tool_call_count: 0,
+          tool_error_count: 0,
+          tool_read_count: 0,
+          tool_write_count: 0,
+          tool_shell_count: 0,
+          tool_search_count: 0,
+          tool_agent_count: 0,
+          tool_other_count: 0,
+          hydrate_ms: 0,
+          error_count: 0,
+          duration_ms: 1,
+          model: "test-model",
+          terminal_reason: "complete" as const,
+        });
+        return {
+          report:
+            "## Summary\nDone.\n## Findings\nok\n## Blockers\nnone\n## Paths\nnone",
+        };
+      },
+      telemetry,
+    });
+    if (tool.kind !== "full") throw new Error("expected full tool");
+    await tool.handler(
+      {
+        id: "setup-ms-ok",
+        name: "spawn_agent",
+        arguments: {
+          description: "setup probe",
+          prompt: "Do the work",
+          intent: "explore",
+        },
+      },
+      new AbortController().signal,
+    );
+    await waitFor(() => events.some((event) => event.event === "subagent_end"));
+    const end = events.find((event) => event.event === "subagent_end");
+    expect(typeof end?.properties.setup_ms).toBe("number");
+    expect(typeof end?.properties.duration_ms).toBe("number");
+    expect(end?.properties.setup_ms as number).toBeLessThanOrEqual(
+      end?.properties.duration_ms as number,
+    );
   });
 
   test("pairs pre-progress cancellation with a cancelled terminal event", async () => {
@@ -220,6 +291,13 @@ describe("spawn_agent worktree isolation", () => {
           reasoning_tokens: 0,
           tool_call_count: 0,
           tool_error_count: 0,
+          tool_read_count: 0,
+          tool_write_count: 0,
+          tool_shell_count: 0,
+          tool_search_count: 0,
+          tool_agent_count: 0,
+          tool_other_count: 0,
+          hydrate_ms: 0,
           error_count: 1,
           duration_ms: 1,
           model: "test-model",
@@ -355,6 +433,13 @@ describe("spawn_agent worktree isolation", () => {
           reasoning_tokens: 0,
           tool_call_count: 0,
           tool_error_count: 0,
+          tool_read_count: 0,
+          tool_write_count: 0,
+          tool_shell_count: 0,
+          tool_search_count: 0,
+          tool_agent_count: 0,
+          tool_other_count: 0,
+          hydrate_ms: 0,
           error_count: 0,
           duration_ms: 1,
           model: "test-model",

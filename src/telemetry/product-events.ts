@@ -32,6 +32,8 @@ export interface CaptureSubagentEndArgs {
   agentName: string;
   status: string;
   durationMs: number;
+  /** Setup (worktree snapshot, admission, lane checks) elapsed; omit when unknown. */
+  setupMs?: number;
   /** Canonical model id from the provider, never a free-text source label. */
   model?: string;
   stopReason?: SubAgentTerminalReason | "setup_error";
@@ -52,6 +54,9 @@ export function buildSubagentEndProperties(
     status: args.status,
     duration_ms: args.durationMs,
   };
+  if (args.setupMs !== undefined) {
+    props.setup_ms = args.setupMs;
+  }
   if (args.model !== undefined && args.model.length > 0) {
     props.model = args.model;
   }
@@ -70,6 +75,13 @@ export function buildSubagentEndProperties(
     props.reasoning_tokens = args.rollup.reasoning_tokens;
     props.tool_call_count = args.rollup.tool_call_count;
     props.tool_error_count = args.rollup.tool_error_count;
+    props.tool_read_count = args.rollup.tool_read_count;
+    props.tool_write_count = args.rollup.tool_write_count;
+    props.tool_shell_count = args.rollup.tool_shell_count;
+    props.tool_search_count = args.rollup.tool_search_count;
+    props.tool_agent_count = args.rollup.tool_agent_count;
+    props.tool_other_count = args.rollup.tool_other_count;
+    props.hydrate_ms = args.rollup.hydrate_ms;
   }
   return props;
 }

@@ -497,6 +497,47 @@ export function shouldRequirePlanSubstance(input: {
   return input.intent === "plan" || input.directorId === "counsel";
 }
 
+export type ToolFamily =
+  | "read"
+  | "write"
+  | "shell"
+  | "search"
+  | "agent"
+  | "other";
+
+// Bucket a canonical engine tool name for telemetry rollups. Unknown names
+// fall into "other" so a new tool can never break the bucket-sum invariant.
+export function classifyToolFamily(canonicalName: string): ToolFamily {
+  switch (canonicalName) {
+    case "read_file":
+      return "read";
+    case "write_file":
+    case "edit_file":
+    case "delete_file":
+    case "apply_patch":
+      return "write";
+    case "run_shell":
+    case "shell_collect":
+      return "shell";
+    case "grep":
+    case "search_files":
+    case "search_agents":
+      return "search";
+    case "spawn_agent":
+    case "wait_agents":
+    case "close_agent":
+    case "resume_agent":
+    case "interrupt_agent":
+    case "send_input":
+    case "read_agent_trace":
+    case "ask_director":
+    case "submit_result":
+      return "agent";
+    default:
+      return "other";
+  }
+}
+
 const submitResultDefinition: ToolDefinition = {
   name: "submit_result",
   description:
@@ -556,6 +597,13 @@ export async function runSubAgent(
     reasoning_tokens: 0,
     tool_call_count: 0,
     tool_error_count: 0,
+    tool_read_count: 0,
+    tool_write_count: 0,
+    tool_shell_count: 0,
+    tool_search_count: 0,
+    tool_agent_count: 0,
+    tool_other_count: 0,
+    hydrate_ms: 0,
   };
   let terminalReason: SubAgentTerminalReason = "error";
   let errorCount = 0;
@@ -1202,6 +1250,27 @@ async function runSubAgentInner(
       bundle.sources[0];
     if (workerSource === undefined)
       throw new Error("sub-agent source bundle is empty");
+    // Time the attachment-rehydrate transform into hydrate_ms. The decorator
+    // wraps apply at this call site so resume followups ride the same closure
+    // with no signature change.
+    const rehydrate = createAttachmentRehydrateTransform((key) =>
+      storage.readBlob(key),
+    );
+    const rehydrateApply = rehydrate.apply.bind(rehydrate);
+    const timedRehydrate = {
+      ...rehydrate,
+      apply: async (
+        turns: Parameters<typeof rehydrateApply>[0],
+        ctx: Parameters<typeof rehydrateApply>[1],
+      ) => {
+        const rehydrateStart = Date.now();
+        try {
+          return await rehydrateApply(turns, ctx);
+        } finally {
+          telemetryRollup.hydrate_ms += Date.now() - rehydrateStart;
+        }
+      },
+    };
     agent = await createAgentWithLiveToolDispatch(def, {
       sources: bundle.sources,
       defaultSource: bundle.defaultSource,
@@ -1216,9 +1285,7 @@ async function runSubAgentInner(
       // transforms up from there.
       deps: {
         ...inferenceDeps,
-        contextTransforms: [
-          createAttachmentRehydrateTransform((key) => storage.readBlob(key)),
-        ],
+        contextTransforms: [timedRehydrate],
       },
       audit,
       sessionId,
@@ -1277,6 +1344,26 @@ async function runSubAgentInner(
       if (name !== null) {
         toolNamesUsed.push(name);
         telemetryRollup.tool_call_count += 1;
+        switch (classifyToolFamily(name)) {
+          case "read":
+            telemetryRollup.tool_read_count += 1;
+            break;
+          case "write":
+            telemetryRollup.tool_write_count += 1;
+            break;
+          case "shell":
+            telemetryRollup.tool_shell_count += 1;
+            break;
+          case "search":
+            telemetryRollup.tool_search_count += 1;
+            break;
+          case "agent":
+            telemetryRollup.tool_agent_count += 1;
+            break;
+          case "other":
+            telemetryRollup.tool_other_count += 1;
+            break;
+        }
         params.onProgress?.({
           description: params.description,
           toolName: name,

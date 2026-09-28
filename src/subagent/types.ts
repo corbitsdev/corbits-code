@@ -259,6 +259,13 @@ export interface SubAgentTelemetryRollup {
   reasoning_tokens: number;
   tool_call_count: number;
   tool_error_count: number;
+  tool_read_count: number;
+  tool_write_count: number;
+  tool_shell_count: number;
+  tool_search_count: number;
+  tool_agent_count: number;
+  tool_other_count: number;
+  hydrate_ms: number;
 }
 
 export type SubAgentTerminalReason = ForcedStopReason | "complete" | "error";
