@@ -407,10 +407,12 @@ type FileURLPath =
 // WHATWG parsing handles slash counts, relative file paths, localhost, and
 // dot-segment normalization. Decode pathname exactly once to match URL
 // transport semantics; the raw token is checked afterward so query/glob
-// handling remains separate. This naturally exposes a sensitive pathname
-// before its URL fragment, without interpreting generic fragments or `@file`
-// indirection. Unsupported hosts, Windows forms, and malformed escapes prompt
-// rather than guessing or throwing.
+// handling remains separate. Curl expands braces in local file URLs before
+// reading them, so any brace syntax in the raw or decoded pathname prompts,
+// including malformed syntax whose expansion behavior is uncertain. This
+// naturally exposes a sensitive pathname before its URL fragment, without
+// interpreting generic fragments or `@file` indirection. Unsupported hosts,
+// Windows forms, and malformed escapes prompt rather than guessing or throwing.
 function normalizeFileURLPath(
   token: string,
   dialect: ShellDialect,
@@ -420,7 +422,11 @@ function normalizeFileURLPath(
   try {
     const url = new URL(token);
     if (url.host !== "") return { failClosed: true };
-    return { localPath: decodeURIComponent(url.pathname), failClosed: false };
+    const localPath = decodeURIComponent(url.pathname);
+    if (/[{}]/.test(url.pathname) || /[{}]/.test(localPath)) {
+      return { failClosed: true };
+    }
+    return { localPath, failClosed: false };
   } catch {
     return { failClosed: true };
   }

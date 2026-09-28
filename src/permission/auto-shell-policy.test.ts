@@ -8,6 +8,38 @@ const shellCall = (command: string): ToolCall => ({
   arguments: { command },
 });
 
+describe("local file URL brace expansion", () => {
+  const localBraceURLs = [
+    "file:///tmp/{%2Eenv,README.md}",
+    "file:///tmp/{README.md,%2Eenv}",
+    "file:///tmp/{.env,README.md}",
+    "file:///tmp/%2E{env,missing}",
+    "file:///tmp/%7BREADME.md,%2Eenv%7D",
+    "file:///tmp/{README.md",
+    "file:///tmp/README.md}",
+  ];
+
+  test("requires approval for balanced and malformed local brace syntax", () => {
+    for (const url of localBraceURLs) {
+      expect(autoShellRuleForCall(shellCall(`curl '${url}'`))).toMatchObject({
+        name: "sensitive-path",
+        effect: "ask",
+      });
+    }
+  });
+
+  test("does not apply the local brace rule to remote URLs", () => {
+    for (const url of [
+      "https://example.com/{one,two}",
+      "https://example.com/%7Bone,two%7D",
+      "https://example.com/{one",
+      "https://example.com/two}",
+    ]) {
+      expect(autoShellRuleForCall(shellCall(`curl '${url}'`))).toBeUndefined();
+    }
+  });
+});
+
 // Base git-global-config routing (--global/--system/--edit, --file targets,
 // unset/reassignment of GIT_CONFIG_GLOBAL, repo-local pass-through) is pinned
 // in classify-security.test.ts. This file pins the surface that file does not:

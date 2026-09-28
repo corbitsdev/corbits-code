@@ -402,17 +402,41 @@ describe("secret-guard file URL normalization", () => {
     });
   }
 
-  test("flags an encoded URL that curl can use to read a real .env", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "secret-guard-file-url-"));
-    try {
-      await writeFile(join(cwd, ".env"), "SECRET=proof\n");
-      expect(
-        commandReferencesSensitivePath(`curl file://${cwd}/%2Eenv`, cwd),
-      ).toBeDefined();
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
+  const braceGlobs = [
+    "{%2Eenv,README.md}",
+    "{README.md,%2Eenv}",
+    "{.env,README.md}",
+    "%2E{env,missing}",
+  ];
+
+  for (const braceGlob of braceGlobs) {
+    test.skipIf(Bun.which("curl") === null)(
+      `flags curl brace expansion that reads a real .env: ${braceGlob}`,
+      async () => {
+        const cwd = await mkdtemp(join(tmpdir(), "secret-guard-file-url-"));
+        try {
+          await writeFile(join(cwd, ".env"), "CURL_BRACE_PROOF=exfiltrated\n");
+          await writeFile(join(cwd, "README.md"), "ordinary file\n");
+          const url = `file://${cwd}/${braceGlob}`;
+          const result = Bun.spawnSync([
+            "curl",
+            "--silent",
+            "--show-error",
+            url,
+          ]);
+
+          expect(result.stdout.toString()).toContain(
+            "CURL_BRACE_PROOF=exfiltrated",
+          );
+          expect(
+            commandReferencesSensitivePath(`curl '${url}'`, cwd),
+          ).toBeDefined();
+        } finally {
+          await rm(cwd, { recursive: true, force: true });
+        }
+      },
+    );
+  }
 
   for (const malformed of ["%", "%2", "%GG", "%E0%A4%A"]) {
     test(`fails closed for malformed file URL escape: ${malformed}`, () => {
@@ -422,9 +446,20 @@ describe("secret-guard file URL normalization", () => {
     });
   }
 
+  test("flags percent-encoded local brace syntax", () => {
+    expect(
+      commandReferencesSensitivePath("curl file:///tmp/%7BREADME.md,%2Eenv%7D"),
+    ).toBeDefined();
+  });
+
   test("decodes file URL paths exactly once", () => {
     expect(
       commandReferencesSensitivePath("curl file:///tmp/%252Eenv"),
+    ).toBeUndefined();
+    expect(
+      commandReferencesSensitivePath(
+        "curl file:///tmp/%257BREADME.md,%252Eenv%257D",
+      ),
     ).toBeUndefined();
   });
 
