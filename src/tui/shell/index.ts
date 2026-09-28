@@ -124,7 +124,7 @@ export function createAppShell(
     width: "100%",
     height: "100%",
     flexDirection: "column",
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
     paddingLeft: layout.sideMargin,
     paddingRight: layout.sideMargin,
   });
@@ -136,7 +136,7 @@ export function createAppShell(
     width: "100%",
     height: 1,
     flexShrink: 0,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
 
   // Same gutter, other end: keeps the prompt box off the terminal's last row.
@@ -145,7 +145,7 @@ export function createAppShell(
     width: "100%",
     height: 1,
     flexShrink: 0,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
 
   // Persistent chrome, not part of the landing composition (`landing.ts`
@@ -164,7 +164,7 @@ export function createAppShell(
     flexShrink: 0,
     flexDirection: "row",
     justifyContent: "flex-end",
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
     visible: versionBadgeVisible(terminal.columns, terminal.rows),
   });
   const versionBadge = new TextRenderable(ctx, {
@@ -181,7 +181,7 @@ export function createAppShell(
     height: 1,
     flexShrink: 0,
     flexDirection: "column",
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
     visible: false,
   });
 
@@ -191,7 +191,7 @@ export function createAppShell(
     height: 1,
     flexShrink: 0,
     flexDirection: "column",
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
     visible: false,
   });
 
@@ -204,9 +204,9 @@ export function createAppShell(
     stickyStart: "bottom",
     scrollY: true,
     focusable: true,
-    rootOptions: { backgroundColor: UI.ground },
-    contentOptions: { backgroundColor: UI.ground },
-    viewportOptions: { backgroundColor: UI.ground },
+    rootOptions: { backgroundColor: UI.canvasGround },
+    contentOptions: { backgroundColor: UI.canvasGround },
+    viewportOptions: { backgroundColor: UI.canvasGround },
   });
   // The transcript scrolls with the keyboard, and the bar spent a column on
   // every row to say so. Position is legible from the content itself.
@@ -224,7 +224,7 @@ export function createAppShell(
     width: "100%",
     height: 0,
     flexShrink: 0,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   transcript.add(transcriptSpacer);
 
@@ -260,7 +260,7 @@ export function createAppShell(
     height: Math.max(1, layout.heights.pending),
     flexShrink: 0,
     flexDirection: "column",
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
     visible: layout.heights.pending > 0,
   });
 

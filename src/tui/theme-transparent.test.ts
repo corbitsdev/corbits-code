@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { rgbToHex, type CapturedSpan, type RGBA } from "@opentui/core";
 
+import { defined } from "../../tests/helpers/defined.js";
+import { withTestRenderer } from "./harness.js";
+import { createAppShell } from "./shell/index.js";
+import { openSettingsOverlay } from "./shell/palette.js";
 import {
   BRAND,
   configureTransparentBackground,
   corbitsDark,
   corbitsLight,
-  resetTransparentBackgroundLogForTests,
-  resolveGround,
+  isTransparentBackgroundRequested,
   setTheme,
   TRANSPARENT_BACKGROUND,
   UI,
@@ -14,185 +18,221 @@ import {
   type TransparentBackgroundEnv,
 } from "./theme.js";
 
-const SUPPORTED: TransparentBackgroundEnv = {
+const REQUESTED: TransparentBackgroundEnv = {
   CORBITS_TRANSPARENT_BACKGROUND: "1",
-  COLORTERM: "truecolor",
-  TERM_PROGRAM: "kitty",
 };
 
-const NO_TRUECOLOR: TransparentBackgroundEnv = {
-  CORBITS_TRANSPARENT_BACKGROUND: "1",
-  TERM_PROGRAM: "kitty",
-};
-
-const UNKNOWN_TERMINAL: TransparentBackgroundEnv = {
+const UNRECOGNIZED_TERMINAL: TransparentBackgroundEnv = {
   CORBITS_TRANSPARENT_BACKGROUND: "true",
-  COLORTERM: "truecolor",
-  TERM: "xterm-256color",
+  COLORTERM: "unknown",
+  TERM: "unrecognized-terminal",
+  TERM_PROGRAM: "unrecognized-emulator",
 };
+
+function alpha(color: RGBA): number {
+  return color.toInts()[3];
+}
+
+function luminance(color: RGBA): number {
+  const channels = color
+    .toInts()
+    .slice(0, 3)
+    .map((channel) => {
+      const value = channel / 255;
+      return value <= 0.04045
+        ? value / 12.92
+        : ((value + 0.055) / 1.055) ** 2.4;
+    });
+  return (
+    0.2126 * defined(channels[0]) +
+    0.7152 * defined(channels[1]) +
+    0.0722 * defined(channels[2])
+  );
+}
+
+function contrast(foreground: RGBA, background: RGBA): number {
+  const lighter = Math.max(luminance(foreground), luminance(background));
+  const darker = Math.min(luminance(foreground), luminance(background));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function findSpan(
+  lines: readonly { spans: readonly CapturedSpan[] }[],
+  text: string,
+): CapturedSpan {
+  return defined(
+    lines
+      .flatMap((line) => line.spans)
+      .find((span) => span.text.includes(text)),
+    `span containing ${text}`,
+  );
+}
 
 afterEach(() => {
   configureTransparentBackground({});
   setTheme("corbits-dark");
-  resetTransparentBackgroundLogForTests();
 });
 
-describe("resolveGround", () => {
-  test("default stays opaque without logging", () => {
-    let logged = 0;
+describe("transparent background opt-in", () => {
+  test("default stays opaque", () => {
     for (const theme of [corbitsDark, corbitsLight]) {
-      expect(resolveGround(theme, {}, () => logged++)).toBe(theme.ground);
+      setTheme(theme.name);
+      expect(configureTransparentBackground({})).toBe(false);
+      expect(UI.ground).toBe(theme.ground);
+      expect(UI.canvasGround).toBe(theme.ground);
     }
-    expect(logged).toBe(0);
   });
 
-  test("requested and supported resolves transparent for both themes", () => {
-    let logged = 0;
-    const onFallback = () => logged++;
-    expect(resolveGround(corbitsDark, SUPPORTED, onFallback)).toBe(
-      TRANSPARENT_BACKGROUND,
-    );
-    expect(resolveGround(corbitsLight, SUPPORTED, onFallback)).toBe(
-      TRANSPARENT_BACKGROUND,
-    );
-    expect(logged).toBe(0);
+  test("explicit request is honored without terminal capability proxies", () => {
+    for (const env of [REQUESTED, UNRECOGNIZED_TERMINAL]) {
+      expect(isTransparentBackgroundRequested(env)).toBe(true);
+      expect(configureTransparentBackground(env)).toBe(true);
+      expect(UI.canvasGround).toBe(TRANSPARENT_BACKGROUND);
+      expect(UI.ground).toBe(corbitsDark.ground);
+    }
   });
 
-  test("truthy env spellings opt in when supported", () => {
+  test("truthy env spellings opt in and falsy spellings stay opaque", () => {
     for (const value of ["1", "true", "yes", "on", " TRUE "]) {
-      const env = { ...SUPPORTED, CORBITS_TRANSPARENT_BACKGROUND: value };
-      expect(resolveGround(corbitsDark, env)).toBe(TRANSPARENT_BACKGROUND);
+      expect(
+        configureTransparentBackground({
+          CORBITS_TRANSPARENT_BACKGROUND: value,
+        }),
+      ).toBe(true);
+      expect(UI.canvasGround).toBe(TRANSPARENT_BACKGROUND);
     }
-  });
-
-  test("falsy env spellings stay opaque without logging", () => {
-    let logged = 0;
     for (const value of ["0", "false", "off", "", "no"]) {
-      const env = { ...SUPPORTED, CORBITS_TRANSPARENT_BACKGROUND: value };
-      expect(resolveGround(corbitsDark, env, () => logged++)).toBe(
-        corbitsDark.ground,
-      );
+      expect(
+        configureTransparentBackground({
+          CORBITS_TRANSPARENT_BACKGROUND: value,
+        }),
+      ).toBe(false);
+      expect(UI.canvasGround).toBe(corbitsDark.ground);
     }
-    expect(logged).toBe(0);
   });
 
-  test("requested without truecolor falls back to opaque with one log line", () => {
-    const lines: string[] = [];
-    expect(resolveGround(corbitsDark, NO_TRUECOLOR, (m) => lines.push(m))).toBe(
-      corbitsDark.ground,
-    );
-    expect(
-      resolveGround(corbitsLight, NO_TRUECOLOR, (m) => lines.push(m)),
-    ).toBe(corbitsLight.ground);
-    expect(lines).toHaveLength(1);
-  });
-
-  test("requested on an unknown terminal falls back to opaque", () => {
-    const lines: string[] = [];
-    expect(
-      resolveGround(corbitsDark, UNKNOWN_TERMINAL, (m) => lines.push(m)),
-    ).toBe(corbitsDark.ground);
-    expect(lines).toHaveLength(1);
-  });
-
-  test("24bit colorterm with a TERM hint counts as supported", () => {
-    const env: TransparentBackgroundEnv = {
-      CORBITS_TRANSPARENT_BACKGROUND: "on",
-      COLORTERM: "24bit",
-      TERM: "xterm-ghostty",
-    };
-    expect(resolveGround(corbitsDark, env)).toBe(TRANSPARENT_BACKGROUND);
-  });
-});
-
-describe("configureTransparentBackground", () => {
-  test("default leaves UI opaque", () => {
-    const lines: string[] = [];
-    expect(configureTransparentBackground({}, (m) => lines.push(m))).toBe(
-      false,
-    );
-    expect(UI.ground).toBe(corbitsDark.ground);
-    expect(lines).toHaveLength(0);
-  });
-
-  test("supported request publishes transparent on UI", () => {
-    expect(configureTransparentBackground(SUPPORTED)).toBe(true);
-    expect(UI.ground).toBe(TRANSPARENT_BACKGROUND);
-  });
-
-  test("default restores opaque ground after a transparent configuration", () => {
-    expect(configureTransparentBackground(SUPPORTED)).toBe(true);
-    expect(configureTransparentBackground({})).toBe(false);
-    expect(UI.ground).toBe(corbitsDark.ground);
-  });
-
-  test("unsupported request keeps UI opaque and logs once", () => {
-    const lines: string[] = [];
-    const onFallback = (m: string) => lines.push(m);
-    expect(configureTransparentBackground(NO_TRUECOLOR, onFallback)).toBe(
-      false,
-    );
-    expect(configureTransparentBackground(NO_TRUECOLOR, onFallback)).toBe(
-      false,
-    );
-    expect(UI.ground).toBe(corbitsDark.ground);
-    expect(lines).toHaveLength(1);
-  });
-
-  test("never mutates the dark theme's own ground", () => {
-    configureTransparentBackground(SUPPORTED);
+  test("never mutates palette ground", () => {
+    configureTransparentBackground(REQUESTED);
     expect(corbitsDark.ground).toBe(BRAND.ground);
+    expect(UI.ground).toBe(BRAND.ground);
   });
 });
 
 describe("theme and transparency composition", () => {
   const matrix: [string, Theme, TransparentBackgroundEnv, string][] = [
     ["corbits-dark", corbitsDark, {}, corbitsDark.ground],
-    ["corbits-dark", corbitsDark, SUPPORTED, TRANSPARENT_BACKGROUND],
+    ["corbits-dark", corbitsDark, REQUESTED, TRANSPARENT_BACKGROUND],
     ["corbits-light", corbitsLight, {}, corbitsLight.ground],
-    ["corbits-light", corbitsLight, SUPPORTED, TRANSPARENT_BACKGROUND],
+    ["corbits-light", corbitsLight, REQUESTED, TRANSPARENT_BACKGROUND],
   ];
 
-  for (const [name, theme, env, expectedGround] of matrix) {
+  for (const [name, theme, env, expectedCanvasGround] of matrix) {
     const background =
-      expectedGround === TRANSPARENT_BACKGROUND ? "transparent" : "default";
-    test(`${name} with ${background} background`, () => {
-      setTheme(name);
-      configureTransparentBackground(env);
-      expect(UI.name).toBe(theme.name);
-      expect(UI.text).toBe(theme.text);
-      expect(UI.ground).toBe(expectedGround);
-    });
+      expectedCanvasGround === TRANSPARENT_BACKGROUND
+        ? "transparent"
+        : "default";
+    for (const order of [
+      "theme-before-configure",
+      "configure-before-theme",
+    ] as const) {
+      test(`${name} with ${background}, ${order}`, () => {
+        if (order === "theme-before-configure") {
+          setTheme(name);
+          configureTransparentBackground(env);
+        } else {
+          configureTransparentBackground(env);
+          setTheme(name);
+        }
+        expect(UI.name).toBe(theme.name);
+        expect(UI.text).toBe(theme.text);
+        expect(UI.ground).toBe(theme.ground);
+        expect(UI.canvasGround).toBe(expectedCanvasGround);
+      });
+    }
   }
 
-  test("sync setTheme preserves the transparency overlay", () => {
-    configureTransparentBackground(SUPPORTED);
-    setTheme("corbits-light");
-    expect(UI.name).toBe("corbits-light");
-    expect(UI.text).toBe(corbitsLight.text);
-    expect(UI.ground).toBe(TRANSPARENT_BACKGROUND);
-  });
-
-  test("configure after setTheme uses the selected theme fallback", () => {
-    setTheme("corbits-light");
-    configureTransparentBackground({});
-    expect(UI.ground).toBe(corbitsLight.ground);
-  });
-
   test("async-equivalent theme transition preserves transparency", async () => {
-    configureTransparentBackground(SUPPORTED);
+    configureTransparentBackground(REQUESTED);
     await Promise.resolve();
     setTheme("corbits-light");
     expect(UI.name).toBe("corbits-light");
     expect(UI.text).toBe(corbitsLight.text);
-    expect(UI.ground).toBe(TRANSPARENT_BACKGROUND);
+    expect(UI.ground).toBe(corbitsLight.ground);
+    expect(UI.canvasGround).toBe(TRANSPARENT_BACKGROUND);
   });
 
-  test("disabling transparency restores the selected light ground", () => {
+  test("disabling transparency restores the selected canvas ground", () => {
     setTheme("corbits-light");
-    configureTransparentBackground(SUPPORTED);
+    configureTransparentBackground(REQUESTED);
     configureTransparentBackground({});
     expect(UI.name).toBe("corbits-light");
     expect(UI.ground).toBe(corbitsLight.ground);
+    expect(UI.canvasGround).toBe(corbitsLight.ground);
   });
+});
+
+describe("rendered semantic surfaces", () => {
+  for (const [themeName, theme] of [
+    ["corbits-dark", corbitsDark],
+    ["corbits-light", corbitsLight],
+  ] as const) {
+    for (const [mode, env, expectedCanvasAlpha] of [
+      ["default", {}, 255],
+      ["transparent", REQUESTED, 0],
+    ] as const) {
+      test(`${themeName} ${mode} canvas keeps controls opaque`, async () => {
+        setTheme(themeName);
+        configureTransparentBackground(env);
+
+        await withTestRenderer(
+          async (h) => {
+            const shell = createAppShell(h.renderer, {
+              terminal: { columns: 80, rows: 24 },
+              wireKeys: false,
+              run: "idle",
+            });
+            try {
+              shell.prompt.value = "prompt text";
+              shell.prompt.focus();
+              await h.renderOnce();
+              await h.renderOnce();
+
+              const promptFrame = h.captureSpans();
+              const root = defined(defined(promptFrame.lines[0]).spans[0]);
+              const prompt = findSpan(promptFrame.lines, "prompt text");
+              expect(alpha(root.bg)).toBe(expectedCanvasAlpha);
+              expect(alpha(prompt.bg)).toBe(255);
+              expect(rgbToHex(prompt.bg).toLowerCase().slice(0, 7)).toBe(
+                theme.ground,
+              );
+              expect(contrast(prompt.fg, prompt.bg)).toBeGreaterThanOrEqual(7);
+
+              openSettingsOverlay(shell, {
+                items: ["Selected setting", "Other setting"],
+              });
+              await h.renderOnce();
+              await h.renderOnce();
+
+              const overlayFrame = h.captureSpans();
+              const selected = findSpan(overlayFrame.lines, "Selected setting");
+              const overlay = findSpan(overlayFrame.lines, "Other setting");
+
+              for (const control of [selected, overlay]) {
+                expect(alpha(control.bg)).toBe(255);
+                expect(rgbToHex(control.bg).toLowerCase().slice(0, 7)).toBe(
+                  theme.ground,
+                );
+              }
+              expect(contrast(selected.fg, selected.bg)).toBeGreaterThanOrEqual(
+                7,
+              );
+            } finally {
+              shell.dispose();
+            }
+          },
+          { width: 80, height: 24 },
+        );
+      });
+    }
+  }
 });

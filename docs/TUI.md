@@ -248,6 +248,14 @@ and unknown environments fall back to dark. The macOS read has a 500 ms process
 timeout. Production does not query OSC 11 or switch themes after mount, so the
 first frame cannot mix palettes across transcript, prompt, borders, or overlays.
 
+Set `CORBITS_TRANSPARENT_BACKGROUND=1` (also `true`, `yes`, or `on`) to let the
+host terminal show through the root, transcript, landing, welcome, and provider
+canvases. This is an explicit OpenTUI canvas opt-in, not a guess based on
+terminal name or truecolor reporting. The detected or selected dark/light theme
+still owns every foreground color, while the prompt frame and input, decision
+surfaces, and focused or selected rows retain that theme's opaque ground so
+focus and text contrast do not depend on the host background.
+
 ## The live task list panel
 
 **Parked pending rebuild.** `formatChromeZones` (`src/tui/chrome-state.ts`)

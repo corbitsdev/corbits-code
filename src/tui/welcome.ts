@@ -125,7 +125,7 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
     width: "100%",
     height: "100%",
     flexDirection: "column",
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
     paddingLeft: margin,
     paddingRight: margin,
   });
@@ -135,21 +135,21 @@ export async function runWelcome(config: WelcomeConfig = {}): Promise<boolean> {
     width: "100%",
     flexGrow: 1,
     flexShrink: 1,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   const bottomPad = new BoxRenderable(renderer, {
     id: "welcome-bottom-pad",
     width: "100%",
     flexGrow: 1,
     flexShrink: 1,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
 
   const markBox = new BoxRenderable(renderer, {
     id: "welcome-mark",
     flexDirection: "column",
     flexShrink: 0,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   const markRows: TextRenderable[] = [];
   for (let row = 0; row < MARK_LARGE.rows; row++) {

@@ -29,7 +29,7 @@
  */
 export interface Theme {
   readonly name: string;
-  /** Terminal ground. Foreground-only discipline means almost nothing fills it. */
+  /** Opaque control backing and canvas fallback for this palette. */
   readonly ground: string;
   /** All body text. Never white, never gray. */
   readonly text: string;
@@ -150,7 +150,15 @@ export function resolveThemeName(name: string): Theme {
  * picks the change up without re-importing. Never reassign or destructure
  * this binding — `const { text } = UI` snapshots the old palette forever.
  */
-export const UI: Theme = { ...corbitsDark };
+export interface UITheme extends Theme {
+  /** Effective fill for canvas and root surfaces. */
+  readonly canvasGround: string;
+}
+
+export const UI: UITheme = {
+  ...corbitsDark,
+  canvasGround: corbitsDark.ground,
+};
 
 const themeChangeListeners = new Set<(theme: Theme) => void>();
 
@@ -163,9 +171,9 @@ export function onThemeChange(listener: (theme: Theme) => void): void {
 let activeTheme: Theme = corbitsDark;
 let transparentBackgroundEnabled = false;
 
-function publishTheme(): Theme {
+function publishTheme(): UITheme {
   Object.assign(UI, activeTheme, {
-    ground: transparentBackgroundEnabled
+    canvasGround: transparentBackgroundEnabled
       ? TRANSPARENT_BACKGROUND
       : activeTheme.ground,
   });
@@ -183,39 +191,9 @@ export const TRANSPARENT_BACKGROUND = "transparent";
 
 const TRANSPARENT_BG_ENV_VAR = "CORBITS_TRANSPARENT_BACKGROUND";
 
-/** Terminals whose compositing path is known to show the host background. */
-const TRANSPARENT_BG_PROGRAMS = new Set([
-  "iterm.app",
-  "wezterm",
-  "kitty",
-  "ghostty",
-  "alacritty",
-  "foot",
-]);
-
-const TRANSPARENT_BG_TERM_HINTS = [
-  "kitty",
-  "ghostty",
-  "wezterm",
-  "alacritty",
-  "foot",
-];
-
 export interface TransparentBackgroundEnv {
   readonly [key: string]: string | undefined;
   readonly CORBITS_TRANSPARENT_BACKGROUND?: string;
-  readonly COLORTERM?: string;
-  readonly TERM?: string;
-  readonly TERM_PROGRAM?: string;
-}
-
-type TransparentFallbackLog = (message: string) => void;
-
-let transparentFallbackLogged = false;
-
-/** Re-arm the one-time fallback log; tests only. */
-export function resetTransparentBackgroundLogForTests(): void {
-  transparentFallbackLogged = false;
 }
 
 export function isTransparentBackgroundRequested(
@@ -225,54 +203,14 @@ export function isTransparentBackgroundRequested(
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
-export function supportsTransparentBackground(
-  env: TransparentBackgroundEnv = process.env,
-): boolean {
-  const colorterm = env.COLORTERM?.trim().toLowerCase();
-  if (colorterm !== "truecolor" && colorterm !== "24bit") return false;
-  const program = (env.TERM_PROGRAM ?? "").trim().toLowerCase();
-  if (TRANSPARENT_BG_PROGRAMS.has(program)) return true;
-  const term = (env.TERM ?? "").trim().toLowerCase();
-  return TRANSPARENT_BG_TERM_HINTS.some((hint) => term.includes(hint));
-}
-
 /**
- * The ground a theme paints with: `"transparent"` when requested and
- * supported, otherwise the theme's opaque ground. Unsupported requests fall
- * back to opaque with a single log line.
- */
-export function resolveGround(
-  theme: Theme,
-  env: TransparentBackgroundEnv = process.env,
-  onFallback: TransparentFallbackLog = (message) => {
-    process.stderr.write(`${message}\n`);
-  },
-): string {
-  if (!isTransparentBackgroundRequested(env)) return theme.ground;
-  if (supportsTransparentBackground(env)) return TRANSPARENT_BACKGROUND;
-  if (!transparentFallbackLogged) {
-    transparentFallbackLogged = true;
-    onFallback(
-      "corbits: transparent background requested but unsupported here; using opaque ground",
-    );
-  }
-  return theme.ground;
-}
-
-/**
- * Startup entry: resolves the active theme's ground once and publishes it on
- * `UI` so all surfaces follow. Must run before any surface builds. Returns
- * true when the shell paints transparent.
+ * Publish the explicit canvas-transparency preference before surfaces build.
+ * OpenTUI accepts transparent fills, so no terminal identity proxy is needed.
  */
 export function configureTransparentBackground(
   env: TransparentBackgroundEnv = process.env,
-  onFallback?: TransparentFallbackLog,
 ): boolean {
-  const ground =
-    onFallback === undefined
-      ? resolveGround(activeTheme, env)
-      : resolveGround(activeTheme, env, onFallback);
-  transparentBackgroundEnabled = ground === TRANSPARENT_BACKGROUND;
+  transparentBackgroundEnabled = isTransparentBackgroundRequested(env);
   publishTheme();
   return transparentBackgroundEnabled;
 }

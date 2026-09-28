@@ -119,7 +119,7 @@ export function createSurface(
     width: "100%",
     height: "100%",
     flexDirection: "column",
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
     paddingTop: 1,
     paddingLeft: margin,
     paddingRight: margin,
@@ -162,7 +162,7 @@ export function createSurface(
     flexDirection: "column",
     flexShrink: 0,
     paddingTop: 1,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   const summarySlots = Array.from(
     { length: SUMMARY_SLOTS },
@@ -181,7 +181,7 @@ export function createSurface(
     flexDirection: "column",
     flexShrink: 0,
     paddingTop: 1,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   const listSlots = Array.from(
     { length: PROVIDER_LIST_ROWS_MAX },
@@ -225,7 +225,7 @@ export function createSurface(
     flexDirection: "column",
     flexShrink: 0,
     paddingTop: 1,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
     visible: false,
   });
   const loginSlots = Array.from(
@@ -257,7 +257,7 @@ export function createSurface(
     flexDirection: "column",
     flexShrink: 0,
     paddingTop: 1,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
     visible: config.showTelemetryNotice,
   });
   const telemetrySlots = Array.from(
