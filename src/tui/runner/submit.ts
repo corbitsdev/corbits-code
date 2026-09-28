@@ -91,6 +91,11 @@ function hasKnownCommand(known: KnownCommandNames, name: string): boolean {
  * stays empty. Callers that omit `knownCommands` (tests and non-registry
  * surfaces) keep the legacy any-leading-slash-is-a-command rule; every
  * product call site passes the registry set.
+ *
+ * Case is lowered once here: the returned command name is the canonical
+ * lowercase registry id, so the downstream exact-`Map.get` lookup
+ * (`getCommand`) hits for mixed-case input like `/CLEAR`. Matching stays
+ * case-insensitive via `hasKnownCommand`.
  */
 export function routeSubmission(
   raw: string,
@@ -107,7 +112,7 @@ export function routeSubmission(
   if (knownCommands !== undefined && !hasKnownCommand(knownCommands, name)) {
     return { kind: "prompt", text: trimmed };
   }
-  return { kind: "command", name, args };
+  return { kind: "command", name: name.toLowerCase(), args };
 }
 
 export interface SubmitHandlerDeps {

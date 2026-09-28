@@ -21,6 +21,8 @@ import {
   isFeedbackCapturePending,
   resetFeedbackStateForTests,
 } from "../telemetry/feedback.js";
+import { registerBuiltInCommands } from "./commands/built-in.js";
+import { getCommand, listCommands } from "./commands/registry.js";
 
 afterEach(() => {
   resetFeedbackStateForTests();
@@ -124,8 +126,28 @@ describe("composer submit handler", () => {
   test("command matching ignores case", () => {
     const h = harness();
     expect(h.submit("/CLEAR")).toBe("local");
-    expect(h.dispatched).toEqual([{ name: "CLEAR", args: "" }]);
+    expect(h.dispatched).toEqual([{ name: "clear", args: "" }]);
     expect(h.prompts).toEqual([]);
+  });
+
+  test("/CLEAR dispatches clear through the real registry", () => {
+    registerBuiltInCommands();
+    const dispatched: Dispatched[] = [];
+    const resolved: (string | undefined)[] = [];
+    const submit = createSubmitHandler({
+      dispatchCommand: (name, args) => {
+        dispatched.push({ name, args });
+        resolved.push(getCommand(name)?.name);
+      },
+      sendPrompt: () => {
+        throw new Error("/CLEAR must dispatch, not prompt");
+      },
+      onPromptSubmitted: () => undefined,
+      knownCommands: () => listCommands().map((c) => c.name),
+    });
+    expect(submit("/CLEAR")).toBe("local");
+    expect(dispatched).toEqual([{ name: "clear", args: "" }]);
+    expect(resolved).toEqual(["clear"]);
   });
 
   test("a leading-slash path is captured as feedback while armed", () => {
