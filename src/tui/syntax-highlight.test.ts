@@ -12,6 +12,8 @@
 import { describe, expect, test } from "bun:test";
 import { MarkdownRenderable, RGBA, type CapturedSpan } from "@opentui/core";
 import { withTestRenderer, type Harness } from "./harness";
+import { appendStreamRow } from "./shell/chrome.js";
+import { createAppShell } from "./shell/index.js";
 import { transcriptSyntaxStyle } from "./stream";
 import { highlightCode } from "./syntax-highlight.js";
 import { UI } from "./theme";
@@ -68,6 +70,68 @@ async function settleSpans(
 function coloured(spans: CapturedSpan[], text: string, fg: RGBA): boolean {
   return spans.some((s) => s.text.includes(text) && s.fg.equals(fg));
 }
+
+function hasSyntaxColour(spans: CapturedSpan[], text: string): boolean {
+  return spans.some(
+    (span) =>
+      span.text.includes(text) && SYNTAX_FGS.some((fg) => span.fg.equals(fg)),
+  );
+}
+
+async function expectTranscriptHighlighting(
+  h: Harness,
+  supportedLanguage: "js" | "ts",
+  streaming: boolean,
+): Promise<void> {
+  const shell = createAppShell(h.renderer, {
+    terminal: { columns: 80, rows: 40 },
+    wireKeys: false,
+  });
+  try {
+    appendStreamRow(shell, {
+      role: "assistant",
+      streaming,
+      text: [
+        `\`\`\`${supportedLanguage}`,
+        "const supported_route = 42;",
+        "```",
+        "",
+        "```python",
+        "def python_plain():",
+        '    return "visible"',
+        "```",
+      ].join("\n"),
+    });
+    const spans = await settleSpans(
+      h,
+      (current) =>
+        coloured(current, "const", KEYWORD_FG) &&
+        current.some((span) => span.text.includes("python_plain")),
+    );
+
+    expect(coloured(spans, "const", KEYWORD_FG)).toBe(true);
+    expect(h.captureCharFrame()).toContain("python_plain");
+    expect(hasSyntaxColour(spans, "python_plain")).toBe(false);
+  } finally {
+    shell.dispose();
+  }
+}
+
+describe("production transcript fenced rendering", () => {
+  test("settled assistant fences use production syntax ownership", async () => {
+    await withTestRenderer(
+      (h) => expectTranscriptHighlighting(h, "js", false),
+      { width: 80, height: 40 },
+    );
+  }, 30000);
+
+  test("streaming assistant fences use production syntax ownership", async () => {
+    await withTestRenderer((h) => expectTranscriptHighlighting(h, "ts", true), {
+      width: 80,
+      height: 40,
+    });
+  }, 30000);
+});
 
 describe("native fenced rendering", () => {
   test("a js fence colours keywords, strings, comments, and numbers", async () => {

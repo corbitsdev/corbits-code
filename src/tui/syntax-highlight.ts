@@ -1,5 +1,3 @@
-/// <reference lib="dom" />
-
 /**
  * Fenced-code styling for the synchronous markdown model.
  *
@@ -8,14 +6,13 @@
  * MarkdownRenderable/CodeRenderable path with transcriptSyntaxStyle() over the
  * bundled tree-sitter grammars (javascript, typescript, markdown, zig). This
  * module keeps the legacy path's geometry with plain segments.
- *
- * The DOM lib reference replaces the implicit reference highlight.js supplied;
- * Bun's fetch, Web Crypto, and timer types rely on those globals repo-wide.
  */
 import type { StyledSegment } from "./markdown-parser.js";
 
 function plainLines(code: string): StyledSegment[][] {
-  return code.split("\n").map((text) => [{ text, code: true }]);
+  return code
+    .split("\n")
+    .map((text) => (text.length === 0 ? [] : [{ text, code: true }]));
 }
 
 const codeCache = new Map<string, StyledSegment[][]>();

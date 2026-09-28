@@ -172,7 +172,8 @@ describe("block elements", () => {
     // The blank body line is not an empty segment array — it still paints ▏.
     const blankBody = lines.find(
       (line) =>
-        line.map((s) => s.text).join("") === "▏ " &&
+        line.length === 1 &&
+        line[0]?.text === "▏ " &&
         line[0]?.codeFence === true,
     );
     expect(blankBody).toBeDefined();
