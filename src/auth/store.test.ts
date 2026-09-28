@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type } from "arktype";
@@ -462,11 +469,7 @@ describe("createAuthStore", () => {
       const staleLockPath = `${staleStore.authPath(home)}.lock`;
       await mkdir(join(home, TEST_SETTINGS_DIR), { recursive: true });
       await writeFile(staleLockPath, "legacy-orphan", { mode: 0o600 });
-      await utimes(
-        staleLockPath,
-        new Date(),
-        new Date(Date.now() - 60_000),
-      );
+      await utimes(staleLockPath, new Date(), new Date(Date.now() - 60_000));
 
       const profile = {
         name: "work",
@@ -486,9 +489,9 @@ describe("createAuthStore", () => {
       });
       const freshLockPath = `${freshStore.authPath(home)}.lock`;
       await writeFile(freshLockPath, "legacy-orphan", { mode: 0o600 });
-      await expect(
-        freshStore.saveProfile(profile, home),
-      ).rejects.toThrow("Timed out waiting for OAuth credential lock");
+      await expect(freshStore.saveProfile(profile, home)).rejects.toThrow(
+        "Timed out waiting for OAuth credential lock",
+      );
       expect(await readFile(freshLockPath, "utf8")).toBe("legacy-orphan");
     } finally {
       await rm(home, { recursive: true, force: true });
@@ -520,9 +523,7 @@ describe("createAuthStore", () => {
       );
       await rm(lockPath, { force: true });
       await expect(pending).resolves.toBeUndefined();
-      expect((await store.loadProfile("work", home))?.tokens.access).toBe(
-        "a",
-      );
+      expect((await store.loadProfile("work", home))?.tokens.access).toBe("a");
     } finally {
       await rm(home, { recursive: true, force: true });
     }
