@@ -1385,10 +1385,10 @@ function clearLandingMark(shell: AppShell): void {
 
 /**
  * Cadence of the mount-scoped idle repaint timer armed in `createAppShell`.
- * The snow only needs to advance about half a row per second, so 8fps is
- * comfortably enough to read as motion.
+ * The snow falls about half a row per second, so a 2fps tick still reads as
+ * motion while cutting idle full-hero repaints roughly fourfold.
  */
-export const LANDING_IDLE_REPAINT_INTERVAL_MS = 125;
+export const LANDING_IDLE_REPAINT_INTERVAL_MS = 500;
 
 /**
  * Repaint the landing mark for `nowMs`. `animating` runs the mountain's

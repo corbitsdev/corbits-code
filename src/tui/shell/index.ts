@@ -578,6 +578,11 @@ export function createAppShell(
       }
       const bag = shellInternals(shell);
       if (bag?.landing == null || bag.landingAnimating) return;
+      // Positively-dirty gate: a null grid suppresses the mark entirely
+      // (narrow terminal, hints only), so no row would change — skip the
+      // full-hero repaint. A live grid always counts dirty: the snow tick
+      // advances flakes every frame, so there is no unset-flag freeze.
+      if (bag.landing.above.grid === null) return;
       paintLanding(shell, Date.now(), false);
     }, LANDING_IDLE_REPAINT_INTERVAL_MS);
     landingIdleHandle.unref?.();

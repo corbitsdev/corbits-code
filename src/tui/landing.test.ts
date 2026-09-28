@@ -20,7 +20,7 @@ import {
   toggleTasksPanel,
 } from "./shell/chrome";
 import { createAppShell } from "./shell/index";
-import { isLanding } from "./shell/internals";
+import { isLanding, shellInternals } from "./shell/internals";
 import {
   setPromptModelLabel,
   setPromptWorkspace,
@@ -32,6 +32,7 @@ import {
   LANDING_HINTS,
   LANDING_SUGGESTIONS,
   LANDING_VERSION,
+  fitLandingMark,
   landingBelowContent,
   landingBelowRows,
   landingSuggestionFor,
@@ -102,6 +103,57 @@ function soleLandingIdleHandle(
     );
   }
   return handle;
+}
+
+interface CapturedIdleTimer {
+  handle: IdleTimerHandle;
+  handler: () => void;
+  delay: number;
+}
+
+/**
+ * Captures the product idle interval's handler so tests can fire the tick
+ * deterministically instead of waiting out the wall clock. Like
+ * `wrapLandingIdleTimer`, it never arms a real interval.
+ */
+function captureLandingIdleTimer(): {
+  captured: CapturedIdleTimer[];
+  cleared: IdleTimerHandle[];
+} {
+  const captured: CapturedIdleTimer[] = [];
+  const cleared: IdleTimerHandle[] = [];
+  globalThis.setInterval = ((
+    handler: Parameters<typeof nativeSetInterval>[0],
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (delay === LANDING_IDLE_REPAINT_INTERVAL_MS) {
+      const handle: IdleTimerHandle = {};
+      captured.push({ handle, handler: handler as () => void, delay });
+      return handle;
+    }
+    return nativeSetInterval.call(globalThis, handler, delay, ...args);
+  }) as typeof nativeSetInterval;
+  globalThis.clearInterval = ((
+    handle: Parameters<typeof nativeClearInterval>[0],
+  ) => {
+    cleared.push(handle as IdleTimerHandle);
+    if (captured.some((entry) => entry.handle === handle)) return;
+    return nativeClearInterval.call(globalThis, handle);
+  }) as typeof nativeClearInterval;
+  return { captured, cleared };
+}
+
+function soleCapturedIdleTimer(
+  captured: readonly CapturedIdleTimer[],
+): CapturedIdleTimer {
+  const entry = captured[0];
+  if (captured.length !== 1 || entry === undefined) {
+    throw new Error(
+      `expected exactly one ${LANDING_IDLE_REPAINT_INTERVAL_MS}ms interval, got ${captured.length}`,
+    );
+  }
+  return entry;
 }
 
 /** Newly added scroll-box children need a layout pass before they paint. */
@@ -450,6 +502,81 @@ describe("landing screen", () => {
           const handle = soleLandingIdleHandle(armed);
           shell.dispose();
           expect(cleared).toContain(handle);
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
+    });
+
+    test("the idle timer arms at a 500ms-or-slower cadence", async () => {
+      const { captured } = captureLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          run: "idle",
+          wireKeys: false,
+          terminal: { columns: 80, rows: 24 },
+        });
+        try {
+          const entry = soleCapturedIdleTimer(captured);
+          expect(LANDING_IDLE_REPAINT_INTERVAL_MS).toBeGreaterThanOrEqual(
+            500,
+          );
+          expect(entry.delay).toBeGreaterThanOrEqual(500);
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
+    });
+
+    test("an idle tick with no mark grid writes no rows but keeps the timer armed", async () => {
+      const { captured, cleared } = captureLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          run: "idle",
+          wireKeys: false,
+          terminal: { columns: 80, rows: 24 },
+        });
+        try {
+          const entry = soleCapturedIdleTimer(captured);
+          const bag = defined(shellInternals(shell));
+          // Narrow-terminal composition: the mark is suppressed (hints only),
+          // so no row could change and the tick must skip the full repaint.
+          fitLandingMark(defined(bag.landing).above, null);
+          await settle(h);
+          const before = markRows(h).join("\n");
+
+          entry.handler();
+          await settle(h);
+
+          expect(bag.landingNowMs).toBe(0);
+          expect(markRows(h).join("\n")).toBe(before);
+          expect(cleared).not.toContain(entry.handle);
+        } finally {
+          shell.dispose();
+        }
+      }, SIZE);
+    });
+
+    test("an idle tick after the landing clears repaints nothing", async () => {
+      const { captured, cleared } = captureLandingIdleTimer();
+      await withTestRenderer(async (h) => {
+        const shell = createAppShell(h.renderer, {
+          run: "idle",
+          wireKeys: false,
+          terminal: { columns: 80, rows: 24 },
+        });
+        try {
+          const entry = soleCapturedIdleTimer(captured);
+          appendStreamRow(shell, { role: "user", text: "first prompt" });
+          expect(isLanding(shell)).toBe(false);
+          expect(cleared).toContain(entry.handle);
+          const bag = defined(shellInternals(shell));
+          const stamp = bag.landingNowMs;
+
+          entry.handler();
+          await settle(h);
+
+          expect(bag.landingNowMs).toBe(stamp);
         } finally {
           shell.dispose();
         }
