@@ -13,6 +13,7 @@ import {
   skillSearchDefinition,
   workerSkillSearchDefinition,
 } from "../../src/agent/skill-search.js";
+import { loadSkillCommands } from "../../src/plugins/skill-commands.js";
 import {
   useSkillDefinition,
   workerUseSkillDefinition,
@@ -276,17 +277,26 @@ describe("path-like skill refs", () => {
 describe("description caps (CL-8854)", () => {
   const MAX_DESCRIPTION_CHARS = 160;
 
-  test("all five registration descriptions are one line within the cap", () => {
-    const skillDescriptions = [
+  test("primary descriptions keep the pointer; worker copies are pointer-free, all one line within the cap", () => {
+    const primaryDescriptions = [
       skillSearchDefinition.description,
-      workerSkillSearchDefinition.description,
       useSkillDefinition.description,
-      workerUseSkillDefinition.description,
     ];
-    for (const description of skillDescriptions) {
+    for (const description of primaryDescriptions) {
       expect(description).not.toContain("\n");
       expect(description.length).toBeLessThanOrEqual(MAX_DESCRIPTION_CHARS);
       expect(description.endsWith("See Guidelines: Tool choice.")).toBe(true);
+    }
+    // The lean worker contract ships no guidelines, so the worker copies must
+    // not point at them.
+    const workerDescriptions = [
+      workerSkillSearchDefinition.description,
+      workerUseSkillDefinition.description,
+    ];
+    for (const description of workerDescriptions) {
+      expect(description).not.toContain("\n");
+      expect(description.length).toBeLessThanOrEqual(MAX_DESCRIPTION_CHARS);
+      expect(description).not.toContain("See Guidelines:");
     }
     expect(spawnAgentToolDefinition.description).not.toContain("\n");
     expect(spawnAgentToolDefinition.description.length).toBeLessThanOrEqual(
@@ -315,5 +325,26 @@ describe("description caps (CL-8854)", () => {
       new AbortController().signal,
     );
     expect(out).toBe("- scribe: write docs");
+  });
+
+  test("a multi-line SKILL.md frontmatter description renders as a single slash-picker line", async () => {
+    const plugin = await mkdtemp(join(tmpdir(), "skill-slash-multiline-"));
+    try {
+      await mkdir(join(plugin, "skills", "scribe"), { recursive: true });
+      await writeFile(
+        join(plugin, "skills", "scribe", "SKILL.md"),
+        "---\nname: scribe\ndescription: |\n  write docs\n  second line\n---\nScribe body.\n",
+        "utf8",
+      );
+      const cmds = defined(await loadSkillCommands(plugin), "skill commands");
+      const scribe = defined(
+        cmds.find((c) => c.name === "scribe"),
+        "scribe command",
+      );
+      expect(scribe.description).toBe("write docs");
+      expect(scribe.description).not.toContain("\n");
+    } finally {
+      await rm(plugin, { recursive: true, force: true });
+    }
   });
 });

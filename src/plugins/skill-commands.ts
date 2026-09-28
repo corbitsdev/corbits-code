@@ -5,6 +5,7 @@ import {
   type CommandDefinition,
   type CommandResult,
 } from "../tui/commands/registry.js";
+import { firstLine } from "../extensions/skills.js";
 import { COMMAND_NAME_PATTERN, splitFrontmatter } from "./frontmatter.js";
 
 // Slash is the operator action surface: `/<skill-name> [args]` sends the skill
@@ -72,8 +73,8 @@ export async function loadSkillCommands(
     }
     const description =
       typeof frontmatter.description === "string" &&
-      frontmatter.description.trim().length > 0
-        ? frontmatter.description.trim()
+      firstLine(frontmatter.description).length > 0
+        ? firstLine(frontmatter.description)
         : name;
 
     const argumentHint = argumentHintFromFrontmatter(frontmatter);

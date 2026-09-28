@@ -39,7 +39,7 @@ export const skillSearchDefinition: ToolDefinition = {
 export const workerSkillSearchDefinition: ToolDefinition = {
   name: "skill_search",
   description:
-    "Prep lookup for a skill when attached skills are not enough; skip tiny one-file fixes. Directly callable; load via use_skill. See Guidelines: Tool choice.",
+    "Prep lookup for a skill when attached skills are not enough; skip tiny one-file fixes. Directly callable; load via use_skill.",
   inputSchema: SKILL_SEARCH_INPUT_SCHEMA,
 };
 

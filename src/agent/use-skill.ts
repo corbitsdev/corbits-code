@@ -36,7 +36,7 @@ export const useSkillDefinition: ToolDefinition = {
 export const workerUseSkillDefinition: ToolDefinition = {
   name: "use_skill",
   description:
-    "Load a skill by name; do not reload attached skills or bodies already in context. See Guidelines: Tool choice.",
+    "Load a skill by name; do not reload attached skills or bodies already in context.",
   inputSchema: USE_SKILL_INPUT_SCHEMA,
 };
 
