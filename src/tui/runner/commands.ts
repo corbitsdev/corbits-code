@@ -348,15 +348,16 @@ export function createCommandLayer(
   };
 
   const dispatchCommand = (name: string, args: string): void => {
+    // Captured before the unknown-command early return so plugin-authored
+    // names are bucketed (never sent raw) — the classifier maps anything it
+    // doesn't recognise to custom. Shared emitter so TUI and any headless
+    // path report the same event; known commands still emit exactly once.
+    captureSlashCommand(getTelemetry(), name);
     const command = getCommand(name);
     if (command === undefined) {
       state.systemNotice?.(`Unknown command: ${name}`);
       return;
     }
-    // Plugins register into the same command registry as the built-ins, so an
-    // unrecognised name is plugin-authored and is bucketed rather than sent.
-    // Shared emitter so TUI and any headless path report the same event.
-    captureSlashCommand(getTelemetry(), command.name);
     applyCommandResult(command.handler(args, commandContext));
   };
   state.dispatchCommand = dispatchCommand;

@@ -189,7 +189,7 @@ const EVENT_PROPERTY_ALLOWLIST: Record<TelemetryEvent, readonly string[]> = {
     "parent_trace_id",
   ],
 
-  permission_prompt: ["decision", "permission_kind"],
+  permission_prompt: ["decision", "permission_kind", "permission_mode"],
   compaction: ["mode", "duration_ms", "turns_before", "turns_after"],
   // provider/model are the canonical runtime ids (same trust class as
   // $ai_provider/$ai_model); error_kind is the summarizer's first-party

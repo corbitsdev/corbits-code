@@ -378,8 +378,13 @@ export function wireGates(
     // closeInsetOverlay, which fires onCancel after notifying close
     // listeners) — settle's return value is how a call site tells that
     // reentrant call apart from the original one.
-    const settle = (outcome: ApprovalOutcome): boolean =>
-      permissionQueue.settle(id, outcome);
+    const settle = (outcome: ApprovalOutcome | undefined): boolean =>
+      // An undefined outcome is an abandoned prompt (Esc): it flows through
+      // the queue to the gate, which records an "abandoned" telemetry
+      // decision and still settles the action as denied. The cast contains
+      // the widening to this seam — the queue and gate-event types are
+      // untouched.
+      permissionQueue.settle(id, outcome as ApprovalOutcome);
     const id = permissionQueue.enqueue(ev.request, (outcome) => {
       clearTimers();
       if (openedGeneration === undefined) {
@@ -437,16 +442,11 @@ export function wireGates(
           };
           settle(approvalOutcomeFromSelection(choices, gateSelection));
         },
-        // Esc must settle the awaited promise (as a deny), not abandon it —
-        // an unresolved gate hangs the run until the process is killed.
+        // Esc settles the awaited promise as abandoned, not as a deny — an
+        // unresolved gate hangs the run until the process is killed, so the
+        // gate must still settle either way.
         onCancel: () => {
-          const denyId = choices.itemIds[0];
-          settle(
-            approvalOutcomeFromSelection(choices, {
-              index: 0,
-              ...(denyId !== undefined ? { id: denyId } : {}),
-            }),
-          );
+          settle(undefined);
         },
         isGate: true,
       });

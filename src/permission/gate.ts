@@ -71,6 +71,7 @@ import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import {
   NOOP_APPROVAL_LOG,
   type ApprovalLog,
+  type ApprovalMode,
   type ApprovalOutcomeKind,
 } from "./approval-log.js";
 
@@ -82,12 +83,15 @@ function finishApprovalWait(
   waitSpanId: string,
   tool: string,
   outcome: ApprovalOutcome | undefined,
+  permissionMode: ApprovalMode,
 ): void {
-  const decision = outcome !== undefined && outcome.allow ? "allow" : "deny";
-  end(waitSpanId, outcome !== undefined ? { decision } : undefined);
+  const decision =
+    outcome === undefined ? "abandoned" : outcome.allow ? "allow" : "deny";
+  end(waitSpanId, { decision });
   telemetry.capture("permission_prompt", {
     decision,
     permission_kind: classifyPermissionKind(tool),
+    permission_mode: permissionMode,
   });
 }
 
@@ -1089,7 +1093,13 @@ export function createPermissionGate(
     try {
       outcome = await prompt(request);
     } finally {
-      finishApprovalWait(telemetry, waitSpanId, request.tool, outcome);
+      finishApprovalWait(
+        telemetry,
+        waitSpanId,
+        request.tool,
+        outcome,
+        "interactive",
+      );
       ask.settle(classifyOutcome(outcome));
     }
     if (

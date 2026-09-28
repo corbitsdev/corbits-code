@@ -36,6 +36,9 @@ import {
   NOOP_TELEMETRY,
   type Telemetry,
 } from "../../src/telemetry/index.js";
+import { setTelemetry } from "../../src/telemetry/singleton.js";
+import { registerCommand } from "../../src/tui/commands/registry.js";
+import { createCommandLayer } from "../../src/tui/runner/commands.js";
 import {
   buildSubagentEndProperties,
   captureSkillUsed,
@@ -754,4 +757,119 @@ test("keys outside an event's allowlist are stripped from the payload", async ()
   const [event] = await events();
   expect(event?.properties.command).toBeUndefined();
   expect(await wire()).not.toContain("acmecorp");
+});
+
+// ---------------------------------------------------------------------------
+// 6. permission abandoned + permission_mode (CL-9013)
+// ---------------------------------------------------------------------------
+
+test('permission_prompt records "abandoned" when Esc settles the prompt with no outcome', async () => {
+  const { telemetry, wire, events } = harness();
+  const gate = createPermissionGate({
+    approvals: [],
+    interactive: true,
+    skipPermissions: false,
+    reactorGated: false,
+    // gate-wire.ts onCancel settles the approval promise with undefined when
+    // the operator presses Esc — no synthetic deny is manufactured there.
+    requestApproval: async () => undefined as never,
+    telemetry,
+  });
+
+  const verdict = await gate.evaluate({
+    id: "call-1",
+    name: "mcp__acme-internal__deploy",
+    arguments: {},
+  });
+
+  // Liveness: the gate still settles — the action is denied, never hung.
+  expect(verdict.allowed).toBe(false);
+  const [event] = await events();
+  expect(event?.event).toBe("permission_prompt");
+  expect(event?.properties.decision).toBe("abandoned");
+  expect(event?.properties.permission_kind).toBe("mcp");
+  expect(event?.properties.permission_mode).toBe("interactive");
+  expect(await wire()).not.toContain("acme-internal");
+});
+
+test("permission_prompt carries permission_mode on allow and deny", async () => {
+  for (const allow of [true, false] as const) {
+    const { telemetry, wire, events } = harness();
+    const gate = createPermissionGate({
+      approvals: [],
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async () => ({ allow }),
+      telemetry,
+    });
+
+    await gate.evaluate({
+      id: "call-1",
+      name: "mcp__acme-internal__deploy",
+      arguments: {},
+    });
+
+    const [event] = await events();
+    expect(event?.properties.decision).toBe(allow ? "allow" : "deny");
+    expect(event?.properties.permission_mode).toBe("interactive");
+    expect(await wire()).not.toContain("acme-internal");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 7. unknown slash commands (CL-9013)
+// ---------------------------------------------------------------------------
+
+test("dispatching an unknown slash command emits exactly one custom event", async () => {
+  const { telemetry, wire, events } = harness();
+  setTelemetry(telemetry);
+  try {
+    const notices: string[] = [];
+    const state = {
+      systemNotice: (text: string) => notices.push(text),
+    } as never;
+    createCommandLayer(state, {} as never);
+    const dispatch = (
+      state as unknown as {
+        dispatchCommand: (name: string, args: string) => void;
+      }
+    ).dispatchCommand;
+
+    dispatch("acmecorp-deploy-thing", "");
+
+    expect(notices).toHaveLength(1);
+    const captured = await events();
+    expect(captured.filter((e) => e.event === "slash_command")).toHaveLength(1);
+    expect(captured[0]?.properties.command_name).toBe("custom");
+    expect(await wire()).not.toContain("acmecorp");
+  } finally {
+    setTelemetry(NOOP_TELEMETRY);
+  }
+});
+
+test("dispatching a known slash command emits exactly once", async () => {
+  const { telemetry, events } = harness();
+  setTelemetry(telemetry);
+  try {
+    registerCommand({
+      name: "cl9013-known-probe",
+      description: "CL-9013 exactly-once probe",
+      handler: () => ({ type: "noop" }),
+    });
+    const state = {} as never;
+    createCommandLayer(state, {} as never);
+    const dispatch = (
+      state as unknown as {
+        dispatchCommand: (name: string, args: string) => void;
+      }
+    ).dispatchCommand;
+
+    dispatch("cl9013-known-probe", "");
+
+    const captured = await events();
+    expect(captured.filter((e) => e.event === "slash_command")).toHaveLength(1);
+  } finally {
+    setTelemetry(NOOP_TELEMETRY);
+  }
 });
