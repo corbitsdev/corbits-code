@@ -73,8 +73,14 @@ export function directoryGrantAllows(
   const anchor = pattern.slice(0, -2);
   if (anchor.includes("*") || anchor.includes("?")) return true;
   const base = anchor === "" ? "/" : anchor;
-  const normalizedAnchor = normalizeGrantPath(base, cwd);
-  const normalizedSubject = normalizeGrantPath(subject, cwd);
+  const normalizedAnchor = stripTrailingSlash(normalizeGrantPath(base, cwd));
+  const normalizedSubject = stripTrailingSlash(
+    normalizeGrantPath(subject, cwd),
+  );
   const prefix = normalizedAnchor === "/" ? "/" : `${normalizedAnchor}/`;
   return normalizedSubject.startsWith(prefix);
+}
+
+function stripTrailingSlash(path: string): string {
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
 }

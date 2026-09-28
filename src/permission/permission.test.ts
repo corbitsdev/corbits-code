@@ -373,6 +373,17 @@ describe("matchesPattern directory-grant traversal (CL-8989)", () => {
     expect(matchesPattern("/proj/sub//../evil", grant)).toBe(false);
   });
 
+  test("trailing-slash anchor spellings do not match the directory grant", () => {
+    expect(matchesPattern("/proj/sub/", grant)).toBe(false);
+    expect(matchesPattern("/proj/sub//", grant)).toBe(false);
+  });
+
+  test("relative subjects resolve against cwd through the gate", () => {
+    expect(matchesPattern("sub/file.txt", "sub/*", "/proj")).toBe(true);
+    expect(matchesPattern("sub/", "sub/*", "/proj")).toBe(false);
+    expect(matchesPattern("sub", "sub/*", "/proj")).toBe(false);
+  });
+
   test("a .. subject that normalizes back inside still matches", () => {
     expect(matchesPattern("/proj/sub/../sub/file.txt", grant)).toBe(true);
   });
