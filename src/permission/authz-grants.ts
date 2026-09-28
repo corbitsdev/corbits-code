@@ -6,7 +6,7 @@ import {
   grantToolCovers,
 } from "../agent/canonical-tool-name.js";
 import type { Approval } from "./types.js";
-import { matchesPattern } from "./matcher.js";
+import { directoryGrantAllows, matchesPattern } from "./matcher.js";
 import { realpathOr } from "./worktree-roots.js";
 
 // Exact-escaped patterns (backslash before metacharacters) cannot round-trip
@@ -147,7 +147,17 @@ export async function approvalCoversSubject(
   );
   if (scoped.length === 0) return false;
 
-  for (const a of scoped) {
+  // Directory Always grants (`<dir>/*`) cannot reach the package evaluator
+  // with a `..` walk-out subject: package `*` matches `..` lexically, so the
+  // same containment gate matchesPattern enforces applies here first. The
+  // gate only denies directory escapes; every other grant defers untouched.
+  const effectiveCwd = requestCwd ?? workspace.resolvedCwd;
+  const contained = scoped.filter((a) =>
+    directoryGrantAllows(a.pattern, subject, effectiveCwd),
+  );
+  if (contained.length === 0) return false;
+
+  for (const a of contained) {
     if (
       !isPackageCompatiblePattern(a.pattern) &&
       matchesPattern(subject, a.pattern)
@@ -156,7 +166,7 @@ export async function approvalCoversSubject(
     }
   }
 
-  const grants = scoped
+  const grants = contained
     .filter((a) => isPackageCompatiblePattern(a.pattern))
     .map((a, i) => approvalToGrantRule(a, i));
   if (grants.length === 0) return false;

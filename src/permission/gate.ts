@@ -327,7 +327,13 @@ function isRequestCoveredByApprovals(
   );
   if (scoped.length === 0) return false;
   if (request.tool !== "run_shell") {
-    return scoped.some((a) => matchesPattern(request.subject, a.pattern));
+    return scoped.some((a) =>
+      matchesPattern(
+        request.subject,
+        a.pattern,
+        request.cwd ?? workspace.resolvedCwd,
+      ),
+    );
   }
   if (
     preGrantGuardReason(request, isRestricted, rootsProvider, isExtraDenied) !==
@@ -340,7 +346,8 @@ function isRequestCoveredByApprovals(
   if (segments.length === 0) return false;
   const cwd = request.cwd ?? workspace.resolvedCwd;
   return segments.every((segment) => {
-    if (scoped.some((a) => matchesPattern(segment, a.pattern))) return true;
+    if (scoped.some((a) => matchesPattern(segment, a.pattern, cwd)))
+      return true;
     return isAutoAllowedShellSegment(
       segment,
       cwd,

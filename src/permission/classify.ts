@@ -24,6 +24,7 @@ import {
   runShellAuthzSegmentBlockReason,
 } from "../shell/run-shell-authz.js";
 import { resolveWorkspacePath } from "./path-restriction.js";
+import { normalizeGrantPath } from "./matcher.js";
 import type { RootsProvider } from "./worktree-roots.js";
 import {
   isProductMutationTool,
@@ -551,7 +552,7 @@ function fileScopes(path: string): ApprovalScope[] {
   ];
   const slash = path.lastIndexOf("/");
   if (slash > 0) {
-    const dir = path.slice(0, slash);
+    const dir = normalizeGrantPath(path.slice(0, slash));
     scopes.push({
       id: "dir",
       label: `Allow Always (this directory)`,

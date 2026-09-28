@@ -1,3 +1,4 @@
+import { posix } from "node:path";
 import { matchPattern } from "@intx/authz";
 
 // Exact-command grants (see escapeGlobLiteral) store a backslash before every
@@ -30,9 +31,50 @@ export function escapeGlobLiteral(text: string): string {
   return text.replace(/[\\*?]/g, "\\$&");
 }
 
-export function matchesPattern(subject: string, pattern: string): boolean {
+export function matchesPattern(
+  subject: string,
+  pattern: string,
+  cwd?: string,
+): boolean {
   if (isExactEscapedPattern(pattern)) {
     return subject === unescapeExactPattern(pattern);
   }
+  if (!directoryGrantAllows(pattern, subject, cwd)) return false;
   return matchPattern(pattern, subject);
+}
+
+// Lexically normalize a grant path (POSIX, no fs I/O): collapse `.`, `..`,
+// and duplicate slashes. Absolute paths normalize in place; relative paths
+// resolve against cwd when one is supplied, else collapse in place. Shared by
+// the matcher gate below and file-scope minting so both sides agree on what
+// a directory grant covers.
+export function normalizeGrantPath(path: string, cwd?: string): string {
+  if (posix.isAbsolute(path)) return posix.normalize(path);
+  if (cwd !== undefined) return posix.normalize(posix.resolve(cwd, path));
+  return posix.normalize(path);
+}
+
+// Containment gate for Directory Always grants (`<dir>/*`): the package
+// `*` matches `..` lexically, so a subject like `/proj/sub/../evil` would
+// otherwise match `/proj/sub/*` and escape the granted directory. A
+// normalized subject must sit strictly under the anchor (`anchor/` prefix),
+// or the grant does not cover it — the grant covers directory contents, so
+// even the anchor itself (`/proj/sub/.` normalizes to `/proj/sub`) does not
+// match. Returns true for every non-directory pattern (exact-escaped,
+// non-`/*`, or non-literal anchors) so those defer to their existing matcher
+// untouched — the gate only ever denies, never allows.
+export function directoryGrantAllows(
+  pattern: string,
+  subject: string,
+  cwd?: string,
+): boolean {
+  if (pattern.includes("\\")) return true;
+  if (!pattern.endsWith("/*")) return true;
+  const anchor = pattern.slice(0, -2);
+  if (anchor.includes("*") || anchor.includes("?")) return true;
+  const base = anchor === "" ? "/" : anchor;
+  const normalizedAnchor = normalizeGrantPath(base, cwd);
+  const normalizedSubject = normalizeGrantPath(subject, cwd);
+  const prefix = normalizedAnchor === "/" ? "/" : `${normalizedAnchor}/`;
+  return normalizedSubject.startsWith(prefix);
 }

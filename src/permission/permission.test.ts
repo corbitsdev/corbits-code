@@ -354,6 +354,40 @@ describe("matchesPattern (@intx/authz + exact escapes)", () => {
   });
 });
 
+describe("matchesPattern directory-grant traversal (CL-8989)", () => {
+  // A Directory Always grant (`/proj/sub/*`) must never authorize a subject
+  // that lexically escapes the granted directory, even though `*` matches
+  // `/`, `.`, and `..` at the string level. Legit depth semantics (`*`
+  // crosses `/`) are locked in first so the fix cannot narrow real grants.
+  const grant = "/proj/sub/*";
+
+  test("* still crosses directories for legit paths", () => {
+    expect(matchesPattern("/proj/sub/file.txt", grant)).toBe(true);
+    expect(matchesPattern("/proj/sub/nested/file.txt", grant)).toBe(true);
+  });
+
+  test(".. walk-out subjects do not match the directory grant", () => {
+    expect(matchesPattern("/proj/sub/../evil", grant)).toBe(false);
+    expect(matchesPattern("/proj/sub/../../etc/passwd", grant)).toBe(false);
+    expect(matchesPattern("/proj/sub/.", grant)).toBe(false);
+    expect(matchesPattern("/proj/sub//../evil", grant)).toBe(false);
+  });
+
+  test("a .. subject that normalizes back inside still matches", () => {
+    expect(matchesPattern("/proj/sub/../sub/file.txt", grant)).toBe(true);
+  });
+
+  test("sibling-prefix paths do not match the directory grant", () => {
+    expect(matchesPattern("/proj/sub-evil/file.txt", grant)).toBe(false);
+    expect(matchesPattern("/proj/subfile.txt", grant)).toBe(false);
+  });
+
+  test("non-path wildcard grants keep their existing semantics", () => {
+    expect(matchesPattern("npm exec vite", "npm *")).toBe(true);
+    expect(matchesPattern("src/a.ts", "src/*")).toBe(true);
+  });
+});
+
 describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
   const approvals: Approval[] = [
     { tool: "run_shell", pattern: "npm *" },
@@ -392,6 +426,38 @@ describe("evaluateApprovals (@intx/authz evaluateGrants)", () => {
         workspace: noWorkspace,
       }),
     ).toBe(true);
+  });
+
+  test("a directory grant denies .. walk-out through the package path (CL-8989)", async () => {
+    // evaluateApprovals delegates package-compatible grants to @intx/authz
+    // evaluateGrants, whose `*` matches `..` lexically — the containment gate
+    // must hold on this path too, while legit nested paths still match.
+    const dirApprovals: Approval[] = [
+      { tool: "write_file", pattern: "/proj/sub/*" },
+    ];
+    const workspace = { resolvedCwd: "/proj", roots: [] as string[] };
+    expect(
+      await evaluateApprovals({
+        tool: "write_file",
+        subject: "/proj/sub/nested/file.txt",
+        approvals: dirApprovals,
+        workspace,
+      }),
+    ).toBe(true);
+    for (const subject of [
+      "/proj/sub/../evil",
+      "/proj/sub/../../etc/passwd",
+      "/proj/sub//../evil",
+    ]) {
+      expect(
+        await evaluateApprovals({
+          tool: "write_file",
+          subject,
+          approvals: dirApprovals,
+          workspace,
+        }),
+      ).toBe(false);
+    }
   });
 
   test("a grant for read_file covers default.read_file", async () => {
