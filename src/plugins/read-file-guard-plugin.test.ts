@@ -126,7 +126,7 @@ describe("readFileBounded", () => {
     );
     expect(isError).toBe(true);
     expect(content).toContain("binary");
-    expect(content).toContain("not a missing-tool");
+    expect(content).toContain("Not a missing-tool");
   });
 
   test("a PDF without pdftotext names the missing extractor, not a malformed file", async () => {
@@ -140,7 +140,7 @@ describe("readFileBounded", () => {
     );
     expect(isError).toBe(true);
     expect(content).toContain("pdftotext");
-    expect(content).toContain("missing");
+    expect(content).toContain("Missing PDF extractor");
     expect(content).toContain("not a malformed file");
     expect(content).not.toContain("permission boundary");
   });
@@ -159,7 +159,7 @@ describe("readFileBounded", () => {
     );
     expect(isError).toBe(true);
     expect(content).toContain("installed");
-    expect(content).toContain("permission boundary");
+    expect(content).toContain("Permission boundary");
     expect(content).toContain("run_shell");
     expect(content).toContain("not a malformed file");
   });
@@ -174,7 +174,7 @@ describe("readFileBounded", () => {
       { whichExtractor: () => null, canExecuteHostCommands: () => false },
     );
     expect(isError).toBe(true);
-    expect(content).toContain("not a valid PDF");
+    expect(content).toContain("Malformed PDF");
     expect(content).toContain("not a missing extractor");
     expect(content).not.toContain("brew install");
   });
@@ -807,8 +807,9 @@ describe("readFileGuardPlugin", () => {
     );
     expect(missingResult.isError).toBe(true);
     expect(String(missingResult.content)).toContain("pdftotext");
-    expect(String(missingResult.content)).toContain("missing");
+    expect(String(missingResult.content)).toContain("Missing PDF extractor");
     expect(String(missingResult.content)).toContain("not a malformed file");
+    expect(String(missingResult.content)).toContain("flow.pdf");
 
     const blocked = readFileGuardPlugin(dir, {
       whichExtractor: () => "/opt/homebrew/bin/pdftotext",
@@ -820,7 +821,7 @@ describe("readFileGuardPlugin", () => {
     );
     expect(blockedResult.isError).toBe(true);
     expect(String(blockedResult.content)).toContain("installed");
-    expect(String(blockedResult.content)).toContain("permission boundary");
+    expect(String(blockedResult.content)).toContain("Permission boundary");
     expect(String(blockedResult.content)).toContain("run_shell");
     expect(String(blockedResult.content)).not.toContain("brew install");
   });

@@ -45,16 +45,18 @@ export function pathLooksLikePdf(filePath: string): boolean {
 
 /**
  * Classify the first streamed chunk. PDF magic wins even without a .pdf
- * suffix. A .pdf name without magic is malformed, whether or not the chunk
- * looks binary. NUL without PDF markers is an ordinary binary file.
+ * suffix. A .pdf name with NUL but no magic is malformed. A .pdf that is
+ * otherwise valid UTF-8 is left as a normal text read so a misnamed text
+ * file is not a new refusal.
  */
 export function inspectionKindFromFirstChunk(
   filePath: string,
   chunk: Uint8Array,
 ): FileInspectionKind | undefined {
   if (chunkLooksLikePdf(chunk)) return "pdf";
-  if (pathLooksLikePdf(filePath)) return "pdf-malformed";
-  if (chunk.includes(0)) return "binary";
+  if (chunk.includes(0)) {
+    return pathLooksLikePdf(filePath) ? "pdf-malformed" : "binary";
+  }
   return undefined;
 }
 
@@ -76,8 +78,8 @@ export function diagnoseBlockedFileInspection(
     return {
       code: "unreadable",
       message:
-        `Cannot inspect ${path}: the file is unreadable (filesystem permission denied), not a missing extractor or worker-tool gap. ` +
-        `Check ownership and mode, or copy the file into a readable workspace path.`,
+        `Unreadable file (filesystem permission denied), not a missing extractor or worker-tool gap. ` +
+        `Check ownership and mode, or copy it into a readable workspace path. File: ${path}`,
     };
   }
 
@@ -85,8 +87,8 @@ export function diagnoseBlockedFileInspection(
     return {
       code: "malformed",
       message:
-        `Cannot inspect ${path}: the file is not a valid PDF (malformed or unreadable bytes), not a missing extractor or permission boundary. ` +
-        `Open it in a PDF reader or re-export it, then retry.`,
+        `Malformed PDF, not a missing extractor or permission boundary. ` +
+        `Open it in a PDF reader or re-export it. File: ${path}`,
     };
   }
 
@@ -94,7 +96,7 @@ export function diagnoseBlockedFileInspection(
     return {
       code: "binary",
       message:
-        `refusing to read binary file: ${path}. This is a binary file, not a missing-tool or permission failure. ` +
+        `refusing to read binary file: ${path}. Not a missing-tool or permission failure. ` +
         `Use a format-specific extractor if you need text from it.`,
     };
   }
@@ -104,8 +106,8 @@ export function diagnoseBlockedFileInspection(
     return {
       code: "missing_extractor",
       message:
-        `Cannot inspect PDF ${path}: ${extractor} is not installed (missing PDF-extraction capability), not a malformed file. ` +
-        `Install poppler so ${extractor} is on PATH (for example \`brew install poppler\` or \`apt-get install poppler-utils\`), then retry.`,
+        `Missing PDF extractor: ${extractor} is not on PATH (capability gap), not a malformed file. ` +
+        `Install poppler (\`brew install poppler\` or \`apt-get install poppler-utils\`), then retry. File: ${path}`,
     };
   }
 
@@ -113,15 +115,13 @@ export function diagnoseBlockedFileInspection(
     return {
       code: "permission_boundary",
       message:
-        `Cannot inspect PDF ${path}: ${extractor} is installed, but this worker cannot execute it (run_shell is not mounted — a permission boundary, not a malformed file). ` +
-        `Re-dispatch to a director that mounts run_shell, or grant this worker run_shell, then retry.`,
+        `Permission boundary: ${extractor} is installed but this worker cannot execute it (run_shell is not mounted), not a malformed file. ` +
+        `Re-dispatch to a director that mounts run_shell, or grant this worker run_shell. File: ${path}`,
     };
   }
 
   return {
     code: "extractor_ready",
-    message:
-      `Cannot inspect PDF ${path} as text via read_file. ${extractor} is installed and this session can run host commands. ` +
-      `Run \`${extractor} ${path} -\` via bash to extract text.`,
+    message: `read_file cannot decode PDFs. ${extractor} is installed — run \`${extractor} ${path} -\` via bash.`,
   };
 }
