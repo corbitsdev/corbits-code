@@ -537,6 +537,8 @@ describe("createSessionPruningCompactor", () => {
       telemetry,
       onFolded: (info) => folds.push(info),
       isAborted: () => aborted,
+      // CL-9489: pin a one-token tail budget so this tiny fixture still folds.
+      compactionShape: { tailBudgetTokens: 1 },
     });
     const now = Date.now();
     const many = Array.from({ length: 8 }, (_, i) => ({

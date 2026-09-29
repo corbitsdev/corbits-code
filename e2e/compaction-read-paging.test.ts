@@ -47,16 +47,12 @@ async function openFoldSession(): Promise<E2ESession> {
     // Budget fits the paged read windows in the live tail but not the bulky
     // pad turns, so the fold still fires.
     compactionShape: { tailBudgetTokens: 500 },
-    // Echo the summarized turns verbatim: the spine must exist, and this
-    // scenario asserts on the kept live bodies, not the summary text.
-    compactionCompletion: async (turns) =>
-      turns
-        .flatMap((turn) =>
-          turn.content.flatMap((block) =>
-            block.type === "text" ? [block.text] : [],
-          ),
-        )
-        .join("\n"),
+    // A short handoff, not a prompt echo: complete() receives the summarizer
+    // prompt turns, and a 4k echo gets truncated off the verify-repair tail
+    // so the fold aborts. This scenario asserts on kept live bodies, not the
+    // summary text.
+    compactionCompletion: async () =>
+      "Goal: page through var/log/big.log. Next: keep reading remaining windows.",
   });
   seedFile(session, "var/log/big.log", `${logLines(80)}\n`);
   return session;

@@ -19,14 +19,11 @@ import {
 
 const state = { turns: [] } as unknown as ReactorState;
 const longState = {
-  turns: Array.from(
-    { length: compactorNoOpFloor() + 1 },
-    () => ({
-      role: "user",
-      content: [],
-      timestamp: 0,
-    }),
-  ),
+  turns: Array.from({ length: compactorNoOpFloor() + 1 }, () => ({
+    role: "user",
+    content: [],
+    timestamp: 0,
+  })),
 } as unknown as ReactorState;
 
 // These tests are not about stall timing. With the default real clock, a

@@ -801,14 +801,11 @@ function makeToolErrorEvent(callId: string, content: string) {
 // One turn past createPruningCompactor's own no-op floor (session/compactor.ts),
 // so the arming check finds a history actually worth compacting.
 const longState = {
-  turns: Array.from(
-    { length: compactorNoOpFloor() + 1 },
-    () => ({
-      role: "user",
-      content: [],
-      timestamp: 0,
-    }),
-  ),
+  turns: Array.from({ length: compactorNoOpFloor() + 1 }, () => ({
+    role: "user",
+    content: [],
+    timestamp: 0,
+  })),
 } as unknown as ReactorState;
 
 function messageReceived(content: string): ReactorInboundEvent {

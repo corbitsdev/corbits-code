@@ -857,6 +857,10 @@ describe("wrapCompactorWithCompletenessGate", () => {
     const FULL = `decisive-fact-99:${"y".repeat(20_000)}`;
     const FILLER = `f1:${"x".repeat(4000)}`;
     await archive.recordAuthorizedPayload({
+      kind: "user_message",
+      payload: "Migrate the auth module to opaque tokens in src/auth.ts",
+    });
+    await archive.recordAuthorizedPayload({
       kind: "tool_args",
       payload: { name: "read_file", arguments: { path: "src/f1.ts" } },
       callId: "f1",

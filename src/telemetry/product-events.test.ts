@@ -669,6 +669,8 @@ test("compaction fires only when turns were actually folded away", async () => {
   const compactor = createSessionPruningCompactor({
     summarize: async () => "summary",
     telemetry,
+    // CL-9489: pin a one-token tail budget so this tiny fixture still folds.
+    compactionShape: { tailBudgetTokens: 1 },
   });
 
   const shortHistory = [
