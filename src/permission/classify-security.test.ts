@@ -120,41 +120,13 @@ describe("nested interpreter secret reads", () => {
 });
 
 describe("clustered shell command options", () => {
-  test("classifies clustered command payloads like canonical command payloads", () => {
-    for (const options of ["-c", "-lc", "-xec", "-cc", "-cache"]) {
-      const call = shellCall(`bash ${options} "echo x > .env"`);
-      expect(autoShellRuleForCall(call)?.name).toBe("file-mutation");
-      expect(autoShellRuleForCall(call)?.effect).toBe("deny");
-    }
-  });
-
-  test("classifies interpreter-specific and conservative alphabetic clusters", () => {
-    for (const [shell, options] of [
-      ["zsh", "-yc"],
-      ["dash", "-Vc"],
-      ["ksh", "-Gc"],
-      ["bash", "-zc"],
-      ["bash", "-lc"],
-      ["sh", "-ec"],
-    ]) {
-      expect(
-        autoShellRuleForCall(shellCall(`${shell} ${options} "echo x > .env"`)),
-      ).toMatchObject({ name: "file-mutation", effect: "deny" });
-    }
-  });
-
-  test("classifies complete adjacent-fragment payloads", () => {
-    for (const command of [
-      `bash -c "echo x "'> .env'`,
-      `bash -lc 'echo x '" > .env"`,
-      `bash -xec "echo x"' > .env'`,
-      `bash -cc echo" x > .env"`,
-    ]) {
-      expect(autoShellRuleForCall(shellCall(command))).toMatchObject({
-        name: "file-mutation",
-        effect: "deny",
-      });
-    }
+  // The full cluster matrix (reconstruction, hard-deny, lookalikes) is owned
+  // by run-shell-authz.test.ts at the peel layer; one case pins the wiring
+  // from that layer into classification.
+  test("classifies a clustered payload like the canonical form", () => {
+    expect(
+      autoShellRuleForCall(shellCall(`bash -xec "echo x > .env"`)),
+    ).toMatchObject({ name: "file-mutation", effect: "deny" });
   });
 });
 
