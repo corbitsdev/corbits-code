@@ -23,6 +23,7 @@ import type { AuthorizeVerdict, GateVerdict, PermissionGate } from "./gate.js";
 import type { PermissionRequest } from "./types.js";
 import {
   createDeniedCallEnvelope,
+  fingerprintDeniedCall,
   formatWorkerDenyWithGrantId,
   getProcessWorkerGrantStore,
   type WorkerDeniedCallEnvelope,
@@ -171,6 +172,17 @@ function denyWorkerCallWithEnvelope(
   };
 }
 
+/** Mutex key covering the envelope match: concurrent identical worker calls
+ * serialize through precheck-to-consume so one envelope allows exactly once. */
+function workerGrantKey(
+  sessionId: string,
+  call: ToolCallType,
+  cwd: string,
+): string {
+  const identity = workerCallIdentity(sessionId, call, cwd);
+  return `${sessionId}\n${fingerprintDeniedCall(identity.canonicalTool, identity.args, identity.cwd)}`;
+}
+
 async function authorizeWorkerCall(
   gate: PermissionGate,
   call: ToolCallType,
@@ -180,18 +192,36 @@ async function authorizeWorkerCall(
   if (isWorkerControlPlaneTool(call.name)) return { effect: "allow" };
   const workerCwd = resolveWorkerCwd(cwd);
   const sessionId = resolveWorkerSessionId(grantOptions?.sessionId);
-  if (sessionId !== undefined) {
-    const store = grantOptions?.store ?? getProcessWorkerGrantStore();
-    const precheck = store.precheck(
-      workerCallIdentity(sessionId, call, workerCwd),
+  if (sessionId === undefined)
+    return authorizeWorkerCallInner(gate, call, grantOptions, workerCwd);
+  const store = grantOptions?.store ?? getProcessWorkerGrantStore();
+  return store.runExclusive(workerGrantKey(sessionId, call, workerCwd), () =>
+    authorizeWorkerCallInner(gate, call, grantOptions, workerCwd, {
+      sessionId,
+      store,
+    }),
+  );
+}
+
+async function authorizeWorkerCallInner(
+  gate: PermissionGate,
+  call: ToolCallType,
+  grantOptions: WorkerGrantOptions | undefined,
+  workerCwd: string,
+  grant?: { sessionId: string; store: WorkerGrantStore },
+): Promise<{ effect: "allow" } | { effect: "deny"; reason: string }> {
+  if (grant !== undefined) {
+    const precheck = grant.store.precheck(
+      workerCallIdentity(grant.sessionId, call, workerCwd),
     );
     if (!precheck.ok) return { effect: "deny", reason: precheck.blocker };
   }
   const verdict = await gate.authorizeCall(call);
   if (verdict.effect === "allow") {
-    if (sessionId !== undefined) {
-      const store = grantOptions?.store ?? getProcessWorkerGrantStore();
-      store.consumeOnAllow(workerCallIdentity(sessionId, call, workerCwd));
+    if (grant !== undefined) {
+      grant.store.consumeOnAllow(
+        workerCallIdentity(grant.sessionId, call, workerCwd),
+      );
     }
     return verdict;
   }
@@ -224,18 +254,36 @@ async function executionVerdictWorkerCall(
   if (isWorkerControlPlaneTool(call.name)) return { effect: "allow" };
   const workerCwd = resolveWorkerCwd(cwd);
   const sessionId = resolveWorkerSessionId(grantOptions?.sessionId);
-  if (sessionId !== undefined) {
-    const store = grantOptions?.store ?? getProcessWorkerGrantStore();
-    const precheck = store.precheck(
-      workerCallIdentity(sessionId, call, workerCwd),
+  if (sessionId === undefined)
+    return executionVerdictWorkerCallInner(gate, call, grantOptions, workerCwd);
+  const store = grantOptions?.store ?? getProcessWorkerGrantStore();
+  return store.runExclusive(workerGrantKey(sessionId, call, workerCwd), () =>
+    executionVerdictWorkerCallInner(gate, call, grantOptions, workerCwd, {
+      sessionId,
+      store,
+    }),
+  );
+}
+
+async function executionVerdictWorkerCallInner(
+  gate: PermissionGate,
+  call: ToolCallType,
+  grantOptions: WorkerGrantOptions | undefined,
+  workerCwd: string,
+  grant?: { sessionId: string; store: WorkerGrantStore },
+): Promise<AuthorizeVerdict> {
+  if (grant !== undefined) {
+    const precheck = grant.store.precheck(
+      workerCallIdentity(grant.sessionId, call, workerCwd),
     );
     if (!precheck.ok) return { effect: "deny", reason: precheck.blocker };
   }
   const verdict = await gate.executionVerdict(call);
   if (verdict.effect === "allow") {
-    if (sessionId !== undefined) {
-      const store = grantOptions?.store ?? getProcessWorkerGrantStore();
-      store.consumeOnAllow(workerCallIdentity(sessionId, call, workerCwd));
+    if (grant !== undefined) {
+      grant.store.consumeOnAllow(
+        workerCallIdentity(grant.sessionId, call, workerCwd),
+      );
     }
     return verdict;
   }

@@ -16,7 +16,9 @@ import type { ToolCall } from "@intx/types/runtime";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import { stableRequestId } from "./denial-memory.js";
 
-/** Single parent-turn bound: one denied call gets at most one granted retry. */
+/** Wall-clock retry window: one denied call gets at most one granted retry
+ * within ten minutes of the deny. turnId is metadata only — no turn
+ * enforcement exists, so expiry is purely expiresAt-driven. */
 export const WORKER_GRANT_TTL_MS = 10 * 60 * 1000;
 
 export type WorkerGrantStatus =
@@ -213,6 +215,32 @@ function terminalBlocker(
 
 export class WorkerGrantStore {
   private readonly envelopes = new Map<string, WorkerDeniedCallEnvelope>();
+  /** Per-key async mutex chains: each entry resolves when its holder's turn
+   * ends, so waiters FIFO through the precheck-to-consume gap. */
+  private readonly turns = new Map<string, Promise<void>>();
+
+  /** Serialize concurrent identical worker retries across the
+   * precheck-to-consume gap: without this, two in-flight copies of the exact
+   * call both pass precheck before either consumes, and the gate allows both
+   * — two executions for one envelope. The key must cover the envelope match
+   * (session + tool/args/cwd fingerprint). Non-reentrant: fn must not call
+   * runExclusive with the same key. */
+  async runExclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.turns.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const mine = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const next = prev.then(() => mine);
+    this.turns.set(key, next);
+    await prev.catch(() => undefined);
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.turns.get(key) === next) this.turns.delete(key);
+    }
+  }
 
   register(envelope: WorkerDeniedCallEnvelope): WorkerDeniedCallEnvelope {
     this.envelopes.set(envelope.requestId, envelope);
@@ -223,7 +251,11 @@ export class WorkerGrantStore {
     return this.envelopes.get(requestId);
   }
 
-  pendingForSession(sessionId: string): WorkerDeniedCallEnvelope | undefined {
+  pendingForSession(
+    sessionId: string,
+    now: number = Date.now(),
+  ): WorkerDeniedCallEnvelope | undefined {
+    this.sweepExpired(now);
     for (const envelope of this.envelopes.values()) {
       if (
         envelope.workerSessionId === sessionId &&
@@ -235,13 +267,16 @@ export class WorkerGrantStore {
   }
 
   /** Still-pending envelope for the same exact denied call (dedupes reactor
-   * retries that mint fresh call ids for the same tool + normalized args). */
+   * retries that mint fresh call ids for the same tool + normalized args).
+   * Sweeps overdue envelopes first so a lapse can never read as pending. */
   pendingMatch(
     sessionId: string,
     canonicalTool: string,
     args: Record<string, unknown>,
     cwd: string,
+    now: number = Date.now(),
   ): WorkerDeniedCallEnvelope | undefined {
+    this.sweepExpired(now);
     const fingerprint = fingerprintDeniedCall(canonicalTool, args, cwd);
     for (const envelope of this.envelopes.values()) {
       if (
@@ -257,12 +292,36 @@ export class WorkerGrantStore {
   }
 
   /** Attach the harness envelope to the worker's ask_director record: stamps
-   * the questionId so the parent's retry references it. */
+   * the questionId so the parent's retry references it. When the ask names
+   * its denial (the grant requestId quoted from the deny reason), bind that
+   * exact envelope — first-pending-wins would join question-about-B to
+   * exact-call-A when two denies share a session, poisoning the audit and
+   * (Phase 2) replaying the wrong call. A named id that resolves to no
+   * pending own-session envelope fails closed with no attach (never falls
+   * back to another denial). An unnamed ask keeps the legacy first-pending
+   * bind for the single-deny case. Sweeps overdue envelopes first: an ask
+   * can never join an expired denial. */
   attachToAsk(
     sessionId: string,
     questionId: string,
+    requestId?: string,
+    now: number = Date.now(),
   ): WorkerDeniedCallEnvelope | undefined {
-    const envelope = this.pendingForSession(sessionId);
+    this.sweepExpired(now);
+    const named = requestId?.trim() || undefined;
+    if (named !== undefined) {
+      const envelope = this.envelopes.get(named);
+      if (
+        envelope === undefined ||
+        envelope.workerSessionId !== sessionId ||
+        envelope.status !== "pending"
+      )
+        return undefined;
+      envelope.questionId = questionId;
+      audit(envelope, "asked", questionId);
+      return envelope;
+    }
+    const envelope = this.pendingForSession(sessionId, now);
     if (envelope === undefined) return undefined;
     envelope.questionId = questionId;
     audit(envelope, "asked", questionId);
@@ -278,10 +337,13 @@ export class WorkerGrantStore {
 
   /**
    * Execution backstop pre-check for a worker call: fail closed when the exact
-   * call identity matches a non-pending envelope (replay, decline, expiry,
-   * interrupt), a tampered cwd, or another session's envelope. Pending own
-   * envelopes and unknown calls return ok and continue down the normal gate
-   * path — prose and send_input text never reach this check as authority.
+   * call identity matches a terminal envelope (replay, decline, interrupt),
+   * a tampered cwd, or another session's envelope. An EXPIRED envelope is
+   * marked and skipped instead of denying: the lapsed window must yield a
+   * fresh gate round that mints a fresh envelope, never a blackhole the
+   * worker can never re-ask out of. Pending own envelopes and unknown calls
+   * return ok and continue down the normal gate path — prose and send_input
+   * text never reach this check as authority.
    * The cwd anchor binds the retry to the denied cwd: a covering session grant
    * is not cwd-scoped, so without this check the same args from another
    * directory would ride the parent's approval.
@@ -290,6 +352,7 @@ export class WorkerGrantStore {
     identity: WorkerCallIdentity,
   ): { ok: true } | { ok: false; blocker: string } {
     const now = identity.now ?? Date.now();
+    this.sweepExpired(now);
     const fingerprint = fingerprintOf(identity);
     let crossSession: WorkerDeniedCallEnvelope | undefined;
     for (const envelope of this.envelopes.values()) {
@@ -316,6 +379,7 @@ export class WorkerGrantStore {
           blocker: terminalBlocker(envelope, identity.canonicalTool),
         };
       }
+      if (envelope.status === "expired") continue;
       if (envelope.status !== "pending") {
         return {
           ok: false,
@@ -325,10 +389,7 @@ export class WorkerGrantStore {
       if (envelope.expiresAt <= now) {
         envelope.status = "expired";
         audit(envelope, "expired");
-        return {
-          ok: false,
-          blocker: terminalBlocker(envelope, identity.canonicalTool),
-        };
+        continue;
       }
       return { ok: true };
     }
@@ -341,6 +402,11 @@ export class WorkerGrantStore {
           `replay the exact denied tool from the owning session ${crossSession.workerSessionId}, or re-ask.`,
       };
     }
+    // Phase 2 (by design, do not tighten here): a call whose fingerprint
+    // matches no envelope falls through to the normal gate path, where a
+    // broad parent session grant can cover more than the exact denied
+    // subject. Binding the grant to the envelope args needs the dedicated
+    // atomic grant-and-retry verb.
     return { ok: true };
   }
 
@@ -416,6 +482,11 @@ export class WorkerGrantStore {
     return invalidated;
   }
 
+  /** Lazy-expiry engine: marks overdue pending envelopes expired with an
+   * audit event. Every pendency read (precheck, pendingMatch,
+   * pendingForSession, attachToAsk) sweeps through here so a lapsed window
+   * can never read as pending; no periodic scheduler exists, and none is
+   * needed while every read enforces the TTL. */
   sweepExpired(now = Date.now()): number {
     let expired = 0;
     for (const envelope of this.envelopes.values()) {

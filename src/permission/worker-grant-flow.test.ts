@@ -6,6 +6,7 @@ import type { ToolCall } from "@intx/types/runtime";
 import { createPermissionGate } from "./gate.js";
 import { workerPermissionGate } from "./reactor-authorize.js";
 import {
+  WORKER_GRANT_TTL_MS,
   WorkerGrantStore,
   createDeniedCallEnvelope,
   getProcessWorkerGrantStore,
@@ -205,5 +206,71 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     expect(resolved).toBe(echo);
     expect(store.peek(envelope.requestId)?.status).toBe("pending");
     store.expireSession(session.id, "test teardown");
+  });
+
+  test("concurrent identical retries allow exactly once", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "worker-grant-race-"));
+    const parentGate = makeParentGate(cwd, true);
+    const store = new WorkerGrantStore();
+    const workerGate = workerPermissionGate(parentGate, {
+      sessionId: "worker-race",
+      store,
+    });
+
+    const denied = await workerGate.authorizeCall(shellCall("c1", COMMAND));
+    if (denied.effect !== "deny") throw new Error("expected worker deny");
+    const requestId = extractRequestId(denied.reason);
+    expect(await parentGate.evaluate(shellCall("parent-1", COMMAND))).toEqual({
+      allowed: true,
+    });
+
+    // Two in-flight copies of the exact call (fresh call ids, same args):
+    // without serialization both pass precheck before either consumes and
+    // the envelope allows twice.
+    const [retryA, retryB] = await Promise.all([
+      workerGate.authorizeCall(shellCall("c2", COMMAND)),
+      workerGate.authorizeCall(shellCall("c3", COMMAND)),
+    ]);
+    const effects = [retryA.effect, retryB.effect].sort();
+    expect(effects).toEqual(["allow", "deny"]);
+    const loser = retryA.effect === "deny" ? retryA : retryB;
+    if (loser.effect !== "deny") throw new Error("expected replay deny");
+    expect(loser.reason).toContain("already consumed");
+    expect(loser.reason).toContain(requestId);
+    expect(store.peek(requestId)?.status).toBe("consumed");
+  });
+
+  test("post-expiry retry round mints a fresh envelope, then succeeds", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "worker-grant-reissue-"));
+    const parentGate = makeParentGate(cwd, true);
+    const store = new WorkerGrantStore();
+    const workerGate = workerPermissionGate(parentGate, {
+      sessionId: "worker-reissue",
+      store,
+    });
+
+    const denied = await workerGate.authorizeCall(shellCall("c1", COMMAND));
+    if (denied.effect !== "deny") throw new Error("expected worker deny");
+    const lapsedId = extractRequestId(denied.reason);
+    expect(store.sweepExpired(Date.now() + WORKER_GRANT_TTL_MS + 1)).toBe(1);
+    expect(store.peek(lapsedId)?.status).toBe("expired");
+
+    // The lapsed window is not a blackhole: the retry falls through to the
+    // gate, which denies fresh with a NEW grant id the worker can ask out of.
+    const reissue = await workerGate.authorizeCall(shellCall("c2", COMMAND));
+    expect(reissue.effect).toBe("deny");
+    if (reissue.effect !== "deny") throw new Error("expected re-issue deny");
+    const freshId = extractRequestId(reissue.reason);
+    expect(freshId).not.toBe(lapsedId);
+    expect(store.peek(freshId)?.status).toBe("pending");
+    expect(store.peek(lapsedId)?.status).toBe("expired");
+
+    expect(await parentGate.evaluate(shellCall("parent-1", COMMAND))).toEqual({
+      allowed: true,
+    });
+    expect(await workerGate.authorizeCall(shellCall("c3", COMMAND))).toEqual({
+      effect: "allow",
+    });
+    expect(store.peek(freshId)?.status).toBe("consumed");
   });
 });

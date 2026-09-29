@@ -196,27 +196,80 @@ describe("WorkerGrantStore lifecycle", () => {
     expect(result.blocker).toContain("worker-1");
   });
 
-  test("expiry fails closed, lazily and via sweep", () => {
+  test("expiry yields a fresh gate round, never a blackhole", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
     const after = envelope.expiresAt + 1;
-    const result = store.precheck({
-      sessionId: "worker-1",
-      canonicalTool: "run_shell",
-      args: { ...ARGS },
-      cwd: CWD,
-      now: after,
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected blocker");
-    expect(result.blocker).toContain("expired");
+    // The lapsed window passes through instead of denying: the retry falls to
+    // the gate, which denies fresh and mints a fresh envelope the worker can
+    // ask out of.
+    expect(
+      store.precheck({
+        sessionId: "worker-1",
+        canonicalTool: "run_shell",
+        args: { ...ARGS },
+        cwd: CWD,
+        now: after,
+      }),
+    ).toEqual({ ok: true });
     expect(envelope.status).toBe("expired");
+    expect(envelope.audit.map((event) => event.event)).toEqual([
+      "denied",
+      "expired",
+    ]);
 
     const second = store.register(
       createDeniedCallEnvelope(descriptor({ callId: "call-2" })),
     );
     expect(store.sweepExpired(second.expiresAt + 1)).toBe(1);
     expect(second.status).toBe("expired");
+  });
+
+  test("post-expiry re-issue mints a fresh envelope for the same exact call", () => {
+    const store = new WorkerGrantStore();
+    const first = store.register(createDeniedCallEnvelope(descriptor()));
+    const after = first.expiresAt + 1;
+    expect(store.sweepExpired(after)).toBe(1);
+    expect(first.status).toBe("expired");
+    // The retry round denies fresh: a new envelope with a new grant id.
+    const reissue = store.register(
+      createDeniedCallEnvelope(
+        descriptor({ callId: "call-2", now: after + 1_000 }),
+      ),
+    );
+    expect(reissue.requestId).not.toBe(first.requestId);
+    expect(reissue.status).toBe("pending");
+    const identity = {
+      sessionId: "worker-1",
+      canonicalTool: "run_shell",
+      args: { ...ARGS },
+      cwd: CWD,
+      now: after + 1_001,
+    };
+    expect(store.precheck(identity)).toEqual({ ok: true });
+    expect(store.consumeOnAllow(identity)?.requestId).toBe(reissue.requestId);
+    expect(reissue.status).toBe("consumed");
+    expect(first.status).toBe("expired");
+  });
+
+  test("read sites never surface an expired denial without an explicit sweep", () => {
+    const store = new WorkerGrantStore();
+    const envelope = store.register(createDeniedCallEnvelope(descriptor()));
+    const after = envelope.expiresAt + 1;
+    // No sweepExpired call here: each read enforces the TTL itself.
+    expect(
+      store.pendingMatch("worker-1", "run_shell", { ...ARGS }, CWD, after),
+    ).toBeUndefined();
+    expect(
+      store.attachToAsk("worker-1", "ask-late", undefined, after),
+    ).toBeUndefined();
+    expect(store.pendingForSession("worker-1", after)).toBeUndefined();
+    expect(envelope.status).toBe("expired");
+    expect(envelope.audit.map((event) => event.event)).toEqual([
+      "denied",
+      "expired",
+    ]);
+    expect(envelope.questionId).toBeUndefined();
   });
 
   test("decline fails closed; headless declineAllForSession covers the session", () => {
@@ -258,11 +311,17 @@ describe("WorkerGrantStore lifecycle", () => {
   test("attachToAsk stamps the questionId and keeps pending", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
-    expect(store.attachToAsk("worker-1", "ask-7")).toBe(envelope);
+    // Reads pin the envelope's clock: the fixture now (1_000_000) predates
+    // wall time, so an unpinned read would sweep it as expired.
+    expect(store.attachToAsk("worker-1", "ask-7", undefined, 1_000_001)).toBe(
+      envelope,
+    );
     expect(envelope.questionId).toBe("ask-7");
     expect(envelope.status).toBe("pending");
     expect(store.byQuestion("ask-7")).toBe(envelope);
-    expect(store.attachToAsk("worker-9", "ask-8")).toBeUndefined();
+    expect(
+      store.attachToAsk("worker-9", "ask-8", undefined, 1_000_001),
+    ).toBeUndefined();
     expect(envelope.audit.map((event) => event.event)).toEqual([
       "denied",
       "asked",
@@ -272,7 +331,7 @@ describe("WorkerGrantStore lifecycle", () => {
   test("audit trail orders deny → ask → consume", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
-    store.attachToAsk("worker-1", "ask-1");
+    store.attachToAsk("worker-1", "ask-1", undefined, 1_000_001);
     store.consumeOnAllow({
       sessionId: "worker-1",
       canonicalTool: "run_shell",
@@ -315,10 +374,68 @@ describe("buildRetryMessage", () => {
   test("carries exact args + questionId ref from the envelope", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
-    store.attachToAsk("worker-1", "ask-3");
+    store.attachToAsk("worker-1", "ask-3", undefined, 1_000_001);
     const message = buildRetryMessage(envelope);
     expect(message).toContain(envelope.requestId);
     expect(message).toContain("ask-3");
     expect(message).toContain(JSON.stringify(ARGS));
+  });
+});
+
+describe("WorkerGrantStore.runExclusive", () => {
+  test("serializes same-key holders: no overlap, FIFO, error still releases", async () => {
+    const store = new WorkerGrantStore();
+    const events: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const first = store.runExclusive("k", async () => {
+      events.push("first-start");
+      await firstGate;
+      events.push("first-end");
+      return "first";
+    });
+    const second = store.runExclusive("k", async () => {
+      events.push("second-start");
+      events.push("second-end");
+      return "second";
+    });
+    // Let both register; the second holder must not start while the first
+    // holds the turn across the awaited gate.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(events).toEqual(["first-start"]);
+    releaseFirst();
+    await expect(first).resolves.toBe("first");
+    await expect(second).resolves.toBe("second");
+    expect(events).toEqual([
+      "first-start",
+      "first-end",
+      "second-start",
+      "second-end",
+    ]);
+
+    // A throwing holder still releases: the next waiter proceeds.
+    const failing = store.runExclusive("k", async () => {
+      throw new Error("boom");
+    });
+    const after = store.runExclusive("k", async () => "after");
+    await expect(failing).rejects.toThrow("boom");
+    await expect(after).resolves.toBe("after");
+  });
+
+  test("different keys do not block each other", async () => {
+    const store = new WorkerGrantStore();
+    const order: string[] = [];
+    await Promise.all([
+      store.runExclusive("a", async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        order.push("a");
+      }),
+      store.runExclusive("b", async () => {
+        order.push("b");
+      }),
+    ]);
+    expect(order).toEqual(["b", "a"]);
   });
 });

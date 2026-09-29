@@ -305,6 +305,9 @@ export interface SubAgentSessionStore {
     ask: {
       question: string;
       questionId: string;
+      /** Grant requestId quoted from the deny reason: binds this ask to
+       * its own denial instead of the session's first pending envelope. */
+      grantRequestId?: string;
       resolve: (answer: string) => void;
       reject: (reason: unknown) => void;
     },
@@ -1928,6 +1931,9 @@ export function createSubAgentSessionStore(
       ask: {
         question: string;
         questionId: string;
+        /** Grant requestId quoted from the deny reason: binds this ask to
+         * its own denial instead of the session's first pending envelope. */
+        grantRequestId?: string;
         resolve: (answer: string) => void;
         reject: (reason: unknown) => void;
       },
@@ -1938,12 +1944,17 @@ export function createSubAgentSessionStore(
       if (pendingAsks.has(id)) return false;
       // CL-9475: attach the harness-owned denied-call envelope (exact
       // ToolCall + hash) to the ask record; stamps its questionId for the
-      // parent's retry ref. Absent when the ask is not grant-backed.
+      // parent's retry ref. A named grantRequestId binds that exact denial;
+      // an unnamed ask falls back to the session's first pending envelope.
+      // Absent when the ask is not grant-backed.
       let deniedCall: WorkerDeniedCallEnvelope | undefined;
       try {
         deniedCall =
-          getProcessWorkerGrantStore().attachToAsk(id, ask.questionId) ??
-          undefined;
+          getProcessWorkerGrantStore().attachToAsk(
+            id,
+            ask.questionId,
+            ask.grantRequestId,
+          ) ?? undefined;
       } catch {
         // Envelope attach must not fail ask registration.
       }

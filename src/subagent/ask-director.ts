@@ -24,6 +24,7 @@ export interface AskDirectorPort {
   register: (input: {
     question: string;
     questionId: string;
+    grantRequestId?: string;
   }) => Promise<string>;
   cancel: (reason: string) => void;
 }
@@ -117,6 +118,7 @@ export function createDeferredContinuation(): {
 
 export async function handleAskDirector(args: {
   question: unknown;
+  grantRequestId?: unknown;
   state: AskDirectorState;
   port: AskDirectorPort;
   signal: AbortSignal;
@@ -138,10 +140,13 @@ export async function handleAskDirector(args: {
       return "Error: ask_director was cancelled.";
     }
     const questionId = `ask-${args.state.questions + 1}`;
+    const grantRequestId =
+      typeof args.grantRequestId === "string" ? args.grantRequestId : undefined;
     try {
       const answerP = args.port.register({
         question: outcome.question,
         questionId,
+        ...(grantRequestId !== undefined ? { grantRequestId } : {}),
       });
       if (args.signal.aborted) {
         onAbort();
