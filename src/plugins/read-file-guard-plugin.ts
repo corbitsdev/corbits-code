@@ -60,6 +60,8 @@ export interface ReadFileGuardPluginOptions {
    * Workers flip this after the capability filter; omitted means yes.
    */
   canExecuteHostCommands?: () => boolean;
+  /** Model-facing path for diagnosis text (the call argument, not the absolute). */
+  displayPath?: string;
 }
 
 // A truncated read tells the model to continue with the same path and the
@@ -366,9 +368,10 @@ export function readFileBounded(
   signal: AbortSignal,
   inspection?: Pick<
     ReadFileGuardPluginOptions,
-    "whichExtractor" | "canExecuteHostCommands"
+    "whichExtractor" | "canExecuteHostCommands" | "displayPath"
   >,
 ): Promise<BoundedRead> {
+  const labeledPath = inspection?.displayPath ?? absolutePath;
   return readStreamBounded(
     createReadStream(absolutePath),
     absolutePath,
@@ -376,13 +379,13 @@ export function readFileBounded(
     limit,
     signal,
     {
-      mapStreamError: (err) => mapFilesystemStreamError(absolutePath, err),
+      mapStreamError: (err) => mapFilesystemStreamError(labeledPath, err),
       windowHugeLines: true,
       diagnoseFirstChunk: (chunk) => {
         const kind = inspectionKindFromFirstChunk(absolutePath, chunk);
         if (kind === undefined) return undefined;
         return diagnoseBlockedFileInspection({
-          path: absolutePath,
+          path: labeledPath,
           kind,
           extractorAvailable: resolveExtractorProbe(inspection?.whichExtractor),
           canExecuteHostCommands:
@@ -549,13 +552,10 @@ export function readFileGuardPlugin(
       }
 
       try {
-        const res = await readFileBounded(
-          absolutePath,
-          offset,
-          limit,
-          signal,
-          inspection,
-        );
+        const res = await readFileBounded(absolutePath, offset, limit, signal, {
+          ...inspection,
+          displayPath: rawPath,
+        });
         return res.isError
           ? { callId: call.id, content: res.content, isError: true }
           : { callId: call.id, content: res.content };

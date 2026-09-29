@@ -17,14 +17,14 @@ describe("PDF sniffing", () => {
     ).toBe("pdf");
   });
 
-  test("a .pdf name without magic is malformed, not a capability miss", () => {
+  test("a .pdf name with NUL and no magic is malformed; a text .pdf is not refused", () => {
     expect(pathLooksLikePdf("report.PDF")).toBe(true);
     expect(
       inspectionKindFromFirstChunk("report.pdf", Buffer.from("not-a-pdf\0")),
     ).toBe("pdf-malformed");
     expect(
       inspectionKindFromFirstChunk("report.pdf", Buffer.from("plain text")),
-    ).toBe("pdf-malformed");
+    ).toBeUndefined();
   });
 
   test("NUL without PDF markers is ordinary binary", () => {
@@ -51,7 +51,7 @@ describe("diagnoseBlockedFileInspection", () => {
     expect(result.code).toBe("missing_extractor");
     expect(result.message).toContain("PDF");
     expect(result.message).toContain(PDF_EXTRACTOR_BIN);
-    expect(result.message).toContain("missing");
+    expect(result.message).toContain("Missing PDF extractor");
     expect(result.message.toLowerCase()).toContain("poppler");
     expect(result.message).toContain("not a malformed file");
     expect(result.message).not.toContain("permission boundary");
@@ -76,7 +76,7 @@ describe("diagnoseBlockedFileInspection", () => {
     });
     expect(result.code).toBe("permission_boundary");
     expect(result.message).toContain("installed");
-    expect(result.message).toContain("permission boundary");
+    expect(result.message).toContain("Permission boundary");
     expect(result.message).toContain("run_shell");
     expect(result.message).toContain("not a malformed file");
     expect(result.message.toLowerCase()).not.toContain("brew install");
@@ -102,7 +102,7 @@ describe("diagnoseBlockedFileInspection", () => {
       canExecuteHostCommands: false,
     });
     expect(result.code).toBe("malformed");
-    expect(result.message).toContain("not a valid PDF");
+    expect(result.message).toContain("Malformed PDF");
     expect(result.message).toContain("not a missing extractor");
     expect(result.message).not.toContain("brew install");
     expect(result.message).not.toContain("grant this worker");
@@ -116,7 +116,7 @@ describe("diagnoseBlockedFileInspection", () => {
       canExecuteHostCommands: true,
     });
     expect(result.code).toBe("unreadable");
-    expect(result.message).toContain("unreadable");
+    expect(result.message).toContain("Unreadable file");
     expect(result.message).toContain("filesystem permission");
     expect(result.message).not.toContain("grant this worker");
     expect(result.message.toLowerCase()).not.toContain("poppler");
@@ -131,6 +131,34 @@ describe("diagnoseBlockedFileInspection", () => {
     });
     expect(result.code).toBe("binary");
     expect(result.message).toContain("refusing to read binary file");
-    expect(result.message).toContain("not a missing-tool");
+    expect(result.message).toContain("Not a missing-tool");
+  });
+
+  test("the cause leads so a 72-character collapsed preview still names the gap", () => {
+    const missing = diagnoseBlockedFileInspection({
+      path: "/very/long/workspace/path/to/a/nested/report.pdf",
+      kind: "pdf",
+      extractorAvailable: false,
+      canExecuteHostCommands: true,
+    });
+    expect(missing.message.slice(0, 72).toLowerCase()).toContain("extractor");
+
+    const permission = diagnoseBlockedFileInspection({
+      path: "/very/long/workspace/path/to/a/nested/report.pdf",
+      kind: "pdf",
+      extractorAvailable: true,
+      canExecuteHostCommands: false,
+    });
+    expect(permission.message.slice(0, 72).toLowerCase()).toContain(
+      "permission",
+    );
+
+    const malformed = diagnoseBlockedFileInspection({
+      path: "/very/long/workspace/path/to/a/nested/report.pdf",
+      kind: "pdf-malformed",
+      extractorAvailable: false,
+      canExecuteHostCommands: false,
+    });
+    expect(malformed.message.slice(0, 72).toLowerCase()).toContain("malformed");
   });
 });
