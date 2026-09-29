@@ -267,6 +267,31 @@ describe("extractHandoffArtifact", () => {
       "lint: unused import in src/auth.ts",
     );
   });
+
+  test("keeps a standing output token that straddles the 500-character file-goal cap", () => {
+    const token = "FILES_DONE=src/session/compaction-handoff.ts";
+    const prefix = `${"W".repeat(500 - "FILES_DO".length - 1)} `;
+    const goal = `${prefix}${token}`;
+    const sliced = goal.replace(/\s+/g, " ").trim().slice(0, 500);
+    expect(sliced.endsWith("FILES_DO")).toBe(true);
+    expect(sliced.includes("FILES_DONE")).toBe(false);
+
+    const { artifact, spine } = extractHandoffArtifact(
+      [userTurn(goal)],
+      "narrative",
+    );
+    expect(artifact.goal).toContain(token);
+    expect(artifact.goal).not.toBe(sliced);
+    expect(artifact.goal.endsWith("FILES_DO")).toBe(false);
+    expect(spine.goal).toContain(token);
+
+    const rendered = renderHandoffSpine(
+      spine,
+      handoffBlobUri(HANDOFF_LATEST_KEY),
+    );
+    expect(rendered).toContain(token);
+    expect(rendered).toContain(`Output: ${token}`);
+  });
 });
 
 describe("recoverEvidenceMarkers", () => {
@@ -377,6 +402,40 @@ describe("renderHandoffSpine", () => {
     expect(rendered).toContain(token);
     expect(rendered).toMatch(/re-read/);
     expect(rendered).toMatch(/operator ask|output contract/);
+  });
+
+  test("does not render Goal: ... only when the first 160 characters have no space", () => {
+    const goal = "W".repeat(200);
+    const rendered = renderHandoffSpine(
+      {
+        goal,
+        constraints: [],
+        decisions: [],
+        evidenceMarkers: [],
+        activatedTools: [],
+      },
+      handoffBlobUri(HANDOFF_LATEST_KEY),
+    );
+    expect(rendered).not.toMatch(/^Goal: \.\.\.$/m);
+    expect(rendered).toContain(`Goal: ${"W".repeat(160)}...`);
+  });
+
+  test("keeps a standing output token after a spaceless 160-character prefix", () => {
+    const token = "FILES_DONE=src/a.ts";
+    const goal = `${"W".repeat(160)} ${token}`;
+    const rendered = renderHandoffSpine(
+      {
+        goal,
+        constraints: [],
+        decisions: [],
+        evidenceMarkers: [],
+        activatedTools: [],
+      },
+      handoffBlobUri(HANDOFF_LATEST_KEY),
+    );
+    expect(rendered).not.toMatch(/^Goal: \.\.\.$/m);
+    expect(rendered).toContain(`Goal: ${"W".repeat(160)}...`);
+    expect(rendered).toContain(`Output: ${token}`);
   });
 
   test("leaves 79- and 80-char items unmarked and marks 81 with an ellipsis", () => {
@@ -627,6 +686,16 @@ describe("iterative folding", () => {
     );
     expect(withoutFile.spineText).not.toContain(midToken);
     expect(withoutFile.spineText).toContain(token);
+    expect(withoutFile.artifact.goal).toBe(goal);
+    expect(withoutFile.artifact.goal).not.toContain("...");
+
+    const again = buildHandoffFold(
+      [spineTurn(withoutFile.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    expect(again.artifact.goal).toBe(goal);
+    expect(again.artifact.goal).not.toContain("...");
+    expect(again.spineText).toContain(token);
   });
 
   test("a truncated spine fragment collapses into the full prior-file constraint", () => {

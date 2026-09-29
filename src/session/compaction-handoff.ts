@@ -97,8 +97,12 @@ const VERIFICATION_SIGNAL = /test|check|lint|build|typecheck|verify/i;
 const EVIDENCE_TOKEN = /\[\[evidence:[^[\]\r\n]+\]\]/g;
 
 // Standing reply-contract tokens (FILES_DONE=..., SUMMARY=...). The spine
-// must keep these whole; a char slice is how they become FILES_DO.
-const OUTPUT_FORMAT_TOKEN = /\b[A-Z][A-Z0-9_]+=\S+/g;
+// and the file goal must keep these whole; a char slice is how they become
+// FILES_DO. Harvest from the uncapped source so a 500-char cap cannot drop
+// a token that starts just past the cut.
+function outputFormatTokenRe(): RegExp {
+  return /\b[A-Z][A-Z0-9_]+=\S+/g;
+}
 
 function oneLine(text: string, maxChars: number): string {
   return text.replace(/\s+/g, " ").trim().slice(0, maxChars);
@@ -106,20 +110,52 @@ function oneLine(text: string, maxChars: number): string {
 
 function outputFormatTokens(text: string): string[] {
   const found: string[] = [];
-  for (const match of text.matchAll(OUTPUT_FORMAT_TOKEN)) {
+  for (const match of text.matchAll(outputFormatTokenRe())) {
     const token = match[0];
     if (token !== undefined && !found.includes(token)) found.push(token);
   }
   return found;
 }
 
+function capGoal(text: string, maxChars: number): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  const tokens = outputFormatTokens(line);
+  let end = Math.min(maxChars, line.length);
+  for (const match of line.matchAll(outputFormatTokenRe())) {
+    const start = match.index ?? 0;
+    const tokenEnd = start + match[0].length;
+    if (start < end && tokenEnd > end) end = tokenEnd;
+  }
+  let capped = line.slice(0, end);
+  for (const token of tokens) {
+    if (!capped.includes(token)) capped = `${capped} ${token}`;
+  }
+  return capped;
+}
+
 function cutSpineGoal(text: string): string {
   const line = text.replace(/\s+/g, " ").trim();
   if (line.length <= SPINE_GOAL_CHARS) return line;
-  const head = line.slice(0, SPINE_GOAL_CHARS);
+  let cap = SPINE_GOAL_CHARS;
+  for (const match of line.matchAll(outputFormatTokenRe())) {
+    const start = match.index ?? 0;
+    const tokenEnd = start + match[0].length;
+    if (start < SPINE_GOAL_CHARS && tokenEnd > SPINE_GOAL_CHARS) {
+      if (start === 0) {
+        const kept = match[0];
+        return kept.length < line.length
+          ? `${kept}${SPINE_CUT_SENTINEL}`
+          : kept;
+      }
+      cap = start;
+      break;
+    }
+  }
+  const head = line.slice(0, cap);
   const lastSpace = head.lastIndexOf(" ");
-  const kept = lastSpace > 0 ? head.slice(0, lastSpace) : "";
-  return kept.length > 0 ? `${kept}${SPINE_CUT_SENTINEL}` : SPINE_CUT_SENTINEL;
+  const kept = lastSpace > 0 ? head.slice(0, lastSpace) : head.trimEnd();
+  if (kept.length === 0) return SPINE_CUT_SENTINEL;
+  return `${kept}${SPINE_CUT_SENTINEL}`;
 }
 
 function cutSpineItem(text: string): string {
@@ -235,7 +271,9 @@ function parseSpineText(text: string): CarriedFacts {
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (trimmed.startsWith("Goal: ")) {
-      const goal = trimmed.slice("Goal: ".length).trim();
+      let goal = trimmed.slice("Goal: ".length).trim();
+      if (goal.endsWith(SPINE_CUT_SENTINEL))
+        goal = goal.slice(0, -SPINE_CUT_SENTINEL.length);
       if (goal.length > 0) carried.goal = goal;
     } else if (trimmed.startsWith(HANDOFF_OUTPUT_LINE_PREFIX)) {
       for (const token of outputFormatTokens(
@@ -524,14 +562,14 @@ export function extractHandoffArtifact(
   // instead of dropping it. The verify-repair appendix is stripped first: it
   // carries exact file lists that stay in the fat file by design (CL-8744) and
   // must not leak into the thin spine.
-  const narrativeGoal = oneLine(
+  const narrativeGoal = capGoal(
     narrative.split(VERIFY_REPAIR_HEADING)[0] ?? "",
     MAX_GOAL_CHARS,
   );
   const extractedGoal =
     carried.goal ??
     (nonEmptyUserTexts.length > 0
-      ? oneLine(nonEmptyUserTexts[0] ?? "", MAX_GOAL_CHARS)
+      ? capGoal(nonEmptyUserTexts[0] ?? "", MAX_GOAL_CHARS)
       : narrativeGoal.length > 0
         ? narrativeGoal
         : "Unknown (no user message in folded turns)");
@@ -541,7 +579,7 @@ export function extractHandoffArtifact(
   const lastUserText = [...nonEmptyUserTexts].pop();
   const lastUserAsNext =
     lastUserText !== undefined &&
-    oneLine(lastUserText, MAX_GOAL_CHARS) !== extractedGoal &&
+    capGoal(lastUserText, MAX_GOAL_CHARS) !== extractedGoal &&
     oneLine(lastUserText, SPINE_GOAL_CHARS) !== carried.goal;
 
   const freshDecisions: string[] = [];
