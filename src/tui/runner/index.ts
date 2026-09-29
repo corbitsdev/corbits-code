@@ -7,7 +7,6 @@
  */
 
 import { EventEmitter } from "node:events";
-import { spawnSync } from "node:child_process";
 import type { Config } from "../../config/index.js";
 import { listFavoriteModels, listRecentModels } from "../../config/settings.js";
 import { isCodexProviderName } from "../../config/codex-providers.js";
@@ -38,14 +37,7 @@ import { wireMcp } from "./mcp.js";
 import { wirePostStartup } from "./wiring.js";
 import { createRunnerState, liveAgent } from "./state.js";
 import { applyCredentialRecoverySelection } from "./credential-recovery.js";
-import { setTheme } from "../theme.js";
-import {
-  detectOsAppearance,
-  resolveDetectedTheme,
-  resolveThemeSetting,
-  sniffSyncTheme,
-  syncEnvFromRecord,
-} from "../theme-detect.js";
+import { applyStartupTheme } from "../theme-startup.js";
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "../../branding.js";
 
@@ -55,31 +47,9 @@ export function createTUIEventEmitter(): EventEmitter {
 
 export { getTUIRunSummaryStatus } from "../../session/run-sink.js";
 
-function detectStartupOsTheme() {
-  return detectOsAppearance(process.platform, (command, args) => {
-    try {
-      const out = spawnSync(command, [...args], {
-        encoding: "utf8",
-        timeout: 500,
-      });
-      if (out.error !== undefined) return undefined;
-      if (out.status !== 0) return null;
-      return typeof out.stdout === "string" ? out.stdout : undefined;
-    } catch {
-      return undefined;
-    }
-  });
-}
-
 export async function runTUI(initialConfig: Config): Promise<number> {
   const tuiLogger = getLogger([LOG_NAMESPACE_ROOT, "tui"]);
-  const setting = resolveThemeSetting(initialConfig.settings?.theme);
-  const syncEnv = syncEnvFromRecord(process.env);
-  const os =
-    setting === "auto" && sniffSyncTheme(syncEnv) === null
-      ? detectStartupOsTheme()
-      : null;
-  setTheme(resolveDetectedTheme({ setting, syncEnv, os }));
+  applyStartupTheme(initialConfig.settings?.theme);
 
   const start = await prepareTUISession(initialConfig, liveTelemetry);
   if (start === null) return 0;

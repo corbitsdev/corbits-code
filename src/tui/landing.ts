@@ -317,7 +317,7 @@ export function createLandingAbove(
     flexDirection: "column",
     justifyContent: "flex-end",
     paddingLeft: LANDING_MARGIN,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   const hero = new BoxRenderable(ctx, {
     id: "shell-landing-hero",
@@ -325,7 +325,7 @@ export function createLandingAbove(
     height: MARK_LARGE.rows,
     flexShrink: 0,
     flexDirection: "row",
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   const markColumn = new BoxRenderable(ctx, {
     id: "shell-landing-mark",
@@ -333,7 +333,7 @@ export function createLandingAbove(
     flexShrink: 0,
     flexDirection: "column",
     justifyContent: "flex-end",
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   const markRows: TextRenderable[] = [];
   for (let row = 0; row < MARK_LARGE.rows; row++) {
@@ -380,7 +380,7 @@ function createHintBlock(ctx: CliRenderer): BoxRenderable {
     // empty beneath them, which reads as unfinished rather than composed.
     justifyContent: "center",
     paddingLeft: LANDING_HERO_GAP,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   LANDING_HINTS.forEach((hint, index) => {
     const gap = " ".repeat(
@@ -452,7 +452,7 @@ export function createLandingBelow(
     flexShrink: 0,
     flexDirection: "column",
     paddingLeft: LANDING_MARGIN,
-    backgroundColor: UI.ground,
+    backgroundColor: UI.canvasGround,
   });
   landingBelowRows(content).forEach((row, index) => {
     box.add(

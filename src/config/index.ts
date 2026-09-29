@@ -680,6 +680,8 @@ export interface UnconfiguredConfig {
   command: "tui" | "exec";
   /** Exec-only chosen primary. Omitted on the unconfigured path too. */
   director?: DirectorId;
+  /** Validated appearance preference needed before first-run surfaces mount. */
+  theme?: Settings["theme"];
   // Path where the onboarding flow should write the new settings.
   globalSettingsPath: string;
   /** Original CLI path, present only when --config selected the write target. */
@@ -1089,6 +1091,9 @@ export async function loadConfig(
       auto,
       command,
       ...(director !== undefined ? { director } : {}),
+      ...(settingsForResolution?.theme !== undefined
+        ? { theme: settingsForResolution.theme }
+        : {}),
       globalSettingsPath: effectiveSettingsPath,
       ...(configPath !== undefined ? { cliConfigPath: configPath } : {}),
       programmaticSettingsPath: options.globalSettingsPath !== undefined,

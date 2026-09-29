@@ -290,6 +290,7 @@ function syncPendingRows(shell: AppShell): void {
             row.tag === null ? UI.textFaint : selected ? UI.text : UI.textDim,
           )(fitted.text),
         ]),
+        ...(selected ? { bg: UI.ground } : {}),
       }),
     );
   }

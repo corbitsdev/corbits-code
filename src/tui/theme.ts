@@ -29,7 +29,7 @@
  */
 export interface Theme {
   readonly name: string;
-  /** Terminal ground. Foreground-only discipline means almost nothing fills it. */
+  /** Opaque control backing and canvas fallback for this palette. */
   readonly ground: string;
   /** All body text. Never white, never gray. */
   readonly text: string;
@@ -150,7 +150,15 @@ export function resolveThemeName(name: string): Theme {
  * picks the change up without re-importing. Never reassign or destructure
  * this binding — `const { text } = UI` snapshots the old palette forever.
  */
-export const UI: Theme = { ...corbitsDark };
+export interface UITheme extends Theme {
+  /** Effective fill for canvas and root surfaces. */
+  readonly canvasGround: string;
+}
+
+export const UI: UITheme = {
+  ...corbitsDark,
+  canvasGround: corbitsDark.ground,
+};
 
 const themeChangeListeners = new Set<(theme: Theme) => void>();
 
@@ -160,10 +168,49 @@ export function onThemeChange(listener: (theme: Theme) => void): void {
   listener(UI);
 }
 
-/** Switch the live `UI` binding to the named theme, keeping the reference. */
-export function setTheme(name: ThemeName | string): Theme {
-  const next = resolveThemeName(name);
-  Object.assign(UI, next);
+let activeTheme: Theme = corbitsDark;
+let transparentBackgroundEnabled = false;
+
+function publishTheme(): UITheme {
+  Object.assign(UI, activeTheme, {
+    canvasGround: transparentBackgroundEnabled
+      ? TRANSPARENT_BACKGROUND
+      : activeTheme.ground,
+  });
   for (const listener of themeChangeListeners) listener(UI);
   return UI;
+}
+
+/** Switch the live `UI` binding to the named theme, keeping the reference. */
+export function setTheme(name: ThemeName | string): Theme {
+  activeTheme = resolveThemeName(name);
+  return publishTheme();
+}
+
+export const TRANSPARENT_BACKGROUND = "transparent";
+
+const TRANSPARENT_BG_ENV_VAR = "CORBITS_TRANSPARENT_BACKGROUND";
+
+export interface TransparentBackgroundEnv {
+  readonly [key: string]: string | undefined;
+  readonly CORBITS_TRANSPARENT_BACKGROUND?: string;
+}
+
+export function isTransparentBackgroundRequested(
+  env: TransparentBackgroundEnv = process.env,
+): boolean {
+  const raw = env[TRANSPARENT_BG_ENV_VAR]?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+/**
+ * Publish the explicit canvas-transparency preference before surfaces build.
+ * OpenTUI accepts transparent fills, so no terminal identity proxy is needed.
+ */
+export function configureTransparentBackground(
+  env: TransparentBackgroundEnv = process.env,
+): boolean {
+  transparentBackgroundEnabled = isTransparentBackgroundRequested(env);
+  publishTheme();
+  return transparentBackgroundEnabled;
 }
