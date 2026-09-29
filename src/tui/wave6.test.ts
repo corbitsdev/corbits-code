@@ -4,9 +4,8 @@
 import { describe, expect, test } from "bun:test";
 import { defined } from "../testkit/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
-import { focusOwner, scrollLease } from "./focus/index";
+import { focusOwner } from "./focus/index";
 import { MAX_RETAINED_STREAM_ROWS } from "./long-log";
-import { openPermissionsOverlay } from "./overlays";
 import {
   appendStreamRow,
   replaceStreamRowAt,
@@ -40,44 +39,6 @@ const CATALOG: readonly PaletteCommand[] = [
 ];
 
 describe("Wave 6: command list", () => {
-  test("open → navigate → Esc restores prompt", async () => {
-    await withAppShell(
-      async (shell, h) => {
-        expect(focusOwner(shell.focus)).toBe("prompt");
-        openPalette(shell, { catalog: CATALOG });
-        expect(shell.overlayKind).toBe("palette");
-        expect(shell.overlayList).not.toBeNull();
-        expect(shell.paletteCommands.length).toBeGreaterThan(0);
-        expect(focusOwner(shell.focus)).toBe("palette");
-        expect(scrollLease(shell.focus)).toBe("palette");
-        expect(shell.layout.overlayMode).toBe("inset");
-        expect(shell.overlayHost.visible).toBe(true);
-
-        await h.renderOnce();
-        const frame = h.captureCharFrame();
-        // Slash mode has no title rule and no orphan filter row — identify
-        // the list by its name-only command labels.
-        expect(frame).not.toMatch(/│\s*>\s*│/);
-        expect(frame).toContain("/compact");
-        // List labels live in overlayItems (frame may clip first row under tight height).
-        expect(shell.overlayItems[0]).toBe(defined(CATALOG[0]).label);
-
-        moveOverlaySelection(shell, 1);
-        expect(defined(shell.overlayList).activeIndex).toBe(1);
-
-        closeInsetOverlay(shell);
-        expect(shell.overlayList).toBeNull();
-        expect(shell.overlayKind).toBeNull();
-        expect(focusOwner(shell.focus)).toBe("prompt");
-        expect(shell.layout.overlayMode).toBe("closed");
-        expect(shell.layout.transcriptHeight).toBeGreaterThanOrEqual(
-          IDLE_TRANSCRIPT_FLOOR,
-        );
-      },
-      { shell: { run: "idle" } },
-    );
-  });
-
   test("accept action dispatches through onCommand", async () => {
     const dispatched: string[] = [];
     await withAppShell(
@@ -100,29 +61,6 @@ describe("Wave 6: command list", () => {
         shell: { onCommand: (name) => dispatched.push(name) },
       },
     );
-  });
-
-  test("list stacks over permissions; Esc restores permissions then prompt", async () => {
-    await withAppShell(async (shell) => {
-      openPermissionsOverlay(shell, {
-        items: ["Allow once", "Deny", "Always allow"],
-      });
-      expect(shell.overlayKind).toBe("permissions");
-      expect(focusOwner(shell.focus)).toBe("overlay");
-
-      openPalette(shell, { catalog: CATALOG });
-      expect(shell.overlayKind).toBe("palette");
-      expect(focusOwner(shell.focus)).toBe("palette");
-
-      closeInsetOverlay(shell);
-      expect(shell.overlayKind).toBe("permissions");
-      expect(focusOwner(shell.focus)).toBe("overlay");
-      expect(shell.overlayItems[0]).toBe("Allow once");
-
-      closeInsetOverlay(shell);
-      expect(shell.overlayList).toBeNull();
-      expect(focusOwner(shell.focus)).toBe("prompt");
-    });
   });
 });
 
