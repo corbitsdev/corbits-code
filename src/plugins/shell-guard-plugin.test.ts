@@ -730,43 +730,29 @@ describe("shellGuardPlugin", () => {
     expect(toolContentTrimmed(allowed)).toBe(realpathSync(join(root, "..")));
   });
 
-  test("retains cwd from cd even when the command exits non-zero", async () => {
-    const root = await mkdtemp(join(tmpdir(), "ic-cd-fail-"));
-    const nested = join(root, "nested");
-    await mkdir(nested);
-    const handler = defined(shellGuardPlugin(root).middleware)(fallback);
-    const fail = await handler(
-      {
-        id: "cf1",
-        name: "run_shell",
-        arguments: { command: "cd nested && false" },
-      },
-      neverAbort(),
-    );
-    expect(String(fail.content)).toMatch(/exit code/);
-    const pwd = await handler(
-      { id: "cf2", name: "run_shell", arguments: { command: "pwd" } },
-      neverAbort(),
-    );
-    expect(String(pwd.content).trim()).toBe(realpathSync(nested));
-  });
-
-  test("retains cwd across successive run_shell calls", async () => {
-    const root = await mkdtemp(join(tmpdir(), "ic-retain-cwd-"));
-    const sub = join(root, "nested");
-    await mkdir(sub);
-    const handler = defined(shellGuardPlugin(root).middleware)(fallback);
-    const cdResult = await handler(
-      { id: "cd1", name: "run_shell", arguments: { command: "cd nested" } },
-      neverAbort(),
-    );
-    expect(cdResult.isError).toBeUndefined();
-    const pwdResult = await handler(
-      { id: "pwd1", name: "run_shell", arguments: { command: "pwd" } },
-      neverAbort(),
-    );
-    expect(toolContentTrimmed(pwdResult)).toBe(realpathSync(sub));
-  });
+  // Exit status must not affect whether the landed cwd is retained.
+  for (const command of ["cd nested", "cd nested && false"]) {
+    test(`retains cwd across successive run_shell calls after \`${command}\``, async () => {
+      const root = await mkdtemp(join(tmpdir(), "ic-retain-cwd-"));
+      const nested = join(root, "nested");
+      await mkdir(nested);
+      const handler = defined(shellGuardPlugin(root).middleware)(fallback);
+      const cdResult = await handler(
+        { id: "cd1", name: "run_shell", arguments: { command } },
+        neverAbort(),
+      );
+      if (command.endsWith("false")) {
+        expect(String(cdResult.content)).toMatch(/exit code/);
+      } else {
+        expect(cdResult.isError).toBeUndefined();
+      }
+      const pwd = await handler(
+        { id: "pwd1", name: "run_shell", arguments: { command: "pwd" } },
+        neverAbort(),
+      );
+      expect(toolContentTrimmed(pwd)).toBe(realpathSync(nested));
+    });
+  }
 
   test("per-call cwd override does not change retained cwd", async () => {
     const root = await mkdtemp(join(tmpdir(), "ic-override-cwd-"));

@@ -324,47 +324,36 @@ describe("approval decision intent headers", () => {
 });
 
 describe("approval-resume parallel-parked approvals", () => {
-  test("delivers A's decision when a different parked call's approval times out", async () => {
-    const { resume, delivered } = setup({
-      preTurns: [
-        assistantTurn([
-          { id: "call-A", name: "run_shell", command: "echo alpha" },
-          { id: "call-B", name: "run_shell", command: "echo bravo" },
-        ]),
-      ],
-      onGate: (turns) => {
-        turns.push(timeoutTurn("call-B"));
-      },
+  for (const timedOutCallId of ["call-B", "call-A"]) {
+    test(`a ${timedOutCallId} timeout ${timedOutCallId === "call-B" ? "still delivers" : "drops"} A's decision`, async () => {
+      const { resume, delivered } = setup({
+        preTurns: [
+          assistantTurn([
+            { id: "call-A", name: "run_shell", command: "echo alpha" },
+            { id: "call-B", name: "run_shell", command: "echo bravo" },
+          ]),
+        ],
+        onGate: (turns) => {
+          turns.push(timeoutTurn(timedOutCallId));
+        },
+      });
+
+      const handled = await resume.handle(suspension("corr-A", "echo alpha"));
+
+      expect(handled).toBe(true);
+      if (timedOutCallId === "call-A") {
+        // A genuinely late decision for the parked call itself must drop.
+        expect(delivered).toHaveLength(0);
+        return;
+      }
+      expect(delivered).toHaveLength(1);
+      const message = delivered[0];
+      if (message === undefined)
+        throw new Error("expected a delivered decision");
+      expect(deliveredCorrelationId(message)).toBe("corr-A");
+      expect(decisionBody(message).outcome).toBe("approved");
     });
-
-    const handled = await resume.handle(suspension("corr-A", "echo alpha"));
-
-    expect(handled).toBe(true);
-    expect(delivered).toHaveLength(1);
-    const message = delivered[0];
-    if (message === undefined) throw new Error("expected a delivered decision");
-    expect(deliveredCorrelationId(message)).toBe("corr-A");
-    expect(decisionBody(message).outcome).toBe("approved");
-  });
-
-  test("still drops a genuinely late decision for the same parked call", async () => {
-    const { resume, delivered } = setup({
-      preTurns: [
-        assistantTurn([
-          { id: "call-A", name: "run_shell", command: "echo alpha" },
-          { id: "call-B", name: "run_shell", command: "echo bravo" },
-        ]),
-      ],
-      onGate: (turns) => {
-        turns.push(timeoutTurn("call-A"));
-      },
-    });
-
-    const handled = await resume.handle(suspension("corr-A", "echo alpha"));
-
-    expect(handled).toBe(true);
-    expect(delivered).toHaveLength(0);
-  });
+  }
 
   test("history throw after the operator answers still delivers", async () => {
     const turns = [

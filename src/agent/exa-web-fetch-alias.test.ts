@@ -728,9 +728,12 @@ describe("built-in Exa web_fetch alias", () => {
     }
   });
 
-  test("disconnect before connect swaps waiters to native and re-enable remounts the alias", async () => {
-    const toolset = await makeToolset();
+  test("absent builtin Exa keeps native web_fetch and enabling remounts the alias", async () => {
+    const toolset = await makeToolset(
+      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
+    );
     try {
+      // Disconnecting a never-connected name is a no-op; waiters stay native.
       await toolset.disconnectMCPServer("exa", {
         interactiveAuth: false,
         onStatus: () => undefined,
@@ -753,47 +756,6 @@ describe("built-in Exa web_fetch alias", () => {
         onToolsChanged: () => undefined,
       });
       expect(connectConfigs.length).toBe(connectsBefore + 1);
-      expect(toolset.hasMCPServer("exa")).toBe(true);
-      expect(
-        toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
-      ).toContain("mcp__exa__web_search_exa");
-
-      calls.length = 0;
-      const aliased = await runTool(toolset, "web_fetch", {
-        url: "https://example.com",
-      });
-      expect(aliased).toEqual({
-        callId: "call-web_fetch",
-        content: "exa fetch result",
-      });
-      expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatchObject({
-        toolName: "web_fetch_exa",
-        args: { urls: ["https://example.com"] },
-      });
-    } finally {
-      await toolset.dispose();
-    }
-  });
-
-  test("cold-enable of builtin Exa remounts the web_fetch alias", async () => {
-    const toolset = await makeToolset(
-      resolveMcpServers([{ name: "exa", enabled: false }], undefined),
-    );
-    try {
-      calls.length = 0;
-      const native = await runTool(toolset, "web_fetch", {
-        url: "http://127.0.0.1:1",
-        timeout: 1,
-      });
-      expect(calls).toHaveLength(0);
-      expect(String(native.content)).not.toContain("Exa MCP");
-
-      await toolset.connectMCPServer(createExaMCPServerConfig(), {
-        interactiveAuth: false,
-        onStatus: () => undefined,
-        onToolsChanged: () => undefined,
-      });
       expect(toolset.hasMCPServer("exa")).toBe(true);
       expect(
         toolset.dynamicRunner.currentDefinitions().map((d) => d.name),

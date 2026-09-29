@@ -76,12 +76,19 @@ beforeEach(() => {
   resetZenModelDiscoveryForTests();
 });
 
-afterEach(() => {
+// Temp dirs created by emptyCwd/tempHome are registered here and removed
+// after each test, so tests don't need their own try/finally cleanup.
+const tempDirs: string[] = [];
+
+afterEach(async () => {
   globalThis.fetch = originalFetch;
   resetGoModelDiscoveryForTests();
   resetZenModelDiscoveryForTests();
   setProviderContextWindowOverrides(undefined);
   clearSourceCredentials();
+  while (tempDirs.length > 0) {
+    await rm(defined(tempDirs.pop()), { recursive: true, force: true });
+  }
 });
 
 function assertConfigured(
@@ -130,8 +137,24 @@ async function writeGlobalSettings(
 
 // A cwd with no per-repo settings file, so local resolution is inert.
 async function emptyCwd(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "ic-config-"));
+  const dir = await mkdtemp(join(tmpdir(), "ic-config-"));
+  tempDirs.push(dir);
+  return dir;
 }
+
+async function tempHome(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
+  tempDirs.push(dir);
+  return dir;
+}
+
+// Shared "currently configured provider" fixture for the catalog tests.
+const resolved: ResolvedProvider = {
+  providerName: "fp",
+  baseURL: "https://fp/v1",
+  apiKey: "fp-key",
+  model: "fp-large",
+};
 
 async function sessionIdsOnDisk(cwd: string, home: string): Promise<string[]> {
   try {
@@ -157,40 +180,32 @@ async function expectCliHelp(argv: readonly string[]): Promise<void> {
 describe("loadConfig", () => {
   test("resolves provider from the global settings file", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["--cwd", cwd, "add", "hello", "world"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.task).toBe("add hello world");
-      expect(config.apiKey).toBe("test-key");
-      expect(config.baseURL).toBe("https://api.fireworks.ai/inference");
-      expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
-      expect(config.providerName).toBe("fireworks");
-      expect(config.globalSettingsPath).toBe(globalPath);
-      expect(config.globalDefaultProvider).toBe("fireworks");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    const config = await loadConfig(["--cwd", cwd, "add", "hello", "world"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(config);
+    expect(config.task).toBe("add hello world");
+    expect(config.apiKey).toBe("test-key");
+    expect(config.baseURL).toBe("https://api.fireworks.ai/inference");
+    expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
+    expect(config.providerName).toBe("fireworks");
+    expect(config.globalSettingsPath).toBe(globalPath);
+    expect(config.globalDefaultProvider).toBe("fireworks");
   });
 
   test("injects the built-in Exa MCP server when no list disables or overrides it", async () => {
     expect(resolveMcpServers(undefined, undefined)).toEqual([BUILTIN_EXA_MCP]);
 
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["--cwd", cwd, "hello"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
-      expect(config.mcpServersSource).toBe("none");
-      expect(config.mcpServerEntries).toEqual([]);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    const config = await loadConfig(["--cwd", cwd, "hello"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(config);
+    expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
+    expect(config.mcpServersSource).toBe("none");
+    expect(config.mcpServerEntries).toEqual([]);
   });
 
   test("expands enabled Exa preset and honors explicit disable", () => {
@@ -204,62 +219,73 @@ describe("loadConfig", () => {
 
   test("keeps global and local MCP source at list level", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd, {
-        mcpServers: { exa: { enabled: true } },
-      });
-      const globalConfig = await loadConfig(["--cwd", cwd, "hello"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(globalConfig);
-      expect(globalConfig.mcpServers).toEqual([BUILTIN_EXA_MCP]);
-      expect(globalConfig.mcpServersSource).toBe("global");
-      expect(globalConfig.mcpServerEntries).toEqual([
-        { name: "exa", enabled: true },
-      ]);
+    const globalPath = await writeGlobalSettings(cwd, {
+      mcpServers: { exa: { enabled: true } },
+    });
+    const globalConfig = await loadConfig(["--cwd", cwd, "hello"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(globalConfig);
+    expect(globalConfig.mcpServers).toEqual([BUILTIN_EXA_MCP]);
+    expect(globalConfig.mcpServersSource).toBe("global");
+    expect(globalConfig.mcpServerEntries).toEqual([
+      { name: "exa", enabled: true },
+    ]);
 
-      await writeGlobalSettings(cwd, {
-        mcpServers: { exa: { enabled: false } },
-      });
-      const disabledConfig = await loadConfig(["--cwd", cwd, "hello"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(disabledConfig);
-      expect(disabledConfig.mcpServers).toEqual([]);
-      expect(disabledConfig.mcpServersSource).toBe("global");
-      expect(disabledConfig.mcpServerEntries).toEqual([
-        { name: "exa", enabled: false },
-      ]);
+    await writeGlobalSettings(cwd, {
+      mcpServers: { exa: { enabled: false } },
+    });
+    const disabledConfig = await loadConfig(["--cwd", cwd, "hello"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(disabledConfig);
+    expect(disabledConfig.mcpServers).toEqual([]);
+    expect(disabledConfig.mcpServersSource).toBe("global");
+    expect(disabledConfig.mcpServerEntries).toEqual([
+      { name: "exa", enabled: false },
+    ]);
 
-      await writeGlobalSettings(cwd, {
-        mcpServers: { exa: { enabled: true } },
-      });
-      await mkdir(join(cwd, ".corbits"), { recursive: true });
-      await writeFile(
-        join(cwd, ".corbits", "settings.json"),
-        JSON.stringify({ mcpServers: { local: { command: "local-mcp" } } }),
-      );
-      const localConfig = await loadConfig(["--cwd", cwd, "hello"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(localConfig);
-      expect(localConfig.mcpServers).toEqual([
-        BUILTIN_EXA_MCP,
-        { name: "local", command: "local-mcp" },
-      ]);
-      expect(localConfig.mcpServersSource).toBe("local");
-      expect(localConfig.mcpServerEntries).toEqual([
-        { name: "local", command: "local-mcp" },
-      ]);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    await writeGlobalSettings(cwd, {
+      mcpServers: { exa: { enabled: true } },
+    });
+    await mkdir(join(cwd, ".corbits"), { recursive: true });
+    await writeFile(
+      join(cwd, ".corbits", "settings.json"),
+      JSON.stringify({ mcpServers: { local: { command: "local-mcp" } } }),
+    );
+    const localConfig = await loadConfig(["--cwd", cwd, "hello"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(localConfig);
+    expect(localConfig.mcpServers).toEqual([
+      BUILTIN_EXA_MCP,
+      { name: "local", command: "local-mcp" },
+    ]);
+    expect(localConfig.mcpServersSource).toBe("local");
+    expect(localConfig.mcpServerEntries).toEqual([
+      { name: "local", command: "local-mcp" },
+    ]);
   });
 
   test("preserves custom Exa and lets local omission inherit global disable", () => {
+    // A transport-bearing exa row is a custom server: it wins over the preset
+    // and is never duplicated alongside it, with or without enabled: true.
     expect(
       resolveMcpServers(
         [{ name: "exa", type: "http", url: "https://example.test/mcp" }],
+        undefined,
+      ),
+    ).toEqual([{ name: "exa", type: "http", url: "https://example.test/mcp" }]);
+    expect(
+      resolveMcpServers(
+        [
+          {
+            name: "exa",
+            type: "http",
+            url: "https://example.test/mcp",
+            enabled: true,
+          },
+        ],
         undefined,
       ),
     ).toEqual([{ name: "exa", type: "http", url: "https://example.test/mcp" }]);
@@ -327,51 +353,31 @@ describe("loadConfig", () => {
     ).toEqual([BUILTIN_EXA_MCP, { name: "files", command: "files-mcp" }]);
   });
 
-  test("resolves custom enabled Exa HTTP without duplicating the builtin", () => {
-    expect(
-      resolveMcpServers(
-        [
-          {
-            name: "exa",
-            type: "http",
-            url: "https://example.test/mcp",
-            enabled: true,
-          },
-        ],
-        undefined,
-      ),
-    ).toEqual([{ name: "exa", type: "http", url: "https://example.test/mcp" }]);
-  });
-
   test("loadConfig keeps disabled global transport rows in mcpServerEntries only", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd, {
-        mcpServers: {
-          linear: {
-            type: "http",
-            url: "https://mcp.linear.app/mcp",
-            enabled: false,
-          },
-        },
-      });
-      const config = await loadConfig(["--cwd", cwd, "hello"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.mcpServersSource).toBe("global");
-      expect(config.mcpServerEntries).toEqual([
-        {
-          name: "linear",
+    const globalPath = await writeGlobalSettings(cwd, {
+      mcpServers: {
+        linear: {
           type: "http",
           url: "https://mcp.linear.app/mcp",
           enabled: false,
         },
-      ]);
-      expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+      },
+    });
+    const config = await loadConfig(["--cwd", cwd, "hello"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(config);
+    expect(config.mcpServersSource).toBe("global");
+    expect(config.mcpServerEntries).toEqual([
+      {
+        name: "linear",
+        type: "http",
+        url: "https://mcp.linear.app/mcp",
+        enabled: false,
+      },
+    ]);
+    expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
   });
 
   test("local custom MCP requires trust while built-in Exa bypasses project trust", async () => {
@@ -398,177 +404,108 @@ describe("loadConfig", () => {
 
   test("throws when no provider can be resolved (allowUnconfigured false)", async () => {
     const cwd = await emptyCwd();
-    try {
-      await expect(
-        loadConfig(["--cwd", cwd, "do it"], {
-          globalSettingsPath: NO_SETTINGS,
-        }),
-      ).rejects.toThrow(/missing/);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    await expect(
+      loadConfig(["--cwd", cwd, "do it"], {
+        globalSettingsPath: NO_SETTINGS,
+      }),
+    ).rejects.toThrow(/missing/);
   });
 
   test("returns UnconfiguredConfig when allowUnconfigured is true and provider is missing", async () => {
     const cwd = await emptyCwd();
-    try {
-      const result = await loadConfig(["--cwd", cwd, "do it"], {
-        globalSettingsPath: NO_SETTINGS,
-        allowUnconfigured: true,
-      });
-      expect(result.configured).toBe(false);
-      if (result.configured === false) {
-        expect(result.cwd).toBe(cwd);
-        expect(result.task).toBe("do it");
-        expect(result.providerError).toMatch(/missing/);
-        expect(result.globalSettingsPath).toBe(NO_SETTINGS);
-        expect(result.cliConfigPath).toBeUndefined();
-        expect(result.programmaticSettingsPath).toBe(true);
-      }
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
+    const result = await loadConfig(["--cwd", cwd, "do it"], {
+      globalSettingsPath: NO_SETTINGS,
+      allowUnconfigured: true,
+    });
+    expect(result.configured).toBe(false);
+    if (result.configured === false) {
+      expect(result.cwd).toBe(cwd);
+      expect(result.task).toBe("do it");
+      expect(result.providerError).toMatch(/missing/);
+      expect(result.globalSettingsPath).toBe(NO_SETTINGS);
+      expect(result.cliConfigPath).toBeUndefined();
+      expect(result.programmaticSettingsPath).toBe(true);
     }
   });
 
   test("threads local settings diagnostics on unconfigured early return", async () => {
     const cwd = await emptyCwd();
-    try {
-      await mkdir(join(cwd, ".corbits"), { recursive: true });
-      await writeFile(
-        join(cwd, ".corbits", "settings.json"),
-        JSON.stringify({ unknownKey: true, anotherJunk: 1 }),
-      );
-      const result = await loadConfig(["--cwd", cwd, "do it"], {
-        globalSettingsPath: NO_SETTINGS,
-        allowUnconfigured: true,
-      });
-      expect(result.configured).toBe(false);
-      if (result.configured === false) {
-        expect(result.settingsDiagnostics).toBeDefined();
-        expect(defined(result.settingsDiagnostics).length).toBeGreaterThan(0);
-        expect(
-          defined(result.settingsDiagnostics).some((d) =>
-            /unknown/i.test(d.message),
-          ),
-        ).toBe(true);
-      }
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
+    await mkdir(join(cwd, ".corbits"), { recursive: true });
+    await writeFile(
+      join(cwd, ".corbits", "settings.json"),
+      JSON.stringify({ unknownKey: true, anotherJunk: 1 }),
+    );
+    const result = await loadConfig(["--cwd", cwd, "do it"], {
+      globalSettingsPath: NO_SETTINGS,
+      allowUnconfigured: true,
+    });
+    expect(result.configured).toBe(false);
+    if (result.configured === false) {
+      expect(result.settingsDiagnostics).toBeDefined();
+      expect(defined(result.settingsDiagnostics).length).toBeGreaterThan(0);
+      expect(
+        defined(result.settingsDiagnostics).some((d) =>
+          /unknown/i.test(d.message),
+        ),
+      ).toBe(true);
     }
   });
 
   test("UnconfiguredConfig.globalSettingsPath reflects --config path, not the global default", async () => {
     const cwd = await emptyCwd();
-    try {
-      const configPath = join(cwd, "custom.json");
-      await writeFile(configPath, JSON.stringify({ providers: {} }));
-      const result = await loadConfig(
-        ["--cwd", cwd, "--config", configPath, "task"],
-        {
-          allowUnconfigured: true,
-        },
-      );
-      expect(result.configured).toBe(false);
-      if (result.configured === false) {
-        expect(result.globalSettingsPath).toBe(configPath);
-        expect(result.cliConfigPath).toBe(configPath);
-        expect(result.programmaticSettingsPath).toBe(false);
-      }
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
+    const configPath = join(cwd, "custom.json");
+    await writeFile(configPath, JSON.stringify({ providers: {} }));
+    const result = await loadConfig(
+      ["--cwd", cwd, "--config", configPath, "task"],
+      {
+        allowUnconfigured: true,
+      },
+    );
+    expect(result.configured).toBe(false);
+    if (result.configured === false) {
+      expect(result.globalSettingsPath).toBe(configPath);
+      expect(result.cliConfigPath).toBe(configPath);
+      expect(result.programmaticSettingsPath).toBe(false);
     }
   });
 
-  test("rejects --force as unrecognized for tui, exec, and resume", async () => {
+  test.each([
+    (cwd: string) => ["--cwd", cwd, "--force", "run task"],
+    (cwd: string) => ["exec", "--cwd", cwd, "--force", "ship it"],
+    (cwd: string, id: string) => ["resume", id, "--force", "--cwd", cwd],
+  ])("rejects --force as unrecognized (%#)", async (argv) => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      await expect(
-        loadConfig(["--cwd", cwd, "--force", "run task"], {
-          globalSettingsPath: globalPath,
-        }),
-      ).rejects.toThrow("unrecognized flag: --force");
-      await expect(
-        loadConfig(["exec", "--cwd", cwd, "--force", "ship it"], {
-          globalSettingsPath: globalPath,
-        }),
-      ).rejects.toThrow("unrecognized flag: --force");
-      const sessionId = generateSessionId();
-      await expect(
-        loadConfig(["resume", sessionId, "--force", "--cwd", cwd], {
-          globalSettingsPath: globalPath,
-        }),
-      ).rejects.toThrow("unrecognized flag: --force");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("parses exec subcommand and keeps flags", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(
-        ["exec", "--cwd", cwd, "--auto", "ship it"],
-        {
-          globalSettingsPath: globalPath,
-        },
-      );
-      assertConfigured(config);
-      expect(config.command).toBe("exec");
-      expect(config.task).toBe("ship it");
-      expect(config.auto).toBe(true);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("parses run as exec alias", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["run", "--cwd", cwd, "alias task"], {
+    const globalPath = await writeGlobalSettings(cwd);
+    await expect(
+      loadConfig(argv(cwd, generateSessionId()), {
         globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.command).toBe("exec");
-      expect(config.task).toBe("alias task");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+      }),
+    ).rejects.toThrow("unrecognized flag: --force");
   });
 
-  test("parses exec --director builder", async () => {
+  test.each([
+    {
+      argv: ["exec", "--auto", "ship it"],
+      expected: { task: "ship it", auto: true },
+    },
+    { argv: ["run", "alias task"], expected: { task: "alias task" } },
+    {
+      argv: ["exec", "--director", "builder", "ship it"],
+      expected: { task: "ship it", director: "builder" },
+    },
+    // No --director leaves it undefined (skywalker default).
+    { argv: ["exec", "ship it"], expected: { task: "ship it" } },
+  ] as const)("parses %j as exec", async ({ argv, expected }) => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(
-        ["exec", "--cwd", cwd, "--director", "builder", "ship it"],
-        {
-          globalSettingsPath: globalPath,
-        },
-      );
-      assertConfigured(config);
-      expect(config.command).toBe("exec");
-      expect(config.director).toBe("builder");
-      expect(config.task).toBe("ship it");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("omits director as undefined (skywalker default)", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["exec", "--cwd", cwd, "ship it"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.command).toBe("exec");
+    const globalPath = await writeGlobalSettings(cwd);
+    const config = await loadConfig([...argv, "--cwd", cwd], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(config);
+    expect(config.command).toBe("exec");
+    expect(config).toMatchObject(expected);
+    if (!("director" in expected)) {
       expect(config.director).toBeUndefined();
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
     }
   });
 
@@ -596,501 +533,405 @@ describe("loadConfig", () => {
     ).rejects.toThrow("--director is only available in exec mode");
   });
 
-  test("resume --pick opens the session picker without requiring prior sessions", async () => {
+  test.each([
+    // --pick flag, bare resume, and the continue --list alias all land on the
+    // picker without requiring prior sessions.
+    { argv: ["resume", "--pick"] },
+    { argv: ["resume"] },
+    { argv: ["continue", "--list"] },
+  ] as const)("$argv opens the session picker", async ({ argv }) => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["resume", "--pick", "--cwd", cwd], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.command).toBe("tui");
-      expect(config.resumeMode).toBe("pick");
-      expect(config.resumePicker).toBe(true);
-      expect(config.skipInitialTask).toBe(true);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("continue is an alias of resume", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["continue", "--list", "--cwd", cwd], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.resumeMode).toBe("pick");
-      expect(config.resumePicker).toBe(true);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
-
-  test("bare resume opens the picker without requiring prior sessions", async () => {
-    const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["resume", "--cwd", cwd], {
-        globalSettingsPath: globalPath,
-        home,
-      });
-      assertConfigured(config);
-      expect(config.resumeMode).toBe("pick");
-      expect(config.resumePicker).toBe(true);
-      expect(config.skipInitialTask).toBe(true);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    const config = await loadConfig([...argv, "--cwd", cwd], {
+      globalSettingsPath: globalPath,
+      home: await tempHome(),
+    });
+    assertConfigured(config);
+    expect(config.command).toBe("tui");
+    expect(config.resumeMode).toBe("pick");
+    expect(config.resumePicker).toBe(true);
+    expect(config.skipInitialTask).toBe(true);
   });
 
   test("resume <id> reopens a known session and skips the initial task", async () => {
     const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const sessionId = generateSessionId();
-      await initSessionDir(cwd, sessionId, home);
-      await saveState(
-        cwd,
-        sessionId,
-        {
-          status: "done",
-          turnsUsed: 2,
-          task: "ship resume",
-          startedAt: Date.now() - 1_000,
-          finishedAt: Date.now(),
-        },
-        home,
-      );
-      const config = await loadConfig(["resume", sessionId, "--cwd", cwd], {
-        globalSettingsPath: globalPath,
-        home,
-      });
-      assertConfigured(config);
-      expect(config.resumeMode).toBe("id");
-      expect(config.sessionId).toBe(sessionId);
-      expect(config.skipInitialTask).toBe(true);
-      expect(config.task).toBe("ship resume");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
+    const home = await tempHome();
+    const globalPath = await writeGlobalSettings(cwd);
+    const sessionId = generateSessionId();
+    await initSessionDir(cwd, sessionId, home);
+    await saveState(
+      cwd,
+      sessionId,
+      {
+        status: "done",
+        turnsUsed: 2,
+        task: "ship resume",
+        startedAt: Date.now() - 1_000,
+        finishedAt: Date.now(),
+      },
+      home,
+    );
+    const config = await loadConfig(["resume", sessionId, "--cwd", cwd], {
+      globalSettingsPath: globalPath,
+      home,
+    });
+    assertConfigured(config);
+    expect(config.resumeMode).toBe("id");
+    expect(config.sessionId).toBe(sessionId);
+    expect(config.skipInitialTask).toBe(true);
+    expect(config.task).toBe("ship resume");
   });
 
   test("resume <id> among failed siblings stays silent and reopens the target", async () => {
     const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const targetId = generateSessionId();
-      for (let i = 0; i < 6; i++) {
-        const id = i === 0 ? targetId : generateSessionId();
-        await initSessionDir(cwd, id, home);
-        await saveState(
-          cwd,
-          id,
-          {
-            status: "failed",
-            turnsUsed: 2,
-            task: i === 0 ? "target failed session" : `sibling failed ${i}`,
-            startedAt: Date.now() - 1_000 - i,
-            finishedAt: Date.now() - i,
-            error: "Cycle commit failed\nhook dump: pre-commit rejected",
-          },
-          home,
-        );
-      }
-
-      let config: Awaited<ReturnType<typeof loadConfig>> | undefined;
-      const logged = await withFileLogSink(async () => {
-        config = await loadConfig(["resume", targetId, "--cwd", cwd], {
-          globalSettingsPath: globalPath,
-          home,
-        });
-      });
-      const loaded = defined(config, "config");
-      assertConfigured(loaded);
-      expect(loaded.sessionId).toBe(targetId);
-      expect(loaded.task).toBe("target failed session");
-      expect(logged).not.toContain("unreadable session state");
-      expect(logged).not.toContain(home);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
+    const home = await tempHome();
+    const globalPath = await writeGlobalSettings(cwd);
+    const targetId = generateSessionId();
+    for (let i = 0; i < 6; i++) {
+      const id = i === 0 ? targetId : generateSessionId();
+      await initSessionDir(cwd, id, home);
+      await saveState(
+        cwd,
+        id,
+        {
+          status: "failed",
+          turnsUsed: 2,
+          task: i === 0 ? "target failed session" : `sibling failed ${i}`,
+          startedAt: Date.now() - 1_000 - i,
+          finishedAt: Date.now() - i,
+          error: "Cycle commit failed\nhook dump: pre-commit rejected",
+        },
+        home,
+      );
     }
+
+    let config: Awaited<ReturnType<typeof loadConfig>> | undefined;
+    const logged = await withFileLogSink(async () => {
+      config = await loadConfig(["resume", targetId, "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      });
+    });
+    const loaded = defined(config, "config");
+    assertConfigured(loaded);
+    expect(loaded.sessionId).toBe(targetId);
+    expect(loaded.task).toBe("target failed session");
+    expect(logged).not.toContain("unreadable session state");
+    expect(logged).not.toContain(home);
   });
 
   test("-p is the exec one-shot path in either flag order", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const model = "accounts/fireworks/routers/kimi-k2p6-turbo";
-      const viaExec = await loadConfig(["exec", "--cwd", cwd, "do the thing"], {
-        globalSettingsPath: globalPath,
-      });
-      const viaP = await loadConfig(["-p", "--cwd", cwd, "do the thing"], {
-        globalSettingsPath: globalPath,
-      });
-      const providerFirst = await loadConfig(
-        ["-p", "--provider", "fireworks", "--cwd", cwd, "hello"],
-        { globalSettingsPath: globalPath },
-      );
-      const modelFirst = await loadConfig(
-        ["--model", model, "-p", "--cwd", cwd, "hello"],
-        { globalSettingsPath: globalPath },
-      );
-      const directorFirst = await loadConfig(
-        ["--director", "skywalker", "-p", "--cwd", cwd, "ship it"],
-        { globalSettingsPath: globalPath },
-      );
-      assertConfigured(viaExec);
-      assertConfigured(viaP);
-      assertConfigured(providerFirst);
-      assertConfigured(modelFirst);
-      assertConfigured(directorFirst);
-      expect(viaP.command).toBe("exec");
-      expect(viaP.task).toBe(viaExec.task);
-      expect(viaP.providerName).toBe(viaExec.providerName);
-      expect(viaP.model).toBe(viaExec.model);
-      expect(providerFirst.command).toBe("exec");
-      expect(providerFirst.providerName).toBe("fireworks");
-      expect(providerFirst.task).toBe("hello");
-      expect(modelFirst.command).toBe("exec");
-      expect(modelFirst.model).toBe(model);
-      expect(modelFirst.task).toBe("hello");
-      expect(directorFirst.command).toBe("exec");
-      expect(directorFirst.director).toBe("skywalker");
-      expect(directorFirst.task).toBe("ship it");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    const model = "accounts/fireworks/routers/kimi-k2p6-turbo";
+    const viaExec = await loadConfig(["exec", "--cwd", cwd, "do the thing"], {
+      globalSettingsPath: globalPath,
+    });
+    const viaP = await loadConfig(["-p", "--cwd", cwd, "do the thing"], {
+      globalSettingsPath: globalPath,
+    });
+    const providerFirst = await loadConfig(
+      ["-p", "--provider", "fireworks", "--cwd", cwd, "hello"],
+      { globalSettingsPath: globalPath },
+    );
+    const modelFirst = await loadConfig(
+      ["--model", model, "-p", "--cwd", cwd, "hello"],
+      { globalSettingsPath: globalPath },
+    );
+    const directorFirst = await loadConfig(
+      ["--director", "skywalker", "-p", "--cwd", cwd, "ship it"],
+      { globalSettingsPath: globalPath },
+    );
+    assertConfigured(viaExec);
+    assertConfigured(viaP);
+    assertConfigured(providerFirst);
+    assertConfigured(modelFirst);
+    assertConfigured(directorFirst);
+    expect(viaP.command).toBe("exec");
+    expect(viaP.task).toBe(viaExec.task);
+    expect(viaP.providerName).toBe(viaExec.providerName);
+    expect(viaP.model).toBe(viaExec.model);
+    expect(providerFirst.command).toBe("exec");
+    expect(providerFirst.providerName).toBe("fireworks");
+    expect(providerFirst.task).toBe("hello");
+    expect(modelFirst.command).toBe("exec");
+    expect(modelFirst.model).toBe(model);
+    expect(modelFirst.task).toBe("hello");
+    expect(directorFirst.command).toBe("exec");
+    expect(directorFirst.director).toBe("skywalker");
+    expect(directorFirst.task).toBe("ship it");
   });
 
   test("exec --resume and -p --resume send the new prompt on that session", async () => {
     const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const sessionId = generateSessionId();
-      await initSessionDir(cwd, sessionId, home);
-      await saveState(
-        cwd,
-        sessionId,
-        {
-          status: "done",
-          turnsUsed: 2,
-          task: "original task",
-          startedAt: Date.now() - 1_000,
-          finishedAt: Date.now(),
-        },
-        home,
-      );
-      const viaExec = await loadConfig(
-        ["exec", "--resume", sessionId, "--cwd", cwd, "follow up"],
-        { globalSettingsPath: globalPath, home },
-      );
-      const viaP = await loadConfig(
-        ["-p", "--resume", sessionId, "--cwd", cwd, "follow up from p"],
-        { globalSettingsPath: globalPath, home },
-      );
-      const flagOrder = await loadConfig(
-        ["--resume", sessionId, "-p", "--cwd", cwd, "flag order"],
-        { globalSettingsPath: globalPath, home },
-      );
-      assertConfigured(viaExec);
-      assertConfigured(viaP);
-      assertConfigured(flagOrder);
-      expect(viaExec.command).toBe("exec");
-      expect(viaExec.resumeMode).toBe("id");
-      expect(viaExec.sessionId).toBe(sessionId);
-      expect(viaExec.skipInitialTask).toBeUndefined();
-      expect(viaExec.resumePicker).toBeUndefined();
-      expect(viaExec.task).toBe("follow up");
-      expect(viaP.command).toBe("exec");
-      expect(viaP.sessionId).toBe(sessionId);
-      expect(viaP.skipInitialTask).toBeUndefined();
-      expect(viaP.task).toBe("follow up from p");
-      expect(flagOrder.command).toBe("exec");
-      expect(flagOrder.sessionId).toBe(sessionId);
-      expect(flagOrder.task).toBe("flag order");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
+    const home = await tempHome();
+    const globalPath = await writeGlobalSettings(cwd);
+    const sessionId = generateSessionId();
+    await initSessionDir(cwd, sessionId, home);
+    await saveState(
+      cwd,
+      sessionId,
+      {
+        status: "done",
+        turnsUsed: 2,
+        task: "original task",
+        startedAt: Date.now() - 1_000,
+        finishedAt: Date.now(),
+      },
+      home,
+    );
+    const viaExec = await loadConfig(
+      ["exec", "--resume", sessionId, "--cwd", cwd, "follow up"],
+      { globalSettingsPath: globalPath, home },
+    );
+    const viaP = await loadConfig(
+      ["-p", "--resume", sessionId, "--cwd", cwd, "follow up from p"],
+      { globalSettingsPath: globalPath, home },
+    );
+    const flagOrder = await loadConfig(
+      ["--resume", sessionId, "-p", "--cwd", cwd, "flag order"],
+      { globalSettingsPath: globalPath, home },
+    );
+    assertConfigured(viaExec);
+    assertConfigured(viaP);
+    assertConfigured(flagOrder);
+    expect(viaExec.command).toBe("exec");
+    expect(viaExec.resumeMode).toBe("id");
+    expect(viaExec.sessionId).toBe(sessionId);
+    expect(viaExec.skipInitialTask).toBeUndefined();
+    expect(viaExec.resumePicker).toBeUndefined();
+    expect(viaExec.task).toBe("follow up");
+    expect(viaP.command).toBe("exec");
+    expect(viaP.sessionId).toBe(sessionId);
+    expect(viaP.skipInitialTask).toBeUndefined();
+    expect(viaP.task).toBe("follow up from p");
+    expect(flagOrder.command).toBe("exec");
+    expect(flagOrder.sessionId).toBe(sessionId);
+    expect(flagOrder.task).toBe("flag order");
   });
 
   test("exec --resume without an id errors and does not open a picker", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      await expect(
-        loadConfig(["exec", "--resume", "--cwd", cwd], {
-          globalSettingsPath: globalPath,
-        }),
-      ).rejects.toThrow("--resume requires a session id in exec mode");
-      await expect(
-        loadConfig(["-p", "--resume", "--cwd", cwd, "orphan prompt"], {
-          globalSettingsPath: globalPath,
-        }),
-      ).rejects.toThrow("--resume requires a session id in exec mode");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    await expect(
+      loadConfig(["exec", "--resume", "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+      }),
+    ).rejects.toThrow("--resume requires a session id in exec mode");
+    await expect(
+      loadConfig(["-p", "--resume", "--cwd", cwd, "orphan prompt"], {
+        globalSettingsPath: globalPath,
+      }),
+    ).rejects.toThrow("--resume requires a session id in exec mode");
   });
 
   test("exec --resume with a missing or unreadable id does not create a session", async () => {
     const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const missing = generateSessionId();
-      await expect(
-        loadConfig(["exec", "--resume", missing, "--cwd", cwd, "follow up"], {
-          globalSettingsPath: globalPath,
-          home,
-        }),
-      ).rejects.toThrow(new RegExp(`No session ${missing}`));
-      expect(await sessionIdsOnDisk(cwd, home)).toEqual([]);
+    const home = await tempHome();
+    const globalPath = await writeGlobalSettings(cwd);
+    const missing = generateSessionId();
+    await expect(
+      loadConfig(["exec", "--resume", missing, "--cwd", cwd, "follow up"], {
+        globalSettingsPath: globalPath,
+        home,
+      }),
+    ).rejects.toThrow(new RegExp(`No session ${missing}`));
+    expect(await sessionIdsOnDisk(cwd, home)).toEqual([]);
 
-      const unreadable = generateSessionId();
-      await initSessionDir(cwd, unreadable, home);
-      await writeFile(join(sessionDir(cwd, unreadable, home), "run.json"), "{");
-      await expect(
-        loadConfig(["-p", "--resume", unreadable, "--cwd", cwd, "follow up"], {
-          globalSettingsPath: globalPath,
-          home,
-        }),
-      ).rejects.toBeInstanceOf(CliUserError);
-      expect(await sessionIdsOnDisk(cwd, home)).toEqual([unreadable]);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
+    const unreadable = generateSessionId();
+    await initSessionDir(cwd, unreadable, home);
+    await writeFile(join(sessionDir(cwd, unreadable, home), "run.json"), "{");
+    await expect(
+      loadConfig(["-p", "--resume", unreadable, "--cwd", cwd, "follow up"], {
+        globalSettingsPath: globalPath,
+        home,
+      }),
+    ).rejects.toBeInstanceOf(CliUserError);
+    expect(await sessionIdsOnDisk(cwd, home)).toEqual([unreadable]);
   });
 
   test("a headless follow-up reopens the same context store and keeps prior turns", async () => {
     const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const sessionId = generateSessionId();
-      await initSessionDir(cwd, sessionId, home);
-      await saveState(
-        cwd,
-        sessionId,
-        {
-          status: "done",
-          turnsUsed: 1,
-          task: "first task",
-          startedAt: Date.now() - 1_000,
-          finishedAt: Date.now(),
-        },
-        home,
-      );
-      const contextDir = sessionContextDir(cwd, sessionId, home);
-      const first = await createOptimizedContextStore(contextDir);
-      await first.writeTurns([
-        {
-          role: "user",
-          content: [{ type: "text", text: "first task" }],
-          timestamp: 1,
-        },
-        {
-          role: "assistant",
-          content: [{ type: "text", text: "first answer" }],
-          model: "test",
-          timestamp: 2,
-        },
-      ]);
-      await first.writeMetadata({
-        pendingOperations: [],
-        tokenUsage: {
-          input: 1,
-          output: 1,
-          cacheRead: 0,
-          cacheWrite: 0,
-          thinking: 0,
-        },
-      });
-      await first.commit({ message: "cycle" });
+    const home = await tempHome();
+    const globalPath = await writeGlobalSettings(cwd);
+    const sessionId = generateSessionId();
+    await initSessionDir(cwd, sessionId, home);
+    await saveState(
+      cwd,
+      sessionId,
+      {
+        status: "done",
+        turnsUsed: 1,
+        task: "first task",
+        startedAt: Date.now() - 1_000,
+        finishedAt: Date.now(),
+      },
+      home,
+    );
+    const contextDir = sessionContextDir(cwd, sessionId, home);
+    const first = await createOptimizedContextStore(contextDir);
+    await first.writeTurns([
+      {
+        role: "user",
+        content: [{ type: "text", text: "first task" }],
+        timestamp: 1,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "first answer" }],
+        model: "test",
+        timestamp: 2,
+      },
+    ]);
+    await first.writeMetadata({
+      pendingOperations: [],
+      tokenUsage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        thinking: 0,
+      },
+    });
+    await first.commit({ message: "cycle" });
 
-      const config = await loadConfig(
-        ["exec", "--resume", sessionId, "--cwd", cwd, "second prompt"],
-        { globalSettingsPath: globalPath, home },
-      );
-      assertConfigured(config);
-      expect(config.command).toBe("exec");
-      expect(config.sessionId).toBe(sessionId);
-      expect(config.task).toBe("second prompt");
-      expect(config.skipInitialTask).toBeUndefined();
+    const config = await loadConfig(
+      ["exec", "--resume", sessionId, "--cwd", cwd, "second prompt"],
+      { globalSettingsPath: globalPath, home },
+    );
+    assertConfigured(config);
+    expect(config.command).toBe("exec");
+    expect(config.sessionId).toBe(sessionId);
+    expect(config.task).toBe("second prompt");
+    expect(config.skipInitialTask).toBeUndefined();
 
-      const reopened = await createOptimizedContextStore(
-        sessionContextDir(cwd, config.sessionId, home),
-      );
-      const loaded = await reopened.load();
-      expect(
-        loaded.turns.map((turn) => {
-          const block = turn.content[0];
-          return block?.type === "text" ? block.text : "";
-        }),
-      ).toEqual(["first task", "first answer"]);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
+    const reopened = await createOptimizedContextStore(
+      sessionContextDir(cwd, config.sessionId, home),
+    );
+    const loaded = await reopened.load();
+    expect(
+      loaded.turns.map((turn) => {
+        const block = turn.content[0];
+        return block?.type === "text" ? block.text : "";
+      }),
+    ).toEqual(["first task", "first answer"]);
   });
 
-  test("--resume with a non-session-id token errors instead of leaking into task text", async () => {
+  // A free-form token must error rather than leak into task text or be
+  // treated as "resume the last session".
+  test.each([
+    { argv: ["--resume", "not-a-session"] },
+    { argv: ["resume", "not-a-uuid"] },
+  ] as const)("$argv rejects a non-session-id token", async ({ argv }) => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      await expect(
-        loadConfig(["--resume", "not-a-session", "--cwd", cwd], {
-          globalSettingsPath: globalPath,
-        }),
-      ).rejects.toThrow("'not-a-session' is not a session id");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    await expect(
+      loadConfig([...argv, "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+      }),
+    ).rejects.toThrow(/not a session id/);
   });
 
   test("plain corbits always creates fresh state even when a previous session exists", async () => {
     const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const subdir = join(cwd, "nested");
-      await mkdir(subdir);
-      const previousId = generateSessionId();
-      await initSessionDir(cwd, previousId, home);
-      await saveState(
-        cwd,
-        previousId,
-        {
-          status: "running",
-          turnsUsed: 10,
-          task: "old conversation",
-          startedAt: Date.now() - 500,
-        },
-        home,
-      );
+    const home = await tempHome();
+    const globalPath = await writeGlobalSettings(cwd);
+    const subdir = join(cwd, "nested");
+    await mkdir(subdir);
+    const previousId = generateSessionId();
+    await initSessionDir(cwd, previousId, home);
+    await saveState(
+      cwd,
+      previousId,
+      {
+        status: "running",
+        turnsUsed: 10,
+        task: "old conversation",
+        startedAt: Date.now() - 500,
+      },
+      home,
+    );
 
-      const first = await loadConfig(["--cwd", cwd], {
-        globalSettingsPath: globalPath,
-        home,
-      });
-      const second = await loadConfig(["--cwd", cwd], {
-        globalSettingsPath: globalPath,
-        home,
-      });
-      const nested = await loadConfig(["--cwd", subdir], {
-        globalSettingsPath: globalPath,
-        home,
-      });
-      assertConfigured(first);
-      assertConfigured(second);
-      assertConfigured(nested);
-      expect(first.resumeMode).toBeUndefined();
-      expect(second.resumeMode).toBeUndefined();
-      expect(nested.resumeMode).toBeUndefined();
-      expect(first.sessionId).not.toBe(previousId);
-      expect(second.sessionId).not.toBe(previousId);
-      expect(nested.sessionId).not.toBe(previousId);
-      expect(first.sessionId).not.toBe(second.sessionId);
-      expect(nested.sessionId).not.toBe(first.sessionId);
-      expect(nested.sessionId).not.toBe(second.sessionId);
-      expect(first.task).toBe("");
-      expect(second.task).toBe("");
-      expect(nested.task).toBe("");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
+    const first = await loadConfig(["--cwd", cwd], {
+      globalSettingsPath: globalPath,
+      home,
+    });
+    const second = await loadConfig(["--cwd", cwd], {
+      globalSettingsPath: globalPath,
+      home,
+    });
+    const nested = await loadConfig(["--cwd", subdir], {
+      globalSettingsPath: globalPath,
+      home,
+    });
+    assertConfigured(first);
+    assertConfigured(second);
+    assertConfigured(nested);
+    expect(first.resumeMode).toBeUndefined();
+    expect(second.resumeMode).toBeUndefined();
+    expect(nested.resumeMode).toBeUndefined();
+    expect(first.sessionId).not.toBe(previousId);
+    expect(second.sessionId).not.toBe(previousId);
+    expect(nested.sessionId).not.toBe(previousId);
+    expect(first.sessionId).not.toBe(second.sessionId);
+    expect(nested.sessionId).not.toBe(first.sessionId);
+    expect(nested.sessionId).not.toBe(second.sessionId);
+    expect(first.task).toBe("");
+    expect(second.task).toBe("");
+    expect(nested.task).toBe("");
   });
 
   test("resume <id> rejects an unknown session id for this project", async () => {
     const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const missing = generateSessionId();
-      await expect(
-        loadConfig(["resume", missing, "--cwd", cwd], {
-          globalSettingsPath: globalPath,
-          home,
-        }),
-      ).rejects.toThrow(new RegExp(`No session ${missing}`));
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
+    const home = await tempHome();
+    const globalPath = await writeGlobalSettings(cwd);
+    const missing = generateSessionId();
+    await expect(
+      loadConfig(["resume", missing, "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+        home,
+      }),
+    ).rejects.toThrow(new RegExp(`No session ${missing}`));
   });
 
   test("resume <id> of an unreadable session throws a short recovery line", async () => {
     const cwd = await emptyCwd();
-    const home = await mkdtemp(join(tmpdir(), "ic-resume-home-"));
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const sessionId = generateSessionId();
-      await initSessionDir(cwd, sessionId, home);
-      const runPath = join(sessionDir(cwd, sessionId, home), "run.json");
-      await writeFile(runPath, "{ not json");
+    const home = await tempHome();
+    const globalPath = await writeGlobalSettings(cwd);
+    const sessionId = generateSessionId();
+    await initSessionDir(cwd, sessionId, home);
+    const runPath = join(sessionDir(cwd, sessionId, home), "run.json");
+    await writeFile(runPath, "{ not json");
 
-      let thrown: unknown;
-      const logged = await withFileLogSink(async () => {
-        try {
-          await loadConfig(["resume", sessionId, "--cwd", cwd], {
-            globalSettingsPath: globalPath,
-            home,
-          });
-        } catch (err) {
-          thrown = err;
-        }
-      });
-
-      expect(thrown).toBeInstanceOf(CliUserError);
-      if (thrown instanceof CliUserError) {
-        expect(thrown.exitCode).toBe(1);
-      }
-      expect(logged).toContain(runPath);
-      expect(logged).toContain("corrupt JSON");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-      await rm(home, { recursive: true, force: true });
-    }
-  });
-
-  test("resume rejects a non-id positional instead of treating it as last", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      await expect(
-        loadConfig(["resume", "not-a-uuid", "--cwd", cwd], {
+    let thrown: unknown;
+    const logged = await withFileLogSink(async () => {
+      try {
+        await loadConfig(["resume", sessionId, "--cwd", cwd], {
           globalSettingsPath: globalPath,
-        }),
-      ).rejects.toThrow(/not a session id/);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
+          home,
+        });
+      } catch (err) {
+        thrown = err;
+      }
+    });
+
+    expect(thrown).toBeInstanceOf(CliUserError);
+    if (thrown instanceof CliUserError) {
+      expect(thrown.exitCode).toBe(1);
     }
+    expect(logged).toContain(runPath);
+    expect(logged).toContain("corrupt JSON");
   });
 
   test("resume rejects combining a session id with --pick", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const id = generateSessionId();
-      await expect(
-        loadConfig(["resume", id, "--pick", "--cwd", cwd], {
-          globalSettingsPath: globalPath,
-        }),
-      ).rejects.toThrow(/cannot combine a session id with --pick/);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    const id = generateSessionId();
+    await expect(
+      loadConfig(["resume", id, "--pick", "--cwd", cwd], {
+        globalSettingsPath: globalPath,
+      }),
+    ).rejects.toThrow(/cannot combine a session id with --pick/);
   });
 
   test.each([
@@ -1163,90 +1004,70 @@ describe("loadConfig", () => {
 
   test("defaults dangerouslySkipPermissions to false", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(["--cwd", cwd, "do something"], {
-        globalSettingsPath: globalPath,
-      });
-      expect(config.dangerouslySkipPermissions).toBe(false);
-      expect(config.skipPermissionsFromSettings).toBe(false);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    const config = await loadConfig(["--cwd", cwd, "do something"], {
+      globalSettingsPath: globalPath,
+    });
+    expect(config.dangerouslySkipPermissions).toBe(false);
+    expect(config.skipPermissionsFromSettings).toBe(false);
   });
 
   test("parses --dangerously-skip-permissions", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const config = await loadConfig(
-        ["--cwd", cwd, "--dangerously-skip-permissions", "do something"],
-        { globalSettingsPath: globalPath },
-      );
-      expect(config.dangerouslySkipPermissions).toBe(true);
-      // Came from the CLI flag, not the persisted default — no startup notice.
-      expect(config.skipPermissionsFromSettings).toBe(false);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    const config = await loadConfig(
+      ["--cwd", cwd, "--dangerously-skip-permissions", "do something"],
+      { globalSettingsPath: globalPath },
+    );
+    expect(config.dangerouslySkipPermissions).toBe(true);
+    // Came from the CLI flag, not the persisted default — no startup notice.
+    expect(config.skipPermissionsFromSettings).toBe(false);
   });
 
   test("exec --auto --yolo enables process-only skip without changing settings", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      const settingsBefore = await readFile(globalPath);
-      const config = await loadConfig(
-        ["exec", "--cwd", cwd, "--auto", "--yolo", "ship", "it"],
-        { globalSettingsPath: globalPath },
-      );
+    const globalPath = await writeGlobalSettings(cwd);
+    const settingsBefore = await readFile(globalPath);
+    const config = await loadConfig(
+      ["exec", "--cwd", cwd, "--auto", "--yolo", "ship", "it"],
+      { globalSettingsPath: globalPath },
+    );
 
-      assertConfigured(config);
-      expect(config.command).toBe("exec");
-      expect(config.task).toBe("ship it");
-      expect(config.auto).toBe(true);
-      expect(config.dangerouslySkipPermissions).toBe(true);
-      expect(config.skipPermissionsFromSettings).toBe(false);
-      expect(await readFile(globalPath)).toEqual(settingsBefore);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    assertConfigured(config);
+    expect(config.command).toBe("exec");
+    expect(config.task).toBe("ship it");
+    expect(config.auto).toBe(true);
+    expect(config.dangerouslySkipPermissions).toBe(true);
+    expect(config.skipPermissionsFromSettings).toBe(false);
+    expect(await readFile(globalPath)).toEqual(settingsBefore);
   });
 
   test("seeds dangerouslySkipPermissions from global settings without the CLI flag", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd, {
-        dangerouslySkipPermissions: true,
-      });
-      const config = await loadConfig(["--cwd", cwd, "do something"], {
-        globalSettingsPath: globalPath,
-      });
-      expect(config.dangerouslySkipPermissions).toBe(true);
-      // Origin is the persisted default, not this invocation's flag — the
-      // startup notice should fire.
-      expect(config.skipPermissionsFromSettings).toBe(true);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd, {
+      dangerouslySkipPermissions: true,
+    });
+    const config = await loadConfig(["--cwd", cwd, "do something"], {
+      globalSettingsPath: globalPath,
+    });
+    expect(config.dangerouslySkipPermissions).toBe(true);
+    // Origin is the persisted default, not this invocation's flag — the
+    // startup notice should fire.
+    expect(config.skipPermissionsFromSettings).toBe(true);
   });
 
   test("CLI --dangerously-skip-permissions still wins over settings false", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd, {
-        dangerouslySkipPermissions: false,
-      });
-      const config = await loadConfig(
-        ["--cwd", cwd, "--dangerously-skip-permissions", "do something"],
-        { globalSettingsPath: globalPath },
-      );
-      expect(config.dangerouslySkipPermissions).toBe(true);
-      // CLI flag wins over settings — no notice is warranted here.
-      expect(config.skipPermissionsFromSettings).toBe(false);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd, {
+      dangerouslySkipPermissions: false,
+    });
+    const config = await loadConfig(
+      ["--cwd", cwd, "--dangerously-skip-permissions", "do something"],
+      { globalSettingsPath: globalPath },
+    );
+    expect(config.dangerouslySkipPermissions).toBe(true);
+    // CLI flag wins over settings — no notice is warranted here.
+    expect(config.skipPermissionsFromSettings).toBe(false);
   });
 
   test("persisted skip-permissions default applies regardless of cwd (machine-wide scope)", async () => {
@@ -1255,224 +1076,173 @@ describe("loadConfig", () => {
     // exact silent-everywhere behavior the startup notice exists to surface.
     const globalCwd = await emptyCwd();
     const otherCwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(globalCwd, {
-        dangerouslySkipPermissions: true,
-      });
-      const config = await loadConfig(["--cwd", otherCwd, "do something"], {
-        globalSettingsPath: globalPath,
-      });
-      expect(config.cwd).toBe(otherCwd);
-      expect(config.dangerouslySkipPermissions).toBe(true);
-      expect(config.skipPermissionsFromSettings).toBe(true);
-    } finally {
-      await rm(globalCwd, { recursive: true, force: true });
-      await rm(otherCwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(globalCwd, {
+      dangerouslySkipPermissions: true,
+    });
+    const config = await loadConfig(["--cwd", otherCwd, "do something"], {
+      globalSettingsPath: globalPath,
+    });
+    expect(config.cwd).toBe(otherCwd);
+    expect(config.dangerouslySkipPermissions).toBe(true);
+    expect(config.skipPermissionsFromSettings).toBe(true);
   });
 
-  test("reads provider and model from a --config settings file", async () => {
+  test("reads provider and model from a --config settings file, --model wins over defaultModel", async () => {
     const cwd = await emptyCwd();
-    try {
-      const settingsPath = join(cwd, "settings.json");
-      await writeFile(
-        settingsPath,
-        JSON.stringify({
-          defaultProvider: "firepass",
-          providers: {
-            firepass: {
-              baseURL: "https://firepass.example/v1",
-              apiKey: "fp-key",
-              models: ["fp-large", "fp-small"],
-              defaultModel: "fp-large",
-            },
+    const settingsPath = join(cwd, "settings.json");
+    await writeFile(
+      settingsPath,
+      JSON.stringify({
+        defaultProvider: "firepass",
+        providers: {
+          firepass: {
+            baseURL: "https://firepass.example/v1",
+            apiKey: "fp-key",
+            models: ["fp-large", "fp-small"],
+            defaultModel: "fp-large",
           },
-        }),
-      );
-      const config = await loadConfig([
-        "--cwd",
-        cwd,
-        "--config",
-        settingsPath,
-        "task",
-      ]);
-      assertConfigured(config);
-      expect(config.providerName).toBe("firepass");
-      expect(config.baseURL).toBe("https://firepass.example/v1");
-      expect(config.apiKey).toBe("fp-key");
-      expect(config.model).toBe("fp-large");
-      expect(config.globalDefaultProvider).toBe("firepass");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
-  });
+        },
+      }),
+    );
+    const config = await loadConfig([
+      "--cwd",
+      cwd,
+      "--config",
+      settingsPath,
+      "task",
+    ]);
+    assertConfigured(config);
+    expect(config.providerName).toBe("firepass");
+    expect(config.baseURL).toBe("https://firepass.example/v1");
+    expect(config.apiKey).toBe("fp-key");
+    expect(config.model).toBe("fp-large");
+    expect(config.globalDefaultProvider).toBe("firepass");
 
-  test("--model overrides the provider default model", async () => {
-    const cwd = await emptyCwd();
-    try {
-      const settingsPath = join(cwd, "settings.json");
-      await writeFile(
-        settingsPath,
-        JSON.stringify({
-          defaultProvider: "firepass",
-          providers: {
-            firepass: {
-              baseURL: "https://firepass.example/v1",
-              apiKey: "fp-key",
-              models: ["fp-large", "fp-small"],
-              defaultModel: "fp-large",
-            },
-          },
-        }),
-      );
-      const config = await loadConfig([
-        "--cwd",
-        cwd,
-        "--config",
-        settingsPath,
-        "--model",
-        "fp-small",
-        "task",
-      ]);
-      assertConfigured(config);
-      expect(config.model).toBe("fp-small");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const overridden = await loadConfig([
+      "--cwd",
+      cwd,
+      "--config",
+      settingsPath,
+      "--model",
+      "fp-small",
+      "task",
+    ]);
+    assertConfigured(overridden);
+    expect(overridden.model).toBe("fp-small");
   });
 
   test("--config pointing at a missing file throws", async () => {
     const cwd = await emptyCwd();
-    try {
-      await expect(
-        loadConfig(["--cwd", cwd, "--config", join(cwd, "nope.json"), "task"]),
-      ).rejects.toThrow(/not found or empty/);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    await expect(
+      loadConfig(["--cwd", cwd, "--config", join(cwd, "nope.json"), "task"]),
+    ).rejects.toThrow(/not found or empty/);
   });
 
   test("--profile flag surfaces profile name and model from project profile.json", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      await mkdir(join(cwd, ".corbits"), { recursive: true });
-      await writeFile(
-        join(cwd, ".corbits", "profile.json"),
-        JSON.stringify({
-          model: "profile-model",
-          systemPromptExtensions: ["ext1"],
-        }),
-      );
-      const config = await loadConfig(["--cwd", cwd, "task"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.model).toBe("profile-model");
-      expect(config.systemPromptExtensions).toEqual(["ext1"]);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    await mkdir(join(cwd, ".corbits"), { recursive: true });
+    await writeFile(
+      join(cwd, ".corbits", "profile.json"),
+      JSON.stringify({
+        model: "profile-model",
+        systemPromptExtensions: ["ext1"],
+      }),
+    );
+    const config = await loadConfig(["--cwd", cwd, "task"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(config);
+    expect(config.model).toBe("profile-model");
+    expect(config.systemPromptExtensions).toEqual(["ext1"]);
   });
 
   test("--model flag overrides profile model", async () => {
     const cwd = await emptyCwd();
-    try {
-      const globalPath = await writeGlobalSettings(cwd);
-      await mkdir(join(cwd, ".corbits"), { recursive: true });
-      await writeFile(
-        join(cwd, ".corbits", "profile.json"),
-        JSON.stringify({ model: "profile-model" }),
-      );
-      const config = await loadConfig(
-        [
-          "--cwd",
-          cwd,
-          "--model",
-          "accounts/fireworks/routers/kimi-k2p6-turbo",
-          "task",
-        ],
-        {
-          globalSettingsPath: globalPath,
-        },
-      );
-      assertConfigured(config);
-      expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+    const globalPath = await writeGlobalSettings(cwd);
+    await mkdir(join(cwd, ".corbits"), { recursive: true });
+    await writeFile(
+      join(cwd, ".corbits", "profile.json"),
+      JSON.stringify({ model: "profile-model" }),
+    );
+    const config = await loadConfig(
+      [
+        "--cwd",
+        cwd,
+        "--model",
+        "accounts/fireworks/routers/kimi-k2p6-turbo",
+        "task",
+      ],
+      {
+        globalSettingsPath: globalPath,
+      },
+    );
+    assertConfigured(config);
+    expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
   });
 
   test("per-repo local settings select the provider", async () => {
     const cwd = await emptyCwd();
-    try {
-      await mkdir(join(cwd, ".corbits"), { recursive: true });
-      await writeFile(
-        join(cwd, ".corbits", "settings.json"),
-        JSON.stringify({ provider: "b", model: "b-model" }),
-      );
-      const globalPath = join(cwd, "global.json");
-      await writeFile(
-        globalPath,
-        JSON.stringify({
-          defaultProvider: "a",
-          providers: {
-            a: {
-              baseURL: "https://a/v1",
-              apiKey: "a-key",
-              models: ["a-model"],
-            },
-            b: {
-              baseURL: "https://b/v1",
-              apiKey: "b-key",
-              models: ["b-model"],
-            },
+    await mkdir(join(cwd, ".corbits"), { recursive: true });
+    await writeFile(
+      join(cwd, ".corbits", "settings.json"),
+      JSON.stringify({ provider: "b", model: "b-model" }),
+    );
+    const globalPath = join(cwd, "global.json");
+    await writeFile(
+      globalPath,
+      JSON.stringify({
+        defaultProvider: "a",
+        providers: {
+          a: {
+            baseURL: "https://a/v1",
+            apiKey: "a-key",
+            models: ["a-model"],
           },
-        }),
-      );
-      const config = await loadConfig(["--cwd", cwd, "task"], {
-        globalSettingsPath: globalPath,
-      });
-      assertConfigured(config);
-      expect(config.providerName).toBe("b");
-      expect(config.model).toBe("b-model");
-      expect(config.apiKey).toBe("b-key");
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+          b: {
+            baseURL: "https://b/v1",
+            apiKey: "b-key",
+            models: ["b-model"],
+          },
+        },
+      }),
+    );
+    const config = await loadConfig(["--cwd", cwd, "task"], {
+      globalSettingsPath: globalPath,
+    });
+    assertConfigured(config);
+    expect(config.providerName).toBe("b");
+    expect(config.model).toBe("b-model");
+    expect(config.apiKey).toBe("b-key");
   });
 
   test("rejects a local reasoningEffort unsupported by the selected model", async () => {
     const cwd = await emptyCwd();
-    try {
-      await mkdir(join(cwd, ".corbits"), { recursive: true });
-      await writeFile(
-        join(cwd, ".corbits", "settings.json"),
-        JSON.stringify({
-          provider: "a",
-          model: "a-model",
-          reasoningEffort: "xhigh",
-        }),
-      );
-      const globalPath = join(cwd, "global.json");
-      await writeFile(
-        globalPath,
-        JSON.stringify({
-          providers: {
-            a: {
-              baseURL: "https://a/v1",
-              apiKey: "a-key",
-              models: ["a-model"],
-            },
+    await mkdir(join(cwd, ".corbits"), { recursive: true });
+    await writeFile(
+      join(cwd, ".corbits", "settings.json"),
+      JSON.stringify({
+        provider: "a",
+        model: "a-model",
+        reasoningEffort: "xhigh",
+      }),
+    );
+    const globalPath = join(cwd, "global.json");
+    await writeFile(
+      globalPath,
+      JSON.stringify({
+        providers: {
+          a: {
+            baseURL: "https://a/v1",
+            apiKey: "a-key",
+            models: ["a-model"],
           },
-        }),
-      );
-      await expect(
-        loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath }),
-      ).rejects.toThrow(/reasoningEffort/);
-    } finally {
-      await rm(cwd, { recursive: true, force: true });
-    }
+        },
+      }),
+    );
+    await expect(
+      loadConfig(["--cwd", cwd, "task"], { globalSettingsPath: globalPath }),
+    ).rejects.toThrow(/reasoningEffort/);
   });
 });
 
@@ -1641,13 +1411,6 @@ describe("buildXaiSource", () => {
 });
 
 describe("buildProviderCatalog", () => {
-  const resolved: ResolvedProvider = {
-    providerName: "fp",
-    baseURL: "https://fp/v1",
-    apiKey: "fp-key",
-    model: "fp-large",
-  };
-
   test("lists every provider from the settings file", () => {
     const settings: Settings = {
       defaultProvider: "fp",
@@ -2015,105 +1778,74 @@ describe("buildProviderCatalog", () => {
 });
 
 describe("refreshLiveProviderCatalog", () => {
-  const resolved: ResolvedProvider = {
-    providerName: "fp",
+  const fpProvider: Settings["providers"][string] = {
     baseURL: "https://fp/v1",
     apiKey: "fp-key",
-    model: "fp-large",
+    models: ["fp-large"],
   };
 
-  const settings: Settings = {
-    providers: {
-      fp: {
-        baseURL: "https://fp/v1",
-        apiKey: "fp-key",
-        models: ["fp-large"],
-      },
-      go: {
+  test.each([
+    {
+      name: "go",
+      provider: {
         baseURL: OPENCODE_GO_BASE_URL,
         apiKey: "go-key",
         models: ["go-model"],
         opencodeGo: true,
-      },
+      } satisfies Settings["providers"][string],
+      coldIds: OPENCODE_GO_MODEL_IDS,
+      prefetch: prefetchGoModels,
     },
-  };
+    {
+      name: "zen",
+      provider: {
+        baseURL: ZEN_DEFAULT_BASE_URL,
+        apiKey: "zen-key",
+        models: ["zen-model"],
+      } satisfies Settings["providers"][string],
+      coldIds: ZEN_MODEL_IDS,
+      prefetch: prefetchZenModels,
+    },
+  ])(
+    "overlays the $name row's models with live discovery without changing other rows",
+    async ({ name, provider, coldIds, prefetch }) => {
+      const settings: Settings = {
+        providers: { fp: fpProvider, [name]: provider },
+      };
+      const storedModel = `${name}-model`;
 
-  test("overlays Go row models with selectableGoModelIds without changing non-Go rows", async () => {
-    const cold = await refreshLiveProviderCatalog(settings, resolved);
-    const coldGo = cold.find((c) => c.name === "go");
-    expect(coldGo?.models).toEqual([...OPENCODE_GO_MODEL_IDS]);
-    expect(coldGo?.models).not.toContain("go-model");
-    expect(cold.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
-    expect(
-      buildProviderCatalog(settings, resolved).find((c) => c.name === "go")
-        ?.models,
-    ).toEqual(["go-model"]);
+      const cold = await refreshLiveProviderCatalog(settings, resolved);
+      const coldRow = cold.find((c) => c.name === name);
+      expect(coldRow?.models).toEqual([...coldIds]);
+      expect(coldRow?.models).not.toContain(storedModel);
+      expect(cold.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
+      // Discovery overlay is runtime-only: the on-disk catalog keeps the
+      // stored model list.
+      expect(
+        buildProviderCatalog(settings, resolved).find((c) => c.name === name)
+          ?.models,
+      ).toEqual([storedModel]);
 
-    globalThis.fetch = (async () =>
-      Response.json({
-        data: [{ id: "grok-4.5" }, { id: "live-only-fixture-model" }],
-      })) as unknown as typeof fetch;
-    await prefetchGoModels();
+      globalThis.fetch = (async () =>
+        Response.json({
+          data: [{ id: "grok-4.5" }, { id: "live-only-fixture-model" }],
+        })) as unknown as typeof fetch;
+      await prefetch();
 
-    const warm = await refreshLiveProviderCatalog(settings, resolved);
-    const warmGo = warm.find((c) => c.name === "go");
-    expect(warmGo?.models).toContain("live-only-fixture-model");
-    expect(warm.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
-    expect(
-      buildProviderCatalog(settings, resolved).find((c) => c.name === "go")
-        ?.models,
-    ).toEqual(["go-model"]);
-  });
-
-  test("overlays Zen row models with selectableZenModelIds without changing non-Zen rows", async () => {
-    const zenSettings: Settings = {
-      providers: {
-        fp: {
-          baseURL: "https://fp/v1",
-          apiKey: "fp-key",
-          models: ["fp-large"],
-        },
-        zen: {
-          baseURL: ZEN_DEFAULT_BASE_URL,
-          apiKey: "zen-key",
-          models: ["zen-model"],
-        },
-      },
-    };
-    const cold = await refreshLiveProviderCatalog(zenSettings, resolved);
-    const coldZen = cold.find((c) => c.name === "zen");
-    expect(coldZen?.models).toEqual([...ZEN_MODEL_IDS]);
-    expect(coldZen?.models).not.toContain("zen-model");
-    expect(cold.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
-    expect(
-      buildProviderCatalog(zenSettings, resolved).find((c) => c.name === "zen")
-        ?.models,
-    ).toEqual(["zen-model"]);
-
-    globalThis.fetch = (async () =>
-      Response.json({
-        data: [{ id: "gpt-6-astra" }, { id: "live-only-fixture-model" }],
-      })) as unknown as typeof fetch;
-    await prefetchZenModels();
-
-    const warm = await refreshLiveProviderCatalog(zenSettings, resolved);
-    const warmZen = warm.find((c) => c.name === "zen");
-    expect(warmZen?.models).toContain("live-only-fixture-model");
-    expect(warm.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
-    expect(
-      buildProviderCatalog(zenSettings, resolved).find((c) => c.name === "zen")
-        ?.models,
-    ).toEqual(["zen-model"]);
-  });
+      const warm = await refreshLiveProviderCatalog(settings, resolved);
+      expect(warm.find((c) => c.name === name)?.models).toContain(
+        "live-only-fixture-model",
+      );
+      expect(warm.find((c) => c.name === "fp")?.models).toEqual(["fp-large"]);
+      expect(
+        buildProviderCatalog(settings, resolved).find((c) => c.name === name)
+          ?.models,
+      ).toEqual([storedModel]);
+    },
+  );
 });
 
 describe("catalog credential-removal convergence", () => {
-  const resolved: ResolvedProvider = {
-    providerName: "fp",
-    baseURL: "https://fp/v1",
-    apiKey: "fp-key",
-    model: "fp-large",
-  };
   const credentialed: Settings = {
     providers: {
       fp: { baseURL: "https://fp/v1", apiKey: "fp-key", models: ["fp-large"] },

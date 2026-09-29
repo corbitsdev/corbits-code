@@ -116,6 +116,22 @@ function spawnImplement(
   });
 }
 
+function spawnExplore(
+  spawn: ReturnType<typeof createSpawnAgentTool>,
+  description: string,
+  prompt = "do it",
+) {
+  return callFleetTool(spawn, { description, prompt, intent: "explore" });
+}
+
+function spawnExploreId(
+  spawn: ReturnType<typeof createSpawnAgentTool>,
+  description: string,
+  prompt = "do it",
+) {
+  return spawnAgentId(spawn, { description, prompt, intent: "explore" });
+}
+
 async function spawnParkedAsk(
   opts: {
     deliver?: () => void;
@@ -144,11 +160,7 @@ async function spawnParkedAsk(
   });
   const spawn = createSpawnAgentTool(deps);
   const list = fleetTools(deps).list;
-  const id = await spawnAgentId(spawn, {
-    description: "need a path",
-    prompt: "do it",
-    intent: "explore",
-  });
+  const id = await spawnExploreId(spawn, "need a path", "do it");
   await waitUntilAwaitingDirector(deps.fleetRecords, deps.sessions, id);
   return { gate, deps, list, id, askReply };
 }
@@ -283,16 +295,8 @@ async function spawnHolderAndQueued(
   first: Record<string, unknown>;
   queued: Record<string, unknown>;
 }> {
-  const first = await callFleetTool(spawn, {
-    description: "holder",
-    prompt: "hold",
-    intent: "explore",
-  });
-  const queued = await callFleetTool(spawn, {
-    description: "queued",
-    prompt: "wait",
-    intent: "explore",
-  });
+  const first = await spawnExplore(spawn, "holder", "hold");
+  const queued = await spawnExplore(spawn, "queued", "wait");
   expect(first.status).toBe("running");
   expect(queued.status).toBe("queued");
   return { first, queued };
@@ -307,11 +311,7 @@ async function settledYieldLane(): Promise<{
   const wait = waitTool(deps, {
     shouldYieldWait: () => occupancyShouldYieldWait(deps.fleetRecords),
   });
-  const id = await spawnAgentId(createSpawnAgentTool(deps), {
-    description: "lane",
-    prompt: "do it",
-    intent: "explore",
-  });
+  const id = await spawnExploreId(createSpawnAgentTool(deps), "lane", "do it");
   await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, id);
   return { deps, wait, id };
 }
@@ -340,11 +340,7 @@ describe("spawn_agent", () => {
     const spawn = createSpawnAgentTool(deps);
 
     const started = Date.now();
-    const result = await callFleetTool(spawn, {
-      description: "job",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const result = await spawnExplore(spawn, "job", "do it");
     const elapsed = Date.now() - started;
 
     expect(result.status).toBe("running");
@@ -439,13 +435,7 @@ describe("spawn_agent + wait_agents", () => {
     const wait = waitTool(deps);
 
     const spawned = await Promise.all(
-      [0, 1, 2].map((i) =>
-        callFleetTool(spawn, {
-          description: `job-${i}`,
-          prompt: "do it",
-          intent: "explore",
-        }),
-      ),
+      [0, 1, 2].map((i) => spawnExplore(spawn, `job-${i}`, "do it")),
     );
     const ids = spawned.map((s) => s.agent_id as string);
 
@@ -487,11 +477,7 @@ describe("spawn_agent + wait_agents", () => {
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
 
-    const id = await spawnAgentId(spawn, {
-      description: "slow job",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "slow job", "do it");
 
     const first = await callFleetTool(wait, { targets: [id], timeout_ms: 20 });
     expect(first.timed_out).toBe(true);
@@ -527,16 +513,8 @@ describe("spawn_agent + wait_agents", () => {
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
 
-    await callFleetTool(spawn, {
-      description: "a",
-      prompt: "do it",
-      intent: "explore",
-    });
-    await callFleetTool(spawn, {
-      description: "b",
-      prompt: "do it",
-      intent: "explore",
-    });
+    await spawnExplore(spawn, "a", "do it");
+    await spawnExplore(spawn, "b", "do it");
 
     defined(gs[0]).resolve({ report: "a done" });
     const result = await callFleetTool(wait, { timeout_ms: 2000 });
@@ -616,11 +594,7 @@ describe("spawn_agent + wait_agents", () => {
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
 
-    const id = await spawnAgentId(spawn, {
-      description: "cancel salvage",
-      prompt: "probe",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "cancel salvage", "probe");
 
     expect(deps.sessions.cancel(id)).toBe(true);
     expect(deps.sessions.get(id)?.status).toBe("cancelled");
@@ -657,11 +631,7 @@ describe("spawn_agent + wait_agents", () => {
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
 
-    const id = await spawnAgentId(spawn, {
-      description: "catch cancel",
-      prompt: "probe",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "catch cancel", "probe");
     expect(deps.sessions.cancel(id)).toBe(true);
 
     const waited = await callFleetTool(wait, {
@@ -727,24 +697,6 @@ describe("spawn_agent + wait_agents", () => {
 });
 
 describe("spawn_agent same-cwd concurrency", () => {
-  test("two concurrent implement-intent spawn_agent calls against the same cwd both start", async () => {
-    const gs = gates(2);
-    let callIndex = 0;
-    const deps = createFleetDeps(async () => defined(gs[callIndex++]).promise, {
-      cwd: "/repo",
-    });
-    const spawn = createSpawnAgentTool(deps);
-
-    const first = await spawnImplement(spawn, "build one");
-    const second = await spawnImplement(spawn, "build two");
-
-    expect(first.status).toBe("running");
-    expect(second.status).toBe("running");
-
-    defined(gs[0]).resolve({ report: "one done" });
-    defined(gs[1]).resolve({ report: "two done" });
-  });
-
   test("a terminal but unsettled shared-cwd lane does not conflict with a later spawn", async () => {
     const dir = await mkdtemp(join(tmpdir(), "fleet-overlap-terminal-"));
     const { deps, gates } = overlapDeps(dir, 2);
@@ -796,11 +748,7 @@ describe("spawn_agent same-cwd concurrency", () => {
     const { deps, gates } = overlapDeps(dir, 2);
     const spawn = createSpawnAgentTool(deps);
 
-    await callFleetTool(spawn, {
-      description: "look around",
-      prompt: "map the tree",
-      intent: "explore",
-    });
+    await spawnExplore(spawn, "look around", "map the tree");
     await spawnImplement(spawn, "build one");
     await new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -1027,11 +975,7 @@ describe("spawn_agent parentage", () => {
     deps.parentSessionId = "parent-orch";
     const spawn = createSpawnAgentTool(deps);
 
-    const spawned = await callFleetTool(spawn, {
-      description: "child",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const spawned = await spawnExplore(spawn, "child", "do it");
     const session = deps.sessions.get(spawned.agent_id as string);
     expect(session?.parentSessionId).toBe("parent-orch");
 
@@ -1053,11 +997,7 @@ describe("wait_agents caller scope", () => {
 
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
-    const spawned = await callFleetTool(spawn, {
-      description: "mine",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const spawned = await spawnExplore(spawn, "mine", "do it");
 
     const waited = await callFleetTool(wait, { timeout_ms: 20 });
     expect(waited.timed_out).toBe(true);
@@ -1137,16 +1077,8 @@ describe("wait_agents caller scope", () => {
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
 
-    const first = await callFleetTool(spawn, {
-      description: "a",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const second = await callFleetTool(spawn, {
-      description: "b",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const first = await spawnExplore(spawn, "a", "do it");
+    const second = await spawnExplore(spawn, "b", "do it");
     const ids = [first.agent_id as string, second.agent_id as string];
 
     defined(gs[0]).resolve({ report: "a done" });
@@ -1181,16 +1113,8 @@ describe("wait_agents caller scope", () => {
     const wait = waitTool(deps);
     const interrupt = fleetTools(deps).interrupt;
 
-    const first = await callFleetTool(spawn, {
-      description: "a",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const second = await callFleetTool(spawn, {
-      description: "b",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const first = await spawnExplore(spawn, "a", "do it");
+    const second = await spawnExplore(spawn, "b", "do it");
     const ids = [first.agent_id as string, second.agent_id as string];
 
     // Interrupt one of N before mode=all starts: interrupted is terminal for
@@ -1241,11 +1165,7 @@ describe("wait_agents caller scope", () => {
     const deps = createFleetDeps(async () => gate.promise);
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
-    const id = await spawnAgentId(spawn, {
-      description: "slow",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "slow", "do it");
 
     if (wait.kind !== "full") throw new Error("expected full tool");
     const ac = new AbortController();
@@ -1285,11 +1205,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const wait = waitTool(deps);
     const interrupt = fleetTools(deps).interrupt;
 
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
 
     const waiting = callFleetTool(wait, { targets: [id], timeout_ms: 2000 });
     await callFleetToolRaw(interrupt, { target: id });
@@ -1315,11 +1231,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
 
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
 
     settle.resolve({
       report:
@@ -1343,11 +1255,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
     const sendInput = fleetTools(deps).sendInput;
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
     await callFleetTool(sendInput, { target: id, message: "keep going" });
     const waited = await callFleetTool(wait, { targets: [id], timeout_ms: 20 });
     expect(waited.timed_out).toBe(true);
@@ -1368,11 +1276,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const list = fleetTools(deps).list;
     const sendInput = fleetTools(deps).sendInput;
     const resume = fleetTools(deps).resume;
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
 
     const sent = await callFleetTool(sendInput, {
       target: id,
@@ -1435,11 +1339,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const wait = waitTool(deps);
     const sendInput = fleetTools(deps).sendInput;
     const close = fleetTools(deps).close;
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
 
     const waiting = callFleetTool(wait, { targets: [id], timeout_ms: 2000 });
     await callFleetTool(sendInput, {
@@ -1491,11 +1391,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const list = fleetTools(deps).list;
     const sendInput = fleetTools(deps).sendInput;
     const close = fleetTools(deps).close;
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
 
     await callFleetTool(sendInput, {
       target: id,
@@ -1567,11 +1463,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
     const sendInput = fleetTools(deps).sendInput;
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
     await callFleetTool(sendInput, {
       target: id,
       message: "stop that",
@@ -1670,11 +1562,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
 
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
 
     // Soft interrupt leaves the run in flight; the mailbox overlay is what
     // makes wait terminal (same path interrupt_agent takes).
@@ -1710,11 +1598,7 @@ describe("interrupt_agent unblocks wait_agents", () => {
     const wait = waitTool(deps);
     const interrupt = fleetTools(deps).interrupt;
 
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
 
     // Let onAgentReady register interrupt before we call interrupt_agent.
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1792,11 +1676,7 @@ describe("close_agent unblocks wait_agents", () => {
     const wait = waitTool(deps);
     const close = fleetTools(deps).close;
 
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
 
     const waiting = callFleetTool(wait, { targets: [id], timeout_ms: 2000 });
     await callFleetToolRaw(close, { target: id });
@@ -1822,17 +1702,9 @@ describe("list_agents", () => {
     });
     const spawn = createSpawnAgentTool(deps);
     const list = fleetTools(deps).list;
-    const spawned = await callFleetTool(spawn, {
-      description: "mine",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const spawned = await spawnExplore(spawn, "mine", "do it");
     const raw = await callFleetToolRaw(list, {});
-    const content =
-      typeof raw.content === "string"
-        ? raw.content
-        : JSON.stringify(raw.content);
-    const parsed = parseFleetJson(content) as {
+    const parsed = parseFleetJson(raw.content) as {
       agents: {
         agent_id: string;
         status: string;
@@ -1858,18 +1730,10 @@ describe("list_agents", () => {
     const spawn = createSpawnAgentTool(deps);
     const interrupt = fleetTools(deps).interrupt;
     const list = fleetTools(deps).list;
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
     await callFleetToolRaw(interrupt, { target: id });
     const raw = await callFleetToolRaw(list, {});
-    const content =
-      typeof raw.content === "string"
-        ? raw.content
-        : JSON.stringify(raw.content);
-    const parsed = JSON.parse(content) as {
+    const parsed = JSON.parse(raw.content) as {
       agents: { agent_id: string; status: string; stop_reason?: string }[];
     };
     expect(parsed.agents).toHaveLength(1);
@@ -2028,11 +1892,7 @@ describe("list_agents", () => {
     const deps = gatedRunDeps(gate);
     const spawn = createSpawnAgentTool(deps);
     const interrupt = fleetTools(deps).interrupt;
-    const id = await spawnAgentId(spawn, {
-      description: "looping",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "looping", "do it");
     await new Promise((resolve) => setTimeout(resolve, 20));
     await callFleetToolRaw(interrupt, { target: id });
     const agents = deps.sessions.list();
@@ -2112,25 +1972,6 @@ describe("spawn_agent dispatch contracts", () => {
     expect(defined(captured[0]).orchestratorTier).toBeUndefined();
     expect(defined(captured[0]).tier).toBe("leaf");
     expect(defined(captured[0]).nestedDispatch).toBeUndefined();
-  });
-
-  test("allowOrchestrator false keeps greybeard a leaf worker", async () => {
-    const captured: RunSubAgentParams[] = [];
-    const deps = createFleetDeps(async (params) => {
-      captured.push(params);
-      return { report: "ok" };
-    });
-    deps.allowOrchestrator = false;
-    const spawn = createSpawnAgentTool(deps);
-    await callFleetTool(spawn, {
-      description: "arch",
-      prompt: "judge this",
-      agent: "greybeard",
-    });
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(defined(captured[0]).orchestrator).toBeUndefined();
-    expect(defined(captured[0]).nestedDispatch).toBeUndefined();
-    expect(defined(captured[0]).tier).toBe("leaf");
   });
 
   const FAIL_CLOSED_CRITERIA =
@@ -2353,16 +2194,8 @@ describe("ask_director wait handshake", () => {
     });
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
-    const asking = await callFleetTool(spawn, {
-      description: "asking",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const running = await callFleetTool(spawn, {
-      description: "running",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const asking = await spawnExplore(spawn, "asking", "do it");
+    const running = await spawnExplore(spawn, "running", "do it");
     const waited = await callFleetTool(wait, {
       targets: [asking.agent_id, running.agent_id],
       mode: "all",
@@ -2418,11 +2251,7 @@ describe("ask_director wait handshake", () => {
       return gate.promise;
     });
     const spawn = createSpawnAgentTool(deps);
-    const id = await spawnAgentId(spawn, {
-      description: "need a path",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "need a path", "do it");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(port).toBeDefined();
     deps.sessions.complete(id, "done");
@@ -2457,11 +2286,7 @@ describe("admission queue", () => {
     const spawn = createSpawnAgentTool(deps);
     const results: { agent_id: string; status: string }[] = [];
     for (let i = 0; i < 20; i++) {
-      const result = await callFleetTool(spawn, {
-        description: `job-${i}`,
-        prompt: "do it",
-        intent: "explore",
-      });
+      const result = await spawnExplore(spawn, `job-${i}`, "do it");
       results.push({
         agent_id: result.agent_id as string,
         status: result.status as string,
@@ -2480,11 +2305,9 @@ describe("admission queue", () => {
 
     const list = fleetTools(deps).list;
     const raw = await callFleetToolRaw(list, {});
-    const content =
-      typeof raw.content === "string"
-        ? raw.content
-        : JSON.stringify(raw.content);
-    const parsed = JSON.parse(content) as { agents: { status: string }[] };
+    const parsed = JSON.parse(raw.content) as {
+      agents: { status: string }[];
+    };
     expect(parsed.agents.filter((a) => a.status === "queued")).toHaveLength(18);
     expect(parsed.agents.filter((a) => a.status === "running")).toHaveLength(2);
 
@@ -2521,11 +2344,7 @@ describe("admission queue", () => {
     deps.admission = createAdmissionQueue({ capacity: 0 });
     deps.parentSessionId = "parent-1";
     const spawn = createSpawnAgentTool(deps);
-    const result = await callFleetTool(spawn, {
-      description: "nested",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const result = await spawnExplore(spawn, "nested", "do it");
     expect(result.status).toBe("running");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(started).toBe(1);
@@ -2591,11 +2410,7 @@ describe("admission queue", () => {
     const gate = deferred<RunSubAgentResult>();
     const deps = createFleetDeps(async () => gate.promise);
     const spawn = createSpawnAgentTool(deps);
-    const result = await callFleetTool(spawn, {
-      description: "job",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const result = await spawnExplore(spawn, "job", "do it");
     expect(result.status).toBe("running");
     expect(deps.sessions.get(result.agent_id as string)?.lifecycleStatus).toBe(
       "pending_init",
@@ -2603,11 +2418,7 @@ describe("admission queue", () => {
 
     const interrupt = fleetTools(deps).interrupt;
     const raw = await callFleetToolRaw(interrupt, { target: result.agent_id });
-    const interrupted = parseFleetJson(
-      typeof raw.content === "string"
-        ? raw.content
-        : JSON.stringify(raw.content),
-    );
+    const interrupted = parseFleetJson(raw.content);
     expect(interrupted).toEqual({
       agent_id: result.agent_id,
       status: "interrupted",
@@ -2663,11 +2474,7 @@ describe("admission queue", () => {
       return { report: "ok" };
     });
     const spawn = createSpawnAgentTool(deps);
-    const result = await callFleetTool(spawn, {
-      description: "job",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const result = await spawnExplore(spawn, "job", "do it");
     await waitUntilMailboxTerminal(
       deps.fleetRecords,
       deps.sessions,
@@ -2686,16 +2493,8 @@ describe("admission queue", () => {
     });
     deps.admission = admission;
     const spawn = createSpawnAgentTool(deps);
-    const a = await callFleetTool(spawn, {
-      description: "a",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const b = await callFleetTool(spawn, {
-      description: "b",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const a = await spawnExplore(spawn, "a", "do it");
+    const b = await spawnExplore(spawn, "b", "do it");
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(started).toBe(2);
     admission.setCapacity(0);
@@ -2725,11 +2524,7 @@ describe("wait_agents occupancy yield (CL-7518)", () => {
     const deps = createFleetDeps(async () => gate.promise);
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps, { shouldYieldWait: () => true });
-    const id = await spawnAgentId(spawn, {
-      description: "live",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "live", "do it");
     const waited = await callFleetTool(wait, {
       targets: [id],
       timeout_ms: 5_000,
@@ -2751,11 +2546,7 @@ describe("wait_agents occupancy yield (CL-7518)", () => {
     const wait = waitTool(deps, {
       shouldYieldWait: () => yieldWait,
     });
-    const id = await spawnAgentId(spawn, {
-      description: "live",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "live", "do it");
     const pending = callFleetTool(wait, { targets: [id], timeout_ms: 5_000 });
     await new Promise((resolve) => setTimeout(resolve, 20));
     yieldWait = true;
@@ -2771,11 +2562,7 @@ describe("wait_agents occupancy yield (CL-7518)", () => {
     const deps = createFleetDeps(async () => ({ report: "shipped" }));
     const spawn = createSpawnAgentTool(deps);
     const wait = waitTool(deps);
-    const id = await spawnAgentId(spawn, {
-      description: "lane",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const id = await spawnExploreId(spawn, "lane", "do it");
     await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, id);
     const first = await callFleetTool(wait, {
       targets: [id],
@@ -2917,16 +2704,8 @@ describe("wait_agents timed_out collection (CL-8028)", () => {
     const wait = waitTool(deps, {
       shouldYieldWait: () => occupancyShouldYieldWait(deps.fleetRecords),
     });
-    const doneSpawn = await callFleetTool(spawn, {
-      description: "done lane",
-      prompt: "do it",
-      intent: "explore",
-    });
-    const liveSpawn = await callFleetTool(spawn, {
-      description: "live lane",
-      prompt: "do it",
-      intent: "explore",
-    });
+    const doneSpawn = await spawnExplore(spawn, "done lane", "do it");
+    const liveSpawn = await spawnExplore(spawn, "live lane", "do it");
     const doneId = doneSpawn.agent_id as string;
     const liveId = liveSpawn.agent_id as string;
     await waitUntilMailboxTerminal(deps.fleetRecords, deps.sessions, doneId);

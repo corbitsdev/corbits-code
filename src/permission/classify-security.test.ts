@@ -6,6 +6,7 @@ import {
 } from "./classify.js";
 import { autoShellRuleForCall } from "./auto-shell-policy.js";
 import { createPermissionGate } from "./gate.js";
+import type { Approval } from "./types.js";
 import { secretGuardPlugin } from "../plugins/secret-guard-plugin.js";
 
 const shellCall = (command: string): ToolCall => ({
@@ -15,61 +16,42 @@ const shellCall = (command: string): ToolCall => ({
 });
 
 describe("isAutoAllowedShellCall — code-executing flags", () => {
-  test("does not auto-allow rg --pre (arbitrary binary execution)", () => {
-    expect(isAutoAllowedShellCall(shellCall("rg --pre sh foo"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("rg --pre=sh foo"))).toBe(false);
-  });
-
-  test("does not auto-allow other rg exec-capable flags", () => {
-    expect(isAutoAllowedShellCall(shellCall("rg --pre-glob '*.gz' foo"))).toBe(
-      false,
-    );
-    expect(
-      isAutoAllowedShellCall(shellCall("rg --hostname-bin /bin/sh foo")),
-    ).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("rg --search-zip foo"))).toBe(
-      false,
-    );
-    expect(isAutoAllowedShellCall(shellCall("rg -z foo"))).toBe(false);
-  });
-
-  test("does not auto-allow shell rg or recursive grep (authz open-ended search)", () => {
-    expect(isAutoAllowedShellCall(shellCall("rg pattern src"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("grep -r needle ."))).toBe(false);
-  });
-
-  test("still auto-allows bounded non-recursive grep", () => {
-    expect(isAutoAllowedShellCall(shellCall("grep -n foo file.ts"))).toBe(true);
+  test.each([
+    // --pre and friends execute an arbitrary binary per match.
+    ["rg --pre sh foo", false],
+    ["rg --pre=sh foo", false],
+    ["rg --pre-glob '*.gz' foo", false],
+    ["rg --hostname-bin /bin/sh foo", false],
+    ["rg --search-zip foo", false],
+    ["rg -z foo", false],
+    // Open-ended search is authz policy, not auto-allowable.
+    ["rg pattern src", false],
+    ["grep -r needle .", false],
+    ["grep -n foo file.ts", true],
+  ])("isAutoAllowedShellCall(%s)", (command, expected) => {
+    expect(isAutoAllowedShellCall(shellCall(command))).toBe(expected);
   });
 });
 
 describe("isAutoAllowedShellCall — sensitive-path arguments", () => {
-  test("does not auto-allow reads of secret files", () => {
-    expect(isAutoAllowedShellCall(shellCall("cat .env"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("cat .env.production"))).toBe(
-      false,
-    );
-    expect(isAutoAllowedShellCall(shellCall("head id_rsa"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("cat server.pem"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("cat cert.p12"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("cat .ssh/known_hosts"))).toBe(
-      false,
-    );
-    expect(isAutoAllowedShellCall(shellCall("cat .netrc"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("cat .git-credentials"))).toBe(
-      false,
-    );
-    expect(
-      isAutoAllowedShellCall(
-        shellCall("env FILE=.envrc sh -c 'cat \"$FILE\"'"),
-      ),
-    ).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("sed -Enf.flaskenv input"))).toBe(
-      false,
-    );
-    expect(
-      isAutoAllowedShellCall(shellCall("sed --fil=.envrc input.txt")),
-    ).toBe(false);
+  test.each([
+    ["cat .env", false],
+    ["cat .env.production", false],
+    ["head id_rsa", false],
+    ["cat server.pem", false],
+    ["cat cert.p12", false],
+    ["cat .ssh/known_hosts", false],
+    ["cat .netrc", false],
+    ["cat .git-credentials", false],
+    ["env FILE=.envrc sh -c 'cat \"$FILE\"'", false],
+    ["sed -Enf.flaskenv input", false],
+    ["sed --fil=.envrc input.txt", false],
+    ["cat src/index.ts", true],
+    ["cat .env.example", true],
+    ["echo grep --file=.envrc", true],
+    ["echo dd if=.flaskenv", true],
+  ])("isAutoAllowedShellCall(%s)", (command, expected) => {
+    expect(isAutoAllowedShellCall(shellCall(command))).toBe(expected);
   });
 
   test("aliases, clusters, control prefixes, and ambiguity cannot auto-allow", () => {
@@ -91,17 +73,6 @@ describe("isAutoAllowedShellCall — sensitive-path arguments", () => {
     ]) {
       expect(isAutoAllowedShellCall(shellCall(command))).toBe(false);
     }
-  });
-
-  test("still auto-allows reads of ordinary files", () => {
-    expect(isAutoAllowedShellCall(shellCall("cat src/index.ts"))).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("cat .env.example"))).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("echo grep --file=.envrc"))).toBe(
-      true,
-    );
-    expect(isAutoAllowedShellCall(shellCall("echo dd if=.flaskenv"))).toBe(
-      true,
-    );
   });
 });
 
@@ -188,138 +159,68 @@ describe("clustered shell command options", () => {
 });
 
 describe("isAutoAllowedShellCall — environment dump", () => {
-  test("does not auto-allow printenv (full env dump)", () => {
-    expect(isAutoAllowedShellCall(shellCall("printenv"))).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("printenv PATH"))).toBe(false);
-  });
-
-  test("does not auto-allow bare env", () => {
-    expect(isAutoAllowedShellCall(shellCall("env"))).toBe(false);
-  });
+  test.each(["printenv", "printenv PATH", "env"])(
+    "does not auto-allow %s",
+    (command) => {
+      expect(isAutoAllowedShellCall(shellCall(command))).toBe(false);
+    },
+  );
 });
 
 describe("isAutoAllowedShellCall — workspace containment", () => {
-  test("denies reads of paths outside the workspace", () => {
-    expect(isAutoAllowedShellCall(shellCall("cat /etc/passwd"), "/repo")).toBe(
-      false,
-    );
-    expect(
-      isAutoAllowedShellCall(shellCall("strings /proc/self/environ"), "/repo"),
-    ).toBe(false);
-    expect(
-      isAutoAllowedShellCall(shellCall("xxd ../../etc/hosts"), "/repo"),
-    ).toBe(false);
-    expect(
-      isAutoAllowedShellCall(shellCall("cat ~/.aws/config"), "/repo"),
-    ).toBe(false);
-  });
-
-  test("allows reads of paths inside the workspace", () => {
-    expect(isAutoAllowedShellCall(shellCall("cat src/index.ts"), "/repo")).toBe(
-      true,
-    );
-    expect(isAutoAllowedShellCall(shellCall("wc -l README.md"), "/repo")).toBe(
-      true,
-    );
-    expect(isAutoAllowedShellCall(shellCall("ls -la"), "/repo")).toBe(true);
-    expect(
-      isAutoAllowedShellCall(shellCall("grep -n needle README.md"), "/repo"),
-    ).toBe(true);
-  });
-
-  test("denies a workspace-escaping path glued to a grep/rg flag value", () => {
-    expect(
-      isAutoAllowedShellCall(shellCall("grep --file=/etc/passwd ."), "/repo"),
-    ).toBe(false);
-    expect(
-      isAutoAllowedShellCall(shellCall("grep -f/etc/passwd ."), "/repo"),
-    ).toBe(false);
-    expect(
-      isAutoAllowedShellCall(shellCall("rg --file=/etc/passwd ."), "/repo"),
-    ).toBe(false);
-    // A separated flag value is a positional token and already caught.
-    expect(
-      isAutoAllowedShellCall(shellCall("grep -f /etc/passwd ."), "/repo"),
-    ).toBe(false);
-  });
-
-  test("allows an in-workspace flag-glued path", () => {
-    expect(
-      isAutoAllowedShellCall(
-        shellCall("grep --file=patterns.txt src"),
-        "/repo",
-      ),
-    ).toBe(true);
-  });
-
   // Pure directory listing is names/metadata only — outside-workspace targets
   // still auto-allow. Content readers (cat, head, …) remain contained.
   // tree requires an explicit depth bound (-L / --max-depth); unbounded tree
   // walks are not pure listing (same OOM class as open-ended find/rg).
-  test("auto-allows pure directory listing outside the workspace", () => {
-    expect(isAutoAllowedShellCall(shellCall("ls /tmp"), "/repo")).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("ls -la ~"), "/repo")).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("tree -L 1 /var"), "/repo")).toBe(
-      true,
-    );
-    expect(
-      isAutoAllowedShellCall(shellCall("tree --max-depth=2 /var"), "/repo"),
-    ).toBe(true);
-    expect(isAutoAllowedShellCall(shellCall("tree -L10 /var"), "/repo")).toBe(
-      true,
-    );
-  });
-
-  test("does not auto-allow unbounded recursive directory listing", () => {
-    expect(isAutoAllowedShellCall(shellCall("ls -R /"), "/repo")).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("ls -laR /tmp"), "/repo")).toBe(
-      false,
-    );
-    expect(
-      isAutoAllowedShellCall(shellCall("ls --recursive /var"), "/repo"),
-    ).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("tree /"), "/repo")).toBe(false);
-    expect(isAutoAllowedShellCall(shellCall("tree /var"), "/repo")).toBe(false);
+  test.each([
+    ["cat /etc/passwd", false],
+    ["strings /proc/self/environ", false],
+    ["xxd ../../etc/hosts", false],
+    ["cat ~/.aws/config", false],
+    ["head ~/.aws/config", false],
+    ["cat src/index.ts", true],
+    ["wc -l README.md", true],
+    ["ls -la", true],
+    ["grep -n needle README.md", true],
+    // Outside paths glued to a flag value — and a separated flag value, which
+    // is a positional token and already caught.
+    ["grep --file=/etc/passwd .", false],
+    ["grep -f/etc/passwd .", false],
+    ["rg --file=/etc/passwd .", false],
+    ["grep -f /etc/passwd .", false],
+    ["grep --file=patterns.txt src", true],
+    ["ls /tmp", true],
+    ["ls -la ~", true],
+    ["tree -L 1 /var", true],
+    ["tree --max-depth=2 /var", true],
+    ["tree -L10 /var", true],
+    ["ls -R /", false],
+    ["ls -laR /tmp", false],
+    ["ls --recursive /var", false],
+    ["tree /", false],
+    ["tree /var", false],
     // Depth present but over the pure-listing cap still forces ask (OOM).
-    expect(isAutoAllowedShellCall(shellCall("tree -L 999999 /"), "/repo")).toBe(
-      false,
-    );
-    expect(
-      isAutoAllowedShellCall(shellCall("tree --max-depth=99 /var"), "/repo"),
-    ).toBe(false);
+    ["tree -L 999999 /", false],
+    ["tree --max-depth=99 /var", false],
+  ])("isAutoAllowedShellCall(%s) under /repo", (command, expected) => {
+    expect(isAutoAllowedShellCall(shellCall(command), "/repo")).toBe(expected);
   });
 
-  test("auto mode forces ask for unbounded recursive listing even inside workspace", () => {
-    expect(autoShellRuleForCall(shellCall("ls -R ."))?.name).toBe(
-      "unbounded-listing",
-    );
-    expect(autoShellRuleForCall(shellCall("ls -laR packages"))?.name).toBe(
-      "unbounded-listing",
-    );
-    expect(autoShellRuleForCall(shellCall("tree ."))?.name).toBe(
-      "unbounded-listing",
-    );
-    expect(autoShellRuleForCall(shellCall("tree packages"))?.name).toBe(
-      "unbounded-listing",
-    );
-    expect(
-      autoShellRuleForCall(shellCall("tree -L 999999 packages"))?.name,
-    ).toBe("unbounded-listing");
+  test.each([
+    ["ls -R .", "unbounded-listing"],
+    ["ls -laR packages", "unbounded-listing"],
+    ["tree .", "unbounded-listing"],
+    ["tree packages", "unbounded-listing"],
+    ["tree -L 999999 packages", "unbounded-listing"],
     // Bounded forms stay free of the ask rule.
-    expect(autoShellRuleForCall(shellCall("ls packages"))).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall("tree -L 2 packages")),
-    ).toBeUndefined();
-  });
-
-  test("still denies content reads outside the workspace", () => {
-    expect(isAutoAllowedShellCall(shellCall("cat /etc/passwd"), "/repo")).toBe(
-      false,
-    );
-    expect(
-      isAutoAllowedShellCall(shellCall("head ~/.aws/config"), "/repo"),
-    ).toBe(false);
-  });
+    ["ls packages", undefined],
+    ["tree -L 2 packages", undefined],
+  ])(
+    "auto-mode rule for unbounded recursive listing: %s",
+    (command, expected) => {
+      expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
+    },
+  );
 });
 
 describe("pure directory listing — outside-workspace auto-shell policy", () => {
@@ -328,169 +229,72 @@ describe("pure directory listing — outside-workspace auto-shell policy", () =>
   const isRestricted = (path: string): boolean =>
     path.startsWith("~") || path.startsWith("/") || path.includes("..");
 
-  test("does not force outside-workspace ask for pure ls/tree outside paths", () => {
-    expect(
-      autoShellRuleForCall(shellCall("ls /tmp"), isRestricted),
-    ).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall("ls -la ~"), isRestricted),
-    ).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall("tree -L 1 /var"), isRestricted),
-    ).toBeUndefined();
-  });
-
-  test("unbounded recursive listing outside still forces ask", () => {
+  test.each([
+    ["ls /tmp", undefined],
+    ["ls -la ~", undefined],
+    ["tree -L 1 /var", undefined],
     // Unbounded listing is the more specific OOM rule and wins over
     // outside-workspace when both would apply.
-    expect(
-      autoShellRuleForCall(shellCall("ls -R /tmp"), isRestricted)?.name,
-    ).toBe("unbounded-listing");
-    expect(
-      autoShellRuleForCall(shellCall("tree /var"), isRestricted)?.name,
-    ).toBe("unbounded-listing");
-  });
-
-  test("still forces outside-workspace ask for content reads outside paths", () => {
+    ["ls -R /tmp", "unbounded-listing"],
+    ["tree /var", "unbounded-listing"],
     // Non-sensitive outside paths so this asserts containment, not the
     // sensitive-path ask rule (which fires first for e.g. ~/.aws/config).
-    expect(
-      autoShellRuleForCall(shellCall("cat /etc/passwd"), isRestricted)?.name,
-    ).toBe("outside-workspace");
-    expect(
-      autoShellRuleForCall(shellCall("head /tmp/notes.txt"), isRestricted)
-        ?.name,
-    ).toBe("outside-workspace");
-  });
-
-  test("chained ls outside + cat outside still asks for the content half", () => {
-    expect(
-      autoShellRuleForCall(
-        shellCall("ls /tmp && cat /etc/passwd"),
-        isRestricted,
-      )?.name,
-    ).toBe("outside-workspace");
+    ["cat /etc/passwd", "outside-workspace"],
+    ["head /tmp/notes.txt", "outside-workspace"],
+    // A chained safe listing does not hide the content-reading half.
+    ["ls /tmp && cat /etc/passwd", "outside-workspace"],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command), isRestricted)?.name).toBe(
+      expected,
+    );
   });
 });
 
 describe("isAutoAllowedShellSegment — command substitution", () => {
-  test("does not auto-allow a segment containing backtick command substitution", () => {
-    expect(isAutoAllowedShellSegment("echo `rm -rf ./build`")).toBe(false);
-  });
-
-  test("does not auto-allow a segment containing $() command substitution", () => {
-    expect(isAutoAllowedShellSegment("echo $(rm -rf ./build)")).toBe(false);
-  });
+  test.each(["echo `rm -rf ./build`", "echo $(rm -rf ./build)"])(
+    "does not auto-allow substitution in %s",
+    (command) => {
+      expect(isAutoAllowedShellSegment(command)).toBe(false);
+    },
+  );
 });
 
 describe("credential-print shell commands force ask in auto mode", () => {
-  test("macOS keychain find-*-password subcommands", () => {
-    expect(
-      autoShellRuleForCall(
-        shellCall("security find-generic-password -w -s myservice"),
-      )?.name,
-    ).toBe("credential-print");
-    expect(
-      autoShellRuleForCall(
-        shellCall("security find-internet-password -w -s example.com"),
-      )?.name,
-    ).toBe("credential-print");
-  });
-
-  test("gpg secret-key export", () => {
-    const rule = autoShellRuleForCall(
-      shellCall("gpg --export-secret-keys -a me@example.com"),
-    );
-    expect(rule?.name).toBe("credential-print");
-    expect(rule?.effect).toBe("ask");
-  });
-
-  test("cloud CLI token printers", () => {
-    expect(
-      autoShellRuleForCall(shellCall("aws configure get aws_secret_access_key"))
-        ?.name,
-    ).toBe("credential-print");
-    expect(
-      autoShellRuleForCall(shellCall("gcloud auth print-access-token"))?.name,
-    ).toBe("credential-print");
-  });
-
-  test("does not flag ordinary security/gcloud/aws usage", () => {
-    expect(autoShellRuleForCall(shellCall("gcloud auth list"))).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall("aws configure list")),
-    ).toBeUndefined();
+  test.each([
+    ["security find-generic-password -w -s myservice", "credential-print"],
+    ["security find-internet-password -w -s example.com", "credential-print"],
+    ["gpg --export-secret-keys -a me@example.com", "credential-print"],
+    ["aws configure get aws_secret_access_key", "credential-print"],
+    ["gcloud auth print-access-token", "credential-print"],
+    ["gcloud auth list", undefined],
+    ["aws configure list", undefined],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 });
 
 describe("git config mutation outside the repo forces ask in auto mode", () => {
-  test("--global write or read", () => {
-    expect(
-      autoShellRuleForCall(shellCall("git config --global user.name foo"))
-        ?.name,
-    ).toBe("git-global-config");
-    expect(
-      autoShellRuleForCall(shellCall("git config --global --get-regexp url."))
-        ?.name,
-    ).toBe("git-global-config");
-  });
-
-  test("--system", () => {
-    expect(
-      autoShellRuleForCall(shellCall("git config --system user.name foo"))
-        ?.name,
-    ).toBe("git-global-config");
-  });
-
-  test("--edit opens an editor on a config file, which can write anything", () => {
-    expect(
-      autoShellRuleForCall(shellCall("git config --global --edit"))?.name,
-    ).toBe("git-global-config");
-    expect(autoShellRuleForCall(shellCall("git config --edit"))?.name).toBe(
-      "git-global-config",
-    );
-  });
-
-  test("--file to a path outside the workspace asks (via the outside-workspace rule)", () => {
-    expect(
-      autoShellRuleForCall(
-        shellCall("git config --file ~/.gitconfig user.name foo"),
-      )?.effect,
-    ).toBe("ask");
-  });
-
-  test("--file to a workspace-relative path still asks on its own", () => {
-    expect(
-      autoShellRuleForCall(
-        shellCall("git config --file scratch.gitconfig user.name foo"),
-      )?.name,
-    ).toBe("git-global-config");
-  });
-
-  test("unsetting GIT_CONFIG_GLOBAL falls back to the real ~/.gitconfig", () => {
-    expect(
-      autoShellRuleForCall(shellCall("unset GIT_CONFIG_GLOBAL"))?.name,
-    ).toBe("git-global-config");
-  });
-
-  test("reassigning GIT_CONFIG_GLOBAL is caught by the general env-assignment rule", () => {
-    expect(
-      autoShellRuleForCall(
-        shellCall("GIT_CONFIG_GLOBAL=/tmp/x git config --global foo bar"),
-      )?.name,
-    ).toBe("env-assignment");
-  });
-
-  test("does not flag a plain repo-local config read or write", () => {
-    expect(
-      autoShellRuleForCall(shellCall("git config user.name")),
-    ).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall("git config user.email me@example.com")),
-    ).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall("git config --local user.name foo")),
-    ).toBeUndefined();
+  test.each([
+    ["git config --global user.name foo", "git-global-config"],
+    ["git config --global --get-regexp url.", "git-global-config"],
+    ["git config --system user.name foo", "git-global-config"],
+    // --edit opens an editor on a config file, which can write anything.
+    ["git config --global --edit", "git-global-config"],
+    ["git config --edit", "git-global-config"],
+    // --file to a workspace-relative path still asks under its own rule.
+    ["git config --file scratch.gitconfig user.name foo", "git-global-config"],
+    // --file to a path outside the workspace asks via outside-workspace.
+    ["git config --file ~/.gitconfig user.name foo", "outside-workspace"],
+    // Unsetting GIT_CONFIG_GLOBAL falls back to the real ~/.gitconfig.
+    ["unset GIT_CONFIG_GLOBAL", "git-global-config"],
+    // Reassigning GIT_CONFIG_GLOBAL is caught by the env-assignment rule.
+    ["GIT_CONFIG_GLOBAL=/tmp/x git config --global foo bar", "env-assignment"],
+    // Plain repo-local config reads and writes stay unflagged.
+    ["git config user.name", undefined],
+    ["git config user.email me@example.com", undefined],
+    ["git config --local user.name foo", undefined],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 });
 
@@ -526,166 +330,133 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     }
   });
 
-  test("operator approval lets a sensitive-path shell command through the gate", async () => {
-    let asked = 0;
+  // Gate fixture for the table below: an interactive (or headless where the
+  // row says so) ask-tier gate whose prompt resolves allow; `asked` counts
+  // prompts. Secret-path commands must always reach the operator — a stored
+  // grant that covered them verbatim would silently launder secret reads.
+  const secretGate = (options: {
+    approvals?: readonly Approval[];
+    auto?: boolean;
+    interactive?: boolean;
+    providerName?: string;
+    model?: string;
+  }) => {
+    const asked = { count: 0 };
     const gate = createPermissionGate({
-      approvals: [],
+      approvals: [...(options.approvals ?? [])],
       requestApproval: async () => {
-        asked++;
+        asked.count += 1;
         return { allow: true };
       },
-      interactive: true,
+      interactive: options.interactive ?? true,
       skipPermissions: false,
       reactorGated: false,
+      auto: options.auto,
+      providerName: options.providerName,
+      model: options.model,
     });
-    const verdict = await gate.evaluate(
-      shellCall("bun --env-file=../../.env.staging run bin/publish.ts"),
-    );
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
-  });
+    return { gate, asked };
+  };
+  const catGrant = { tool: "run_shell", pattern: "cat *" };
 
-  test("auto mode still prompts (does not rubber-stamp) sensitive-path shell commands", async () => {
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [],
-      requestApproval: async () => {
-        asked++;
-        return { allow: true };
+  test.each([
+    // Operator approval lets a sensitive-path command through — the point is
+    // that a human decided, not that the gate blocked.
+    {
+      label: "operator approval lets it through",
+      command: "bun --env-file=../../.env.staging run bin/publish.ts",
+      options: {},
+      allowed: true,
+      asked: 1,
+    },
+    {
+      label: "auto mode prompts rather than rubber-stamping",
+      command: "cat .env",
+      options: { auto: true },
+      allowed: true,
+      asked: 1,
+    },
+    {
+      label: "a broad stored grant does not authorize",
+      command: "cat .flaskenv",
+      options: { approvals: [catGrant] },
+      allowed: true,
+      asked: 1,
+    },
+    {
+      label: "an exact stored grant still re-prompts",
+      command: "cat .env",
+      options: { approvals: [{ tool: "run_shell", pattern: "cat .env" }] },
+      allowed: true,
+      asked: 1,
+    },
+    {
+      label: "the same broad grant still covers ordinary reads",
+      command: "cat ordinary=.envrc",
+      options: { approvals: [catGrant] },
+      allowed: true,
+      asked: 0,
+    },
+    {
+      label: "auto mode plus a grant still re-prompts",
+      command: "cat .env",
+      options: { approvals: [catGrant], auto: true },
+      allowed: true,
+      asked: 1,
+    },
+    {
+      label: "headless denies even with a matching grant",
+      command: "cat .env",
+      options: { approvals: [catGrant], interactive: false },
+      allowed: false,
+      asked: 0,
+    },
+    {
+      label: "a provider-model grant does not authorize",
+      command: "cat .env",
+      options: {
+        approvals: [
+          {
+            tool: "run_shell",
+            pattern: "cat *",
+            providerModel: "openai:gpt-4o",
+          },
+        ],
+        providerName: "openai",
+        model: "gpt-4o",
       },
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: false,
-      auto: true,
-    });
-    const verdict = await gate.evaluate(shellCall("cat .env"));
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
-  });
-
-  test("stored grants do not authorize secret-path shell commands", async () => {
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "cat *" }],
-      requestApproval: async () => {
-        asked++;
-        return { allow: true };
+      allowed: true,
+      asked: 1,
+    },
+    // File mutation of a secret path is a hard deny, not an ask — grant or not.
+    {
+      label: "auto mode hard-denies mutation of a secret path",
+      command: "echo x > .env",
+      options: { auto: true },
+      allowed: false,
+      asked: 0,
+    },
+    {
+      label: "auto mode plus a grant still hard-denies mutation",
+      command: "echo x > .env",
+      options: {
+        approvals: [{ tool: "run_shell", pattern: "echo *" }],
+        auto: true,
       },
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: false,
-    });
-    const verdict = await gate.evaluate(shellCall("cat .flaskenv"));
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
-  });
-
-  test("stored grants still authorize ordinary shell reads", async () => {
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "cat *" }],
-      requestApproval: async () => {
-        asked++;
-        return { allow: true };
-      },
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: false,
-    });
-    const verdict = await gate.evaluate(shellCall("cat ordinary=.envrc"));
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(0);
-  });
-
-  test("auto mode + grant still re-prompts for secret-path shell", async () => {
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "cat *" }],
-      requestApproval: async () => {
-        asked++;
-        return { allow: true };
-      },
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: false,
-      auto: true,
-    });
-    const verdict = await gate.evaluate(shellCall("cat .env"));
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
-  });
-
-  test("headless mode denies secret-path shell even with a matching grant", async () => {
-    const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "cat *" }],
-      interactive: false,
-      skipPermissions: false,
-      reactorGated: false,
-    });
-    const verdict = await gate.evaluate(shellCall("cat .env"));
-    expect(verdict.allowed).toBe(false);
+      allowed: false,
+      asked: 0,
+    },
+  ])("$label", async ({ command, options, allowed, asked: wantAsked }) => {
+    const { gate, asked } = secretGate(options);
+    const verdict = await gate.evaluate(shellCall(command));
+    expect(verdict.allowed).toBe(allowed);
+    expect(asked.count).toBe(wantAsked);
   });
 
   test("file-mutation deny beats sensitive-path ask in auto mode", () => {
     const rule = autoShellRuleForCall(shellCall("echo x > .env"));
     expect(rule?.name).toBe("file-mutation");
     expect(rule?.effect).toBe("deny");
-  });
-
-  test("auto mode hard-denies shell file mutation of a secret path", async () => {
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [],
-      requestApproval: async () => {
-        asked++;
-        return { allow: true };
-      },
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: false,
-      auto: true,
-    });
-    const verdict = await gate.evaluate(shellCall("echo x > .env"));
-    expect(verdict.allowed).toBe(false);
-    expect(asked).toBe(0);
-  });
-
-  test("exact grant for a secret-path command still re-prompts", async () => {
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "cat .env" }],
-      requestApproval: async () => {
-        asked++;
-        return { allow: true };
-      },
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: false,
-    });
-    const verdict = await gate.evaluate(shellCall("cat .env"));
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
-  });
-
-  test("provider-model grant does not authorize secret-path shell", async () => {
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [
-        { tool: "run_shell", pattern: "cat *", providerModel: "openai:gpt-4o" },
-      ],
-      requestApproval: async () => {
-        asked++;
-        return { allow: true };
-      },
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: false,
-      providerName: "openai",
-      model: "gpt-4o",
-    });
-    const verdict = await gate.evaluate(shellCall("cat .env"));
-    expect(verdict.allowed).toBe(true);
-    expect(asked).toBe(1);
   });
 
   test("pipeline with secret segment prompts once for the full block; safe tail grant-skips under the hood", async () => {
@@ -757,446 +528,155 @@ describe("sensitive-path shell commands require approval, not a hard deny", () =
     expect(persisted).toHaveLength(0);
     expect(asked).toBe(2);
   });
-
-  test("auto mode + grant still hard-denies mutation of a secret path", async () => {
-    let asked = 0;
-    const gate = createPermissionGate({
-      approvals: [{ tool: "run_shell", pattern: "echo *" }],
-      requestApproval: async () => {
-        asked++;
-        return { allow: true };
-      },
-      interactive: true,
-      skipPermissions: false,
-      reactorGated: false,
-      auto: true,
-    });
-    const verdict = await gate.evaluate(shellCall("echo x > .env"));
-    expect(verdict.allowed).toBe(false);
-    expect(asked).toBe(0);
-  });
 });
 
 describe("env-assignment shell commands force ask in auto mode", () => {
-  test("a bare NAME=value prefix asks", () => {
-    expect(autoShellRuleForCall(shellCall("FOO=bar npm start"))?.name).toBe(
-      "env-assignment",
-    );
-    expect(autoShellRuleForCall(shellCall("A=1 B=2 npm start"))?.name).toBe(
-      "env-assignment",
-    );
-  });
-
-  test("export asks, with or without an assignment", () => {
-    expect(autoShellRuleForCall(shellCall("export FOO=bar"))?.name).toBe(
-      "env-assignment",
-    );
-    expect(autoShellRuleForCall(shellCall("export FOO"))?.name).toBe(
-      "env-assignment",
-    );
-  });
-
-  test("the env command used to set a variable asks", () => {
-    expect(autoShellRuleForCall(shellCall("env FOO=bar npm start"))?.name).toBe(
-      "env-assignment",
-    );
-  });
-
-  test("bare env/nice/timeout wrappers with no assignment still peel through untouched", () => {
-    expect(autoShellRuleForCall(shellCall("env npm test"))).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall("nice -n 10 npm test")),
-    ).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall("timeout 30 npm test")),
-    ).toBeUndefined();
-  });
-
-  test("an env-assignment prefix on a later chain segment still asks", () => {
-    const rule = autoShellRuleForCall(shellCall("ls && FOO=bar npm start"));
-    expect(rule?.name).toBe("env-assignment");
-  });
-
-  test("file-mutation deny still beats an env-assignment ask", () => {
-    const rule = autoShellRuleForCall(
-      shellCall("FOO=bar sh -c 'echo x > .env'"),
-    );
-    expect(rule?.name).toBe("file-mutation");
-  });
-
-  test("env -S with an embedded assignment asks (the assignment lives inside the quoted argument)", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`env -S "FOO=bar sh -c 'echo got:$FOO'"`))
-        ?.name,
-    ).toBe("env-assignment");
-  });
-
-  test("env --split-string sibling forms with an embedded assignment ask", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`env --split-string="FOO=bar npm start"`))
-        ?.name,
-    ).toBe("env-assignment");
-    expect(
-      autoShellRuleForCall(shellCall(`env --split-string "FOO=bar npm start"`))
-        ?.name,
-    ).toBe("env-assignment");
-  });
-
-  test("env -i with a plain assignment argument asks", () => {
-    expect(
-      autoShellRuleForCall(shellCall("env -i FOO=bar npm start"))?.name,
-    ).toBe("env-assignment");
-    expect(autoShellRuleForCall(shellCall("env -i FOO=bar ls"))?.name).toBe(
-      "env-assignment",
-    );
-  });
-
-  test("env -u HOME with a following assignment still asks", () => {
-    expect(
-      autoShellRuleForCall(shellCall("env -u HOME FOO=bar ls"))?.name,
-    ).toBe("env-assignment");
-    expect(
-      autoShellRuleForCall(shellCall("env -u HOME LD_PRELOAD=./evil.so ls"))
-        ?.name,
-    ).toBe("env-assignment");
-  });
-
-  test("stacked short flags (env -iS) with an embedded assignment ask", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`env -iS "FOO=bar npm start"`))?.name,
-    ).toBe("env-assignment");
-  });
-
-  test("env -S with no embedded assignment does not over-trigger", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`env -S "npm start"`)),
-    ).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall(`env -S "echo hello world"`)),
-    ).toBeUndefined();
-  });
-
-  test("env -i with no assignment does not over-trigger", () => {
-    expect(autoShellRuleForCall(shellCall("env -i ls"))).toBeUndefined();
+  test.each([
+    ["FOO=bar npm start", "env-assignment"],
+    ["A=1 B=2 npm start", "env-assignment"],
+    ["export FOO=bar", "env-assignment"],
+    ["export FOO", "env-assignment"],
+    ["env FOO=bar npm start", "env-assignment"],
+    // Bare env/nice/timeout wrappers with no assignment peel through untouched.
+    ["env npm test", undefined],
+    ["nice -n 10 npm test", undefined],
+    ["timeout 30 npm test", undefined],
+    // An assignment prefix on a later chain segment still asks.
+    ["ls && FOO=bar npm start", "env-assignment"],
+    // A stricter rule beats the env-assignment ask.
+    ["FOO=bar sh -c 'echo x > .env'", "file-mutation"],
+    // env -S carries the assignment inside the quoted argument.
+    [`env -S "FOO=bar sh -c 'echo got:$FOO'"`, "env-assignment"],
+    [`env --split-string="FOO=bar npm start"`, "env-assignment"],
+    [`env --split-string "FOO=bar npm start"`, "env-assignment"],
+    ["env -i FOO=bar npm start", "env-assignment"],
+    ["env -i FOO=bar ls", "env-assignment"],
+    ["env -u HOME FOO=bar ls", "env-assignment"],
+    ["env -u HOME LD_PRELOAD=./evil.so ls", "env-assignment"],
+    [`env -iS "FOO=bar npm start"`, "env-assignment"],
+    // -S/-i with no embedded assignment must not over-trigger.
+    [`env -S "npm start"`, undefined],
+    [`env -S "echo hello world"`, undefined],
+    ["env -i ls", undefined],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 });
 
 describe("content inside an env -S payload never receives a weaker tier than it would get written plainly", () => {
-  test("a file mutation hidden inside -S is a deny, not the plain env-assignment ask", () => {
-    const rule = autoShellRuleForCall(
-      shellCall(`env -S "FOO=bar sh -c 'echo x > .env'"`),
-    );
-    expect(rule?.name).toBe("file-mutation");
-    expect(rule?.effect).toBe("deny");
-  });
-
-  test("a secret-path reference hidden inside -S gets the sensitive-path ask, not env-assignment", () => {
-    const rule = autoShellRuleForCall(
-      shellCall(`env -S "FOO=bar cat ~/.aws/credentials"`),
-    );
-    expect(rule?.name).toBe("sensitive-path");
-  });
-
-  test("a catastrophic recursive rm hidden inside -S is recognized as recursive-rm, not env-assignment", () => {
-    const rule = autoShellRuleForCall(shellCall(`env -S "FOO=bar rm -rf /"`));
-    expect(rule?.name).toBe("recursive-rm");
-  });
-
-  test("an assignment plus a benign command inside -S still just asks (unchanged)", () => {
-    const rule = autoShellRuleForCall(shellCall(`env -S "FOO=bar npm start"`));
-    expect(rule?.name).toBe("env-assignment");
-  });
-
-  test("nested quoting inside the payload (env -S wrapping bash -c) still surfaces the stricter tier", () => {
-    // Double layer: env -S's own double-quoted argument contains a
-    // `bash -c '...'` whose own single-quoted body is the real command.
-    const rule = autoShellRuleForCall(
-      shellCall(`env -S "FOO=bar bash -c 'rm -rf /'"`),
-    );
-    expect(rule?.name).toBe("recursive-rm");
-    expect(rule?.name).not.toBe("env-assignment");
-  });
-
-  test("a dependency install hidden inside -S still asks under its own more specific name", () => {
-    const rule = autoShellRuleForCall(
-      shellCall(`env -S "FOO=bar npm install left-pad"`),
-    );
-    expect(rule?.name).toBe("dependency-install");
-  });
-
-  test("trailing env terminal flags remain arguments to split payloads", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`env -S "rm -rf /" --version`))?.name,
-    ).toBe("recursive-rm");
-    expect(
-      autoShellRuleForCall(shellCall(`env -S "npm install left-pad" --help`))
-        ?.name,
-    ).toBe("dependency-install");
+  test.each([
+    // A file mutation hidden inside -S is a deny, not the env-assignment ask.
+    [`env -S "FOO=bar sh -c 'echo x > .env'"`, "file-mutation"],
+    [`env -S "FOO=bar cat ~/.aws/credentials"`, "sensitive-path"],
+    [`env -S "FOO=bar rm -rf /"`, "recursive-rm"],
+    [`env -S "FOO=bar npm start"`, "env-assignment"],
+    // Double layer: env -S's quoted argument contains a `bash -c '...'` whose
+    // own single-quoted body is the real command.
+    [`env -S "FOO=bar bash -c 'rm -rf /'"`, "recursive-rm"],
+    [`env -S "FOO=bar npm install left-pad"`, "dependency-install"],
+    // Trailing env terminal flags remain arguments to split payloads.
+    [`env -S "rm -rf /" --version`, "recursive-rm"],
+    [`env -S "npm install left-pad" --help`, "dependency-install"],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 });
 
 describe("upload-shaped network shell commands force ask in auto mode", () => {
-  test("curl with a data flag asks", () => {
-    expect(
-      autoShellRuleForCall(shellCall("curl -d 'x=1' https://example.com"))
-        ?.name,
-    ).toBe("network-upload");
-    expect(
-      autoShellRuleForCall(
-        shellCall("curl --data-binary @file.bin https://example.com"),
-      )?.name,
-    ).toBe("network-upload");
-    expect(
-      autoShellRuleForCall(shellCall("curl -F file=@a.txt https://example.com"))
-        ?.name,
-    ).toBe("network-upload");
-    expect(
-      autoShellRuleForCall(shellCall("curl -T local.txt https://example.com"))
-        ?.name,
-    ).toBe("network-upload");
-  });
-
-  test("a plain read-only curl GET does not ask under this rule", () => {
-    expect(
-      autoShellRuleForCall(shellCall("curl https://example.com")),
-    ).toBeUndefined();
-  });
-
-  test("wget posting a file or payload asks", () => {
-    expect(
-      autoShellRuleForCall(
-        shellCall("wget --post-file=data.json https://example.com"),
-      )?.name,
-    ).toBe("network-upload");
-    expect(
-      autoShellRuleForCall(
-        shellCall("wget --post-data='a=1' https://example.com"),
-      )?.name,
-    ).toBe("network-upload");
-  });
-
-  test("scp/rsync to a remote target asks", () => {
-    expect(
-      autoShellRuleForCall(shellCall("scp file.txt user@host.example.com:/tmp"))
-        ?.name,
-    ).toBe("network-upload");
-    expect(
-      autoShellRuleForCall(
-        shellCall("rsync -a dist/ host.example.com:/var/www"),
-      )?.name,
-    ).toBe("network-upload");
-  });
-
-  test("scp/rsync to a local target does not ask under this rule", () => {
-    expect(
-      autoShellRuleForCall(shellCall("scp file.txt ./backup/")),
-    ).toBeUndefined();
-    expect(
-      autoShellRuleForCall(shellCall("rsync -a src/ dist/")),
-    ).toBeUndefined();
-  });
-
-  test("netcat in any form asks", () => {
-    expect(autoShellRuleForCall(shellCall("nc -l 1234"))?.name).toBe(
-      "network-upload",
-    );
-    expect(
-      autoShellRuleForCall(shellCall("ncat host.example.com 1234"))?.name,
-    ).toBe("network-upload");
+  test.each([
+    ["curl -d 'x=1' https://example.com", "network-upload"],
+    ["curl --data-binary @file.bin https://example.com", "network-upload"],
+    ["curl -F file=@a.txt https://example.com", "network-upload"],
+    ["curl -T local.txt https://example.com", "network-upload"],
+    ["wget --post-file=data.json https://example.com", "network-upload"],
+    ["wget --post-data='a=1' https://example.com", "network-upload"],
+    ["scp file.txt user@host.example.com:/tmp", "network-upload"],
+    ["rsync -a dist/ host.example.com:/var/www", "network-upload"],
+    ["nc -l 1234", "network-upload"],
+    ["ncat host.example.com 1234", "network-upload"],
+    // Read-only fetch and local-copy forms stay unflagged.
+    ["curl https://example.com", undefined],
+    ["scp file.txt ./backup/", undefined],
+    ["rsync -a src/ dist/", undefined],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 });
 
 describe("pure directory listing exemption", () => {
-  test("tree writing its output to a file does not auto-allow", () => {
-    expect(isAutoAllowedShellCall(shellCall("tree -L 2 -o /tmp/x /var"))).toBe(
-      false,
-    );
-    expect(
-      autoShellRuleForCall(shellCall("tree -L 2 -o /tmp/x /var"))?.effect,
-    ).toBe("ask");
-    expect(
-      autoShellRuleForCall(shellCall("tree -L 2 --output=/tmp/x /var"))?.effect,
-    ).toBe("ask");
-    expect(
-      autoShellRuleForCall(shellCall("tree -L 2 -H /tmp/x /var"))?.effect,
-    ).toBe("ask");
-    expect(
-      autoShellRuleForCall(shellCall("tree -L 2 --fromfile /var"))?.effect,
-    ).toBe("ask");
-  });
-
-  test("long-form recursive ls does not auto-allow", () => {
-    expect(isAutoAllowedShellCall(shellCall("ls --recursive=x /tmp"))).toBe(
-      false,
-    );
-    expect(
-      autoShellRuleForCall(shellCall("ls --recursive=x /tmp"))?.effect,
-    ).toBe("ask");
-    expect(autoShellRuleForCall(shellCall("ls --recursive /tmp"))?.effect).toBe(
-      "ask",
-    );
-  });
-
-  test("a listing stage piped into a content reader does not auto-allow", () => {
-    expect(isAutoAllowedShellCall(shellCall("ls .env | xargs cat"))).toBe(
-      false,
-    );
-    expect(autoShellRuleForCall(shellCall("ls .env | xargs cat"))?.effect).toBe(
-      "ask",
-    );
+  // Output-writing and unbounded forms exit the exemption: no auto-allow, and
+  // the auto-mode rule still asks.
+  test.each([
+    "tree -L 2 -o /tmp/x /var",
+    "tree -L 2 --output=/tmp/x /var",
+    "tree -L 2 -H /tmp/x /var",
+    "tree -L 2 --fromfile /var",
+    "ls --recursive=x /tmp",
+    "ls --recursive /tmp",
+    "ls .env | xargs cat",
+  ])("no auto-allow for %s", (command) => {
+    expect(isAutoAllowedShellCall(shellCall(command))).toBe(false);
+    expect(autoShellRuleForCall(shellCall(command))?.effect).toBe("ask");
   });
 });
 
 describe("CL-6703 — quoted redirect targets still deny file-mutation", () => {
-  test("plain unquoted redirect denies (baseline)", () => {
-    expect(autoShellRuleForCall(shellCall("echo hi > out.txt"))?.name).toBe(
-      "file-mutation",
-    );
-  });
-
-  test("a quoted redirect target denies", () => {
-    expect(autoShellRuleForCall(shellCall(`echo hi > "out.txt"`))?.name).toBe(
-      "file-mutation",
-    );
-    expect(autoShellRuleForCall(shellCall(`echo hi > 'out.txt'`))?.name).toBe(
-      "file-mutation",
-    );
-  });
-
-  test('a quoted fd-qualified redirect target (1>"file") denies', () => {
-    expect(autoShellRuleForCall(shellCall(`echo hi 1>"file"`))?.name).toBe(
-      "file-mutation",
-    );
-  });
-
-  test("a nested bash -c form with a quoted redirect denies", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`bash -c 'echo hi > "out.txt"'`))?.name,
-    ).toBe("file-mutation");
-  });
-
-  test("a quoted '>' inside non-redirect text does not false-positive", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`git commit -m 'fix > bug'`)),
-    ).toBeUndefined();
-  });
-
-  test("a backslash-escaped quote before a redirect still denies", () => {
+  test.each([
+    ["echo hi > out.txt", "file-mutation"],
+    [`echo hi > "out.txt"`, "file-mutation"],
+    [`echo hi > 'out.txt'`, "file-mutation"],
+    [`echo hi 1>"file"`, "file-mutation"],
+    [`bash -c 'echo hi > "out.txt"'`, "file-mutation"],
+    [`git commit -m 'fix > bug'`, undefined],
     // `\"` is a literal quote character in real bash, not a quote-open — the
     // shell is never inside a quoted string here, so the `>` that follows is
     // a genuine, unquoted redirect.
-    expect(autoShellRuleForCall(shellCall('echo hi \\"> file"'))?.name).toBe(
-      "file-mutation",
-    );
-  });
-
-  test("a backslash-escaped quote ahead of a dangerous flag still denies", () => {
+    ['echo hi \\"> file"', "file-mutation"],
     // The escaped quote sits before an extra leading space, so it never
     // touches the `\s-c` junction later in the string; a naive quote-pairing
     // scanner (ignoring the backslash) would consume that junction as part
     // of a fake quoted span and hide the -c flag entirely.
-    expect(
-      autoShellRuleForCall(shellCall('python3 \\" -c print(1)"'))?.name,
-    ).toBe("file-mutation");
+    ['python3 \\" -c print(1)"', "file-mutation"],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 });
 
-describe("CL-6702 — bash clobber redirects match file-mutation", () => {
-  test("echo hi >|path denies", () => {
-    expect(autoShellRuleForCall(shellCall("echo hi >|path"))?.name).toBe(
-      "file-mutation",
-    );
-  });
-
-  test("echo hi >>|path denies", () => {
-    expect(autoShellRuleForCall(shellCall("echo hi >>|path"))?.name).toBe(
-      "file-mutation",
-    );
-  });
-});
-
-describe("bash >& file redirects match file-mutation", () => {
-  test("echo hi >& out.txt denies", () => {
-    expect(autoShellRuleForCall(shellCall("echo hi >& out.txt"))?.name).toBe(
-      "file-mutation",
-    );
-  });
-
-  test("echo hi >&file denies", () => {
-    expect(autoShellRuleForCall(shellCall("echo hi >&file"))?.name).toBe(
-      "file-mutation",
-    );
-  });
-
-  test("echo hi 2>&1 is not a file-mutation deny", () => {
-    expect(autoShellRuleForCall(shellCall("echo hi 2>&1"))?.name).not.toBe(
-      "file-mutation",
-    );
+describe("CL-6702 — bash clobber and >& redirects match file-mutation", () => {
+  test.each([
+    ["echo hi >|path", "file-mutation"],
+    ["echo hi >>|path", "file-mutation"],
+    ["echo hi >& out.txt", "file-mutation"],
+    ["echo hi >&file", "file-mutation"],
+    // An fd duplication is not a file redirect.
+    ["echo hi 2>&1", undefined],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 });
 
 describe("CL-6697 — quoted dangerous flags and program names still deny/ask", () => {
-  test("a quoted -c interpreter one-liner denies", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`python3 "-c" "print(1)"`))?.name,
-    ).toBe("file-mutation");
-  });
-
-  test("a quoted sed -i denies", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`sed "-i" 's/a/b/' file.txt`))?.name,
-    ).toBe("file-mutation");
-  });
-
-  test("a quoted npm install asks", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`npm "install" left-pad`))?.name,
-    ).toBe("dependency-install");
-  });
-
-  test("a quoted upload-tool argv0 (curl) asks", () => {
-    expect(
-      autoShellRuleForCall(
-        shellCall(`"curl" -d @payload.json https://example.com`),
-      )?.name,
-    ).toBe("network-upload");
-  });
-
-  test("an innocent quoted argument interior does not false-positive", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`git commit -m "some text"`)),
-    ).toBeUndefined();
+  test.each([
+    [`python3 "-c" "print(1)"`, "file-mutation"],
+    [`sed "-i" 's/a/b/' file.txt`, "file-mutation"],
+    [`npm "install" left-pad`, "dependency-install"],
+    [`"curl" -d @payload.json https://example.com`, "network-upload"],
+    [`git commit -m "some text"`, undefined],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 });
 
 describe("CL-6988 — nested / escaped interpreter peels do not auto-allow", () => {
-  test("a single-level bash -c redirect still denies (quote fix preserved)", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`bash -c 'echo hi > "out.txt"'`))?.name,
-    ).toBe("file-mutation");
-    expect(
-      autoShellRuleForCall(shellCall(`bash -c "echo hi > out.txt"`))?.name,
-    ).toBe("file-mutation");
-  });
-
-  test("a double-nested alternating-quote bash -c redirect still denies", () => {
-    expect(
-      autoShellRuleForCall(shellCall(`bash -c "bash -c 'echo hi > out.txt'"`))
-        ?.name,
-    ).toBe("file-mutation");
-  });
-
-  test("bash -O/-o option values before -c do not hide dependency installs", () => {
-    expect(
-      autoShellRuleForCall(
-        shellCall(`bash -O extglob -c 'npm install left-pad'`),
-      )?.name,
-    ).toBe("dependency-install");
-    expect(
-      autoShellRuleForCall(
-        shellCall(`bash -o pipefail -c 'npm install left-pad'`),
-      )?.name,
-    ).toBe("dependency-install");
+  test.each([
+    [`bash -c 'echo hi > "out.txt"'`, "file-mutation"],
+    [`bash -c "echo hi > out.txt"`, "file-mutation"],
+    [`bash -c "bash -c 'echo hi > out.txt'"`, "file-mutation"],
+    // -O/-o option values before -c must not hide dependency installs.
+    [`bash -O extglob -c 'npm install left-pad'`, "dependency-install"],
+    [`bash -o pipefail -c 'npm install left-pad'`, "dependency-install"],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 
   test("bash -c positional argv execution does not auto-allow dependency installs", () => {
@@ -1229,34 +709,16 @@ describe("CL-6988 — nested / escaped interpreter peels do not auto-allow", () 
 });
 
 describe("CL-5420 — secret checks run before pure-listing exemptions", () => {
-  test("a pure listing of a secret name still asks", () => {
-    const rule = autoShellRuleForCall(shellCall("ls .env"));
-    expect(rule?.name).toBe("sensitive-path");
-    expect(rule?.effect).toBe("ask");
-  });
-
-  test("a chain with a safe listing half flags the content-reading half", () => {
-    const rule = autoShellRuleForCall(shellCall("ls /tmp && cat .env"));
-    expect(rule?.name).toBe("sensitive-path");
-    expect(rule?.effect).toBe("ask");
-  });
-
-  test("a bounded listing with no secret reference stays exempt", () => {
-    expect(autoShellRuleForCall(shellCall("ls /tmp"))).toBeUndefined();
-  });
-
-  test("a flag-glued secret path asks", () => {
-    const rule = autoShellRuleForCall(
-      shellCall("bun --env-file=.env run publish.ts"),
-    );
-    expect(rule?.name).toBe("sensitive-path");
-    expect(rule?.effect).toBe("ask");
-  });
-
-  test("unbounded listing still asks", () => {
-    expect(autoShellRuleForCall(shellCall("ls -R"))?.name).toBe(
-      "unbounded-listing",
-    );
+  test.each([
+    ["ls .env", "sensitive-path"],
+    // A chain with a safe listing half flags the content-reading half.
+    ["ls /tmp && cat .env", "sensitive-path"],
+    // A bounded listing with no secret reference stays exempt.
+    ["ls /tmp", undefined],
+    ["bun --env-file=.env run publish.ts", "sensitive-path"],
+    ["ls -R", "unbounded-listing"],
+  ])("%s", (command, expected) => {
+    expect(autoShellRuleForCall(shellCall(command))?.name).toBe(expected);
   });
 
   test("the gate asks on a pure listing of a secret name", async () => {

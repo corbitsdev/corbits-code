@@ -14,7 +14,6 @@ import {
 } from "./runtime-bridge";
 import { DEFAULT_STALL_MS } from "./agent-progress";
 import { appendStreamRow, paintChrome } from "./shell/chrome";
-import { createAppShell } from "./shell/index";
 import {
   getShellBridgeHooks,
   type AppShell,
@@ -22,7 +21,8 @@ import {
 } from "./shell/internals";
 import { streamRowCount } from "./shell/transcript";
 import { STEER_WAIT_NOTICE_MS } from "./notice-line";
-import { withTestRenderer, type Harness } from "./harness";
+import type { Harness } from "./harness";
+import { withAppShell } from "./test-helpers";
 import { wireGates } from "./gate-wire.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import { moveOverlaySelection } from "./shell/overlay-list.js";
@@ -51,13 +51,8 @@ async function withBridge(
   opts: BridgeOpts,
   fn: (ctx: BridgeCtx) => Promise<void> | void,
 ): Promise<void> {
-  await withTestRenderer(
-    async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        wireKeys: opts.wireKeys ?? false,
-        run: opts.run ?? "idle",
-      });
+  await withAppShell(
+    async (shell, h) => {
       const emitter = new EventEmitter();
       const disposeGates =
         opts.gates === true ? wireGates(emitter, shell) : undefined;
@@ -68,10 +63,11 @@ async function withBridge(
       } finally {
         bridge.dispose();
         disposeGates?.();
-        shell.dispose();
       }
     },
-    { width: 80, height: 24 },
+    {
+      shell: { wireKeys: opts.wireKeys ?? false, run: opts.run ?? "idle" },
+    },
   );
 }
 
@@ -117,6 +113,30 @@ async function clockedBridge(
     },
     (ctx) => fn({ ...ctx, clock }),
   );
+}
+
+/** A tool-less turn settles on inference.done — the spawn_agent dispatch shape. */
+function settleToollessTurn(
+  bridge: ReturnType<typeof attachSessionBridge>,
+): void {
+  bridge.handle({ type: "inference.start", data: {} });
+  bridge.handle({ type: "inference.done", data: {} });
+}
+
+const DRY_OPEN_TASK_PROMPT =
+  "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
+
+/** Install a counting fleet-dry driver; returns the live drive count. */
+function installDryDriver(
+  bridge: ReturnType<typeof attachSessionBridge>,
+): () => number {
+  let drives = 0;
+  bridge.setDryOpenTaskDriver(() => {
+    drives += 1;
+    bridge.beginSystemContinuation(DRY_OPEN_TASK_PROMPT);
+    return true;
+  });
+  return () => drives;
 }
 
 describe("mapReactorLike", () => {
@@ -1026,14 +1046,6 @@ describe("parallel sub-agent dispatch on the live session bridge", () => {
 });
 
 describe("idle-with-fleet (CL-7057)", () => {
-  /** A tool-less turn settles on inference.done — the spawn_agent dispatch shape. */
-  function settleToollessTurn(
-    bridge: ReturnType<typeof attachSessionBridge>,
-  ): void {
-    bridge.handle({ type: "inference.start", data: {} });
-    bridge.handle({ type: "inference.done", data: {} });
-  }
-
   test("parent settles while fleet is live: run holds busy, follow-up keeps waiting", async () => {
     await withBridge({ run: "idle" }, async ({ h, shell, port, bridge }) => {
       bridge.submit("dispatch workers", "immediate");
@@ -1145,23 +1157,9 @@ describe("idle-with-fleet (CL-7057)", () => {
 });
 
 describe("fleet-dry open-task drive (CL-7540)", () => {
-  function settleToollessTurn(
-    bridge: ReturnType<typeof attachSessionBridge>,
-  ): void {
-    bridge.handle({ type: "inference.start", data: {} });
-    bridge.handle({ type: "inference.done", data: {} });
-  }
-
   test("dry+open: fleet-0 settle drives once and keeps the run busy without painting the prompt", async () => {
     await withBridge({ run: "idle" }, async ({ shell, port, bridge }) => {
-      const prompt =
-        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
-      let drives = 0;
-      bridge.setDryOpenTaskDriver(() => {
-        drives += 1;
-        bridge.beginSystemContinuation(prompt);
-        return true;
-      });
+      const drives = installDryDriver(bridge);
       bridge.submit("dispatch workers", "immediate");
       bridge.handle({ type: "fleet", running: 1 });
       settleToollessTurn(bridge);
@@ -1171,12 +1169,12 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
         (r) => r.role === "user",
       ).length;
       bridge.handle({ type: "fleet", running: 0 });
-      expect(drives).toBe(1);
+      expect(drives()).toBe(1);
       expect(shell.session.run).toBe("busy");
       expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(false);
       bridge.handle({
         type: "message.received",
-        data: { message: { content: prompt } },
+        data: { message: { content: DRY_OPEN_TASK_PROMPT } },
       });
       expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
         userRowsBefore,
@@ -1184,32 +1182,27 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
       // The continuation is runtime→agent traffic — the fleet board owns
       // worker status, so its prompt paints no transcript row.
       expect(
-        shell.streamLog.filter((r) => r.role === "system" && r.text === prompt),
+        shell.streamLog.filter(
+          (r) => r.role === "system" && r.text === DRY_OPEN_TASK_PROMPT,
+        ),
       ).toHaveLength(0);
       settleToollessTurn(bridge);
-      expect(drives).toBe(1);
+      expect(drives()).toBe(1);
     });
   });
 
   test("wentDry during processing then settle drives after settle, not idle", async () => {
     await withBridge({ run: "idle" }, async ({ shell, port, bridge }) => {
-      const prompt =
-        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
-      let drives = 0;
-      bridge.setDryOpenTaskDriver(() => {
-        drives += 1;
-        bridge.beginSystemContinuation(prompt);
-        return true;
-      });
+      const drives = installDryDriver(bridge);
       bridge.submit("dispatch workers", "immediate");
       bridge.handle({ type: "fleet", running: 1 });
       expect(shell.session.run).toBe("busy");
       bridge.handle({ type: "fleet", running: 0 });
-      expect(drives).toBe(0);
+      expect(drives()).toBe(0);
       expect(shell.session.run).toBe("busy");
       expect(shell.lockupPhase).not.toBeNull();
       settleToollessTurn(bridge);
-      expect(drives).toBe(1);
+      expect(drives()).toBe(1);
       expect(shell.session.run).toBe("busy");
       expect(shell.lockupPhase).not.toBeNull();
       bridge.submit("when it finishes, summarize", "queue");
@@ -1220,87 +1213,35 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
       expect(badgeCount(shell.session)).toBe(1);
       expect(port.calls.some((c) => c.op === "deliver")).toBe(false);
       settleToollessTurn(bridge);
-      expect(drives).toBe(1);
+      expect(drives()).toBe(1);
       expect(shell.session.run).toBe("idle");
       expect(badgeCount(shell.session)).toBe(0);
     });
-  });
-
-  test("dry+terminal: fleet 1→0 without continuation idles and drains a queued follow-up", async () => {
-    await withBridge({ run: "busy" }, async ({ shell, port, bridge }) => {
-      bridge.handle({ type: "fleet", running: 1 });
-      settleToollessTurn(bridge);
-      expect(shell.session.run).toBe("busy");
-      bridge.submit("when it finishes, summarize", "queue");
-      expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(false);
-      expect(badgeCount(shell.session)).toBe(1);
-      port.clear();
-      bridge.handle({ type: "fleet", running: 0 });
-      expect(shell.session.run).toBe("idle");
-      expect(badgeCount(shell.session)).toBe(0);
-      const deliver = port.calls.find((c) => c.op === "deliver");
-      expect(deliver).toEqual({
-        op: "deliver",
-        item: expect.objectContaining({
-          text: "when it finishes, summarize",
-          kind: "queue",
-        }),
-      });
-    });
-  });
-
-  test("live+open: fleet running 2 without continuation holds busy; Enter still sendImmediate", async () => {
-    await withBridge(
-      { run: "busy", wireKeys: true },
-      async ({ shell, port, bridge }) => {
-        bridge.handle({ type: "fleet", running: 2 });
-        settleToollessTurn(bridge);
-        expect(shell.session.run).toBe("busy");
-        bridge.submit("follow up later", "queue");
-        expect(badgeCount(shell.session)).toBe(1);
-        port.clear();
-        shell.prompt.value = "also update the docs";
-        shell.prompt.submit();
-        expect(port.calls.some((c) => c.op === "enqueue")).toBe(false);
-        expect(port.calls.some((c) => c.op === "sendImmediate")).toBe(true);
-        expect(badgeCount(shell.session)).toBe(1);
-        expect(shell.session.run).toBe("busy");
-      },
-    );
   });
 
   test("already-dry settle drives once even without a live 1→0 fleet event", async () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
-      const prompt =
-        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
-      let drives = 0;
-      bridge.setDryOpenTaskDriver(() => {
-        drives += 1;
-        bridge.beginSystemContinuation(prompt);
-        return true;
-      });
+      const drives = installDryDriver(bridge);
       bridge.submit("dispatch workers", "immediate");
       bridge.handle({ type: "fleet", running: 0 });
-      expect(drives).toBe(0);
+      expect(drives()).toBe(0);
       expect(shell.session.run).toBe("busy");
       settleToollessTurn(bridge);
-      expect(drives).toBe(1);
+      expect(drives()).toBe(1);
       expect(shell.session.run).toBe("busy");
       settleToollessTurn(bridge);
-      expect(drives).toBe(1);
+      expect(drives()).toBe(1);
     });
   });
 
   test("a no-op dry settle does not eat the shot for a later missed 1→0 with open tasks", async () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
-      const prompt =
-        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
       let openTasks = false;
       let drives = 0;
       bridge.setDryOpenTaskDriver(() => {
         if (!openTasks) return false;
         drives += 1;
-        bridge.beginSystemContinuation(prompt);
+        bridge.beginSystemContinuation(DRY_OPEN_TASK_PROMPT);
         return true;
       });
       bridge.submit("first turn, no todos", "immediate");
@@ -1324,29 +1265,22 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
 
   test("a new live lane resets the dry-episode latch for one more occupancy shot", async () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
-      const prompt =
-        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
-      let drives = 0;
-      bridge.setDryOpenTaskDriver(() => {
-        drives += 1;
-        bridge.beginSystemContinuation(prompt);
-        return true;
-      });
+      const drives = installDryDriver(bridge);
       bridge.submit("dispatch workers", "immediate");
       settleToollessTurn(bridge);
-      expect(drives).toBe(1);
+      expect(drives()).toBe(1);
       expect(shell.session.run).toBe("busy");
       settleToollessTurn(bridge);
-      expect(drives).toBe(1);
+      expect(drives()).toBe(1);
       expect(shell.session.run).toBe("idle");
 
       bridge.submit("dispatch more workers", "immediate");
       bridge.handle({ type: "fleet", running: 1 });
       settleToollessTurn(bridge);
-      expect(drives).toBe(1);
+      expect(drives()).toBe(1);
       expect(shell.session.run).toBe("busy");
       bridge.handle({ type: "fleet", running: 0 });
-      expect(drives).toBe(2);
+      expect(drives()).toBe(2);
       expect(shell.session.run).toBe("busy");
     });
   });
@@ -1366,29 +1300,12 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
     });
   });
 
-  test("live fleet still blocks the occupancy drive", async () => {
-    await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
-      let drives = 0;
-      bridge.setDryOpenTaskDriver(() => {
-        drives += 1;
-        return true;
-      });
-      bridge.submit("dispatch workers", "immediate");
-      bridge.handle({ type: "fleet", running: 1 });
-      settleToollessTurn(bridge);
-      expect(drives).toBe(0);
-      expect(shell.session.run).toBe("busy");
-    });
-  });
-
   test("occupancy send failure re-arms, clears continuation hold, and drains follow-ups", async () => {
     await withBridge({ run: "idle" }, async ({ shell, port, bridge }) => {
-      const prompt =
-        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
       let drives = 0;
       bridge.setDryOpenTaskDriver(() => {
         drives += 1;
-        bridge.beginSystemContinuation(prompt);
+        bridge.beginSystemContinuation(DRY_OPEN_TASK_PROMPT);
         if (drives === 1) {
           void Promise.resolve().then(() => {
             bridge.abortSystemContinuation();
@@ -1429,11 +1346,9 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
 
   test("pending occupancy Promise is not a continuation; failed send idles", async () => {
     await withBridge({ run: "idle" }, async ({ shell, port, bridge }) => {
-      const prompt =
-        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
       let resolveDrive: ((ok: boolean) => void) | undefined;
       bridge.setDryOpenTaskDriver(() => {
-        bridge.beginSystemContinuation(prompt);
+        bridge.beginSystemContinuation(DRY_OPEN_TASK_PROMPT);
         return new Promise((resolve) => {
           resolveDrive = resolve;
         });
@@ -1456,56 +1371,41 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
   });
 
   test("pending occupancy abort after dispose does not idle or drain", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-          run: "idle",
+    await withBridge({ run: "idle" }, async ({ shell, port, bridge }) => {
+      let resolveDrive: ((ok: boolean) => void) | undefined;
+      bridge.setDryOpenTaskDriver(() => {
+        bridge.beginSystemContinuation(DRY_OPEN_TASK_PROMPT);
+        return new Promise((resolve) => {
+          resolveDrive = resolve;
         });
-        const port = createRecordingPort();
-        const bridge = attachSessionBridge(shell, port);
-        const prompt =
-          "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
-        let resolveDrive: ((ok: boolean) => void) | undefined;
-        bridge.setDryOpenTaskDriver(() => {
-          bridge.beginSystemContinuation(prompt);
-          return new Promise((resolve) => {
-            resolveDrive = resolve;
-          });
-        });
-        bridge.submit("dispatch workers", "immediate");
-        bridge.handle({ type: "fleet", running: 1 });
-        settleToollessTurn(bridge);
-        bridge.handle({ type: "fleet", running: 0 });
-        expect(shell.session.run).toBe("busy");
-        bridge.submit("when it finishes, summarize", "queue");
-        expect(badgeCount(shell.session)).toBe(1);
-        port.clear();
-        bridge.dispose();
-        const runAfterDispose = shell.session.run;
-        expect(runAfterDispose).toBe("busy");
-        resolveDrive?.(false);
-        await Promise.resolve();
-        expect(shell.session.run).toBe(runAfterDispose);
-        expect(badgeCount(shell.session)).toBe(1);
-        expect(port.calls.some((c) => c.op === "deliver")).toBe(false);
-        shell.dispose();
-      },
-      { width: 80, height: 24 },
-    );
+      });
+      bridge.submit("dispatch workers", "immediate");
+      bridge.handle({ type: "fleet", running: 1 });
+      settleToollessTurn(bridge);
+      bridge.handle({ type: "fleet", running: 0 });
+      expect(shell.session.run).toBe("busy");
+      bridge.submit("when it finishes, summarize", "queue");
+      expect(badgeCount(shell.session)).toBe(1);
+      port.clear();
+      bridge.dispose();
+      const runAfterDispose = shell.session.run;
+      expect(runAfterDispose).toBe("busy");
+      resolveDrive?.(false);
+      await Promise.resolve();
+      expect(shell.session.run).toBe(runAfterDispose);
+      expect(badgeCount(shell.session)).toBe(1);
+      expect(port.calls.some((c) => c.op === "deliver")).toBe(false);
+    });
   });
 
   test("occupancy send abort does not swallow a later matching inbound", async () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
-      const occupancy =
-        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
       const operator = "dispatch workers";
       bridge.submit(operator, "immediate");
       const userRowsAfterSubmit = shell.streamLog.filter(
         (r) => r.role === "user",
       ).length;
-      bridge.beginSystemContinuation(occupancy);
+      bridge.beginSystemContinuation(DRY_OPEN_TASK_PROMPT);
       bridge.abortSystemContinuation();
       expect(shell.session.run).toBe("idle");
 
@@ -1519,7 +1419,7 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
 
       bridge.handle({
         type: "message.received",
-        data: { message: { content: occupancy } },
+        data: { message: { content: DRY_OPEN_TASK_PROMPT } },
       });
       expect(shell.streamLog.filter((r) => r.role === "user").length).toBe(
         userRowsAfterSubmit,
@@ -1528,7 +1428,7 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
       // paint no row; the abort must not have swallowed the inbound.
       expect(
         shell.streamLog.filter(
-          (r) => r.role === "system" && r.text === occupancy,
+          (r) => r.role === "system" && r.text === DRY_OPEN_TASK_PROMPT,
         ),
       ).toHaveLength(0);
     });
@@ -1538,10 +1438,8 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
     await clockedBridge(
       { run: "idle", monitor: { stallNoticeMs: 400, stallTimeoutMs: 1_000 } },
       async ({ shell, bridge, clock }) => {
-        const prompt =
-          "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
         bridge.setDryOpenTaskDriver(() => {
-          bridge.beginSystemContinuation(prompt);
+          bridge.beginSystemContinuation(DRY_OPEN_TASK_PROMPT);
           void Promise.resolve().then(() => {
             bridge.abortSystemContinuation();
           });
@@ -1565,10 +1463,8 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
 
   test("occupancy continuation is what quota auto-retry resubmits", async () => {
     await clockedBridge({ run: "idle" }, async ({ port, bridge, clock }) => {
-      const continuation =
-        "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n";
       bridge.setDryOpenTaskDriver(() => {
-        bridge.beginSystemContinuation(continuation);
+        bridge.beginSystemContinuation(DRY_OPEN_TASK_PROMPT);
         return true;
       });
       bridge.submit("dispatch workers", "immediate");
@@ -1585,20 +1481,13 @@ describe("fleet-dry open-task drive (CL-7540)", () => {
       clock.nowMs += 10_000;
       clock.tick?.();
       expect(port.calls).toEqual([
-        { op: "sendImmediate", text: continuation.trim() },
+        { op: "sendImmediate", text: DRY_OPEN_TASK_PROMPT.trim() },
       ]);
     });
   });
 });
 
 describe("mailbox mail occupancy (CL-7518)", () => {
-  function settleToollessTurn(
-    bridge: ReturnType<typeof attachSessionBridge>,
-  ): void {
-    bridge.handle({ type: "inference.start", data: {} });
-    bridge.handle({ type: "inference.done", data: {} });
-  }
-
   test("idle-with-fleet child-done while siblings run flushes mailbox mail", async () => {
     await withBridge({ run: "idle" }, async ({ shell, bridge }) => {
       const prompt = `${mailboxMailWakeLine()}\n[]`;
@@ -1653,26 +1542,19 @@ describe("mailbox mail occupancy (CL-7518)", () => {
   test("skips mailbox mail when a fleet-dry open-task shot is latched", async () => {
     await withBridge({ run: "idle" }, async ({ bridge }) => {
       let mail = 0;
-      let dry = 0;
       let allowMail = false;
       bridge.setMailboxMailDriver(() => {
         if (!allowMail) return false;
         mail += 1;
         return true;
       });
-      bridge.setDryOpenTaskDriver(() => {
-        dry += 1;
-        bridge.beginSystemContinuation(
-          "The fleet has gone dry. Remaining open tasks:\n- t1: keep going (todo)\n",
-        );
-        return true;
-      });
+      const dry = installDryDriver(bridge);
       bridge.submit("dispatch workers", "immediate");
       bridge.handle({ type: "fleet", running: 1 });
       settleToollessTurn(bridge);
       allowMail = true;
       bridge.handle({ type: "fleet", running: 0 });
-      expect(dry).toBe(1);
+      expect(dry()).toBe(1);
       expect(mail).toBe(0);
     });
   });
@@ -2195,21 +2077,6 @@ describe("task checklist calls stay out of the transcript", () => {
         },
       });
       expect(streamRowCount(shell)).toBe(before);
-    });
-  });
-
-  test("other tools still paint normally", async () => {
-    await withBridge({ run: "busy" }, async ({ shell, bridge }) => {
-      const before = streamRowCount(shell);
-      bridge.handle({
-        type: "inference.tool_call.end",
-        data: {
-          name: "grep",
-          callId: "g-1",
-          arguments: { pattern: "zones" },
-        },
-      });
-      expect(streamRowCount(shell)).toBeGreaterThan(before);
     });
   });
 });

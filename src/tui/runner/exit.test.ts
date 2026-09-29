@@ -97,17 +97,31 @@ function stubQuit(args: {
   return { state, services };
 }
 
+/** A session-op tail that stays pending until the test rejects it. */
+function hungSessionTail(): {
+  tail: () => Promise<void>;
+  reject: (err: Error) => void;
+} {
+  let reject: ((err: Error) => void) | undefined;
+  const hung = new Promise<void>((_, rej) => {
+    reject = rej;
+  });
+  return {
+    tail: async () => {
+      await hung;
+    },
+    reject: (err) => defined(reject, "tail reject")(err),
+  };
+}
+
 describe("finalizeTUIRun quit order", () => {
   test("starts runtime shutdown without waiting on a hung session-op tail", async () => {
     const order: string[] = [];
-    let settleTail: ((err: Error) => void) | undefined;
-    const hungTail = new Promise<void>((_, reject) => {
-      settleTail = reject;
-    });
+    const { tail, reject } = hungSessionTail();
     const { state, services } = stubQuit({
       awaitTail: async () => {
         order.push("tail");
-        await hungTail;
+        await tail();
       },
       shutdownRuntime: async () => {
         order.push("shutdown");
@@ -119,32 +133,21 @@ describe("finalizeTUIRun quit order", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       expect(order[0]).toBe("shutdown");
     } finally {
-      defined(settleTail, "settleTail")(new Error("stop"));
+      reject(new Error("stop"));
     }
     await expect(pending).rejects.toThrow("stop");
   });
 
   test("aborts the in-flight compact before runtime shutdown so quit cannot stall", async () => {
     const order: string[] = [];
-    let settleTail: ((err: Error) => void) | undefined;
-    const hungTail = new Promise<void>((_, reject) => {
-      settleTail = reject;
-    });
+    const { tail, reject } = hungSessionTail();
     const lifecycle = createCompactionLifecycle();
-    const wrapped = lifecycle.wrapCompactor({
-      name: "hang",
-      version: "0",
-      apply: () =>
-        new Promise<never>(() => {
-          // Never settles on purpose: the quit abort must win the race.
-        }),
-    });
-    const pending = wrapped.apply([], {} as never);
+    const { pending } = hangCompact(lifecycle);
     expect(lifecycle.isCompacting()).toBe(true);
     const { state, services } = stubQuit({
       awaitTail: async () => {
         order.push("tail");
-        await hungTail;
+        await tail();
       },
       shutdownRuntime: async () => {
         order.push("shutdown");
@@ -174,7 +177,7 @@ describe("finalizeTUIRun quit order", () => {
       expect(result.record.reason).toBe(COMPACTION_ABORTED_REASON);
       expect(lifecycle.isCompacting()).toBe(false);
     } finally {
-      defined(settleTail, "settleTail")(new Error("stop"));
+      reject(new Error("stop"));
     }
     await expect(done).rejects.toThrow("stop");
   });
@@ -290,6 +293,36 @@ function stubSendLifecycle(agent: Agent): {
     activeRunHandle: { task: "", startedAt: 0, model: "" },
   } as unknown as RunnerServices;
   return { state, services };
+}
+
+/** A compact whose summary call never settles, so abort must win the race. */
+function hangCompact(lifecycle: ReturnType<typeof createCompactionLifecycle>) {
+  const wrapped = lifecycle.wrapCompactor({
+    name: "hang",
+    version: "0",
+    apply: () =>
+      new Promise<never>(() => {
+        // Never settles on purpose.
+      }),
+  });
+  return { pending: wrapped.apply([], {} as never) };
+}
+
+function freshCodexToken(): ReturnType<typeof spyOn> {
+  return spyOn(codexSession, "getValidCodexToken").mockResolvedValue({
+    access: "fresh-token",
+  });
+}
+
+function stubRotationDirs(): ReturnType<typeof spyOn>[] {
+  return [
+    spyOn(sessionIndex, "initSessionDir").mockImplementation(
+      async () => "/tmp/rotated-session",
+    ),
+    spyOn(sessionIndex, "sessionContextDir").mockImplementation(
+      () => "/tmp/rotated-session/context",
+    ),
+  ];
 }
 
 function hangCodexRefresh(): {
@@ -548,15 +581,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     state.systemNotice = (text: string) => {
       notices.push(text);
     };
-    const wrapped = lifecycle.wrapCompactor({
-      name: "hang",
-      version: "0",
-      apply: () =>
-        new Promise<never>(() => {
-          // Never settles on purpose: the interrupt gate must win the race.
-        }),
-    });
-    const pending = wrapped.apply([], {} as never);
+    const { pending } = hangCompact(lifecycle);
     expect(lifecycle.isCompacting()).toBe(true);
     // CL-8220: the gate aborts the compact first instead of parking the
     // interrupt behind the unobservable reactor, then rebuilds as usual.
@@ -572,10 +597,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       true,
     );
     // The rebuilt session accepts the resend — no hop was dropped.
-    const codexRefresh = spyOn(
-      codexSession,
-      "getValidCodexToken",
-    ).mockResolvedValue({ access: "fresh-token" });
+    const codexRefresh = freshCodexToken();
     try {
       await defined(state.agentProxy, "agentProxy").send("after interrupt");
     } finally {
@@ -591,28 +613,14 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const agent = recordingAgent(sends);
     const { state, services } = stubSendLifecycle(agent);
     wireRebuildServices(services, directorHolder, agent, store);
-    const initDir = spyOn(sessionIndex, "initSessionDir").mockImplementation(
-      async () => "/tmp/rotated-session",
-    );
-    const contextDir = spyOn(
-      sessionIndex,
-      "sessionContextDir",
-    ).mockImplementation(() => "/tmp/rotated-session/context");
+    const dirs = stubRotationDirs();
     try {
       await createRunLifecycle(state, services);
       // A fold is mid-flight on the reactor when the operator rotates: the
       // wrapped compact hangs on its summary call.
       const lifecycle = createCompactionLifecycle();
       state.compactionLifecycle = lifecycle;
-      const wrapped = lifecycle.wrapCompactor({
-        name: "hang",
-        version: "0",
-        apply: () =>
-          new Promise<never>(() => {
-            // Never settles on purpose: the rotation gate must win the race.
-          }),
-      });
-      const pending = wrapped.apply([], {} as never);
+      const { pending } = hangCompact(lifecycle);
       expect(lifecycle.isCompacting()).toBe(true);
       // The rotation aborts the compact first instead of parking behind the
       // hung summary call, then rebuilds onto the fresh session as usual.
@@ -623,10 +631,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       await services.sessionOps.awaitTail();
       expect(state.fatalBuildError).toBeNull();
       // The rotated session accepts the resend — no hop was dropped.
-      const codexRefresh = spyOn(
-        codexSession,
-        "getValidCodexToken",
-      ).mockResolvedValue({ access: "fresh-token" });
+      const codexRefresh = freshCodexToken();
       try {
         await defined(state.agentProxy, "agentProxy").send("after rotation");
       } finally {
@@ -634,8 +639,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       }
       expect(sends).toContain("after rotation");
     } finally {
-      initDir.mockRestore();
-      contextDir.mockRestore();
+      for (const spy of dirs) spy.mockRestore();
     }
   });
 
@@ -652,15 +656,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     services.buildAgent = (async () => {
       throw new Error("build blew up");
     }) as unknown as RunnerServices["buildAgent"];
-    const hanging = lifecycle.wrapCompactor({
-      name: "hang",
-      version: "0",
-      apply: () =>
-        new Promise<never>(() => {
-          // Never settles on purpose: the interrupt gate must win the race.
-        }),
-    });
-    const pending = hanging.apply([], {} as never);
+    const { pending } = hangCompact(lifecycle);
     expect(lifecycle.isCompacting()).toBe(true);
     defined(state.interrupt, "interrupt")();
     const aborted = await pending;
@@ -755,13 +751,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
     const agent = recordingAgent([]);
     const { state, services } = stubSendLifecycle(agent);
     wireRebuildServices(services, directorHolder, agent, store);
-    const initDir = spyOn(sessionIndex, "initSessionDir").mockImplementation(
-      async () => "/tmp/rotated-session",
-    );
-    const contextDir = spyOn(
-      sessionIndex,
-      "sessionContextDir",
-    ).mockImplementation(() => "/tmp/rotated-session/context");
+    const dirs = stubRotationDirs();
     try {
       await createRunLifecycle(state, services);
       defined(state.newSession, "newSession")();
@@ -773,8 +763,7 @@ describe("rebuild re-syncs idle-with-fleet while drained", () => {
       );
       await expectOpenTaskNudge(director);
     } finally {
-      initDir.mockRestore();
-      contextDir.mockRestore();
+      for (const spy of dirs) spy.mockRestore();
     }
   });
 });
@@ -794,30 +783,19 @@ describe("rebuild close helpers", () => {
     return { close: closeImpl } as unknown as Agent;
   }
 
-  test("closeAgentForRebuild reports a failed close without throwing", async () => {
-    const agent = stubAgent(() =>
-      Promise.reject(new AgentContextLockError("/tmp/workdir")),
-    );
-    const closedCleanly = await closeAgentForRebuild(agent, "interrupt");
-    expect(closedCleanly).toBe(false);
-  });
-
   test("closeAgentForRebuild reports success when close() resolves", async () => {
     const agent = stubAgent(() => Promise.resolve());
     const closedCleanly = await closeAgentForRebuild(agent, "interrupt");
     expect(closedCleanly).toBe(true);
   });
 
-  test("agentRebuildFailure turns a stale-lock AgentContextLockError into a plain-language message", () => {
+  test("agentRebuildFailure translates stale-lock errors and passes others through", () => {
     // Simulates the second acquisition throwing after a failed close left the
     // lock held: buildAgent() surfaces AgentContextLockError, which must not
     // reach the caller as a raw stack trace.
     const err = agentRebuildFailure(new AgentContextLockError("/tmp/workdir"));
     expect(err.message).not.toContain("already open");
     expect(err.message).toMatch(/restart/i);
-  });
-
-  test("agentRebuildFailure passes other errors through unchanged", () => {
     const original = new Error("network unreachable");
     expect(agentRebuildFailure(original)).toBe(original);
   });
@@ -833,6 +811,7 @@ describe("rebuild close helpers", () => {
     let rebuildError: Error | null = null;
     try {
       const closedCleanly = await closeAgentForRebuild(agent, "interrupt");
+      expect(closedCleanly).toBe(false);
       if (!closedCleanly) {
         throw new AgentContextLockError("/tmp/workdir");
       }

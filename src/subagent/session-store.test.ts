@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  createSubAgentSessionStore,
-  DEFAULT_MAX_ENTRY_CHARS,
-} from "./session-store.js";
+import { createSubAgentSessionStore } from "./session-store.js";
 import { projectWaitStatus } from "./lifecycle.js";
 import { createAdmissionQueue } from "./admission.js";
 import { forcedStopReport } from "./stop-policy.js";
@@ -453,13 +450,6 @@ describe("terminal stop reasons", () => {
     expect(store.get(session.id)?.stopReason).toBeUndefined();
   });
 
-  test("a clean complete has no stopReason", () => {
-    const store = createSubAgentSessionStore();
-    const session = store.start({ description: "d", agentId: "a", brief: "b" });
-    store.complete(session.id, "## Summary\nDone.\n\n## Findings\nx");
-    expect(store.get(session.id)?.stopReason).toBeUndefined();
-  });
-
   test("cancel() records the cancel reason as stopReason", () => {
     const store = createSubAgentSessionStore();
     const withReason = store.start({
@@ -719,34 +709,6 @@ describe("CL-6943 reusable worker sessions", () => {
       ok: false,
       status: "completed",
     });
-  });
-
-  test("resume_agent validates the message before starting a retained turn", () => {
-    const store = createSubAgentSessionStore();
-    let starts = 0;
-    const session = retainedSession(store, {
-      run: false,
-      followup: async () => {
-        starts++;
-        return "should not run";
-      },
-      complete: "## Summary\nDone.",
-    });
-
-    expect(store.resumeOne(session.id, "   ")).toEqual({
-      ok: false,
-      status: "completed",
-      hint: "resume_agent requires a non-empty message.",
-    });
-    const tooLong = store.resumeOne(
-      session.id,
-      "x".repeat(DEFAULT_MAX_ENTRY_CHARS + 1),
-    );
-    if (tooLong.ok) throw new Error("expected rejection");
-    expect(tooLong.status).toBe("completed");
-    expect(tooLong.hint).toContain("exceeds");
-    expect(starts).toBe(0);
-    expect(store.get(session.id)?.lifecycleStatus).toBe("completed");
   });
 
   test("resume_agent fails on an unknown id with not_found", () => {

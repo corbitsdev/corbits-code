@@ -5,7 +5,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
-import { createHarness } from "./harness.js";
+import { createHarness, type Harness } from "./harness.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import {
   moveOverlaySelection,
@@ -76,6 +76,25 @@ async function mountHeadless(
     renderOnce: harness.renderOnce,
     captureCharFrame: harness.captureCharFrame,
   };
+}
+
+/** Type `text` into the filter row through the harness key path. */
+async function typeFilter(harness: Harness, text: string): Promise<void> {
+  for (const ch of text) {
+    harness.pressKey(ch);
+  }
+  await harness.renderOnce();
+}
+
+/** A printable key event for a composed Option glyph (Option+D → ∂). */
+function composedKey(glyph: string): KeyEvent {
+  return {
+    name: glyph,
+    sequence: glyph,
+    ctrl: false,
+    meta: false,
+    option: false,
+  } as KeyEvent;
 }
 
 describe("operatorResultFromSelection", () => {
@@ -277,16 +296,27 @@ describe("flat type-to-filter model picker", () => {
     "Z.AI": { models: ["glm-5", "glm-5-turbo", "glm-5.2"] },
   };
 
-  async function mountPicker(overrides: Partial<ProductHostConfig> = {}) {
+  async function mountPicker(
+    overrides: Partial<ProductHostConfig> = {},
+    options: {
+      readonly height?: number;
+      readonly favorites?: readonly { provider: string; model: string }[];
+    } = {},
+  ) {
     // One row taller than the usual fixture: on the landing screen (no
     // session content yet, which this fixture never sends) the version badge
     // reserves the terminal's last row, and this picker's row list needs
     // every row of the 24-row case to fit every provider.
-    const harness = await createHarness({ width: 80, height: 25 });
+    const harness = await createHarness({
+      width: 80,
+      height: options.height ?? 25,
+    });
     const port = makeFakeSessionPort();
     const catalog = buildModelsFirstCatalog({
       providers,
-      favorites: [{ provider: "codex/abk-labs", model: "gpt-5.5" }],
+      favorites: options.favorites ?? [
+        { provider: "codex/abk-labs", model: "gpt-5.5" },
+      ],
     });
     const selected: string[] = [];
     const host = await mountProductHost({
@@ -332,17 +362,17 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  test("typing narrows the flat list; selecting a model applies the pick", async () => {
+  test("typing narrows the flat list; accept applies the filtered row's own id", async () => {
+    // Catalog order puts favorites/recents first; after filtering to "grok",
+    // index 0 is the grok row — accepting must apply the grok id, never the
+    // catalog's index-0 favorite.
     const { harness, host, selected } = await mountPicker();
     try {
       host.openModels?.();
       await harness.renderOnce();
 
-      // Type "grok" into the filter row (printable keys claimed by type-to-filter).
-      for (const ch of "grok") {
-        harness.pressKey(ch);
-      }
-      await harness.renderOnce();
+      // Printable keys claimed by type-to-filter.
+      await typeFilter(harness, "grok");
 
       const items = host.shell.overlayItems;
       expect(items.some((label) => label.includes("grok-4.5"))).toBe(true);
@@ -352,9 +382,6 @@ describe("flat type-to-filter model picker", () => {
         ),
       ).toBe(true);
 
-      const grokIndex = items.findIndex((label) => label.includes("grok-4.5"));
-      expect(grokIndex).toBeGreaterThanOrEqual(0);
-      moveOverlaySelection(host.shell, grokIndex);
       acceptOverlaySelection(host.shell);
       expect(selected).toEqual([
         modelOptionId("xai/thegreataxios", "grok-4.5"),
@@ -366,35 +393,23 @@ describe("flat type-to-filter model picker", () => {
   });
 
   test("fits and scrolls within a short terminal instead of overflowing it", async () => {
-    const port = makeFakeSessionPort();
-    const harness = await createHarness({ width: 80, height: 10 });
+    const { harness, host } = await mountPicker(
+      { onModelSelect: () => undefined },
+      { height: 10, favorites: [] },
+    );
     try {
-      const catalog = buildModelsFirstCatalog({ providers });
-      const host = await mountProductHost({
-        title: "test-session",
-        eventEmitter: new EventEmitter(),
-        send: port.send,
-        interrupt: port.interrupt,
-        deliver: port.deliver,
-        createRenderer: async () => harness.renderer,
-        models: catalog,
-        onModelSelect: () => undefined,
-      });
-      try {
-        host.openModels?.();
-        await harness.renderOnce();
-        const frame = harness.captureCharFrame();
-        // Five provider rows do not all fit a 10-row terminal alongside the
-        // overlay chrome; the picker renders without throwing and the frame
-        // stays within the terminal's own line count.
-        expect(frame.replace(/\n$/, "").split("\n").length).toBeLessThanOrEqual(
-          10,
-        );
-        expect(host.shell.overlayList).not.toBeNull();
-      } finally {
-        host.dispose();
-      }
+      host.openModels?.();
+      await harness.renderOnce();
+      const frame = harness.captureCharFrame();
+      // Five provider rows do not all fit a 10-row terminal alongside the
+      // overlay chrome; the picker renders without throwing and the frame
+      // stays within the terminal's own line count.
+      expect(frame.replace(/\n$/, "").split("\n").length).toBeLessThanOrEqual(
+        10,
+      );
+      expect(host.shell.overlayList).not.toBeNull();
     } finally {
+      host.dispose();
       harness.destroy();
     }
   });
@@ -404,10 +419,7 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.();
       await harness.renderOnce();
-      for (const ch of "zzzz-no-such-model") {
-        harness.pressKey(ch);
-      }
-      await harness.renderOnce();
+      await typeFilter(harness, "zzzz-no-such-model");
       expect(host.shell.overlayItems).toEqual(["(no matches)"]);
       acceptOverlaySelection(host.shell);
       expect(selected).toEqual([]);
@@ -419,45 +431,25 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  test("filtered accept uses the filtered row id, not the unfiltered catalog index", async () => {
-    // Catalog order puts favorites/recents first; after filtering to "grok",
-    // index 0 is the grok row — accepting must still apply the grok id, never
-    // the catalog's index-0 favorite.
-    const { harness, host, selected } = await mountPicker();
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      for (const ch of "grok") {
-        harness.pressKey(ch);
-      }
-      await harness.renderOnce();
-      // Accept whatever is focused after filter (should be the sole match).
-      acceptOverlaySelection(host.shell);
-      expect(selected).toEqual([
-        modelOptionId("xai/thegreataxios", "grok-4.5"),
-      ]);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
-  test("Alt+F on the no-matches sentinel does not toggle a favorite", async () => {
+  test("action keys on the no-matches sentinel toggle no favorite and set no default", async () => {
     const favorites: string[] = [];
+    const defaults: string[] = [];
     const { harness, host } = await mountPicker({
       onFavoriteToggle: (id) => favorites.push(id),
+      onSetDefault: (id) => defaults.push(id),
     });
     try {
       host.openModels?.();
       await harness.renderOnce();
-      for (const ch of "zzzz-no-such-model") {
-        harness.pressKey(ch);
-      }
-      await harness.renderOnce();
+      await typeFilter(harness, "zzzz-no-such-model");
       expect(host.shell.overlayItems).toEqual(["(no matches)"]);
+
       harness.pressKey("f", { meta: true });
+      expect(runOverlayAction(host.shell, altD)).toBe(true);
       await harness.renderOnce();
       expect(favorites).toEqual([]);
+      expect(defaults).toEqual([]);
+      expect(host.shell.overlayKind).toBe("model_picker");
     } finally {
       host.dispose();
       harness.destroy();
@@ -496,13 +488,7 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.();
       await harness.renderOnce();
-      const composed = {
-        name: "∂",
-        sequence: "∂",
-        ctrl: false,
-        meta: false,
-        option: false,
-      } as KeyEvent;
+      const composed = composedKey("∂");
       expect(handleListFilterKey(host.shell, composed)).toBe(false);
       expect(runOverlayAction(host.shell, composed)).toBe(true);
       expect(defaults).toEqual([modelOptionId("codex/abk-labs", "gpt-5.5")]);
@@ -518,39 +504,11 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.();
       await harness.renderOnce();
-      const composed = {
-        name: "∂",
-        sequence: "∂",
-        ctrl: false,
-        meta: false,
-        option: false,
-      } as KeyEvent;
+      const composed = composedKey("∂");
       expect(handleListFilterKey(host.shell, composed)).toBe(true);
       await harness.renderOnce();
       expect(host.shell.overlayItems).toEqual(["(no matches)"]);
       expect(runOverlayAction(host.shell, composed)).toBe(false);
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
-  test("Alt+D on the no-matches sentinel does not set a default", async () => {
-    const defaults: string[] = [];
-    const { harness, host } = await mountPicker({
-      onSetDefault: (id) => defaults.push(id),
-    });
-    try {
-      host.openModels?.();
-      await harness.renderOnce();
-      for (const ch of "zzzz-no-such-model") {
-        harness.pressKey(ch);
-      }
-      await harness.renderOnce();
-      expect(host.shell.overlayItems).toEqual(["(no matches)"]);
-      expect(runOverlayAction(host.shell, altD)).toBe(true);
-      expect(defaults).toEqual([]);
-      expect(host.shell.overlayKind).toBe("model_picker");
     } finally {
       host.dispose();
       harness.destroy();
@@ -566,10 +524,7 @@ describe("flat type-to-filter model picker", () => {
       host.shell.prompt.value = "draft";
       host.openModels?.();
       await harness.renderOnce();
-      for (const ch of "zzzz-no-such-model") {
-        harness.pressKey(ch);
-      }
-      await harness.renderOnce();
+      await typeFilter(harness, "zzzz-no-such-model");
       expect(host.shell.overlayItems).toEqual(["(no matches)"]);
 
       harness.pressKey("∂");
@@ -584,28 +539,6 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  test("the model picker footer advertises Alt+D iff onSetDefault is wired", async () => {
-    const wired = await mountPicker({ onSetDefault: () => undefined });
-    try {
-      wired.host.openModels?.();
-      await wired.harness.renderOnce();
-      expect(wired.harness.captureCharFrame()).toContain("Alt+D");
-    } finally {
-      wired.host.dispose();
-      wired.harness.destroy();
-    }
-
-    const unwired = await mountPicker();
-    try {
-      unwired.host.openModels?.();
-      await unwired.harness.renderOnce();
-      expect(unwired.harness.captureCharFrame()).not.toContain("Alt+D");
-    } finally {
-      unwired.host.dispose();
-      unwired.harness.destroy();
-    }
-  });
-
   const altA = {
     name: "a",
     ctrl: false,
@@ -613,35 +546,37 @@ describe("flat type-to-filter model picker", () => {
     option: true,
   } as KeyEvent;
 
-  test("the model picker footer advertises Alt+A and /connect iff add-provider is wired", async () => {
-    // The hint requires the full wiring — choices AND the connect handler —
-    // because that is exactly when the key actually works.
-    const wired = await mountPicker({
-      onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
-    });
-    try {
-      wired.host.openModels?.();
-      await wired.harness.renderOnce();
-      const frame = wired.harness.captureCharFrame();
-      expect(frame).toContain("Alt+A");
-      expect(frame).toContain("/connect");
-    } finally {
-      wired.host.dispose();
-      wired.harness.destroy();
-    }
+  const ADD_PROVIDER_CHOICES = () => [
+    { id: "codex", label: "Codex", hint: "", accountCount: 0 },
+  ];
 
-    const unwired = await mountPicker();
-    try {
-      unwired.host.openModels?.();
-      await unwired.harness.renderOnce();
-      expect(unwired.harness.captureCharFrame()).not.toContain("Alt+A");
-    } finally {
-      unwired.host.dispose();
-      unwired.harness.destroy();
-    }
+  test("the footer advertises only the keys whose handlers are wired", async () => {
+    const footer = async (
+      overrides: Parameters<typeof mountPicker>[0],
+    ): Promise<string> => {
+      const mounted = await mountPicker(overrides);
+      try {
+        mounted.host.openModels?.();
+        await mounted.harness.renderOnce();
+        return mounted.harness.captureCharFrame();
+      } finally {
+        mounted.host.dispose();
+        mounted.harness.destroy();
+      }
+    };
+
+    // Each hint rides iff its handler is wired — the footer only advertises
+    // a key when that key actually works.
+    expect(await footer({ onSetDefault: () => undefined })).toContain("Alt+D");
+    const withProvider = await footer({
+      onConnectProvider: () => undefined,
+      addProviderChoices: ADD_PROVIDER_CHOICES,
+    });
+    expect(withProvider).toContain("Alt+A");
+    expect(withProvider).toContain("/connect");
+    const bare = await footer({});
+    expect(bare).not.toContain("Alt+D");
+    expect(bare).not.toContain("Alt+A");
   });
 
   test("Alt+A opens the add-provider selector listing every provider kind and its account count", async () => {
@@ -683,9 +618,7 @@ describe("flat type-to-filter model picker", () => {
   test("composed å through the key path opens add-provider", async () => {
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
+      addProviderChoices: ADD_PROVIDER_CHOICES,
     });
     try {
       host.openModels?.();
@@ -702,9 +635,7 @@ describe("flat type-to-filter model picker", () => {
   test("closed-prompt å stays in the prompt and does not open add-provider", async () => {
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
+      addProviderChoices: ADD_PROVIDER_CHOICES,
     });
     try {
       expect(host.shell.overlayKind).toBeNull();
@@ -721,22 +652,13 @@ describe("flat type-to-filter model picker", () => {
   test("other composed glyphs still type-to-filter in the model picker", async () => {
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
+      addProviderChoices: ADD_PROVIDER_CHOICES,
     });
     try {
       host.openModels?.();
       await harness.renderOnce();
       for (const glyph of ["ø", "ä", "æ"] as const) {
-        const composed = {
-          name: glyph,
-          sequence: glyph,
-          ctrl: false,
-          meta: false,
-          option: false,
-        } as KeyEvent;
-        expect(handleListFilterKey(host.shell, composed)).toBe(true);
+        expect(handleListFilterKey(host.shell, composedKey(glyph))).toBe(true);
         expect(host.shell.overlayKind).toBe("model_picker");
       }
     } finally {
@@ -750,9 +672,7 @@ describe("flat type-to-filter model picker", () => {
     // and option/meta stay false (#482).
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
+      addProviderChoices: ADD_PROVIDER_CHOICES,
     });
     try {
       host.openModels?.();
@@ -778,14 +698,7 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.();
       await harness.renderOnce();
-      const composed = {
-        name: "å",
-        sequence: "å",
-        ctrl: false,
-        meta: false,
-        option: false,
-      } as KeyEvent;
-      expect(handleListFilterKey(host.shell, composed)).toBe(true);
+      expect(handleListFilterKey(host.shell, composedKey("å"))).toBe(true);
       expect(host.shell.overlayKind).toBe("model_picker");
     } finally {
       host.dispose();
@@ -796,21 +709,12 @@ describe("flat type-to-filter model picker", () => {
   test("bare ASCII a still type-to-filters when add-provider is wired", async () => {
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
+      addProviderChoices: ADD_PROVIDER_CHOICES,
     });
     try {
       host.openModels?.();
       await harness.renderOnce();
-      const letter = {
-        name: "a",
-        sequence: "a",
-        ctrl: false,
-        meta: false,
-        option: false,
-      } as KeyEvent;
-      expect(handleListFilterKey(host.shell, letter)).toBe(true);
+      expect(handleListFilterKey(host.shell, composedKey("a"))).toBe(true);
       expect(host.shell.overlayKind).toBe("model_picker");
     } finally {
       host.dispose();
@@ -845,9 +749,7 @@ describe("flat type-to-filter model picker", () => {
   test("Esc from the add-provider selector returns to the model list", async () => {
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
-      ],
+      addProviderChoices: ADD_PROVIDER_CHOICES,
     });
     try {
       host.openModels?.();
@@ -870,9 +772,7 @@ describe("flat type-to-filter model picker", () => {
   test("Esc after openAddProvider from a closed prompt does not reopen the model list", async () => {
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
-      ],
+      addProviderChoices: ADD_PROVIDER_CHOICES,
     });
     try {
       expect(host.shell.overlayKind).toBeNull();
@@ -894,9 +794,7 @@ describe("flat type-to-filter model picker", () => {
     const queued: { open?: () => void } = {};
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 1 },
-      ],
+      addProviderChoices: ADD_PROVIDER_CHOICES,
       commands: [
         {
           id: "connect",
@@ -927,23 +825,14 @@ describe("flat type-to-filter model picker", () => {
     }
   });
 
-  test("without addProviderChoices, Alt+A is not claimed", async () => {
+  test("without addProviderChoices the surface is absent and Alt+A is not claimed", async () => {
     const { harness, host } = await mountPicker();
     try {
+      expect(host.openAddProvider).toBeUndefined();
       host.openModels?.();
       await harness.renderOnce();
       expect(runOverlayAction(host.shell, altA)).toBe(false);
       expect(host.shell.overlayKind).toBe("model_picker");
-    } finally {
-      host.dispose();
-      harness.destroy();
-    }
-  });
-
-  test("openAddProvider is absent when add-provider is not wired", async () => {
-    const { harness, host } = await mountPicker();
-    try {
-      expect(host.openAddProvider).toBeUndefined();
     } finally {
       host.dispose();
       harness.destroy();
@@ -1040,9 +929,7 @@ describe("flat type-to-filter model picker", () => {
   test("setModels does not steal an open add-provider overlay", async () => {
     const { harness, host } = await mountPicker({
       onConnectProvider: () => undefined,
-      addProviderChoices: () => [
-        { id: "codex", label: "Codex", hint: "", accountCount: 0 },
-      ],
+      addProviderChoices: ADD_PROVIDER_CHOICES,
     });
     try {
       host.openModels?.();
@@ -1072,10 +959,7 @@ describe("flat type-to-filter model picker", () => {
     try {
       host.openModels?.();
       await harness.renderOnce();
-      for (const ch of "grok") {
-        harness.pressKey(ch);
-      }
-      await harness.renderOnce();
+      await typeFilter(harness, "grok");
       expect(
         host.shell.overlayItems.every((label) => label.includes("grok")),
       ).toBe(true);
@@ -1118,10 +1002,7 @@ describe("flat type-to-filter model picker", () => {
         host.shell.overlayItems.some((label) => label.includes("glm")),
       ).toBe(false);
 
-      for (const ch of "glm") {
-        harness.pressKey(ch);
-      }
-      await harness.renderOnce();
+      await typeFilter(harness, "glm");
       expect(host.shell.overlayItems).toEqual(["(no matches)"]);
     } finally {
       host.dispose();

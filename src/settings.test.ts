@@ -1,13 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import {
-  chmod,
-  mkdtemp,
-  mkdir,
-  readFile,
-  writeFile,
-  rm,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 
 import { OPENCODE_GO_BASE_URL } from "../packages/opencode-go/src/index.js";
@@ -37,6 +29,8 @@ import {
   listFavoriteModels,
   normalizeMcpServers,
 } from "./config/settings.js";
+import { captureStderr } from "./testkit/capture-stderr.js";
+import { withTempDir } from "./testkit/temporary-dirs.js";
 
 const firepass: Settings = {
   defaultProvider: "firepass",
@@ -62,97 +56,6 @@ const twoProviders: Settings = {
     },
   },
 };
-
-const withTempDir = async (fn: (dir: string) => Promise<void>) => {
-  const dir = await mkdtemp(join(tmpdir(), "ic-settings-"));
-  try {
-    await fn(dir);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-};
-
-const withCapturedStderr = async (fn: (writes: string[]) => Promise<void>) => {
-  const writes: string[] = [];
-  const originalWrite = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
-    writes.push(
-      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
-    );
-    return (
-      originalWrite as (c: string | Uint8Array, ...r: unknown[]) => boolean
-    )(chunk, ...rest);
-  }) as typeof process.stderr.write;
-  try {
-    await fn(writes);
-  } finally {
-    process.stderr.write = originalWrite;
-  }
-};
-
-describe("MCP settings validation", () => {
-  test("accepts the Exa preset enabled or disabled in object and array forms", () => {
-    expect(normalizeMcpServers({ exa: { enabled: true } })).toEqual([
-      { name: "exa", enabled: true },
-    ]);
-    expect(normalizeMcpServers({ exa: { enabled: false } })).toEqual([
-      { name: "exa", enabled: false },
-    ]);
-    expect(normalizeMcpServers([{ name: "exa", enabled: true }])).toEqual([
-      { name: "exa", enabled: true },
-    ]);
-    expect(normalizeMcpServers([{ name: "exa", enabled: false }])).toEqual([
-      { name: "exa", enabled: false },
-    ]);
-  });
-
-  test("rejects empty and transport-less non-Exa entries", () => {
-    expect(normalizeMcpServers({ exa: {} })).toBeUndefined();
-    expect(normalizeMcpServers({ unknown: { enabled: true } })).toBeUndefined();
-    expect(
-      normalizeMcpServers({ unknown: { enabled: false } }),
-    ).toBeUndefined();
-  });
-
-  test("accepts transport-bearing Exa rows with enabled", () => {
-    expect(
-      normalizeMcpServers({
-        exa: { enabled: true, url: "https://mcp.exa.ai/mcp" },
-      }),
-    ).toEqual([{ name: "exa", enabled: true, url: "https://mcp.exa.ai/mcp" }]);
-    expect(
-      normalizeMcpServers({ exa: { enabled: false, command: "custom-exa" } }),
-    ).toEqual([{ name: "exa", command: "custom-exa", enabled: false }]);
-  });
-
-  test("preserves a custom transport-bearing server named Exa", () => {
-    expect(
-      normalizeMcpServers({ exa: { url: "https://example.test/custom" } }),
-    ).toEqual([{ name: "exa", url: "https://example.test/custom" }]);
-  });
-
-  test("normalizes optional enabled on transport rows", () => {
-    expect(
-      normalizeMcpServers({
-        linear: {
-          type: "http",
-          url: "https://mcp.linear.app/mcp",
-          enabled: false,
-        },
-      }),
-    ).toEqual([
-      {
-        name: "linear",
-        type: "http",
-        url: "https://mcp.linear.app/mcp",
-        enabled: false,
-      },
-    ]);
-    expect(
-      normalizeMcpServers({ linear: { url: "https://mcp.linear.app/mcp" } }),
-    ).toEqual([{ name: "linear", url: "https://mcp.linear.app/mcp" }]);
-  });
-});
 
 describe("normalizeOpenAICompatibleBaseURL", () => {
   test.each([
@@ -280,55 +183,54 @@ describe("resolveProvider", () => {
     ).toThrow(/not found/);
   });
 
-  test("falls back from a missing local selection to defaultProvider", () => {
-    const r = resolveProvider({
+  test.each([
+    {
+      name: "a missing local selection falls back to defaultProvider",
       settings: twoProviders,
       local: { provider: "zzz" },
-      cli: {},
-    });
-    expect(r.providerName).toBe("a");
-    expect(r.apiKey).toBe("a-key");
-    expect(r.model).toBe("a-model");
-  });
-
-  test("falls back from a typo defaultProvider to a resolvable sibling", () => {
-    const settings: Settings = {
-      defaultProvider: "typo",
-      providers: {
-        solo: { baseURL: "https://s/v1", apiKey: "s-key", models: ["s-model"] },
-      },
-    };
-    const r = resolveProvider({ settings, local: null, cli: {} });
-    expect(r.providerName).toBe("solo");
-    expect(r.apiKey).toBe("s-key");
-    expect(r.model).toBe("s-model");
-  });
-
-  test("falls back from an orphaned OAuth local selection to a healthy sibling", () => {
-    const r = resolveProvider({
+      expected: { providerName: "a", apiKey: "a-key", model: "a-model" },
+    },
+    {
+      name: "a typo defaultProvider falls back to a resolvable sibling",
+      settings: {
+        defaultProvider: "typo",
+        providers: {
+          solo: {
+            baseURL: "https://s/v1",
+            apiKey: "s-key",
+            models: ["s-model"],
+          },
+        },
+      } satisfies Settings,
+      local: null,
+      expected: { providerName: "solo", apiKey: "s-key", model: "s-model" },
+    },
+    {
+      name: "an orphaned OAuth local selection falls back to a healthy sibling",
       settings: firepass,
       local: { provider: "xai/work" },
-      cli: {},
-    });
-    expect(r.providerName).toBe("firepass");
-    expect(r.apiKey).toBe("fp-key");
-  });
-
-  test("falls back from a missing-key defaultProvider to a healthy sibling", () => {
-    const settings: Settings = {
-      defaultProvider: "broken",
-      providers: {
-        broken: {
-          baseURL: "https://broken/v1",
-          apiKey: "",
-          models: ["broken-model"],
+      expected: { providerName: "firepass", apiKey: "fp-key" },
+    },
+    {
+      name: "a missing-key defaultProvider falls back to a healthy sibling",
+      settings: {
+        defaultProvider: "broken",
+        providers: {
+          broken: {
+            baseURL: "https://broken/v1",
+            apiKey: "",
+            models: ["broken-model"],
+          },
+          ...firepass.providers,
         },
-        ...firepass.providers,
-      },
-    };
-    const r = resolveProvider({ settings, local: null, cli: {} });
-    expect(r.providerName).toBe("firepass");
-    expect(r.apiKey).toBe("fp-key");
+      } satisfies Settings,
+      local: null,
+      expected: { providerName: "firepass", apiKey: "fp-key" },
+    },
+  ])("$name", ({ settings, local, expected }) => {
+    expect(resolveProvider({ settings, local, cli: {} })).toMatchObject(
+      expected,
+    );
   });
 
   test("throws when an explicit CLI provider is present but unusable even if a sibling is healthy", () => {
@@ -451,95 +353,64 @@ describe("resolveProvider", () => {
 });
 
 describe("validators", () => {
-  test("isSettings rejects a provider missing baseURL", () => {
-    expect(
-      isSettings({ providers: { x: { apiKey: "k", models: ["m"] } } }),
-    ).toBe(false);
-  });
-
-  test("isSettings accepts a valid shape", () => {
-    expect(isSettings(firepass)).toBe(true);
-  });
-
-  test("isSettings accepts bifrostVirtualKey and agentModelFallback", () => {
-    expect(
-      isSettings({
-        providers: {
-          bf: {
-            baseURL: "http://b:8080/v1",
-            apiKey: "sk-bf-k",
-            models: ["m"],
-            bifrostVirtualKey: true,
-          },
+  test.each([
+    firepass,
+    {
+      providers: {
+        bf: {
+          baseURL: "http://b:8080/v1",
+          apiKey: "sk-bf-k",
+          models: ["m"],
+          bifrostVirtualKey: true,
         },
-        agentModelFallback: "none",
-      }),
-    ).toBe(true);
+      },
+      agentModelFallback: "none" as const,
+    },
+    {
+      providers: firepass.providers,
+      recentModels: [{ provider: "firepass", model: "fp-large" }],
+      favoriteModels: [{ provider: "firepass", model: "fp-small" }],
+    },
+    { providers: firepass.providers, showPromptCost: true },
+    { providers: firepass.providers, dangerouslySkipPermissions: true },
+    { providers: firepass.providers, lastChangelogVersion: "0.2.86" },
+  ])("isSettings accepts %j", (input) => {
+    expect(isSettings(input)).toBe(true);
   });
 
-  test("isSettings accepts recentModels and favoriteModels", () => {
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        recentModels: [{ provider: "firepass", model: "fp-large" }],
-        favoriteModels: [{ provider: "firepass", model: "fp-small" }],
-      }),
-    ).toBe(true);
+  test.each([
+    { providers: { x: { apiKey: "k", models: ["m"] } } },
+    {
+      providers: firepass.providers,
+      recentModels: [{ provider: "firepass" }],
+    },
+    { providers: firepass.providers, sessionMode: "fleet" },
+  ])("isSettings rejects %j", (input) => {
+    expect(isSettings(input)).toBe(false);
   });
 
-  test("isSettings rejects malformed recentModels entries", () => {
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        recentModels: [{ provider: "firepass" }],
-      }),
-    ).toBe(false);
-  });
-
-  test("isSettings accepts showPromptCost", () => {
-    expect(
-      isSettings({ providers: firepass.providers, showPromptCost: true }),
-    ).toBe(true);
-  });
-
-  test("isSettings accepts dangerouslySkipPermissions", () => {
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        dangerouslySkipPermissions: true,
-      }),
-    ).toBe(true);
-  });
-
-  test("isLocalSettings rejects credentials", () => {
-    expect(isLocalSettings({ provider: "a", apiKey: "leak" })).toBe(false);
-  });
-
-  test("isLocalSettings accepts selection only", () => {
-    expect(isLocalSettings({ provider: "a", model: "m" })).toBe(true);
-    expect(isLocalSettings({})).toBe(true);
-  });
-
-  test("isLocalSettings accepts a valid reasoningEffort", () => {
-    expect(isLocalSettings({ model: "m", reasoningEffort: "high" })).toBe(true);
+  test.each([
+    { provider: "a", model: "m" },
+    {},
+    { model: "m", reasoningEffort: "high" },
     // "none" is OpenAI's explicit disable-reasoning value, a real level.
-    expect(isLocalSettings({ reasoningEffort: "none" })).toBe(true);
+    { reasoningEffort: "none" },
+    { env: { FOO: "bar", BAZ: "qux" } },
+    { env: {} },
+  ])("isLocalSettings accepts %j", (input) => {
+    expect(isLocalSettings(input)).toBe(true);
   });
 
-  test("isLocalSettings rejects an invalid reasoningEffort", () => {
-    expect(isLocalSettings({ reasoningEffort: "legendary" })).toBe(false);
-    expect(isLocalSettings({ reasoningEffort: 5 })).toBe(false);
-  });
-
-  test("isLocalSettings accepts a valid env map", () => {
-    expect(isLocalSettings({ env: { FOO: "bar", BAZ: "qux" } })).toBe(true);
-    expect(isLocalSettings({ env: {} })).toBe(true);
-  });
-
-  test("isLocalSettings rejects a malformed env map", () => {
-    expect(isLocalSettings({ env: { FOO: 5 } })).toBe(false);
-    expect(isLocalSettings({ env: "not-an-object" })).toBe(false);
-    expect(isLocalSettings({ env: { FOO: { nested: true } } })).toBe(false);
+  test.each([
+    { provider: "a", apiKey: "leak" },
+    { provider: "a", sessionMode: 1 },
+    { reasoningEffort: "legendary" },
+    { reasoningEffort: 5 },
+    { env: { FOO: 5 } },
+    { env: "not-an-object" },
+    { env: { FOO: { nested: true } } },
+  ])("isLocalSettings rejects %j", (input) => {
+    expect(isLocalSettings(input)).toBe(false);
   });
 });
 
@@ -632,7 +503,7 @@ describe("healOpenCodeGoProviders", () => {
 
 describe("loaders", () => {
   test("loadSettings heals Go-by-URL providers onto disk", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -662,7 +533,7 @@ describe("loaders", () => {
 
   test("loadSettings does not rewrite disk when heal is a no-op", async () => {
     const { readFile, stat } = await import("node:fs/promises");
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       const alreadyPinned = {
         providers: {
@@ -689,8 +560,9 @@ describe("loaders", () => {
   });
 
   test("loadSettings logs healed provider ids when heal mutates", async () => {
-    await withTempDir(async (dir) => {
-      await withCapturedStderr(async (writes) => {
+    await withTempDir("ic-settings-", async (dir) => {
+      const stderr = captureStderr();
+      try {
         const path = join(dir, "settings.json");
         await writeFile(
           path,
@@ -710,19 +582,23 @@ describe("loaders", () => {
           }),
         );
         await loadSettings(path);
-        const notice = writes.find((w) =>
-          w.includes("healed OpenCode Go providers"),
-        );
+        const notice = stderr
+          .output()
+          .split("\n")
+          .find((line) => line.includes("healed OpenCode Go providers"));
         expect(notice).toBeDefined();
         expect(notice).toContain("go/personal");
         expect(notice).not.toContain("zen");
-      });
+      } finally {
+        stderr.restore();
+      }
     });
   });
 
   test("loadSettings stays quiet on heal no-op", async () => {
-    await withTempDir(async (dir) => {
-      await withCapturedStderr(async (writes) => {
+    await withTempDir("ic-settings-", async (dir) => {
+      const stderr = captureStderr();
+      try {
         const path = join(dir, "settings.json");
         await writeFile(
           path,
@@ -738,15 +614,15 @@ describe("loaders", () => {
           }),
         );
         await loadSettings(path);
-        expect(
-          writes.some((w) => w.includes("healed OpenCode Go providers")),
-        ).toBe(false);
-      });
+        expect(stderr.output()).not.toContain("healed OpenCode Go providers");
+      } finally {
+        stderr.restore();
+      }
     });
   });
 
   test("loadSettings keeps in-memory heal when disk save fails", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       try {
         const path = join(dir, "settings.json");
         await writeFile(
@@ -775,13 +651,13 @@ describe("loaders", () => {
   });
 
   test("loadSettings returns null for a missing file", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       expect(await loadSettings(join(dir, "nope.json"))).toBeNull();
     });
   });
 
   test("loadSettings throws on an invalid schema", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -794,7 +670,7 @@ describe("loaders", () => {
   });
 
   test("loadSettings keeps local selection recovery out of the strict loader", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -812,7 +688,7 @@ describe("loaders", () => {
   ])(
     "loadSettingsRecoveringClobberedOAuthSelection recovers an exact OAuth selection with %s",
     async (_name, providerNames) => {
-      await withTempDir(async (dir) => {
+      await withTempDir("ic-settings-", async (dir) => {
         const path = join(dir, "settings.json");
         await writeFile(
           path,
@@ -854,7 +730,7 @@ describe("loaders", () => {
   );
 
   test("loadSettingsRecoveringClobberedOAuthSelection recovers a non-catalog OAuth model when the auth profile exists", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -888,7 +764,7 @@ describe("loaders", () => {
   });
 
   test("loadSettings fails closed on unmatched OAuth selections without touching the file", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       const original = JSON.stringify({
         provider: "codex/missing",
@@ -913,7 +789,7 @@ describe("loaders", () => {
   });
 
   test("loadSettingsRecoveringClobberedOAuthSelection leaves the file unchanged when persist is false", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       const original = JSON.stringify({
         provider: "codex/work",
@@ -937,7 +813,7 @@ describe("loaders", () => {
   });
 
   test("loadSettings preserves provider-level bifrostVirtualKey", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(
         path,
@@ -958,7 +834,7 @@ describe("loaders", () => {
   });
 
   test("loadLocalSettings fails open on credentials and unknown keys", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       await mkdir(join(dir, ".corbits"), { recursive: true });
       const path = join(dir, ".corbits", "settings.json");
       await writeFile(
@@ -990,7 +866,7 @@ describe("loaders", () => {
   });
 
   test("loadLocalSettings fails open on invalid JSON with diagnostics", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       await writeFile(path, "{ not json");
       expect(await loadLocalSettings(path)).toBeNull();
@@ -1004,7 +880,7 @@ describe("loaders", () => {
   });
 
   test("loadLocalSettingsWriteBase distinguishes absent, cleaned, and unusable", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       // Absent: empty base is safe to create.
       expect(await loadLocalSettingsWriteBase(path)).toEqual({});
@@ -1035,7 +911,7 @@ describe("loaders", () => {
   });
 
   test("loadGlobalSettingsWriteBase distinguishes absent from unreadable", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       // Absent file: a fresh minimal base is a safe write target.
       expect(await loadGlobalSettingsWriteBase(path)).toEqual({
@@ -1092,35 +968,23 @@ describe("loaders", () => {
 });
 
 describe("persistSkipPermissionsDefault", () => {
-  test("writes true", async () => {
-    await withTempDir(async (dir) => {
-      const path = join(dir, "settings.json");
-      await saveGlobalSettings(path, firepass);
-      expect(await persistSkipPermissionsDefault(path, true)).toBe("ok");
-      expect(await loadSettings(path)).toEqual({
-        ...firepass,
-        dangerouslySkipPermissions: true,
-      });
-    });
-  });
-
-  test("writes false", async () => {
-    await withTempDir(async (dir) => {
+  test.each([true, false])("writes %s", async (value) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       await saveGlobalSettings(path, {
         ...firepass,
-        dangerouslySkipPermissions: true,
+        dangerouslySkipPermissions: !value,
       });
-      expect(await persistSkipPermissionsDefault(path, false)).toBe("ok");
+      expect(await persistSkipPermissionsDefault(path, value)).toBe("ok");
       expect(await loadSettings(path)).toEqual({
         ...firepass,
-        dangerouslySkipPermissions: false,
+        dangerouslySkipPermissions: value,
       });
     });
   });
 
   test("skips invalid or unreadable settings and leaves the file unchanged", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       const garbage = "{ not json";
       await writeFile(path, garbage);
@@ -1137,7 +1001,7 @@ describe("persistSkipPermissionsDefault", () => {
 
 describe("sessionMode", () => {
   test("loadSettings drops legacy single sessionMode", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await mkdir(dirname(path), { recursive: true });
       await writeFile(
@@ -1149,28 +1013,10 @@ describe("sessionMode", () => {
       expect(await loadSettings(path)).toEqual(firepass);
     });
   });
-
-  test("rejects invalid sessionMode", () => {
-    expect(
-      isSettings({ providers: firepass.providers, sessionMode: "fleet" }),
-    ).toBe(false);
-    expect(isLocalSettings({ provider: "a", sessionMode: 1 })).toBe(false);
-  });
-});
-
-test("loadSettings round-trips showPromptCost", async () => {
-  await withTempDir(async (dir) => {
-    const path = join(dir, ".corbits", "settings.json");
-    await saveGlobalSettings(path, { ...firepass, showPromptCost: true });
-    expect(await loadSettings(path)).toEqual({
-      ...firepass,
-      showPromptCost: true,
-    });
-  });
 });
 
 test("loadSettings tolerates a legacy maxConcurrentSubAgents key", async () => {
-  await withTempDir(async (dir) => {
+  await withTempDir("ic-settings-", async (dir) => {
     const path = join(dir, ".corbits", "settings.json");
     await mkdir(join(dir, ".corbits"), { recursive: true });
     await writeFile(
@@ -1183,17 +1029,8 @@ test("loadSettings tolerates a legacy maxConcurrentSubAgents key", async () => {
 });
 
 describe("lastChangelogVersion", () => {
-  test("isSettings accepts a version string", () => {
-    expect(
-      isSettings({
-        providers: firepass.providers,
-        lastChangelogVersion: "0.2.86",
-      }),
-    ).toBe(true);
-  });
-
   test("markLastChangelogVersion stamps without clobbering other fields", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await saveGlobalSettings(path, { ...firepass, onboarded: true });
       await markLastChangelogVersion(path, "0.2.86");
@@ -1205,7 +1042,7 @@ describe("lastChangelogVersion", () => {
   });
 
   test("markLastChangelogVersion ignores empty versions", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await saveGlobalSettings(path, firepass);
       await markLastChangelogVersion(path, "  ");
@@ -1216,15 +1053,16 @@ describe("lastChangelogVersion", () => {
 
 describe("saveGlobalSettings", () => {
   test("round-trips a settings object through loadSettings", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
-      await saveGlobalSettings(path, firepass);
-      expect(await loadSettings(path)).toEqual(firepass);
+      const full = { ...firepass, showPromptCost: true };
+      await saveGlobalSettings(path, full);
+      expect(await loadSettings(path)).toEqual(full);
     });
   });
 
   test("creates the .corbits directory when missing", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "nested", ".corbits", "settings.json");
       await saveGlobalSettings(path, firepass);
       const loaded = await loadSettings(path);
@@ -1233,7 +1071,7 @@ describe("saveGlobalSettings", () => {
   });
 
   test("refuses to write invalid settings", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       const invalid = {
         providers: { x: { models: [] } },
@@ -1247,7 +1085,7 @@ describe("saveGlobalSettings", () => {
 
 describe("saveLocalSettings", () => {
   test("round-trips a selection through loadLocalSettings", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await saveLocalSettings(path, {
         provider: "firepass",
@@ -1261,7 +1099,7 @@ describe("saveLocalSettings", () => {
   });
 
   test("round-trips a reasoningEffort through loadLocalSettings", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       await saveLocalSettings(path, {
         provider: "firepass",
@@ -1277,7 +1115,7 @@ describe("saveLocalSettings", () => {
   });
 
   test("loadLocalSettings fails open on invalid reasoningEffort", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       await mkdir(join(dir, ".corbits"), { recursive: true });
       const path = join(dir, ".corbits", "settings.json");
       await writeFile(
@@ -1296,7 +1134,7 @@ describe("saveLocalSettings", () => {
   });
 
   test("creates the .corbits directory when missing", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "nested", ".corbits", "settings.json");
       await saveLocalSettings(path, { provider: "a" });
       expect(await loadLocalSettings(path)).toEqual({ provider: "a" });
@@ -1304,7 +1142,7 @@ describe("saveLocalSettings", () => {
   });
 
   test("refuses to write credentials", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, ".corbits", "settings.json");
       // Force an invalid shape past the type system to prove the guard holds.
       const leaky = { provider: "a", apiKey: "leak" } as unknown as {
@@ -1390,7 +1228,7 @@ describe("recent and favorite model helpers", () => {
   });
 
   test("setDefaultModel persists credential-free projected OAuth metadata", async () => {
-    await withTempDir(async (dir) => {
+    await withTempDir("ic-settings-", async (dir) => {
       const path = join(dir, "settings.json");
       const projected: ProviderSettings = {
         baseURL: "https://chatgpt.com/backend-api",
@@ -1526,6 +1364,45 @@ describe("normalizeMcpServers transports", () => {
         },
       ],
     ],
+    // Exa preset rows: enabled flags pass through in object and array form.
+    [{ exa: { enabled: true } }, [{ name: "exa", enabled: true }]],
+    [{ exa: { enabled: false } }, [{ name: "exa", enabled: false }]],
+    [[{ name: "exa", enabled: true }], [{ name: "exa", enabled: true }]],
+    [[{ name: "exa", enabled: false }], [{ name: "exa", enabled: false }]],
+    // A transport-bearing row named exa is a custom server, not the preset.
+    [
+      { exa: { enabled: true, url: "https://mcp.exa.ai/mcp" } },
+      [{ name: "exa", enabled: true, url: "https://mcp.exa.ai/mcp" }],
+    ],
+    [
+      { exa: { enabled: false, command: "custom-exa" } },
+      [{ name: "exa", command: "custom-exa", enabled: false }],
+    ],
+    [
+      { exa: { url: "https://example.test/custom" } },
+      [{ name: "exa", url: "https://example.test/custom" }],
+    ],
+    [
+      {
+        linear: {
+          type: "http",
+          url: "https://mcp.linear.app/mcp",
+          enabled: false,
+        },
+      },
+      [
+        {
+          name: "linear",
+          type: "http" as const,
+          url: "https://mcp.linear.app/mcp",
+          enabled: false,
+        },
+      ],
+    ],
+    [
+      { linear: { url: "https://mcp.linear.app/mcp" } },
+      [{ name: "linear", url: "https://mcp.linear.app/mcp" }],
+    ],
   ])("normalizes %j to %j", (input, expected) => {
     expect(normalizeMcpServers(input)).toEqual(expected);
   });
@@ -1535,6 +1412,10 @@ describe("normalizeMcpServers transports", () => {
     { srv: { args: ["--flag"] } },
     { acme: { type: "http" } },
     { acme: { type: "ws", url: "wss://x" } },
+    // Empty or transport-less rows are not servers, preset name or not.
+    { exa: {} },
+    { unknown: { enabled: true } },
+    { unknown: { enabled: false } },
   ])("returns undefined for invalid input %j", (input) => {
     expect(normalizeMcpServers(input)).toBeUndefined();
   });

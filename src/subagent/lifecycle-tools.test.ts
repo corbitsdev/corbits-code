@@ -19,40 +19,9 @@ import {
 } from "./session-store.js";
 import { createAdmissionQueue } from "./admission.js";
 import { defined } from "../testkit/defined.js";
+import { callFleetTool, callFleetToolRaw } from "./fleet-test-harness.js";
 
-function parseFleetJson(content: string): Record<string, unknown> {
-  expect(content).toContain("\n");
-  const parsed = JSON.parse(content) as Record<string, unknown>;
-  expect(JSON.stringify(parsed, null, 2)).toBe(content);
-  return parsed;
-}
-
-async function callTool(
-  tool:
-    | ReturnType<typeof createCloseAgentTool>
-    | ReturnType<typeof createResumeAgentTool>
-    | ReturnType<typeof createInterruptAgentTool>
-    | ReturnType<typeof createSendInputTool>
-    | ReturnType<typeof createListAgentsTool>
-    | ReturnType<typeof createWaitAgentsTool>,
-  args: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  if (tool.kind !== "full")
-    throw new Error(`expected full tool, got ${tool.kind}`);
-  const result = await tool.handler(
-    {
-      id: `call-${Math.random()}`,
-      name: tool.definition.name,
-      arguments: args,
-    },
-    new AbortController().signal,
-  );
-  const content =
-    typeof result.content === "string"
-      ? result.content
-      : JSON.stringify(result.content);
-  return parseFleetJson(content);
-}
+const callTool = callFleetTool;
 
 function retainedPendingFollowup(
   sessions: ReturnType<typeof createSubAgentSessionStore>,
@@ -231,15 +200,10 @@ describe("resume_agent", () => {
     expect(sessions.get(retained.id)?.id).toBe(retained.id);
     expect(sessions.get(retained.id)?.report).toBe("## Summary\nDone.");
 
-    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
-    const rejected = await resumeAgent.handler(
-      {
-        id: "call-x",
-        name: "resume_agent",
-        arguments: { target: notRetained.id, message: "more" },
-      },
-      new AbortController().signal,
-    );
+    const rejected = await callFleetToolRaw(resumeAgent, {
+      target: notRetained.id,
+      message: "more",
+    });
     expect(rejected.isError).toBe(true);
   });
 
@@ -316,15 +280,10 @@ describe("resume_agent", () => {
     await callTool(closeAgent, { target: closed.id });
 
     const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
-    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
-    const closedErr = await resumeAgent.handler(
-      {
-        id: "c-closed",
-        name: "resume_agent",
-        arguments: { target: closed.id, message: "more" },
-      },
-      new AbortController().signal,
-    );
+    const closedErr = await callFleetToolRaw(resumeAgent, {
+      target: closed.id,
+      message: "more",
+    });
     expect(closedErr.isError).toBe(true);
     expect(String(closedErr.content)).toContain("shutdown");
 
@@ -336,14 +295,10 @@ describe("resume_agent", () => {
       message: "turn two",
     });
     expect(first.status).toBe("running");
-    const concurrent = await resumeAgent.handler(
-      {
-        id: "c-concurrent",
-        name: "resume_agent",
-        arguments: { target: worker.id, message: "again" },
-      },
-      new AbortController().signal,
-    );
+    const concurrent = await callFleetToolRaw(resumeAgent, {
+      target: worker.id,
+      message: "again",
+    });
     expect(concurrent.isError).toBe(true);
     expect(String(concurrent.content)).toContain("running");
     finish("done");
@@ -363,15 +318,10 @@ describe("resume_agent", () => {
     fleetRecords.register(worker.id);
 
     const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
-    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
-    const result = await resumeAgent.handler(
-      {
-        id: "resume-before-collect",
-        name: "resume_agent",
-        arguments: { target: worker.id, message: "next" },
-      },
-      new AbortController().signal,
-    );
+    const result = await callFleetToolRaw(resumeAgent, {
+      target: worker.id,
+      message: "next",
+    });
 
     expect(result.isError).toBe(true);
     expect(String(result.content)).toContain("prior result is collected");
@@ -414,15 +364,10 @@ describe("resume_agent", () => {
     ).toBe(true);
 
     const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
-    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
-    const result = await resumeAgent.handler(
-      {
-        id: "resume-while-asking",
-        name: "resume_agent",
-        arguments: { target: worker.id, message: "next" },
-      },
-      new AbortController().signal,
-    );
+    const result = await callFleetToolRaw(resumeAgent, {
+      target: worker.id,
+      message: "next",
+    });
 
     expect(String(result.content)).not.toContain("prior result is collected");
     expect(String(result.content)).not.toContain("wait_agents");
@@ -620,42 +565,25 @@ describe("resume_agent", () => {
     sessions.complete(worker.id, "first report");
 
     const resumeAgent = createResumeAgentTool({ sessions, fleetRecords });
-    if (resumeAgent.kind !== "full") throw new Error("expected full tool");
 
-    const missing = await resumeAgent.handler(
-      {
-        id: "missing-message",
-        name: "resume_agent",
-        arguments: { target: worker.id },
-      },
-      new AbortController().signal,
-    );
+    const missing = await callFleetToolRaw(resumeAgent, {
+      target: worker.id,
+    });
     expect(missing.isError).toBe(true);
     expect(String(missing.content)).toContain("message");
 
-    const empty = await resumeAgent.handler(
-      {
-        id: "empty-message",
-        name: "resume_agent",
-        arguments: { target: worker.id, message: "   " },
-      },
-      new AbortController().signal,
-    );
+    const empty = await callFleetToolRaw(resumeAgent, {
+      target: worker.id,
+      message: "   ",
+    });
     expect(empty.isError).toBe(true);
     expect(String(empty.content).startsWith("Error:")).toBe(true);
     expect(String(empty.content)).toContain("non-empty message");
 
-    const oversize = await resumeAgent.handler(
-      {
-        id: "oversize-message",
-        name: "resume_agent",
-        arguments: {
-          target: worker.id,
-          message: "x".repeat(DEFAULT_MAX_ENTRY_CHARS + 1),
-        },
-      },
-      new AbortController().signal,
-    );
+    const oversize = await callFleetToolRaw(resumeAgent, {
+      target: worker.id,
+      message: "x".repeat(DEFAULT_MAX_ENTRY_CHARS + 1),
+    });
     expect(oversize.isError).toBe(true);
     expect(String(oversize.content)).toContain(
       `exceeds ${DEFAULT_MAX_ENTRY_CHARS} characters`,
@@ -723,15 +651,9 @@ describe("interrupt_agent", () => {
       fleetRecords: createFleetMailbox(sessions),
     });
 
-    if (interruptAgent.kind !== "full") throw new Error("expected full tool");
-    const interruptErr = await interruptAgent.handler(
-      {
-        id: "c1",
-        name: "interrupt_agent",
-        arguments: { target: notRunning.id },
-      },
-      new AbortController().signal,
-    );
+    const interruptErr = await callFleetToolRaw(interruptAgent, {
+      target: notRunning.id,
+    });
     expect(interruptErr.isError).toBe(true);
   });
 });
@@ -926,15 +848,11 @@ describe("send_input", () => {
     });
     sessions.markRunning(missing.id);
     sessions.registerInterrupt(missing.id, () => undefined);
-    if (sendInput.kind !== "full") throw new Error("expected full tool");
-    const denied = await sendInput.handler(
-      {
-        id: "missing-followup",
-        name: "send_input",
-        arguments: { target: missing.id, message: "steer", interrupt: true },
-      },
-      new AbortController().signal,
-    );
+    const denied = await callFleetToolRaw(sendInput, {
+      target: missing.id,
+      message: "steer",
+      interrupt: true,
+    });
     expect(denied.isError).toBe(true);
     expect(sessions.get(missing.id)?.lifecycleStatus).toBe("running");
   });
@@ -1008,15 +926,10 @@ describe("send_input", () => {
     expect(listedWorker?.status).toBe("failed");
     expect(listedWorker?.lifecycle).toBe("shutdown");
 
-    if (resume.kind !== "full") throw new Error("expected full tool");
-    const resumed = await resume.handler(
-      {
-        id: "resume-closed-followup",
-        name: "resume_agent",
-        arguments: { target: worker.id, message: "retry" },
-      },
-      new AbortController().signal,
-    );
+    const resumed = await callFleetToolRaw(resume, {
+      target: worker.id,
+      message: "retry",
+    });
     expect(resumed.isError).toBe(true);
     expect(String(resumed.content)).toContain("status: shutdown");
   });
@@ -1025,7 +938,6 @@ describe("send_input", () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
     const sendInput = createSendInputTool({ sessions, fleetRecords });
-    if (sendInput.kind !== "full") throw new Error("expected full tool");
 
     const completed = sessions.start({
       description: "done",
@@ -1038,14 +950,10 @@ describe("send_input", () => {
       throw new Error("must not deliver to a completed session");
     });
     sessions.complete(completed.id, "## Summary\nDone.");
-    const completedErr = await sendInput.handler(
-      {
-        id: "to-completed",
-        name: "send_input",
-        arguments: { target: completed.id, message: "x" },
-      },
-      new AbortController().signal,
-    );
+    const completedErr = await callFleetToolRaw(sendInput, {
+      target: completed.id,
+      message: "x",
+    });
     expect(completedErr.isError).toBe(true);
 
     const interrupted = sessions.start({
@@ -1062,14 +970,10 @@ describe("send_input", () => {
     await callTool(createInterruptAgentTool({ sessions, fleetRecords }), {
       target: interrupted.id,
     });
-    const interruptedErr = await sendInput.handler(
-      {
-        id: "to-interrupted",
-        name: "send_input",
-        arguments: { target: interrupted.id, message: "x" },
-      },
-      new AbortController().signal,
-    );
+    const interruptedErr = await callFleetToolRaw(sendInput, {
+      target: interrupted.id,
+      message: "x",
+    });
     expect(interruptedErr.isError).toBe(true);
 
     const closed = sessions.start({
@@ -1086,14 +990,10 @@ describe("send_input", () => {
     await callTool(createCloseAgentTool({ sessions, fleetRecords }), {
       target: closed.id,
     });
-    const closedErr = await sendInput.handler(
-      {
-        id: "to-closed",
-        name: "send_input",
-        arguments: { target: closed.id, message: "x" },
-      },
-      new AbortController().signal,
-    );
+    const closedErr = await callFleetToolRaw(sendInput, {
+      target: closed.id,
+      message: "x",
+    });
     expect(closedErr.isError).toBe(true);
     expect(sessions.get(closed.id)?.lifecycleStatus).toBe("shutdown");
   });
@@ -1138,15 +1038,10 @@ describe("send_input", () => {
     });
     expect(ok.status).toBe("running");
 
-    if (sendInput.kind !== "full") throw new Error("expected full tool");
-    const denied = await sendInput.handler(
-      {
-        id: "denied",
-        name: "send_input",
-        arguments: { target: sibling.id, message: "continue" },
-      },
-      new AbortController().signal,
-    );
+    const denied = await callFleetToolRaw(sendInput, {
+      target: sibling.id,
+      message: "continue",
+    });
     expect(denied.isError).toBe(true);
   });
 
@@ -1168,15 +1063,10 @@ describe("send_input", () => {
         getNodes: () => sessions.list(),
       },
     });
-    if (sendInput.kind !== "full") throw new Error("expected full tool");
-    const denied = await sendInput.handler(
-      {
-        id: "no-actor",
-        name: "send_input",
-        arguments: { target: worker.id, message: "x" },
-      },
-      new AbortController().signal,
-    );
+    const denied = await callFleetToolRaw(sendInput, {
+      target: worker.id,
+      message: "x",
+    });
     expect(denied.isError).toBe(true);
     expect(String(denied.content)).toContain("no resolvable session");
   });
@@ -1235,11 +1125,7 @@ describe("nested lifecycle authority", () => {
     expect((await callTool(interrupt, { target: child.id })).status).toBe(
       "interrupted",
     );
-    if (interrupt.kind !== "full") throw new Error("expected full tool");
-    const denied = await interrupt.handler(
-      { id: "d", name: "interrupt_agent", arguments: { target: sibling.id } },
-      new AbortController().signal,
-    );
+    const denied = await callFleetToolRaw(interrupt, { target: sibling.id });
     expect(denied.isError).toBe(true);
   });
 
@@ -1255,11 +1141,7 @@ describe("nested lifecycle authority", () => {
     expect((await callTool(close, { target: child.id })).status).toBe(
       "shutdown",
     );
-    if (close.kind !== "full") throw new Error("expected full tool");
-    const denied = await close.handler(
-      { id: "d", name: "close_agent", arguments: { target: sibling.id } },
-      new AbortController().signal,
-    );
+    const denied = await callFleetToolRaw(close, { target: sibling.id });
     expect(denied.isError).toBe(true);
     expect(sessions.get(sibling.id)?.lifecycleStatus).not.toBe("shutdown");
   });
@@ -1279,15 +1161,10 @@ describe("nested lifecycle authority", () => {
     expect(
       (await callTool(resume, { target: child.id, message: "more" })).status,
     ).toBe("running");
-    if (resume.kind !== "full") throw new Error("expected full tool");
-    const denied = await resume.handler(
-      {
-        id: "d",
-        name: "resume_agent",
-        arguments: { target: sibling.id, message: "more" },
-      },
-      new AbortController().signal,
-    );
+    const denied = await callFleetToolRaw(resume, {
+      target: sibling.id,
+      message: "more",
+    });
     expect(denied.isError).toBe(true);
   });
 });

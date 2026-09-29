@@ -361,46 +361,28 @@ describe("mountRunnerHost model picker", () => {
     );
   });
 
-  test("f toggles favorite on the focused row via onFavoriteToggle", async () => {
-    const toggled: string[] = [];
+  // Flat list: the model row is already focusable at the top level, so the
+  // Alt+ chords act on it without a nested provider drill.
+  test.each([
+    { key: "f", dep: "onFavoriteToggle" as const },
+    { key: "d", dep: "onSetDefault" as const },
+  ])("Alt+$key routes the focused row to $dep", async ({ key, dep }) => {
+    const hits: string[] = [];
     await withRunnerHost(
       async (host) => {
         expect(host.openSurface("models")).toBe(true);
-        // Flat list: the model row is already focusable at the top level —
-        // Alt+F toggles favorite without a nested provider drill.
-        const fKey = {
-          name: "f",
+        const event = {
+          name: key,
           ctrl: false,
           meta: false,
           option: true,
         } as KeyEvent;
-        expect(runOverlayAction(host.shell, fKey)).toBe(true);
-        expect(toggled).toEqual([modelOptionId("xai", "grok-4")]);
+        expect(runOverlayAction(host.shell, event)).toBe(true);
+        expect(hits).toEqual([modelOptionId("xai", "grok-4")]);
       },
       {
         providers: { xai: { models: ["grok-4"] } },
-        onFavoriteToggle: (id) => toggled.push(id),
-      },
-    );
-  });
-
-  test("Alt+D sets default on the focused row via onSetDefault", async () => {
-    const setDefault: string[] = [];
-    await withRunnerHost(
-      async (host) => {
-        expect(host.openSurface("models")).toBe(true);
-        const dKey = {
-          name: "d",
-          ctrl: false,
-          meta: false,
-          option: true,
-        } as KeyEvent;
-        expect(runOverlayAction(host.shell, dKey)).toBe(true);
-        expect(setDefault).toEqual([modelOptionId("xai", "grok-4")]);
-      },
-      {
-        providers: { xai: { models: ["grok-4"] } },
-        onSetDefault: (id) => setDefault.push(id),
+        [dep]: (id: string) => hits.push(id),
       },
     );
   });
@@ -477,85 +459,70 @@ describe("bottom border cost run", () => {
     );
   });
 
-  test("selecting a Codex model hides prompt $ without waiting for inference", async () => {
-    let provider = "xai";
-    await withRunnerHost(
-      async (host) => {
-        expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
+  // The bottom-rule $ tracks the newly selected provider immediately — the
+  // wait-for-inference lag was the bug. Codex (chatgpt-subscription) has no
+  // metered cost; xai does.
+  test.each([
+    {
+      name: "a Codex model hides prompt $",
+      from: "xai",
+      rowIncludes: "codex/abk-labs",
+      toProvider: "codex/abk-labs",
+      showCost: false,
+    },
+    {
+      name: "a metered model from Codex shows prompt $",
+      from: "codex/abk-labs",
+      rowIncludes: "[xai]",
+      toProvider: "xai",
+      showCost: true,
+    },
+  ])(
+    "selecting $name — without waiting for inference",
+    async ({ from, rowIncludes, toProvider, showCost }) => {
+      let provider: string = from;
+      await withRunnerHost(
+        async (host) => {
+          expect(ruleOf(host.shell.promptBottomRule).includes("$0.42")).toBe(
+            !showCost,
+          );
 
-        expect(host.openSurface("models")).toBe(true);
-        const items = host.shell.overlayItems;
-        const codexIndex = items.findIndex((label) =>
-          label.includes("codex/abk-labs"),
-        );
-        expect(codexIndex).toBeGreaterThanOrEqual(0);
-        moveOverlaySelection(host.shell, codexIndex);
-        acceptOverlaySelection(host.shell);
+          expect(host.openSurface("models")).toBe(true);
+          const index = host.shell.overlayItems.findIndex((label) =>
+            label.includes(rowIncludes),
+          );
+          expect(index).toBeGreaterThanOrEqual(0);
+          moveOverlaySelection(host.shell, index);
+          acceptOverlaySelection(host.shell);
 
-        expect(provider).toBe("codex/abk-labs");
-        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
-        expect(host.shell.costContext?.costLabel ?? null).toBeNull();
-        expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
-      },
-      {
-        providers: {
-          xai: { models: ["grok-4"] },
-          "codex/abk-labs": { models: ["gpt-5.5"] },
+          expect(provider).toBe(toProvider);
+          const rule = ruleOf(host.shell.promptBottomRule);
+          expect(rule.includes("$0.42")).toBe(showCost);
+          expect(host.shell.costContext?.costLabel ?? null).toBe(
+            showCost ? "$0.42" : null,
+          );
+          expect(rule).toContain("10%");
         },
-        onModelSelect: (id) => {
-          const identity = modelOptionRef(id);
-          if (identity !== null) provider = identity.provider;
+        {
+          providers: {
+            xai: { models: ["grok-4"] },
+            "codex/abk-labs": { models: ["gpt-5.5"] },
+          },
+          onModelSelect: (id) => {
+            const identity = modelOptionRef(id);
+            if (identity !== null) provider = identity.provider;
+          },
+          readCostSummary: () => ({
+            ...fakeCostSummary(),
+            costHiddenReason: provider.startsWith("codex/")
+              ? "chatgpt-subscription"
+              : null,
+          }),
+          showPromptCost: () => true,
         },
-        readCostSummary: () => ({
-          ...fakeCostSummary(),
-          costHiddenReason: provider.startsWith("codex/")
-            ? "chatgpt-subscription"
-            : null,
-        }),
-        showPromptCost: () => true,
-      },
-    );
-  });
-
-  test("selecting a metered model from Codex shows prompt $ without waiting for inference", async () => {
-    let provider = "codex/abk-labs";
-    await withRunnerHost(
-      async (host) => {
-        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("$0.42");
-
-        expect(host.openSurface("models")).toBe(true);
-        const items = host.shell.overlayItems;
-        const meteredIndex = items.findIndex((label) =>
-          label.includes("[xai]"),
-        );
-        expect(meteredIndex).toBeGreaterThanOrEqual(0);
-        moveOverlaySelection(host.shell, meteredIndex);
-        acceptOverlaySelection(host.shell);
-
-        expect(provider).toBe("xai");
-        expect(ruleOf(host.shell.promptBottomRule)).toContain("$0.42");
-        expect(host.shell.costContext?.costLabel ?? null).toBe("$0.42");
-        expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
-      },
-      {
-        providers: {
-          "codex/abk-labs": { models: ["gpt-5.5"] },
-          xai: { models: ["grok-4"] },
-        },
-        onModelSelect: (id) => {
-          const identity = modelOptionRef(id);
-          if (identity !== null) provider = identity.provider;
-        },
-        readCostSummary: () => ({
-          ...fakeCostSummary(),
-          costHiddenReason: provider.startsWith("codex/")
-            ? "chatgpt-subscription"
-            : null,
-        }),
-        showPromptCost: () => true,
-      },
-    );
-  });
+      );
+    },
+  );
 
   test("session.clear paints the context meter unknown immediately", async () => {
     const emitter = new EventEmitter();
@@ -578,54 +545,35 @@ describe("bottom border cost run", () => {
     );
   });
 
-  test("inference.start refreshes the cost meter from the live summary", async () => {
-    const emitter = new EventEmitter();
-    let percent = 10;
-    await withRunnerHost(
-      async (host) => {
-        expect(ruleOf(host.shell.promptBottomRule)).toContain("10%");
+  test.each([
+    { type: "inference.start", from: 10, to: 42 },
+    { type: "connector.reply", from: 90, to: 12 },
+  ])(
+    "$type refreshes the cost meter from the live summary",
+    async ({ type, from, to }) => {
+      const emitter = new EventEmitter();
+      let percent: number = from;
+      await withRunnerHost(
+        async (host) => {
+          expect(ruleOf(host.shell.promptBottomRule)).toContain(`${from}%`);
 
-        percent = 42;
-        emitter.emit("event", { type: "inference.start" });
+          percent = to;
+          emitter.emit("event", { type, data: { content: "" } });
 
-        expect(ruleOf(host.shell.promptBottomRule)).toContain("42%");
-        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("10%");
-      },
-      {
-        eventEmitter: emitter,
-        readCostSummary: () => ({
-          ...fakeCostSummary(),
-          contextPercentUsed: percent,
-        }),
-      },
-    );
-  });
-
-  test("connector.reply refreshes the cost meter after idle compact meter-sync", async () => {
-    const emitter = new EventEmitter();
-    let percent = 90;
-    await withRunnerHost(
-      async (host) => {
-        expect(ruleOf(host.shell.promptBottomRule)).toContain("90%");
-
-        percent = 12;
-        emitter.emit("event", {
-          type: "connector.reply",
-          data: { content: "" },
-        });
-
-        expect(ruleOf(host.shell.promptBottomRule)).toContain("12%");
-        expect(ruleOf(host.shell.promptBottomRule)).not.toContain("90%");
-      },
-      {
-        eventEmitter: emitter,
-        readCostSummary: () => ({
-          ...fakeCostSummary(),
-          contextPercentUsed: percent,
-        }),
-      },
-    );
-  });
+          const rule = ruleOf(host.shell.promptBottomRule);
+          expect(rule).toContain(`${to}%`);
+          expect(rule).not.toContain(`${from}%`);
+        },
+        {
+          eventEmitter: emitter,
+          readCostSummary: () => ({
+            ...fakeCostSummary(),
+            contextPercentUsed: percent,
+          }),
+        },
+      );
+    },
+  );
 });
 
 // The mounted-host Ctrl+D contract (prompt's own binding, never quit) is

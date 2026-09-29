@@ -1154,23 +1154,6 @@ describe("SubAgentDirector plan-substance wiring", () => {
 });
 
 describe("SubAgentDirector post-complete terminalization (CL-7068)", () => {
-  test("empty continuation after a valid report reply waits instead of re-inferring", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 1000);
-    const caps = createTestCapabilities();
-
-    await readOnce(director, state, caps);
-    const complete = actions(
-      await director.decide(inferenceDoneText(REPORT_ENVELOPE), state, caps),
-    );
-    expect(complete).toContainEqual({
-      type: "checkpoint",
-      message: "subagent-complete",
-    });
-    expect(complete.some((action) => action.type === "reply")).toBe(true);
-
-    await expectEmptyPingWaits(director, state, caps);
-  });
-
   test("stall empty-ping after a report reply does not revive inference", async () => {
     let now = 0;
     const director = new SubAgentDirector(

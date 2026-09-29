@@ -136,36 +136,33 @@ describe("renderer — edit_file journal block", () => {
 });
 
 describe("renderer — run_shell journal block", () => {
-  test("run_shell success writes collapsed block with checkmark to stdout", () => {
-    const cap = renderCapture([
-      event("inference.tool_call.end", {
-        callId: "c4",
-        name: "run_shell",
-        arguments: { command: "bun test" },
-      }),
-      event("tool.done", { result: { callId: "c4", content: "14 passed" } }),
-    ]);
-    const out = cap.stdout.join("");
-    expect(out).toContain("shell");
-    expect(out).toContain("bun test");
-    expect(out).toContain("✓");
-  });
-
-  test("run_shell failure writes expanded block with cross to stdout", () => {
-    const cap = renderCapture([
-      event("inference.tool_call.end", {
-        callId: "c5",
-        name: "run_shell",
-        arguments: { command: "bun test" },
-      }),
-      event("tool.done", {
-        result: { callId: "c5", content: "2 failed", isError: true },
-      }),
-    ]);
-    const out = cap.stdout.join("");
-    expect(out).toContain("✗");
-    expect(out).toContain("2 failed");
-  });
+  test.each([
+    {
+      outcome: "success",
+      result: { callId: "c4", content: "14 passed" },
+      expected: ["shell", "bun test", "✓"],
+    },
+    {
+      outcome: "failure",
+      result: { callId: "c5", content: "2 failed", isError: true },
+      expected: ["✗", "2 failed"],
+    },
+  ])(
+    "run_shell $outcome writes journal block to stdout",
+    ({ result, expected }) => {
+      const cap = renderCapture([
+        event("inference.tool_call.end", {
+          callId: result.callId,
+          name: "run_shell",
+          arguments: { command: "bun test" },
+        }),
+        event("tool.done", { result }),
+      ]);
+      for (const fragment of expected) {
+        expect(cap.stdout.join("")).toContain(fragment);
+      }
+    },
+  );
 });
 
 describe("renderer — submit_output / reactor.done journal block", () => {

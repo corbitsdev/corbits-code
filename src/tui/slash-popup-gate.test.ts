@@ -110,6 +110,31 @@ function emitPermissionGate(
   });
 }
 
+/** Emit a permission gate and capture its outcome for later assertions. */
+function emitGate(
+  emitter: EventEmitter,
+  extra?: { readonly timeoutMs?: number; readonly tool?: string },
+): { outcome: unknown } {
+  const gate: { outcome: unknown } = { outcome: undefined };
+  emitPermissionGate(
+    emitter,
+    (outcome) => {
+      gate.outcome = outcome;
+    },
+    extra,
+  );
+  return gate;
+}
+
+/** Wire the gate emitter to the shell; the returned dispose is always called. */
+function wireShellGates(shell: AppShell): {
+  readonly emitter: EventEmitter;
+  readonly dispose: () => void;
+} {
+  const emitter = new EventEmitter();
+  return { emitter, dispose: wireGates(emitter, shell) };
+}
+
 function typePrompt(press: (key: string) => void, text: string): void {
   for (const ch of text) press(ch);
 }
@@ -156,8 +181,7 @@ function settingsOnCommand(
 describe("/ popup keeps a queued gate queued across a filter refresh", () => {
   test("filter keystroke while a gate is queued", async () => {
     await withShell(async ({ shell, press, render }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       // The host going idle (onOverlayClosed) is what the queued gate waits
       // on to drain — see gate-wire.ts's onOverlayClosed/pending. Under the
       // old close-then-reopen refresh this fires on every filter keystroke
@@ -174,14 +198,11 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(isSlashPopupOpen(shell)).toBe(true);
         expect(shell.overlayKind).toBe("palette");
 
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
 
         // Queued, not opened — the slash popup still owns the host.
         expect(shell.overlayKind).toBe("palette");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(0);
 
         // Refreshing the filter must not release the host to the queued gate.
@@ -193,7 +214,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
           "model",
           "mcp",
         ]);
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(0);
 
         // Filtering keeps working after the refresh.
@@ -201,7 +222,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(shell.prompt.value).toBe("/mo");
         expect(shell.paletteCommands.map((c) => c.id)).toEqual(["model"]);
         expect(isSlashPopupOpen(shell)).toBe(true);
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(0);
 
         // A keystroke that drops matches to zero must not dismiss the popup
@@ -213,7 +234,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(shell.overlayKind).toBe("palette");
         expect(shell.paletteCommands).toEqual([]);
         expect(shell.overlayItems).toEqual(["(no matches)"]);
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(0);
 
         // A backspace that restores matches refreshes back in place too.
@@ -221,7 +242,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(shell.prompt.value).toBe("/mo");
         expect(shell.paletteCommands.map((c) => c.id)).toEqual(["model"]);
         expect(isSlashPopupOpen(shell)).toBe(true);
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(0);
 
         // A true dismiss still drains the queue as before. A bare ESC is held
@@ -230,7 +251,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         await render();
         await Bun.sleep(60);
         expect(shell.overlayKind).toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(1);
       } finally {
         disposeClosedSpy();
@@ -241,9 +262,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
 
   test("Enter on zero matches closes the popup, keeps the typed text, and drains a queued gate", async () => {
     await withShell(async ({ shell, press }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
-      const disposeClosedSpy = onOverlayClosed(shell, () => undefined);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
         press("/");
         press("m");
@@ -253,12 +272,9 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         expect(shell.paletteCommands).toEqual([]);
         expect(isSlashPopupOpen(shell)).toBe(true);
 
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).toBe("palette");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
 
         // Enter with no active command must not wipe the typed text.
         press("Enter");
@@ -268,9 +284,8 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         // Popup close is a genuine dismiss: the queued gate drains onto it.
         await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
       } finally {
-        disposeClosedSpy();
         dispose();
       }
     });
@@ -278,18 +293,14 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
 
   test("Tab name-complete still drains a queued gate", async () => {
     await withShell(async ({ shell, press }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
         press("/");
         expect(isSlashPopupOpen(shell)).toBe(true);
 
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).toBe("palette");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
 
         press("Tab");
         expect(isSlashPopupOpen(shell)).toBe(false);
@@ -297,7 +308,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
 
         await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
       } finally {
         dispose();
       }
@@ -306,8 +317,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
 
   test("space into an arg-less command dismisses without draining a queued gate", async () => {
     await withShell(async ({ shell, press }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       let closedCount = 0;
       const disposeClosedSpy = onOverlayClosed(shell, () => {
         closedCount++;
@@ -316,12 +326,9 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
         typePrompt(press, "/mcp");
         expect(isSlashPopupOpen(shell)).toBe(true);
 
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).toBe("palette");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(0);
 
         // `/mcp ` takes no params, so the popup dismisses — but silently: the
@@ -333,7 +340,7 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
 
         await Bun.sleep(20);
         expect(shell.overlayKind).not.toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(closedCount).toBe(0);
       } finally {
         disposeClosedSpy();
@@ -346,29 +353,25 @@ describe("/ popup keeps a queued gate queued across a filter refresh", () => {
 describe("slash/palette accept holds the host until dispatch settles", () => {
   test("Enter on /help while a gate is queued opens help, then drains the gate", async () => {
     await withShell(async ({ shell, press }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
         typePrompt(press, "/help");
         expect(isSlashPopupOpen(shell)).toBe(true);
         expect(shell.paletteCommands.map((c) => c.id)).toEqual(["help"]);
 
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).toBe("palette");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
 
         press("Enter");
         expect(isSlashPopupOpen(shell)).toBe(false);
         expect(shell.overlayKind).toBe("help");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
 
         closeInsetOverlay(shell);
         await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
       } finally {
         dispose();
       }
@@ -377,24 +380,20 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
 
   test("Enter on a no-surface command while a gate is queued still drains", async () => {
     await withShell(async ({ shell, press }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
         typePrompt(press, "/compact");
         expect(isSlashPopupOpen(shell)).toBe(true);
         expect(shell.paletteCommands.map((c) => c.id)).toEqual(["compact"]);
 
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).toBe("palette");
 
         press("Enter");
         expect(isSlashPopupOpen(shell)).toBe(false);
         await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
       } finally {
         dispose();
       }
@@ -403,13 +402,9 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
 
   test("palette stacked over a live gate defers /help until the gate closes", async () => {
     await withShell(async ({ shell }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).toBe("permissions");
 
         openPalette(shell, { catalog: CATALOG });
@@ -420,7 +415,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
 
         acceptOverlaySelection(shell);
         expect(shell.overlayKind).toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(
           shell.streamLog.some(
             (row) => row.role === "system" && /help/i.test(row.text),
@@ -435,7 +430,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
         closeInsetOverlay(shell);
         await Promise.resolve();
         expect(shell.overlayKind).toBe("help");
-        expect(resolved).toEqual({ allow: false });
+        expect(gate.outcome).toEqual({ allow: false });
       } finally {
         dispose();
       }
@@ -449,25 +444,17 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
   // unarmed even past its deadline.
   test("queued gate takes the host before a deferred /help after the live gate settles", async () => {
     await withShell(async ({ shell }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
-        let liveResolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          liveResolved = outcome;
-        });
+        const live = emitGate(emitter);
         expect(shell.overlayKind).toBe("permissions");
 
-        let queuedResolved: unknown;
-        emitPermissionGate(
-          emitter,
-          (outcome) => {
-            queuedResolved = outcome;
-          },
-          { tool: "queued_tool", timeoutMs: 5 },
-        );
+        const queued = emitGate(emitter, {
+          tool: "queued_tool",
+          timeoutMs: 5,
+        });
         expect(shell.overlayKind).toBe("permissions");
-        expect(queuedResolved).toBeUndefined();
+        expect(queued.outcome).toBeUndefined();
 
         openPalette(shell, { catalog: CATALOG });
         const helpIdx = shell.paletteCommands.findIndex((c) => c.id === "help");
@@ -484,22 +471,22 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
         // must not have run.
         await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
-        expect(queuedResolved).toBeUndefined();
+        expect(queued.outcome).toBeUndefined();
 
         // Denying the live gate opens the queued card before the deferred
         // /help surface.
         acceptOverlaySelection(shell);
         await Promise.resolve();
         expect(shell.overlayKind).toBe("permissions");
-        expect(liveResolved).toEqual({ allow: false });
-        expect(queuedResolved).toBeUndefined();
+        expect(live.outcome).toEqual({ allow: false });
+        expect(queued.outcome).toBeUndefined();
 
         // Settling the queued card hands the host to the deferred /help.
         acceptOverlaySelection(shell);
         await Promise.resolve();
         await Promise.resolve();
         expect(shell.overlayKind).toBe("help");
-        expect(queuedResolved).toEqual({ allow: false });
+        expect(queued.outcome).toEqual({ allow: false });
       } finally {
         dispose();
       }
@@ -509,18 +496,14 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
   test("slash accept still drains a queued gate when onCommand throws", async () => {
     await withShell(
       async ({ shell, press }) => {
-        const emitter = new EventEmitter();
-        const dispose = wireGates(emitter, shell);
+        const { emitter, dispose } = wireShellGates(shell);
         try {
           typePrompt(press, "/compact");
           expect(isSlashPopupOpen(shell)).toBe(true);
 
-          let resolved: unknown;
-          emitPermissionGate(emitter, (outcome) => {
-            resolved = outcome;
-          });
+          const gate = emitGate(emitter);
           expect(shell.overlayKind).toBe("palette");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
 
           try {
             press("Enter");
@@ -530,7 +513,7 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           expect(isSlashPopupOpen(shell)).toBe(false);
           await Bun.sleep(20);
           expect(shell.overlayKind).toBe("permissions");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
         } finally {
           dispose();
         }
@@ -544,64 +527,50 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
   });
 
   test("async /settings list holds the host so a queued gate is not denied", async () => {
-    let resolveList: (entries: readonly []) => void = () => undefined;
-    const list = new Promise<readonly []>((resolve) => {
-      resolveList = resolve;
-    });
+    const hanging = hangingSettingsList();
     await withShell(
       async ({ shell, press }) => {
-        const emitter = new EventEmitter();
-        const dispose = wireGates(emitter, shell);
+        const { emitter, dispose } = wireShellGates(shell);
         try {
           typePrompt(press, "/settings");
           expect(isSlashPopupOpen(shell)).toBe(true);
           expect(shell.paletteCommands.map((c) => c.id)).toEqual(["settings"]);
 
-          let resolved: unknown;
-          emitPermissionGate(emitter, (outcome) => {
-            resolved = outcome;
-          });
+          const gate = emitGate(emitter);
           expect(shell.overlayKind).toBe("palette");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
 
           press("Enter");
           expect(isSlashPopupOpen(shell)).toBe(false);
           expect(shell.overlayKind).not.toBe("permissions");
           expect(shell.overlayKind).not.toBe("settings");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
 
-          resolveList([]);
+          hanging.resolve();
           await Promise.resolve();
           await Promise.resolve();
           expect(shell.overlayKind).toBe("settings");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
 
           closeInsetOverlay(shell);
           await Bun.sleep(20);
           expect(shell.overlayKind).toBe("permissions");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
         } finally {
           dispose();
         }
       },
-      { onCommand: settingsOnCommand(list) },
+      { onCommand: settingsOnCommand(hanging.list) },
     );
   });
 
   test("palette stacked over a live gate defers async /settings until the gate closes", async () => {
-    let resolveList: (entries: readonly []) => void = () => undefined;
-    const list = new Promise<readonly []>((resolve) => {
-      resolveList = resolve;
-    });
+    const hanging = hangingSettingsList();
     await withShell(
       async ({ shell }) => {
-        const emitter = new EventEmitter();
-        const dispose = wireGates(emitter, shell);
+        const { emitter, dispose } = wireShellGates(shell);
         try {
-          let resolved: unknown;
-          emitPermissionGate(emitter, (outcome) => {
-            resolved = outcome;
-          });
+          const gate = emitGate(emitter);
           expect(shell.overlayKind).toBe("permissions");
 
           openPalette(shell, { catalog: CATALOG });
@@ -616,13 +585,13 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
 
           acceptOverlaySelection(shell);
           expect(shell.overlayKind).toBe("permissions");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
 
-          resolveList([]);
+          hanging.resolve();
           await Promise.resolve();
           await Promise.resolve();
           expect(shell.overlayKind).toBe("permissions");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
           expect(
             shell.streamLog.some(
               (row) => row.role === "system" && /settings/i.test(row.text),
@@ -632,12 +601,12 @@ describe("slash/palette accept holds the host until dispatch settles", () => {
           closeInsetOverlay(shell);
           await Promise.resolve();
           expect(shell.overlayKind).toBe("settings");
-          expect(resolved).toEqual({ allow: false });
+          expect(gate.outcome).toEqual({ allow: false });
         } finally {
           dispose();
         }
       },
-      { onCommand: settingsOnCommand(list) },
+      { onCommand: settingsOnCommand(hanging.list) },
     );
   });
 });
@@ -647,40 +616,32 @@ describe("overlay host occupancy and opt-in deferral", () => {
     const hanging = hangingSettingsList();
     await withShell(
       async ({ shell, press }) => {
-        const emitter = new EventEmitter();
-        const dispose = wireGates(emitter, shell);
+        const { emitter, dispose } = wireShellGates(shell);
         try {
           typePrompt(press, "/settings");
           press("Enter");
           expect(shell.overlayKind).not.toBe("settings");
           expect(shell.overlayKind).not.toBe("permissions");
 
-          let resolved: unknown;
-          emitPermissionGate(
-            emitter,
-            (outcome) => {
-              resolved = outcome;
-            },
-            { timeoutMs: 5 },
-          );
+          const gate = emitGate(emitter, { timeoutMs: 5 });
           expect(shell.overlayKind).not.toBe("permissions");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
 
           hanging.resolve();
           await Promise.resolve();
           await Promise.resolve();
           expect(shell.overlayKind).toBe("settings");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
 
           await Bun.sleep(20);
           expect(shell.overlayKind).toBe("settings");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
 
           closeInsetOverlay(shell);
           await Promise.resolve();
           await Promise.resolve();
           expect(shell.overlayKind).toBe("permissions");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
         } finally {
           dispose();
         }
@@ -710,8 +671,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
 
   test("closeReplaceableOverlay leaves an isGate overlay and replaces admin permissions", async () => {
     await withShell(async ({ shell }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
         emitPermissionGate(emitter, () => undefined);
         expect(shell.overlayKind).toBe("permissions");
@@ -751,8 +711,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
   test("a gate preempts settings and settling it returns settings for plugins accept", async () => {
     const hanging = hangingSettingsList();
     await withShell(async ({ shell }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
         openCommandSurface(shell, "settings", {
           notify: () => undefined,
@@ -789,17 +748,14 @@ describe("overlay host occupancy and opt-in deferral", () => {
         await Promise.resolve();
         expect(shell.overlayKind).toBe("settings");
 
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
 
         acceptOverlaySelection(shell);
         await Promise.resolve();
         await Promise.resolve();
-        expect(resolved).toEqual({ allow: false });
+        expect(gate.outcome).toEqual({ allow: false });
         expect(shell.overlayKind).toBe("settings");
 
         const pluginsIdx = shell.overlayItems.findIndex((row) =>
@@ -861,8 +817,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
     const hanging = hangingSettingsList();
     await withShell(
       async ({ shell, press, render }) => {
-        const emitter = new EventEmitter();
-        const dispose = wireGates(emitter, shell);
+        const { dispose } = wireShellGates(shell);
         try {
           typePrompt(press, "/settings");
           press("Enter");
@@ -947,29 +902,25 @@ describe("overlay host occupancy and opt-in deferral", () => {
   // the gate holds the host must neither settle the gate nor lose the surface.
   test("a new gate preempts help and help returns after the gate settles", async () => {
     await withShell(async ({ shell }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
         openHelpOverlay(shell);
         expect(shell.overlayKind).toBe("help");
         expect(isOverlayHostIdle(shell)).toBe(false);
 
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).toBe("permissions");
         expect(isOverlayHostIdle(shell)).toBe(false);
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
 
         openHelpOverlay(shell);
         expect(shell.overlayKind).toBe("permissions");
         expect(isOverlayHostIdle(shell)).toBe(false);
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
 
         acceptOverlaySelection(shell);
         await Promise.resolve();
-        expect(resolved).toEqual({ allow: false });
+        expect(gate.outcome).toEqual({ allow: false });
         expect(shell.overlayKind).toBe("help");
       } finally {
         dispose();
@@ -981,17 +932,13 @@ describe("overlay host occupancy and opt-in deferral", () => {
     const hanging = hangingSettingsList();
     await withShell(
       async ({ shell, press }) => {
-        const emitter = new EventEmitter();
-        const dispose = wireGates(emitter, shell);
+        const { emitter, dispose } = wireShellGates(shell);
         try {
           typePrompt(press, "/settings");
           press("Enter");
           expect(shell.overlayKind).not.toBe("settings");
 
-          let resolved: unknown;
-          emitPermissionGate(emitter, (outcome) => {
-            resolved = outcome;
-          });
+          const gate = emitGate(emitter);
           expect(shell.overlayKind).not.toBe("permissions");
 
           openHelpOverlay(shell);
@@ -1001,12 +948,12 @@ describe("overlay host occupancy and opt-in deferral", () => {
           await Promise.resolve();
           await Promise.resolve();
           expect(shell.overlayKind).toBe("help");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
 
           closeInsetOverlay(shell);
           await Bun.sleep(20);
           expect(shell.overlayKind).toBe("permissions");
-          expect(resolved).toBeUndefined();
+          expect(gate.outcome).toBeUndefined();
         } finally {
           dispose();
         }
@@ -1039,13 +986,9 @@ describe("overlay host occupancy and opt-in deferral", () => {
 
   test("add-provider while a live gate is up defers instead of denying the gate", async () => {
     await withShell(async ({ shell }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).toBe("permissions");
 
         openAddProviderOverlay(shell, {
@@ -1053,7 +996,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
           itemIds: ["custom"],
         });
         expect(shell.overlayKind).toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
         expect(
           shell.streamLog.some(
             (row) => row.role === "system" && /will open/i.test(row.text),
@@ -1063,7 +1006,7 @@ describe("overlay host occupancy and opt-in deferral", () => {
         closeInsetOverlay(shell);
         await Promise.resolve();
         expect(shell.overlayKind).toBe("add_provider");
-        expect(resolved).toEqual({ allow: false });
+        expect(gate.outcome).toEqual({ allow: false });
       } finally {
         dispose();
       }
@@ -1088,22 +1031,18 @@ describe("overlay host occupancy and opt-in deferral", () => {
 
   test("Esc during a reservation drains a queued gate without denying it", async () => {
     await withShell(async ({ shell, press, render }) => {
-      const emitter = new EventEmitter();
-      const dispose = wireGates(emitter, shell);
+      const { emitter, dispose } = wireShellGates(shell);
       try {
         reserveOverlayHost(shell);
-        let resolved: unknown;
-        emitPermissionGate(emitter, (outcome) => {
-          resolved = outcome;
-        });
+        const gate = emitGate(emitter);
         expect(shell.overlayKind).not.toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
 
         press("Escape");
         await render();
         await Bun.sleep(20);
         expect(shell.overlayKind).toBe("permissions");
-        expect(resolved).toBeUndefined();
+        expect(gate.outcome).toBeUndefined();
       } finally {
         dispose();
       }

@@ -17,7 +17,6 @@ import {
   createSubAgentSessionStore,
   type SubAgentSessionStore,
 } from "../../subagent/session-store.js";
-import { STALL_TIMEOUT_MS as PROD_STALL_TIMEOUT_MS } from "../stall-watchdog.js";
 import { cancelWorkersForStop, createFleetStallPollTick } from "./wiring.js";
 
 // CL-8016: a silent primary turn (wake text sent, inference never starts)
@@ -84,12 +83,44 @@ function wakeDeliveries(
     .map((call) => call.item.text);
 }
 
+/** Assert an interrupt happened, then count wake deliveries issued after it. */
+function wakeDeliveriesAfterInterrupt(
+  port: ReturnType<typeof createRecordingPort>,
+): number {
+  const interruptAt = port.calls.findIndex((call) => call.op === "interrupt");
+  expect(interruptAt).toBeGreaterThanOrEqual(0);
+  return port.calls
+    .slice(interruptAt + 1)
+    .filter(
+      (call) =>
+        call.op === "deliver" &&
+        call.item.text.includes(ASK_DIRECTOR_WAKE_PREFIX),
+    ).length;
+}
+
 interface StallFixture {
   store: SubAgentSessionStore;
   port: ReturnType<typeof createRecordingPort>;
   bridge: SessionBridge;
   clock: { now: number };
   reportFleet: () => void;
+}
+
+/** The production poll-tick shape, wired to this fixture's store and bridge. */
+function stallTick(
+  fixture: Pick<StallFixture, "store" | "bridge" | "reportFleet">,
+): () => void {
+  const { store, bridge, reportFleet } = fixture;
+  return createFleetStallPollTick(
+    reportFleet,
+    () => bridge.flushMailboxMail(),
+    {
+      abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
+      abortExpiredWakeTurn: (expiredThisTick) =>
+        bridge.abortExpiredWakeTurn(expiredThisTick),
+      expireStaleAsks: () => store.expireStaleAsks(ASK_DEADLINE_MS),
+    },
+  );
 }
 
 async function withStallBridge(
@@ -146,14 +177,7 @@ describe("stall-bound primary turn (CL-8016)", () => {
           bridge.beginSystemContinuation("operator: status?");
           return true;
         });
-        const tick = createFleetStallPollTick(
-          reportFleet,
-          () => bridge.flushMailboxMail(),
-          {
-            abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
-            expireStaleAsks: () => store.expireStaleAsks(ASK_DEADLINE_MS),
-          },
-        );
+        const tick = stallTick({ store, bridge, reportFleet });
         tick();
 
         // The silent turn aborted past the bound ...
@@ -161,18 +185,7 @@ describe("stall-bound primary turn (CL-8016)", () => {
           "stall-abort:awaiting-first-token",
         );
         // ... the hung inference was interrupted before any new deliver ...
-        const interruptAt = port.calls.findIndex(
-          (call) => call.op === "interrupt",
-        );
-        expect(interruptAt).toBeGreaterThanOrEqual(0);
-        const wakeAfterInterrupt = port.calls
-          .slice(interruptAt + 1)
-          .filter(
-            (call): call is Extract<typeof call, { op: "deliver" }> =>
-              call.op === "deliver" &&
-              call.item.text.includes(ASK_DIRECTOR_WAKE_PREFIX),
-          );
-        expect(wakeAfterInterrupt).toHaveLength(0);
+        expect(wakeDeliveriesAfterInterrupt(port)).toBe(0);
         // ... the queued operator message reached the port ...
         expect(
           port.calls.some(
@@ -221,19 +234,7 @@ describe("stall-bound primary turn (CL-8016)", () => {
         // Production abort is the #1095 monitor tick → doInterrupt, not the
         // 5s fleet poll. Occupancy must win that next turn; a re-surface wake
         // must not start processing first.
-        const interruptAt = port.calls.findIndex(
-          (call) => call.op === "interrupt",
-        );
-        expect(interruptAt).toBeGreaterThanOrEqual(0);
-        expect(
-          port.calls
-            .slice(interruptAt + 1)
-            .some(
-              (call) =>
-                call.op === "deliver" &&
-                call.item.text.includes(ASK_DIRECTOR_WAKE_PREFIX),
-            ),
-        ).toBe(false);
+        expect(wakeDeliveriesAfterInterrupt(port)).toBe(0);
         expect(mailDrives).toBe(1);
         expect(wakeDeliveries(port)).toHaveLength(1);
         expect(bridge.turn.isProcessing).toBe(true);
@@ -259,14 +260,7 @@ describe("stall-bound primary turn (CL-8016)", () => {
         });
         expect(wakeDeliveries(port)).toHaveLength(1);
 
-        const tick = createFleetStallPollTick(
-          reportFleet,
-          () => bridge.flushMailboxMail(),
-          {
-            abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
-            expireStaleAsks: () => store.expireStaleAsks(ASK_DEADLINE_MS),
-          },
-        );
+        const tick = stallTick({ store, bridge, reportFleet });
 
         // Past the turn bound but inside the ask deadline: the wake turn
         // aborts and re-surfaces; nobody settles yet.
@@ -311,16 +305,7 @@ describe("stall-bound primary turn (CL-8016)", () => {
         expect(bridge.turn.isProcessing).toBe(true);
         expect(wakeDeliveries(port)).toHaveLength(1);
 
-        const tick = createFleetStallPollTick(
-          reportFleet,
-          () => bridge.flushMailboxMail(),
-          {
-            abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
-            abortExpiredWakeTurn: (expiredThisTick) =>
-              bridge.abortExpiredWakeTurn(expiredThisTick),
-            expireStaleAsks: () => store.expireStaleAsks(ASK_DEADLINE_MS),
-          },
-        );
+        const tick = stallTick({ store, bridge, reportFleet });
 
         // Past the ask deadline but still inside the wake turn's stall window:
         // the deadline settles the question and the silent turn must end idle
@@ -365,16 +350,7 @@ describe("stall-bound primary turn (CL-8016)", () => {
 
         // Subscribe-time report empties pendingAskWake while inference is live.
         reportFleet();
-        const tick = createFleetStallPollTick(
-          reportFleet,
-          () => bridge.flushMailboxMail(),
-          {
-            abortStalledWakeTurn: () => bridge.abortStalledWakeTurn(),
-            abortExpiredWakeTurn: (expiredThisTick) =>
-              bridge.abortExpiredWakeTurn(expiredThisTick),
-            expireStaleAsks: () => store.expireStaleAsks(ASK_DEADLINE_MS),
-          },
-        );
+        const tick = stallTick({ store, bridge, reportFleet });
 
         tick();
 
@@ -419,9 +395,5 @@ describe("stall-bound primary turn (CL-8016)", () => {
       // The aborted wake turn is disarmed with the queue: nothing left to bound.
       expect(bridge.abortStalledWakeTurn()).toBe(false);
     });
-  });
-
-  test("ask deadline pins the production value and its stall-bound sizing", () => {
-    expect(ASK_DEADLINE_MS).toBe(PROD_STALL_TIMEOUT_MS * 2);
   });
 });

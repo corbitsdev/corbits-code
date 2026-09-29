@@ -138,38 +138,45 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
   });
 
-  test("known-Go bare 429 without Console Go markers reclassifies as rate_limit", () => {
-    // intx defaults 429 → quota_exhausted; without body markers the old path
-    // left that category in place. Known-Go context must reclassify.
-    const bare = {
-      category: "quota_exhausted" as const,
-      message: "Too Many Requests",
-      statusCode: 429,
-      raw: { error: { message: "Too Many Requests" } },
-    };
+  // intx defaults 429 → quota_exhausted; known-provider context channels
+  // reclassify a bare 429 (no quota markers in the body) as a plain rate
+  // limit. A reclassified message must never claim quota/usage-limit copy.
+  const BARE_429 = {
+    category: "quota_exhausted" as const,
+    message: "Too Many Requests",
+    statusCode: 429,
+    retryAfterMs: 45_000,
+    raw: { error: { message: "Too Many Requests" } },
+  };
 
-    // Without Go context, leave intx's classification alone.
-    expect(normalizeInferenceErrorForRetry(bare)).toEqual(bare);
-
-    // All three Go-context channels reclassify the same bare 429.
-    for (const [context, checkMessage] of [
-      [{ requestURL: "https://opencode.ai/zen/go/v1/chat/completions" }, true],
-      [{ providerId: "opencode-go" }, false],
-      [{ opencodeGo: true }, false],
-    ] as const) {
-      const normalized = normalizeInferenceErrorForRetry({
-        ...bare,
-        ...context,
-      });
-      expect(normalized.category).toBe("retryable");
-      if (checkMessage) {
-        // Bare 429 keeps the original message and appends a short retry hint.
-        expect(normalized.message.toLowerCase()).toMatch(
-          /too many requests|rate limit/,
-        );
-      }
-    }
+  test.each([
+    { requestURL: "https://opencode.ai/zen/go/v1/chat/completions" },
+    { providerId: "opencode-go" },
+    { opencodeGo: true },
+    { providerId: "xai/thegreataxios" },
+    { providerId: "codex/abk-labs" },
+  ])("known-provider bare 429 reclassifies as retryable (%j)", (context) => {
+    const normalized = normalizeInferenceErrorForRetry({
+      ...BARE_429,
+      ...context,
+    });
+    expect(normalized.category).toBe("retryable");
+    expect(normalized.retryAfterMs).toBe(45_000);
+    expect(normalized.message.toLowerCase()).toMatch(
+      /too many requests|rate limit/,
+    );
+    expect(normalized.message.toLowerCase()).not.toMatch(
+      /quota exhausted|usage limit reached/,
+    );
   });
+
+  test.each([{}, { providerId: "openai" }])(
+    "bare 429 without a known provider keeps intx's quota_exhausted (%j)",
+    (context) => {
+      const err = { ...BARE_429, ...context };
+      expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
+    },
+  );
 
   test("403 with usage-limit body reclassifies as quota_exhausted", () => {
     const normalized = normalizeInferenceErrorForRetry({
@@ -539,27 +546,6 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(error)).toBe(error);
   });
 
-  test("known-xAI bare 429 reclassifies as retryable", () => {
-    const bare = {
-      category: "quota_exhausted" as const,
-      message: "Too Many Requests",
-      statusCode: 429,
-      retryAfterMs: 45_000,
-      raw: { error: { message: "Too Many Requests" } },
-    };
-
-    // Without xAI context, leave intx's classification alone.
-    expect(normalizeInferenceErrorForRetry(bare)).toEqual(bare);
-
-    const viaProviderId = normalizeInferenceErrorForRetry({
-      ...bare,
-      providerId: "xai/thegreataxios",
-    });
-    expect(viaProviderId.category).toBe("retryable");
-    expect(viaProviderId.retryAfterMs).toBe(45_000);
-    expect(viaProviderId.message.toLowerCase()).toMatch(/rate limit/);
-  });
-
   test("known-xAI 429 with usage/quota body stays quota_exhausted", () => {
     const normalized = normalizeInferenceErrorForRetry({
       category: "quota_exhausted",
@@ -578,41 +564,6 @@ describe("normalizeInferenceErrorForRetry", () => {
     });
     expect(normalized.category).toBe("quota_exhausted");
     expect(normalized.retryAfterMs).toBe(86_400_000);
-  });
-
-  test("unknown provider bare 429 stays quota_exhausted", () => {
-    const err = {
-      category: "quota_exhausted" as const,
-      message: "Too Many Requests",
-      statusCode: 429,
-      providerId: "openai",
-      retryAfterMs: 5_000,
-      raw: { error: { message: "Too Many Requests" } },
-    };
-    expect(normalizeInferenceErrorForRetry(err)).toEqual(err);
-  });
-
-  test("known-Codex bare 429 without usage_limit_reached remaps to retryable", () => {
-    const bare = {
-      category: "quota_exhausted" as const,
-      message: "Too Many Requests",
-      statusCode: 429,
-      retryAfterMs: 5_000,
-      raw: { error: { message: "Too Many Requests" } },
-    };
-
-    expect(normalizeInferenceErrorForRetry(bare)).toEqual(bare);
-
-    const viaProviderId = normalizeInferenceErrorForRetry({
-      ...bare,
-      providerId: "codex/abk-labs",
-    });
-    expect(viaProviderId.category).toBe("retryable");
-    expect(viaProviderId.retryAfterMs).toBe(5_000);
-    expect(viaProviderId.message.toLowerCase()).toMatch(/rate limit/);
-    expect(viaProviderId.message.toLowerCase()).not.toMatch(
-      /quota exhausted|usage limit reached/,
-    );
   });
 
   test("known-Codex 429 with ChatGPT usage-limit prose remaps to retryable", () => {

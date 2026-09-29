@@ -5,13 +5,9 @@ import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import type { PermissionRequest } from "../permission/types.js";
 import type { KeyEvent } from "@opentui/core";
-import {
-  withTestRenderer,
-  type Harness,
-  type HarnessOptions,
-} from "./harness.js";
+import type { Harness } from "./harness.js";
+import { withAppShell } from "./test-helpers.js";
 import { OVERLAY_MAX_FRACTION } from "./geometry/index.js";
-import { createAppShell } from "./shell/index.js";
 import type { AppShell } from "./shell/internals.js";
 import {
   acceptOverlaySelection,
@@ -64,7 +60,6 @@ type GateCtx = {
 
 type GateOpts = {
   readonly terminal?: { readonly columns: number; readonly rows: number };
-  readonly renderer?: HarnessOptions;
 };
 
 async function withGates(
@@ -72,17 +67,22 @@ async function withGates(
   opts: GateOpts = {},
 ): Promise<void> {
   const terminal = opts.terminal ?? { columns: 80, rows: 24 };
-  await withTestRenderer(async (h) => {
-    const shell = createAppShell(h.renderer, { terminal, run: "idle" });
-    const emitter = new EventEmitter();
-    const disposeGates = wireGates(emitter, shell);
-    try {
-      await fn({ h, shell, emitter, disposeGates });
-    } finally {
-      disposeGates();
-      shell.dispose();
-    }
-  }, opts.renderer);
+  await withAppShell(
+    async (shell, h) => {
+      const emitter = new EventEmitter();
+      const disposeGates = wireGates(emitter, shell);
+      try {
+        await fn({ h, shell, emitter, disposeGates });
+      } finally {
+        disposeGates();
+      }
+    },
+    {
+      width: terminal.columns,
+      height: terminal.rows,
+      shell: { run: "idle" },
+    },
+  );
 }
 
 function emitPermission(
@@ -112,6 +112,20 @@ function emitOperator(
     resolve: () => undefined,
     ...overrides,
   });
+}
+
+/** Capture the settle value a gate's resolve callback receives. */
+function settleCapture(): {
+  readonly resolve: (value: unknown) => void;
+  readonly get: () => unknown;
+} {
+  let value: unknown;
+  return {
+    resolve: (v) => {
+      value = v;
+    },
+    get: () => value,
+  };
 }
 
 describe("permissionChoicesFromRequest", () => {
@@ -387,17 +401,13 @@ describe("wireGates", () => {
 
   test("permission.gate opens overlay and resolves selection through onAccept", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
-      emitPermission(emitter, {
-        resolve: (outcome: unknown) => {
-          resolved = outcome;
-        },
-      });
+      const settled = settleCapture();
+      emitPermission(emitter, { resolve: settled.resolve });
       expect(shell.overlayKind).toBe("permissions");
       expect(shell.overlayItems).toEqual(["Reject", "Accept once"]);
 
       acceptOverlaySelection(shell);
-      expect(resolved).toEqual({ allow: false });
+      expect(settled.get()).toEqual({ allow: false });
     });
   });
 
@@ -437,38 +447,31 @@ describe("wireGates", () => {
       },
       {
         terminal: { columns: 100, rows: 40 },
-        renderer: { width: 100, height: 40 },
       },
     );
   });
 
   test("operator.gate opens overlay and resolves selection through onAccept", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
-      emitOperator(emitter, {
-        resolve: (result: unknown) => {
-          resolved = result;
-        },
-      });
+      const settled = settleCapture();
+      emitOperator(emitter, { resolve: settled.resolve });
       expect(shell.overlayKind).toBe("operator");
       expect(shell.overlayItems).toEqual(["Cancel", "Continue"]);
 
       acceptOverlaySelection(shell);
-      expect(resolved).toEqual({ kind: "option", index: 0 });
+      expect(settled.get()).toEqual({ kind: "option", index: 0 });
     });
   });
 
   test("sequential operator asks paint B's labels and id-scoped values, not A's", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolvedA: unknown;
-      let resolvedB: unknown;
+      const settledA = settleCapture();
+      const settledB = settleCapture();
       emitOperator(emitter, {
         id: "ask-a",
         question: "Ask A?",
         options: ["Stay on A", "Leave A"],
-        resolve: (result: unknown) => {
-          resolvedA = result;
-        },
+        resolve: settledA.resolve,
       });
       expect(shell.overlayKind).toBe("operator");
       expect(
@@ -476,16 +479,14 @@ describe("wireGates", () => {
       ).toEqual(["Stay on A", "Leave A"]);
 
       acceptOverlaySelection(shell);
-      expect(resolvedA).toEqual({ kind: "option", index: 0 });
+      expect(settledA.get()).toEqual({ kind: "option", index: 0 });
       expect(shell.overlayList).toBeNull();
 
       emitOperator(emitter, {
         id: "ask-b",
         question: "Ask B?",
         options: ["Go with B", "Skip B"],
-        resolve: (result: unknown) => {
-          resolvedB = result;
-        },
+        resolve: settledB.resolve,
       });
       expect(shell.overlayKind).toBe("operator");
       const painted = shell.overlayList?.select.options ?? [];
@@ -501,23 +502,21 @@ describe("wireGates", () => {
       expect(painted.map((option) => option.value)).not.toContain("0");
 
       acceptOverlaySelection(shell);
-      expect(resolvedB).toEqual({ kind: "option", index: 0 });
+      expect(settledB.get()).toEqual({ kind: "option", index: 0 });
     });
   });
 
   test("sequential permission.gate asks paint B's labels and id-scoped values, not A's", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolvedA: unknown;
-      let resolvedB: unknown;
+      const settledA = settleCapture();
+      const settledB = settleCapture();
       emitPermission(emitter, {
         id: "req-a",
         request: baseRequest({
           subject: "git status",
           scopes: [{ id: "scope-a", label: "Allow git A", pattern: "git A*" }],
         }),
-        resolve: (outcome: unknown) => {
-          resolvedA = outcome;
-        },
+        resolve: settledA.resolve,
       });
       expect(shell.overlayKind).toBe("permissions");
       expect(
@@ -525,7 +524,7 @@ describe("wireGates", () => {
       ).toEqual(["Reject", "Accept once", "Allow git A"]);
 
       closeInsetOverlay(shell);
-      expect(resolvedA).toEqual({ allow: false });
+      expect(settledA.get()).toEqual({ allow: false });
       expect(shell.overlayList).toBeNull();
 
       emitPermission(emitter, {
@@ -534,9 +533,7 @@ describe("wireGates", () => {
           subject: "git push",
           scopes: [{ id: "scope-b", label: "Allow git B", pattern: "git B*" }],
         }),
-        resolve: (outcome: unknown) => {
-          resolvedB = outcome;
-        },
+        resolve: settledB.resolve,
       });
       expect(shell.overlayKind).toBe("permissions");
       const painted = shell.overlayList?.select.options ?? [];
@@ -561,19 +558,17 @@ describe("wireGates", () => {
       );
 
       acceptOverlaySelection(shell);
-      expect(resolvedB).toEqual({ allow: false });
+      expect(settledB.get()).toEqual({ allow: false });
     });
   });
 
   test("Enter with a painted id missing from the live bag is unavailable", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
+      const settled = settleCapture();
       emitPermission(emitter, {
         id: "req-b",
         request: baseRequest({ subject: "git push" }),
-        resolve: (outcome: unknown) => {
-          resolved = outcome;
-        },
+        resolve: settled.resolve,
       });
       expect(shell.overlayKind).toBe("permissions");
       const list = shell.overlayList;
@@ -592,54 +587,48 @@ describe("wireGates", () => {
       ];
       list.select.setSelectedIndex(1);
       acceptOverlaySelection(shell);
-      expect(resolved).toEqual(unavailable);
+      expect(settled.get()).toEqual(unavailable);
       expect(shell.overlayList).toBeNull();
     });
   });
 
   test("Enter on an empty permission list is unavailable, not reject", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
+      const settled = settleCapture();
       emitPermission(emitter, {
         id: "req-b",
         request: baseRequest({ subject: "git push" }),
-        resolve: (outcome: unknown) => {
-          resolved = outcome;
-        },
+        resolve: settled.resolve,
       });
       expect(shell.overlayKind).toBe("permissions");
       shell.overlayItems = [];
       acceptOverlaySelection(shell);
-      expect(resolved).toEqual(unavailable);
-      expect(resolved).not.toEqual({ allow: false });
+      expect(settled.get()).toEqual(unavailable);
+      expect(settled.get()).not.toEqual({ allow: false });
       expect(shell.overlayList).toBeNull();
     });
   });
 
   test("operator.gate without id cancels without opening", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
+      const settled = settleCapture();
       emitOperator(emitter, {
         id: undefined,
-        resolve: (result: unknown) => {
-          resolved = result;
-        },
+        resolve: settled.resolve,
       });
-      expect(resolved).toEqual({ kind: "cancel" });
+      expect(settled.get()).toEqual({ kind: "cancel" });
       expect(shell.overlayKind).not.toBe("operator");
     });
   });
 
   test("permission.gate without id is unavailable without opening", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
+      const settled = settleCapture();
       emitPermission(emitter, {
         id: undefined,
-        resolve: (outcome: unknown) => {
-          resolved = outcome;
-        },
+        resolve: settled.resolve,
       });
-      expect(resolved).toEqual(unavailable);
+      expect(settled.get()).toEqual(unavailable);
       expect(shell.overlayKind).not.toBe("permissions");
     });
   });
@@ -784,7 +773,7 @@ describe("gate decisions stay out of the transcript", () => {
   test("a grant draining a queued request without ever displaying it", async () => {
     await withGates(async ({ shell, emitter }) => {
       let resolveCount = 0;
-      let resolved: unknown;
+      const settled = settleCapture();
       // Occupies the overlay host so the second request queues instead of
       // opening — the drain below must resolve it without ever opening it.
       emitPermission(emitter);
@@ -794,7 +783,7 @@ describe("gate decisions stay out of the transcript", () => {
         request: baseRequest({ tool: "queued_tool" }),
         resolve: (outcome: unknown) => {
           resolveCount += 1;
-          resolved = outcome;
+          settled.resolve(outcome);
         },
       });
 
@@ -804,7 +793,7 @@ describe("gate decisions stay out of the transcript", () => {
       });
 
       expect(resolveCount).toBe(1);
-      expect(resolved).toEqual({ allow: true });
+      expect(settled.get()).toEqual({ allow: true });
       expect(shell.streamLog.length - before).toBe(0);
     });
   });
@@ -842,7 +831,7 @@ describe("gate decisions stay out of the transcript", () => {
       // both entries go through drain() without writing a recap.
       let openResolveCount = 0;
       let queuedResolveCount = 0;
-      let queuedResolved: unknown;
+      const queuedSettled = settleCapture();
       emitPermission(emitter, {
         resolve: () => {
           openResolveCount += 1;
@@ -856,7 +845,7 @@ describe("gate decisions stay out of the transcript", () => {
         request: baseRequest({ tool: "queued_tool" }),
         resolve: (outcome: unknown) => {
           queuedResolveCount += 1;
-          queuedResolved = outcome;
+          queuedSettled.resolve(outcome);
         },
       });
 
@@ -864,7 +853,7 @@ describe("gate decisions stay out of the transcript", () => {
 
       expect(openResolveCount).toBe(1);
       expect(queuedResolveCount).toBe(1);
-      expect(queuedResolved).toEqual({ allow: false });
+      expect(queuedSettled.get()).toEqual({ allow: false });
       expect(shell.streamLog.length - before).toBe(0);
     });
   });
@@ -873,11 +862,9 @@ describe("gate decisions stay out of the transcript", () => {
 describe("permission.gate auto-deny", () => {
   test("timeoutMs elapsing auto-denies with the timeout message and closes the overlay", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
+      const settled = settleCapture();
       emitPermission(emitter, {
-        resolve: (outcome: unknown) => {
-          resolved = outcome;
-        },
+        resolve: settled.resolve,
         timeoutMs: 5,
         timeoutMessage: "auto-deny: no answer in time",
       });
@@ -885,7 +872,7 @@ describe("permission.gate auto-deny", () => {
 
       await new Promise((r) => setTimeout(r, 20));
 
-      expect(resolved).toEqual({
+      expect(settled.get()).toEqual({
         allow: false,
         message: "auto-deny: no answer in time",
       });
@@ -896,18 +883,16 @@ describe("permission.gate auto-deny", () => {
   test("aborting the signal while the overlay is open auto-denies and closes it", async () => {
     await withGates(async ({ shell, emitter }) => {
       const controller = new AbortController();
-      let resolved: unknown;
+      const settled = settleCapture();
       emitPermission(emitter, {
-        resolve: (outcome: unknown) => {
-          resolved = outcome;
-        },
+        resolve: settled.resolve,
         signal: controller.signal,
       });
       expect(shell.overlayKind).toBe("permissions");
 
       controller.abort();
 
-      expect(resolved).toEqual({
+      expect(settled.get()).toEqual({
         allow: false,
         message: "tool no longer running; permission request denied",
       });
@@ -918,18 +903,16 @@ describe("permission.gate auto-deny", () => {
   test("identity abort reason auto-denies and closes the overlay", async () => {
     await withGates(async ({ shell, emitter }) => {
       const controller = new AbortController();
-      let resolved: unknown;
+      const settled = settleCapture();
       emitPermission(emitter, {
-        resolve: (outcome: unknown) => {
-          resolved = outcome;
-        },
+        resolve: settled.resolve,
         signal: controller.signal,
       });
       expect(shell.overlayKind).toBe("permissions");
 
       controller.abort(SESSION_IDENTITY_ABORT_REASON);
 
-      expect(resolved).toEqual({
+      expect(settled.get()).toEqual({
         allow: false,
         message: SESSION_IDENTITY_ABORT_REASON,
       });
@@ -962,12 +945,10 @@ describe("permission.gate auto-deny", () => {
 describe("operator.gate auto-cancel", () => {
   test("timeoutMs elapsing auto-cancels with the timeout label and closes the overlay", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
+      const settled = settleCapture();
       emitOperator(emitter, {
         options: ["Yes", "No"],
-        resolve: (result: unknown) => {
-          resolved = result;
-        },
+        resolve: settled.resolve,
         timeoutMs: 5,
         timeoutMessage: "auto-cancel: no answer in time",
       });
@@ -975,7 +956,7 @@ describe("operator.gate auto-cancel", () => {
 
       await new Promise((r) => setTimeout(r, 20));
 
-      expect(resolved).toEqual(operatorCancelResult());
+      expect(settled.get()).toEqual(operatorCancelResult());
       expect(shell.overlayList).toBeNull();
     });
   });
@@ -983,19 +964,17 @@ describe("operator.gate auto-cancel", () => {
   test("aborting the signal while the overlay is open auto-cancels and closes it", async () => {
     await withGates(async ({ shell, emitter }) => {
       const controller = new AbortController();
-      let resolved: unknown;
+      const settled = settleCapture();
       emitOperator(emitter, {
         options: ["Yes", "No"],
-        resolve: (result: unknown) => {
-          resolved = result;
-        },
+        resolve: settled.resolve,
         signal: controller.signal,
       });
       expect(shell.overlayKind).toBe("operator");
 
       controller.abort();
 
-      expect(resolved).toEqual(operatorCancelResult());
+      expect(settled.get()).toEqual(operatorCancelResult());
       expect(shell.overlayList).toBeNull();
     });
   });
@@ -1007,13 +986,11 @@ describe("operator.gate auto-cancel", () => {
   test("aborting the run while the operator gate is still queued settles it without ever opening", async () => {
     await withGates(async ({ shell, emitter }) => {
       const controller = new AbortController();
-      let resolved: unknown;
+      const settled = settleCapture();
       emitPermission(emitter);
       emitOperator(emitter, {
         options: ["Yes", "No"],
-        resolve: (result: unknown) => {
-          resolved = result;
-        },
+        resolve: settled.resolve,
         signal: controller.signal,
       });
       // Still queued behind the permission overlay.
@@ -1021,7 +998,7 @@ describe("operator.gate auto-cancel", () => {
 
       controller.abort();
 
-      expect(resolved).toEqual(operatorCancelResult());
+      expect(settled.get()).toEqual(operatorCancelResult());
       // The permission overlay in front is undisturbed.
       expect(shell.overlayKind).toBe("permissions");
     });
@@ -1029,18 +1006,12 @@ describe("operator.gate auto-cancel", () => {
 
   test("a queued operator gate's timeout does not start until it is displayed", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let firstResolved: unknown;
-      let secondResolved: unknown;
-      emitPermission(emitter, {
-        resolve: (outcome: unknown) => {
-          firstResolved = outcome;
-        },
-      });
+      const firstSettled = settleCapture();
+      const secondSettled = settleCapture();
+      emitPermission(emitter, { resolve: firstSettled.resolve });
       emitOperator(emitter, {
         options: ["Yes", "No"],
-        resolve: (result: unknown) => {
-          secondResolved = result;
-        },
+        resolve: secondSettled.resolve,
         timeoutMs: 5,
         timeoutMessage: "queued operator gate timed out",
       });
@@ -1049,15 +1020,15 @@ describe("operator.gate auto-cancel", () => {
       // Well past the nominal 5ms timeout — must survive because it has
       // never been shown to the operator.
       await new Promise((r) => setTimeout(r, 20));
-      expect(secondResolved).toBeUndefined();
+      expect(secondSettled.get()).toBeUndefined();
 
       acceptOverlaySelection(shell);
-      expect(firstResolved).toEqual({ allow: false });
-      expect(secondResolved).toBeUndefined();
+      expect(firstSettled.get()).toEqual({ allow: false });
+      expect(secondSettled.get()).toBeUndefined();
       expect(shell.overlayKind).toBe("operator");
 
       await new Promise((r) => setTimeout(r, 20));
-      expect(secondResolved).toEqual(operatorCancelResult());
+      expect(secondSettled.get()).toEqual(operatorCancelResult());
       expect(shell.overlayList).toBeNull();
     });
   });
@@ -1087,14 +1058,12 @@ describe("operator.gate auto-cancel", () => {
   // settle them on teardown.
   test("disposing with a gate still queued settles it instead of hanging", async () => {
     await withGates(async ({ shell, emitter, disposeGates }) => {
-      let openResolved: unknown;
-      let queuedResolved: unknown;
+      const openSettled = settleCapture();
+      const queuedSettled = settleCapture();
       emitOperator(emitter, {
         id: "ask-open",
         options: ["Yes", "No"],
-        resolve: (r: unknown) => {
-          openResolved = r;
-        },
+        resolve: openSettled.resolve,
       });
       // Occupies the overlay host so this second gate queues instead of
       // opening — dispose must cancel it without ever displaying it.
@@ -1103,15 +1072,13 @@ describe("operator.gate auto-cancel", () => {
         id: "ask-queued",
         question: "Also proceed?",
         options: ["Yes", "No"],
-        resolve: (r: unknown) => {
-          queuedResolved = r;
-        },
+        resolve: queuedSettled.resolve,
       });
 
       disposeGates();
 
-      expect(openResolved).toEqual(operatorCancelResult());
-      expect(queuedResolved).toEqual(operatorCancelResult());
+      expect(openSettled.get()).toEqual(operatorCancelResult());
+      expect(queuedSettled.get()).toEqual(operatorCancelResult());
       expect(shell.streamLog.length - before).toBe(0);
     });
   });
@@ -1120,38 +1087,38 @@ describe("operator.gate auto-cancel", () => {
 describe("Esc on a gate overlay settles the awaited promise", () => {
   test("permission.gate: Esc denies instead of abandoning the promise", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
       let resolveCount = 0;
+      const settled = settleCapture();
       emitPermission(emitter, {
         resolve: (outcome: unknown) => {
           resolveCount += 1;
-          resolved = outcome;
+          settled.resolve(outcome);
         },
       });
 
       closeInsetOverlay(shell);
 
       expect(resolveCount).toBe(1);
-      expect(resolved).toEqual({ allow: false });
-      expect(resolved).not.toEqual(unavailable);
+      expect(settled.get()).toEqual({ allow: false });
+      expect(settled.get()).not.toEqual(unavailable);
     });
   });
 
   test("operator.gate: Esc cancels instead of abandoning the promise", async () => {
     await withGates(async ({ shell, emitter }) => {
-      let resolved: unknown;
       let resolveCount = 0;
+      const settled = settleCapture();
       emitOperator(emitter, {
         resolve: (result: unknown) => {
           resolveCount += 1;
-          resolved = result;
+          settled.resolve(result);
         },
       });
 
       closeInsetOverlay(shell);
 
       expect(resolveCount).toBe(1);
-      expect(resolved).toEqual({ kind: "cancel" });
+      expect(settled.get()).toEqual({ kind: "cancel" });
     });
   });
 });
@@ -1182,7 +1149,6 @@ describe("permission overlay height", () => {
       },
       {
         terminal: { columns: 96, rows },
-        renderer: { width: 96, height: rows },
       },
     );
     return height;
@@ -1249,7 +1215,6 @@ describe("operator question overlay", () => {
       },
       {
         terminal: { columns: 96, rows },
-        renderer: { width: 96, height: rows },
       },
     );
   };
@@ -1339,33 +1304,26 @@ describe("operator question overlay", () => {
   test("a gate arriving while another overlay is open opens once that one closes", async () => {
     await withGates(
       async ({ shell, emitter }) => {
-        let approved: unknown = undefined;
-        let answered: unknown = undefined;
-        emitPermission(emitter, {
-          resolve: (o: unknown) => {
-            approved = o;
-          },
-        });
+        const approved = settleCapture();
+        const answered = settleCapture();
+        emitPermission(emitter, { resolve: approved.resolve });
         emitOperator(emitter, {
           id: "ask-queued",
           question: "Scope for this run?",
           options: ["repo only"],
-          resolve: (r: unknown) => {
-            answered = r;
-          },
+          resolve: answered.resolve,
         });
         expect(shell.overlayKind).toBe("permissions");
 
         acceptOverlaySelection(shell);
-        expect(approved).toEqual({ allow: false });
+        expect(approved.get()).toEqual({ allow: false });
         // The queued question is not lost: it takes the host as it frees up.
         expect(shell.overlayKind).toBe("operator");
         acceptOverlaySelection(shell);
-        expect(answered).toEqual({ kind: "option", index: 0 });
+        expect(answered.get()).toEqual({ kind: "option", index: 0 });
       },
       {
         terminal: { columns: 96, rows: 40 },
-        renderer: { width: 96, height: 40 },
       },
     );
   });

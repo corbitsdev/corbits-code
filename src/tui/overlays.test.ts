@@ -555,33 +555,34 @@ describe("accept echo reads the chosen value structurally", () => {
 });
 
 describe("echoChoice defaults to on for callers with no gate policy", () => {
-  test("openPermissionsOverlay with no echoChoice opt still echoes on accept", async () => {
+  test.each([
+    {
+      name: "permissions, no echoChoice opt",
+      echoes: 1,
+      open: (shell: Parameters<typeof openPermissionsOverlay>[0]) =>
+        openPermissionsOverlay(shell, { items: makePermissionItems(3) }),
+    },
+    {
+      name: "permissions, echoChoice: false",
+      echoes: 0,
+      open: (shell: Parameters<typeof openPermissionsOverlay>[0]) =>
+        openPermissionsOverlay(shell, {
+          items: makePermissionItems(3),
+          echoChoice: false,
+        }),
+    },
+    {
+      name: "operator, no echoChoice opt",
+      echoes: 1,
+      open: (shell: Parameters<typeof openOperatorOverlay>[0]) =>
+        openOperatorOverlay(shell, { body: "pick one", choices: ["A", "B"] }),
+    },
+  ])("$name: accept echoes $echoes row(s)", async ({ open, echoes }) => {
     await withAppShell(async (shell) => {
-      openPermissionsOverlay(shell, { items: makePermissionItems(3) });
+      open(shell);
       const before = shell.streamLog.length;
       acceptOverlaySelection(shell);
-      expect(shell.streamLog.length - before).toBe(1);
-    });
-  });
-
-  test("openPermissionsOverlay with echoChoice: false suppresses it", async () => {
-    await withAppShell(async (shell) => {
-      openPermissionsOverlay(shell, {
-        items: makePermissionItems(3),
-        echoChoice: false,
-      });
-      const before = shell.streamLog.length;
-      acceptOverlaySelection(shell);
-      expect(shell.streamLog.length - before).toBe(0);
-    });
-  });
-
-  test("openOperatorOverlay with no echoChoice opt still echoes on accept", async () => {
-    await withAppShell(async (shell) => {
-      openOperatorOverlay(shell, { body: "pick one", choices: ["A", "B"] });
-      const before = shell.streamLog.length;
-      acceptOverlaySelection(shell);
-      expect(shell.streamLog.length - before).toBe(1);
+      expect(shell.streamLog.length - before).toBe(echoes);
     });
   });
 });

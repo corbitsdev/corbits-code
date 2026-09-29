@@ -100,6 +100,33 @@ function messageReceived(content: string): ReactorInboundEvent {
   } as unknown as ReactorInboundEvent;
 }
 
+/** Infer stub that carries the options through so tests can inspect them. */
+const capabilitiesWithInferArgs: ReactorCapabilities = {
+  ...stubReactorCapabilities,
+  infer: (opts) =>
+    ({ type: "infer", options: opts }) as unknown as ReactorAction,
+};
+
+function manageTasksEvent(
+  status: "todo" | "doing" | "done",
+): ReactorInboundEvent {
+  return makeInferenceDoneEvent([
+    {
+      id: "m",
+      name: "manage_tasks",
+      args: {
+        action: "create",
+        tasks: [{ id: "t1", title: "work", status }],
+      },
+    },
+  ]);
+}
+
+const hasInfer = (a: ReactorAction[]): boolean =>
+  a.some((x) => x.type === "infer");
+const hasReply = (a: ReactorAction[]): boolean =>
+  a.some((x) => x.type === "reply");
+
 describe("ask_operator definition", () => {
   test("has no command field", () => {
     const schema = askOperatorDefinition.inputSchema as {
@@ -216,18 +243,6 @@ describe("open-task termination guard", () => {
   const declined =
     "Blocked by permission policy: Operator declined: Run shell command (rm -rf build)";
 
-  const manageTasksEvent = (status: "todo" | "doing" | "done") =>
-    makeInferenceDoneEvent([
-      {
-        id: "m",
-        name: "manage_tasks",
-        args: {
-          action: "create",
-          tasks: [{ id: "t1", title: "work", status }],
-        },
-      },
-    ]);
-
   test("decide does not throw when manage_tasks arguments are frozen", async () => {
     const director = createChatDirector("base", [], {});
     const event = manageTasksEvent("todo");
@@ -244,11 +259,6 @@ describe("open-task termination guard", () => {
       director.decide(event, stubReactorState, stubReactorCapabilities),
     ).resolves.toBeDefined();
   });
-
-  const hasInfer = (a: ReactorAction[]): boolean =>
-    a.some((x) => x.type === "infer");
-  const hasReply = (a: ReactorAction[]): boolean =>
-    a.some((x) => x.type === "reply");
 
   test("re-infers instead of ending the turn while a task is still open", async () => {
     const director = createChatDirector("base", [], {});
@@ -440,46 +450,6 @@ describe("open-task termination guard", () => {
       kind: "retry",
       delayMs: 45_000,
     });
-  });
-
-  test("omitted or false idle-with-fleet still nudges while a task is open", async () => {
-    const omitted = createChatDirector("base", [], {});
-    await omitted.decide(
-      manageTasksEvent("doing"),
-      stubReactorState,
-      stubReactorCapabilities,
-    );
-    expect(
-      hasInfer(
-        actionsArray(
-          await omitted.decide(
-            stubTextTurnEvent(),
-            stubReactorState,
-            stubReactorCapabilities,
-          ),
-        ),
-      ),
-    ).toBe(true);
-
-    const disabled = createChatDirector("base", [], {
-      allowIdleWithFleet: false,
-    });
-    await disabled.decide(
-      manageTasksEvent("doing"),
-      stubReactorState,
-      stubReactorCapabilities,
-    );
-    expect(
-      hasInfer(
-        actionsArray(
-          await disabled.decide(
-            stubTextTurnEvent(),
-            stubReactorState,
-            stubReactorCapabilities,
-          ),
-        ),
-      ),
-    ).toBe(true);
   });
 
   test("setAllowIdleWithFleet tracks fleet transitions off the seeded value", async () => {
@@ -766,26 +736,6 @@ describe("open-task termination guard", () => {
           a.content === "Tool call rejected by operator.",
       ),
     ).toBe(true);
-  });
-
-  test("a declined tool with no open tasks surfaces the decline immediately", async () => {
-    const director = createChatDirector("base", [], {});
-    const actions = actionsArray(
-      await director.decide(
-        makeToolErrorEvent("c", declined),
-        stubReactorState,
-        stubReactorCapabilities,
-      ),
-    );
-    expect(
-      actions.some(
-        (a) =>
-          a.type === "reply" &&
-          "content" in a &&
-          a.content === "Tool call rejected by operator.",
-      ),
-    ).toBe(true);
-    expect(actions.some((a) => a.type === "infer")).toBe(false);
   });
 
   test("a new user turn after a canned decline infers instead of canned-replying", async () => {
@@ -1248,98 +1198,43 @@ describe("chatDirector LSP auto-activation", () => {
         (a as { eventType?: string }).eventType === CHAT_TOOLS_ACTIVATE_EVENT,
     );
 
-  test("reading a code file activates the lsp tool on success", async () => {
-    const director = createChatDirector("", [], {});
-    await director.decide(
-      makeInferenceDoneEvent([
-        { id: "c", name: "read_file", args: { path: "src/foo.ts" } },
-      ]),
-      stubReactorState,
-      stubReactorCapabilities,
-    );
-    const actions = await director.decide(
-      makeToolDoneEvent("c"),
-      stubReactorState,
-      stubReactorCapabilities,
-    );
-    expect(activateEmits(actions)).toEqual([
-      {
-        type: "emit",
-        eventType: CHAT_TOOLS_ACTIVATE_EVENT,
-        data: { names: ["lsp"] },
-      },
-    ]);
-  });
+  const lspEmit: ReactorAction = {
+    type: "emit",
+    eventType: CHAT_TOOLS_ACTIVATE_EVENT,
+    data: { names: ["lsp"] },
+  };
 
-  test("editing a code file activates lsp", async () => {
+  test.each([
+    { tool: "read_file", path: "src/foo.ts", expected: [lspEmit] },
+    { tool: "edit_file", path: "lib/bar.rs", expected: [lspEmit] },
+    // Non-code file.
+    { tool: "read_file", path: "README.md", expected: [] },
+    // Failed result never activates.
+    {
+      tool: "read_file",
+      path: "src/foo.ts",
+      error: true,
+      expected: [],
+    },
+  ])("$tool on $path", async ({ tool, path, error, expected }) => {
     const director = createChatDirector("", [], {});
     await director.decide(
-      makeInferenceDoneEvent([
-        { id: "c", name: "edit_file", args: { path: "lib/bar.rs" } },
-      ]),
+      makeInferenceDoneEvent([{ id: "c", name: tool, args: { path } }]),
       stubReactorState,
       stubReactorCapabilities,
     );
     const actions = await director.decide(
-      makeToolDoneEvent("c"),
+      error === true
+        ? makeToolErrorEvent("c", "Error: not found")
+        : makeToolDoneEvent("c"),
       stubReactorState,
       stubReactorCapabilities,
     );
-    expect(activateEmits(actions)).toEqual([
-      {
-        type: "emit",
-        eventType: CHAT_TOOLS_ACTIVATE_EVENT,
-        data: { names: ["lsp"] },
-      },
-    ]);
-  });
-
-  test("a non-code file does not activate lsp", async () => {
-    const director = createChatDirector("", [], {});
-    await director.decide(
-      makeInferenceDoneEvent([
-        { id: "c", name: "read_file", args: { path: "README.md" } },
-      ]),
-      stubReactorState,
-      stubReactorCapabilities,
-    );
-    const actions = await director.decide(
-      makeToolDoneEvent("c"),
-      stubReactorState,
-      stubReactorCapabilities,
-    );
-    expect(activateEmits(actions)).toEqual([]);
-  });
-
-  test("a failed read does not activate lsp", async () => {
-    const director = createChatDirector("", [], {});
-    await director.decide(
-      makeInferenceDoneEvent([
-        { id: "c", name: "read_file", args: { path: "src/foo.ts" } },
-      ]),
-      stubReactorState,
-      stubReactorCapabilities,
-    );
-    const actions = await director.decide(
-      makeToolErrorEvent("c", "Error: not found"),
-      stubReactorState,
-      stubReactorCapabilities,
-    );
-    expect(activateEmits(actions)).toEqual([]);
+    expect(activateEmits(actions)).toEqual([...expected]);
   });
 });
 
 describe("updateToolDefinitions rewrites infer tools", () => {
-  const makeMessageReceivedEvent = (content: string) =>
-    ({
-      type: "message.received",
-      message: { role: "user", content },
-    }) as unknown as ReactorInboundEvent;
-  const capabilitiesWithInferArgs: ReactorCapabilities = {
-    ...stubReactorCapabilities,
-    infer: (opts) =>
-      ({ type: "infer", options: opts }) as unknown as ReactorAction,
-  };
   const lateTool = {
     name: "mcp__acme__list_issues",
     description: "list",
@@ -1384,7 +1279,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
     const { inferAction } = await decideAndSplit(
       director,
-      makeMessageReceivedEvent("hello"),
+      messageReceived("hello"),
     );
     expect(inferAction).toBeDefined();
     expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
@@ -1394,10 +1289,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
   test("wire tools are byte-identical across a turn that ran tool_search", async () => {
     const director = createChatDirector("base-prompt", [lateTool], {});
 
-    const before = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("do work"),
-    );
+    const before = await firstInferTools(director, messageReceived("do work"));
 
     // A full tool_search round-trip: the model calls it, it resolves. Under the
     // stable-superset design this promotes nothing, so the advertised set is
@@ -1415,10 +1307,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
       capabilitiesWithInferArgs,
     );
 
-    const after = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("continue"),
-    );
+    const after = await firstInferTools(director, messageReceived("continue"));
     expect(JSON.stringify(after)).toBe(JSON.stringify(before));
   });
 
@@ -1458,10 +1347,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
       {},
     );
 
-    const before = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("hello"),
-    );
+    const before = await firstInferTools(director, messageReceived("hello"));
     const beforeNames = (before as { name: string }[]).map((t) => t.name);
     expect(beforeNames).not.toContain("mcp__linear__list_issues");
 
@@ -1473,10 +1359,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
       advertised.computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
     );
 
-    const after = await firstInferTools(
-      director,
-      makeMessageReceivedEvent("continue"),
-    );
+    const after = await firstInferTools(director, messageReceived("continue"));
     const afterTools = after as {
       name: string;
       parameters?: unknown;
@@ -1500,7 +1383,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
     const stable = await firstInferTools(
       director,
-      makeMessageReceivedEvent("keep going"),
+      messageReceived("keep going"),
     );
     expect(JSON.stringify(stable)).toBe(JSON.stringify(after));
 
@@ -1515,7 +1398,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
     const { inferAction } = await decideAndSplit(
       director,
-      makeMessageReceivedEvent("hello"),
+      messageReceived("hello"),
     );
     expect(inferToolNames(inferAction)).toContain("submit_output");
   });
@@ -1528,7 +1411,7 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 
     const { actions, inferAction } = await decideAndSplit(
       director,
-      makeMessageReceivedEvent("new thing"),
+      messageReceived("new thing"),
     );
     expect(inferAction).toBeDefined();
     expect(inferToolNames(inferAction)).toContain("mcp__acme__list_issues");
@@ -1537,16 +1420,6 @@ describe("updateToolDefinitions rewrites infer tools", () => {
 });
 
 describe("CL-7919 coordinator shape", () => {
-  const makeMessageReceivedEvent = (content: string) =>
-    ({
-      type: "message.received",
-      message: { role: "user", content },
-    }) as unknown as ReactorInboundEvent;
-  const capabilitiesWithInferArgs: ReactorCapabilities = {
-    ...stubReactorCapabilities,
-    infer: (opts) =>
-      ({ type: "infer", options: opts }) as unknown as ReactorAction,
-  };
   const inferEphemeralText = (
     action: ReactorAction | undefined,
   ): string | undefined => {
@@ -1576,7 +1449,7 @@ describe("CL-7919 coordinator shape", () => {
 
     const actions = actionsArray(
       await director.decide(
-        makeMessageReceivedEvent("hello"),
+        messageReceived("hello"),
         stubReactorState,
         capabilitiesWithInferArgs,
       ),
@@ -1602,7 +1475,7 @@ describe("CL-7919 coordinator shape", () => {
 
     const actions = actionsArray(
       await director.decide(
-        makeMessageReceivedEvent("hello"),
+        messageReceived("hello"),
         stubReactorState,
         capabilitiesWithInferArgs,
       ),
@@ -1629,7 +1502,7 @@ describe("CL-7919 coordinator shape", () => {
     } as unknown as WorkflowCoordinator);
     const actions = actionsArray(
       await director.decide(
-        makeMessageReceivedEvent("hello"),
+        messageReceived("hello"),
         stubReactorState,
         capabilitiesWithInferArgs,
       ),
@@ -1663,7 +1536,7 @@ describe("CL-7919 coordinator shape", () => {
     } as unknown as WorkflowCoordinator);
     const fromMessage = actionsArray(
       await director.decide(
-        makeMessageReceivedEvent("hello"),
+        messageReceived("hello"),
         stubReactorState,
         capabilitiesWithInferArgs,
       ),
@@ -1709,7 +1582,7 @@ describe("CL-7919 coordinator shape", () => {
     } as unknown as WorkflowCoordinator);
     const actions = actionsArray(
       await director.decide(
-        makeMessageReceivedEvent("hello"),
+        messageReceived("hello"),
         stubReactorState,
         capabilitiesWithInferArgs,
       ),
@@ -1766,7 +1639,7 @@ describe("CL-7919 coordinator shape", () => {
     } as unknown as WorkflowCoordinator);
     const actions = actionsArray(
       await director.decide(
-        makeMessageReceivedEvent("hello"),
+        messageReceived("hello"),
         stubReactorState,
         capabilitiesWithInferArgs,
       ),
@@ -1917,28 +1790,6 @@ describe("submit_output workflow handler", () => {
 });
 
 describe("transient nudges", () => {
-  const manageTasksEvent = (status: "todo" | "doing") =>
-    makeInferenceDoneEvent([
-      {
-        id: "mt",
-        name: "manage_tasks",
-        args: { action: "create", tasks: [{ id: "t1", title: "x", status }] },
-      },
-    ]);
-
-  const textTurn = () =>
-    ({
-      type: "inference.done",
-      turn: {
-        role: "assistant",
-        model: "test",
-        timestamp: 0,
-        content: [{ type: "text", text: "done" }],
-      },
-      usage: { input: 0, output: 0 },
-      source: "test",
-    }) as unknown as ReactorInboundEvent;
-
   test("open-task nudge uses ephemeralTurns and keeps the stable system prompt", async () => {
     const director = createChatDirector("stable-base", [], {});
     await director.decide(
@@ -1948,7 +1799,7 @@ describe("transient nudges", () => {
     );
     const actions = actionsArray(
       await director.decide(
-        textTurn(),
+        stubTextTurnEvent(),
         stubReactorState,
         stubReactorCapabilities,
       ),

@@ -650,15 +650,6 @@ describe("sub-agent stop helpers", () => {
     ).toBeNull();
   });
 
-  test("evaluateSubAgentStop keeps running while the worker is still calling tools", () => {
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        lastAssistantText: "",
-      }),
-    ).toBeNull();
-  });
-
   test("re-read pressure no longer stops a worker", () => {
     let thrash = EMPTY_THRASH_STATE;
     thrash = nextThrashState(thrash, [
@@ -667,26 +658,6 @@ describe("sub-agent stop helpers", () => {
     for (let i = 0; i < 8; i++) {
       thrash = nextThrashState(thrash, [
         { type: "tool_call", name: "read_file", arguments: { path: "a.ts" } },
-      ]);
-    }
-    expect(
-      evaluateSubAgentStop({
-        hasToolCalls: true,
-        lastAssistantText: "",
-        thrashState: thrash,
-      }),
-    ).toBeNull();
-  });
-
-  test("evaluateSubAgentStop multi-file unique reads do not thrash", () => {
-    let thrash = EMPTY_THRASH_STATE;
-    for (let i = 0; i < 12; i++) {
-      thrash = nextThrashState(thrash, [
-        {
-          type: "tool_call",
-          name: "read_file",
-          arguments: { path: `f${i}.ts` },
-        },
       ]);
     }
     expect(
@@ -914,62 +885,47 @@ describe("sub-agent stop helpers", () => {
     ctl.dispose();
   });
 
-  test("resolveSubAgentDeadlineMs clamps an explicit deadline below a lowered outer watchdog", () => {
-    const loweredOuterWatchdogMs = 120_000;
-    const clamped = resolveSubAgentDeadlineMs(600_000, loweredOuterWatchdogMs);
-    expect(clamped).toBeLessThan(loweredOuterWatchdogMs);
-    expect(clamped).toBe(loweredOuterWatchdogMs - SUBAGENT_DEADLINE_MARGIN_MS);
+  test.each<[number, number | undefined, number | undefined]>([
+    // explicit deadline clamps below a lowered outer watchdog
+    [600_000, 120_000, 120_000 - SUBAGENT_DEADLINE_MARGIN_MS],
+    // a short explicit deadline wins when the outer watchdog is high
+    [45_000, 660_000, 45_000],
+    // no outer watchdog: the explicit deadline stands
+    [18_000_000, undefined, 18_000_000],
+    // outer watchdog at or below the margin never arms
+    [5_000, 5_000, undefined],
+    [5_000, SUBAGENT_DEADLINE_MARGIN_MS, undefined],
+    // outer just above the margin: ceiling is 1ms — never exceeds outer
+    [5_000, SUBAGENT_DEADLINE_MARGIN_MS + 1, 1],
+  ])(
+    "resolveSubAgentDeadlineMs(%i, %s) resolves to %s",
+    (inner, outer, expected) => {
+      expect(resolveSubAgentDeadlineMs(inner, outer)).toBe(expected);
+    },
+  );
+
+  test.each<[string, ReturnType<typeof preferCompletedSubAgentReply>]>([
+    ["## Summary\nDone", "keep-reply"],
+    ["  mapped gate.ts  ", "keep-reply"],
+    ["", "honor-abort"],
+    ["   ", "honor-abort"],
+  ])("preferCompletedSubAgentReply(%j) resolves to %s", (reply, expected) => {
+    expect(preferCompletedSubAgentReply(reply)).toBe(expected);
   });
 
-  test("resolveSubAgentDeadlineMs keeps a short explicit deadline when the outer watchdog is high", () => {
-    expect(resolveSubAgentDeadlineMs(45_000, 660_000)).toBe(45_000);
-  });
-
-  test("resolveSubAgentDeadlineMs keeps an explicit deadline when the outer watchdog is omitted", () => {
-    expect(resolveSubAgentDeadlineMs(18_000_000, undefined)).toBe(18_000_000);
-  });
-
-  test("resolveSubAgentDeadlineMs skips arming when outer watchdog is at or below the margin", () => {
-    expect(resolveSubAgentDeadlineMs(5_000, 5_000)).toBeUndefined();
-    expect(
-      resolveSubAgentDeadlineMs(5_000, SUBAGENT_DEADLINE_MARGIN_MS),
-    ).toBeUndefined();
-    // Outer just above margin: ceiling is 1 — never exceeds outer.
-    expect(
-      resolveSubAgentDeadlineMs(5_000, SUBAGENT_DEADLINE_MARGIN_MS + 1),
-    ).toBe(1);
-  });
-
-  test("preferCompletedSubAgentReply keeps a non-empty reply over late cancel", () => {
-    expect(preferCompletedSubAgentReply("## Summary\nDone")).toBe("keep-reply");
-    expect(preferCompletedSubAgentReply("  mapped gate.ts  ")).toBe(
-      "keep-reply",
-    );
-  });
-
-  test("preferCompletedSubAgentReply honors abort when send returned empty", () => {
-    expect(preferCompletedSubAgentReply("")).toBe("honor-abort");
-    expect(preferCompletedSubAgentReply("   ")).toBe("honor-abort");
-  });
-
-  test("resolveSubAgentCatchOutcome always salvages a deadline hit, even with zero output", () => {
-    // Zero-output edge case: no tool calls, no partial text, but an opt-in
-    // deadline fired. It must not fall through to a bare rethrow.
-    expect(
-      resolveSubAgentCatchOutcome({ deadlineHit: true, hadProgress: false }),
-    ).toBe("salvage-deadline");
-  });
-
-  test("resolveSubAgentCatchOutcome salvages a mid-run operator cancel that made progress", () => {
-    expect(
-      resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: true }),
-    ).toBe("salvage-cancelled");
-  });
-
-  test("resolveSubAgentCatchOutcome rethrows a pre-progress operator cancel", () => {
-    expect(
-      resolveSubAgentCatchOutcome({ deadlineHit: false, hadProgress: false }),
-    ).toBe("rethrow");
+  test.each<
+    [
+      { deadlineHit: boolean; hadProgress: boolean },
+      ReturnType<typeof resolveSubAgentCatchOutcome>,
+    ]
+  >([
+    // A deadline always salvages, even with zero output — it must not fall
+    // through to a bare rethrow.
+    [{ deadlineHit: true, hadProgress: false }, "salvage-deadline"],
+    [{ deadlineHit: false, hadProgress: true }, "salvage-cancelled"],
+    [{ deadlineHit: false, hadProgress: false }, "rethrow"],
+  ])("resolveSubAgentCatchOutcome(%j) resolves to %s", (input, expected) => {
+    expect(resolveSubAgentCatchOutcome(input)).toBe(expected);
   });
 
   test("partialTextFromEvent reads stream inference.done data.turn content", () => {

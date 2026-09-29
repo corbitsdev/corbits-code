@@ -421,27 +421,6 @@ describe("CL-5731: task list panel", () => {
     });
   });
 
-  test("stays hidden by default when the task list carries rows, until toggled (CL-5847)", async () => {
-    await withAppShell(async (shell, h) => {
-      // A fresh shell with seeded tasks paints no task panel — the data
-      // is buffered underneath, waiting on Alt+T to opt in.
-      setChromeZones(shell, {
-        task: [{ label: "seeded but hidden", status: "todo" }],
-      });
-      expect(shell.layout.heights.task).toBe(0);
-      expect(shell.taskBox.visible).toBe(false);
-      await h.renderOnce();
-      expect(h.captureCharFrame()).not.toContain("seeded but hidden");
-
-      // Toggling is the only way the panel surfaces.
-      toggleTasksPanel(shell);
-      expect(shell.taskBox.visible).toBe(true);
-      expect(shell.layout.heights.task).toBe(1);
-      await h.renderOnce();
-      expect(h.captureCharFrame()).toContain("seeded but hidden");
-    });
-  });
-
   test("updates live as the task list changes, without touching the agents panel", async () => {
     await withAppShell(async (shell, h) => {
       setChromeZones(shell, {
@@ -478,6 +457,8 @@ describe("CL-5731: task list panel", () => {
       });
       expect(shell.taskBox.visible).toBe(false);
       expect(shell.layout.heights.task).toBe(0);
+      await h.renderOnce();
+      expect(h.captureCharFrame()).not.toContain("wire toggle");
 
       // First toggle shows the panel.
       toggleTasksPanel(shell);

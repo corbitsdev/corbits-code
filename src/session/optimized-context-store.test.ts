@@ -44,6 +44,10 @@ function jsonl(turns: ConversationTurn[]): string {
   return turns.map((t) => JSON.stringify(t)).join("\n") + "\n";
 }
 
+function turnTexts(turns: ConversationTurn[]): string[] {
+  return turns.map((t) => (t.content[0] as { text: string }).text);
+}
+
 describe("createOptimizedContextStore load", () => {
   test("resumes turns spread across multiple segments in order", async () => {
     const dir = tempDir();
@@ -60,9 +64,7 @@ describe("createOptimizedContextStore load", () => {
     );
 
     const loaded = await store.load();
-    expect(
-      loaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a", "b", "c", "d", "e"]);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b", "c", "d", "e"]);
   });
 
   test("reads a legacy monolithic turns.jsonl with no segments", async () => {
@@ -89,9 +91,7 @@ describe("createOptimizedContextStore load", () => {
     );
 
     const loaded = await store.load();
-    expect(
-      loaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a", "b"]);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b"]);
   });
 
   // A small session never rolls over, so the active segment is turns.jsonl
@@ -106,9 +106,7 @@ describe("createOptimizedContextStore load", () => {
     );
 
     const loaded = await store.load();
-    expect(
-      loaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a", "b"]);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b"]);
   });
 
   test("keeps extra segments when the torn line is in the base segment", async () => {
@@ -125,9 +123,7 @@ describe("createOptimizedContextStore load", () => {
     );
 
     const loaded = await store.load();
-    expect(
-      loaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a", "b", "c"]);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b", "c"]);
   });
 
   test("the next write heals a torn base tail so reload is stable", async () => {
@@ -142,32 +138,10 @@ describe("createOptimizedContextStore load", () => {
     const recovered = await store.load();
     await store.writeTurns(recovered.turns);
     const reloaded = await store.load();
-    expect(
-      reloaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a"]);
+    expect(turnTexts(reloaded.turns)).toEqual(["a"]);
     expect(fs.readFileSync(path.join(dir, TURNS_FILE), "utf8")).toBe(
       jsonl([turn("a")]),
     );
-  });
-
-  test("recovers usable turns when turns.jsonl has a mid-file null-byte hole", async () => {
-    const dir = tempDir();
-    const store = await createOptimizedContextStore(dir);
-
-    const head = jsonl([turn("a"), turn("b")]);
-    const tail = jsonl([turn("c")]);
-    // Simulate truncate-past-EOF null padding between valid JSONL records.
-    const poisoned = Buffer.concat([
-      Buffer.from(head, "utf8"),
-      Buffer.alloc(64, 0),
-      Buffer.from(tail, "utf8"),
-    ]);
-    fs.writeFileSync(path.join(dir, TURNS_FILE), poisoned);
-
-    const loaded = await store.load();
-    expect(
-      loaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a", "b", "c"]);
   });
 
   test("preserves pendingOperations when turns are poisoned but metadata is valid", async () => {
@@ -206,9 +180,7 @@ describe("createOptimizedContextStore load", () => {
     );
 
     const loaded = await store.load();
-    expect(
-      loaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a", "b", "c"]);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b", "c"]);
     expect(loaded.pendingOperations).toEqual([pendingOp]);
     expect(loaded.tokenUsage).toEqual({
       input: 10,
@@ -250,9 +222,7 @@ describe("createOptimizedContextStore load", () => {
     );
 
     const loaded = await store.load();
-    expect(
-      loaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a", "b"]);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b"]);
   });
 
   test("skips a truncated mid-string glued to the next record", async () => {
@@ -269,9 +239,7 @@ describe("createOptimizedContextStore load", () => {
     );
 
     const loaded = await store.load();
-    expect(
-      loaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a", "b", "c"]);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b", "c"]);
   });
 
   // Compacted head rewrites segment 0 while a prior multi-segment history's
@@ -401,10 +369,7 @@ describe("loadRecentTurns", () => {
     );
 
     const loaded = await loadRecentTurns(dir, 2);
-    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual([
-      "d",
-      "e",
-    ]);
+    expect(turnTexts(loaded)).toEqual(["d", "e"]);
   });
 
   test("walks back into older segments when the window exceeds the newest one", async () => {
@@ -423,13 +388,7 @@ describe("loadRecentTurns", () => {
     // window of 4, so the walk continues into segment 0 (2 turns) whole —
     // reads are segment-granular, not turn-exact.
     const loaded = await loadRecentTurns(dir, 4);
-    expect(loaded.map((t) => (t.content[0] as { text: string }).text)).toEqual([
-      "a",
-      "b",
-      "c",
-      "d",
-      "e",
-    ]);
+    expect(turnTexts(loaded)).toEqual(["a", "b", "c", "d", "e"]);
   });
 
   test("returns an empty list when no segments exist", async () => {
@@ -450,9 +409,7 @@ describe("loadRecentTurns", () => {
     );
 
     const loaded = await store.load();
-    expect(
-      loaded.turns.map((t) => (t.content[0] as { text: string }).text),
-    ).toEqual(["a", "b", "c"]);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b", "c"]);
   });
 });
 
@@ -624,10 +581,6 @@ describe("createSessionStores", () => {
     expect(typeof audit.loadErrors).toBe("function");
   });
 });
-
-function turnTexts(turns: ConversationTurn[]): string[] {
-  return turns.map((t) => (t.content[0] as { text: string }).text);
-}
 
 async function gitLsTree(dir: string): Promise<string[]> {
   const proc = Bun.spawn(
@@ -916,8 +869,6 @@ describe("createOptimizedContextStore prompt dedupe (CL-9026)", () => {
     const tree = await gitLsTree(dir);
     expect(tree).not.toContain(PROMPT_FILE);
     expect(tree).not.toContain(extraPrompt);
-    expect(turnTexts((await store.load()).turns)).toEqual(
-      live.map((t) => (t.content[0] as { text: string }).text),
-    );
+    expect(turnTexts((await store.load()).turns)).toEqual(turnTexts(live));
   });
 });

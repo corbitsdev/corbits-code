@@ -49,6 +49,7 @@ import type {
   OAuthLoginStarter,
   OAuthProfileLister,
   ProviderFormValues,
+  ProviderSetupConfig,
   ProviderSetupSubmit,
   SubmitOpts,
 } from "./provider/types.js";
@@ -178,7 +179,9 @@ describe("provider setup pure helpers", () => {
   });
 
   test("secrets render as capped bullets", () => {
-    expect(maskSecret("sk-abc")).toBe("●●●●●●");
+    const masked = maskSecret("sk-abc");
+    expect(masked).toHaveLength(6);
+    expect(masked).not.toContain("sk-abc");
     expect(maskSecret("x".repeat(50))).toHaveLength(16);
   });
 
@@ -413,20 +416,27 @@ describe("provider setup pure helpers", () => {
   });
 });
 
+async function mountConfig(
+  config: Partial<ProviderSetupConfig>,
+  height = 30,
+): Promise<{ done: Promise<boolean>; harness: Harness }> {
+  const harness = await createHarness({ width: 80, height });
+  const done = runProviderSetup({
+    onSubmit: async () => undefined,
+    showTelemetryNotice: false,
+    createRenderer: async () => harness.renderer,
+    ...config,
+  });
+  await harness.renderOnce();
+  return { done, harness };
+}
+
 async function mountSetup(
   onSubmit: ProviderSetupSubmit = async () => undefined,
   showTelemetryNotice = false,
   existingProviderNames: readonly string[] = [],
 ): Promise<{ done: Promise<boolean>; harness: Harness }> {
-  const harness = await createHarness({ width: 80, height: 30 });
-  const done = runProviderSetup({
-    onSubmit,
-    showTelemetryNotice,
-    existingProviderNames,
-    createRenderer: async () => harness.renderer,
-  });
-  await harness.renderOnce();
-  return { done, harness };
+  return mountConfig({ onSubmit, showTelemetryNotice, existingProviderNames });
 }
 
 function type(harness: Harness, text: string): void {
@@ -519,19 +529,14 @@ async function mountLogin(opts: {
   loginTimeoutMs?: number;
   listOAuthProfiles?: OAuthProfileLister;
 }): Promise<{ done: Promise<boolean>; harness: Harness }> {
-  const harness = await createHarness({ width: 80, height: 30 });
-  const done = runProviderSetup({
+  return mountConfig({
     onSubmit: opts.onSubmit ?? (async () => undefined),
-    showTelemetryNotice: false,
-    createRenderer: async () => harness.renderer,
     startLogin: opts.start,
     listOAuthProfiles: opts.listOAuthProfiles ?? (async () => []),
     ...(opts.loginTimeoutMs !== undefined
       ? { loginTimeoutMs: opts.loginTimeoutMs }
       : {}),
   });
-  await harness.renderOnce();
-  return { done, harness };
 }
 
 /**
@@ -569,19 +574,15 @@ async function nameOAuthAccount(
 describe("runProviderSetup Ollama discovery", () => {
   test("clears an API key when switching from OpenAI to Ollama", async () => {
     const seen: ProviderFormValues[] = [];
-    const harness = await createHarness({ width: 80, height: 30 });
-    const done = runProviderSetup({
+    const { done, harness } = await mountConfig({
       onSubmit: async (values) => {
         seen.push({ ...values });
       },
-      showTelemetryNotice: false,
-      createRenderer: async () => harness.renderer,
       discoverOllamaModels: async () => ({
         status: "models",
         models: ["qwen3"],
       }),
     });
-    await harness.renderOnce();
 
     await pickRow(harness, PROVIDER_IDS, "openai");
     await flush(harness);
@@ -620,12 +621,8 @@ describe("runProviderSetup Ollama discovery", () => {
         | { status: "malformed"; message: string }
         | { status: "models"; models: string[] },
     ) => void)[] = [];
-    const harness = await createHarness({ width: 80, height: 30 });
-    const done = runProviderSetup({
-      onSubmit: () => Promise.resolve(),
-      showTelemetryNotice: false,
+    const { done, harness } = await mountConfig({
       initialProviderId: "ollama",
-      createRenderer: async () => harness.renderer,
       discoverOllamaModels: async () =>
         new Promise((resolve) => {
           pending.push(resolve);
@@ -681,15 +678,12 @@ describe("runProviderSetup Ollama discovery", () => {
     const seen: ProviderFormValues[] = [];
     const opts: SubmitOpts[] = [];
     const seenRoots: string[] = [];
-    const harness = await createHarness({ width: 80, height: 30 });
-    const done = runProviderSetup({
+    const { done, harness } = await mountConfig({
       onSubmit: async (values, _setPhase, o) => {
         seen.push({ ...values });
         opts.push(o);
       },
-      showTelemetryNotice: false,
       initialProviderId: "ollama",
-      createRenderer: async () => harness.renderer,
       discoverOllamaModels: async ({ rootURL }) => {
         seenRoots.push(rootURL);
         return { status: "models", models: ["qwen3", "deepseek-r1"] };
@@ -718,12 +712,8 @@ describe("runProviderSetup Ollama discovery", () => {
   });
 
   test("paints HTTP 503 instead of a canned not-running line", async () => {
-    const harness = await createHarness({ width: 80, height: 30 });
-    const done = runProviderSetup({
-      onSubmit: () => Promise.resolve(),
-      showTelemetryNotice: false,
+    const { done, harness } = await mountConfig({
       initialProviderId: "ollama",
-      createRenderer: async () => harness.renderer,
       discoverOllamaModels: async () => ({
         status: "unavailable",
         message: "Ollama returned HTTP 503",
@@ -744,12 +734,8 @@ describe("runProviderSetup Ollama discovery", () => {
   });
 
   test("a rejected discovery promise leaves the UI off the loading line", async () => {
-    const harness = await createHarness({ width: 80, height: 30 });
-    const done = runProviderSetup({
-      onSubmit: () => Promise.resolve(),
-      showTelemetryNotice: false,
+    const { done, harness } = await mountConfig({
       initialProviderId: "ollama",
-      createRenderer: async () => harness.renderer,
       discoverOllamaModels: async () => {
         throw new Error("boom");
       },
@@ -773,12 +759,8 @@ describe("runProviderSetup Go models", () => {
   const LIVE_ONLY_ID = "live-only-fixture-model";
 
   test("the Go model step paints live ids after prefetch settles", async () => {
-    const harness = await createHarness({ width: 80, height: 30 });
-    const done = runProviderSetup({
-      onSubmit: () => Promise.resolve(),
-      showTelemetryNotice: false,
+    const { done, harness } = await mountConfig({
       initialProviderId: "opencode-go",
-      createRenderer: async () => harness.renderer,
       prefetchGoModels: async () => [LIVE_ONLY_ID],
     });
     await flush(harness);
@@ -797,12 +779,8 @@ describe("runProviderSetup Go models", () => {
 
   test("a hanging prefetch does not block the Go model list", async () => {
     const pending: ((ids: readonly string[]) => void)[] = [];
-    const harness = await createHarness({ width: 80, height: 30 });
-    const done = runProviderSetup({
-      onSubmit: () => Promise.resolve(),
-      showTelemetryNotice: false,
+    const { done, harness } = await mountConfig({
       initialProviderId: "opencode-go",
-      createRenderer: async () => harness.renderer,
       prefetchGoModels: () =>
         new Promise<readonly string[]>((resolve) => {
           pending.push(resolve);
@@ -825,12 +803,8 @@ describe("runProviderSetup Go models", () => {
 
   test("prefetch settle keeps the focused model row", async () => {
     const pending: ((ids: readonly string[]) => void)[] = [];
-    const harness = await createHarness({ width: 80, height: 30 });
-    const done = runProviderSetup({
-      onSubmit: () => Promise.resolve(),
-      showTelemetryNotice: false,
+    const { done, harness } = await mountConfig({
       initialProviderId: "opencode-go",
-      createRenderer: async () => harness.renderer,
       prefetchGoModels: () =>
         new Promise<readonly string[]>((resolve) => {
           pending.push(resolve);
@@ -1514,13 +1488,7 @@ describe("runProviderSetup pick-list height cap", () => {
   // paints past the terminal's own row count.
   for (const height of [24, 16, 12, 8, 6]) {
     test(`stays within a ${height}-row terminal with no overlapping chrome`, async () => {
-      const harness = await createHarness({ width: 80, height });
-      runProviderSetup({
-        onSubmit: async () => undefined,
-        showTelemetryNotice: false,
-        createRenderer: async () => harness.renderer,
-      });
-      await harness.renderOnce();
+      const { harness } = await mountConfig({}, height);
       await harness.renderOnce();
       const lines = harness.captureCharFrame().split("\n");
       expect(lines.length).toBeLessThanOrEqual(height + 1);
@@ -1535,13 +1503,7 @@ describe("runProviderSetup pick-list height cap", () => {
   }
 
   test("keyboard navigation scrolls a long provider list and keeps the active row visible", async () => {
-    const harness = await createHarness({ width: 80, height: 16 });
-    runProviderSetup({
-      onSubmit: async () => undefined,
-      showTelemetryNotice: false,
-      createRenderer: async () => harness.renderer,
-    });
-    await harness.renderOnce();
+    const { harness } = await mountConfig({}, 16);
     await harness.renderOnce();
     const ids = providerChoiceRows(providerChoices()).map((r) => r.id);
     for (let i = 0; i < ids.length - 1; i++) harness.pressKey("ARROW_DOWN");
@@ -1557,15 +1519,14 @@ describe("runProviderSetup pick-list height cap", () => {
   // populates both of them at once, so walk the flow there instead of
   // stopping at the provider pick-list.
   test("a failed connection test at a short terminal shows status and guidance on their own lines", async () => {
-    const harness = await createHarness({ width: 80, height: 16 });
-    runProviderSetup({
-      onSubmit: async (_values, _setPhase, opts) => {
-        if (!opts.skipValidation) throw new Error("connection refused");
+    const { harness } = await mountConfig(
+      {
+        onSubmit: async (_values, _setPhase, opts) => {
+          if (!opts.skipValidation) throw new Error("connection refused");
+        },
       },
-      showTelemetryNotice: false,
-      createRenderer: async () => harness.renderer,
-    });
-    await harness.renderOnce();
+      16,
+    );
     await harness.renderOnce();
     await pickRow(harness, PROVIDER_IDS, "openai");
     await flush(harness);

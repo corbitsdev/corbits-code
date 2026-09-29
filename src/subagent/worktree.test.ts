@@ -125,92 +125,108 @@ describe("cleanupSubAgentWorktree", () => {
     ]);
   });
 
-  test("preserves a worktree containing only gitignored output", async () => {
-    const { exec, calls } = recordingExec({
-      status: { stdout: "!! dist/output.txt\n" },
-    });
-    const result = await cleanupSubAgentWorktree(
-      "/repo",
-      "/repo/.worktrees/abc",
-      { stashBaseline: [] },
-      exec,
-    );
-    expect(result.status).toBe("preserved");
-    if (result.status === "preserved") {
-      expect(result.notice).toContain("uncommitted changes");
-    }
-    expect(calls.some((call) => call[0] === "worktree")).toBe(false);
-  });
+  interface PreserveCase {
+    name: string;
+    responses: Record<string, { stdout?: string; error?: Error }>;
+    stashBaseline: string[] | null;
+    headAtCreate?: string;
+    notice: string[];
+    // Most preserved cases never reach `worktree remove`; the removal-failure
+    // case does (and fails), so it opts out of the no-call assertion.
+    noWorktreeCall?: boolean;
+  }
 
-  test("preserves a dirty worktree instead of removing it", async () => {
-    const { exec, calls } = recordingExec({
-      status: { stdout: " M src/index.ts\n" },
-    });
-    const result = await cleanupSubAgentWorktree(
-      "/repo",
-      "/repo/.worktrees/abc",
-      { stashBaseline: [] },
-      exec,
-    );
-    expect(result.status).toBe("preserved");
-    expect(result).toMatchObject({ path: "/repo/.worktrees/abc" });
-    if (result.status === "preserved") {
-      expect(result.notice).toContain("uncommitted changes");
-    }
-    // Never runs `worktree remove` against a dirty tree.
-    expect(calls.some((call) => call[0] === "worktree")).toBe(false);
-  });
-
-  test("preserves the worktree when status cannot be checked", async () => {
-    const { exec } = recordingExec({
-      status: { error: new Error("no such directory") },
-    });
-    const result = await cleanupSubAgentWorktree(
-      "/repo",
-      "/repo/.worktrees/abc",
-      { stashBaseline: [] },
-      exec,
-    );
-    expect(result.status).toBe("preserved");
-  });
-
-  test("preserves the worktree when removal fails", async () => {
-    const { exec } = recordingExec({
-      status: { stdout: "" },
-      stash: { stdout: "" },
-      worktree: { error: new Error("worktree is locked") },
-    });
-    const result = await cleanupSubAgentWorktree(
-      "/repo",
-      "/repo/.worktrees/abc",
-      { stashBaseline: [] },
-      exec,
-    );
-    expect(result.status).toBe("preserved");
-    if (result.status === "preserved") {
-      expect(result.notice).toContain("could not be removed automatically");
-    }
-  });
-
-  test("preserves a clean worktree that created a new stash entry", async () => {
-    const { exec, calls } = recordingExec({
-      status: { stdout: "" },
-      stash: {
-        stdout: "stash@{0}: WIP on (no branch): abc1234 sub-agent work\n",
+  test.each<PreserveCase>([
+    {
+      name: "a worktree containing only gitignored output",
+      responses: { status: { stdout: "!! dist/output.txt\n" } },
+      stashBaseline: [],
+      notice: ["uncommitted changes"],
+    },
+    {
+      name: "a dirty worktree",
+      responses: { status: { stdout: " M src/index.ts\n" } },
+      stashBaseline: [],
+      notice: ["uncommitted changes"],
+    },
+    {
+      name: "status cannot be checked",
+      responses: { status: { error: new Error("no such directory") } },
+      stashBaseline: [],
+      notice: [],
+    },
+    {
+      name: "removal fails",
+      responses: {
+        status: { stdout: "" },
+        stash: { stdout: "" },
+        worktree: { error: new Error("worktree is locked") },
       },
-    });
+      stashBaseline: [],
+      notice: ["could not be removed automatically"],
+      noWorktreeCall: false,
+    },
+    {
+      name: "a clean worktree created a new stash entry",
+      responses: {
+        status: { stdout: "" },
+        stash: {
+          stdout: "stash@{0}: WIP on (no branch): abc1234 sub-agent work\n",
+        },
+      },
+      stashBaseline: [],
+      notice: ["stash entry", "stash@{0}"],
+    },
+    {
+      name: "stash list fails at cleanup",
+      responses: {
+        status: { stdout: "" },
+        stash: { error: new Error("stash list failed") },
+      },
+      stashBaseline: [],
+      notice: ["could not inspect the stash list"],
+    },
+    {
+      name: "stash baseline was unknown at create",
+      responses: { status: { stdout: "" } },
+      stashBaseline: null,
+      notice: ["stash baseline could not be recorded"],
+    },
+    {
+      name: "HEAD advanced on a clean detached worktree",
+      responses: {
+        status: { stdout: "" },
+        "rev-parse HEAD": { stdout: "newcommit99\n" },
+      },
+      stashBaseline: [],
+      headAtCreate: "oldcommit00",
+      notice: ["HEAD advanced"],
+    },
+  ])("preserves when $name", async (testCase) => {
+    const { exec, calls } = recordingExec(testCase.responses);
     const result = await cleanupSubAgentWorktree(
       "/repo",
       "/repo/.worktrees/abc",
-      { stashBaseline: [] },
+      {
+        stashBaseline: testCase.stashBaseline,
+        ...(testCase.headAtCreate !== undefined
+          ? { headAtCreate: testCase.headAtCreate }
+          : {}),
+      },
       exec,
     );
-    expect(result.status).toBe("preserved");
+    expect(result).toMatchObject({
+      status: "preserved",
+      path: "/repo/.worktrees/abc",
+    });
     if (result.status === "preserved") {
-      expect(result.notice).toContain("stash entry");
-      expect(result.notice).toContain("stash@{0}");
+      for (const needle of testCase.notice) {
+        expect(result.notice).toContain(needle);
+      }
     }
-    expect(calls.some((call) => call[0] === "worktree")).toBe(false);
+    if (testCase.noWorktreeCall !== false) {
+      expect(calls.some((call) => call[0] === "worktree")).toBe(false);
+    }
   });
 
   test("does not flag a stash entry that predates this worktree", async () => {
@@ -227,59 +243,6 @@ describe("cleanupSubAgentWorktree", () => {
       exec,
     );
     expect(result).toEqual({ status: "removed", path: "/repo/.worktrees/abc" });
-  });
-
-  test("preserves when stash list fails at cleanup", async () => {
-    const { exec, calls } = recordingExec({
-      status: { stdout: "" },
-      stash: { error: new Error("stash list failed") },
-    });
-    const result = await cleanupSubAgentWorktree(
-      "/repo",
-      "/repo/.worktrees/abc",
-      { stashBaseline: [] },
-      exec,
-    );
-    expect(result.status).toBe("preserved");
-    if (result.status === "preserved") {
-      expect(result.notice).toContain("could not inspect the stash list");
-    }
-    expect(calls.some((call) => call[0] === "worktree")).toBe(false);
-  });
-
-  test("preserves when stash baseline was unknown at create", async () => {
-    const { exec, calls } = recordingExec({
-      status: { stdout: "" },
-    });
-    const result = await cleanupSubAgentWorktree(
-      "/repo",
-      "/repo/.worktrees/abc",
-      { stashBaseline: null },
-      exec,
-    );
-    expect(result.status).toBe("preserved");
-    if (result.status === "preserved") {
-      expect(result.notice).toContain("stash baseline could not be recorded");
-    }
-    expect(calls.some((call) => call[0] === "worktree")).toBe(false);
-  });
-
-  test("preserves when HEAD advanced on a clean detached worktree", async () => {
-    const { exec, calls } = recordingExec({
-      status: { stdout: "" },
-      "rev-parse HEAD": { stdout: "newcommit99\n" },
-    });
-    const result = await cleanupSubAgentWorktree(
-      "/repo",
-      "/repo/.worktrees/abc",
-      { stashBaseline: [], headAtCreate: "oldcommit00" },
-      exec,
-    );
-    expect(result.status).toBe("preserved");
-    if (result.status === "preserved") {
-      expect(result.notice).toContain("HEAD advanced");
-    }
-    expect(calls.some((call) => call[0] === "worktree")).toBe(false);
   });
 
   test("removes when HEAD is unchanged and the tree is clean", async () => {

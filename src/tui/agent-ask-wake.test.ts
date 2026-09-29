@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { attachSessionBridge } from "./runtime-bridge";
 import { createLiveSessionPort } from "./live-session-port";
 import type { LiveSessionPortDeps } from "./live-session-port";
-import { createAppShell } from "./shell/index";
-import { withTestRenderer } from "./harness";
+import type { AppShell } from "./shell/internals";
+import { withAppShell } from "./test-helpers";
 import type { PendingAskWake } from "../subagent/fleet-report.js";
 import { latchMailboxMailDrive } from "../subagent/mailbox-mail-drive.js";
 import { classifySubmission, createSubmitHandler } from "./runner/submit.js";
@@ -32,7 +32,7 @@ function wake(id: string, questionId: string): PendingAskWake {
 }
 
 type WakeBridge = ReturnType<typeof attachSessionBridge>;
-type WakeShell = ReturnType<typeof createAppShell>;
+type WakeShell = AppShell;
 
 async function withWakeBridge(
   run: (
@@ -41,13 +41,8 @@ async function withWakeBridge(
     shell: WakeShell,
   ) => void | Promise<void>,
 ) {
-  await withTestRenderer(
-    async (h) => {
-      const shell = createAppShell(h.renderer, {
-        terminal: { columns: 80, rows: 24 },
-        wireKeys: false,
-        run: "idle",
-      });
+  await withAppShell(
+    async (shell) => {
       const sends: string[] = [];
       const send = (text: string) => {
         sends.push(text);
@@ -64,10 +59,9 @@ async function withWakeBridge(
         await run(bridge, sends, shell);
       } finally {
         bridge.dispose();
-        shell.dispose();
       }
     },
-    { width: 80, height: 24 },
+    { shell: { run: "idle" } },
   );
 }
 
@@ -183,13 +177,8 @@ for (const action of [
   "ordinary",
 ] as const) {
   test(`quota replay preserves submission origin (${action})`, async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-          run: "idle",
-        });
+    await withAppShell(
+      async (shell) => {
         const sends: string[] = [];
         const composerSends: string[] = [];
         const feedback: string[] = [];
@@ -290,10 +279,9 @@ for (const action of [
         } finally {
           resetFeedbackStateForTests();
           bridge.dispose();
-          shell.dispose();
         }
       },
-      { width: 80, height: 24 },
+      { shell: { run: "idle" } },
     );
   });
 }
@@ -319,62 +307,54 @@ describe("agent ask wake delivery", () => {
   });
 
   test("synthetic wake bypasses armed feedback and leaves user followups held", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-        });
-        const sends: string[] = [];
-        const feedback: string[] = [];
-        let cancellations = 0;
-        const port = createFeedbackPort({
-          sends,
-          feedback,
-          onCancel: () => {
-            cancellations++;
+    await withAppShell(async (shell) => {
+      const sends: string[] = [];
+      const feedback: string[] = [];
+      let cancellations = 0;
+      const port = createFeedbackPort({
+        sends,
+        feedback,
+        onCancel: () => {
+          cancellations++;
+        },
+        deliver: routeQueuedDelivery({
+          send: (text) => {
+            sends.push(text);
+            // Real delivery can synchronously settle and notify the bridge again.
+            bridge.handle({ type: "inference.done", data: {} });
+            bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
           },
-          deliver: routeQueuedDelivery({
-            send: (text) => {
-              sends.push(text);
-              // Real delivery can synchronously settle and notify the bridge again.
-              bridge.handle({ type: "inference.done", data: {} });
-              bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-            },
-            deliverSteer: () => {
-              throw new Error("wake must not live-inject");
-            },
-            parentCycleLive: () => bridge.parentCycleLive,
-          }),
-        });
-        const bridge = attachSessionBridge(shell, port);
-        try {
-          bridge.handle({ type: "inference.start", data: {} });
-          bridge.handle({ type: "fleet", running: 1 });
-          bridge.submit("held followup", "queue");
-          bridge.handle({ type: "inference.done", data: {} });
-          const held = shell.session;
-          armFeedbackCapture();
-          bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-          expect(sends).toHaveLength(1);
-          expect(sends[0]).toContain("q1");
-          expect(feedback).toEqual([]);
-          expect(cancellations).toBe(0);
-          expect(isFeedbackCapturePending()).toBe(true);
-          expect(shell.session.items).toEqual(held.items);
-          expect(held.items).toHaveLength(1);
-          expect(bridge.turn.isProcessing).toBe(false);
-          bridge.submit("actual feedback", "immediate");
-          expect(feedback).toEqual(["actual feedback"]);
-          expect(sends).toHaveLength(1);
-        } finally {
-          resetFeedbackStateForTests();
-          bridge.dispose();
-          shell.dispose();
-        }
-      },
-      { width: 80, height: 24 },
-    );
+          deliverSteer: () => {
+            throw new Error("wake must not live-inject");
+          },
+          parentCycleLive: () => bridge.parentCycleLive,
+        }),
+      });
+      const bridge = attachSessionBridge(shell, port);
+      try {
+        bridge.handle({ type: "inference.start", data: {} });
+        bridge.handle({ type: "fleet", running: 1 });
+        bridge.submit("held followup", "queue");
+        bridge.handle({ type: "inference.done", data: {} });
+        const held = shell.session;
+        armFeedbackCapture();
+        bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+        expect(sends).toHaveLength(1);
+        expect(sends[0]).toContain("q1");
+        expect(feedback).toEqual([]);
+        expect(cancellations).toBe(0);
+        expect(isFeedbackCapturePending()).toBe(true);
+        expect(shell.session.items).toEqual(held.items);
+        expect(held.items).toHaveLength(1);
+        expect(bridge.turn.isProcessing).toBe(false);
+        bridge.submit("actual feedback", "immediate");
+        expect(feedback).toEqual(["actual feedback"]);
+        expect(sends).toHaveLength(1);
+      } finally {
+        resetFeedbackStateForTests();
+        bridge.dispose();
+      }
+    });
   });
 
   test("resolved snapshots remove deferred questions", async () => {
@@ -480,102 +460,75 @@ describe("agent ask wake delivery", () => {
     });
   });
 
-  test("gate close flushes mailbox mail before the ask wake (CL-8061)", async () => {
-    await withWakeBridge((bridge, sends) => {
-      const order = trackMailOrder(bridge, false);
-      bridge.gateOpened();
-      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-      expect(sends).toEqual([]);
-      bridge.gateClosed();
-      expect(order).toEqual(["mail", "wake"]);
-      expect(sends).toHaveLength(1);
-    });
-  });
+  // CL-8061: whichever path releases a deferred wake — gate close, an
+  // idle-with-fleet settle, or releaseRunToIdle — mailbox mail goes first, and
+  // a mail drive that takes the turn suppresses the wake entirely.
+  const releasePaths: {
+    name: string;
+    arm: (bridge: WakeBridge) => void;
+    release: (bridge: WakeBridge) => void;
+    asyncDrive?: boolean;
+  }[] = [
+    {
+      name: "gate close",
+      arm: (bridge) => bridge.gateOpened(),
+      release: (bridge) => bridge.gateClosed(),
+      asyncDrive: true,
+    },
+    {
+      name: "idle-with-fleet settle",
+      arm: (bridge) => {
+        bridge.handle({ type: "inference.start", data: {} });
+        bridge.handle({ type: "fleet", running: 1 });
+      },
+      release: (bridge) => bridge.handle({ type: "inference.done", data: {} }),
+      asyncDrive: true,
+    },
+    {
+      name: "releaseRunToIdle",
+      arm: (bridge) => bridge.handle({ type: "inference.start", data: {} }),
+      release: (bridge) => bridge.handle({ type: "inference.done", data: {} }),
+    },
+  ];
 
-  test("gate close suppresses the wake when mail takes the turn (CL-8061)", async () => {
-    await withWakeBridge((bridge, sends) => {
-      const order = trackMailOrder(bridge, true);
-      bridge.gateOpened();
-      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-      expect(sends).toEqual([]);
-      bridge.gateClosed();
-      expect(order).toEqual(["mail"]);
-      expect(sends).toEqual([]);
+  for (const { name, arm, release, asyncDrive } of releasePaths) {
+    test(`${name} flushes mailbox mail before the ask wake (CL-8061)`, async () => {
+      await withWakeBridge((bridge, sends) => {
+        const order = trackMailOrder(bridge, false);
+        arm(bridge);
+        bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+        expect(sends).toEqual([]);
+        release(bridge);
+        expect(order).toEqual(["mail", "wake"]);
+        expect(sends).toHaveLength(1);
+      });
     });
-  });
 
-  test("idle-with-fleet settle flushes mailbox mail before the ask wake (CL-8061)", async () => {
-    await withWakeBridge((bridge, sends) => {
-      const order = trackMailOrder(bridge, false);
-      bridge.handle({ type: "inference.start", data: {} });
-      bridge.handle({ type: "fleet", running: 1 });
-      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-      expect(sends).toEqual([]);
-      bridge.handle({ type: "inference.done", data: {} });
-      expect(order).toEqual(["mail", "wake"]);
-      expect(sends).toHaveLength(1);
+    test(`${name} suppresses the wake when mail takes the turn (CL-8061)`, async () => {
+      await withWakeBridge((bridge, sends) => {
+        const order = trackMailOrder(bridge, true);
+        arm(bridge);
+        bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+        expect(sends).toEqual([]);
+        release(bridge);
+        expect(order).toEqual(["mail"]);
+        expect(sends).toEqual([]);
+      });
     });
-  });
 
-  test("idle-with-fleet settle suppresses the wake when mail takes the turn (CL-8061)", async () => {
-    await withWakeBridge((bridge, sends) => {
-      const order = trackMailOrder(bridge, true);
-      bridge.handle({ type: "inference.start", data: {} });
-      bridge.handle({ type: "fleet", running: 1 });
-      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-      expect(sends).toEqual([]);
-      bridge.handle({ type: "inference.done", data: {} });
-      expect(order).toEqual(["mail"]);
-      expect(sends).toEqual([]);
-    });
-  });
-
-  test("async mailbox drive on gate close claims the slot before wake (CL-8061)", async () => {
-    await withWakeBridge(async (bridge, sends) => {
-      const { order, settle } = trackAsyncMailOrder(bridge);
-      bridge.gateOpened();
-      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-      expect(sends).toEqual([]);
-      bridge.gateClosed();
-      await expectAsyncMailClaimsSlot(bridge, order, sends, settle);
-    });
-  });
-
-  test("async mailbox drive on idle-with-fleet settle claims the slot before wake (CL-8061)", async () => {
-    await withWakeBridge(async (bridge, sends) => {
-      const { order, settle } = trackAsyncMailOrder(bridge);
-      bridge.handle({ type: "inference.start", data: {} });
-      bridge.handle({ type: "fleet", running: 1 });
-      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-      expect(sends).toEqual([]);
-      bridge.handle({ type: "inference.done", data: {} });
-      await expectAsyncMailClaimsSlot(bridge, order, sends, settle);
-    });
-  });
-
-  test("releaseRunToIdle flushes mailbox mail before the ask wake (CL-8061)", async () => {
-    await withWakeBridge((bridge, sends) => {
-      const order = trackMailOrder(bridge, false);
-      bridge.handle({ type: "inference.start", data: {} });
-      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-      expect(sends).toEqual([]);
-      bridge.handle({ type: "inference.done", data: {} });
-      expect(order).toEqual(["mail", "wake"]);
-      expect(sends).toHaveLength(1);
-    });
-  });
-
-  test("releaseRunToIdle suppresses the wake when mail takes the turn (CL-8061)", async () => {
-    await withWakeBridge((bridge, sends) => {
-      const order = trackMailOrder(bridge, true);
-      bridge.handle({ type: "inference.start", data: {} });
-      bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
-      expect(sends).toEqual([]);
-      bridge.handle({ type: "inference.done", data: {} });
-      expect(order).toEqual(["mail"]);
-      expect(sends).toEqual([]);
-    });
-  });
+    if (asyncDrive) {
+      test(`async mailbox drive on ${name} claims the slot before wake (CL-8061)`, async () => {
+        await withWakeBridge(async (bridge, sends) => {
+          const { order, settle } = trackAsyncMailOrder(bridge);
+          arm(bridge);
+          bridge.handle({ type: "agent-ask", asks: [wake("a1", "q1")] });
+          expect(sends).toEqual([]);
+          release(bridge);
+          await expectAsyncMailClaimsSlot(bridge, order, sends, settle);
+        });
+      });
+    }
+  }
 
   test("idle parent subscribe does not flush wake before mailbox mail (CL-8061)", async () => {
     await withWakeBridge((bridge, sends) => {
@@ -618,13 +571,8 @@ describe("agent ask wake delivery", () => {
 
   for (const stop of ["interrupt", "stall abort"] as const) {
     test(`${stop} flushes a stashed ask once the parent is idle`, async () => {
-      await withTestRenderer(
-        async (h) => {
-          const shell = createAppShell(h.renderer, {
-            terminal: { columns: 80, rows: 24 },
-            wireKeys: false,
-            run: "idle",
-          });
+      await withAppShell(
+        async (shell) => {
           const sends: string[] = [];
           let nowMs = 0;
           let tick: () => void = () => undefined;
@@ -668,10 +616,9 @@ describe("agent ask wake delivery", () => {
             expect(bridge.turn.isProcessing).toBe(true);
           } finally {
             bridge.dispose();
-            shell.dispose();
           }
         },
-        { width: 80, height: 24 },
+        { shell: { run: "idle" } },
       );
     });
   }
@@ -709,13 +656,8 @@ describe("agent ask wake delivery", () => {
   });
 
   test("idle leftover wake keeps an @path in the question raw and consumes the echo", async () => {
-    await withTestRenderer(
-      async (h) => {
-        const shell = createAppShell(h.renderer, {
-          terminal: { columns: 80, rows: 24 },
-          wireKeys: false,
-          run: "idle",
-        });
+    await withAppShell(
+      async (shell) => {
         const sent: string[] = [];
         const attachments: number[] = [];
         const ingested: string[] = [];
@@ -785,10 +727,9 @@ describe("agent ask wake delivery", () => {
           ).toHaveLength(1);
         } finally {
           bridge.dispose();
-          shell.dispose();
         }
       },
-      { width: 80, height: 24 },
+      { shell: { run: "idle" } },
     );
   });
 });

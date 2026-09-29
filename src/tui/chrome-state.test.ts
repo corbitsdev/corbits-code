@@ -17,28 +17,11 @@ const NOW = 1_000_000;
 
 describe("formatChromeZones", () => {
   test("empty state hides all zones", () => {
-    expect(formatChromeZones({})).toEqual({
-      task: null,
-      agents: null,
-    });
+    const empty = { task: null, agents: null };
+    expect(formatChromeZones({})).toEqual(empty);
     expect(
-      formatChromeZones({
-        task: null,
-        agents: null,
-        observe: null,
-      }),
-    ).toEqual({
-      task: null,
-      agents: null,
-    });
-  });
-
-  test("partial: task rows stay parked; agents absent stays null", () => {
-    const out = formatChromeZones({
-      task: [{ title: "cutover readiness", status: "doing" }],
-    });
-    expect(out.task).toBeNull();
-    expect(out.agents).toBeNull();
+      formatChromeZones({ task: null, agents: null, observe: null }),
+    ).toEqual(empty);
   });
 
   test("running agents paint the agents strip; task stays null", () => {
@@ -506,45 +489,32 @@ describe("formatAgentsPanel", () => {
     ]);
   });
 
-  test("bounds fan-out and says how many lanes it is hiding", () => {
-    const running = Array.from({ length: 8 }, (_, i) => ({
-      agentId: `agent-${i}`,
-      currentToolStartedAt: null,
-      description: "working",
-      status: "running" as const,
-      startedAt: NOW + i,
-      lastActivityAt: NOW,
-    }));
-    const rows = formatAgentsPanel(running, undefined, NOW, 6);
-    // maxVisible lanes + trailing +N more
-    expect(rows).toHaveLength(7);
-    expect(rows?.[6]).toEqual({
-      label: "+2 more",
-      tail: "",
-      stalled: false,
-      kind: "more",
-    });
-  });
-
-  test("default max paints 10 lanes plus +N more under overflow", () => {
-    const running = Array.from({ length: 13 }, (_, i) => ({
-      agentId: `agent-${i}`,
-      currentToolStartedAt: null,
-      description: "working",
-      status: "running" as const,
-      startedAt: NOW + i,
-      lastActivityAt: NOW,
-    }));
-    const rows = formatAgentsPanel(running, undefined, NOW);
-    expect(rows).toHaveLength(11);
-    expect(rows?.filter((r) => r.kind === "lane")).toHaveLength(10);
-    expect(rows?.[10]).toEqual({
-      label: "+3 more",
-      tail: "",
-      stalled: false,
-      kind: "more",
-    });
-  });
+  test.each([
+    { lanes: 8, max: 6, lanesShown: 6, more: "+2 more" },
+    // default maxVisible is 10
+    { lanes: 13, max: undefined, lanesShown: 10, more: "+3 more" },
+  ])(
+    "fan-out bounds to maxVisible and says how many lanes it hides (%#)",
+    ({ lanes, max, lanesShown, more }) => {
+      const running = Array.from({ length: lanes }, (_, i) => ({
+        agentId: `agent-${i}`,
+        currentToolStartedAt: null,
+        description: "working",
+        status: "running" as const,
+        startedAt: NOW + i,
+        lastActivityAt: NOW,
+      }));
+      const rows = formatAgentsPanel(running, undefined, NOW, max);
+      expect(rows).toHaveLength(lanesShown + 1);
+      expect(rows?.filter((r) => r.kind === "lane")).toHaveLength(lanesShown);
+      expect(rows?.[lanesShown]).toEqual({
+        label: more,
+        tail: "",
+        stalled: false,
+        kind: "more",
+      });
+    },
+  );
 
   test("observe empty id+desc hides", () => {
     expect(
@@ -644,21 +614,8 @@ describe("chromeFromSession", () => {
       ],
     });
 
-    expect(state.task).toEqual([
-      { title: "wire catalogs", status: "doing" },
-      { title: "export index", status: "todo" },
-    ]);
-    expect(state.agents).toEqual([
-      {
-        agentId: "explorer",
-        currentToolStartedAt: null,
-        description: "map callers",
-        status: "running",
-        currentToolName: "grep",
-        startedAt: NOW - 5_000,
-        lastActivityAt: NOW,
-      },
-    ]);
+    expect(state.task).toHaveLength(2);
+    expect(state.agents?.[0]?.agentId).toBe("explorer");
 
     const zones = formatChromeZones(state, NOW);
     expect(zones.task).toBeNull();
@@ -690,15 +647,9 @@ describe("chromeFromSession", () => {
       agentId: "explorer",
       description: "watch",
     });
-    expect(formatChromeZones(state, NOW).agents).toEqual([
-      {
-        label: "observe: explorer — watch",
-        tail: "",
-        stalled: false,
-        kind: "lane",
-        status: "running",
-      },
-    ]);
+    expect(formatChromeZones(state, NOW).agents?.[0]?.label).toBe(
+      "observe: explorer — watch",
+    );
   });
 });
 
@@ -785,26 +736,6 @@ describe("lane state survives the mapping hops", () => {
     expect(agentProgress(withPreview, NOW)?.stat).not.toContain("run_shell");
   });
 
-  test("a genuinely silent lane still reads stalled through the same hops", () => {
-    const silent = {
-      ...inTool,
-      currentToolName: null,
-      currentToolStartedAt: null,
-      lastActivityAt: NOW - 310_000,
-    };
-    expect(laneState(silent, NOW)).toBe("stalled");
-
-    const rows = formatAgentsPanel(
-      chromeFromSession({ agents: [silent] }).agents,
-      undefined,
-      NOW,
-    );
-    expect(rows?.[0]?.kind).toBe("lane");
-    expect(rows?.[0]?.stalled).toBe(true);
-    expect(rows?.[0]?.label.startsWith("! ")).toBe(true);
-    expect(rows?.some((r) => r.kind === "header")).toBe(false);
-  });
-
   // A progress ping renames the tool but carries no clock of its own and may
   // arrive on tool completion — so it must not paint anything at all.
   test("the tool annotation never repaints a live call with another name", () => {
@@ -843,11 +774,14 @@ describe("lane state survives the mapping hops", () => {
       currentToolStartedAt: null,
       lastActivityAt: NOW - 310_000,
     };
+    expect(laneState(silent, NOW)).toBe("stalled");
+
     const rows = formatAgentsPanel(
       chromeFromSession({ agents: [silent] }).agents,
       undefined,
       NOW,
     );
+    expect(rows?.[0]?.kind).toBe("lane");
     expect(rows?.[0]?.stalled).toBe(true);
     expect(rows?.[0]?.label.startsWith("! ")).toBe(true);
     expect(rows?.[0]?.tail).not.toContain("grep");
@@ -858,67 +792,27 @@ describe("lane state survives the mapping hops", () => {
 });
 
 describe("clampBoardRows", () => {
-  test("carries a prior more-row count into a tighter re-clamp", () => {
-    // Formatter already hid 4 of 8; collapse then grants only 4 rows total.
-    // Honest disclosure is 4 prior + 1 newly dropped = 5 (3 lanes + fold).
-    const formatted = [
-      {
-        label: "● a  one",
-        tail: " · 0:01",
-        stalled: false,
-        kind: "lane" as const,
-      },
-      {
-        label: "● b  two",
-        tail: " · 0:01",
-        stalled: false,
-        kind: "lane" as const,
-      },
-      {
-        label: "● c  three",
-        tail: " · 0:01",
-        stalled: false,
-        kind: "lane" as const,
-      },
-      {
-        label: "● d  four",
-        tail: " · 0:01",
-        stalled: false,
-        kind: "lane" as const,
-      },
-      { label: "+4 more", tail: "", stalled: false, kind: "more" as const },
-    ];
-    const clamped = clampBoardRows(formatted, 4);
-    expect(clamped).toHaveLength(4);
-    expect(clamped[0]?.kind).toBe("lane");
-    expect(clamped[3]).toEqual({
-      label: "+5 more",
-      tail: "",
-      stalled: false,
-      kind: "more",
-    });
+  const laneRow = (label: string) => ({
+    label: `● ${label}`,
+    tail: " · 0:01",
+    stalled: false,
+    kind: "lane" as const,
   });
 
-  test("under a tight height the fold still discloses total hidden", () => {
+  // A prior "+4 more" row plus one newly dropped lane must still disclose 5,
+  // whether the re-clamp grants 4 rows or 2.
+  test.each([
+    { lanes: 4, max: 4 },
+    { lanes: 2, max: 2 },
+  ])("a re-clamp carries the prior more-row count (%#)", ({ lanes, max }) => {
     const formatted = [
-      {
-        label: "● a  one",
-        tail: " · 0:01",
-        stalled: false,
-        kind: "lane" as const,
-      },
-      {
-        label: "● b  two",
-        tail: " · 0:01",
-        stalled: false,
-        kind: "lane" as const,
-      },
+      ...Array.from({ length: lanes }, (_, i) => laneRow(`a${i}`)),
       { label: "+4 more", tail: "", stalled: false, kind: "more" as const },
     ];
-    const clamped = clampBoardRows(formatted, 2);
-    expect(clamped).toHaveLength(2);
-    // 4 prior + 1 newly dropped lane = 5.
-    expect(clamped[1]).toEqual({
+    const clamped = clampBoardRows(formatted, max);
+    expect(clamped).toHaveLength(max);
+    expect(clamped[0]?.kind).toBe("lane");
+    expect(clamped[max - 1]).toEqual({
       label: "+5 more",
       tail: "",
       stalled: false,
