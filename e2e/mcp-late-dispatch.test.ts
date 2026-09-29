@@ -6,8 +6,10 @@ import { createAgentWithLiveToolDispatch } from "../src/agent/live-tool-dispatch
 import type { MCPClient } from "../src/mcp/client.js";
 import { mcpClientTools } from "../src/mcp/plugin.js";
 import { createPermissionGate } from "../src/permission/gate.js";
+import { createAdvertisedToolset } from "../src/session/assemble-runtime.js";
 import {
   closeIntegrationSession,
+  INTEGRATION_SOURCE,
   openIntegrationSession,
   runUntilDone,
   toolDoneEvents,
@@ -108,13 +110,35 @@ function toolDoneContents(events: ReactorEmittedEvent[]): string[] {
   );
 }
 
-// Registers dynamic tools as promotable so the next request advertises them.
+// Wires production promote-on-execute: search returns cards only; a call to a
+// registered-but-unadvertised name declares that one schema, then dispatches.
 function promoteDynamicTools(session: IntegrationSession): void {
-  session.toolset.setToolPromoter(() => {
+  const advertised = createAdvertisedToolset({
+    sessionMode: "orchestrator",
+    toolAvailability: { languageServerAvailable: false },
+    getProvider: () => ({
+      providerName: INTEGRATION_SOURCE.provider,
+      model: INTEGRATION_SOURCE.model,
+    }),
+  });
+  session.toolset.dynamicRunner.setCallGate(
+    (name) => advertised.isAdvertised(name),
+    { isActivated: (name) => advertised.activated.has(name) },
+  );
+  session.toolset.setToolPromoter((names) => {
+    if (!advertised.activated.activate(names)) return;
+    if (!advertised.flushPromotions()) return;
     session.updateToolDefinitions(
-      session.toolset.dynamicRunner.currentDefinitions(),
+      advertised.computeAdvertised(
+        session.toolset.dynamicRunner.currentDefinitions(),
+      ),
     );
   });
+  session.updateToolDefinitions(
+    advertised.computeAdvertised(
+      session.toolset.dynamicRunner.currentDefinitions(),
+    ),
+  );
 }
 
 function replyScript(
@@ -318,7 +342,10 @@ describe("integration — late MCP dispatch", () => {
         promotionScript(session, call);
 
         const { events } = await runUntilDone(session, "list one linear issue");
-        const published = publishedTool(await requestBodies(session));
+        const bodies = await requestBodies(session);
+        expect(bodies.length).toBeGreaterThan(0);
+        expect(publishedTool(bodies.slice(0, 1))).toBeUndefined();
+        const published = publishedTool(bodies);
 
         if (schema === undefined) {
           expect(published?.input_schema.properties).toEqual(

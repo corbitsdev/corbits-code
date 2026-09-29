@@ -320,7 +320,10 @@ function listedToolNames(out: string): string[] {
   return out
     .split("\n")
     .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).split(":")[0]!.trim());
+    .flatMap((line) => {
+      const name = line.slice(2).split(":")[0];
+      return name === undefined ? [] : [name.trim()];
+    });
 }
 
 async function flushMicrotasks(rounds = 100): Promise<void> {
@@ -342,9 +345,7 @@ describe("createToolSearchTool", () => {
     expect(out).toContain("present");
     expect(out).toContain("layout");
     expect(out).not.toMatch(/promoted/i);
-    expect(
-      advertisedTools(defs).map((d) => d.name),
-    ).not.toContain("present");
+    expect(advertisedTools(defs).map((d) => d.name)).not.toContain("present");
   });
 
   test("default tool_search returns at most 5 matches and does not promote them", async () => {
@@ -666,7 +667,11 @@ describe("createToolSearchTool", () => {
 });
 
 describe("promote-on-execute", () => {
-  const stringTool = (name: string, reply: string, description: string): AgentTool => ({
+  const stringTool = (
+    name: string,
+    reply: string,
+    description: string,
+  ): AgentTool => ({
     kind: "string",
     definition: {
       name,
@@ -678,7 +683,9 @@ describe("promote-on-execute", () => {
 
   function wirePromoteOnExecute() {
     const tools = [
-      ...wideCatalog.map((d) => stringTool(d.name, `ran:${d.name}`, d.description)),
+      ...wideCatalog.map((d) =>
+        stringTool(d.name, `ran:${d.name}`, d.description),
+      ),
       stringTool(
         "mcp__never__searched",
         "ran:never",
@@ -753,7 +760,8 @@ describe("promote-on-execute", () => {
     );
     expect(listed).toHaveLength(3);
     expect(promoted).toEqual([]);
-    const called = listed[0]!;
+    const called = listed[0];
+    if (called === undefined) throw new Error("expected a listed tool");
     const others = listed.slice(1);
     const result = await dispatch(runner, called);
     expect(result.content).toBe(`ran:${called}`);
@@ -772,7 +780,9 @@ describe("promote-on-execute", () => {
     expect(result.content).toBe("ran:never");
     expect(result.isError).toBeUndefined();
     expect(promoted).toEqual(["mcp__never__searched"]);
-    expect(advertisedNames(advertised, runner)).toContain("mcp__never__searched");
+    expect(advertisedNames(advertised, runner)).toContain(
+      "mcp__never__searched",
+    );
   });
 
   test("executing list_dir does not join the advertised tail", async () => {

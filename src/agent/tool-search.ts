@@ -372,8 +372,7 @@ function parseToolSearchArgs(
   rawArgs: Record<string, unknown>,
 ): { error: string } | { query: string; limit: number } {
   const parsed = ToolSearchArgs(rawArgs);
-  const queryRaw =
-    parsed instanceof type.errors ? rawArgs.query : parsed.query;
+  const queryRaw = parsed instanceof type.errors ? rawArgs.query : parsed.query;
   if (typeof queryRaw !== "string") {
     return { error: "Error: tool_search requires query (string)." };
   }

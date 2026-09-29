@@ -157,10 +157,14 @@ describe("createAdvertisedToolset", () => {
   });
 
   test("pruneIdlePromotions drops execute-promoted schemas and keeps the frozen prefix", () => {
-    const { activated, computeAdvertised, flushPromotions, pruneIdlePromotions } =
-      createAdvertisedToolset(
-        wiring({ pinnedTools: ["mcp__linear__save_issue"] }),
-      );
+    const {
+      activated,
+      computeAdvertised,
+      flushPromotions,
+      pruneIdlePromotions,
+    } = createAdvertisedToolset(
+      wiring({ pinnedTools: ["mcp__linear__save_issue"] }),
+    );
     const defs = [
       def("read_file"),
       def("mcp__linear__save_issue"),
@@ -168,7 +172,9 @@ describe("createAdvertisedToolset", () => {
     ];
     activated.activate(["mcp__acme__do"]);
     expect(flushPromotions()).toBe(true);
-    expect(computeAdvertised(defs).map((d) => d.name)).toContain("mcp__acme__do");
+    expect(computeAdvertised(defs).map((d) => d.name)).toContain(
+      "mcp__acme__do",
+    );
     expect(pruneIdlePromotions()).toBe(true);
     const names = computeAdvertised(defs).map((d) => d.name);
     expect(names).not.toContain("mcp__acme__do");
