@@ -20,7 +20,9 @@ import {
   catalogEntryAsProviderSettings,
   CliHelpError,
   CliUserError,
+  CliVersionError,
   CLI_HELP_TEXT,
+  CLI_VERSION_TEXT,
   KEYLESS_API_KEY,
   loadConfig,
   providerCatalogToSettings,
@@ -30,6 +32,7 @@ import {
   SOURCE_MAX_TOKENS,
 } from "./config/index.js";
 import { DIRECTOR_IDS } from "./agent/directors/types.js";
+import pkg from "../package.json" with { type: "json" };
 import {
   clearSourceCredentials,
   peekSourceCredentialSecret,
@@ -197,6 +200,19 @@ async function expectCliHelp(argv: readonly string[]): Promise<void> {
     const help = err as CliHelpError;
     expect(help.exitCode).toBe(0);
     expect(help.message).toBe(CLI_HELP_TEXT);
+  }
+}
+
+async function expectCliVersion(argv: readonly string[]): Promise<void> {
+  try {
+    await loadConfig([...argv], { globalSettingsPath: NO_SETTINGS });
+    expect.unreachable("expected CliVersionError");
+  } catch (err) {
+    expect(err).toBeInstanceOf(CliVersionError);
+    const version = err as CliVersionError;
+    expect(version.exitCode).toBe(0);
+    expect(version.message).toBe(CLI_VERSION_TEXT);
+    expect(version.message).toBe(pkg.version);
   }
 }
 
@@ -946,6 +962,54 @@ describe("loadConfig", () => {
     [["--profile", "-h"]],
   ])(
     "%j throws CliHelpError with exitCode 0 and full help text",
+    async (argv) => {
+      await expectCliHelp(argv);
+    },
+  );
+
+  test("CLI_HELP_TEXT documents --version and -V", () => {
+    expect(CLI_HELP_TEXT).toContain("--version, -V");
+  });
+
+  test.each([
+    [["--version"]],
+    [["-V"]],
+    [["--auto", "--version"]],
+    [["--auto", "-V"]],
+    [["ship it", "--version"]],
+    [["ship", "it", "--version"]],
+    [["--cwd", ".", "--version"]],
+    [["--provider", "fireworks", "--version"]],
+    [["exec", "--version"]],
+    [["exec", "--director", "--version"]],
+    [["resume", "--pick", "--version"]],
+    [["resume", "-V"]],
+    [["resume", "--version"]],
+    [["continue", "-V"]],
+    // Value flags must not swallow --version / -V as their value.
+    [["--provider", "--version"]],
+    [["--provider", "-V"]],
+    [["--model", "--version"]],
+    [["--model", "-V"]],
+    [["--cwd", "--version"]],
+    [["--cwd", "-V"]],
+    [["--config", "--version"]],
+    [["--config", "-V"]],
+    [["--profile", "--version"]],
+    [["--profile", "-V"]],
+  ])(
+    "%j throws CliVersionError with exitCode 0 and package version",
+    async (argv) => {
+      await expectCliVersion(argv);
+    },
+  );
+
+  test.each([
+    [["--version", "--help"]],
+    [["-V", "-h"]],
+    [["--help", "--version"]],
+  ])(
+    "%j prefers CliHelpError when help and version are both present",
     async (argv) => {
       await expectCliHelp(argv);
     },

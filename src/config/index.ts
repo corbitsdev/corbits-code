@@ -9,6 +9,7 @@ import {
 } from "../session/index.js";
 import { loadState } from "../session/state.js";
 import { COMMAND_NAME } from "../branding.js";
+import pkg from "../../package.json" with { type: "json" };
 
 import { isDirectorId } from "../agent/directors/registry.js";
 import { DIRECTOR_IDS, type DirectorId } from "../agent/directors/types.js";
@@ -736,6 +737,7 @@ Flags:
                                --config selects another source
   --auto / --no-auto          auto mode on/off
   --help, -h                  show this help
+  --version, -V               print version
 `;
 
 /**
@@ -748,6 +750,23 @@ export class CliHelpError extends Error {
   constructor(text: string = CLI_HELP_TEXT) {
     super(text);
     this.name = "CliHelpError";
+  }
+}
+
+/** Printed for `corbits --version` / `-V`. Matches `package.json` version. */
+export const CLI_VERSION_TEXT =
+  typeof pkg.version === "string" ? pkg.version : "0.0.0";
+
+/**
+ * Thrown when the operator asked for the CLI version. Entry points must print
+ * `message` to stdout and exit 0 — not treat this as a crash.
+ */
+export class CliVersionError extends Error {
+  readonly exitCode = 0 as const;
+
+  constructor(text: string = CLI_VERSION_TEXT) {
+    super(text);
+    this.name = "CliVersionError";
   }
 }
 
@@ -781,7 +800,7 @@ export interface LoadConfigOptions {
 }
 
 function isFlagToken(arg: string): boolean {
-  return arg.startsWith("--") || arg === "-h" || arg === "-p";
+  return arg.startsWith("--") || arg === "-h" || arg === "-p" || arg === "-V";
 }
 
 export async function loadConfig(
@@ -800,6 +819,9 @@ export async function loadConfig(
   // after a value flag that would otherwise swallow the token as its value.
   if (argv.some((arg) => arg === "--help" || arg === "-h")) {
     throw new CliHelpError();
+  }
+  if (argv.some((arg) => arg === "--version" || arg === "-V")) {
+    throw new CliVersionError();
   }
 
   const args = [...argv];

@@ -1,7 +1,12 @@
 import { getLogger } from "@intx/log";
 import { LOG_NAMESPACE_ROOT } from "./branding.js";
 import { primeCrashReporting } from "./crash/report.js";
-import { loadConfig, CliHelpError, CliUserError } from "./config/index.js";
+import {
+  loadConfig,
+  CliHelpError,
+  CliUserError,
+  CliVersionError,
+} from "./config/index.js";
 import {
   ensureTelemetrySettings,
   globalSettingsPath,
@@ -139,7 +144,7 @@ export function cliCaughtExit(err: unknown): {
   text: string;
   code: number;
 } {
-  if (err instanceof CliHelpError) {
+  if (err instanceof CliHelpError || err instanceof CliVersionError) {
     return { stream: "stdout", text: `${err.message}\n`, code: err.exitCode };
   }
   if (err instanceof CliUserError) {

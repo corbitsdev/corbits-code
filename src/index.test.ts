@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Config } from "./config/index.js";
-import { CliHelpError, CliUserError } from "./config/index.js";
+import { CliHelpError, CliUserError, CliVersionError } from "./config/index.js";
 import {
   resetPricingMetadataRefreshForTests,
   schedulePricingMetadataRefresh,
@@ -169,6 +169,14 @@ test("CliHelpError prints help to stdout and exits 0", () => {
   expect(exit.stream).toBe("stdout");
   expect(exit.code).toBe(0);
   expect(exit.text).toBe("usage: corbits\n");
+});
+
+test("CliVersionError prints version to stdout and exits 0", () => {
+  const err = new CliVersionError("1.2.3");
+  const exit = cliCaughtExit(err);
+  expect(exit.stream).toBe("stdout");
+  expect(exit.code).toBe(0);
+  expect(exit.text).toBe("1.2.3\n");
 });
 
 test("generic Error still dumps a stack to stderr", () => {
