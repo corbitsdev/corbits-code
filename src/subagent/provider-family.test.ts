@@ -92,7 +92,7 @@ describe("isClaudeLeafProvider", () => {
     [{ providerName: "moonshot", model: "kimi-k2" }, false],
     [
       {
-        providerName: "opencode-go/abklabs",
+        providerName: "opencode-go/acme",
         model: "muse-spark-1.3-contributor",
       },
       false,

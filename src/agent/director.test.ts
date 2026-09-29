@@ -1150,7 +1150,7 @@ describe("open-task termination guard", () => {
           thinking: 0,
         },
         source: {
-          sourceId: "xai/thegreataxios",
+          sourceId: "xai/alice",
           provider: "xai",
           model: "grok-4",
         },

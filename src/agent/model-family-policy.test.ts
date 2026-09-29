@@ -91,7 +91,7 @@ describe("resolveModelFamilyPolicy", () => {
 
   test("muse spark carries tool-discipline rules; other families do not", () => {
     const muse = resolveModelFamilyPolicy({
-      providerName: "opencode-go/abklabs",
+      providerName: "opencode-go/acme",
       model: "muse-spark-1.3-contributor",
     });
     const base = resolveModelFamilyPolicy({

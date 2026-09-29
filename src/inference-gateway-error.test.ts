@@ -166,8 +166,8 @@ describe("normalizeInferenceErrorForRetry", () => {
     { requestURL: "https://opencode.ai/zen/go/v1/chat/completions" },
     { providerId: "opencode-go" },
     { opencodeGo: true },
-    { providerId: "xai/thegreataxios" },
-    { providerId: "codex/abk-labs" },
+    { providerId: "xai/alice" },
+    { providerId: "codex/acme-labs" },
   ])("known-provider bare 429 reclassifies as retryable (%j)", (context) => {
     const normalized = normalizeInferenceErrorForRetry({
       ...BARE_429,
@@ -214,11 +214,11 @@ describe("normalizeInferenceErrorForRetry", () => {
       message: "Too Many Requests",
       statusCode: 429,
       raw: CODEX_USAGE_LIMIT_BODY,
-      providerId: "codex/abk-labs",
+      providerId: "codex/acme-labs",
     });
     expect(normalized.category).toBe("quota_exhausted");
     expect(normalized.retryAfterMs).toBe(3_435_000);
-    expect(normalized.message).toContain('Codex profile "abk-labs"');
+    expect(normalized.message).toContain('Codex profile "acme-labs"');
     expect(normalized.message).toContain("workspace member");
     expect(normalized.message).toMatch(/Resets in ~/);
     expect(normalized.message).toContain("/model");
@@ -554,7 +554,7 @@ describe("normalizeInferenceErrorForRetry", () => {
       category: "quota_exhausted",
       message: "Too Many Requests",
       statusCode: 429,
-      providerId: "xai/thegreataxios",
+      providerId: "xai/alice",
       retryAfterMs: 86_400_000,
       raw: {
         error: {
@@ -574,7 +574,7 @@ describe("normalizeInferenceErrorForRetry", () => {
       category: "quota_exhausted",
       message: "You have hit your ChatGPT usage limit",
       statusCode: 429,
-      providerId: "codex/abk-labs",
+      providerId: "codex/acme-labs",
       raw: "You have hit your ChatGPT usage limit",
     });
     expect(normalized.category).toBe("retryable");
@@ -589,7 +589,7 @@ describe("normalizeInferenceErrorForRetry", () => {
       category: "quota_exhausted",
       message: "Too Many Requests",
       statusCode: 429,
-      providerId: "codex/abk-labs",
+      providerId: "codex/acme-labs",
     });
     expect(normalized.category).toBe("retryable");
   });
@@ -599,11 +599,11 @@ describe("normalizeInferenceErrorForRetry", () => {
       category: "quota_exhausted",
       message: "Too Many Requests",
       statusCode: 429,
-      providerId: "codex/abk-labs",
+      providerId: "codex/acme-labs",
       raw: CODEX_USAGE_LIMIT_BODY,
     });
     expect(normalized.category).toBe("quota_exhausted");
     expect(normalized.retryAfterMs).toBe(3_435_000);
-    expect(normalized.message).toContain('Codex profile "abk-labs"');
+    expect(normalized.message).toContain('Codex profile "acme-labs"');
   });
 });

@@ -105,9 +105,9 @@ describe("formatCodexUsageLimitMessage", () => {
     const parsed = parseCodexUsageLimitError(LIVE_USAGE_LIMIT_BODY);
     expect(parsed).toBeDefined();
     const line = formatCodexUsageLimitMessage(defined(parsed), {
-      profile: "abk-labs",
+      profile: "acme-labs",
     });
-    expect(line).toContain('Codex profile "abk-labs"');
+    expect(line).toContain('Codex profile "acme-labs"');
     expect(line).toMatch(/Resets in ~/);
     expect(line).toContain("/model");
   });

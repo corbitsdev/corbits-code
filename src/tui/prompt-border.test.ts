@@ -233,7 +233,7 @@ describe("composeRule", () => {
         brand: "corbits code",
         meter: "██████████ 68% · $0.42",
         meterCompact: "██████████ 68%",
-        label: "~/abklabs/corbits-code (migration/opentui-tui)",
+        label: "~/acme/corbits-code (migration/opentui-tui)",
       });
       expect(ruleWidth(parts)).toBe(width);
     }
@@ -312,7 +312,7 @@ describe("abbreviateHome", () => {
 });
 
 describe("composeWorkspaceLabel", () => {
-  const cwd = "/home/x/abklabs/corbits-code";
+  const cwd = "/home/x/acme/corbits-code";
 
   test("directory and branch, home abbreviated", () => {
     expect(
@@ -322,7 +322,7 @@ describe("composeWorkspaceLabel", () => {
         home: "/home/x",
         maxWidth: 80,
       }),
-    ).toBe("~/abklabs/corbits-code (main)");
+    ).toBe("~/acme/corbits-code (main)");
   });
 
   test("no branch leaves the directory alone", () => {
@@ -333,7 +333,7 @@ describe("composeWorkspaceLabel", () => {
         home: "/home/x",
         maxWidth: 80,
       }),
-    ).toBe("~/abklabs/corbits-code");
+    ).toBe("~/acme/corbits-code");
   });
 
   test("the path shortens from the left so the branch always survives", () => {

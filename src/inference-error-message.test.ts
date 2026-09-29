@@ -46,7 +46,7 @@ describe("inferenceErrorMessage", () => {
       category: "quota_exhausted",
       message: "Too Many Requests",
       statusCode: 429,
-      providerId: "xai/thegreataxios",
+      providerId: "xai/alice",
       raw: { error: { message: "Too Many Requests" } },
     });
     expect(line.toLowerCase()).toMatch(/rate limit/);
@@ -58,7 +58,7 @@ describe("inferenceErrorMessage", () => {
       category: "quota_exhausted",
       message: "You have hit your ChatGPT usage limit",
       statusCode: 429,
-      providerId: "codex/abk-labs",
+      providerId: "codex/acme-labs",
       raw: "You have hit your ChatGPT usage limit",
     });
     expect(line.toLowerCase()).toMatch(/rate limit/);

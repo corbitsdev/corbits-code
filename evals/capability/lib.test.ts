@@ -335,10 +335,10 @@ describe("parseMatrix", () => {
   });
 
   test("accepts slash form", () => {
-    const v = parseMatrix("xai/thegreataxios/grok-4.5", {});
+    const v = parseMatrix("xai/alice/grok-4.5", {});
     // first segment is provider, rest is model
     expect(defined(v[0]).provider).toBe("xai");
-    expect(defined(v[0]).model).toBe("thegreataxios/grok-4.5");
+    expect(defined(v[0]).model).toBe("alice/grok-4.5");
   });
 
   test("rejects incomplete cells", () => {
@@ -358,10 +358,10 @@ describe("parseMatrix", () => {
   });
 
   test("parses a third colon segment as effort", () => {
-    const v = parseMatrix("xai/thegreataxios:grok-4.6:xhigh", {});
+    const v = parseMatrix("xai/alice:grok-4.6:xhigh", {});
     expect(v[0]).toEqual({
-      id: "xai/thegreataxios:grok-4.6",
-      provider: "xai/thegreataxios",
+      id: "xai/alice:grok-4.6",
+      provider: "xai/alice",
       model: "grok-4.6",
       effort: "xhigh",
     });
@@ -765,12 +765,12 @@ describe("resolveRequestedProviderModel", () => {
       resolvedModel: defined(cell).model,
     });
     expect(fallback).not.toBeNull();
-    expect(fallback?.requestedProvider).toBe("xai/thegreataxios");
+    expect(fallback?.requestedProvider).toBe("xai/alice");
     expect(fallback?.requestedModel).toBe("grok-4.5");
     expect(fallback?.resolvedProvider).toBe("zen");
     expect(fallback?.resolvedModel).toBe("north-mini-code-free");
     const message = formatProviderFallback(defined(fallback));
-    expect(message).toContain("xai/thegreataxios/grok-4.5");
+    expect(message).toContain("xai/alice/grok-4.5");
     expect(message).toContain("zen/north-mini-code-free");
   });
 

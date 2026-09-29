@@ -466,13 +466,13 @@ describe("bottom border cost run", () => {
     {
       name: "a Codex model hides prompt $",
       from: "xai",
-      rowIncludes: "codex/abk-labs",
-      toProvider: "codex/abk-labs",
+      rowIncludes: "codex/acme-labs",
+      toProvider: "codex/acme-labs",
       showCost: false,
     },
     {
       name: "a metered model from Codex shows prompt $",
-      from: "codex/abk-labs",
+      from: "codex/acme-labs",
       rowIncludes: "[xai]",
       toProvider: "xai",
       showCost: true,
@@ -506,7 +506,7 @@ describe("bottom border cost run", () => {
         {
           providers: {
             xai: { models: ["grok-4"] },
-            "codex/abk-labs": { models: ["gpt-5.5"] },
+            "codex/acme-labs": { models: ["gpt-5.5"] },
           },
           onModelSelect: (id) => {
             const identity = modelOptionRef(id);

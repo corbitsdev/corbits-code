@@ -314,7 +314,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("stamped xAI bare 429 retries as retryable, not long-quota abort", async () => {
-    const decision = await policy({ providerId: "xai/thegreataxios" })({
+    const decision = await policy({ providerId: "xai/alice" })({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -331,7 +331,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("stamped Codex usage-limit 429 retries as retryable, not long-quota abort", async () => {
-    const decision = await policy({ providerId: "codex/abk-labs" })({
+    const decision = await policy({ providerId: "codex/acme-labs" })({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -346,7 +346,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("stamped xAI usage/quota body still aborts on long retryAfterMs", async () => {
-    const decision = await policy({ providerId: "xai/thegreataxios" })({
+    const decision = await policy({ providerId: "xai/alice" })({
       attempt: 1,
       elapsedMs: 0,
       error: {
@@ -395,7 +395,7 @@ describe("createCorbitsRetryPolicy", () => {
       },
     };
     expect(await decide(bare429)).toEqual({ kind: "abort" });
-    current = "xai/thegreataxios";
+    current = "xai/alice";
     expect(await decide(bare429)).toEqual({ kind: "retry", delayMs: 45_000 });
   });
 
@@ -457,7 +457,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("live providerId getter: xAI → non-xAI stops remapping bare 429", async () => {
-    let current: string | undefined = "xai/thegreataxios";
+    let current: string | undefined = "xai/alice";
     const decide = policy({ providerId: () => current });
     const bare429 = {
       attempt: 1,
@@ -488,7 +488,7 @@ describe("createCorbitsRetryPolicy", () => {
       occupied: () => false,
     };
     const decide = policy({
-      providerId: "xai/thegreataxios",
+      providerId: "xai/alice",
       admission,
       now: () => 10_000,
     });
@@ -502,7 +502,7 @@ describe("createCorbitsRetryPolicy", () => {
         retryAfterMs: 2_000,
       },
     });
-    expect(notes).toEqual([{ provider: "xai/thegreataxios", until: 12_000 }]);
+    expect(notes).toEqual([{ provider: "xai/alice", until: 12_000 }]);
     notes.length = 0;
     await decide({
       attempt: 1,
@@ -528,7 +528,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("retryable 429 honors Retry-After instead of the fixed 500/1000ms backoff", async () => {
-    const decide = policy({ providerId: "codex/abk-labs" });
+    const decide = policy({ providerId: "codex/acme-labs" });
     const situation = (attempt: number) => ({
       attempt,
       elapsedMs: 0,
@@ -551,7 +551,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("retryable 429 honors a Retry-After above the blind-wait ceiling", async () => {
-    const decide = policy({ providerId: "codex/abk-labs" });
+    const decide = policy({ providerId: "codex/acme-labs" });
     const decision = await decide({
       attempt: 1,
       elapsedMs: 0,
@@ -566,7 +566,7 @@ describe("createCorbitsRetryPolicy", () => {
   });
 
   test("retryable 429 with a day-long Retry-After aborts instead of hanging", async () => {
-    const decide = policy({ providerId: "codex/abk-labs" });
+    const decide = policy({ providerId: "codex/acme-labs" });
     const decision = await decide({
       attempt: 1,
       elapsedMs: 0,

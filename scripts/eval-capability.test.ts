@@ -59,8 +59,8 @@ describe("parseArgs", () => {
   test("--help does not require provider or model", () => {
     const opts = parseArgs(["--help"]);
     expect(opts.help).toBe(true);
-    expect(opts.provider).not.toBe("xai/thegreataxios");
-    expect(opts.model).not.toBe("xai/thegreataxios");
+    expect(opts.provider).not.toBe("xai/alice");
+    expect(opts.model).not.toBe("xai/alice");
   });
 
   test("no flags throws", () => {
@@ -120,17 +120,17 @@ describe("parseArgs", () => {
   });
 
   test("--matrix cell can carry its own effort as a third segment", () => {
-    const opts = parseArgs(["--matrix", "xai/thegreataxios:grok-4.6:xhigh"]);
-    expect(opts.matrix).toBe("xai/thegreataxios:grok-4.6:xhigh");
+    const opts = parseArgs(["--matrix", "xai/alice:grok-4.6:xhigh"]);
+    expect(opts.matrix).toBe("xai/alice:grok-4.6:xhigh");
   });
 
-  test("parsed defaults never equal xai/thegreataxios", () => {
+  test("parsed defaults never equal xai/alice", () => {
     const help = parseArgs(["--help"]);
     const pair = parseArgs(["--provider", "foo", "--model", "bar"]);
-    expect(help.provider).not.toBe("xai/thegreataxios");
-    expect(help.model).not.toBe("xai/thegreataxios");
-    expect(pair.provider).not.toBe("xai/thegreataxios");
-    expect(pair.model).not.toBe("xai/thegreataxios");
+    expect(help.provider).not.toBe("xai/alice");
+    expect(help.model).not.toBe("xai/alice");
+    expect(pair.provider).not.toBe("xai/alice");
+    expect(pair.model).not.toBe("xai/alice");
     expect(pair.provider).toBe("foo");
     expect(pair.model).toBe("bar");
   });
@@ -229,7 +229,7 @@ describe("validateVariantEfforts", () => {
   test("rejects an unsupported model/effort matrix cell before any inference runs", async () => {
     const opts = parseArgs([
       "--matrix",
-      "xai/thegreataxios:grok-composer-2.5-fast:xhigh",
+      "xai/alice:grok-composer-2.5-fast:xhigh",
     ]);
     const variants = parseMatrix(opts.matrix, {
       ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
@@ -242,7 +242,7 @@ describe("validateVariantEfforts", () => {
   });
 
   test("accepts a supported model/effort matrix cell", async () => {
-    const opts = parseArgs(["--matrix", "xai/thegreataxios:grok-4.6:xhigh"]);
+    const opts = parseArgs(["--matrix", "xai/alice:grok-4.6:xhigh"]);
     const variants = parseMatrix(opts.matrix, {
       ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
       ...(opts.model !== undefined ? { model: opts.model } : {}),

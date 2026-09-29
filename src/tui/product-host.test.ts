@@ -260,10 +260,10 @@ describe("flat type-to-filter model picker", () => {
   // Several providers, one (codex) with three accounts, plus a favorite so the
   // top of the flat list has a reachable pick without typing.
   const providers = {
-    "codex/abk-labs": { models: ["gpt-5.5", "gpt-5.6-sol"] },
+    "codex/acme-labs": { models: ["gpt-5.5", "gpt-5.6-sol"] },
     "codex/dirtroad": { models: ["gpt-5.5", "gpt-5.6-sol"] },
     "codex/fleur": { models: ["gpt-5.5", "gpt-5.6-sol"] },
-    "xai/thegreataxios": { models: ["grok-4.5"] },
+    "xai/alice": { models: ["grok-4.5"] },
     "Z.AI": { models: ["glm-5", "glm-5-turbo", "glm-5.2"] },
   };
 
@@ -286,7 +286,7 @@ describe("flat type-to-filter model picker", () => {
     const catalog = buildModelsFirstCatalog({
       providers,
       favorites: options.favorites ?? [
-        { provider: "codex/abk-labs", model: "gpt-5.5" },
+        { provider: "codex/acme-labs", model: "gpt-5.5" },
       ],
     });
     const selected: string[] = [];
@@ -315,10 +315,10 @@ describe("flat type-to-filter model picker", () => {
       // data, not the scrolled viewport — short harness heights clip later rows).
       expect(items.some((label) => label.includes("gpt-5.5"))).toBe(true);
       expect(items.some((label) => label.includes("grok-4.5"))).toBe(true);
-      expect(items.some((label) => label.includes("codex/abk-labs"))).toBe(
+      expect(items.some((label) => label.includes("codex/acme-labs"))).toBe(
         true,
       );
-      expect(items.some((label) => label.includes("xai/thegreataxios"))).toBe(
+      expect(items.some((label) => label.includes("xai/alice"))).toBe(
         true,
       );
       // No provider-group-only rows (those were `providerGroup:` ids with no model).
@@ -355,7 +355,7 @@ describe("flat type-to-filter model picker", () => {
 
       acceptOverlaySelection(host.shell);
       expect(selected).toEqual([
-        modelOptionId("xai/thegreataxios", "grok-4.5"),
+        modelOptionId("xai/alice", "grok-4.5"),
       ]);
     } finally {
       host.dispose();
@@ -443,7 +443,7 @@ describe("flat type-to-filter model picker", () => {
       host.openModels?.();
       await harness.renderOnce();
       expect(runOverlayAction(host.shell, altD)).toBe(true);
-      expect(defaults).toEqual([modelOptionId("codex/abk-labs", "gpt-5.5")]);
+      expect(defaults).toEqual([modelOptionId("codex/acme-labs", "gpt-5.5")]);
       expect(host.shell.overlayKind).toBe("model_picker");
     } finally {
       host.dispose();
@@ -462,7 +462,7 @@ describe("flat type-to-filter model picker", () => {
       const composed = composedKey("∂");
       expect(handleListFilterKey(host.shell, composed)).toBe(false);
       expect(runOverlayAction(host.shell, composed)).toBe(true);
-      expect(defaults).toEqual([modelOptionId("codex/abk-labs", "gpt-5.5")]);
+      expect(defaults).toEqual([modelOptionId("codex/acme-labs", "gpt-5.5")]);
       expect(host.shell.overlayItems).not.toEqual(["(no matches)"]);
     } finally {
       host.dispose();
@@ -813,7 +813,7 @@ describe("flat type-to-filter model picker", () => {
   test("openModels(focusId) preselects the given row instead of the top of the list", async () => {
     const { harness, host } = await mountPicker();
     try {
-      host.openModels?.(modelOptionId("codex/abk-labs", "gpt-5.6-sol"));
+      host.openModels?.(modelOptionId("codex/acme-labs", "gpt-5.6-sol"));
       await harness.renderOnce();
       const idx = host.shell.overlayItems.findIndex((label) =>
         label.includes("gpt-5.6-sol"),
@@ -837,8 +837,8 @@ describe("flat type-to-filter model picker", () => {
 
       host.setModels?.([
         {
-          id: modelOptionId("codex/abk-labs", "gpt-5.5"),
-          label: "gpt-5.5 * [codex/abk-labs]",
+          id: modelOptionId("codex/acme-labs", "gpt-5.5"),
+          label: "gpt-5.5 * [codex/acme-labs]",
         },
         {
           id: modelOptionId("opencode-go", "live-1"),
@@ -875,8 +875,8 @@ describe("flat type-to-filter model picker", () => {
           label: "live-1 * [opencode-go]",
         },
         {
-          id: modelOptionId("xai/thegreataxios", "grok-4.5"),
-          label: "grok-4.5 * [xai/thegreataxios]",
+          id: modelOptionId("xai/alice", "grok-4.5"),
+          label: "grok-4.5 * [xai/alice]",
         },
         {
           id: modelOptionId("opencode-go", "live-2"),
@@ -937,8 +937,8 @@ describe("flat type-to-filter model picker", () => {
 
       host.setModels?.([
         {
-          id: modelOptionId("xai/thegreataxios", "grok-4.5"),
-          label: "grok-4.5 * [xai/thegreataxios]",
+          id: modelOptionId("xai/alice", "grok-4.5"),
+          label: "grok-4.5 * [xai/alice]",
         },
         {
           id: modelOptionId("opencode-go", "grok-live"),

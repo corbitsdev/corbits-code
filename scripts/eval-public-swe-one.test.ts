@@ -6,8 +6,8 @@ describe("parseArgs", () => {
   test("--help does not require provider or model", () => {
     const opts = parseArgs(["--help"]);
     expect(opts.help).toBe(true);
-    expect(opts.provider).not.toBe("xai/thegreataxios");
-    expect(opts.model).not.toBe("xai/thegreataxios");
+    expect(opts.provider).not.toBe("xai/alice");
+    expect(opts.model).not.toBe("xai/alice");
   });
 
   test("--dry-run alone throws", () => {
@@ -47,9 +47,9 @@ describe("parseArgs", () => {
     expect(opts.model).toBe("bar");
   });
 
-  test("parsed defaults never equal xai/thegreataxios", () => {
+  test("parsed defaults never equal xai/alice", () => {
     const help = parseArgs(["--help"]);
-    expect(help.provider).not.toBe("xai/thegreataxios");
-    expect(help.model).not.toBe("xai/thegreataxios");
+    expect(help.provider).not.toBe("xai/alice");
+    expect(help.model).not.toBe("xai/alice");
   });
 });

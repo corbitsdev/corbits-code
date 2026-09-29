@@ -303,7 +303,7 @@ describe("sanitizeTags", () => {
       stack: "Error\n    at foo (/app/x.ts:1:1)",
       tool_args: JSON.stringify({ cmd: "rm -rf /" }),
       completion: "sure, here is the code",
-      repo: "abklabs/corbits-code",
+      repo: "acme/corbits-code",
       unknown_key: "whatever",
       // also invalid values on allowed keys
       transport: "grpc",

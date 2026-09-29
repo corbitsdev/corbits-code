@@ -21,7 +21,7 @@ import {
 } from "./shell/palette.js";
 import { setPromptModelLabel } from "./shell/prompt.js";
 
-const MODEL_LABEL = "xai/thegreataxios · grok-4.5";
+const MODEL_LABEL = "xai/alice · grok-4.5";
 
 const ITEMS = [
   "glm-5.2 * [Z.AI]",
@@ -67,7 +67,7 @@ async function paintOverlay(
   return withTestRenderer(async (h) => {
     const shell = createAppShell(h.renderer);
     setPromptModelLabel(shell, {
-      profile: "xai/thegreataxios",
+      profile: "xai/alice",
       model: "grok-4.5",
     });
     // An overlay always opens over a live session; the landing splits the
@@ -130,7 +130,7 @@ describe("overlay host never shares cells with the prompt border", () => {
       expect(interior).toContain(` ▶ ${ITEMS[0]}`);
       for (const row of interior) {
         expect(row.includes(MODEL_LABEL)).toBe(false);
-        expect(row.includes("thegreataxios")).toBe(false);
+        expect(row.includes("alice")).toBe(false);
       }
 
       // The label rides the prompt box's top border, outside the overlay box.
@@ -286,7 +286,7 @@ describe("every overlay kind paints clean rows", () => {
 
       expect(interior.length).toBeGreaterThan(0);
       for (const row of interior) {
-        expect(row.includes("thegreataxios")).toBe(false);
+        expect(row.includes("alice")).toBe(false);
       }
 
       const barRows = frameLine(frame, (l) => l.includes(MODEL_LABEL));

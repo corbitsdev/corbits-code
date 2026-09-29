@@ -1688,7 +1688,7 @@ describe("SubAgentDirector infer retryPolicy", () => {
   test("infer carries createCorbitsRetryPolicy; retryable 429 notes pressure, quota_exhausted does not", async () => {
     const notes: { provider: string; until: number }[] = [];
     const retryPolicy = createCorbitsRetryPolicy({
-      providerId: "xai/thegreataxios",
+      providerId: "xai/alice",
       admission: stubAdmission(notes),
     });
     const director = new SubAgentDirector(
@@ -1723,7 +1723,7 @@ describe("SubAgentDirector infer retryPolicy", () => {
       },
     });
     expect(notes).toHaveLength(1);
-    expect(defined(notes[0]).provider).toBe("xai/thegreataxios");
+    expect(defined(notes[0]).provider).toBe("xai/alice");
 
     notes.length = 0;
     await stamped({

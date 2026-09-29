@@ -19,30 +19,30 @@ describe("contextWindowFor", () => {
 
   it("resolves a custom-provider-prefixed id against the bare model registry entry", () => {
     setModelContextWindows({ "grok-4.5": 500_000 });
-    expect(contextWindowFor("xai/thegreataxios:grok-4.5")).toBe(500_000);
+    expect(contextWindowFor("xai/alice:grok-4.5")).toBe(500_000);
   });
 
   it("resolves a custom-provider-prefixed id against the canonical provider/model entry", () => {
     setModelContextWindows({ "xai/grok-4.5": 500_000 });
-    expect(contextWindowFor("xai/thegreataxios:grok-4.5")).toBe(500_000);
+    expect(contextWindowFor("xai/alice:grok-4.5")).toBe(500_000);
   });
 
   it("falls back to a 500k grok-4.5/4.6/4.7 heuristic window when the registry has no entry", () => {
     setModelContextWindows(undefined);
-    expect(contextWindowFor("xai/thegreataxios:grok-4.5")).toBe(500_000);
-    expect(contextWindowFor("xai/thegreataxios:grok-4.6")).toBe(500_000);
-    expect(contextWindowFor("xai/thegreataxios:grok-4.7")).toBe(500_000);
-    expect(contextWindowFor("xai/thegreataxios:grok-4.3")).toBe(1_000_000);
+    expect(contextWindowFor("xai/alice:grok-4.5")).toBe(500_000);
+    expect(contextWindowFor("xai/alice:grok-4.6")).toBe(500_000);
+    expect(contextWindowFor("xai/alice:grok-4.7")).toBe(500_000);
+    expect(contextWindowFor("xai/alice:grok-4.3")).toBe(1_000_000);
   });
 
   it("reports low confidence when a miss falls through to the heuristic", () => {
     setModelContextWindows(undefined);
-    expect(hasContextWindowFor("xai/thegreataxios:grok-4.5")).toBe(false);
+    expect(hasContextWindowFor("xai/alice:grok-4.5")).toBe(false);
   });
 
   it("reports confidence when the registry has a matching entry", () => {
     setModelContextWindows({ "grok-4.5": 500_000 });
-    expect(hasContextWindowFor("xai/thegreataxios:grok-4.5")).toBe(true);
+    expect(hasContextWindowFor("xai/alice:grok-4.5")).toBe(true);
   });
 
   it("lets a provider override beat models.dev registry metadata", () => {
