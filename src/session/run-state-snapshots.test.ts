@@ -149,54 +149,8 @@ describe("run.json turn-boundary snapshots — end to end", () => {
     }
   });
 
-  test("a late in-flight running write racing a done write never resurrects status to running", async () => {
-    const { cwd, home, cleanup } = createTempDirs(
-      "corbits-run-state-cwd-",
-      "corbits-run-state-home-",
-    );
-    const sessionId = generateSessionId();
-    try {
-      let runningWrite: Promise<void> | undefined;
-      const runSink = createRunSink({
-        emitter: new EventEmitter(),
-        hookManager: noopHookManager,
-        onTurnBoundarySnapshot: () => {
-          runningWrite = saveState(
-            cwd,
-            sessionId,
-            baseState({ status: "running" }, runSink.getTurnCount()),
-            home,
-          );
-        },
-      });
-
-      // The turn-boundary snapshot fires and is left un-awaited before the
-      // terminal "done" write follows right behind it — this models a
-      // straggler turn-boundary snapshot racing the close-out write.
-      runSink.sink(inferenceDone());
-      runSink.sink({
-        type: "reactor.done",
-        data: {},
-      } as unknown as ReactorEmittedEvent);
-      const doneWrite = saveState(
-        cwd,
-        sessionId,
-        baseState(
-          { status: "done", finishedAt: Date.now() },
-          runSink.getTurnCount(),
-        ),
-        home,
-      );
-
-      await Promise.all([runningWrite, doneWrite]);
-
-      const finalState = await loadState(cwd, sessionId, home);
-      expect(finalState).toMatchObject({
-        kind: "ok",
-        state: { status: "done" },
-      });
-    } finally {
-      cleanup();
-    }
-  });
+  // The straggler-snapshot-vs-terminal-write fence itself (a running write
+  // losing to a later done write) is pinned deterministically in
+  // state.test.ts by forcing write order; the wiring above already proves
+  // the sink emits the snapshots it is responsible for.
 });
