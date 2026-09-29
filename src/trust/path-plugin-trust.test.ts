@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { GlobalSettingsWriter } from "../../src/mcp/add-server.js";
 import type { ProjectTrustStore } from "../../src/trust/project-trust.js";
-import { withMockedModule } from "../helpers/mock-module.js";
+import { withMockedModule } from "../../testkit/mock-module.js";
 import {
   dedupePluginModules,
   discoverUserPlugins,
