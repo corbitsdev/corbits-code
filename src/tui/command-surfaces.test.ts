@@ -673,19 +673,46 @@ describe("plugins surface admin actions", () => {
     });
   });
 
-  test("path Alt+X calls remove immediately", async () => {
-    await withShell(async (shell) => {
-      const { deps, calls } = pluginActionDeps({
-        origin: "path",
-        pluginPath: "/tmp/my-plugin",
+  // These origins all remove immediately: the plugin is not an owned,
+  // on-disk project/user install, so no confirm pane is warranted.
+  test.each([
+    {
+      name: "path",
+      origin: { origin: "path", pluginPath: "/tmp/my-plugin" },
+      uninstallNote: false,
+    },
+    {
+      name: "bundled",
+      origin: { origin: "repo" },
+      uninstallNote: true,
+    },
+    {
+      name: "Claude-unowned",
+      origin: {
+        origin: "user",
+        source: "claude",
+        pluginPath: join(homedir(), ".claude", "plugins", "exa"),
+      },
+      uninstallNote: false,
+    },
+  ] as const)(
+    "$name origin Alt+X calls remove immediately, no disk-confirm pane",
+    async ({ origin, uninstallNote }) => {
+      await withShell(async (shell) => {
+        const { deps, calls, notes } = pluginActionDeps(origin);
+        openCommandSurface(shell, "plugins", deps);
+        expect(runOverlayAction(shell, altKey("x"))).toBe(true);
+        expect(shell.overlayKind).not.toBe("plugin_credentials");
+        await Promise.resolve();
+        expect(calls.remove).toEqual(["exa"]);
+        if (uninstallNote) {
+          expect(notes.some((n) => n.includes("cannot be uninstalled"))).toBe(
+            true,
+          );
+        }
       });
-      openCommandSurface(shell, "plugins", deps);
-      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
-      expect(shell.overlayKind).not.toBe("plugin_credentials");
-      await Promise.resolve();
-      expect(calls.remove).toEqual(["exa"]);
-    });
-  });
+    },
+  );
 
   test("path-origin under user plugins root Alt+X opens disk confirm", async () => {
     await withShell(async (shell) => {
@@ -698,33 +725,6 @@ describe("plugins surface admin actions", () => {
       expect(shell.overlayKind).toBe("plugin_credentials");
       expect(shell.overlayItems[0]).toBe("Remove exa-search from disk");
       expect(calls.remove).toEqual([]);
-    });
-  });
-
-  test("bundled Alt+X calls remove immediately, no disk-confirm pane", async () => {
-    await withShell(async (shell) => {
-      const { deps, calls, notes } = pluginActionDeps({ origin: "repo" });
-      openCommandSurface(shell, "plugins", deps);
-      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
-      expect(shell.overlayKind).not.toBe("plugin_credentials");
-      await Promise.resolve();
-      expect(calls.remove).toEqual(["exa"]);
-      expect(notes.some((n) => n.includes("cannot be uninstalled"))).toBe(true);
-    });
-  });
-
-  test("Claude-unowned Alt+X immediately, no confirm", async () => {
-    await withShell(async (shell) => {
-      const { deps, calls } = pluginActionDeps({
-        origin: "user",
-        source: "claude",
-        pluginPath: join(homedir(), ".claude", "plugins", "exa"),
-      });
-      openCommandSurface(shell, "plugins", deps);
-      expect(runOverlayAction(shell, altKey("x"))).toBe(true);
-      expect(shell.overlayKind).not.toBe("plugin_credentials");
-      await Promise.resolve();
-      expect(calls.remove).toEqual(["exa"]);
     });
   });
 
