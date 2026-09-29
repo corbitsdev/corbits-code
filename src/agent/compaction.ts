@@ -13,7 +13,6 @@ import {
   isAtOrUnderCompactThreshold,
 } from "../provider/context-window.js";
 import {
-  COMPACTOR_KEEP_RECENT_TURNS,
   assistantTextIsCompactSpacerEcho,
   compactorNoOpFloor,
   isCompactSpacerEchoTurn,
@@ -26,11 +25,10 @@ import { onTurnBoundary } from "./reactor-events.js";
 
 const COMPACTOR_NAME = "pruning-compactor";
 // The exact turn count `createPruningCompactor` (session/compactor.ts) is
-// guaranteed to no-op on. Derived from the same keepRecentTurns both real
-// registrations (session, sub-agent) use, so this floor cannot silently
-// drift from what the compactor will actually do — arming at or below it
-// would spend a reactor cycle that shrinks nothing.
-const MIN_TURNS_TO_COMPACT = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
+// guaranteed to no-op on. Derived from the same helper so this floor cannot
+// silently drift from what the compactor will actually do — arming at or
+// below it would spend a reactor cycle that shrinks nothing.
+const MIN_TURNS_TO_COMPACT = compactorNoOpFloor();
 const MAX_OVERFLOW_RECOVERIES = 2;
 // Last-ditch bound on compact→infer→compact when the post-compact infer never
 // gets under the high watermark. Counts consecutive threshold compacts with no
@@ -173,6 +171,11 @@ export function createCompactionGovernor(
   // operator, and overflow alike); only fold evidence moves past it.
   let tokensAtLastCompact: number | undefined;
   let awaitingPostCompactMeasurement = false;
+  // Set when a fold's post-compact measurement is still at or above the
+  // threshold. The CL-9006 latch still holds (small growth does not re-arm);
+  // the consecutive cap is spent immediately so a still-over fold reports
+  // non-convergence instead of silently saw-toothing on the wide-gap re-arm.
+  let foldNonConverged = false;
 
   // Running local estimate of the turns we send, plus the fixed system-prompt
   // and tool-schema overhead every request carries. Providers that omit usage
@@ -266,6 +269,10 @@ export function createCompactionGovernor(
     if (awaitingPostCompactMeasurement) {
       tokensAtLastCompact = contextTokens;
       awaitingPostCompactMeasurement = false;
+      if (!isAtOrUnderCompactThreshold(contextTokens, lastModel)) {
+        foldNonConverged = true;
+        consecutiveThresholdCompacts = MAX_CONSECUTIVE_THRESHOLD_COMPACTS;
+      }
     }
     // Fold evidence: usage back at or under the threshold clears the latch
     // and restores both rails (consecutive threshold compacts, overflow
@@ -275,6 +282,7 @@ export function createCompactionGovernor(
       tokensAtLastCompact = undefined;
       consecutiveThresholdCompacts = 0;
       overflowRecoveries = 0;
+      foldNonConverged = false;
     }
     // Assign, don't OR: an under-threshold follow-up must disarm a sticky
     // pending left from an earlier over-threshold turn (e.g. after the
@@ -578,6 +586,9 @@ export function createCompactionGovernor(
     },
     get compactTurnCount(): number {
       return turnCount;
+    },
+    get foldNonConverged(): boolean {
+      return foldNonConverged;
     },
     requestManual,
     restoreExtraInstructions,

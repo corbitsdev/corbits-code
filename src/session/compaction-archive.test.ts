@@ -806,7 +806,6 @@ describe("wrapCompactorWithCompletenessGate", () => {
       payload: "working",
     });
     const inner = createPruningCompactor({
-      keepRecentTurns: 2,
       maxAnchorTurns: 0,
       summaryMaxChars: 500,
       // CL-9007: pin a tiny tail budget so the fold covers the same older
@@ -873,7 +872,6 @@ describe("wrapCompactorWithCompletenessGate", () => {
       callId: "big-1",
     });
     const inner = createPruningCompactor({
-      keepRecentTurns: 2,
       summaryMaxChars: 4000,
       compactionShape: { tailBudgetTokens: 1000 },
       summarize: async () =>

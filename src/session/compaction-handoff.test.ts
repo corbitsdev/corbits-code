@@ -893,7 +893,6 @@ describe("CL-9007 tail attachments stay whole", () => {
     const userText =
       "screenshot ask: keep this newest user message whole verbatim";
     const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
       summaryMaxChars: 4000,
       compactionShape: { tailBudgetTokens: 1000 },
       summarize: async () => "Re-read src/a.ts. Next: review the screenshot.",
@@ -985,7 +984,6 @@ describe("CL-9007 repeated compactions update the summary", () => {
     let seenPrior: string | undefined;
     let calls = 0;
     const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
       summaryMaxChars: 4000,
       compactionShape: { tailBudgetTokens: 1000 },
       readPriorHandoff: async () => priorFile,

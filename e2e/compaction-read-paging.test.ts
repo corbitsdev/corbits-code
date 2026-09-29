@@ -41,10 +41,12 @@ function logLines(count: number): string {
 async function openFoldSession(): Promise<E2ESession> {
   const session = await openE2ESession({
     permissionGate: e2ePermissionGate(),
-    // A tiny tail budget keeps the fold honest: the default 7500-token
+    // A tiny tail budget keeps the fold honest: the default 2500-token
     // budget would absorb this small scenario into the live tail and the
     // compactor would correctly no-op.
-    compactionShape: { tailBudgetTokens: 10 },
+    // Budget fits the paged read windows in the live tail but not the bulky
+    // pad turns, so the fold still fires.
+    compactionShape: { tailBudgetTokens: 500 },
     // Echo the summarized turns verbatim: the spine must exist, and this
     // scenario asserts on the kept live bodies, not the summary text.
     compactionCompletion: async (turns) =>
@@ -78,7 +80,7 @@ async function lastRequestBody(session: E2ESession): Promise<string> {
 async function padTurns(session: E2ESession, count: number): Promise<void> {
   for (let i = 0; i < count; i++) {
     session.harness.scenario.replyOnce("anthropic", {
-      text: `Acknowledged ${i}.`,
+      text: `Acknowledged ${i}. ${"pad".repeat(800)}`,
       headUsage: LOW_USAGE,
     });
     await runUntilDone(session, `Pad turn ${i}.`);

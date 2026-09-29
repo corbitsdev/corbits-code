@@ -17,7 +17,6 @@ import {
   compactionThresholdFor,
 } from "../provider/context-window.js";
 import {
-  COMPACTOR_KEEP_RECENT_TURNS,
   COMPACT_SPACER_TEXT,
   LEGACY_COMPACT_SPACER_TEXT,
   compactorNoOpFloor,
@@ -149,7 +148,6 @@ const overThreshold = compactionThresholdFor("m") + 1;
 const wideDelta = compactionWideResumeDeltaFor("m");
 const inferAction: ReactorAction[] = [{ type: "infer" }];
 const tenTurns = turnsOfLength(10, 1);
-const threeTurns = turnsOfLength(3, 1);
 
 describe("compaction governor", () => {
   test("stays inert below the threshold or with few turns", () => {
@@ -159,7 +157,7 @@ describe("compaction governor", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
 
-    governor.noteInferenceDone(inferenceDone(overThreshold), threeTurns);
+    governor.noteInferenceDone(inferenceDone(overThreshold), turnsOfLength(1, 1));
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
@@ -474,13 +472,12 @@ describe("compaction governor", () => {
   });
 
   test("stays inert below the minimum-turn floor no matter how far over threshold", () => {
-    // Two turns is well under MIN_TURNS_TO_COMPACT. createPruningCompactor
-    // no-ops at the same floor (see session/compactor.ts), so arming here
-    // would spend a reactor cycle that cannot shrink anything.
+    // A single turn is the compactor no-op floor. Arming here would spend a
+    // reactor cycle that cannot shrink anything.
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(
       inferenceDone(overThreshold * 10),
-      turnsOfLength(2, 1),
+      turnsOfLength(1, 1),
     );
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
@@ -514,9 +511,9 @@ describe("compaction governor", () => {
 
   test("never arms at the exact turn count createPruningCompactor no-ops on", () => {
     // createPruningCompactor's own no-op floor (session/compactor.ts) is
-    // compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS). Arming at or below it
-    // would spend a reactor cycle that is guaranteed to shrink nothing.
-    const floor = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
+    // compactorNoOpFloor(). Arming at or below it would spend a reactor cycle
+    // that is guaranteed to shrink nothing.
+    const floor = compactorNoOpFloor();
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(
       inferenceDone(overThreshold),
@@ -528,7 +525,7 @@ describe("compaction governor", () => {
   });
 
   test("arms one turn past the floor createPruningCompactor no-ops on", () => {
-    const floor = compactorNoOpFloor(COMPACTOR_KEEP_RECENT_TURNS);
+    const floor = compactorNoOpFloor();
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(
       inferenceDone(overThreshold),
@@ -708,7 +705,7 @@ describe("compaction governor", () => {
 
   test("manual compact no-ops below the compactor floor", () => {
     const governor = createCompactionGovernor(undefined);
-    governor.noteInferenceDone(inferenceDone(overThreshold), threeTurns);
+    governor.noteInferenceDone(inferenceDone(overThreshold), turnsOfLength(1, 1));
     expect(governor.requestManual("focus on tests")).toBe("noop");
     expect(governor.extraInstructions).toBeUndefined();
     expect(
@@ -828,7 +825,7 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
     ).toBeNull();
   });
 
-  test("a wide resume gap while still over threshold re-arms", () => {
+  test("a still-over fold reports non-convergence instead of re-arming on a wide gap", () => {
     const governor = createCompactionGovernor(() => undefined);
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
     expect(
@@ -836,17 +833,15 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
     ).not.toBeNull();
 
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
+    expect(governor.foldNonConverged).toBe(true);
     governor.noteInferenceDone(
       inferenceDone(overThreshold + wideDelta),
       tenTurns,
     );
-    const actions = governor.interceptActions(
-      toolDone(),
-      inferAction,
-      capabilities,
-    );
-    expect(actions).not.toBeNull();
-    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
+    expect(governor.foldNonConverged).toBe(true);
   });
 
   test("the consecutive-compact cap holds across tool-call occupancy", () => {
@@ -856,21 +851,10 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).not.toBeNull();
 
+    // Post-compact measurement still over: the fold is non-converged and the
+    // cap is spent, even past a wide gap and tool-call occupancy.
     governor.noteInferenceDone(inferenceDone(overThreshold), tenTurns);
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold + wideDelta),
-      tenTurns,
-    );
-    expect(
-      governor.interceptActions(toolDone(), inferAction, capabilities),
-    ).not.toBeNull();
-
-    // Post-compact measurement still over: tool-call occupancy must not reset
-    // the cap, even past a wide gap.
-    governor.noteInferenceDone(
-      inferenceDone(overThreshold + wideDelta),
-      tenTurns,
-    );
+    expect(governor.foldNonConverged).toBe(true);
     governor.noteInferenceDone(
       inferenceDoneWithTools(overThreshold + 2 * wideDelta),
       tenTurns,
@@ -878,7 +862,6 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
-    // The idle path shares the same cap.
     governor.noteIdleTurn(
       inferenceDoneWithTools(overThreshold + 2 * wideDelta),
       [{ type: "reply", content: "done" }],
@@ -942,19 +925,17 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
+    expect(governor.foldNonConverged).toBe(true);
 
-    // Wide gap re-arms identically to the automatic path.
+    // Wide gap does not silently re-arm the automatic path after a still-over
+    // operator fold; the fold already reported non-convergence.
     governor.noteInferenceDone(
       inferenceDone(overThreshold + wideDelta),
       tenTurns,
     );
-    const actions = governor.interceptActions(
-      toolDone(),
-      inferAction,
-      capabilities,
-    );
-    expect(actions).not.toBeNull();
-    expect(actions?.some((a) => a.type === "compact")).toBe(true);
+    expect(
+      governor.interceptActions(toolDone(), inferAction, capabilities),
+    ).toBeNull();
   });
 });
 
@@ -1012,7 +993,7 @@ describe("handoff arming (/handoff)", () => {
 
   test("requestHandoff noops at or below the fold floor and arms nothing", () => {
     const governor = createCompactionGovernor(undefined);
-    governor.syncFromTurns(threeTurns);
+    governor.syncFromTurns(turnsOfLength(1, 1));
     expect(governor.requestHandoff("now do the UI audit")).toBe("noop");
     expect(governor.extraInstructions).toBeUndefined();
     expect(
@@ -1226,7 +1207,7 @@ describe("handoff arming (/handoff)", () => {
     {
       title: "noop then cancelManual does not wipe extras from a prior fold",
       fire: "idle",
-      midRequests: [{ turns: threeTurns, text: "wipe this", result: "noop" }],
+      midRequests: [{ turns: turnsOfLength(1, 1), text: "wipe this", result: "noop" }],
     },
     {
       title:
@@ -1318,7 +1299,7 @@ describe("handoff arming (/handoff)", () => {
     expect(
       governor.interceptIdleContinuation(emptyMessage(), capabilities),
     ).not.toBeNull();
-    governor.syncFromTurns(threeTurns);
+    governor.syncFromTurns(turnsOfLength(1, 1));
     expect(governor.requestHandoff("wipe this")).toBe("noop");
     governor.cancelManual();
     expect(

@@ -54,7 +54,6 @@ import type { Approval, GrantScope } from "../permission/types.js";
 import type { ReasoningEffort } from "../provider/reasoning-effort.js";
 import type { SubAgentProvider } from "../subagent/index.js";
 import {
-  COMPACTOR_KEEP_RECENT_TURNS,
   DEFAULT_TAIL_COMPACTION_SHAPE,
   createPruningCompactor,
   type CompactionShape,
@@ -428,9 +427,9 @@ export interface SessionPruningCompactorArgs {
    */
   isAborted?: () => boolean;
   /**
-   * CL-9007 budgeted-tail shape override. Absent means the shared production
+   * CL-9489 budgeted-tail shape override. Absent means the shared production
    * default (DEFAULT_TAIL_COMPACTION_SHAPE); tests pin a tiny budget so small
-   * fixtures still fold the same region the old keep-window cut folded.
+   * fixtures still fold the same region a keep-window used to cut.
    */
   compactionShape?: Partial<CompactionShape>;
 }
@@ -440,11 +439,10 @@ export function createSessionPruningCompactor(
   args: SessionPruningCompactorArgs,
 ): Compactor {
   const compactor = createPruningCompactor({
-    keepRecentTurns: COMPACTOR_KEEP_RECENT_TURNS,
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
-    // CL-9007 budgeted-tail shape: explicit defaults (same object the record
-    // carries under parameters.compactionShape). keepRecentTurns stays as the
-    // legacy floor only — the budget decides how far past it the tail extends.
+    // CL-9489 budgeted-tail shape: explicit defaults (same object the record
+    // carries under parameters.compactionShape). Zero recent turns stay whole
+    // because they are recent — the token budget is the only tail cap.
     compactionShape: {
       ...DEFAULT_TAIL_COMPACTION_SHAPE,
       ...args.compactionShape,

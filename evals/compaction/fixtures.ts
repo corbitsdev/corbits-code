@@ -11,7 +11,7 @@ export const BASELINE = {
   syntheticLowInput: 100,
   syntheticTriggerInput: 200000,
   outputTokens: 1,
-  keepRecentTurns: 6,
+  tailBudgetTokens: 2500,
   summaryMaxChars: 4000,
   wallTimeoutMs: 30000,
 } as const;

@@ -645,7 +645,6 @@ describe("pruning compactor verify pass", () => {
     },
   ])("$title", async ({ summarizeText, kind }) => {
     const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
       summaryMaxChars: 2000,
       // CL-9007: pin a tiny tail budget so the fold covers the same older
       // region the old keepRecentTurns cut folded.
@@ -734,7 +733,6 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
 
   function tailCompactor() {
     return createPruningCompactor({
-      keepRecentTurns: 2,
       summaryMaxChars: 4000,
       compactionShape: { tailBudgetTokens: 1000 },
       summarize: async () =>
@@ -825,8 +823,7 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
       textTurn("assistant", "newest reply"),
     ];
     const result = await createPruningCompactor({
-      keepRecentTurns: 2,
-      compactionShape: { tailBudgetTokens: 7500 },
+      compactionShape: { tailBudgetTokens: 2500 },
       summarize: async () => {
         throw new Error("must not invent a summary on the budget-swallow path");
       },
@@ -836,7 +833,7 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
     const live = liveResultText(result.output);
     expect(live).not.toContain(dump);
     expect(countStructuredTailExcerpts(live)).toBe(3);
-    expect(liveTokenEstimate(result.output)).toBeLessThanOrEqual(7500);
+    expect(liveTokenEstimate(result.output)).toBeLessThanOrEqual(2500);
   });
 
   test("a body containing the substring but not the structured marker is still excerpted", async () => {
@@ -852,8 +849,7 @@ describe("CL-9007 budgeted tail (shared auto+manual pipeline)", () => {
       textTurn("assistant", "newest reply"),
     ];
     const result = await createPruningCompactor({
-      keepRecentTurns: 2,
-      compactionShape: { tailBudgetTokens: 7500 },
+      compactionShape: { tailBudgetTokens: 2500 },
     }).apply(turns, mockStrategyCtx);
 
     const live = liveResultText(result.output);
@@ -919,7 +915,6 @@ describe("completeness gate plus verify repair", () => {
     const archive = memoryArchive();
     let priorFile: string | undefined;
     const inner = createPruningCompactor({
-      keepRecentTurns: 2,
       summaryMaxChars: 4000,
       // CL-9007: pin a tiny tail budget so each fold covers the same older
       // region the old keepRecentTurns cut folded.
