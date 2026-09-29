@@ -5,8 +5,14 @@
  * mounted on the worker or the dispatch is rejected before any session,
  * telemetry, or worktree exists. Names are canonical engine ids on both sides
  * (wire/hidden aliases collapse via canonicalToolName), so `shell` and
- * `run_shell` are the same requirement. Fail-closed throughout: unknown names,
- * unverifiable profiles, and absent binaries all reject.
+ * `run_shell` are the same requirement. Fail-closed throughout: unknown names
+ * and allowlist/denylist misses all reject.
+ *
+ * `missing_binary` never fires in production: dispatch always passes the full
+ * catalog as `knownEngines`, so every catalogued engine verifies. Narrowed
+ * `knownEngines` sets are a test-only seam for simulating an incomplete
+ * runtime — the branch exists so tests can prove the fail-closed shape, not
+ * because production probes binaries per engine (most engines are in-process).
  *
  * The `stale_snapshot` code is never emitted by preflightCapabilities — it is
  * the mount-time echo in run.ts (a tool stamped at dispatch is missing from
@@ -25,39 +31,37 @@ export type CapabilityUnavailableCode =
   | "permission_static"
   | "missing_binary"
   | "stale_snapshot"
-  | "malformed_profile"
   | "unknown_tool";
-
-export interface CapabilityProfileSource {
-  /** Directory or file the dispatched profile was loaded from, for messages. */
-  path?: string;
-  /** True when the profile file failed to parse/validate — unverifiable. */
-  malformed?: boolean;
-  /** Loader's reason for the malformed flag, for messages. */
-  reason?: string;
-}
 
 export interface PreflightCapabilitiesInput {
   /** Raw requires_tools entries (aliases welcome — canonicalized here). */
   required: readonly string[];
   /** Resolved dispatch filter; undefined means full mount (everything passes). */
   resolvedFilter?: CapabilityFilter | undefined;
-  /** Canonical engine ids available in this runtime (binary-present). */
+  /**
+   * Canonical engine ids verifiable in this dispatch. Production always
+   * passes the full catalog (DEFAULT_KNOWN_ENGINES); narrowed sets are a
+   * test-only seam for simulating an incomplete runtime.
+   */
   knownEngines: readonly string[];
   /** Worker label for messages (director id or profile id). */
   agentLabel: string;
-  /** Profile provenance; a malformed source fails closed. */
-  profileSource?: CapabilityProfileSource;
 }
 
 export interface CapabilityUnavailable {
   code: CapabilityUnavailableCode;
-  /** Canonical tool id (or the raw entry for unknown/malformed). */
+  /** Canonical tool id (or the raw entry for unknown). */
   tool: string;
   /** Nearest known name, for the unknown_tool typo guard. */
   suggestion?: string;
   /** Spawnable directors that mount the tool, for reroute hints. */
   alternatives?: readonly string[];
+  /**
+   * Extra fact sentence for missing_tool, naming a mount restriction the
+   * allowlist framing cannot see — e.g. a tier gate that withholds fleet
+   * verbs from leaves. Rendered between the fact and the action sentence.
+   */
+  detail?: string;
 }
 
 export type CapabilityPreflightResult =
@@ -98,14 +102,23 @@ export const KNOWN_CAPABILITY_ENGINES: readonly string[] = [
   "submit_result",
 ];
 
-/** Production `knownEngines`: every known engine is binary-present. */
+/**
+ * Dispatch-time `knownEngines`: the full catalog. Dispatch always passes this,
+ * so every catalogued engine verifies and `missing_binary` never fires in
+ * production. Narrowed `knownEngines` sets are a test-only seam for
+ * simulating an incomplete runtime — production probes no binaries per engine
+ * (most engines are in-process).
+ */
 export const DEFAULT_KNOWN_ENGINES: readonly string[] =
   KNOWN_CAPABILITY_ENGINES;
 
 /**
- * Engines mounted outside the capability filter (run.ts mounts manage_tasks
+ * Engines mounted outside the capability filter (run.ts appends manage_tasks
  * after filtering), so a requires_tools entry for them passes preflight even
- * when the dispatch filter is a narrow allowlist.
+ * when the dispatch filter is a narrow allowlist. The update_plan alias
+ * canonicalizes here, so it rides the same exemption — and the mount-time
+ * echo in run.ts runs after ALL appends, so the stamped entry always matches
+ * the live mount.
  */
 const POST_FILTER_MOUNTED_ENGINES: readonly string[] = ["manage_tasks"];
 
@@ -181,19 +194,7 @@ export function rerouteAlternatives(canonical: string): readonly string[] {
 export function preflightCapabilities(
   input: PreflightCapabilitiesInput,
 ): CapabilityPreflightResult {
-  const { resolvedFilter, knownEngines, profileSource } = input;
-  if (profileSource?.malformed === true) {
-    return {
-      ok: false,
-      unavailable: {
-        code: "malformed_profile",
-        tool: profileSource.path ?? "(profile source)",
-        ...(profileSource.reason !== undefined
-          ? { suggestion: profileSource.reason }
-          : {}),
-      },
-    };
-  }
+  const { resolvedFilter, knownEngines } = input;
   const known = new Set(knownEngines.map((name) => canonicalToolName(name)));
   const allow =
     resolvedFilter?.mode === "allow"
@@ -293,11 +294,15 @@ export function formatCapabilityUnavailable(
       ? ` Re-dispatch to one of (${unavailable.alternatives.join(", ")}) or drop the requirement.`
       : ` No spawnable director mounts "${unavailable.tool}" — drop the requirement or add a profile that mounts it.`;
   switch (unavailable.code) {
-    case "missing_tool":
+    case "missing_tool": {
+      const detail =
+        unavailable.detail !== undefined ? ` ${unavailable.detail}.` : "";
       return (
         `Error: worker "${agentLabel}" requires tool "${unavailable.tool}" but its capability allowlist omits it.` +
+        detail +
         alternatives
       );
+    }
     case "permission_static":
       return (
         `Error: worker "${agentLabel}" requires tool "${unavailable.tool}" but its capability denylist blocks it.` +
@@ -305,24 +310,14 @@ export function formatCapabilityUnavailable(
       );
     case "missing_binary":
       return (
-        `Error: worker "${agentLabel}" requires tool "${unavailable.tool}" but its runtime engine is unavailable in this environment. ` +
-        `Re-dispatch without requires_tools=["${unavailable.tool}"] or install the backing runtime first.`
+        `Error: worker "${agentLabel}" requires tool "${unavailable.tool}" but this dispatch cannot verify its runtime engine (not in the dispatch's known-engine set). ` +
+        `Re-dispatch without requires_tools=["${unavailable.tool}"] or drop the requirement.`
       );
     case "stale_snapshot":
       return (
         `Error: stale_snapshot setup_error (non-continuable) — worker "${agentLabel}" was dispatched requiring "${unavailable.tool}" but the live mount no longer provides it. ` +
         `Re-dispatch the worker deliberately with a fresh brief instead of retrying in place.`
       );
-    case "malformed_profile": {
-      const reason =
-        unavailable.suggestion !== undefined
-          ? ` (${unavailable.suggestion})`
-          : "";
-      return (
-        `Error: worker "${agentLabel}" cannot verify requires_tools — profile source "${unavailable.tool}" is malformed${reason}, so capabilities fail closed. ` +
-        `Fix the profile file and re-dispatch deliberately.`
-      );
-    }
     case "unknown_tool": {
       const hint =
         unavailable.suggestion !== undefined

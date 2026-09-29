@@ -74,7 +74,7 @@ describe("preflightCapabilities", () => {
     expect(result.unavailable.tool).toBe("run_shell");
   });
 
-  test("known tool with an absent binary rejects missing_binary", () => {
+  test("narrowed knownEngines reject missing_binary (test-only seam: production always passes the full catalog)", () => {
     const result = preflight(["run_shell"], ALLOW_SHELL, []);
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected rejection");
@@ -93,23 +93,6 @@ describe("preflightCapabilities", () => {
     expect(result.unavailable.code).toBe("unknown_tool");
     expect(result.unavailable.tool).toBe("run_shel");
     expect(result.unavailable.suggestion).toBe("run_shell");
-  });
-
-  test("malformed profile source fails closed before per-tool checks", () => {
-    const result = preflightCapabilities({
-      required: ["read_file"],
-      resolvedFilter: ALLOW_SHELL,
-      knownEngines: DEFAULT_KNOWN_ENGINES,
-      agentLabel: "test-worker",
-      profileSource: {
-        malformed: true,
-        path: "/agents/broken.json",
-        reason: "unexpected token at line 3",
-      },
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected rejection");
-    expect(result.unavailable.code).toBe("malformed_profile");
   });
 
   test("reroute alternatives collapse aliases (shell and run_shell agree)", () => {
@@ -150,14 +133,6 @@ describe("formatCapabilityUnavailable", () => {
       unavailable: { code: "stale_snapshot", tool: "run_shell" },
     },
     {
-      code: "malformed_profile",
-      unavailable: {
-        code: "malformed_profile",
-        tool: "/agents/broken.json",
-        suggestion: "unexpected token at line 3",
-      },
-    },
-    {
       code: "unknown_tool",
       unavailable: {
         code: "unknown_tool",
@@ -181,9 +156,7 @@ describe("formatCapabilityUnavailable", () => {
       expect(sentences.length).toBeGreaterThanOrEqual(2);
       const action = sentences[sentences.length - 1] ?? "";
       expect(
-        /re-dispatch|drop the requirement|install the backing runtime|fix the profile|correct requires_tools/i.test(
-          action,
-        ),
+        /re-dispatch|drop the requirement|correct requires_tools/i.test(action),
       ).toBe(true);
     });
   }
@@ -209,6 +182,28 @@ describe("formatCapabilityUnavailable", () => {
       "test-worker",
     );
     expect(message).toContain(alternatives[0] ?? "");
+  });
+
+  test("missing_tool detail renders a tier fact between fact and action", () => {
+    const message = formatCapabilityUnavailable(
+      {
+        code: "missing_tool",
+        tool: "spawn_agent",
+        alternatives: ["skywalker"],
+        detail: 'Tier 3 leaf directors cannot mount fleet verb "spawn_agent"',
+      },
+      "test-worker",
+    );
+    expect(message.startsWith("Error:")).toBe(true);
+    expect(message).toContain(
+      'Tier 3 leaf directors cannot mount fleet verb "spawn_agent".',
+    );
+    expect(message.indexOf("Tier 3 leaf")).toBeGreaterThan(
+      message.indexOf("allowlist omits it"),
+    );
+    expect(message.indexOf("Tier 3 leaf")).toBeLessThan(
+      message.indexOf("Re-dispatch"),
+    );
   });
 
   test("unknown_tool message carries the did-you-mean hint", () => {

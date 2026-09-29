@@ -74,8 +74,11 @@ const registry: AgentProfile[] = [...defaultPlugin.agents];
 // Load diagnostics: additive over loadAgentProfiles. `revision` stamps the
 // profile snapshot a dispatch was verified against (agent-fleet records it on
 // the session); `malformed` names local files that failed to load and why.
-// A malformed file never blocks the load — it fails closed only when a
-// dispatch's requires_tools preflight must verify against it (CL-9476).
+// A malformed file never blocks the load — it is skipped and named here so
+// callers can surface it. requires_tools preflight verifies against the
+// resolved dispatch capabilities only, never against this list (CL-9476 keeps
+// no malformed_profile preflight branch: agent-fleet never plumbed a failing
+// source through dispatch, so the branch was dead and has been removed).
 export interface MalformedAgentProfile {
   path: string;
   reason: string;
