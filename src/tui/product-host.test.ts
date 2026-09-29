@@ -14,7 +14,6 @@ import {
 import { handleListFilterKey } from "./shell/palette.js";
 import {
   mountProductHost,
-  operatorResultFromSelection,
   type ProductHostConfig,
 } from "./product-host.js";
 import { buildModelsFirstCatalog, modelOptionId } from "./model-catalog.js";
@@ -96,31 +95,6 @@ function composedKey(glyph: string): KeyEvent {
     option: false,
   } as KeyEvent;
 }
-
-describe("operatorResultFromSelection", () => {
-  test("valid index → { kind: option, index }", () => {
-    expect(operatorResultFromSelection({ index: 0 }, 3)).toEqual({
-      kind: "option",
-      index: 0,
-    });
-    expect(operatorResultFromSelection({ index: 2 }, 3)).toEqual({
-      kind: "option",
-      index: 2,
-    });
-  });
-
-  test("out-of-range / negative → { kind: cancel }", () => {
-    expect(operatorResultFromSelection({ index: -1 }, 2)).toEqual({
-      kind: "cancel",
-    });
-    expect(operatorResultFromSelection({ index: 2 }, 2)).toEqual({
-      kind: "cancel",
-    });
-    expect(operatorResultFromSelection({ index: 0 }, 0)).toEqual({
-      kind: "cancel",
-    });
-  });
-});
 
 describe("mountProductHost", () => {
   test("stream events emitted on the event emitter paint rows into the shell", async () => {

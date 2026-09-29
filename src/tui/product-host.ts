@@ -6,7 +6,6 @@
 import { EventEmitter } from "node:events";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 
-import type { OperatorResult } from "../agent/tools.js";
 import { createLiveSessionPort } from "./live-session-port.js";
 import { checkWidthContract, widthContractNotice } from "./width-contract.js";
 import {
@@ -55,7 +54,6 @@ import {
   setPaletteOnCommand,
   type AppShell,
   type ItemDescription,
-  type OverlaySelection,
   type PaletteOnObserveRequest,
 } from "./shell/internals.js";
 import { setOwnedOverlayItems } from "./shell/overlay-host.js";
@@ -249,20 +247,6 @@ export interface ProductHost {
     models: readonly ProductHostModelOption[],
     describeModel?: (itemId: string) => ItemDescription | null,
   ) => void;
-}
-
-/**
- * Map an overlay accept selection to OperatorResult.
- * Out-of-range index → cancel (Esc-equivalent / bad selection).
- */
-export function operatorResultFromSelection(
-  sel: Pick<OverlaySelection, "index">,
-  optionCount: number,
-): OperatorResult {
-  if (sel.index < 0 || sel.index >= optionCount) {
-    return { kind: "cancel" };
-  }
-  return { kind: "option", index: sel.index };
 }
 
 /**
