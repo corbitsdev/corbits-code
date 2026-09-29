@@ -72,6 +72,8 @@ import {
   DEFAULT_KNOWN_ENGINES,
   formatCapabilityUnavailable,
   preflightCapabilities,
+  rerouteAlternatives,
+  type CapabilityUnavailable,
 } from "./capability-preflight.js";
 import { isCodexProviderName } from "../config/codex-providers.js";
 import { buildDispatchBrief, type TaskIntent } from "./report.js";
@@ -107,6 +109,7 @@ import type { DirectorPackage, ModelRole } from "../agent/directors/types.js";
 import { SPAWN_AGENT_TOOL_NAME } from "./tool-taxonomy.js";
 import {
   assertCanTargetAgent,
+  assertTierMayMountFleetVerb,
   FleetAuthorityError,
   type FleetNode,
   type SubagentTier,
@@ -723,6 +726,44 @@ function fleetJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
+/**
+ * Tier gate for stamped requires_tools (CL-9476). run.ts mounts submit_result
+ * and ask_director on Tier 3 leaves only, and fleet verbs on orchestrator
+ * tiers only — a requirement the dispatch tier can never mount rejects here
+ * as missing_tool (pre-spawn) instead of surviving to the mount-time stale
+ * echo. Returns the rejection, or undefined when the tier mounts everything
+ * required.
+ */
+export function tierGateRequiresTools(
+  canonical: readonly string[],
+  tier: SubagentTier,
+): CapabilityUnavailable | undefined {
+  for (const engine of canonical) {
+    if (
+      (engine === "submit_result" || engine === "ask_director") &&
+      tier !== "leaf"
+    ) {
+      return {
+        code: "missing_tool",
+        tool: engine,
+        detail: `"${engine}" mounts on Tier 3 leaf workers only, never on ${tier} directors`,
+      };
+    }
+    try {
+      assertTierMayMountFleetVerb(tier, engine);
+    } catch (error) {
+      if (!(error instanceof FleetAuthorityError)) throw error;
+      return {
+        code: "missing_tool",
+        tool: engine,
+        alternatives: rerouteAlternatives(engine),
+        detail: error.message.split(". ")[0] ?? error.message,
+      };
+    }
+  }
+  return undefined;
+}
+
 interface ResolvedAgentDispatch {
   directorId: string;
   agentLabel: string;
@@ -1106,6 +1147,19 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
           );
         }
         requiresTools = preflight.canonical;
+        // Tier-gated mounts (fleet verbs, the Tier 3 leaf reporting channel)
+        // reject here as missing_tool when the dispatch tier can never mount
+        // them — pre-spawn, never surviving to the mount-time stale echo.
+        const dispatchTier: SubagentTier = resolved.orchestrator
+          ? (resolved.orchestratorTier ?? resolved.pkg?.tier ?? "orchestrator")
+          : "leaf";
+        const gated = tierGateRequiresTools(preflight.canonical, dispatchTier);
+        if (gated !== undefined) {
+          return fleetResult(
+            call.id,
+            formatCapabilityUnavailable(gated, resolved.agentLabel),
+          );
+        }
         snapshotRevision = currentProfileSnapshotRevision();
       }
 

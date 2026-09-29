@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createFleetMailbox,
   createSpawnAgentTool,
+  tierGateRequiresTools,
   type AgentFleetDeps,
 } from "./agent-fleet.js";
 import { unlimitedAdmissionQueue } from "./admission.js";
@@ -31,6 +32,11 @@ const READ_ONLY_PROFILE: AgentProfile = {
   capabilities: { mode: "allow", tools: ["read_file"] },
 };
 
+const FULL_MOUNT_PROFILE: AgentProfile = {
+  id: "full-worker",
+  systemPromptRole: "You do anything.",
+};
+
 function makeDeps(
   run: (params: RunSubAgentParams) => Promise<RunSubAgentResult>,
   capturedTelemetry: TelemetryEvent[],
@@ -45,7 +51,7 @@ function makeDeps(
     sessions,
     fleetRecords: createFleetMailbox(sessions),
     admission: unlimitedAdmissionQueue(),
-    profiles: [READ_ONLY_PROFILE],
+    profiles: [READ_ONLY_PROFILE, FULL_MOUNT_PROFILE],
     telemetry: {
       ...NOOP_TELEMETRY,
       capture: (event: TelemetryEvent) => {
@@ -191,5 +197,129 @@ describe("spawn_agent requires_tools preflight", () => {
     const session = deps.sessions.get(body.agent_id);
     expect(session?.requiresTools).toBeUndefined();
     expect(session?.snapshotRevision).toBeUndefined();
+  });
+
+  test("manage_tasks survives dispatch under a narrow allowlist and stamps canonically", async () => {
+    const telemetry: TelemetryEvent[] = [];
+    let seenRequires: readonly string[] | undefined;
+    const deps = makeDeps(async (params) => {
+      seenRequires = params.requiresTools;
+      return { report: "done" };
+    }, telemetry);
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callSpawn(spawn, {
+      description: "plan job",
+      prompt: "track the work",
+      agent: "read-only-worker",
+      requires_tools: ["manage_tasks"],
+    });
+
+    expect(result.isError).not.toBe(true);
+    const body = JSON.parse(result.content) as { agent_id: string };
+    expect(deps.sessions.get(body.agent_id)?.requiresTools).toEqual([
+      "manage_tasks",
+    ]);
+    expect(seenRequires).toEqual(["manage_tasks"]);
+  });
+
+  test("update_plan alias survives dispatch and stamps manage_tasks", async () => {
+    const telemetry: TelemetryEvent[] = [];
+    const deps = makeDeps(async () => ({ report: "done" }), telemetry);
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callSpawn(spawn, {
+      description: "alias plan job",
+      prompt: "track the work",
+      agent: "read-only-worker",
+      requires_tools: ["update_plan"],
+    });
+
+    expect(result.isError).not.toBe(true);
+    const body = JSON.parse(result.content) as { agent_id: string };
+    expect(deps.sessions.get(body.agent_id)?.requiresTools).toEqual([
+      "manage_tasks",
+    ]);
+  });
+
+  test("leaf requires_tools=[spawn_agent] rejects pre-spawn as missing_tool naming the leaf restriction", async () => {
+    const telemetry: TelemetryEvent[] = [];
+    let runCalled = false;
+    const deps = makeDeps(async () => {
+      runCalled = true;
+      return { report: "done" };
+    }, telemetry);
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callSpawn(spawn, {
+      description: "fleet job",
+      prompt: "spawn more workers",
+      agent: "full-worker",
+      requires_tools: ["spawn_agent"],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content.startsWith("Error:")).toBe(true);
+    expect(result.content).toContain("spawn_agent");
+    expect(result.content).toContain("Tier 3 leaf");
+    expect(result.content).toMatch(/Re-dispatch|drop the requirement/);
+    expect(result.content).not.toContain("stale_snapshot");
+    expect(runCalled).toBe(false);
+    expect(deps.sessions.list()).toEqual([]);
+    expect(telemetry).toEqual([]);
+  });
+});
+
+describe("tierGateRequiresTools", () => {
+  test("leaf requiring a fleet verb rejects as missing_tool naming the leaf restriction", () => {
+    const gated = tierGateRequiresTools(["spawn_agent"], "leaf");
+    expect(gated?.code).toBe("missing_tool");
+    expect(gated?.tool).toBe("spawn_agent");
+    expect(gated?.detail).toContain("Tier 3 leaf");
+  });
+
+  test("orchestrator requiring a fleet verb passes", () => {
+    expect(
+      tierGateRequiresTools(["spawn_agent"], "orchestrator"),
+    ).toBeUndefined();
+    expect(
+      tierGateRequiresTools(["spawn_agent"], "nested-orchestrator"),
+    ).toBeUndefined();
+  });
+
+  test("nested-orchestrator requiring fleet discovery rejects pre-spawn", () => {
+    const gated = tierGateRequiresTools(
+      ["search_agents"],
+      "nested-orchestrator",
+    );
+    expect(gated?.code).toBe("missing_tool");
+    expect(gated?.detail).toContain("Tier 2");
+  });
+
+  test("non-leaf requiring the leaf reporting channel rejects pre-spawn", () => {
+    for (const engine of ["submit_result", "ask_director"]) {
+      const gated = tierGateRequiresTools([engine], "orchestrator");
+      expect(gated?.code).toBe("missing_tool");
+      expect(gated?.tool).toBe(engine);
+      expect(gated?.detail).toContain("Tier 3 leaf workers only");
+    }
+  });
+
+  test("leaf requiring the leaf reporting channel passes", () => {
+    expect(
+      tierGateRequiresTools(["submit_result", "ask_director"], "leaf"),
+    ).toBeUndefined();
+  });
+
+  test("ordinary tools pass on every tier", () => {
+    for (const tier of [
+      "leaf",
+      "orchestrator",
+      "nested-orchestrator",
+    ] as const) {
+      expect(
+        tierGateRequiresTools(["read_file", "manage_tasks"], tier),
+      ).toBeUndefined();
+    }
   });
 });
