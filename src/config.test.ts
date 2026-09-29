@@ -1002,26 +1002,56 @@ describe("loadConfig", () => {
     ).rejects.toThrow(/unrecognized flag/);
   });
 
-  test("defaults dangerouslySkipPermissions to false", async () => {
+  // Precedence matrix. `skipPermissionsFromSettings` is true only when the
+  // persisted default is what caused the skip (the startup-notice condition):
+  // an explicit CLI flag wins over any settings value and never notices.
+  test.each([
+    {
+      settings: undefined,
+      flag: false,
+      expected: false,
+      fromSettings: false,
+    },
+    { settings: undefined, flag: true, expected: true, fromSettings: false },
+    { settings: false, flag: true, expected: true, fromSettings: false },
+    { settings: true, flag: true, expected: true, fromSettings: false },
+    { settings: true, flag: false, expected: true, fromSettings: true },
+  ])(
+    "skip-permissions precedence: settings %j + CLI flag %j → skip %j, notice %j",
+    async ({ settings, flag, expected, fromSettings }) => {
+      const cwd = await emptyCwd();
+      const globalPath = await writeGlobalSettings(
+        cwd,
+        settings === undefined
+          ? undefined
+          : { dangerouslySkipPermissions: settings },
+      );
+      const config = await loadConfig(
+        [
+          "--cwd",
+          cwd,
+          ...(flag ? ["--dangerously-skip-permissions"] : []),
+          "do something",
+        ],
+        { globalSettingsPath: globalPath },
+      );
+      expect(config.dangerouslySkipPermissions).toBe(expected);
+      expect(config.skipPermissionsFromSettings).toBe(fromSettings);
+    },
+  );
+
+  test("seeds dangerouslySkipPermissions from global settings without the CLI flag", async () => {
     const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd);
+    const globalPath = await writeGlobalSettings(cwd, {
+      dangerouslySkipPermissions: true,
+    });
     const config = await loadConfig(["--cwd", cwd, "do something"], {
       globalSettingsPath: globalPath,
     });
-    expect(config.dangerouslySkipPermissions).toBe(false);
-    expect(config.skipPermissionsFromSettings).toBe(false);
-  });
-
-  test("parses --dangerously-skip-permissions", async () => {
-    const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd);
-    const config = await loadConfig(
-      ["--cwd", cwd, "--dangerously-skip-permissions", "do something"],
-      { globalSettingsPath: globalPath },
-    );
     expect(config.dangerouslySkipPermissions).toBe(true);
-    // Came from the CLI flag, not the persisted default — no startup notice.
-    expect(config.skipPermissionsFromSettings).toBe(false);
+    // Origin is the persisted default, not this invocation's flag — the
+    // startup notice should fire.
+    expect(config.skipPermissionsFromSettings).toBe(true);
   });
 
   test("exec --auto --yolo enables process-only skip without changing settings", async () => {
@@ -1040,34 +1070,6 @@ describe("loadConfig", () => {
     expect(config.dangerouslySkipPermissions).toBe(true);
     expect(config.skipPermissionsFromSettings).toBe(false);
     expect(await readFile(globalPath)).toEqual(settingsBefore);
-  });
-
-  test("seeds dangerouslySkipPermissions from global settings without the CLI flag", async () => {
-    const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd, {
-      dangerouslySkipPermissions: true,
-    });
-    const config = await loadConfig(["--cwd", cwd, "do something"], {
-      globalSettingsPath: globalPath,
-    });
-    expect(config.dangerouslySkipPermissions).toBe(true);
-    // Origin is the persisted default, not this invocation's flag — the
-    // startup notice should fire.
-    expect(config.skipPermissionsFromSettings).toBe(true);
-  });
-
-  test("CLI --dangerously-skip-permissions still wins over settings false", async () => {
-    const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd, {
-      dangerouslySkipPermissions: false,
-    });
-    const config = await loadConfig(
-      ["--cwd", cwd, "--dangerously-skip-permissions", "do something"],
-      { globalSettingsPath: globalPath },
-    );
-    expect(config.dangerouslySkipPermissions).toBe(true);
-    // CLI flag wins over settings — no notice is warranted here.
-    expect(config.skipPermissionsFromSettings).toBe(false);
   });
 
   test("persisted skip-permissions default applies regardless of cwd (machine-wide scope)", async () => {
