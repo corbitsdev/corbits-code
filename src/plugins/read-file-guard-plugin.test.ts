@@ -126,6 +126,57 @@ describe("readFileBounded", () => {
     );
     expect(isError).toBe(true);
     expect(content).toContain("binary");
+    expect(content).toContain("not a missing-tool");
+  });
+
+  test("a PDF without pdftotext names the missing extractor, not a malformed file", async () => {
+    const p = await fixture("report.pdf", Buffer.from("%PDF-1.4\n1 0 obj\n"));
+    const { content, isError } = await readFileBounded(
+      p,
+      0,
+      2000,
+      neverAbort(),
+      { whichExtractor: () => null, canExecuteHostCommands: () => true },
+    );
+    expect(isError).toBe(true);
+    expect(content).toContain("pdftotext");
+    expect(content).toContain("missing");
+    expect(content).toContain("not a malformed file");
+    expect(content).not.toContain("permission boundary");
+  });
+
+  test("a PDF with pdftotext installed but no run_shell names the permission boundary", async () => {
+    const p = await fixture("locked.pdf", Buffer.from("%PDF-1.7\n"));
+    const { content, isError } = await readFileBounded(
+      p,
+      0,
+      2000,
+      neverAbort(),
+      {
+        whichExtractor: () => "/usr/bin/pdftotext",
+        canExecuteHostCommands: () => false,
+      },
+    );
+    expect(isError).toBe(true);
+    expect(content).toContain("installed");
+    expect(content).toContain("permission boundary");
+    expect(content).toContain("run_shell");
+    expect(content).toContain("not a malformed file");
+  });
+
+  test("a .pdf name without magic is malformed, not a missing extractor", async () => {
+    const p = await fixture("fake.pdf", Buffer.from("not a pdf\0"));
+    const { content, isError } = await readFileBounded(
+      p,
+      0,
+      2000,
+      neverAbort(),
+      { whichExtractor: () => null, canExecuteHostCommands: () => false },
+    );
+    expect(isError).toBe(true);
+    expect(content).toContain("not a valid PDF");
+    expect(content).toContain("not a missing extractor");
+    expect(content).not.toContain("brew install");
   });
 
   test("a NUL deep in an otherwise-valid file does not discard streamed content", async () => {
@@ -736,6 +787,42 @@ describe("readFileGuardPlugin", () => {
     );
     expect(replay.isError).toBe(true);
     expect(String(replay.content)).toBe(String(first.content));
+  });
+
+  test("PDF inspection: extractor unavailable then installed but worker cannot execute", async () => {
+    await fixture("flow.pdf", Buffer.from("%PDF-1.4\ntrailer\n"));
+    const call: ToolCall = {
+      id: "pdf-flow",
+      name: "read_file",
+      arguments: { path: "flow.pdf" },
+    };
+
+    const missing = readFileGuardPlugin(dir, {
+      whichExtractor: () => null,
+      canExecuteHostCommands: () => true,
+    });
+    const missingResult = await defined(missing.middleware)(fallback)(
+      call,
+      neverAbort(),
+    );
+    expect(missingResult.isError).toBe(true);
+    expect(String(missingResult.content)).toContain("pdftotext");
+    expect(String(missingResult.content)).toContain("missing");
+    expect(String(missingResult.content)).toContain("not a malformed file");
+
+    const blocked = readFileGuardPlugin(dir, {
+      whichExtractor: () => "/opt/homebrew/bin/pdftotext",
+      canExecuteHostCommands: () => false,
+    });
+    const blockedResult = await defined(blocked.middleware)(fallback)(
+      call,
+      neverAbort(),
+    );
+    expect(blockedResult.isError).toBe(true);
+    expect(String(blockedResult.content)).toContain("installed");
+    expect(String(blockedResult.content)).toContain("permission boundary");
+    expect(String(blockedResult.content)).toContain("run_shell");
+    expect(String(blockedResult.content)).not.toContain("brew install");
   });
 });
 

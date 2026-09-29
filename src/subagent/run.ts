@@ -640,6 +640,11 @@ async function runSubAgentInner(
   // not spawn background children they cannot collect. The getter is live so
   // the capability filter below can unwire it before the first tool call.
   let backgroundCollectMounted = true;
+  // Live: read_file PDF diagnosis asks whether this worker can run pdftotext
+  // via bash. The capability filter below may unmount run_shell after the
+  // plugin stack is built, so the getter is flipped in the same place as
+  // backgroundCollectMounted.
+  let hostCommandsMounted = true;
   // Child tools resolve spills against the child's own store first, then
   // the parent's: parent tool-output:// URIs handed in the brief must
   // remain readable after spawn, and the child's own spills stay local.
@@ -668,7 +673,10 @@ async function runSubAgentInner(
       ...(params.secretGuardExtraDeniedPaths !== undefined
         ? { secretGuardExtraDeniedPaths: params.secretGuardExtraDeniedPaths }
         : {}),
-      readFileGuard: { blobReader: sessionBlobReader },
+      readFileGuard: {
+        blobReader: sessionBlobReader,
+        canExecuteHostCommands: () => hostCommandsMounted,
+      },
       getBackgroundShellRegistry: () =>
         backgroundCollectMounted ? backgroundShells : undefined,
       getShellOutputFeeds: () => childShellOutputFeed,
@@ -791,6 +799,9 @@ async function runSubAgentInner(
     }
     backgroundCollectMounted = tools.some(
       (tool) => tool.definition.name === "shell_collect",
+    );
+    hostCommandsMounted = tools.some(
+      (tool) => canonicalToolName(tool.definition.name) === "run_shell",
     );
     if (!backgroundCollectMounted) {
       tools = tools.map((tool) =>

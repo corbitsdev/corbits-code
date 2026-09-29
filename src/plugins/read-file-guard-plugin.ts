@@ -10,6 +10,11 @@ import {
   isToolOutputLike,
 } from "../util/tool-output-uri.js";
 import { formatReadFileTimeoutMessage } from "./tool-time-budget.js";
+import {
+  diagnoseBlockedFileInspection,
+  inspectionKindFromFirstChunk,
+  PDF_EXTRACTOR_BIN,
+} from "./file-inspection-diagnosis.js";
 
 // Corbits Code-side guard for read_file. Stock @intx/tools-posix read-file loads the
 // whole file into memory (buffer -> string -> split) and, with no limit, returns
@@ -45,6 +50,16 @@ interface BoundedRead {
 
 export interface ReadFileGuardPluginOptions {
   blobReader?: BlobReader;
+  /**
+   * Resolve the PDF text extractor on PATH. Tests inject a stub; production
+   * uses Bun.which("pdftotext").
+   */
+  whichExtractor?: () => string | null;
+  /**
+   * Live: whether this session can run host commands (run_shell mounted).
+   * Workers flip this after the capability filter; omitted means yes.
+   */
+  canExecuteHostCommands?: () => boolean;
 }
 
 // A truncated read tells the model to continue with the same path and the
@@ -71,11 +86,31 @@ function mapFilesystemStreamError(
   err: NodeJS.ErrnoException,
 ): Error {
   if (err.code === "ENOENT") return new Error(`file not found: ${displayPath}`);
-  if (err.code === "EACCES")
-    return new Error(`permission denied: ${displayPath}`);
+  if (err.code === "EACCES" || err.code === "EPERM") {
+    return new Error(
+      diagnoseBlockedFileInspection({
+        path: displayPath,
+        kind: "unreadable",
+        extractorAvailable: false,
+        canExecuteHostCommands: false,
+      }).message,
+    );
+  }
   if (err.code === "EISDIR")
     return new Error(`path is a directory: ${displayPath}`);
   return err;
+}
+
+function isAccessDenied(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EACCES" || code === "EPERM";
+}
+
+function resolveExtractorProbe(
+  whichExtractor: (() => string | null) | undefined,
+): boolean {
+  const probe = whichExtractor ?? (() => Bun.which(PDF_EXTRACTOR_BIN));
+  return probe() !== null;
 }
 
 /**
@@ -102,6 +137,7 @@ function readStreamBounded(
     mapStreamError?: (err: NodeJS.ErrnoException) => Error;
     wrapLongLines?: boolean;
     windowHugeLines?: boolean;
+    diagnoseFirstChunk?: (chunk: Buffer) => string | undefined;
   } = {},
 ): Promise<BoundedRead> {
   return new Promise<BoundedRead>((resolveP, rejectP) => {
@@ -109,6 +145,7 @@ function readStreamBounded(
       mapStreamError,
       wrapLongLines = false,
       windowHugeLines = false,
+      diagnoseFirstChunk,
     } = options;
     const decoder = new StringDecoder("utf8");
     const contentBudget = READ_FILE_MAX_BYTES - NOTICE_RESERVE_BYTES;
@@ -270,6 +307,14 @@ function readStreamBounded(
       if (settled) return;
       if (firstChunk) {
         firstChunk = false;
+        const diagnosed = diagnoseFirstChunk?.(chunk);
+        if (diagnosed !== undefined) {
+          done({
+            content: diagnosed,
+            isError: true,
+          });
+          return;
+        }
         if (chunk.includes(0)) {
           done({
             content: `refusing to read binary file: ${displayPath}`,
@@ -319,6 +364,10 @@ export function readFileBounded(
   offset: number,
   limit: number,
   signal: AbortSignal,
+  inspection?: Pick<
+    ReadFileGuardPluginOptions,
+    "whichExtractor" | "canExecuteHostCommands"
+  >,
 ): Promise<BoundedRead> {
   return readStreamBounded(
     createReadStream(absolutePath),
@@ -329,6 +378,17 @@ export function readFileBounded(
     {
       mapStreamError: (err) => mapFilesystemStreamError(absolutePath, err),
       windowHugeLines: true,
+      diagnoseFirstChunk: (chunk) => {
+        const kind = inspectionKindFromFirstChunk(absolutePath, chunk);
+        if (kind === undefined) return undefined;
+        return diagnoseBlockedFileInspection({
+          path: absolutePath,
+          kind,
+          extractorAvailable: resolveExtractorProbe(inspection?.whichExtractor),
+          canExecuteHostCommands:
+            inspection?.canExecuteHostCommands?.() ?? true,
+        }).message;
+      },
     },
   );
 }
@@ -412,7 +472,11 @@ export function readFileGuardPlugin(
   cwd: string,
   options: ReadFileGuardPluginOptions = {},
 ): ToolPlugin {
-  const { blobReader } = options;
+  const { blobReader, whichExtractor, canExecuteHostCommands } = options;
+  const inspection = {
+    ...(whichExtractor !== undefined ? { whichExtractor } : {}),
+    ...(canExecuteHostCommands !== undefined ? { canExecuteHostCommands } : {}),
+  };
   return {
     middleware: (next) => async (call, signal) => {
       if (call.name !== "read_file") return next(call, signal);
@@ -468,12 +532,30 @@ export function readFileGuardPlugin(
       try {
         const info = await stat(absolutePath);
         if (info.isDirectory()) return next(call, signal);
-      } catch {
+      } catch (err) {
+        if (isAccessDenied(err)) {
+          return {
+            callId: call.id,
+            content: diagnoseBlockedFileInspection({
+              path: rawPath,
+              kind: "unreadable",
+              extractorAvailable: false,
+              canExecuteHostCommands: false,
+            }).message,
+            isError: true,
+          };
+        }
         return next(call, signal);
       }
 
       try {
-        const res = await readFileBounded(absolutePath, offset, limit, signal);
+        const res = await readFileBounded(
+          absolutePath,
+          offset,
+          limit,
+          signal,
+          inspection,
+        );
         return res.isError
           ? { callId: call.id, content: res.content, isError: true }
           : { callId: call.id, content: res.content };
