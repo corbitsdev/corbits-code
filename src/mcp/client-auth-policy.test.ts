@@ -1,7 +1,14 @@
 import { defined } from "../testkit/defined.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import { withMockedModule } from "../testkit/mock-module.js";
+import {
+  createMcpSdkMockState,
+  mockMcpCallbackServerModule,
+  mockMcpClientModule,
+  mockMcpOAuthProviderModule,
+  mockMcpTransportModule,
+  type MockTransportSelf,
+} from "../testkit/mcp-sdk-mock.js";
 
 let callbackStarts = 0;
 let callbackCloses = 0;
@@ -43,138 +50,99 @@ const authProvider = {
   redirectToAuthorization,
 };
 
-await withMockedModule(
-  import.meta.resolve("@modelcontextprotocol/sdk/client/index.js"),
-  (real: typeof import("@modelcontextprotocol/sdk/client/index.js")) => ({
-    ...real,
-    Client: class {
-      async connect(): Promise<void> {
-        if (clientConnectError !== undefined) {
-          if (clientConnectError instanceof UnauthorizedError)
-            await lastTransportRedirect?.();
-          throw clientConnectError;
-        }
-      }
-      async listTools(
-        _params?: unknown,
-        options?: { signal?: AbortSignal },
-      ): Promise<{ tools: [] }> {
-        toolDiscoverySignals.push(options?.signal);
-        if (blockToolDiscovery) {
-          await new Promise<void>((_resolve, reject) => {
-            const signal = options?.signal;
-            const onAbort = (): void => {
-              toolDiscoveryAborts += 1;
-              reject(signal?.reason ?? new Error("tool discovery aborted"));
-            };
-            if (signal?.aborted === true) onAbort();
-            else signal?.addEventListener("abort", onAbort, { once: true });
-          });
-        }
-        return { tools: [] };
-      }
-      async callTool(): Promise<{ content: [] }> {
-        if (lastTransportAuth === undefined)
-          throw new Error("no live HTTP transport");
-        await lastTransportAuth();
-        return { content: [] };
-      }
-      async close(): Promise<void> {
-        clientCloses += 1;
-      }
+async function transportAuth(self: MockTransportSelf): Promise<void> {
+  // SDK 403 upscoping uses raw `_fetch` with no init.signal. Hang on the
+  // connect signal the product also installs as `fetch`, so abort still
+  // settles this path.
+  const signal = self.signal;
+  tokenRefreshSignals.push(signal);
+  await hangUntilAbort(
+    signal,
+    () => {
+      tokenRefreshAborts += 1;
     },
-  }),
-);
+    "token refresh aborted",
+  );
+}
 
-await withMockedModule(
-  import.meta.resolve("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-  (
-    real: typeof import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-  ) => ({
-    ...real,
-    StreamableHTTPClientTransport: class {
-      constructor(
-        _url: URL,
-        private readonly options?: {
-          authProvider?: {
-            redirectToAuthorization?: (url: URL) => void | Promise<void>;
-          };
-          requestInit?: RequestInit;
-          fetch?: (url: string | URL, init?: RequestInit) => Promise<Response>;
-        },
-      ) {
-        transportOptions.push(options);
-        lastTransportAuth = () => this.auth();
-        lastTransportRedirect = async () => {
-          await this.options?.authProvider?.redirectToAuthorization?.(
-            new URL("https://auth.test/authorize"),
-          );
+const sdkState = createMcpSdkMockState();
+
+await mockMcpClientModule(sdkState, {
+  connect: async () => {
+    if (clientConnectError !== undefined) {
+      if (clientConnectError instanceof UnauthorizedError)
+        await lastTransportRedirect?.();
+      throw clientConnectError;
+    }
+  },
+  listTools: async (_params, options) => {
+    toolDiscoverySignals.push(options?.signal);
+    if (blockToolDiscovery) {
+      await new Promise<void>((_resolve, reject) => {
+        const signal = options?.signal;
+        const onAbort = (): void => {
+          toolDiscoveryAborts += 1;
+          reject(signal?.reason ?? new Error("tool discovery aborted"));
         };
-      }
-      async finishAuth(): Promise<void> {
-        const signal = this.options?.requestInit?.signal;
-        tokenExchangeSignals.push(signal);
-        if (blockTokenExchange) {
-          await hangUntilAbort(
-            signal,
-            () => {
-              tokenExchangeAborts += 1;
-            },
-            "token exchange aborted",
-          );
-        }
-      }
-      async auth(): Promise<void> {
-        // SDK 403 upscoping uses raw `_fetch` with no init.signal. Hang on the
-        // connect signal the product also installs as `fetch`, so abort still
-        // settles this path.
-        const signal = this.options?.requestInit?.signal;
-        tokenRefreshSignals.push(signal);
-        await hangUntilAbort(
-          signal,
-          () => {
-            tokenRefreshAborts += 1;
-          },
-          "token refresh aborted",
-        );
-      }
-      get sessionId(): string | undefined {
-        return undefined;
-      }
-    },
-  }),
-);
+        if (signal?.aborted === true) onAbort();
+        else signal?.addEventListener("abort", onAbort, { once: true });
+      });
+    }
+    return { tools: [] };
+  },
+  callTool: async () => {
+    if (lastTransportAuth === undefined)
+      throw new Error("no live HTTP transport");
+    await lastTransportAuth();
+    return { content: [] };
+  },
+  close: () => {
+    clientCloses += 1;
+  },
+});
 
-await withMockedModule(
-  import.meta.resolve("./callback-server.js"),
-  (real: typeof import("./callback-server.js")) => ({
-    ...real,
-    startCallbackServer: async () => {
-      callbackStarts += 1;
-      return {
-        redirectUrl: "http://127.0.0.1:12345/callback",
-        expectState: () => undefined,
-        waitForCode: async () => "code",
-        close: () => {
-          callbackCloses += 1;
+await mockMcpTransportModule(sdkState, {
+  construct: (self) => {
+    transportOptions.push(self.options);
+    lastTransportAuth = () => transportAuth(self);
+    lastTransportRedirect = async () => {
+      await self.options?.authProvider?.redirectToAuthorization?.(
+        new URL("https://auth.test/authorize"),
+      );
+    };
+  },
+  finishAuth: async (self) => {
+    const signal = self.signal;
+    tokenExchangeSignals.push(signal);
+    if (blockTokenExchange) {
+      await hangUntilAbort(
+        signal,
+        () => {
+          tokenExchangeAborts += 1;
         },
-      };
-    },
-  }),
-);
+        "token exchange aborted",
+      );
+    }
+  },
+  auth: transportAuth,
+});
 
-await withMockedModule(
-  import.meta.resolve("./oauth-provider.js"),
-  (real: typeof import("./oauth-provider.js")) => ({
-    ...real,
-    createOAuthProvider: async (options: { serverURL: string }) => {
-      providerCreates += 1;
-      providerServerURL = options.serverURL;
-      if (providerCreateError !== undefined) throw providerCreateError;
-      return authProvider;
-    },
-  }),
-);
+await mockMcpCallbackServerModule({
+  start: () => {
+    callbackStarts += 1;
+  },
+  waitForCode: async () => "code",
+  close: () => {
+    callbackCloses += 1;
+  },
+});
+
+await mockMcpOAuthProviderModule(async (options: { serverURL: string }) => {
+  providerCreates += 1;
+  providerServerURL = options.serverURL;
+  if (providerCreateError !== undefined) throw providerCreateError;
+  return authProvider;
+});
 
 const { connectMCPServer, fetchWithConnectAbort } = await import("./client.js");
 
