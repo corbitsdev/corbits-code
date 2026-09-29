@@ -11,6 +11,7 @@
 
 import { type } from "arktype";
 import type { ToolCall, ToolDefinition } from "@intx/types/runtime";
+import { canonicalToolName } from "./canonical-tool-name.js";
 
 /** Advertised posix names → registry engine ids. 1:1, never dual-publish. */
 export const WIRE_TO_ENGINE = {
@@ -75,6 +76,69 @@ export function projectToolDefinitions(
   defs: readonly ToolDefinition[],
 ): ToolDefinition[] {
   return defs.map(projectToolDefinition);
+}
+
+/**
+ * Authz parity definitions: every def unchanged, plus one `{...def, name:
+ * alias}` copy for each alias in ALIAS_TO_ENGINE whose engine equals the
+ * def's canonical name. The reactor authz snapshot is keyed by parked wire
+ * name, so without these copies an ask-tier `bash`/`shell` call throws a
+ * wiring-defect error instead of suspending.
+ *
+ * `update_plan` is never snapshotted: its grant is create-only narrow, so no
+ * `update_plan`-named copy is emitted. Non-aliased defs (MCP, leaf-only)
+ * pass through unchanged. Output is deduplicated by name.
+ */
+export function authzParityDefinitions(
+  defs: readonly ToolDefinition[],
+): ToolDefinition[] {
+  const seen = new Set<string>();
+  const out: ToolDefinition[] = [];
+  const push = (def: ToolDefinition): void => {
+    if (seen.has(def.name)) return;
+    seen.add(def.name);
+    out.push(def);
+  };
+  for (const def of defs) push(def);
+  for (const def of defs) {
+    const engine = canonicalToolName(def.name);
+    for (const [alias, aliasEngine] of Object.entries(ALIAS_TO_ENGINE)) {
+      if (aliasEngine !== engine) continue;
+      if (alias === "update_plan") continue;
+      if (seen.has(alias)) continue;
+      seen.add(alias);
+      out.push({ ...def, name: alias });
+    }
+  }
+  return out;
+}
+
+/**
+ * Thin wrapper over a tool bundle (e.g. DynamicToolRunner): identical except
+ * the `definitions` getter returns `authzParityDefinitions` over the live
+ * set. Run/dispatch and mutation entry points delegate verbatim — only the
+ * authz-facing definition set gains parity copies. The advertised wire set
+ * is untouched (advertise still projects through computeAdvertised).
+ */
+export function withAuthzParityDefinitions<
+  T extends { readonly definitions: readonly ToolDefinition[] },
+>(bundle: T): T {
+  const wrapped = { ...bundle };
+  const liveSource = bundle as Partial<{
+    currentDefinitions: () => readonly ToolDefinition[];
+  }>;
+  Object.defineProperty(wrapped, "definitions", {
+    get() {
+      const live =
+        typeof liveSource.currentDefinitions === "function"
+          ? liveSource.currentDefinitions()
+          : bundle.definitions;
+      return authzParityDefinitions(live);
+    },
+    enumerable: true,
+    configurable: true,
+  });
+  return wrapped;
 }
 
 const SHELL_WRAPPERS = new Set(["bash", "sh", "zsh"]);

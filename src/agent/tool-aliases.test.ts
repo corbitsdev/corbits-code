@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type { ToolDefinition } from "@intx/types/runtime";
+import type { ToolCall, ToolDefinition } from "@intx/types/runtime";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import { advertisedTools } from "./tool-search.js";
 import { canonicalToolName } from "./canonical-tool-name.js";
-import { advertisedToolName, WIRE_TO_ENGINE } from "./tool-aliases.js";
+import {
+  advertisedToolName,
+  authzParityDefinitions,
+  withAuthzParityDefinitions,
+  WIRE_TO_ENGINE,
+} from "./tool-aliases.js";
 import { evaluateApprovals } from "../permission/authz-grants.js";
 
 const noWorkspace = { resolvedCwd: "/repo", roots: ["/repo"] };
@@ -238,5 +243,100 @@ describe("hidden alias dispatch", () => {
     expect(names).not.toContain("update_plan");
     expect(names).not.toContain("list_dir");
     expect(new Set(names).size).toBe(names.length);
+  });
+});
+
+describe("authz parity definitions", () => {
+  test("run_shell gains bash and shell copies that rename name only", () => {
+    const native = posixDef("run_shell");
+    const defs = authzParityDefinitions([native]);
+    expect(defs.map((d) => d.name)).toEqual(["run_shell", "bash", "shell"]);
+    const byName = new Map(defs.map((d) => [d.name, d]));
+    expect(byName.get("run_shell")).toBe(native);
+    expect(byName.get("bash")).toEqual({ ...native, name: "bash" });
+    expect(byName.get("shell")).toEqual({ ...native, name: "shell" });
+  });
+
+  test("read_file gains a read copy; MCP defs pass through untouched", () => {
+    const mcp = posixDef("mcp__linear__save_issue");
+    const defs = authzParityDefinitions([posixDef("read_file"), mcp]);
+    expect(defs.map((d) => d.name)).toEqual([
+      "read_file",
+      "mcp__linear__save_issue",
+      "read",
+    ]);
+    expect(defs.find((d) => d.name === "mcp__linear__save_issue")).toBe(mcp);
+  });
+
+  test("manage_tasks never gains an update_plan snapshot copy", () => {
+    const defs = authzParityDefinitions([
+      posixDef("manage_tasks"),
+      posixDef("run_shell"),
+    ]);
+    const names = defs.map((d) => d.name);
+    expect(names).toContain("manage_tasks");
+    expect(names).not.toContain("update_plan");
+    expect(names).toContain("bash");
+    expect(names).toContain("shell");
+  });
+
+  test("already-aliased and duplicate defs dedup by name", () => {
+    const defs = authzParityDefinitions([
+      posixDef("run_shell"),
+      posixDef("bash"),
+      posixDef("run_shell"),
+    ]);
+    expect(defs.map((d) => d.name)).toEqual(["run_shell", "bash", "shell"]);
+  });
+
+  test("empty registry stays empty", () => {
+    expect(authzParityDefinitions([])).toEqual([]);
+  });
+});
+
+describe("withAuthzParityDefinitions", () => {
+  test("definitions getter returns parity over the live set; run delegates", async () => {
+    let live: ToolDefinition[] = [posixDef("run_shell")];
+    let ran: ToolCall | undefined;
+    const bundle = {
+      definitions: live,
+      currentDefinitions: () => live,
+      run: async (call: ToolCall, _signal: AbortSignal) => {
+        ran = call;
+        return { callId: call.id, content: "ok", isError: false };
+      },
+      addTools: () => undefined,
+      setCallGate: () => undefined,
+    };
+    const wrapped = withAuthzParityDefinitions(bundle);
+    expect(wrapped.definitions.map((d) => d.name)).toEqual([
+      "run_shell",
+      "bash",
+      "shell",
+    ]);
+    live = [...live, posixDef("mcp__acme__do")];
+    expect(wrapped.definitions.map((d) => d.name)).toEqual([
+      "run_shell",
+      "mcp__acme__do",
+      "bash",
+      "shell",
+    ]);
+    const call = {
+      id: "1",
+      name: "bash",
+      arguments: { command: "echo hi" },
+    };
+    await wrapped.run(call, new AbortController().signal);
+    expect(ran).toBe(call);
+  });
+
+  test("falls back to definitions when currentDefinitions is absent", () => {
+    const bundle = {
+      definitions: [posixDef("read_file")] as readonly ToolDefinition[],
+      run: async () => ({ callId: "1", content: "", isError: false }),
+    };
+    expect(
+      withAuthzParityDefinitions(bundle).definitions.map((d) => d.name),
+    ).toEqual(["read_file", "read"]);
   });
 });

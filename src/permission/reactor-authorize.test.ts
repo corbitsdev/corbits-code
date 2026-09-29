@@ -2,12 +2,19 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createAuthzExtension } from "@intx/inference";
+import type {
+  ToolDefinition,
+  ReactorState,
+  TokenUsage,
+} from "@intx/types/runtime";
 import { createPermissionGate } from "./gate.js";
 import {
   createReactorAuthorize,
   createWorkerAuthorize,
   workerPermissionGate,
 } from "./reactor-authorize.js";
+import { authzParityDefinitions } from "../agent/tool-aliases.js";
 import {
   runWithSubAgentIdentity,
   getSubAgentIdentity,
@@ -334,4 +341,126 @@ test("concurrent authorization preserves each worker cwd across awaited policy e
   );
   expect(seen.sort()).toEqual(["/worker-a", "/worker-b"]);
   expect(getSubAgentIdentity()).toBeUndefined();
+});
+
+const shellDef = (name: string): ToolDefinition => ({
+  name,
+  description: `${name} tool`,
+  inputSchema: { type: "object", properties: {} },
+});
+
+const emptyUsage = (): TokenUsage => ({
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  thinking: 0,
+});
+
+const askState = (): ReactorState => ({
+  sessionId: "parity-ask",
+  turns: [],
+  activeForks: [],
+  pendingOperations: [],
+  activeGates: [],
+  tokenUsage: emptyUsage(),
+  lastCycleUsage: null,
+  lastCycleSource: null,
+});
+
+const askSignal = new AbortController().signal;
+
+test("ask-tier shell aliases suspend with a wire-named snapshot", async () => {
+  const policy = gate({ interactive: true });
+  const ext = createAuthzExtension({
+    toolDefinitions: authzParityDefinitions([
+      shellDef("run_shell"),
+      shellDef("read_file"),
+    ]),
+    authorize: createReactorAuthorize(policy),
+  });
+  for (const name of ["bash", "run_shell", "shell"]) {
+    const toolCall = namedCall(name, { command: "sleep 30" });
+    const outcome = await ext.beforeTool(toolCall, askState(), askSignal);
+    if (outcome.type !== "suspend") throw new Error(`expected ${name} to park`);
+    expect(outcome.pendingOp.approvalSnapshot?.name).toBe(name);
+    expect(outcome.pendingOp.approvalSnapshot?.arguments).toEqual({
+      command: "sleep 30",
+    });
+    expect(outcome.pendingOp.suspendedCall).toEqual(toolCall);
+  }
+});
+
+test("seeded run_shell grant allows bash, run_shell, and shell", async () => {
+  const policy = gate({ interactive: true });
+  policy.setSeededApprovals([{ tool: "run_shell", pattern: "echo *" }]);
+  const ext = createAuthzExtension({
+    toolDefinitions: authzParityDefinitions([shellDef("run_shell")]),
+    authorize: createReactorAuthorize(policy),
+  });
+  for (const name of ["bash", "run_shell", "shell"]) {
+    const outcome = await ext.beforeTool(
+      namedCall(name, { command: "echo hi" }),
+      askState(),
+      askSignal,
+    );
+    expect(outcome.type).toBe("allow");
+  }
+});
+
+test("ask on a tool missing from the resolved set still throws", async () => {
+  const policy = gate({ interactive: true });
+  const ext = createAuthzExtension({
+    toolDefinitions: authzParityDefinitions([shellDef("read_file")]),
+    authorize: createReactorAuthorize(policy),
+  });
+  await expect(
+    ext.beforeTool(
+      namedCall("bash", { command: "sleep 30" }),
+      askState(),
+      askSignal,
+    ),
+  ).rejects.toThrow(/wiring defect/);
+});
+
+test("approved ask resumes the exact parked call once via one-shot bypass", async () => {
+  const policy = gate({ interactive: true });
+  const reactorAuthorize = createReactorAuthorize(policy);
+  const seen: ToolCall[] = [];
+  const ext = createAuthzExtension<ToolCall>({
+    toolDefinitions: authzParityDefinitions([shellDef("run_shell")]),
+    authorize: (resource, action, call) => {
+      seen.push(call);
+      return reactorAuthorize(resource, action, call);
+    },
+  });
+  for (const name of ["bash", "run_shell"]) {
+    const toolCall = namedCall(name, { command: "sleep 30" });
+    const parked = await ext.beforeTool(toolCall, askState(), askSignal);
+    if (parked.type !== "suspend") throw new Error(`expected ${name} to park`);
+    expect(parked.pendingOp.approvalSnapshot?.name).toBe(name);
+    ext.grantOneShot?.(toolCall.id);
+    const resumed = await ext.beforeTool(toolCall, askState(), askSignal);
+    expect(resumed.type).toBe("allow");
+    expect(seen[seen.length - 1]).toEqual(parked.pendingOp.suspendedCall);
+    const reparked = await ext.beforeTool(toolCall, askState(), askSignal);
+    expect(reparked.type).toBe("suspend");
+  }
+});
+
+test("denied shell call blocks with a policy error", async () => {
+  const policy = gate({ interactive: false });
+  const ext = createAuthzExtension({
+    toolDefinitions: authzParityDefinitions([shellDef("run_shell")]),
+    authorize: createReactorAuthorize(policy),
+  });
+  for (const name of ["bash", "run_shell"]) {
+    const outcome = await ext.beforeTool(
+      namedCall(name, { command: "sleep 30" }),
+      askState(),
+      askSignal,
+    );
+    if (outcome.type !== "block") throw new Error(`expected ${name} to block`);
+    expect(outcome.reason).toMatch(/Denied by policy/);
+  }
 });

@@ -49,7 +49,10 @@ import {
   type ActivatedToolTracker,
   type ToolAvailability,
 } from "../agent/tool-search.js";
-import { nameMatchesAdvertisedListing } from "../agent/tool-aliases.js";
+import {
+  nameMatchesAdvertisedListing,
+  withAuthzParityDefinitions,
+} from "../agent/tool-aliases.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
 import { normalizeToolDefinitionsForProvider } from "../agent/tool-schema-normalize.js";
 import { resolveModelFamilyPolicy } from "../agent/model-family-policy.js";
@@ -612,7 +615,7 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
   const toolsFactory = defineTool({
     id: wiring.toolsId,
     definitions: [],
-    factory: () => wiring.getDynamicRunner(),
+    factory: () => withAuthzParityDefinitions(wiring.getDynamicRunner()),
   });
 
   const provider = wiring.getProvider();

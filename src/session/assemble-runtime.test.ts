@@ -12,6 +12,7 @@ import type {
 
 import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import type { ChatDirector } from "../agent/director.js";
+import { authzParityDefinitions } from "../agent/tool-aliases.js";
 import {
   createAdvertisedToolset,
   loadSessionLocalSettings,
@@ -99,6 +100,33 @@ describe("createAdvertisedToolset", () => {
         (d) => d.name,
       ),
     ).toEqual(["read"]);
+  });
+
+  test("parity defs cover native and wire names while the wire set stays byte-identical", () => {
+    const native = [
+      def("run_shell"),
+      def("read_file"),
+      def("mcp__linear__save_issue"),
+    ];
+    const parity = authzParityDefinitions(native);
+    const parityNames = new Set(parity.map((d) => d.name));
+    for (const name of [
+      "run_shell",
+      "read_file",
+      "mcp__linear__save_issue",
+      "bash",
+      "shell",
+      "read",
+    ]) {
+      expect(parityNames.has(name)).toBe(true);
+    }
+    expect(parityNames.has("update_plan")).toBe(false);
+    const { computeAdvertised } = createAdvertisedToolset(wiring());
+    expect(JSON.stringify(computeAdvertised(parity))).toBe(
+      JSON.stringify(computeAdvertised(native)),
+    );
+    const wireNames = computeAdvertised(parity).map((d) => d.name);
+    expect(new Set(wireNames).size).toBe(wireNames.length);
   });
 
   test("isAdvertised tracks prefix, pinned, and activated names", () => {
