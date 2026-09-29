@@ -620,54 +620,37 @@ describe("verifyOrRepair", () => {
 });
 
 describe("pruning compactor verify pass", () => {
-  test("a lossy fold is repaired: the goal and exact path survive", async () => {
-    const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
-      summaryMaxChars: 2000,
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      summarize: async () => "Work continues. Next: fix tests.",
-    });
-    const turns: ConversationTurn[] = [
-      ...droppedTurns(),
-      textTurn("user", "recent ask"),
-      textTurn("assistant", "recent reply"),
-    ];
-    const result = await compactor.apply(turns, mockStrategyCtx);
-    expect(allText(result.output)).toContain("opaque tokens");
-    expect(allText(result.output)).toContain("auth.ts");
-  });
-
-  test("a contradicting fold aborts: prior context is kept", async () => {
-    const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
-      summaryMaxChars: 2000,
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      summarize: async () => "Auth migration done. No errors remain.",
-    });
-    const turns: ConversationTurn[] = [
-      ...droppedTurns(),
-      textTurn("user", "recent ask"),
-      textTurn("assistant", "recent reply"),
-    ];
-    const result = await compactor.apply(turns, mockStrategyCtx);
-    expect(result.output).toBe(turns);
-  });
-
-  test("a faithful fold ships without repair markers", async () => {
-    const compactor = createPruningCompactor({
-      keepRecentTurns: 2,
-      summaryMaxChars: 2000,
-      // CL-9007: pin a tiny tail budget so the fold covers the same older
-      // region the old keepRecentTurns cut folded.
-      compactionShape: { tailBudgetTokens: 10 },
-      summarize: async () =>
+  test.each<{
+    title: string;
+    summarizeText: string;
+    kind: "repaired" | "aborted" | "faithful";
+  }>([
+    {
+      title: "a lossy fold is repaired: the goal and exact path survive",
+      summarizeText: "Work continues. Next: fix tests.",
+      kind: "repaired",
+    },
+    {
+      title: "a contradicting fold aborts: prior context is kept",
+      summarizeText: "Auth migration done. No errors remain.",
+      kind: "aborted",
+    },
+    {
+      title: "a faithful fold ships without repair markers",
+      summarizeText:
         "Migrating auth to opaque tokens. Read src/auth.ts, ran bun run " +
         "test auth; the token refresh assertion failed. Fix the token " +
         "refresh assertion next.",
+      kind: "faithful",
+    },
+  ])("$title", async ({ summarizeText, kind }) => {
+    const compactor = createPruningCompactor({
+      keepRecentTurns: 2,
+      summaryMaxChars: 2000,
+      // CL-9007: pin a tiny tail budget so the fold covers the same older
+      // region the old keepRecentTurns cut folded.
+      compactionShape: { tailBudgetTokens: 10 },
+      summarize: async () => summarizeText,
     });
     const turns: ConversationTurn[] = [
       ...droppedTurns(),
@@ -675,7 +658,14 @@ describe("pruning compactor verify pass", () => {
       textTurn("assistant", "recent reply"),
     ];
     const result = await compactor.apply(turns, mockStrategyCtx);
-    expect(allText(result.output)).not.toContain(VERIFY_REPAIR_HEADING);
+    if (kind === "repaired") {
+      expect(allText(result.output)).toContain("opaque tokens");
+      expect(allText(result.output)).toContain("auth.ts");
+    } else if (kind === "aborted") {
+      expect(result.output).toBe(turns);
+    } else {
+      expect(allText(result.output)).not.toContain(VERIFY_REPAIR_HEADING);
+    }
   });
 });
 
