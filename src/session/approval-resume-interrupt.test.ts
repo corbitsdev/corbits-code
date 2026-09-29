@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SendResult } from "@intx/agent";
 import type { ConversationTurn, InboundMessage } from "@intx/types/runtime";
 
 import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
@@ -28,51 +27,38 @@ import { createGateRequestApproval } from "../tui/request-approval.js";
 import { startInterruptRebuild } from "../tui/runner/exit.js";
 import { runWhileAgentBusy } from "../tui/runner/state.js";
 import { createParkedOverlayAbortBinding } from "../tui/runner/parked-overlay-abort.js";
+import {
+  approvalTimeoutTurn,
+  createApprovalResumeHarness,
+  decisionBody,
+  firstDelivered,
+  suspendedResult,
+  userTextTurn,
+} from "../testkit/approval-resume-harness.js";
 
-const SUSPENDED: SendResult = {
-  type: "suspended",
-  correlationId: "corr-1",
-  approvalSnapshot: {
-    name: "run_shell",
-    arguments: { command: "curl -sS https://example.com" },
-  },
-} as unknown as SendResult;
+const SUSPENDED = suspendedResult("corr-1", "curl -sS https://example.com");
 
 function userTurn(): ConversationTurn {
-  return {
-    role: "user",
-    content: [{ type: "text", text: "go" }],
-    timestamp: 0,
-  } as unknown as ConversationTurn;
+  return userTextTurn("go");
 }
 
 function approvalTimedOutTurn(): ConversationTurn {
-  return {
-    role: "user",
-    content: [
-      {
-        type: "tool_result",
-        callId: "call-ask",
-        content: [{ type: "text", text: APPROVAL_TIMEOUT_RESULT_TEXT }],
-      },
-    ],
-    timestamp: 0,
-  } as unknown as ConversationTurn;
+  return approvalTimeoutTurn("call-ask");
 }
 
 function harness(turns: ConversationTurn[], plantTimeoutOnResolve: boolean) {
-  const delivered: unknown[] = [];
-  const agent = {
-    deliver: (message: unknown) => delivered.push(message),
-    history: async () => turns,
-  };
-  const gate = {
-    resolveSuspended: async () => {
-      if (plantTimeoutOnResolve) turns.push(approvalTimedOutTurn());
-      return { allow: false, message: "not today" };
-    },
-  } as unknown as PermissionGate;
-  return { agent, gate, delivered };
+  const { agent, gate, delivered } = createApprovalResumeHarness({
+    turns,
+    gateOutcome: { allow: false, message: "not today" },
+    ...(plantTimeoutOnResolve
+      ? {
+          onGate: (current: ConversationTurn[]) => {
+            current.push(approvalTimedOutTurn());
+          },
+        }
+      : {}),
+  });
+  return { agent, gate, delivered: delivered as unknown[] };
 }
 
 function correlationHeaders(message: unknown) {
@@ -80,7 +66,7 @@ function correlationHeaders(message: unknown) {
 }
 
 function firstDeliveredContent(delivered: unknown[]): unknown {
-  return JSON.parse((delivered[0] as { content: string }).content) as unknown;
+  return decisionBody(firstDelivered(delivered as InboundMessage[]));
 }
 
 describe("approval resume late-decision guard", () => {
