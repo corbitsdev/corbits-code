@@ -141,6 +141,13 @@ export type RunSubAgentParams = {
   onRunSettled?: (summary: Readonly<SubAgentRunSettlement>) => void;
   capabilities?: CapabilityFilter;
   /**
+   * Canonical tool names this worker hard-requires (CL-9476). Verified
+   * pre-spawn by the dispatcher; run.ts re-checks them against the mounted
+   * tools after the capability filter and fails the run as a stale snapshot
+   * when one went missing in between.
+   */
+  requiresTools?: readonly string[];
+  /**
    * Skill allowlist for the worker's skill_search + use_skill mounts,
    * resolved by the caller (agent-fleet.ts) as the union of
    * DirectorPackage.attachedSkills and optionalSkills. When set, both tools

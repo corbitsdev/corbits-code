@@ -71,6 +71,28 @@ function isENOENT(err: unknown): boolean {
 // DIRECTOR_IDS, which are reserved and skipped at load (CL-7015).
 const registry: AgentProfile[] = [...defaultPlugin.agents];
 
+// Load diagnostics: additive over loadAgentProfiles. `revision` stamps the
+// profile snapshot a dispatch was verified against (agent-fleet records it on
+// the session); `malformed` names local files that failed to load and why.
+// A malformed file never blocks the load — it fails closed only when a
+// dispatch's requires_tools preflight must verify against it (CL-9476).
+export interface MalformedAgentProfile {
+  path: string;
+  reason: string;
+}
+
+export interface AgentProfileDiagnostics {
+  revision: number;
+  malformed: MalformedAgentProfile[];
+}
+
+let profileSnapshotRevision = 0;
+
+/** Revision of the most recent profile snapshot load. */
+export function currentProfileSnapshotRevision(): number {
+  return profileSnapshotRevision;
+}
+
 // Merge a profile into a list: replace a same-id entry or append. Used to layer
 // profiles by precedence (defaults < plugin < local).
 function mergeProfileInto(list: AgentProfile[], profile: AgentProfile): void {
@@ -95,6 +117,28 @@ export async function loadAgentProfiles(
   dir: string,
   extraProfiles: AgentProfile[] = [],
 ): Promise<AgentProfile[]> {
+  return (await loadAgentProfilesWithDiagnostics(dir, extraProfiles)).profiles;
+}
+
+/**
+ * loadAgentProfiles plus load diagnostics. Additive: profiles resolve
+ * exactly as before; unreadable/unparseable/invalid local files are named in
+ * `diagnostics.malformed` instead of skipped silently. Every call bumps the
+ * snapshot revision a dispatch stamps on its session record.
+ */
+export async function loadAgentProfilesWithDiagnostics(
+  dir: string,
+  extraProfiles: AgentProfile[] = [],
+): Promise<{ profiles: AgentProfile[]; diagnostics: AgentProfileDiagnostics }> {
+  profileSnapshotRevision += 1;
+  const revision = profileSnapshotRevision;
+  const malformed: MalformedAgentProfile[] = [];
+  const done = (
+    profiles: AgentProfile[],
+  ): { profiles: AgentProfile[]; diagnostics: AgentProfileDiagnostics } => ({
+    profiles,
+    diagnostics: { revision, malformed },
+  });
   let entries: string[];
   try {
     entries = await readdir(dir);
@@ -105,7 +149,7 @@ export async function loadAgentProfiles(
         if (isReservedDirectorProfile(p)) continue;
         mergeProfileInto(merged, p);
       }
-      return merged;
+      return done(merged);
     }
     throw err;
   }
@@ -121,16 +165,24 @@ export async function loadAgentProfiles(
     try {
       raw = await readFile(filePath, "utf8");
     } catch {
+      malformed.push({ path: filePath, reason: "unreadable file" });
       continue;
     }
     let parsed: unknown;
     try {
       parsed = isJSON ? JSON.parse(raw) : Bun.YAML.parse(raw);
     } catch {
+      malformed.push({
+        path: filePath,
+        reason: isJSON ? "invalid JSON" : "invalid YAML",
+      });
       continue;
     }
     const result = AgentProfileSchema(parsed);
-    if (result instanceof type.errors) continue;
+    if (result instanceof type.errors) {
+      malformed.push({ path: filePath, reason: "schema validation failed" });
+      continue;
+    }
     const profile = result as AgentProfile;
     if (isReservedDirectorProfile(profile)) continue;
     // Resolve systemPromptPath relative to this directory. The file content
@@ -158,5 +210,5 @@ export async function loadAgentProfiles(
     mergeProfileInto(merged, profile);
   }
   for (const profile of local) mergeProfileInto(merged, profile);
-  return merged;
+  return done(merged);
 }
