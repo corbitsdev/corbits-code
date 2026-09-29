@@ -8,6 +8,7 @@ import {
   codexUsageLimitRetryAfterMs,
   formatCodexUsageLimitMessage,
   parseCodexUsageLimitError,
+  readCodexNestedErrorMessage,
 } from "./auth/codex/usage-limit-error.js";
 import {
   codexProfileFromProviderName,
@@ -634,13 +635,46 @@ function normalizeCodexCredential404Error(
 }
 
 /**
+ * Codex 400s arrive as fatal with HTTP statusText ("Bad Request") while the
+ * real diagnostic sits on nested `detail.error`. Lift the nested copy so the
+ * transcript is actionable; keep category fatal — this is not overflow,
+ * rate-limit, or quota.
+ */
+function normalizeCodexFatal400Message(
+  error: InferenceErrorWithGoContext,
+): InferenceError {
+  if (!isKnownCodexProviderId(error.providerId)) return error;
+  if (error.category !== "fatal") return error;
+  if (error.statusCode !== 400) return error;
+
+  const current = error.message ?? "";
+  if (current.length > 0 && current.toLowerCase() !== "bad request") {
+    return error;
+  }
+
+  const nested = readCodexNestedErrorMessage(error.raw);
+  if (nested === undefined || nested === current) return error;
+
+  return {
+    category: "fatal",
+    message: nested,
+    statusCode: 400,
+    ...(error.raw !== undefined ? { raw: error.raw } : {}),
+    ...(error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
+  };
+}
+
+/**
  * Reclassify gateway overload errors so the default retry policy treats them as
  * transient instead of aborting on protocol_mismatch. Also normalizes OpenCode
  * Go quota/rate-limit shapes (including HTTP 400 mis-status), known-xAI short
  * 429s, attributable xAI capacity protocol_mismatch, Codex usage limits
  * (nested detail.error with resets_in_seconds), known-Codex short 429s that
- * are not usage_limit_reached, and known-Codex 404s carrying an
- * auth-rejection signal (expired/revoked credential).
+ * are not usage_limit_reached, known-Codex 404s carrying an
+ * auth-rejection signal (expired/revoked credential), and known-Codex fatal
+ * 400s whose message is empty or "Bad Request" (nested diagnostic on raw).
  */
 export function normalizeInferenceErrorForRetry(
   error: InferenceErrorWithGoContext,
@@ -662,6 +696,9 @@ export function normalizeInferenceErrorForRetry(
 
   const codexCredential = normalizeCodexCredential404Error(error);
   if (codexCredential !== error) return codexCredential;
+
+  const codexFatal400 = normalizeCodexFatal400Message(error);
+  if (codexFatal400 !== error) return codexFatal400;
 
   if (!isGatewayOverloadInferenceError(error)) return error;
   if (error.category === "retryable" || error.category === "timeout")

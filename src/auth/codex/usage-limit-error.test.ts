@@ -5,6 +5,7 @@ import {
   formatCodexUsageLimitMessage,
   formatResetETA,
   parseCodexUsageLimitError,
+  readCodexNestedErrorMessage,
 } from "./usage-limit-error.js";
 
 /** Live body captured from chatgpt.com/backend-api/codex/responses. */
@@ -18,6 +19,47 @@ const LIVE_USAGE_LIMIT_BODY = {
     },
   },
 };
+
+describe("readCodexNestedErrorMessage", () => {
+  const nestedInvalidRequest = {
+    detail: {
+      error: {
+        code: "invalid_request_error",
+        message: "invalid reasoning.effort",
+      },
+    },
+  };
+
+  test("returns the nested message even when the code is not usage_limit", () => {
+    expect(readCodexNestedErrorMessage(nestedInvalidRequest)).toBe(
+      "invalid reasoning.effort",
+    );
+  });
+
+  test("parses a JSON string of the same nested shape", () => {
+    expect(
+      readCodexNestedErrorMessage(JSON.stringify(nestedInvalidRequest)),
+    ).toBe("invalid reasoning.effort");
+  });
+
+  test("returns undefined when the nested message is empty or missing", () => {
+    expect(
+      readCodexNestedErrorMessage({
+        detail: { error: { code: "invalid_request_error", message: "" } },
+      }),
+    ).toBeUndefined();
+    expect(
+      readCodexNestedErrorMessage({
+        detail: { error: { code: "invalid_request_error" } },
+      }),
+    ).toBeUndefined();
+  });
+
+  test("returns undefined for unrelated bodies", () => {
+    expect(readCodexNestedErrorMessage({ ok: true })).toBeUndefined();
+    expect(readCodexNestedErrorMessage(undefined)).toBeUndefined();
+  });
+});
 
 describe("parseCodexUsageLimitError", () => {
   test("parses the live nested detail.error body", () => {

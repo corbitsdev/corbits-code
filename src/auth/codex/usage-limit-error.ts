@@ -69,6 +69,19 @@ function readErrorNode(body: unknown): Record<string, unknown> | undefined {
 }
 
 /**
+ * Nested Codex `detail.error.message` when the harness left it on `raw` while
+ * classifying the HTTP statusText. Unlike `parseCodexUsageLimitError`, this
+ * does not require a usage-limit code — any non-empty nested message qualifies.
+ */
+export function readCodexNestedErrorMessage(raw: unknown): string | undefined {
+  const node = readErrorNode(coerceBody(raw));
+  if (node === undefined) return undefined;
+  const message = node["message"];
+  if (typeof message !== "string" || message.length === 0) return undefined;
+  return message;
+}
+
+/**
  * Returns a structured usage-limit error when `raw` matches the Codex body.
  * Undefined for unrelated payloads (including other providers' quota 429s).
  */

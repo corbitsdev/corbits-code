@@ -440,6 +440,125 @@ describe("normalizeInferenceErrorForRetry", () => {
     expect(normalizeInferenceErrorForRetry(error)).toBe(error);
   });
 
+  // Live Codex 400: harness classifies HTTP 400 as fatal with statusText
+  // "Bad Request" while the nested diagnostic rides on raw. The lift must
+  // surface that diagnostic without reclassifying the category.
+  const CODEX_FATAL_400_NESTED_RAW = {
+    detail: {
+      error: {
+        code: "invalid_request_error",
+        message: "invalid reasoning.effort",
+      },
+    },
+  };
+
+  test("lifts a Codex fatal 400 nested diagnostic over Bad Request", () => {
+    const raw = CODEX_FATAL_400_NESTED_RAW;
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "Bad Request",
+      statusCode: 400,
+      providerId: "codex/work",
+      raw,
+    });
+    expect(normalized.category).toBe("fatal");
+    expect(normalized.message).toBe("invalid reasoning.effort");
+    expect(normalized.statusCode).toBe(400);
+    expect(normalized.raw).toBe(raw);
+  });
+
+  test("lifts a Codex fatal 400 when raw is a JSON string of the nested shape", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "Bad Request",
+      statusCode: 400,
+      providerId: "codex/work",
+      raw: JSON.stringify(CODEX_FATAL_400_NESTED_RAW),
+    });
+    expect(normalized.category).toBe("fatal");
+    expect(normalized.message).toBe("invalid reasoning.effort");
+  });
+
+  test("keeps an already-real Codex 400 message even when nested copy exists", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "invalid reasoning.effort",
+      statusCode: 400,
+      providerId: "codex/work",
+      raw: CODEX_FATAL_400_NESTED_RAW,
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("does not lift a non-Codex fatal 400 nested diagnostic", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "Bad Request",
+      statusCode: 400,
+      providerId: "openai",
+      raw: CODEX_FATAL_400_NESTED_RAW,
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("does not lift a Codex-shaped fatal 400 without a providerId", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "Bad Request",
+      statusCode: 400,
+      raw: CODEX_FATAL_400_NESTED_RAW,
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("does not lift a Codex fatal 400 when the nested message is empty", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "Bad Request",
+      statusCode: 400,
+      providerId: "codex/work",
+      raw: {
+        detail: { error: { code: "invalid_request_error", message: "" } },
+      },
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("does not lift a Codex fatal 404 even with a nested diagnostic", () => {
+    const error = {
+      category: "fatal" as const,
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "codex/work",
+      raw: CODEX_FATAL_400_NESTED_RAW,
+    };
+    expect(normalizeInferenceErrorForRetry(error)).toBe(error);
+  });
+
+  test("usage-limit 429 still formats as quota_exhausted after the 400 lift", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "quota_exhausted",
+      message: "Too Many Requests",
+      statusCode: 429,
+      providerId: "codex/acme-labs",
+      raw: CODEX_USAGE_LIMIT_BODY,
+    });
+    expect(normalized.category).toBe("quota_exhausted");
+    expect(normalized.message).toContain('Codex profile "acme-labs"');
+  });
+
+  test("credential 404 still reclassifies after the 400 lift", () => {
+    const normalized = normalizeInferenceErrorForRetry({
+      category: "fatal",
+      message: "Not Found",
+      statusCode: 404,
+      providerId: "codex/work",
+      raw: REVOKED_CREDENTIAL_404_RAW,
+    });
+    expect(normalized.category).toBe("credential_failure");
+    expect(carriesCodexReLoginHint(normalized.message)).toBe(true);
+  });
+
   test.each([
     {
       name: "message-only capacity protocol error",
