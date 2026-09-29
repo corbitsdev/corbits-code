@@ -92,6 +92,22 @@ describe("projectMcpJsonValue", () => {
     });
   });
 
+  test("empty list envelope keeps the collection and pagination siblings", () => {
+    const projected = projectMcpJsonValue(
+      {
+        issues: [],
+        hasNextPage: false,
+        cursor: null,
+      },
+      MCP_DEFAULT_ENTITY_FIELDS,
+    );
+    expect(projected).toEqual({
+      issues: [],
+      hasNextPage: false,
+      cursor: null,
+    });
+  });
+
   test("explicit fields expand to those keys including description", () => {
     const projected = projectMcpJsonValue(
       ISSUE,
@@ -230,6 +246,48 @@ describe("applyMcpResultProjection", () => {
       blocks: [{ type: "text", text: JSON.stringify(payload) }],
     });
     expect(JSON.parse(result.blocks[0]?.text ?? "")).toEqual(payload);
+  });
+
+  test("empty list_issues envelope is not wiped to an empty object", () => {
+    const payload = { issues: [], hasNextPage: false, cursor: null };
+    const result = applyMcpResultProjection({
+      serverName: "linear",
+      toolName: "list_issues",
+      args: {},
+      blocks: [{ type: "text", text: JSON.stringify(payload) }],
+      structuredContent: payload,
+    });
+    expect(JSON.parse(result.blocks[0]?.text ?? "")).toEqual(payload);
+    expect(result.structuredContent).toEqual(payload);
+  });
+
+  test("list_comments keeps a projected structuredContent array", () => {
+    const comments = [
+      {
+        id: "comment-1",
+        url: "https://linear.app/comment-1",
+        body: "done",
+        extra: "drop",
+      },
+      {
+        id: "comment-2",
+        url: "https://linear.app/comment-2",
+        body: "also done",
+      },
+    ];
+    const result = applyMcpResultProjection({
+      serverName: "linear",
+      toolName: "list_comments",
+      args: {},
+      blocks: [{ type: "text", text: JSON.stringify(comments) }],
+      structuredContent: comments,
+    });
+    const projected = [
+      { id: "comment-1", url: "https://linear.app/comment-1" },
+      { id: "comment-2", url: "https://linear.app/comment-2" },
+    ];
+    expect(JSON.parse(result.blocks[0]?.text ?? "")).toEqual(projected);
+    expect(result.structuredContent).toEqual(projected);
   });
 
   test("get_issue is not projected", () => {

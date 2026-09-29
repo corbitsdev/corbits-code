@@ -66,13 +66,15 @@ function sanitizeMcpResultContent(
 }
 
 function serializeStructuredContent(
-  value: Record<string, unknown>,
+  value: Record<string, unknown> | unknown[],
 ): { serialized: string; detail?: Record<string, unknown> } | undefined {
   try {
     const serialized = JSON.stringify(value);
     return {
       serialized,
-      ...(serialized.length <= MAX_RESULT_CHARS ? { detail: value } : {}),
+      ...(serialized.length <= MAX_RESULT_CHARS && !Array.isArray(value)
+        ? { detail: value }
+        : {}),
     };
   } catch {
     return undefined;

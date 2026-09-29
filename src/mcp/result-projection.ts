@@ -30,12 +30,12 @@ export interface McpProjectionInput {
   toolName: string;
   args: Record<string, unknown>;
   blocks: MCPContentBlock[];
-  structuredContent?: Record<string, unknown>;
+  structuredContent?: Record<string, unknown> | unknown[];
 }
 
 export interface McpProjectionOutput {
   blocks: MCPContentBlock[];
-  structuredContent?: Record<string, unknown>;
+  structuredContent?: Record<string, unknown> | unknown[];
 }
 
 export function applyMcpResultProjection(
@@ -62,7 +62,7 @@ export function applyMcpResultProjection(
   const structuredContent =
     input.structuredContent === undefined
       ? undefined
-      : asRecord(
+      : asProjectedStructured(
           projectMcpJsonValue(
             input.structuredContent,
             fields.keys,
@@ -91,13 +91,10 @@ export function projectMcpJsonValue(
   }
   if (!isRecord(value)) return value;
 
-  const recordArrays = Object.entries(value).filter(
-    ([, item]) => Array.isArray(item) && item.some((entry) => isRecord(entry)),
-  );
-  if (recordArrays.length > 0) {
+  if (isListEnvelope(value)) {
     const out = Object.create(null) as Record<string, unknown>;
     for (const [key, item] of Object.entries(value)) {
-      if (Array.isArray(item) && item.some((entry) => isRecord(entry))) {
+      if (isProjectedList(item)) {
         out[key] = item.map((entry) =>
           isRecord(entry)
             ? pickEntityFields(entry, fields, shortenNestedRefs, applyAliases)
@@ -236,8 +233,31 @@ function copyField(value: unknown, shortenNestedRefs: boolean): unknown {
   return Object.keys(nested).length > 0 ? nested : undefined;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined;
+function asProjectedStructured(
+  value: unknown,
+): Record<string, unknown> | unknown[] | undefined {
+  if (isRecord(value) || Array.isArray(value)) return value;
+  return undefined;
+}
+
+function isListEnvelope(value: Record<string, unknown>): boolean {
+  let sawRecordArray = false;
+  let sawEmptyArray = false;
+  for (const item of Object.values(value)) {
+    if (!Array.isArray(item)) continue;
+    if (item.some((entry) => isRecord(entry))) sawRecordArray = true;
+    else if (item.length === 0) sawEmptyArray = true;
+  }
+  if (sawRecordArray) return true;
+  if (!sawEmptyArray) return false;
+  return !Object.hasOwn(value, "id") && !Object.hasOwn(value, "identifier");
+}
+
+function isProjectedList(value: unknown): value is unknown[] {
+  return (
+    Array.isArray(value) &&
+    (value.length === 0 || value.some((entry) => isRecord(entry)))
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
