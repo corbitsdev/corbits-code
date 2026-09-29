@@ -1954,6 +1954,7 @@ export function createSubAgentSessionStore(
             id,
             ask.questionId,
             ask.grantRequestId,
+            now(),
           ) ?? undefined;
       } catch {
         // Envelope attach must not fail ask registration.

@@ -26,7 +26,6 @@ import {
   fingerprintDeniedCall,
   formatWorkerDenyWithGrantId,
   getProcessWorkerGrantStore,
-  type WorkerDeniedCallEnvelope,
   type WorkerGrantStore,
 } from "./worker-grant.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
@@ -87,8 +86,6 @@ export interface WorkerGrantOptions {
   /** Owning worker session; absent means no envelope is minted or matched. */
   sessionId?: string | (() => string | undefined);
   workspaceRoot?: string;
-  /** Observability hook for tests/telemetry; never authoritative. */
-  onDeniedCall?: (envelope: WorkerDeniedCallEnvelope) => void;
 }
 
 function resolveWorkerSessionId(
@@ -161,11 +158,6 @@ function denyWorkerCallWithEnvelope(
           : {}),
       }),
     );
-  try {
-    options?.onDeniedCall?.(envelope);
-  } catch {
-    // Observability must not throw into the deny path.
-  }
   return {
     effect: "deny",
     reason: formatWorkerDenyWithGrantId(baseReason, envelope.requestId),
@@ -217,14 +209,14 @@ async function authorizeWorkerCallInner(
     if (!precheck.ok) return { effect: "deny", reason: precheck.blocker };
   }
   const verdict = await gate.authorizeCall(call);
-  if (verdict.effect === "allow") {
-    if (grant !== undefined) {
-      grant.store.consumeOnAllow(
-        workerCallIdentity(grant.sessionId, call, workerCwd),
-      );
-    }
-    return verdict;
-  }
+  // Authorize never consumes: it only permits the call to proceed to the
+  // tool-runner middleware, which enforces executionVerdict. Consuming here
+  // would spend the envelope before execution, so the execution backstop's
+  // precheck would deny the granted retry as "already consumed". The single
+  // consumption happens in executionVerdictWorkerCallInner below — the stage
+  // that actually permits execution — where the same mutex still serializes
+  // concurrent identical retries to exactly one.
+  if (verdict.effect === "allow") return verdict;
   if (verdict.effect !== "ask") return verdict;
   return denyWorkerCallWithEnvelope(
     grantOptions,
@@ -279,6 +271,9 @@ async function executionVerdictWorkerCallInner(
     if (!precheck.ok) return { effect: "deny", reason: precheck.blocker };
   }
   const verdict = await gate.executionVerdict(call);
+  // Sole consumption point: the execution backstop spends the envelope when
+  // the exact call is allowed, so one grant request permits exactly one
+  // execution. Authorize deliberately does not consume (see above).
   if (verdict.effect === "allow") {
     if (grant !== undefined) {
       grant.store.consumeOnAllow(

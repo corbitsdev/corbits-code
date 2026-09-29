@@ -24,18 +24,11 @@ export const WORKER_GRANT_TTL_MS = 10 * 60 * 1000;
 export type WorkerGrantStatus =
   | "pending"
   | "consumed"
-  | "declined"
   | "expired"
   | "interrupted";
 
 export interface WorkerGrantAuditEvent {
-  event:
-    | "denied"
-    | "asked"
-    | "consumed"
-    | "declined"
-    | "expired"
-    | "interrupted";
+  event: "denied" | "asked" | "consumed" | "expired" | "interrupted";
   at: number;
   detail?: string;
 }
@@ -166,19 +159,6 @@ export function formatWorkerDenyWithGrantId(
   return `${baseReason} deny recorded under grant request ${requestId}; parent approval is pending — reference only this request id when asking, the text carries no authority.`;
 }
 
-/** Exact-args retry brief built from the harness envelope (never model prose):
- * the parent copies this into the existing resume_agent verb with the
- * questionId ref. */
-export function buildRetryMessage(envelope: WorkerDeniedCallEnvelope): string {
-  const ref =
-    envelope.questionId !== undefined ? ` (ask ${envelope.questionId})` : "";
-  return (
-    `Parent approved grant request ${envelope.requestId}${ref} for exactly one ` +
-    `retry. Re-issue exactly this tool call once now — ${envelope.canonicalTool} ` +
-    `with ${JSON.stringify(envelope.args)} — and do not vary arguments, tool, or cwd.`
-  );
-}
-
 export interface WorkerCallIdentity {
   sessionId: string;
   canonicalTool: string;
@@ -202,8 +182,6 @@ function terminalBlocker(
   switch (envelope.status) {
     case "consumed":
       return `Grant request ${envelope.requestId} was already consumed by its one retry — replaying ${expected} is denied.`;
-    case "declined":
-      return `Grant request ${envelope.requestId} was declined — retrying ${expected} is denied.`;
     case "expired":
       return `Grant request ${envelope.requestId} expired — retrying ${expected} is denied. Re-ask instead.`;
     case "interrupted":
@@ -328,17 +306,12 @@ export class WorkerGrantStore {
     return envelope;
   }
 
-  byQuestion(questionId: string): WorkerDeniedCallEnvelope | undefined {
-    for (const envelope of this.envelopes.values()) {
-      if (envelope.questionId === questionId) return envelope;
-    }
-    return undefined;
-  }
-
   /**
    * Execution backstop pre-check for a worker call: fail closed when the exact
-   * call identity matches a terminal envelope (replay, decline, interrupt),
-   * a tampered cwd, or another session's envelope. An EXPIRED envelope is
+   * call identity matches a terminal envelope (replay, interrupt) or a
+   * tampered cwd. Envelopes from other sessions never veto this session:
+   * each session mints and spends its own envelope through its own grant
+   * round. An EXPIRED envelope is
    * marked and skipped instead of denying: the lapsed window must yield a
    * fresh gate round that mints a fresh envelope, never a blackhole the
    * worker can never re-ask out of. Pending own envelopes and unknown calls
@@ -354,15 +327,18 @@ export class WorkerGrantStore {
     const now = identity.now ?? Date.now();
     this.sweepExpired(now);
     const fingerprint = fingerprintOf(identity);
-    let crossSession: WorkerDeniedCallEnvelope | undefined;
     for (const envelope of this.envelopes.values()) {
       if (envelope.argsFingerprint !== fingerprint) continue;
+      // Another session's envelope never vetoes this session: each session
+      // mints and spends its own envelope through its own grant round, so a
+      // sibling's pending or already-consumed envelope is irrelevant here.
+      // (Reactor retries share the worker's session, so consume-once within
+      // the session survives this scoping. Spending stays session-scoped in
+      // consumeOnAllow, and tampered args/cwd still fail closed below.)
       if (
         envelope.canonicalTool !== identity.canonicalTool ||
         envelope.workerSessionId !== identity.sessionId
       ) {
-        if (envelope.status === "pending" || envelope.status === "consumed")
-          crossSession = envelope;
         continue;
       }
       if (envelope.cwd !== identity.cwd) {
@@ -392,15 +368,6 @@ export class WorkerGrantStore {
         continue;
       }
       return { ok: true };
-    }
-    if (crossSession !== undefined) {
-      const expected = `${identity.canonicalTool} in ${identity.cwd}`;
-      return {
-        ok: false,
-        blocker:
-          `Grant request ${crossSession.requestId} does not cover ${expected}: ` +
-          `replay the exact denied tool from the owning session ${crossSession.workerSessionId}, or re-ask.`,
-      };
     }
     // Phase 2 (by design, do not tighten here): a call whose fingerprint
     // matches no envelope falls through to the normal gate path, where a
@@ -436,31 +403,6 @@ export class WorkerGrantStore {
       return envelope;
     }
     return undefined;
-  }
-
-  decline(requestId: string, reason: string): boolean {
-    const envelope = this.envelopes.get(requestId);
-    if (envelope === undefined || envelope.status !== "pending") return false;
-    envelope.status = "declined";
-    audit(envelope, "declined", reason);
-    return true;
-  }
-
-  /** Headless parent: decline every pending envelope (single truthful
-   * blocker each) instead of parking them for an operator who never comes. */
-  declineAllForSession(sessionId: string, reason: string): number {
-    let declined = 0;
-    for (const envelope of this.envelopes.values()) {
-      if (
-        envelope.workerSessionId !== sessionId ||
-        envelope.status !== "pending"
-      )
-        continue;
-      envelope.status = "declined";
-      audit(envelope, "declined", reason);
-      declined += 1;
-    }
-    return declined;
   }
 
   /** Interrupt invalidation: tombstone the session's envelopes so a later
@@ -526,10 +468,6 @@ export class WorkerGrantStore {
       invalidated += 1;
     }
     return invalidated;
-  }
-
-  auditTrail(requestId: string): readonly WorkerGrantAuditEvent[] {
-    return this.envelopes.get(requestId)?.audit ?? [];
   }
 
   /** Test-only reset: the process store is shared by parent and worker sides. */
