@@ -21,7 +21,15 @@ import type { AuthzCallResult } from "@intx/inference";
 import { WORKER_CANNOT_COMPLETE_APPROVAL } from "./decline-markers.js";
 import type { AuthorizeVerdict, GateVerdict, PermissionGate } from "./gate.js";
 import type { PermissionRequest } from "./types.js";
+import {
+  createDeniedCallEnvelope,
+  formatWorkerDenyWithGrantId,
+  getProcessWorkerGrantStore,
+  type WorkerDeniedCallEnvelope,
+  type WorkerGrantStore,
+} from "./worker-grant.js";
 import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import { getSubAgentIdentity } from "../subagent/identity-context.js";
 import {
   FLEET_VERBS,
   ORCHESTRATOR_ONLY_FLEET_VERBS,
@@ -71,21 +79,138 @@ function readAuthorizeToolCall(
   return call satisfies ToolCallType;
 }
 
+export interface WorkerGrantOptions {
+  /** Defaults to the process-shared sidecar (worker deny side registers,
+   * parent observes/consumes). Tests pass an isolated store. */
+  store?: WorkerGrantStore;
+  /** Owning worker session; absent means no envelope is minted or matched. */
+  sessionId?: string | (() => string | undefined);
+  workspaceRoot?: string;
+  /** Observability hook for tests/telemetry; never authoritative. */
+  onDeniedCall?: (envelope: WorkerDeniedCallEnvelope) => void;
+}
+
+function resolveWorkerSessionId(
+  sessionId: WorkerGrantOptions["sessionId"],
+): string | undefined {
+  return typeof sessionId === "function" ? sessionId() : sessionId;
+}
+
+function resolveWorkerCwd(cwd: string | undefined): string {
+  return cwd ?? getSubAgentIdentity()?.cwd ?? process.cwd();
+}
+
+function workerCallIdentity(
+  sessionId: string,
+  call: ToolCallType,
+  cwd: string,
+): {
+  sessionId: string;
+  canonicalTool: string;
+  args: Record<string, unknown>;
+  cwd: string;
+} {
+  return {
+    sessionId,
+    canonicalTool: canonicalToolName(call.name),
+    args: (call.arguments ?? {}) as Record<string, unknown>,
+    cwd,
+  };
+}
+
+/**
+ * Harness-owned denied-call sidecar (CL-9475 Phase 1): on a worker
+ * deny-on-ask, register the exact denied call and name only its requestId in
+ * the deny reason. Reuses a still-pending envelope for the same exact call
+ * instead of minting duplicates across reactor retries with fresh call ids.
+ */
+function denyWorkerCallWithEnvelope(
+  options: WorkerGrantOptions | undefined,
+  call: ToolCallType,
+  request: PermissionRequest,
+  cwd: string,
+  baseReason: string,
+): { effect: "deny"; reason: string } {
+  const sessionId =
+    options !== undefined
+      ? resolveWorkerSessionId(options.sessionId)
+      : undefined;
+  if (sessionId === undefined) return { effect: "deny", reason: baseReason };
+  const store = options?.store ?? getProcessWorkerGrantStore();
+  const identity = workerCallIdentity(sessionId, call, cwd);
+  const existing = store.pendingMatch(
+    identity.sessionId,
+    identity.canonicalTool,
+    identity.args,
+    identity.cwd,
+  );
+  const envelope =
+    existing ??
+    store.register(
+      createDeniedCallEnvelope({
+        callId: call.id,
+        tool: call.name,
+        action: request.action,
+        subject: request.subject,
+        args: identity.args,
+        cwd: identity.cwd,
+        workerSessionId: identity.sessionId,
+        ...(options?.workspaceRoot !== undefined
+          ? { workspaceRoot: options.workspaceRoot }
+          : {}),
+      }),
+    );
+  try {
+    options?.onDeniedCall?.(envelope);
+  } catch {
+    // Observability must not throw into the deny path.
+  }
+  return {
+    effect: "deny",
+    reason: formatWorkerDenyWithGrantId(baseReason, envelope.requestId),
+  };
+}
+
 async function authorizeWorkerCall(
   gate: PermissionGate,
   call: ToolCallType,
+  grantOptions?: WorkerGrantOptions,
+  cwd?: string,
 ): Promise<{ effect: "allow" } | { effect: "deny"; reason: string }> {
   if (isWorkerControlPlaneTool(call.name)) return { effect: "allow" };
+  const workerCwd = resolveWorkerCwd(cwd);
+  const sessionId = resolveWorkerSessionId(grantOptions?.sessionId);
+  if (sessionId !== undefined) {
+    const store = grantOptions?.store ?? getProcessWorkerGrantStore();
+    const precheck = store.precheck(
+      workerCallIdentity(sessionId, call, workerCwd),
+    );
+    if (!precheck.ok) return { effect: "deny", reason: precheck.blocker };
+  }
   const verdict = await gate.authorizeCall(call);
+  if (verdict.effect === "allow") {
+    if (sessionId !== undefined) {
+      const store = grantOptions?.store ?? getProcessWorkerGrantStore();
+      store.consumeOnAllow(workerCallIdentity(sessionId, call, workerCwd));
+    }
+    return verdict;
+  }
   if (verdict.effect !== "ask") return verdict;
-  return { effect: "deny", reason: workerUnresolvedAskReason(verdict.request) };
+  return denyWorkerCallWithEnvelope(
+    grantOptions,
+    call,
+    verdict.request,
+    workerCwd,
+    workerUnresolvedAskReason(verdict.request),
+  );
 }
 
 async function evaluateWorkerCall(
   gate: PermissionGate,
   call: ToolCallType,
+  grantOptions?: WorkerGrantOptions,
 ): Promise<GateVerdict> {
-  const verdict = await authorizeWorkerCall(gate, call);
+  const verdict = await authorizeWorkerCall(gate, call, grantOptions);
   if (verdict.effect === "allow") return { allowed: true };
   return { allowed: false, reason: verdict.reason };
 }
@@ -93,21 +218,49 @@ async function evaluateWorkerCall(
 async function executionVerdictWorkerCall(
   gate: PermissionGate,
   call: ToolCallType,
+  grantOptions?: WorkerGrantOptions,
+  cwd?: string,
 ): Promise<AuthorizeVerdict> {
   if (isWorkerControlPlaneTool(call.name)) return { effect: "allow" };
+  const workerCwd = resolveWorkerCwd(cwd);
+  const sessionId = resolveWorkerSessionId(grantOptions?.sessionId);
+  if (sessionId !== undefined) {
+    const store = grantOptions?.store ?? getProcessWorkerGrantStore();
+    const precheck = store.precheck(
+      workerCallIdentity(sessionId, call, workerCwd),
+    );
+    if (!precheck.ok) return { effect: "deny", reason: precheck.blocker };
+  }
   const verdict = await gate.executionVerdict(call);
+  if (verdict.effect === "allow") {
+    if (sessionId !== undefined) {
+      const store = grantOptions?.store ?? getProcessWorkerGrantStore();
+      store.consumeOnAllow(workerCallIdentity(sessionId, call, workerCwd));
+    }
+    return verdict;
+  }
   if (verdict.effect !== "ask") return verdict;
-  return { effect: "deny", reason: workerUnresolvedAskReason(verdict.request) };
+  return denyWorkerCallWithEnvelope(
+    grantOptions,
+    call,
+    verdict.request,
+    workerCwd,
+    workerUnresolvedAskReason(verdict.request),
+  );
 }
 
 // Shared-policy view for worker posix/MCP plugins and reactor authz: live
 // grants stay on the parent, reactor-gated middleware is `isReactorGated()`,
 // and authorizeCall never emits ask.
-export function workerPermissionGate(gate: PermissionGate): PermissionGate {
+export function workerPermissionGate(
+  gate: PermissionGate,
+  grantOptions?: WorkerGrantOptions,
+): PermissionGate {
   return {
-    evaluate: (call) => evaluateWorkerCall(gate, call),
-    authorizeCall: (call) => authorizeWorkerCall(gate, call),
-    executionVerdict: (call) => executionVerdictWorkerCall(gate, call),
+    evaluate: (call) => evaluateWorkerCall(gate, call, grantOptions),
+    authorizeCall: (call) => authorizeWorkerCall(gate, call, grantOptions),
+    executionVerdict: (call) =>
+      executionVerdictWorkerCall(gate, call, grantOptions),
     resolveSuspended: (request) => gate.resolveSuspended(request),
     isReactorGated: () => true,
     getApprovals: () => gate.getApprovals(),
@@ -159,12 +312,13 @@ export function createReactorAuthorize(
 
 export function createWorkerAuthorize(
   gate: PermissionGate,
+  grantOptions?: WorkerGrantOptions,
 ): (
   resource: string,
   action: string,
   context: unknown,
 ) => Promise<AuthzCallResult> {
-  const workerGate = workerPermissionGate(gate);
+  const workerGate = workerPermissionGate(gate, grantOptions);
   return async (resource, action, context) => {
     const call = readAuthorizeToolCall(resource, action, context);
     const verdict = await workerGate.authorizeCall(call);

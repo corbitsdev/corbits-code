@@ -524,7 +524,10 @@ const askDirectorDefinition: ToolDefinition = {
     "Ask the spawning director when the dispatch brief is genuinely ambiguous. " +
     "You cannot reach the operator. One pending question at a time; " +
     `at most ${ASK_DIRECTOR_MAX_QUESTIONS} questions per turn; ` +
-    `${ASK_DIRECTOR_MAX_BYTES} byte cap. The director answers with send_input (soft).`,
+    `${ASK_DIRECTOR_MAX_BYTES} byte cap. The director answers with send_input (soft). ` +
+    "For a denied tool call, reference only the grant requestId from the deny " +
+    "message — the harness-owned envelope carries the exact call, so repeating " +
+    "tool arguments here grants nothing.",
   inputSchema: {
     type: "object",
     properties: {
@@ -598,11 +601,16 @@ async function runSubAgentInner(
 ): Promise<RunSubAgentResult> {
   const inferenceDeps = await assembleInferenceBase();
 
-  const permissionGate = workerPermissionGate(params.permissionGate);
-  // Identifies this dispatch to submit_result so a submission survives
-  // only for the turn it was spawned under — a stale call from a redirected
-  // orchestrator (echoing an old token) is rejected. Steering (followup)
-  // rotates it: the old token dies with the superseded turn.
+  // CL-9475: the fleet session id the parent observes (params.id); falls
+  // back to the local session id below when run without a fleet caller.
+  // Harness-owned denied-call envelopes are keyed by this id.
+  let workerGrantSessionId: string | undefined =
+    params.id !== undefined && /^[A-Za-z0-9_-]+$/.test(params.id)
+      ? params.id
+      : undefined;
+  const permissionGate = workerPermissionGate(params.permissionGate, {
+    sessionId: () => workerGrantSessionId,
+  });
   let turnToken = params.tier === "leaf" ? generateSessionId() : undefined;
   const submitResultState = createSubmitResultState();
   const askDirectorState = createAskDirectorState();
@@ -1144,6 +1152,9 @@ async function runSubAgentInner(
         ? params.id
         : undefined;
     const sessionId = safeRequestedId ?? generateSessionId();
+    // CL-9475: fleet-less runs mint their own id — keep the grant sidecar
+    // keyed to the same session the parent would observe.
+    if (workerGrantSessionId === undefined) workerGrantSessionId = sessionId;
     const workdir = join(params.workdirBase, "subagents", sessionId);
     await mkdir(workdir, { recursive: true });
     childContextDir = workdir;
@@ -1176,7 +1187,9 @@ async function runSubAgentInner(
     const { storage, audit } = await createSessionStores(workdir);
     childBlobWriter = (key, bytes, contentType) =>
       storage.writeBlob(key, bytes, contentType);
-    const authorize = createWorkerAuthorize(params.permissionGate);
+    const authorize = createWorkerAuthorize(params.permissionGate, {
+      sessionId: () => workerGrantSessionId,
+    });
 
     const head = {
       provider: params.provider.providerName,

@@ -101,6 +101,10 @@ OAuth stores serialize refresh writes and treat the value observed under the sto
 
 The interactive TUI may offer an explicit alternate-provider/model selector only after the same-profile retry also ends in a terminal credential failure. That choice is generation-scoped and consumed once. It may continue the original operator message only when the failed attempt emitted no committing inference event; after any commitment it switches the live provider without replaying the message. `/connect` replaces or adds credentials and `/model` switches the live source explicitly. Exec and fleet workers use the same one-shot same-profile recovery but never open an auth or alternate-provider prompt; an exhausted failure terminates that attempt with a sanitized recovery diagnostic.
 
+### Worker permission grants
+
+A worker deny-on-ask registers a harness-owned denied-call envelope (`src/permission/worker-grant.ts`): the exact denied ToolCall plus a stable path-aware fingerprint, keyed by worker session with a single-parent-turn expiry. The deny reason names only the envelope's requestId; the worker's `ask_director` prose carries no authority and plain `send_input` text can never mint, consume, or extend an envelope. The parent observes the envelope on the ask record, replays the exact call through its own gate operator path, and retries the retained worker via the existing `resume_agent` with exact args plus the questionId ref. The first covering-grant retry consumes the envelope; replays, tampered args/cwd/tool/session, expiry, decline, or interrupt fail closed with a truthful blocker. There is no dedicated grant verb — single-use and exactness are enforced by the envelope sidecar, not by tool plumbing.
+
 ### TUI Runner (`src/tui/runner/`)
 
 - Builds a chat-mode agent using the `ChatDirector`

@@ -20,6 +20,10 @@ import {
 } from "./lifecycle.js";
 import type { ForcedStopReason } from "./stop-policy.js";
 import { toolCallPreview } from "./tool-preview.js";
+import {
+  getProcessWorkerGrantStore,
+  type WorkerDeniedCallEnvelope,
+} from "../permission/worker-grant.js";
 import type { AdmissionQueue, AdmissionStatus } from "./admission.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "session-store"]);
@@ -308,7 +312,13 @@ export interface SubAgentSessionStore {
   resolveAsk(id: string, answer: string): boolean;
   cancelAsk(id: string, reason?: string): boolean;
   hasPendingAsk(id: string): boolean;
-  peekAsk(id: string): { question: string; questionId: string } | undefined;
+  peekAsk(id: string):
+    | {
+        question: string;
+        questionId: string;
+        deniedCall?: WorkerDeniedCallEnvelope;
+      }
+    | undefined;
   /**
    * Ask deadline (CL-8016): reject every pending ask older than `maxAgeMs`
    * with an explicit timeout error naming its question and session, so a
@@ -613,6 +623,10 @@ export function createSubAgentSessionStore(
       // longer than the bound settles via `expireStaleAsks` instead of
       // waiting on a wake turn that may never land.
       askedAt: number;
+      // Harness-owned denied-call envelope (CL-9475 Phase 1): the exact
+      // denied ToolCall + hash attached at registerAsk. Parent replays from
+      // this record — model prose is never authoritative.
+      deniedCall?: WorkerDeniedCallEnvelope;
     }
   >();
   const listeners = new Set<() => void>();
@@ -628,6 +642,16 @@ export function createSubAgentSessionStore(
       lifecycleStatus: projectLifecycleStatus(session.lifecycle),
       hint: EVICTED_RETENTION_HINT,
     });
+    // CL-9475: an evicted session's denied-call envelopes fail closed — a
+    // later replay names the eviction instead of riding a lingering grant.
+    try {
+      getProcessWorkerGrantStore().invalidateSession(
+        session.id,
+        EVICTED_RETENTION_HINT,
+      );
+    } catch {
+      // Grant invalidation must not throw out of eviction.
+    }
     if (evicted.size > MAX_EVICTED_TOMBSTONES) {
       const oldest = evicted.keys().next().value;
       if (oldest !== undefined) evicted.delete(oldest);
@@ -691,10 +715,23 @@ export function createSubAgentSessionStore(
     id: string,
     reason: string,
     silent = false,
+    keepGrants = false,
   ): boolean => {
     const pending = pendingAsks.get(id);
     if (pending === undefined) return false;
     pendingAsks.delete(id);
+    if (!keepGrants) {
+      // CL-9475: interrupt/cancel invalidation — tombstone the session's
+      // denied-call envelopes so a later replay fails closed with a truthful
+      // blocker instead of falling through to whatever grant the gate holds.
+      // Retained run-settle keeps them (keepGrants): the retained
+      // resume_agent retry is the Phase 1 retry path.
+      try {
+        getProcessWorkerGrantStore().invalidateSession(id, reason);
+      } catch {
+        // Grant invalidation must not throw into settle/interrupt paths.
+      }
+    }
     try {
       pending.reject(new Error(reason));
     } catch {
@@ -1899,7 +1936,23 @@ export function createSubAgentSessionStore(
       if (session === undefined) return false;
       if (session.lifecycle.state !== "running") return false;
       if (pendingAsks.has(id)) return false;
-      pendingAsks.set(id, { ...ask, askedAt: now() });
+      // CL-9475: attach the harness-owned denied-call envelope (exact
+      // ToolCall + hash) to the ask record; stamps its questionId for the
+      // parent's retry ref. Absent when the ask is not grant-backed.
+      let deniedCall: WorkerDeniedCallEnvelope | undefined;
+      try {
+        deniedCall =
+          getProcessWorkerGrantStore().attachToAsk(id, ask.questionId) ??
+          undefined;
+      } catch {
+        // Envelope attach must not fail ask registration.
+      }
+      pendingAsks.set(
+        id,
+        deniedCall !== undefined
+          ? { ...ask, askedAt: now(), deniedCall }
+          : { ...ask, askedAt: now() },
+      );
       mutate(id, () => undefined);
       return true;
     },
@@ -1921,10 +1974,22 @@ export function createSubAgentSessionStore(
       return pendingAsks.has(id);
     },
 
-    peekAsk(id: string): { question: string; questionId: string } | undefined {
+    peekAsk(id: string):
+      | {
+          question: string;
+          questionId: string;
+          deniedCall?: WorkerDeniedCallEnvelope;
+        }
+      | undefined {
       const pending = pendingAsks.get(id);
       if (pending === undefined) return undefined;
-      return { question: pending.question, questionId: pending.questionId };
+      return {
+        question: pending.question,
+        questionId: pending.questionId,
+        ...(pending.deniedCall !== undefined
+          ? { deniedCall: pending.deniedCall }
+          : {}),
+      };
     },
 
     expireStaleAsks(
@@ -1935,6 +2000,17 @@ export function createSubAgentSessionStore(
       for (const [id, pending] of pendingAsks) {
         if (pending.askedAt > cutoff) continue;
         expired.push({ sessionId: id, questionId: pending.questionId });
+        // The parent never answered: this session's denied-call envelopes
+        // fail closed as expired rather than lingering for a later retry.
+        // Expire first — the cancel below invalidates only still-pending ones.
+        try {
+          getProcessWorkerGrantStore().expireSession(
+            id,
+            `ask ${pending.questionId} expired without an answer`,
+          );
+        } catch {
+          // Expiry marking must not throw into the expiry sweep.
+        }
         cancelAskInternal(
           id,
           `ask_director question ${pending.questionId} for session ${id} expired without an answer after ${maxAgeMs}ms — reply with send_input before the deadline, or not at all`,
@@ -2198,7 +2274,9 @@ export function createSubAgentSessionStore(
     },
 
     settleRun(id: string): void {
-      cancelAskInternal(id, "run settled");
+      // Retained run-settle keeps denied-call envelopes (keepGrants): the
+      // retained resume_agent retry is the Phase 1 retry path.
+      cancelAskInternal(id, "run settled", false, true);
       // CL-7988: the run settled with steers still queued — surface them.
       dropStashedFollowups(id, "run settled");
       if (!runInFlight.delete(id)) return;
@@ -2238,6 +2316,11 @@ export function createSubAgentSessionStore(
       revisions.clear();
       snapshotCache.clear();
       evicted.clear();
+      try {
+        getProcessWorkerGrantStore().invalidateAll("store cleared");
+      } catch {
+        // Grant invalidation must not throw out of clear.
+      }
       notify();
     },
 
@@ -2278,6 +2361,11 @@ export function createSubAgentSessionStore(
       runInFlight.clear();
       revisions.clear();
       snapshotCache.clear();
+      try {
+        getProcessWorkerGrantStore().invalidateAll(reason);
+      } catch {
+        // Grant invalidation must not throw out of teardown.
+      }
       notify();
     },
   };
