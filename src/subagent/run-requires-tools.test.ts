@@ -109,6 +109,44 @@ describe("runSubAgent requires_tools mount echo", () => {
     expect((error as Error).message).not.toContain("stale_snapshot");
   }, 15_000);
 
+  test("stamped manage_tasks survives the echo under a narrow allowlist", async () => {
+    const cwd = await tmpCwd();
+    const error = await withFailingInference(async (baseURL) => {
+      try {
+        await runSubAgent({
+          ...baseParams(cwd, baseURL),
+          capabilities: { mode: "allow", tools: ["read_file"] },
+          requiresTools: ["manage_tasks"],
+        });
+      } catch (err) {
+        return err;
+      }
+      throw new Error("runSubAgent did not throw");
+    });
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain("stale_snapshot");
+  }, 15_000);
+
+  test("stamped update_plan alias survives the echo under a narrow allowlist", async () => {
+    const cwd = await tmpCwd();
+    const error = await withFailingInference(async (baseURL) => {
+      try {
+        await runSubAgent({
+          ...baseParams(cwd, baseURL),
+          capabilities: { mode: "allow", tools: ["read_file"] },
+          requiresTools: ["update_plan"],
+        });
+      } catch (err) {
+        return err;
+      }
+      throw new Error("runSubAgent did not throw");
+    });
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain("stale_snapshot");
+  }, 15_000);
+
   test("absent requiresTools leaves the mount path unchanged", async () => {
     const cwd = await tmpCwd();
     const error = await withFailingInference(async (baseURL) => {
