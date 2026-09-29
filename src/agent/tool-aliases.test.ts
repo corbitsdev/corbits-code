@@ -292,6 +292,18 @@ describe("authz parity definitions", () => {
   test("empty registry stays empty", () => {
     expect(authzParityDefinitions([])).toEqual([]);
   });
+
+  test("applied to its own output is a no-op (name set stable)", () => {
+    const once = authzParityDefinitions([
+      posixDef("run_shell"),
+      posixDef("read_file"),
+      posixDef("manage_tasks"),
+      posixDef("mcp__acme__do"),
+    ]);
+    const twice = authzParityDefinitions(once);
+    expect(twice.map((d) => d.name)).toEqual(once.map((d) => d.name));
+    expect(twice).toEqual(once);
+  });
 });
 
 describe("withAuthzParityDefinitions", () => {
@@ -338,5 +350,27 @@ describe("withAuthzParityDefinitions", () => {
     expect(
       withAuthzParityDefinitions(bundle).definitions.map((d) => d.name),
     ).toEqual(["read_file", "read"]);
+  });
+
+  test("addTools through the wrapper is reflected in definitions plus parity copies", () => {
+    let live: ToolDefinition[] = [posixDef("run_shell")];
+    const bundle = {
+      definitions: live,
+      currentDefinitions: () => live,
+      addTools: (tools: ToolDefinition[]) => {
+        live = [...live, ...tools];
+      },
+      run: async () => ({ callId: "1", content: "", isError: false }),
+    };
+    const wrapped = withAuthzParityDefinitions(bundle);
+    expect(wrapped.addTools).toBe(bundle.addTools);
+    wrapped.addTools([posixDef("read_file")]);
+    expect(wrapped.definitions.map((d) => d.name)).toEqual([
+      "run_shell",
+      "read_file",
+      "bash",
+      "shell",
+      "read",
+    ]);
   });
 });
