@@ -633,12 +633,7 @@ describe("loadConfig", () => {
       "fireworks",
       "hello",
     ]);
-    const modelFirst = await loadFor(cwd, [
-      "--model",
-      model,
-      "-p",
-      "hello",
-    ]);
+    const modelFirst = await loadFor(cwd, ["--model", model, "-p", "hello"]);
     const directorFirst = await loadFor(cwd, [
       "--director",
       "skywalker",
@@ -1151,14 +1146,11 @@ describe("loadConfig", () => {
       join(cwd, ".corbits", "profile.json"),
       JSON.stringify({ model: "profile-model" }),
     );
-    const config = await loadFor(
-      cwd,
-      [
-        "--model",
-        "accounts/fireworks/routers/kimi-k2p6-turbo",
-        "task",
-      ],
-    );
+    const config = await loadFor(cwd, [
+      "--model",
+      "accounts/fireworks/routers/kimi-k2p6-turbo",
+      "task",
+    ]);
     expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
   });
 

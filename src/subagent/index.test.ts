@@ -201,7 +201,6 @@ describe("sub-agent stop helpers", () => {
     "## Paths",
   ].join("\n");
 
-
   const WRAP_PLAN_ENVELOPE = [
     "## Summary",
     "Plan after reading the gate.",

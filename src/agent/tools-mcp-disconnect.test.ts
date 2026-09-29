@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { installMcpConnectMock, mcpTestPermissionGate } from "../testkit/mcp-connect-mock.js";
+import {
+  installMcpConnectMock,
+  mcpTestPermissionGate,
+} from "../testkit/mcp-connect-mock.js";
 import type { MCPServerState } from "./tools.js";
 
 const dirs: string[] = [];

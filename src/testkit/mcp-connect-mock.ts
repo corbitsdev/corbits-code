@@ -109,7 +109,7 @@ export async function installMcpConnectMock(
   const initialTools = settings.initialTools ?? [];
   const toolCallResult = settings.toolCallResult ?? "ok";
   const resolveTools: (mode: McpConnectMode) => MCPTool[] =
-    settings.resolveTools ?? ((mode) => mock.connectedTools);
+    settings.resolveTools ?? (() => mock.connectedTools);
   const abortableDeferred = settings.abortableDeferred ?? false;
   const teardownOnAbort = settings.teardownOnAbort ?? false;
 
@@ -167,11 +167,7 @@ export async function installMcpConnectMock(
         const generation = ++mock.connectGeneration;
         const mode = mock.mode;
 
-        if (
-          mode === "auth" ||
-          mock.blockOnAuth ||
-          mock.authURL !== null
-        ) {
+        if (mode === "auth" || mock.blockOnAuth || mock.authURL !== null) {
           connectOptions.onAuthURL?.(
             config.name,
             mock.authURL ?? "https://auth.test/authorize",
@@ -202,8 +198,9 @@ export async function installMcpConnectMock(
             if (connectOptions.signal?.aborted === true) {
               onAbort();
             } else {
-              connectOptions.signal
-                ?.addEventListener("abort", onAbort, { once: true });
+              connectOptions.signal?.addEventListener("abort", onAbort, {
+                once: true,
+              });
             }
           });
           return {
@@ -227,8 +224,9 @@ export async function installMcpConnectMock(
               const onAbort = (): void => resolve();
               if (connectOptions.signal?.aborted === true) onAbort();
               else
-                connectOptions.signal
-                  ?.addEventListener("abort", onAbort, { once: true });
+                connectOptions.signal?.addEventListener("abort", onAbort, {
+                  once: true,
+                });
             }
           });
           if (abortableDeferred && connectOptions.signal?.aborted === true) {

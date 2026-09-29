@@ -318,9 +318,7 @@ describe("flat type-to-filter model picker", () => {
       expect(items.some((label) => label.includes("codex/acme-labs"))).toBe(
         true,
       );
-      expect(items.some((label) => label.includes("xai/alice"))).toBe(
-        true,
-      );
+      expect(items.some((label) => label.includes("xai/alice"))).toBe(true);
       // No provider-group-only rows (those were `providerGroup:` ids with no model).
       expect(
         items.every((label) => label.includes(" * [") || label.startsWith("(")),
@@ -354,9 +352,7 @@ describe("flat type-to-filter model picker", () => {
       ).toBe(true);
 
       acceptOverlaySelection(host.shell);
-      expect(selected).toEqual([
-        modelOptionId("xai/alice", "grok-4.5"),
-      ]);
+      expect(selected).toEqual([modelOptionId("xai/alice", "grok-4.5")]);
     } finally {
       host.dispose();
       harness.destroy();

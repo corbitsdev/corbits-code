@@ -42,7 +42,10 @@ function retainedPendingFollowup(
   worker: SubAgentSession;
   finish: (reply: string) => void;
 } {
-  const worker = startSession(sessions, { description: "worker", retained: true });
+  const worker = startSession(sessions, {
+    description: "worker",
+    retained: true,
+  });
   let finish: (reply: string) => void = () => undefined;
   sessions.registerFollowup(
     worker.id,
@@ -59,8 +62,14 @@ describe("close_agent", () => {
   test("closes descendants before the parent, and reports not_found for an unknown target", async () => {
     const sessions = createSubAgentSessionStore();
     const parent = startSession(sessions, { description: "parent" });
-    const child = startSession(sessions, { description: "child", parentSessionId: parent.id });
-    const grandchild = startSession(sessions, { description: "grandchild", parentSessionId: child.id });
+    const child = startSession(sessions, {
+      description: "child",
+      parentSessionId: parent.id,
+    });
+    const grandchild = startSession(sessions, {
+      description: "grandchild",
+      parentSessionId: child.id,
+    });
 
     const closedOrder: string[] = [];
     for (const id of [parent.id, child.id, grandchild.id]) {
@@ -89,8 +98,14 @@ describe("close_agent", () => {
   test("closes remaining siblings after a leftover-child throw, then fails", async () => {
     const sessions = createSubAgentSessionStore();
     const parent = startSession(sessions, { description: "parent" });
-    const leftover = startSession(sessions, { description: "leftover", parentSessionId: parent.id });
-    const sibling = startSession(sessions, { description: "sibling", parentSessionId: parent.id });
+    const leftover = startSession(sessions, {
+      description: "leftover",
+      parentSessionId: parent.id,
+    });
+    const sibling = startSession(sessions, {
+      description: "sibling",
+      parentSessionId: parent.id,
+    });
     const closedOrder: string[] = [];
     sessions.registerClose(leftover.id, async () => {
       closedOrder.push(leftover.id);
@@ -120,7 +135,10 @@ describe("resume_agent", () => {
   test("starts the next turn on a completed retained session and returns immediately", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const retained = startSession(sessions, { description: "d", retained: true });
+    const retained = startSession(sessions, {
+      description: "d",
+      retained: true,
+    });
     const history: string[] = ["first task"];
     let finish: (reply: string) => void = () => undefined;
     sessions.registerFollowup(
@@ -181,7 +199,10 @@ describe("resume_agent", () => {
   test("resumes an interrupted retained session without calling close()", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = startSession(sessions, { description: "worker", retained: true });
+    const worker = startSession(sessions, {
+      description: "worker",
+      retained: true,
+    });
     sessions.markRunning(worker.id);
 
     const history: string[] = ["read src/index.ts", "found the bug on line 12"];
@@ -233,7 +254,10 @@ describe("resume_agent", () => {
   test("rejects a closed session and a concurrent resume of a running turn", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const closed = startSession(sessions, { description: "closed", retained: true });
+    const closed = startSession(sessions, {
+      description: "closed",
+      retained: true,
+    });
     sessions.registerClose(closed.id, async () => undefined);
     sessions.registerFollowup(closed.id, async () => "should not run");
     sessions.complete(closed.id, "## Summary\nDone.");
@@ -268,7 +292,10 @@ describe("resume_agent", () => {
   test("rejects resume before an uncollected prior terminal fleet result is delivered", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = startSession(sessions, { description: "worker", retained: true });
+    const worker = startSession(sessions, {
+      description: "worker",
+      retained: true,
+    });
     sessions.registerFollowup(worker.id, async () => "second report");
     sessions.complete(worker.id, "first report");
     fleetRecords.register(worker.id);
@@ -301,7 +328,10 @@ describe("resume_agent", () => {
   test("does not demand wait_agents for a worker with a pending ask", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = startSession(sessions, { description: "worker", retained: true });
+    const worker = startSession(sessions, {
+      description: "worker",
+      retained: true,
+    });
     sessions.markRunning(worker.id);
     sessions.registerFollowup(worker.id, async () => "second report");
     fleetRecords.register(worker.id);
@@ -366,7 +396,10 @@ describe("resume_agent", () => {
   test("interrupt then successful resume wait is done without leftover interrupted stop_reason", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = startSession(sessions, { description: "worker", retained: true });
+    const worker = startSession(sessions, {
+      description: "worker",
+      retained: true,
+    });
     sessions.markRunning(worker.id);
     sessions.registerInterrupt(worker.id, () => undefined);
     let finish: (reply: string) => void = () => undefined;
@@ -420,7 +453,10 @@ describe("resume_agent", () => {
   test("resume followup rejection invokes close; close_agent tears down leftover", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = startSession(sessions, { description: "worker", retained: true });
+    const worker = startSession(sessions, {
+      description: "worker",
+      retained: true,
+    });
     let closeCalls = 0;
     sessions.registerClose(worker.id, async () => {
       closeCalls++;
@@ -452,7 +488,10 @@ describe("resume_agent", () => {
   test("wait_agents collects a failed resumed turn instead of hanging", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = startSession(sessions, { description: "worker", retained: true });
+    const worker = startSession(sessions, {
+      description: "worker",
+      retained: true,
+    });
     sessions.registerFollowup(worker.id, async () => {
       throw new Error("resumed turn failed");
     });
@@ -487,7 +526,10 @@ describe("resume_agent", () => {
   test("rejects missing, empty, and oversize messages without starting a turn", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = startSession(sessions, { description: "worker", retained: true });
+    const worker = startSession(sessions, {
+      description: "worker",
+      retained: true,
+    });
     let starts = 0;
     sessions.registerFollowup(worker.id, async () => {
       starts++;
@@ -538,8 +580,11 @@ describe("resume_agent", () => {
     const admission = createAdmissionQueue({ capacity: 0 });
     const sessions = createSubAgentSessionStore({ admission });
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = startSession(sessions, { description: "worker", retained: true,
-      provider: "p" });
+    const worker = startSession(sessions, {
+      description: "worker",
+      retained: true,
+      provider: "p",
+    });
     let started = false;
     sessions.registerFollowup(worker.id, async () => {
       started = true;
@@ -591,7 +636,10 @@ describe("send_input", () => {
   ) {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
-    const worker = startSession(sessions, { description: "worker", retained: true });
+    const worker = startSession(sessions, {
+      description: "worker",
+      retained: true,
+    });
     sessions.markRunning(worker.id);
     if (opts.inFlight === true) sessions.markRunInFlight(worker.id);
     if (opts.interrupt !== undefined)
@@ -757,7 +805,10 @@ describe("send_input", () => {
     expect(sessions.get(worker.id)?.lifecycleStatus).toBe("running");
     expect(sessions.get(worker.id)?.finishedAt).toBeUndefined();
 
-    const missing = startSession(sessions, { description: "no-followup", retained: true });
+    const missing = startSession(sessions, {
+      description: "no-followup",
+      retained: true,
+    });
     sessions.markRunning(missing.id);
     sessions.registerInterrupt(missing.id, () => undefined);
     const denied = await callFleetToolRaw(sendInput, {
@@ -851,7 +902,10 @@ describe("send_input", () => {
     const fleetRecords = createFleetMailbox(sessions);
     const sendInput = createSendInputTool({ sessions, fleetRecords });
 
-    const completed = startSession(sessions, { description: "done", retained: true });
+    const completed = startSession(sessions, {
+      description: "done",
+      retained: true,
+    });
     sessions.markRunning(completed.id);
     sessions.registerDeliver(completed.id, () => {
       throw new Error("must not deliver to a completed session");
@@ -863,7 +917,10 @@ describe("send_input", () => {
     });
     expect(completedErr.isError).toBe(true);
 
-    const interrupted = startSession(sessions, { description: "paused", retained: true });
+    const interrupted = startSession(sessions, {
+      description: "paused",
+      retained: true,
+    });
     sessions.markRunning(interrupted.id);
     sessions.registerInterrupt(interrupted.id, () => undefined);
     sessions.registerDeliver(interrupted.id, () => {
@@ -878,7 +935,10 @@ describe("send_input", () => {
     });
     expect(interruptedErr.isError).toBe(true);
 
-    const closed = startSession(sessions, { description: "closed", retained: true });
+    const closed = startSession(sessions, {
+      description: "closed",
+      retained: true,
+    });
     sessions.markRunning(closed.id);
     sessions.registerClose(closed.id, async () => undefined);
     sessions.registerDeliver(closed.id, () => {
@@ -897,9 +957,19 @@ describe("send_input", () => {
 
   test("enforces nested orchestrator descendant authority", async () => {
     const sessions = createSubAgentSessionStore();
-    const nested = startSession(sessions, { id: "nested", description: "nested" });
-    const child = startSession(sessions, { id: "child", description: "child", parentSessionId: nested.id });
-    const sibling = startSession(sessions, { id: "sibling", description: "sibling" });
+    const nested = startSession(sessions, {
+      id: "nested",
+      description: "nested",
+    });
+    const child = startSession(sessions, {
+      id: "child",
+      description: "child",
+      parentSessionId: nested.id,
+    });
+    const sibling = startSession(sessions, {
+      id: "sibling",
+      description: "sibling",
+    });
     for (const session of [nested, child, sibling]) {
       sessions.markRunning(session.id);
       sessions.registerDeliver(session.id, () => undefined);
@@ -928,7 +998,10 @@ describe("send_input", () => {
 
   test("fails closed when nested authority has no actorId", async () => {
     const sessions = createSubAgentSessionStore();
-    const worker = startSession(sessions, { id: "worker", description: "worker" });
+    const worker = startSession(sessions, {
+      id: "worker",
+      description: "worker",
+    });
     sessions.markRunning(worker.id);
     sessions.registerDeliver(worker.id, () => undefined);
     const sendInput = createSendInputTool({
@@ -963,10 +1036,17 @@ describe("nested lifecycle authority", () => {
   function nestedSetup(retained = false) {
     const sessions = createSubAgentSessionStore();
     const nested = startSession(sessions, { id: "nested", description: "n" });
-    const child = startSession(sessions, { id: "child", description: "c", parentSessionId: nested.id,
-      ...(retained ? { retained: true } : { }),
+    const child = startSession(sessions, {
+      id: "child",
+      description: "c",
+      parentSessionId: nested.id,
+      ...(retained ? { retained: true } : {}),
     });
-    const sibling = startSession(sessions, { id: "sibling", description: "s", ...(retained ? { retained: true } : {}) });
+    const sibling = startSession(sessions, {
+      id: "sibling",
+      description: "s",
+      ...(retained ? { retained: true } : {}),
+    });
     const fleetRecords = createFleetMailbox(sessions);
     return { sessions, nested, child, sibling, fleetRecords };
   }

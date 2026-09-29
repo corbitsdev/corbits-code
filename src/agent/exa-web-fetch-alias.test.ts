@@ -284,14 +284,11 @@ describe("built-in Exa web_fetch alias", () => {
       resolveMcpServers([{ name: "exa", enabled: false }], undefined),
     );
     const states: string[] = [];
-    const connection = toolset.connectMCPServer(
-      linearHttpMcpServer,
-      {
-        interactiveAuth: true,
-        onStatus: (status) => states.push(status.state),
-        onToolsChanged: () => undefined,
-      },
-    );
+    const connection = toolset.connectMCPServer(linearHttpMcpServer, {
+      interactiveAuth: true,
+      onStatus: (status) => states.push(status.state),
+      onToolsChanged: () => undefined,
+    });
     await Promise.resolve();
 
     let disposed = false;
@@ -434,14 +431,11 @@ describe("built-in Exa web_fetch alias", () => {
     );
     const states: { state: string; error?: string }[] = [];
     try {
-      await toolset.connectMCPServer(
-        linearHttpMcpServer,
-        {
-          interactiveAuth: true,
-          onStatus: (status) => states.push(status),
-          onToolsChanged: () => undefined,
-        },
-      );
+      await toolset.connectMCPServer(linearHttpMcpServer, {
+        interactiveAuth: true,
+        onStatus: (status) => states.push(status),
+        onToolsChanged: () => undefined,
+      });
 
       expect(states.map((status) => status.state)).toEqual([
         "connecting",
@@ -537,9 +531,7 @@ describe("built-in Exa web_fetch alias", () => {
       expect(states[1]?.error).toContain("connection exploded");
       expect(toolset.hasMCPServer("linear")).toBe(false);
       expect(await Bun.file(path).json()).toMatchObject({
-        mcpServers: [
-          linearHttpMcpServer,
-        ],
+        mcpServers: [linearHttpMcpServer],
       });
       expect(
         await persistGlobalHTTPMCPServer(
@@ -561,9 +553,7 @@ describe("built-in Exa web_fetch alias", () => {
       expect(retryStates).toEqual(["connecting", "connected"]);
       expect(toolset.hasMCPServer("linear")).toBe(true);
       expect(await Bun.file(path).json()).toMatchObject({
-        mcpServers: [
-          linearHttpMcpServer,
-        ],
+        mcpServers: [linearHttpMcpServer],
       });
     } finally {
       await toolset.dispose();

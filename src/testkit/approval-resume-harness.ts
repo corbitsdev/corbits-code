@@ -85,11 +85,13 @@ export interface ApprovalResumeHarness {
  * mutate it from `onGate` to simulate state landing between lookup and
  * resolve), delivery is recorded in `delivered`.
  */
-export function createApprovalResumeHarness(args: {
-  turns?: ConversationTurn[];
-  onGate?: (turns: ConversationTurn[]) => void;
-  gateOutcome?: { allow: boolean; message?: string };
-} = {}): ApprovalResumeHarness {
+export function createApprovalResumeHarness(
+  args: {
+    turns?: ConversationTurn[];
+    onGate?: (turns: ConversationTurn[]) => void;
+    gateOutcome?: { allow: boolean; message?: string };
+  } = {},
+): ApprovalResumeHarness {
   const turns = [...(args.turns ?? [])];
   const delivered: InboundMessage[] = [];
   const agent = {
@@ -118,8 +120,7 @@ export function decisionBody(message: InboundMessage): {
 
 export function firstDelivered(delivered: InboundMessage[]): InboundMessage {
   const message = delivered[0];
-  if (message === undefined)
-    throw new Error("expected a delivered decision");
+  if (message === undefined) throw new Error("expected a delivered decision");
   return message;
 }
 

@@ -654,7 +654,9 @@ describe("loaders", () => {
 
   test("loadSettings throws on an invalid schema", async () => {
     await withTempDir("ic-settings-", async (dir) => {
-      const path = await writeSettings(dir, { providers: { x: { models: [] } } });
+      const path = await writeSettings(dir, {
+        providers: { x: { models: [] } },
+      });
       await expect(loadSettings(path)).rejects.toThrow(
         /Invalid settings schema/,
       );

@@ -306,17 +306,13 @@ async function runCappedEpisodes(
       connected.client.call("ping", {}, new AbortController().signal),
     ).rejects.toThrow("finishAuth exploded");
   }
-  expect(mock.authURLCount).toBe(
-    authURLsBefore + MAX_BROWSER_AUTH_ATTEMPTS,
-  );
+  expect(mock.authURLCount).toBe(authURLsBefore + MAX_BROWSER_AUTH_ATTEMPTS);
 
   mock.callFailuresLeft = 1;
   await expect(
     connected.client.call("ping", {}, new AbortController().signal),
   ).rejects.toThrow("retrying paused");
-  expect(mock.authURLCount).toBe(
-    authURLsBefore + MAX_BROWSER_AUTH_ATTEMPTS,
-  );
+  expect(mock.authURLCount).toBe(authURLsBefore + MAX_BROWSER_AUTH_ATTEMPTS);
 }
 
 /** Connect-path twin of runCappedEpisodes for the episodes themselves. */
