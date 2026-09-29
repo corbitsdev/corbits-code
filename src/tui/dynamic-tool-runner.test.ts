@@ -134,6 +134,31 @@ describe("call gate", () => {
     expect(promoted).toEqual(["mcp__acme__do"]);
     expect(advertised.has("mcp__acme__other")).toBe(false);
   });
+
+  test("list_dir dispatches under a call gate without promoting", async () => {
+    const runner = createDynamicToolRunner([
+      stringTool("read_file", "core"),
+      stringTool("list_dir", "listed"),
+      stringTool("mcp__acme__do", "blind-result"),
+    ]);
+    const advertised = new Set(["read_file"]);
+    const promoted: string[] = [];
+    runner.setCallGate((name) => advertised.has(name));
+    runner.setOnUndeclaredCall((name) => {
+      promoted.push(name);
+      advertised.add(name);
+    });
+
+    const result = await runner.run(
+      { id: "1", name: "list_dir", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.content).toBe("listed");
+    expect(result.isError).toBeUndefined();
+    expect(promoted).toEqual([]);
+    expect(advertised.has("list_dir")).toBe(false);
+    expect(advertised.has("mcp__acme__do")).toBe(false);
+  });
 });
 
 describe("mangled dispatch names", () => {

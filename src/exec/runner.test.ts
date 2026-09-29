@@ -244,6 +244,42 @@ describe("exec director allowlist", () => {
     expect(names).not.toContain(OUTSIDE_ALLOW);
   });
 
+  test("the promoter does not commit list_dir onto the advertised wire", () => {
+    const { activated, computeAdvertised, flushPromotions } =
+      createAdvertisedToolset({
+        sessionMode: "orchestrator",
+        toolAvailability: { languageServerAvailable: true },
+        getProvider: () => ({ providerName: "test", model: "test-model" }),
+      });
+    let committed = 0;
+    const promote = createExecToolPromoter({
+      activate: (names) => activated.activate(names),
+      isAllowed: () => true,
+      commitWire: () => {
+        if (flushPromotions()) committed += 1;
+      },
+    });
+    const registry = [
+      {
+        name: "list_dir",
+        description: "list a directory",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
+        name: "mcp__acme__do",
+        description: "do a thing",
+        inputSchema: { type: "object", properties: {} },
+      },
+    ];
+    promote(["list_dir", "mcp__acme__do"]);
+    expect(activated.has("list_dir")).toBe(false);
+    expect(activated.has("mcp__acme__do")).toBe(true);
+    expect(committed).toBe(1);
+    const names = computeAdvertised(registry).map((d) => d.name);
+    expect(names).not.toContain("list_dir");
+    expect(names).toContain("mcp__acme__do");
+  });
+
   test("skywalker overlay leaves every tool allowed", () => {
     const overlay = resolveExecDirectorOverlay("skywalker");
     expect(isExecOverlayToolAllowed(overlay, OUTSIDE_ALLOW)).toBe(true);
@@ -652,6 +688,7 @@ describe("exec tool call gate and promoter", () => {
         "search and render layout primitives for pages",
       ),
       stringTool("plugin__notes__save", "noted", "Save granola notes"),
+      stringTool("list_dir", "listed", "list a directory's entries"),
       stringTool(submitOutputDefinition.name, "submitted", "submit output"),
     ]);
     const { activated, isAdvertised, computeAdvertised, flushPromotions } =
@@ -759,5 +796,22 @@ describe("exec tool call gate and promoter", () => {
     const result = await dispatch(runner, submitOutputDefinition.name);
     expect(result.content).toBe("submitted");
     expect(result.isError).toBeUndefined();
+  });
+
+  test("executing list_dir does not add it to computeAdvertised", async () => {
+    const { runner, computeAdvertised } = wireExecDiscovery();
+    const before = computeAdvertised(runner.currentDefinitions()).map(
+      (d) => d.name,
+    );
+    expect(before).not.toContain("list_dir");
+    const result = await dispatch(runner, "list_dir");
+    expect(result.content).toBe("listed");
+    expect(result.isError).toBeUndefined();
+    expect(
+      computeAdvertised(runner.currentDefinitions()).map((d) => d.name),
+    ).toEqual(before);
+    expect(
+      computeAdvertised(runner.currentDefinitions()).map((d) => d.name),
+    ).not.toContain("list_dir");
   });
 });

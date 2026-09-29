@@ -140,6 +140,22 @@ describe("createAdvertisedToolset", () => {
     expect(isAdvertised("mcp__acme__do")).toBe(true);
   });
 
+  test("flushPromotions does not commit unadvertised mounted builtins onto the wire", () => {
+    const { activated, computeAdvertised, flushPromotions } =
+      createAdvertisedToolset(wiring());
+    const registry = [def("read_file"), def("list_dir"), def("mcp__acme__do")];
+    expect(activated.activate(["list_dir"])).toBe(true);
+    expect(flushPromotions()).toBe(false);
+    expect(computeAdvertised(registry).map((d) => d.name)).not.toContain(
+      "list_dir",
+    );
+    expect(activated.activate(["mcp__acme__do"])).toBe(true);
+    expect(flushPromotions()).toBe(true);
+    const names = computeAdvertised(registry).map((d) => d.name);
+    expect(names).not.toContain("list_dir");
+    expect(names).toContain("mcp__acme__do");
+  });
+
   test("pruneIdlePromotions drops execute-promoted schemas and keeps the frozen prefix", () => {
     const { activated, computeAdvertised, flushPromotions, pruneIdlePromotions } =
       createAdvertisedToolset(

@@ -684,6 +684,7 @@ describe("promote-on-execute", () => {
         "ran:never",
         "A tool the model never searched for",
       ),
+      stringTool("list_dir", "listed", "list a directory's entries"),
     ];
     const runner = createDynamicToolRunner(tools);
     const advertised = createAdvertisedToolset({
@@ -772,6 +773,18 @@ describe("promote-on-execute", () => {
     expect(result.isError).toBeUndefined();
     expect(promoted).toEqual(["mcp__never__searched"]);
     expect(advertisedNames(advertised, runner)).toContain("mcp__never__searched");
+  });
+
+  test("executing list_dir does not join the advertised tail", async () => {
+    const { advertised, promoted, runner } = wirePromoteOnExecute();
+    const before = advertisedNames(advertised, runner);
+    expect(before).not.toContain("list_dir");
+    const result = await dispatch(runner, "list_dir");
+    expect(result.content).toBe("listed");
+    expect(result.isError).toBeUndefined();
+    expect(promoted).toEqual([]);
+    expect(advertisedNames(advertised, runner)).toEqual(before);
+    expect(advertisedNames(advertised, runner)).not.toContain("list_dir");
   });
 });
 

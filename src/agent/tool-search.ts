@@ -162,7 +162,9 @@ function isAlreadyAdvertised(
 }
 
 // Mounted built-ins that stay off the advertised prefix and off tool_search.
-const UNADVERTISED_MOUNTED_BUILTINS = new Set(["list_dir"]);
+// Promote-on-execute must not flush these onto the wire either — dispatch
+// without advertising. glob is the advertised replacement for list_dir.
+export const UNADVERTISED_MOUNTED_BUILTINS = new Set(["list_dir"]);
 
 // Project the live tool registry onto the advertised set: the fixed built-in
 // prefix (its order never changes — this is what keeps the provider cache

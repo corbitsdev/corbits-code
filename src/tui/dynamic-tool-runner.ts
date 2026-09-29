@@ -13,6 +13,7 @@ import {
 import { resolveRegisteredToolName } from "./resolve-registered-tool-name.js";
 import { stripTerminalControlSequences } from "../util/control-char-strip.js";
 import { prepareDispatchedToolCall } from "../agent/tool-aliases.js";
+import { UNADVERTISED_MOUNTED_BUILTINS } from "../agent/tool-search.js";
 
 // A tool runner whose set of tools can grow after construction. The static
 // createToolRunner freezes its name map at build time, which cannot accommodate
@@ -156,16 +157,21 @@ export function createDynamicToolRunner(
       // then run the call. Search does not pre-promote the match set. If the
       // promoter cannot admit the name (closed overlay, denied family), the
       // gate still fails and the model is pointed at tool_search.
+      // Unadvertised mounted builtins (list_dir) stay off the wire — search
+      // hides them in favor of glob — so intercept dispatches without
+      // flushPromotions rather than advertising until fold.
       if (callGate !== undefined && !callGate(resolved)) {
-        onUndeclaredCall?.(resolved);
-        if (!callGate(resolved)) {
-          return {
-            callId: call.id,
-            content:
-              `Error: ${resolved} is not in the currently advertised tool list. ` +
-              `Call tool_search to find it, then retry the call.`,
-            isError: true,
-          };
+        if (!UNADVERTISED_MOUNTED_BUILTINS.has(resolved)) {
+          onUndeclaredCall?.(resolved);
+          if (!callGate(resolved)) {
+            return {
+              callId: call.id,
+              content:
+                `Error: ${resolved} is not in the currently advertised tool list. ` +
+                `Call tool_search to find it, then retry the call.`,
+              isError: true,
+            };
+          }
         }
       }
       let dispatchCall: ToolCall;

@@ -46,6 +46,7 @@ import {
   advertisedTools,
   advertisedToolNamesForSessionMode,
   createActivatedToolTracker,
+  UNADVERTISED_MOUNTED_BUILTINS,
   type ActivatedToolTracker,
   type ToolAvailability,
 } from "../agent/tool-search.js";
@@ -467,6 +468,9 @@ export function createAdvertisedToolset(args: {
     let grew = false;
     for (const name of activated.list()) {
       if (wireActivatedSet.has(name)) continue;
+      // Search hides these; flushing would put the schema on the wire until
+      // fold. Dispatch stays available via intercept without advertising.
+      if (UNADVERTISED_MOUNTED_BUILTINS.has(name)) continue;
       wireActivatedSet.add(name);
       wireActivated.push(name);
       grew = true;

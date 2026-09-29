@@ -28,6 +28,7 @@ import {
 import {
   type ActivatedToolTracker,
   type ToolAvailability,
+  UNADVERTISED_MOUNTED_BUILTINS,
 } from "../agent/tool-search.js";
 import { detectLanguageServerAvailable } from "../agent/lsp-availability.js";
 import {
@@ -412,7 +413,11 @@ export function createExecToolPromoter(args: {
   commitWire?: () => void;
 }): (names: string[]) => void {
   return (names) => {
-    if (!args.activate(names.filter((name) => args.isAllowed(name)))) return;
+    const admitted = names.filter(
+      (name) =>
+        args.isAllowed(name) && !UNADVERTISED_MOUNTED_BUILTINS.has(name),
+    );
+    if (!args.activate(admitted)) return;
     args.commitWire?.();
     args.persist?.();
   };
