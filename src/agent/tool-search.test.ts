@@ -1,5 +1,8 @@
 import { describe, test, expect, jest } from "bun:test";
+import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
+import { createAdvertisedToolset } from "../session/assemble-runtime.js";
+import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import {
   createToolIndex,
   createToolSearchTool,
@@ -12,6 +15,9 @@ import {
   TOOL_SEARCH_PENDING_WAIT_MS,
   TOOL_SEARCH_RECONNECT_WAIT_MS,
   TOOL_SEARCH_DESC_MAX,
+  TOOL_SEARCH_MAX_RESULTS,
+  TOOL_SEARCH_LIMIT_MAX,
+  toolSearchDefinition,
   type ToolAvailability,
 } from "./tool-search.js";
 
@@ -95,6 +101,14 @@ const linearCatalog: ToolDefinition[] = [
 ];
 
 const linearIndex = createToolIndex(() => linearCatalog);
+
+const wideCatalog: ToolDefinition[] = Array.from({ length: 12 }, (_, i) =>
+  mcpDef(
+    `mcp__linear__op_${String(i).padStart(2, "0")}`,
+    "Linear issue operation",
+  ),
+);
+const wideIndex = createToolIndex(() => wideCatalog);
 
 describe("createToolIndex", () => {
   test("ranks a name-token match above a description-only match", () => {
@@ -272,8 +286,18 @@ describe("createToolIndex", () => {
   test("caps a broad linear-issue query to a handful of top matches", () => {
     const ranked = linearIndex.search("linear issue");
     expect(ranked.length).toBeGreaterThan(1);
-    expect(ranked.length).toBeLessThanOrEqual(5);
+    expect(ranked.length).toBeLessThanOrEqual(TOOL_SEARCH_MAX_RESULTS);
     expect(ranked.every((name) => name.includes("linear"))).toBe(true);
+  });
+
+  test("default search returns at most 5 equally-scoring matches", () => {
+    const ranked = wideIndex.search("linear issue");
+    expect(ranked).toHaveLength(TOOL_SEARCH_MAX_RESULTS);
+  });
+
+  test("an explicit limit overrides the default cap", () => {
+    expect(wideIndex.search("linear issue", 3)).toHaveLength(3);
+    expect(wideIndex.search("linear issue", 8)).toHaveLength(8);
   });
 
   test("a specific save query returns one or two tools, not the whole family", () => {
@@ -292,6 +316,13 @@ function call(
   return tool.handler(args, new AbortController().signal);
 }
 
+function listedToolNames(out: string): string[] {
+  return out
+    .split("\n")
+    .filter((line) => line.startsWith("- "))
+    .map((line) => line.slice(2).split(":")[0]!.trim());
+}
+
 async function flushMicrotasks(rounds = 100): Promise<void> {
   for (let i = 0; i < rounds; i++) await Promise.resolve();
 }
@@ -302,24 +333,117 @@ async function advanceAndFlush(ms: number): Promise<void> {
 }
 
 describe("createToolSearchTool", () => {
-  test("promotes matches and lists them back to the model", async () => {
-    const promoted: string[] = [];
+  test("lists matching cards and does not promote", async () => {
     const tool = createToolSearchTool({
       search: (q) => index.search(q),
       lookup: (name) => defs.find((d) => d.name === name),
-      promote: (names) => promoted.push(...names),
     });
     const out = await call(tool, { query: "render layout" });
-    expect(promoted).toContain("present");
     expect(out).toContain("present");
     expect(out).toContain("layout");
+    expect(out).not.toMatch(/promoted/i);
+    expect(
+      advertisedTools(defs).map((d) => d.name),
+    ).not.toContain("present");
+  });
+
+  test("default tool_search returns at most 5 matches and does not promote them", async () => {
+    const tool = createToolSearchTool({
+      search: (q, limit) => wideIndex.search(q, limit),
+      lookup: (name) => wideCatalog.find((d) => d.name === name),
+    });
+    const before = advertisedTools(wideCatalog).map((d) => d.name);
+    const out = await call(tool, { query: "linear issue" });
+    const listed = listedToolNames(out);
+    expect(listed).toHaveLength(TOOL_SEARCH_MAX_RESULTS);
+    expect(listed.length).toBeLessThan(wideCatalog.length);
+    expect(advertisedTools(wideCatalog).map((d) => d.name)).toEqual(before);
+    expect(listed.every((name) => !before.includes(name))).toBe(true);
+  });
+
+  test("limit 3 overrides the default cap", async () => {
+    const tool = createToolSearchTool({
+      search: (q, limit) => wideIndex.search(q, limit),
+      lookup: (name) => wideCatalog.find((d) => d.name === name),
+    });
+    const listed = listedToolNames(
+      await call(tool, { query: "linear issue", limit: 3 }),
+    );
+    expect(listed).toHaveLength(3);
+  });
+
+  test("limit above the default returns the wider set", async () => {
+    const tool = createToolSearchTool({
+      search: (q, limit) => wideIndex.search(q, limit),
+      lookup: (name) => wideCatalog.find((d) => d.name === name),
+    });
+    const listed = listedToolNames(
+      await call(tool, { query: "linear issue", limit: 8 }),
+    );
+    expect(listed).toHaveLength(8);
+  });
+
+  test("limit above the hard cap clamps to 20", async () => {
+    const hugeCatalog: ToolDefinition[] = Array.from({ length: 25 }, (_, i) =>
+      mcpDef(
+        `mcp__linear__huge_${String(i).padStart(2, "0")}`,
+        "Linear issue operation",
+      ),
+    );
+    const hugeIndex = createToolIndex(() => hugeCatalog);
+    const tool = createToolSearchTool({
+      search: (q, limit) => hugeIndex.search(q, limit),
+      lookup: (name) => hugeCatalog.find((d) => d.name === name),
+    });
+    const listed = listedToolNames(
+      await call(tool, { query: "linear issue", limit: 100 }),
+    );
+    expect(listed).toHaveLength(TOOL_SEARCH_LIMIT_MAX);
+    expect(toolSearchDefinition.inputSchema).toMatchObject({
+      properties: {
+        limit: {
+          description: expect.stringContaining("hard cap 20"),
+        },
+      },
+    });
+  });
+
+  test("missing or invalid limit falls back to 5", async () => {
+    const makeTool = () =>
+      createToolSearchTool({
+        search: (q, limit) => wideIndex.search(q, limit),
+        lookup: (name) => wideCatalog.find((d) => d.name === name),
+      });
+    for (const args of [
+      { query: "linear issue" },
+      { query: "linear issue", limit: "nope" },
+      { query: "linear issue", limit: 0 },
+      { query: "linear issue", limit: -3 },
+      { query: "linear issue", limit: Number.NaN },
+    ] as Record<string, unknown>[]) {
+      const listed = listedToolNames(await call(makeTool(), args));
+      expect(listed).toHaveLength(TOOL_SEARCH_MAX_RESULTS);
+    }
+  });
+
+  test("returned names are a handful, not the whole catalog", async () => {
+    const tool = createToolSearchTool({
+      search: (q, limit) => wideIndex.search(q, limit),
+      lookup: (name) => wideCatalog.find((d) => d.name === name),
+    });
+    const listed = listedToolNames(
+      await call(tool, { query: "linear issue", limit: 3 }),
+    );
+    const catalogNames = wideCatalog.map((d) => d.name);
+    expect(listed).toHaveLength(3);
+    expect(catalogNames.every((name) => listed.includes(name))).toBe(false);
+    expect(listed.every((name) => catalogNames.includes(name))).toBe(true);
   });
 
   test("returns name and capped description without a full input schema", async () => {
     const tool = createToolSearchTool({
       search: (q) => linearIndex.search(q),
       lookup: (name) => linearCatalog.find((d) => d.name === name),
-      promote: () => undefined,
     });
     const out = await call(tool, { query: "linear issue" });
     expect(out).toContain("mcp__linear__");
@@ -334,14 +458,14 @@ describe("createToolSearchTool", () => {
       expect(line.length).toBeLessThanOrEqual(200);
     }
     expect(out).not.toMatch(/call them now/i);
-    expect(out).toMatch(/next (turn|infer)/i);
+    expect(out).not.toMatch(/promoted onto/i);
+    expect(out).toMatch(/call a listed name/i);
   });
 
   test("a unique description query hits the long card so the cap is exercised", async () => {
     const tool = createToolSearchTool({
       search: (q) => linearIndex.search(q),
       lookup: (name) => linearCatalog.find((d) => d.name === name),
-      promote: () => undefined,
     });
     const ranked = linearIndex.search("end-marker");
     expect(ranked).toContain("mcp__linear__verbose_issue");
@@ -362,7 +486,6 @@ describe("createToolSearchTool", () => {
     const tool = createToolSearchTool({
       search: () => [],
       lookup: () => undefined,
-      promote: () => undefined,
     });
     expect(await call(tool, { query: "  " })).toContain("Error:");
   });
@@ -376,7 +499,6 @@ describe("createToolSearchTool", () => {
     const tool = createToolSearchTool({
       search: (query) => createToolIndex(() => live).search(query),
       lookup: (name) => live.find((def) => def.name === name),
-      promote: () => undefined,
       awaitPendingConnections: async (timeoutMs?: number) => {
         await Promise.race([
           connected,
@@ -401,7 +523,6 @@ describe("createToolSearchTool", () => {
     const tool = createToolSearchTool({
       search: () => [],
       lookup: () => undefined,
-      promote: () => undefined,
       awaitPendingConnections: () =>
         new Promise<number>(() => {
           // Never settles: simulates a hung authorization handshake.
@@ -421,7 +542,6 @@ describe("createToolSearchTool", () => {
     const tool = createToolSearchTool({
       search: () => [],
       lookup: () => undefined,
-      promote: () => undefined,
       awaitPendingConnections: async () => 2,
     });
     const out = await call(tool, { query: "linear" });
@@ -434,7 +554,6 @@ describe("createToolSearchTool", () => {
     const tool = createToolSearchTool({
       search: () => [],
       lookup: () => undefined,
-      promote: () => undefined,
       awaitPendingConnections: async () => 0,
     });
     const out = await call(tool, { query: "nonsense" });
@@ -450,7 +569,6 @@ describe("createToolSearchTool", () => {
     const tool = createToolSearchTool({
       search: () => [],
       lookup: () => undefined,
-      promote: () => undefined,
       awaitPendingConnections: async () => 0,
       hasReconnectingMatch: () => {
         matchChecks += 1;
@@ -468,7 +586,6 @@ describe("createToolSearchTool", () => {
       const live: ToolDefinition[] = [];
       const timeouts: (number | undefined)[] = [];
       const matchQueries: string[] = [];
-      const promoted: string[] = [];
       let searches = 0;
       const tool = createToolSearchTool({
         search: (query) => {
@@ -476,7 +593,6 @@ describe("createToolSearchTool", () => {
           return createToolIndex(() => live).search(query);
         },
         lookup: (name) => live.find((def) => def.name === name),
-        promote: (names) => promoted.push(...names),
         awaitPendingConnections: async (timeoutMs?: number) => {
           timeouts.push(timeoutMs);
           await new Promise((resolve) => setTimeout(resolve, timeoutMs ?? 0));
@@ -499,7 +615,6 @@ describe("createToolSearchTool", () => {
       await advanceAndFlush(TOOL_SEARCH_RECONNECT_WAIT_MS);
       const out = await pending;
       expect(out).toContain("mcp__linear__create_issue");
-      expect(promoted).toContain("mcp__linear__create_issue");
       expect(timeouts).toEqual([
         TOOL_SEARCH_PENDING_WAIT_MS,
         TOOL_SEARCH_RECONNECT_WAIT_MS,
@@ -523,7 +638,6 @@ describe("createToolSearchTool", () => {
           return [];
         },
         lookup: () => undefined,
-        promote: () => undefined,
         awaitPendingConnections: async (timeoutMs?: number) => {
           timeouts.push(timeoutMs);
           await new Promise((resolve) => setTimeout(resolve, timeoutMs ?? 0));
@@ -548,6 +662,116 @@ describe("createToolSearchTool", () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe("promote-on-execute", () => {
+  const stringTool = (name: string, reply: string, description: string): AgentTool => ({
+    kind: "string",
+    definition: {
+      name,
+      description,
+      inputSchema: { type: "object", properties: {}, required: [] },
+    },
+    handler: async () => reply,
+  });
+
+  function wirePromoteOnExecute() {
+    const tools = [
+      ...wideCatalog.map((d) => stringTool(d.name, `ran:${d.name}`, d.description)),
+      stringTool(
+        "mcp__never__searched",
+        "ran:never",
+        "A tool the model never searched for",
+      ),
+    ];
+    const runner = createDynamicToolRunner(tools);
+    const advertised = createAdvertisedToolset({
+      sessionMode: "orchestrator",
+      toolAvailability: { languageServerAvailable: false },
+      getProvider: () => ({ providerName: "test", model: "test" }),
+    });
+    const promoted: string[] = [];
+    runner.setCallGate((name) => advertised.isAdvertised(name), {
+      isActivated: (name) => advertised.activated.has(name),
+    });
+    runner.setOnUndeclaredCall((name) => {
+      promoted.push(name);
+      advertised.activated.activate([name]);
+      advertised.flushPromotions();
+    });
+    const search = createToolSearchTool({
+      search: (q, limit) => wideIndex.search(q, limit),
+      lookup: (name) =>
+        runner.currentDefinitions().find((d) => d.name === name),
+    });
+    return { runner, advertised, promoted, search };
+  }
+
+  async function dispatch(
+    runner: ReturnType<typeof createDynamicToolRunner>,
+    name: string,
+  ) {
+    return runner.run(
+      { id: name, name, arguments: {} },
+      new AbortController().signal,
+    );
+  }
+
+  function advertisedNames(
+    advertised: ReturnType<typeof createAdvertisedToolset>,
+    runner: ReturnType<typeof createDynamicToolRunner>,
+  ): string[] {
+    return advertised
+      .computeAdvertised(runner.currentDefinitions())
+      .map((d) => d.name);
+  }
+
+  test("a tool_search call does not change the advertised set", async () => {
+    const { advertised, promoted, search, runner } = wirePromoteOnExecute();
+    const before = advertisedNames(advertised, runner);
+    if (search.kind !== "string") throw new Error("expected string tool");
+    const out = await search.handler(
+      { query: "linear issue", limit: 3 },
+      new AbortController().signal,
+    );
+    expect(listedToolNames(out).length).toBe(3);
+    expect(promoted).toEqual([]);
+    expect(advertised.activated.list()).toEqual([]);
+    expect(advertisedNames(advertised, runner)).toEqual(before);
+  });
+
+  test("a subsequent call to a searched name promotes only that name", async () => {
+    const { advertised, promoted, search, runner } = wirePromoteOnExecute();
+    if (search.kind !== "string") throw new Error("expected string tool");
+    const listed = listedToolNames(
+      await search.handler(
+        { query: "linear issue", limit: 3 },
+        new AbortController().signal,
+      ),
+    );
+    expect(listed).toHaveLength(3);
+    expect(promoted).toEqual([]);
+    const called = listed[0]!;
+    const others = listed.slice(1);
+    const result = await dispatch(runner, called);
+    expect(result.content).toBe(`ran:${called}`);
+    expect(result.isError).toBeUndefined();
+    expect(promoted).toEqual([called]);
+    const names = advertisedNames(advertised, runner);
+    expect(names).toContain(called);
+    for (const other of others) {
+      expect(names).not.toContain(other);
+    }
+  });
+
+  test("a never-searched undeclared name still promote-on-execute", async () => {
+    const { advertised, promoted, runner } = wirePromoteOnExecute();
+    const result = await dispatch(runner, "mcp__never__searched");
+    expect(result.content).toBe("ran:never");
+    expect(result.isError).toBeUndefined();
+    expect(promoted).toEqual(["mcp__never__searched"]);
+    expect(advertisedNames(advertised, runner)).toContain("mcp__never__searched");
   });
 });
 

@@ -291,7 +291,7 @@ export interface AgentToolsetArgs {
   /**
    * Closed allow list (exec director overlays). tool_search is mounted only
    * when the allow includes it, and the search index only surfaces allowed
-   * tools so search cannot promote outside the allow. Omit for the product
+   * tools so search cannot list names outside the allow. Omit for the product
    * default (tool_search mounted, index over the live registry).
    */
   toolSearchAllow?: readonly string[];
@@ -378,8 +378,9 @@ export interface AgentToolset {
   // Catalog unshadow can change local → global/none without rebuilding the
   // toolset; connectOne reads this on every late connect.
   setMcpServersSource: (source: "local" | "global" | "none") => void;
-  // Wire the callback the `tool_search` tool invokes to make matched tools
-  // advertised. Set by the runner once the director + reload loop exist.
+  // Wire the session promoter used for promote-on-execute (a registered
+  // undeclared call declares that one name, then dispatches). Set by the
+  // runner once the director + reload loop exist.
   setToolPromoter: (promote: (names: string[]) => void) => void;
   // Session-start skill snapshot shared with the prompt listing.
   skills: SkillSummary[];
@@ -782,11 +783,9 @@ export async function createAgentToolset(
     }),
   ];
 
-  // tool_search ranks over the live runner (set just below) and promotes matches
-  // through a holder the runner wires up once its advertise/reload loop exists.
-  const promoter: { promote: (names: string[]) => void } = {
-    promote: () => undefined,
-  };
+  // tool_search ranks over the live runner (set just below). Matches stay
+  // cards-only; the session promoter (wired once advertise/reload exists)
+  // declares a name when the model actually calls it.
   const runnerHolder: { current?: DynamicToolRunner } = {};
   const toolIndex = createToolIndex(
     () => runnerHolder.current?.currentDefinitions() ?? [],
@@ -795,19 +794,18 @@ export async function createAgentToolset(
   );
   // Closed exec allow lists omit tool_search itself (leaf posture); when the
   // allow excludes it the tool is never mounted, so there is nothing to
-  // search with and nothing the promoter can activate.
+  // search with.
   if (
     args.toolSearchAllow === undefined ||
     args.toolSearchAllow.includes(toolSearchDefinition.name)
   ) {
     baseTools.push(
       createToolSearchTool({
-        search: (query) => toolIndex.search(query),
+        search: (query, limit) => toolIndex.search(query, limit),
         lookup: (name) =>
           runnerHolder.current
             ?.currentDefinitions()
             .find((d) => d.name === name),
-        promote: (names) => promoter.promote(names),
         // Misses wait briefly for in-flight MCP handshakes (bounded, so hung
         // OAuth cannot hang the call) and re-search before answering. Reads the
         // connection map live — declared below, populated by the time any
@@ -1608,7 +1606,7 @@ export async function createAgentToolset(
       mcpServersSource = source;
     },
     setToolPromoter: (promote) => {
-      promoter.promote = promote;
+      dynamicRunner.setOnUndeclaredCall((name) => promote([name]));
     },
     skills,
     ...(fleetRecords !== undefined ? { fleetRecords } : {}),

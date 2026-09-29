@@ -475,14 +475,15 @@ export async function assembleTUISession(
   workflowHostHolder.instance = workflowHost;
 
   // Dynamic tool discovery: only the fixed built-in prefix plus
-  // wire-committed activations reach the wire. MCP tools must be promoted
-  // here before the model can invoke them; promoters flush schemas onto the
-  // next infer, and compaction folds catch anything still pending.
+  // wire-committed activations reach the wire. tool_search returns cards
+  // only; promote-on-execute declares the one name the model actually calls.
+  // Fold drops idle execute-promoted schemas (cache already broken).
   const {
     activated: activatedToolNames,
     computeAdvertised,
     isAdvertised,
     flushPromotions,
+    pruneIdlePromotions,
   } = createAdvertisedToolset({
     sessionMode: liveSessionMode,
     toolAvailability,
@@ -497,10 +498,11 @@ export async function assembleTUISession(
   // turn already declares them.
   activatedToolNames.activate(start.resumeSeed.activatedTools);
   flushPromotions();
-  // A registered tool the wire never advertised must error toward tool_search
-  // instead of dispatching blind — the transcript would otherwise claim a call
-  // the next infer does not declare. submit_output rides every infer via the
-  // director; hidden posix aliases dispatch when their engine is advertised.
+  // A registered tool the wire never advertised is intercepted at dispatch:
+  // setToolPromoter declares that one name, then the runner re-checks the gate.
+  // Overlay-denied / unknown names still error toward tool_search.
+  // submit_output rides every infer via the director; hidden posix aliases
+  // dispatch when their engine is advertised.
   const unadvertisedCallable = new Set<string>([submitOutputDefinition.name]);
   toolset.dynamicRunner.setCallGate(
     (name) => unadvertisedCallable.has(name) || isAdvertised(name),
@@ -710,9 +712,9 @@ export async function assembleTUISession(
           isAborted: () => compactionLifecycle.getSignal().aborted,
           // Main-session folds only — exec runner and subagents stay silent.
           onFolded: (info) => {
-            // Fold restarts the cached prefix, so catch promotions still
-            // pending. Search already flushed names onto the next infer.
-            if (flushPromotions()) {
+            // Fold restarts the cached prefix — drop idle execute-promoted
+            // schemas rather than carrying them forever.
+            if (pruneIdlePromotions()) {
               directorHolder.instance?.updateToolDefinitions(
                 computeAdvertised(toolset.dynamicRunner.currentDefinitions()),
               );
@@ -787,6 +789,7 @@ export async function assembleTUISession(
     activatedToolNames,
     computeAdvertised,
     flushPromotions,
+    pruneIdlePromotions,
     buildAgent: chatAgent.buildAgent,
     sessionCost,
     sessionOps,

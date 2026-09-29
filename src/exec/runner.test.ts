@@ -672,12 +672,12 @@ describe("exec tool call gate and promoter", () => {
         flushPromotions();
       },
     });
+    runner.setOnUndeclaredCall((name) => promote([name]));
     const search = createToolSearchTool({
       search: (query) =>
         createToolIndex(() => runner.currentDefinitions()).search(query),
       lookup: (name) =>
         runner.currentDefinitions().find((d) => d.name === name),
-      promote,
     });
     return {
       runner,
@@ -698,41 +698,57 @@ describe("exec tool call gate and promoter", () => {
     );
   }
 
-  test("tool_search then MCP dispatch with the gate on", async () => {
+  test("search does not change the advertised set", async () => {
     const { runner, search, persistCount, computeAdvertised } =
       wireExecDiscovery();
-    const blocked = await dispatch(runner, "mcp__linear__save_issue");
-    expect(blocked.isError).toBe(true);
-    expect(blocked.content).toContain("tool_search");
+    const before = computeAdvertised(runner.currentDefinitions()).map(
+      (d) => d.name,
+    );
+    expect(before).not.toContain("mcp__linear__save_issue");
 
     if (search.kind !== "string") throw new Error("expected string tool");
     await search.handler({ query: "linear" }, new AbortController().signal);
-    expect(persistCount()).toBe(1);
-
-    const allowed = await dispatch(runner, "mcp__linear__save_issue");
-    expect(allowed.content).toBe("saved");
-    expect(allowed.isError).toBeUndefined();
+    expect(persistCount()).toBe(0);
     expect(
       computeAdvertised(runner.currentDefinitions()).map((d) => d.name),
-    ).toContain("mcp__linear__save_issue");
+    ).toEqual(before);
   });
 
-  test("present and plugin names pass the gate after tool_search promote", async () => {
-    const { runner, search } = wireExecDiscovery();
-    expect((await dispatch(runner, "present")).isError).toBe(true);
-    expect((await dispatch(runner, "plugin__notes__save")).isError).toBe(true);
-
+  test("a subsequent call to a searched-but-not-yet-declared name promotes only that name", async () => {
+    const { runner, search, computeAdvertised } = wireExecDiscovery();
     if (search.kind !== "string") throw new Error("expected string tool");
+    await search.handler({ query: "linear" }, new AbortController().signal);
     await search.handler(
       { query: "render layout" },
       new AbortController().signal,
     );
-    await search.handler(
-      { query: "granola notes" },
-      new AbortController().signal,
+    const afterSearch = computeAdvertised(runner.currentDefinitions()).map(
+      (d) => d.name,
     );
+    expect(afterSearch).not.toContain("mcp__linear__save_issue");
+    expect(afterSearch).not.toContain("present");
 
+    const allowed = await dispatch(runner, "mcp__linear__save_issue");
+    expect(allowed.content).toBe("saved");
+    expect(allowed.isError).toBeUndefined();
+    const names = computeAdvertised(runner.currentDefinitions()).map(
+      (d) => d.name,
+    );
+    expect(names).toContain("mcp__linear__save_issue");
+    expect(names).not.toContain("present");
+    expect(names).not.toContain("plugin__notes__save");
+  });
+
+  test("present and plugin names promote only the called name", async () => {
+    const { runner, computeAdvertised } = wireExecDiscovery();
     expect((await dispatch(runner, "present")).content).toBe("view");
+    expect(
+      computeAdvertised(runner.currentDefinitions()).map((d) => d.name),
+    ).toContain("present");
+    expect(
+      computeAdvertised(runner.currentDefinitions()).map((d) => d.name),
+    ).not.toContain("plugin__notes__save");
+
     expect((await dispatch(runner, "plugin__notes__save")).content).toBe(
       "noted",
     );

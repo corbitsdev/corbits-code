@@ -15,8 +15,9 @@ import { advertisedToolName, projectToolDefinition } from "./tool-aliases.js";
 import { canonicalToolName } from "./canonical-tool-name.js";
 
 // Tools whose full schema is always advertised to the model. Everything else is
-// registered but discovered on demand via tool_search, which promotes matches
-// onto the call gate and the next infer's wire set. Shared by the system prompt
+// registered but discovered on demand via tool_search, which returns name +
+// description cards only. A found tool's schema joins the wire when the model
+// actually calls it (promote-on-execute). Shared by the system prompt
 // and the advertised-set gate so the two never drift.
 //
 // `present` is deliberately absent: most sessions never render a view, and at
@@ -202,9 +203,9 @@ export function advertisedTools(
 }
 
 // Tracks which non-built-in tool names the session has activated (via
-// tool_search matches, or a director-side trigger like the lsp hint), in
-// first-activation order. Backed by a Set, so re-activating an already-active
-// name is a no-op — it neither reorders nor duplicates the entry.
+// promote-on-execute of a called name, or a director-side trigger like the
+// lsp hint), in first-activation order. Backed by a Set, so re-activating an
+// already-active name is a no-op — it neither reorders nor duplicates the entry.
 export interface ActivatedToolTracker {
   // Adds any new names and returns whether the set actually changed.
   activate(names: readonly string[]): boolean;
@@ -243,13 +244,18 @@ export function createActivatedToolTracker(): ActivatedToolTracker {
 export const toolSearchDefinition: ToolDefinition = {
   name: "tool_search",
   description:
-    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are not on the wire until this search promotes them onto the next inference. Core tools (read, bash, web_fetch, web_search, spawn_agent, …) are already on the wire — do not tool_search for them. wait_agents is mounted on exec-primary runs only, so it is not on the wire elsewhere and this search cannot promote it there. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get a ranked handful of matching names and short descriptions. Matched tools join the next inference tool list — call them on the next turn, not from this result.",
+    "Discover callable tools by capability. Most tools — MCP servers, present, and other integrations — are found here as name + description cards; their schemas join the wire when you actually call them. Core tools (read, bash, web_fetch, web_search, spawn_agent, …) are already on the wire — do not tool_search for them. wait_agents is mounted on exec-primary runs only, so it is not on the wire elsewhere and this search cannot surface it there. Call this with a short description of what you need (e.g. 'issue tracker', 'render layout', 'granola notes') to get a ranked handful of matching names and short descriptions (default 5, overridable via limit, max 20). Search does not add schemas to the tool list — call a returned name to use it.",
   inputSchema: {
     type: "object",
     properties: {
       query: {
         type: "string",
         description: "A short description of the capability you need.",
+      },
+      limit: {
+        type: "number",
+        description:
+          "Max matches to return (default 5, hard cap 20). Override when you need a wider set.",
       },
     },
     required: ["query"],
@@ -263,8 +269,9 @@ export interface ToolIndex {
 
 // Rank registered tools against name + description via the shared lexical
 // scorer. Already-advertised tools are always callable so they never rank;
-// the allow list (when set) keeps search from promoting outside it.
+// the allow list (when set) keeps search from listing tools outside it.
 export const TOOL_SEARCH_MAX_RESULTS = 5;
+export const TOOL_SEARCH_LIMIT_MAX = 20;
 export const TOOL_SEARCH_SCORE_RATIO = 0.75;
 export const TOOL_SEARCH_DESC_MAX = 160;
 
@@ -272,7 +279,7 @@ export function createToolIndex(
   getDefs: () => readonly ToolDefinition[],
   advertisedNames: readonly string[] = ADVERTISED_TOOL_NAMES,
   // Closed allow list (exec director overlays): when set, the index only
-  // surfaces allowed tools so search cannot promote outside the allow.
+  // surfaces allowed tools so search cannot list names outside the allow.
   allow?: readonly string[] | undefined,
 ): ToolIndex {
   const score = (
@@ -314,10 +321,8 @@ export function createToolIndex(
 }
 
 export interface ToolSearchDeps {
-  search: (query: string) => string[];
+  search: (query: string, limit?: number) => string[];
   lookup: (name: string) => ToolDefinition | undefined;
-  // Promote matches onto the call gate and the next infer's wire set.
-  promote: (names: string[]) => void;
   // Resolves to the remaining in-flight MCP handshake count after waiting up
   // to `timeoutMs`. The toolset bounds its own wait; the handler re-races
   // below so even a stuck dependency can never hang the call. Omitted callers
@@ -347,7 +352,39 @@ export const TOOL_SEARCH_PENDING_WAIT_MS = 1_000;
 // out-of-band authorization.
 export const TOOL_SEARCH_RECONNECT_WAIT_MS = 500;
 
-const ToolSearchArgs = type({ query: "string" });
+const ToolSearchArgs = type({
+  query: "string",
+  "limit?": "number",
+});
+
+function resolveSearchLimit(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return TOOL_SEARCH_MAX_RESULTS;
+  }
+  const n = Math.trunc(value);
+  if (n < 1) return TOOL_SEARCH_MAX_RESULTS;
+  return Math.min(n, TOOL_SEARCH_LIMIT_MAX);
+}
+
+function parseToolSearchArgs(
+  rawArgs: Record<string, unknown>,
+): { error: string } | { query: string; limit: number } {
+  const parsed = ToolSearchArgs(rawArgs);
+  const queryRaw =
+    parsed instanceof type.errors ? rawArgs.query : parsed.query;
+  if (typeof queryRaw !== "string") {
+    return { error: "Error: tool_search requires query (string)." };
+  }
+  const query = queryRaw.trim();
+  if (query.length === 0) {
+    return { error: "Error: tool_search requires a non-empty query." };
+  }
+  const limit =
+    parsed instanceof type.errors
+      ? TOOL_SEARCH_MAX_RESULTS
+      : resolveSearchLimit(parsed.limit);
+  return { query, limit };
+}
 
 function capDescription(text: string, max = TOOL_SEARCH_DESC_MAX): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
@@ -384,14 +421,10 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
   return stringTool({
     definition: toolSearchDefinition,
     handler: async (rawArgs: Record<string, unknown>): Promise<string> => {
-      const parsed = ToolSearchArgs(rawArgs);
-      if (parsed instanceof type.errors) {
-        return "Error: tool_search requires query (string).";
-      }
-      const query = parsed.query.trim();
-      if (query.length === 0)
-        return "Error: tool_search requires a non-empty query.";
-      let names = deps.search(query);
+      const parsed = parseToolSearchArgs(rawArgs);
+      if ("error" in parsed) return parsed.error;
+      const { query, limit } = parsed;
+      let names = deps.search(query, limit);
       if (names.length === 0 && deps.awaitPendingConnections !== undefined) {
         // Tier 1 — miss while connectors start up: wait briefly, then
         // re-search so late-mounting tools land. The race bounds even a stuck
@@ -400,7 +433,7 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
           deps.awaitPendingConnections,
           deps.pendingWaitMs ?? TOOL_SEARCH_PENDING_WAIT_MS,
         );
-        names = deps.search(query);
+        names = deps.search(query, limit);
         if (
           names.length === 0 &&
           (stillPending ?? 1) > 0 &&
@@ -414,7 +447,7 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
             deps.awaitPendingConnections,
             TOOL_SEARCH_RECONNECT_WAIT_MS,
           );
-          names = deps.search(query);
+          names = deps.search(query, limit);
         }
         if (names.length === 0 && (stillPending ?? 1) > 0) {
           const detail =
@@ -429,14 +462,13 @@ export function createToolSearchTool(deps: ToolSearchDeps): AgentTool {
       if (names.length === 0) {
         return `No tools matched "${query}". Try different keywords describing the capability.`;
       }
-      // Matches open on the call gate and join the next infer's wire set
-      // (promoter flushes at activate). The card is names + capped
-      // descriptions only — full schemas ride the next tools array.
-      deps.promote(names);
+      // Cards only — name + capped description. Search does not open the call
+      // gate or grow the tools array; promote-on-execute declares a name when
+      // the model actually calls it.
       const blocks = names.map((name) =>
         renderToolCard(deps.lookup(name), name),
       );
-      return `Promoted onto the next inference tool list. Call them on the next turn:\n\n${blocks.join("\n")}`;
+      return `Matching tools — call a listed name to use it:\n\n${blocks.join("\n")}`;
     },
   });
 }

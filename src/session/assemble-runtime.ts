@@ -353,17 +353,19 @@ export interface AdvertisedToolset {
   activated: ActivatedToolTracker;
   computeAdvertised: (all: readonly ToolDefinition[]) => ToolDefinition[];
   // Whether a name is part of the advertised wire set: built-in prefix,
-  // project-pinned, or tool_search-activated. The dispatch gate keys off this
-  // so a registered-but-unadvertised call surfaces as a tool_search error
-  // instead of silently dispatching.
+  // project-pinned, or execute-promoted. The dispatch gate keys off this
+  // so a registered-but-unadvertised call can intercept (declare that one
+  // name, then dispatch) instead of failing closed.
   isAdvertised: (name: string) => boolean;
   // Commit activated-but-unadvertised names onto the wire set, in activation
-  // order. Returns whether the wire set actually grew. Call on tool_search
-  // promote so the next infer declares the schema, and at cache-safe
-  // boundaries (session start/resume, rotation, compaction) for anything
-  // still pending. Growing the serialized tools array mid-thread re-prefills
-  // the provider prefix; that is the cost of making a promotion callable.
+  // order. Returns whether the wire set actually grew. Call on promote-on-execute
+  // so the next infer declares that one schema, and at cache-safe boundaries
+  // (session start/resume, rotation) for anything still pending.
   flushPromotions: () => boolean;
+  // Fold already broke the provider cache prefix — drop execute-promoted
+  // schemas that are not in the frozen core/pinned prefix. Discovered names
+  // remain callable via intercept. Returns whether the wire set shrank.
+  pruneIdlePromotions: () => boolean;
 }
 
 /**
@@ -373,11 +375,10 @@ export interface AdvertisedToolset {
  *
  * Activation and advertisement are split on purpose. Activating a name opens
  * the call gate at once (isAdvertised flips). flushPromotions copies those
- * names onto the wire array the next infer sends. tool_search promoters
- * flush immediately so a search then save_issue can land on the following
- * infer without waiting for compact. Mid-session growth re-prefills the
- * provider cache prefix; holding names off the wire until compact left the
- * model unable to emit them.
+ * names onto the wire array the next infer sends. Promote-on-execute flushes
+ * the one called name so strict providers see it declared; tool_search must
+ * not flush the match set. Fold is a free cache break — pruneIdlePromotions
+ * drops the advertised tail back to the frozen prefix.
  *
  * `pinnedTools` (local settings) merge into the prefix — advertised from the
  * first turn and exempt from activation state, so a resume needs no
@@ -400,9 +401,10 @@ export function createAdvertisedToolset(args: {
   const activated = createActivatedToolTracker();
   // Wire-committed activations. activate() opens the call gate (see
   // isAdvertised) at once; names join this snapshot via flushPromotions —
-  // on tool_search promote for the next infer, and at cache-safe
-  // boundaries for resume/fold. clear() resets both: a rotated session
-  // restarts at the prefix (see newSession).
+  // on promote-on-execute for the next infer, and at cache-safe
+  // boundaries for resume. clear() resets both: a rotated session
+  // restarts at the prefix (see newSession). pruneIdlePromotions drops
+  // the tail at fold.
   let wireActivated: string[] = [];
   const wireActivatedSet = new Set<string>();
   const advertised: ActivatedToolTracker = {
@@ -471,11 +473,21 @@ export function createAdvertisedToolset(args: {
     }
     return grew;
   };
+  const pruneIdlePromotions = (): boolean => {
+    if (wireActivated.length === 0 && activated.list().length === 0) {
+      return false;
+    }
+    activated.clear();
+    wireActivated = [];
+    wireActivatedSet.clear();
+    return true;
+  };
   return {
     activated: advertised,
     computeAdvertised,
     isAdvertised,
     flushPromotions,
+    pruneIdlePromotions,
   };
 }
 

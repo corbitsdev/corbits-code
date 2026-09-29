@@ -158,7 +158,7 @@ describe("structured transcript rows", () => {
 });
 
 const CATALOGUE = [
-  "Promoted onto the next inference tool list. Call them on the next turn:",
+  "Matching tools — call a listed name to use it:",
   "",
   ...[
     "mcp__linear__list_issues",

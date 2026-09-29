@@ -162,6 +162,11 @@ export interface RunnerServices {
       typeof import("../../session/assemble-runtime.js").createAdvertisedToolset
     >
   >["flushPromotions"];
+  pruneIdlePromotions: Awaited<
+    ReturnType<
+      typeof import("../../session/assemble-runtime.js").createAdvertisedToolset
+    >
+  >["pruneIdlePromotions"];
   buildAgent: ReturnType<
     typeof import("../../session/assemble-runtime.js").assembleChatAgent
   >["buildAgent"];

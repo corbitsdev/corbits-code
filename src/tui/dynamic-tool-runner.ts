@@ -28,22 +28,32 @@ export type DynamicToolRunner = AgentToolRunner & {
   removeTools(names: string[]): void;
   currentDefinitions(): ToolDefinition[];
   /**
-   * When a gate is set, run() refuses a registered tool whose name is not on
-   * the current wire (built-in prefix + pinned + activated) with an error
-   * pointing at tool_search, instead of silently dispatching. Without a gate
-   * every registered tool stays dispatchable — sub-agent runners never set one.
+   * When a gate is set, a registered tool whose name is not on the current
+   * wire (built-in prefix + pinned + activated) is interceptable: if
+   * `setOnUndeclaredCall` was wired, that handler declares the one name
+   * (promote-on-execute) and run() re-checks the gate, then dispatches.
+   * If the name is still not callable, run() errors toward tool_search.
+   * Without a gate every registered tool stays dispatchable — sub-agent
+   * runners never set one.
    *
-   * `options.isActivated` is the promotion side of the gate: a name the model
-   * was already shown (tool_search activated it) that is absent from the
-   * registry — its server disconnected or the snapshot rebuilt under it —
-   * reports "not currently available, server may be reconnecting, retry
-   * shortly" instead of the bare unknown-tool string. Names never activated
-   * keep the exact unknown-tool string.
+   * `options.isActivated` is the promotion side of the gate: a name the
+   * session already declared that is absent from the registry — its server
+   * disconnected or the snapshot rebuilt under it — reports "not currently
+   * available, server may be reconnecting, retry shortly" instead of the
+   * bare unknown-tool string. Names never activated keep the exact
+   * unknown-tool string.
    */
   setCallGate(
     isCallable: (name: string) => boolean,
     options?: { isActivated?: (name: string) => boolean },
   ): void;
+  /**
+   * Session promoter used when a known-but-unadvertised call arrives.
+   * Declare that one name (activate + flush), then dispatch. Search must
+   * not pre-promote the match set; this is the only path that grows the
+   * advertised tail mid-session besides director-side triggers.
+   */
+  setOnUndeclaredCall(handler: (name: string) => void): void;
 };
 
 export function createDynamicToolRunner(
@@ -53,6 +63,7 @@ export function createDynamicToolRunner(
   const byName = new Map<string, AgentTool>();
   let callGate: ((name: string) => boolean) | undefined;
   let isActivated: ((name: string) => boolean) | undefined;
+  let onUndeclaredCall: ((name: string) => void) | undefined;
 
   const addTools = (tools: AgentTool[]): void => {
     const incoming = new Set<string>();
@@ -87,6 +98,9 @@ export function createDynamicToolRunner(
     ): void {
       callGate = isCallable;
       isActivated = options?.isActivated;
+    },
+    setOnUndeclaredCall(handler: (name: string) => void): void {
+      onUndeclaredCall = handler;
     },
     async run(call: ToolCall, signal: AbortSignal): Promise<ToolResult> {
       const resolved = resolveRegisteredToolName(call.name, (name) =>
@@ -137,19 +151,22 @@ export function createDynamicToolRunner(
           isError: true,
         };
       }
-      // The model can only intend a name it saw on the wire. A registered tool
-      // the wire no longer advertises (activation state lost across a rebuild,
-      // or a name the model emitted unaided) must fail loudly with a route back
-      // to tool_search — silently dispatching it leaves the transcript claiming
-      // a call the next infer's wire does not declare.
+      // A registered tool off the advertised wire: declare that one name
+      // (strict providers see it on the session tool list before dispatch),
+      // then run the call. Search does not pre-promote the match set. If the
+      // promoter cannot admit the name (closed overlay, denied family), the
+      // gate still fails and the model is pointed at tool_search.
       if (callGate !== undefined && !callGate(resolved)) {
-        return {
-          callId: call.id,
-          content:
-            `Error: ${resolved} is not in the currently advertised tool list. ` +
-            `Call tool_search to activate it, then retry the call.`,
-          isError: true,
-        };
+        onUndeclaredCall?.(resolved);
+        if (!callGate(resolved)) {
+          return {
+            callId: call.id,
+            content:
+              `Error: ${resolved} is not in the currently advertised tool list. ` +
+              `Call tool_search to find it, then retry the call.`,
+            isError: true,
+          };
+        }
       }
       let dispatchCall: ToolCall;
       try {

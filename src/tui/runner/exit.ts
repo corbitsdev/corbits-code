@@ -438,12 +438,11 @@ export async function createRunLifecycle(
   };
   state.reloadIfIdle = reloadIfIdle;
 
-  // tool_search (and contextual triggers, e.g. the lsp hint) promote tools by
-  // opening the call gate and committing schemas onto the next infer's wire.
-  // Holding them off until compaction left MCP/plugin names callable in the
-  // runner but missing from the provider tools array, so the model could not
-  // emit those calls. Cache prefix growth on discovery is the cost of making
-  // promotion actually work.
+  // Promote-on-execute (and contextual triggers, e.g. the lsp hint) open the
+  // call gate and commit that one name onto the next infer's wire. Search
+  // returns cards only and does not pre-promote the match set. Cache prefix
+  // growth on a called name is the cost of making the call valid for strict
+  // providers.
   const promoteTools = (names: string[]): void => {
     activateAndCommitWire(names);
   };

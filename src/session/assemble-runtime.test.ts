@@ -50,7 +50,7 @@ describe("createAdvertisedToolset", () => {
   });
 
   // Activation opens the call gate but does not reshape the wire set until
-  // flushPromotions commits it (promoters flush on search; this unit stays
+  // flushPromotions commits it (promoters flush on execute; this unit stays
   // the split).
   test("activation alone leaves the wire set untouched until flushPromotions commits it", () => {
     const { activated, computeAdvertised, flushPromotions } =
@@ -138,6 +138,26 @@ describe("createAdvertisedToolset", () => {
     expect(isAdvertised("mcp__acme__do")).toBe(false);
     activated.activate(["mcp__acme__do"]);
     expect(isAdvertised("mcp__acme__do")).toBe(true);
+  });
+
+  test("pruneIdlePromotions drops execute-promoted schemas and keeps the frozen prefix", () => {
+    const { activated, computeAdvertised, flushPromotions, pruneIdlePromotions } =
+      createAdvertisedToolset(
+        wiring({ pinnedTools: ["mcp__linear__save_issue"] }),
+      );
+    const defs = [
+      def("read_file"),
+      def("mcp__linear__save_issue"),
+      def("mcp__acme__do"),
+    ];
+    activated.activate(["mcp__acme__do"]);
+    expect(flushPromotions()).toBe(true);
+    expect(computeAdvertised(defs).map((d) => d.name)).toContain("mcp__acme__do");
+    expect(pruneIdlePromotions()).toBe(true);
+    const names = computeAdvertised(defs).map((d) => d.name);
+    expect(names).not.toContain("mcp__acme__do");
+    expect(names).toContain("mcp__linear__save_issue");
+    expect(pruneIdlePromotions()).toBe(false);
   });
 
   test("pinned tools are advertised before any activation and survive clear", () => {

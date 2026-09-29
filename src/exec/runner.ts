@@ -880,6 +880,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       computeAdvertised,
       isAdvertised,
       flushPromotions,
+      pruneIdlePromotions,
     } = createAdvertisedToolset({
       sessionMode,
       toolAvailability,
@@ -937,9 +938,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
             ),
           telemetry: liveTelemetry,
           onFolded: () => {
-            // Fold restarts the cached prefix, so catch promotions still
-            // pending. Search already flushed names onto the next infer.
-            if (flushPromotions()) {
+            // Fold restarts the cached prefix — drop idle execute-promoted
+            // schemas rather than carrying them forever.
+            if (pruneIdlePromotions()) {
               directorHolder.instance?.updateToolDefinitions(
                 computeAdvertised(
                   agentToolset.dynamicRunner.currentDefinitions(),
@@ -962,10 +963,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       evidenceArchiveHolder,
     });
 
-    // tool_search starts as a no-op promoter; without this, the call gate
-    // refuses MCP/present/plugin names the result just told the model to
-    // invoke. Under a closed overlay the promoter only activates allowed
-    // names, so outside-allow tools can never become advertised or callable.
+    // Promote-on-execute: an undeclared registered call declares that one
+    // name, then dispatches. Under a closed overlay the promoter only
+    // activates allowed names, so outside-allow tools stay refused.
     const commitPromotedWire = (): void => {
       if (flushPromotions()) {
         directorHolder.instance?.updateToolDefinitions(

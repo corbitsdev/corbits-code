@@ -101,7 +101,7 @@ describe("call gate", () => {
     );
     expect(blocked.isError).toBe(true);
 
-    // tool_search promotion grows the wire set; the same call then dispatches.
+    // Promote-on-execute grows the wire set; the same call then dispatches.
     advertised.add("mcp__acme__do");
     const result = await runner.run(
       { id: "2", name: "mcp__acme__do", arguments: {} },
@@ -109,6 +109,30 @@ describe("call gate", () => {
     );
     expect(result.content).toBe("blind-result");
     expect(result.isError).toBeUndefined();
+  });
+
+  test("an undeclared registered call promotes only that name then dispatches", async () => {
+    const runner = createDynamicToolRunner([
+      stringTool("read_file", "core"),
+      stringTool("mcp__acme__do", "blind-result"),
+      stringTool("mcp__acme__other", "other"),
+    ]);
+    const advertised = new Set(["read_file"]);
+    const promoted: string[] = [];
+    runner.setCallGate((name) => advertised.has(name));
+    runner.setOnUndeclaredCall((name) => {
+      promoted.push(name);
+      advertised.add(name);
+    });
+
+    const result = await runner.run(
+      { id: "1", name: "mcp__acme__do", arguments: {} },
+      new AbortController().signal,
+    );
+    expect(result.content).toBe("blind-result");
+    expect(result.isError).toBeUndefined();
+    expect(promoted).toEqual(["mcp__acme__do"]);
+    expect(advertised.has("mcp__acme__other")).toBe(false);
   });
 });
 
