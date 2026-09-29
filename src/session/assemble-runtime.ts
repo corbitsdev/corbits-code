@@ -495,6 +495,22 @@ export function createAdvertisedToolset(args: {
   };
 }
 
+/**
+ * Fold already broke the cache prefix. Drop idle execute-promoted schemas,
+ * refresh the advertised wire, and persist so resume/crash cannot restore
+ * the pruned names from run.json.
+ */
+export function commitIdlePromotionPrune(args: {
+  pruneIdlePromotions: () => boolean;
+  refreshAdvertised: () => void;
+  persist: () => void;
+}): boolean {
+  if (!args.pruneIdlePromotions()) return false;
+  args.refreshAdvertised();
+  args.persist();
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // 7. Chat agent: director def, agent def, live builder
 // ---------------------------------------------------------------------------

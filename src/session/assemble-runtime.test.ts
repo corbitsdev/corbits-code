@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, DirectorRegistry } from "@intx/agent";
@@ -13,11 +13,14 @@ import type {
 import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import type { ChatDirector } from "../agent/director.js";
 import { authzParityDefinitions } from "../agent/tool-aliases.js";
+import { syncRunStateHandle, type RunStateHandle } from "./active-run.js";
 import {
+  commitIdlePromotionPrune,
   createAdvertisedToolset,
   loadSessionLocalSettings,
   type ChatAgentWiring,
 } from "./assemble-runtime.js";
+import { loadState, saveState } from "./state.js";
 
 function def(name: string): ToolDefinition {
   return {
@@ -180,6 +183,102 @@ describe("createAdvertisedToolset", () => {
     expect(names).not.toContain("mcp__acme__do");
     expect(names).toContain("mcp__linear__save_issue");
     expect(pruneIdlePromotions()).toBe(false);
+  });
+
+  test("fold prune persist omits activatedTools from run.json and the crash handle", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "fold-prune-persist-cwd-"));
+    const home = await mkdtemp(join(tmpdir(), "fold-prune-persist-home-"));
+    try {
+      const {
+        activated,
+        computeAdvertised,
+        flushPromotions,
+        pruneIdlePromotions,
+      } = createAdvertisedToolset(wiring());
+      const defs = [def("read_file"), def("mcp__acme__do")];
+      activated.activate(["mcp__acme__do"]);
+      expect(flushPromotions()).toBe(true);
+
+      const sessionId = "fold-prune-persist";
+      const base = {
+        status: "running" as const,
+        turnsUsed: 2,
+        task: "task",
+        startedAt: 1,
+      };
+      await saveState(
+        cwd,
+        sessionId,
+        { ...base, activatedTools: activated.list() },
+        home,
+      );
+      const handle: RunStateHandle = {
+        sessionId,
+        cwd,
+        task: base.task,
+        startedAt: base.startedAt,
+        turnsUsed: base.turnsUsed,
+        activatedTools: activated.list(),
+      };
+
+      let refreshed = false;
+      let persistWrite: Promise<void> | undefined;
+      expect(
+        commitIdlePromotionPrune({
+          pruneIdlePromotions,
+          refreshAdvertised: () => {
+            refreshed = true;
+            expect(computeAdvertised(defs).map((d) => d.name)).not.toContain(
+              "mcp__acme__do",
+            );
+          },
+          persist: () => {
+            const tools = activated.list();
+            syncRunStateHandle(handle, {
+              turnsUsed: base.turnsUsed,
+              task: base.task,
+              startedAt: base.startedAt,
+              activatedTools: tools,
+            });
+            persistWrite = saveState(
+              cwd,
+              sessionId,
+              {
+                ...base,
+                ...(tools.length > 0 ? { activatedTools: tools } : {}),
+              },
+              home,
+            );
+          },
+        }),
+      ).toBe(true);
+      expect(refreshed).toBe(true);
+      expect(handle.activatedTools).toEqual([]);
+      if (persistWrite === undefined) {
+        throw new Error("fold prune persist did not write");
+      }
+      await persistWrite;
+
+      const loaded = await loadState(cwd, sessionId, home);
+      expect(loaded.kind).toBe("ok");
+      if (loaded.kind !== "ok") return;
+      expect(loaded.state.activatedTools).toBeUndefined();
+
+      expect(
+        commitIdlePromotionPrune({
+          pruneIdlePromotions,
+          refreshAdvertised: () => {
+            throw new Error("idle prune must not refresh twice");
+          },
+          persist: () => {
+            throw new Error("idle prune must not persist twice");
+          },
+        }),
+      ).toBe(false);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
   });
 
   test("pinned tools are advertised before any activation and survive clear", () => {

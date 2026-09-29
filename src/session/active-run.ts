@@ -22,9 +22,10 @@ export interface RunStateHandle {
   startedAt: number;
   turnsUsed: number;
   model?: string;
-  // Latest tool_search-activated tool names, synced on every snapshot so the
+  // Latest execute-promoted tool names, synced on every snapshot so the
   // crash/signal terminal write can carry them into run.json for the resume
-  // seed.
+  // seed. Fold prune syncs an empty list so that write cannot restore
+  // dropped schemas.
   activatedTools?: string[];
   // Last Anthropic-protocol cache write, and the run-record model that wrote
   // it. The crash path copies the stamp so a killed process can still fold

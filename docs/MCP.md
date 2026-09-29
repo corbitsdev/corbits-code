@@ -93,9 +93,12 @@ Tools from connected servers are not advertised to the model up front; they are
 registered for dispatch as soon as the server connects (including later in the
 same turn) and surfaced on demand through dynamic tool discovery
 (`tool_search`). A match is a ranked handful of names plus capped
-descriptions — not full input schemas. Names activated via `tool_search`
-join the next inference tool list (no wait for compact), persist in the
-session's `run.json`, and are re-advertised on resume and after rebuilds.
+descriptions — not full input schemas. `tool_search` does not promote
+names onto the next inference or into `run.json`. Calling a discovered
+name declares that one schema on the next infer (promote-on-execute),
+persists it in the session's `run.json`, and re-advertises it on resume
+and after rebuilds. Fold drops idle execute-promoted schemas and persists
+that empty set so a crash or resume does not restore them.
 
 For integrations a project calls constantly, `pinnedTools` in local
 `.corbits/settings.json` keeps those names on the wire permanently — no

@@ -46,9 +46,10 @@ const RunStateSchema = type({
   // MCP servers connected during the session, with the tool count each
   // contributed. Empty until the first server finishes connecting.
   "mcpServers?": ConnectedMcpServerSchema.array(),
-  // Tool names promoted via tool_search this session. Persisted
-  // so a resume can re-activate them before the first post-resume inference —
-  // the transcript still tells the model they are callable.
+  // Tool names promoted on execute this session. Persisted so a resume can
+  // re-activate them before the first post-resume inference — the transcript
+  // still tells the model they are callable. Fold prune omits this field so
+  // a crash cannot restore dropped schemas.
   "activatedTools?": "string[]",
   // Wall time of the last Anthropic-protocol inference. A later process
   // folds before its first infer once this is at least the published TTL old.

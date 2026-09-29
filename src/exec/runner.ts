@@ -128,6 +128,7 @@ import {
   assembleSessionGate,
   assembleSessionLifecycle,
   assembleSessionTrust,
+  commitIdlePromotionPrune,
   createAdvertisedToolset,
   loadSessionLocalSettings,
   resolveLiveSessionSources,
@@ -944,14 +945,21 @@ export async function runExec(config: Config): Promise<ExecResult> {
           telemetry: liveTelemetry,
           onFolded: () => {
             // Fold restarts the cached prefix — drop idle execute-promoted
-            // schemas rather than carrying them forever.
-            if (pruneIdlePromotions()) {
-              directorHolder.instance?.updateToolDefinitions(
-                computeAdvertised(
-                  agentToolset.dynamicRunner.currentDefinitions(),
-                ),
-              );
-            }
+            // schemas rather than carrying them forever, and persist so a
+            // crash resume cannot re-flush the pruned names.
+            commitIdlePromotionPrune({
+              pruneIdlePromotions,
+              refreshAdvertised: () => {
+                directorHolder.instance?.updateToolDefinitions(
+                  computeAdvertised(
+                    agentToolset.dynamicRunner.currentDefinitions(),
+                  ),
+                );
+              },
+              persist: () => {
+                void persist("running");
+              },
+            });
           },
         }),
       getCacheWriteSeed: () =>

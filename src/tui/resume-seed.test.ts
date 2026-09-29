@@ -64,4 +64,10 @@ describe("resolveResumeSeed", () => {
 
     expect(seed.activatedTools).toEqual([]);
   });
+
+  test("an empty activatedTools list from a crash write does not re-activate pruned names", () => {
+    expect(
+      resolveResumeSeed(pickedState({ activatedTools: [] })).activatedTools,
+    ).toEqual([]);
+  });
 });
