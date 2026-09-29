@@ -14,6 +14,11 @@ import { SubAgentDirector } from "./nudge-director.js";
 import type { AdmissionQueue } from "./admission.js";
 import { createTestCapabilities } from "./director-test-harness.js";
 import { defined } from "../testkit/defined.js";
+import {
+  PASS_PLAN_ENVELOPE,
+  REPORT_ENVELOPE,
+  STUB_PLAN_ENVELOPE,
+} from "../testkit/report-envelope.js";
 
 const state = { turns: [] } as unknown as ReactorState;
 const longState = {
@@ -32,6 +37,15 @@ const longState = {
 // decides would trip a spurious stall nudge on the empty continuation
 // pings, so freeze time instead.
 const frozenNow = () => 0;
+
+function makeDirector(): {
+  director: SubAgentDirector;
+  caps: ReactorCapabilities;
+} {
+  const director = new SubAgentDirector("system", [], undefined, 30);
+  const caps = createTestCapabilities();
+  return { director, caps };
+}
 
 function inferenceDone(
   callIds: string[],
@@ -302,8 +316,7 @@ async function armedRecoveryBurst(): Promise<{
   caps: ReactorCapabilities;
   records: { id: string; count?: number }[];
 }> {
-  const director = new SubAgentDirector("system", [], undefined, 30);
-  const caps = createTestCapabilities();
+  const { director, caps } = makeDirector();
   const records = observedIds(director);
   await director.decide(
     inferenceDone(["fail-a", "fail-b", "ok-c"]),
@@ -316,8 +329,7 @@ async function armedRecoveryBurst(): Promise<{
 
 describe("SubAgentDirector tool failure recovery", () => {
   test("failed tool result adds one actionable ephemeral recovery nudge", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await director.decide(inferenceDone(["failed-call"]), state, caps);
     const turns = ephemeralTurns(
@@ -348,8 +360,7 @@ describe("SubAgentDirector tool failure recovery", () => {
   });
 
   test("a single failed tool audit omits the count field", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
     const records: { id: string; count: number | null }[] = [];
     director.observeInterventions((event) => {
       records.push({ id: event.id, count: event.count ?? null });
@@ -379,8 +390,7 @@ describe("SubAgentDirector tool failure recovery", () => {
   });
 
   test("successful tool result has no ephemeral recovery turn", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await director.decide(inferenceDone(["successful-call"]), state, caps);
     const infer = inferAction(
@@ -391,8 +401,7 @@ describe("SubAgentDirector tool failure recovery", () => {
   });
 
   test("waits for all pending results and carries one recovery nudge on the normal infer", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await director.decide(
       inferenceDone(["failed-first", "successful-last"]),
@@ -414,8 +423,7 @@ describe("SubAgentDirector tool failure recovery", () => {
   });
 
   test("a later successful cycle has no stale recovery nudge", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await director.decide(inferenceDone(["failed-cycle"]), state, caps);
     await director.decide(toolDone("failed-cycle", true), state, caps);
@@ -479,8 +487,7 @@ describe("SubAgentDirector tool failure recovery", () => {
   });
 
   test("recovery nudge appends to ephemeral turns already on the infer", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
     // Seed an ephemeral turn only when the caller did not supply any, so the
     // infer action applyPendingNudge rewrites already carries ephemeral turns.
     const seeding: ReactorCapabilities = {
@@ -518,8 +525,7 @@ describe("SubAgentDirector tool failure recovery", () => {
   });
 
   test("failed-tool recovery supersedes soft re-read guidance", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
     const callIds = [
       "shared-1",
       "shared-2",
@@ -635,27 +641,12 @@ describe("SubAgentDirector tool failure recovery", () => {
   });
 });
 
-const REPORT_ENVELOPE = [
-  "## Summary",
-  "Reviewed gate.ts.",
-  "",
-  "## Findings",
-  "Auth lives in gate.ts.",
-  "",
-  "## Blockers",
-  "None.",
-  "",
-  "## Paths",
-  "src/gate.ts",
-].join("\n");
-
 describe("SubAgentDirector verbatim tool markup recovery", () => {
   const verbatimToolCall =
     '<tool_call><function=read_file>{"path":"src/index.ts"}</function></tool_call>';
 
   test("nudges once for explicit tool-call wrapper text before report policy", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     const correction = actions(
       await director.decide(inferenceDoneText(verbatimToolCall), state, caps),
@@ -686,8 +677,7 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
   });
 
   test("does not treat arbitrary XML or thinking as verbatim tool calls", async () => {
-    const caps = createTestCapabilities();
-    const arbitraryXML = new SubAgentDirector("system", [], undefined, 30);
+    const { director: arbitraryXML, caps } = makeDirector();
     const arbitraryResult = actions(
       await arbitraryXML.decide(
         inferenceDoneText("<read_file>src/index.ts</read_file>"),
@@ -700,7 +690,8 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
       message: "subagent-incomplete-report-nudge",
     });
 
-    const thinkingOnly = new SubAgentDirector("system", [], undefined, 30);
+    // Same block scope as the first director, so reuse the existing caps.
+    const { director: thinkingOnly } = makeDirector();
     const thinkingResult = actions(
       await thinkingOnly.decide(
         inferenceDoneContent([
@@ -717,8 +708,7 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
   });
 
   test("resets correction only after genuine tool activity or parent follow-up", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await director.decide(inferenceDoneText(verbatimToolCall), state, caps);
     const narration = actions(
@@ -749,8 +739,7 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
   });
 
   test("after the verbatim nudge a real tool call executes", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await director.decide(inferenceDoneText(verbatimToolCall), state, caps);
     const result = actions(
@@ -761,8 +750,7 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
   });
 
   test("after the verbatim nudge a four-heading envelope completes", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await director.decide(inferenceDoneText(verbatimToolCall), state, caps);
     const result = actions(
@@ -775,8 +763,7 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
   });
 
   test("a complete envelope that quotes tool-call markup still completes", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     const reportQuotingMarkup = `${REPORT_ENVELOPE}\n\nThe model emitted ${verbatimToolCall} as text.`;
     const result = actions(
@@ -799,8 +786,7 @@ describe("SubAgentDirector verbatim tool markup recovery", () => {
 
 describe("SubAgentDirector incomplete-report wiring", () => {
   test("tool-less narration after tools gets one wrap-up nudge, not a complete", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await readOnce(director, state, caps);
 
@@ -819,8 +805,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
   });
 
   test("Summary-only mid-run narration gets a wrap-up nudge, not done", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await readOnce(director, state, caps);
 
@@ -843,8 +828,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
   });
 
   test("second tool-less narration after the wrap-up nudge salvages incomplete-report", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await readOnce(director, state, caps);
     await director.decide(
@@ -923,8 +907,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
   });
 
   test("tool-using turns reset the tool-less narration count (CL-7788)", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await director.decide(
       inferenceDoneText("Still looking at the files..."),
@@ -951,8 +934,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
   });
 
   test("tool-less turn with the four headings completes normally", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     await readOnce(director, state, caps);
 
@@ -972,8 +954,7 @@ describe("SubAgentDirector incomplete-report wiring", () => {
   });
 
   test("zero-tool first turn without a report envelope nudges for one, not a hard stop", async () => {
-    const director = new SubAgentDirector("system", [], undefined, 30);
-    const caps = createTestCapabilities();
+    const { director, caps } = makeDirector();
 
     const result = actions(
       await director.decide(
@@ -989,47 +970,6 @@ describe("SubAgentDirector incomplete-report wiring", () => {
     expect(result.some((action) => action.type === "reply")).toBe(false);
   });
 });
-
-const STUB_PLAN_ENVELOPE = [
-  "## Summary",
-  "Plan ready.",
-  "",
-  "## Findings",
-  "None.",
-  "",
-  "## Blockers",
-  "None.",
-  "",
-  "## Paths",
-  "None.",
-].join("\n");
-
-const PASS_PLAN_ENVELOPE = [
-  "## Summary",
-  "Plan for the salvage gate.",
-  "",
-  "## Findings",
-  "### Files / paths",
-  "src/subagent/report.ts",
-  "",
-  "### Acceptance criteria",
-  "Stub plan Findings salvage as incomplete-report.",
-  "",
-  "### Non-goals",
-  "Do not finish CL-6946.",
-  "",
-  "### Risks",
-  "A headings-only complete would auto-dispatch builder on a stub.",
-  "",
-  "### Ordered steps",
-  "Add hasPlanFindings, then wire evaluateSubAgentStop.",
-  "",
-  "## Blockers",
-  "None.",
-  "",
-  "## Paths",
-  "src/subagent/report.ts",
-].join("\n");
 
 describe("SubAgentDirector plan-substance wiring", () => {
   test("stub plan Findings with requirePlanSubstance nudges for the five parts, not four headings", async () => {

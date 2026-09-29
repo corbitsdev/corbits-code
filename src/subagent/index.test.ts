@@ -28,6 +28,11 @@ import {
   SUBAGENT_DEADLINE_MARGIN_MS,
 } from "./index.js";
 import { defined } from "../testkit/defined.js";
+import {
+  PASS_PLAN_ENVELOPE,
+  REPORT_ENVELOPE as FULL_REPORT_ENVELOPE,
+  STUB_PLAN_ENVELOPE,
+} from "../testkit/report-envelope.js";
 
 describe("sub-agent teardown", () => {
   test("disposeSubAgentSession closes agent, awaits stream, and disposes posix tools once", async () => {
@@ -186,20 +191,6 @@ describe("sub-agent stop helpers", () => {
     "Checking those next.",
   ].join("\n");
 
-  const FULL_REPORT_ENVELOPE = [
-    "## Summary",
-    "Reviewed gate.ts.",
-    "",
-    "## Findings",
-    "Auth lives in gate.ts.",
-    "",
-    "## Blockers",
-    "None.",
-    "",
-    "## Paths",
-    "src/gate.ts",
-  ].join("\n");
-
   const HEADINGS_ONLY_ENVELOPE = [
     "## Summary",
     "",
@@ -210,19 +201,6 @@ describe("sub-agent stop helpers", () => {
     "## Paths",
   ].join("\n");
 
-  const STUB_PLAN_ENVELOPE = [
-    "## Summary",
-    "Plan ready.",
-    "",
-    "## Findings",
-    "None.",
-    "",
-    "## Blockers",
-    "None.",
-    "",
-    "## Paths",
-    "None.",
-  ].join("\n");
 
   const WRAP_PLAN_ENVELOPE = [
     "## Summary",
@@ -277,37 +255,6 @@ describe("sub-agent stop helpers", () => {
     "",
     "## Paths",
     "None.",
-  ].join("\n");
-
-  const PASS_PLAN_FINDINGS = [
-    "### Files / paths",
-    "src/subagent/report.ts",
-    "",
-    "### Acceptance criteria",
-    "Stub plan Findings salvage as incomplete-report.",
-    "",
-    "### Non-goals",
-    "Do not finish CL-6946.",
-    "",
-    "### Risks",
-    "A headings-only complete would auto-dispatch builder on a stub.",
-    "",
-    "### Ordered steps",
-    "Add hasPlanFindings, then wire evaluateSubAgentStop.",
-  ].join("\n");
-
-  const PASS_PLAN_ENVELOPE = [
-    "## Summary",
-    "Plan for the salvage gate.",
-    "",
-    "## Findings",
-    PASS_PLAN_FINDINGS,
-    "",
-    "## Blockers",
-    "None.",
-    "",
-    "## Paths",
-    "src/subagent/report.ts",
   ].join("\n");
 
   const STEPS_IN_AC_BODY_PLAN_ENVELOPE = [
