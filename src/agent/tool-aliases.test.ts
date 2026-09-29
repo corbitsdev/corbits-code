@@ -373,4 +373,24 @@ describe("withAuthzParityDefinitions", () => {
       "read",
     ]);
   });
+
+  test("removeTools through the wrapper is reflected in definitions", () => {
+    let live: ToolDefinition[] = [posixDef("run_shell"), posixDef("read_file")];
+    const bundle = {
+      definitions: live,
+      currentDefinitions: () => live,
+      removeTools: (names: string[]) => {
+        live = live.filter((d) => !names.includes(d.name));
+      },
+      run: async () => ({ callId: "1", content: "", isError: false }),
+    };
+    const wrapped = withAuthzParityDefinitions(bundle);
+    expect(wrapped.removeTools).toBe(bundle.removeTools);
+    wrapped.removeTools(["read_file"]);
+    expect(wrapped.definitions.map((d) => d.name)).toEqual([
+      "run_shell",
+      "bash",
+      "shell",
+    ]);
+  });
 });
