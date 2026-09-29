@@ -82,6 +82,26 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     expect(replayAgain.reason).toContain(requestId);
   });
 
+  test("reactor retry of the same exact call reuses the pending envelope", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "worker-grant-dedupe-"));
+    const parentGate = makeParentGate(cwd, true);
+    const store = new WorkerGrantStore();
+    const workerGate = workerPermissionGate(parentGate, {
+      sessionId: "worker-dedupe",
+      store,
+    });
+
+    const first = await workerGate.authorizeCall(shellCall("c1", COMMAND));
+    if (first.effect !== "deny") throw new Error("expected worker deny");
+    // Reactor retries mint fresh call ids for the same tool + args: the
+    // deny must name the same grant request, not prompt the parent twice.
+    const second = await workerGate.authorizeCall(shellCall("c2", COMMAND));
+    if (second.effect !== "deny") throw new Error("expected worker deny");
+    expect(extractRequestId(second.reason)).toBe(
+      extractRequestId(first.reason),
+    );
+  });
+
   test("tampered args fall through to a fresh deny; original stays consumed", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "worker-grant-tamper-"));
     const parentGate = makeParentGate(cwd, true);
