@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 import type { DirectorFactory } from "@intx/agent";
 
-import { withMockedModuleDuring } from "../../tests/helpers/mock-module.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import { createPermissionGate } from "../permission/gate.js";
 import type { RunSubAgentParams } from "./types.js";
 
