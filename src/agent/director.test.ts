@@ -2188,8 +2188,7 @@ describe("CL-7919 coordinator shape", () => {
   // A throwing coordinator degrades to plain inference: decide() resolves
   // with an infer free of the workflow directive instead of rejecting.
   test("a throwing directive falls back to plain inference", async () => {
-    const { MAX_WORKFLOW_DIRECTIVE_CHARS } =
-      await import("./director.js");
+    const { MAX_WORKFLOW_DIRECTIVE_CHARS } = await import("./director.js");
     expect(MAX_WORKFLOW_DIRECTIVE_CHARS).toBeGreaterThan(0);
     const director = createChatDirector("base-prompt", [], {});
     director.setWorkflowCoordinator({
@@ -2270,8 +2269,7 @@ describe("CL-7919 coordinator shape", () => {
   // An oversized directive is capped with a marker, never dropped: the turn
   // still carries workflow guidance within the bound.
   test("an oversized directive is capped with a truncation marker", async () => {
-    const { MAX_WORKFLOW_DIRECTIVE_CHARS } =
-      await import("./director.js");
+    const { MAX_WORKFLOW_DIRECTIVE_CHARS } = await import("./director.js");
     const director = createChatDirector("base-prompt", [], {});
     const oversized = `prefix ${"x".repeat(MAX_WORKFLOW_DIRECTIVE_CHARS + 100)}`;
     director.setWorkflowCoordinator({

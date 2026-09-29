@@ -12,10 +12,7 @@ import {
   runOverlayAction,
 } from "./shell/overlay-list.js";
 import { handleListFilterKey } from "./shell/palette.js";
-import {
-  mountProductHost,
-  type ProductHostConfig,
-} from "./product-host.js";
+import { mountProductHost, type ProductHostConfig } from "./product-host.js";
 import { buildModelsFirstCatalog, modelOptionId } from "./model-catalog.js";
 
 function makeFakeSessionPort(): {

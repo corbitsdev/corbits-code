@@ -317,10 +317,7 @@ describe("integration — late MCP dispatch", () => {
         promoteDynamicTools(session);
         promotionScript(session, call);
 
-        const { events } = await runUntilDone(
-          session,
-          "list one linear issue",
-        );
+        const { events } = await runUntilDone(session, "list one linear issue");
         const published = publishedTool(await requestBodies(session));
 
         if (schema === undefined) {
