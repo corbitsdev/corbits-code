@@ -71,15 +71,14 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
 
     const retry = await workerGate.authorizeCall(shellCall("c2", COMMAND));
     expect(retry).toEqual({ effect: "allow" });
-    expect(store.peek(requestId)?.status).toBe("consumed");
+    expect(store.peek(requestId)?.status).toBe("pending");
 
-    const replayAgain = await workerGate.authorizeCall(
-      shellCall("c3", COMMAND),
-    );
-    expect(replayAgain.effect).toBe("deny");
-    if (replayAgain.effect !== "deny") throw new Error("expected replay deny");
-    expect(replayAgain.reason).toContain("already consumed");
-    expect(replayAgain.reason).toContain(requestId);
+    // Authorize is not execution: a second authorize of the same call still
+    // allows without spending the envelope. Exactly-once is enforced when the
+    // call executes (see the two-stage KEEPER below).
+    const retryAgain = await workerGate.authorizeCall(shellCall("c3", COMMAND));
+    expect(retryAgain).toEqual({ effect: "allow" });
+    expect(store.peek(requestId)?.status).toBe("pending");
   });
 
   test("reactor retry of the same exact call reuses the pending envelope", async () => {
@@ -102,7 +101,7 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     );
   });
 
-  test("tampered args fall through to a fresh deny; original stays consumed", async () => {
+  test("tampered args fall through to a fresh deny; original stays pending", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "worker-grant-tamper-"));
     const parentGate = makeParentGate(cwd, true);
     const store = new WorkerGrantStore();
@@ -127,10 +126,10 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     expect(tampered.effect).toBe("deny");
     if (tampered.effect !== "deny") throw new Error("expected tamper deny");
     expect(tampered.reason).not.toContain("already consumed");
-    expect(store.peek(requestId)?.status).toBe("consumed");
+    expect(store.peek(requestId)?.status).toBe("pending");
   });
 
-  test("headless parent cannot grant: replay denies, auto-decline fails closed", async () => {
+  test("headless parent cannot grant: retry denies, envelope stays pending", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "worker-grant-headless-"));
     // Interactive worker gate so the deny registers an envelope; the PARENT
     // gate is headless (no operator seam).
@@ -164,17 +163,14 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     const replay = await headlessGate.evaluate(shellCall("parent-1", COMMAND));
     expect(replay.allowed).toBe(false);
 
-    expect(
-      store.declineAllForSession(
-        "worker-headless",
-        "headless parent: no operator to approve",
-      ),
-    ).toBe(1);
-    expect(store.peek(requestId)?.status).toBe("declined");
+    // No operator, no approval, no decline verb: the retry keeps denying
+    // against the same pending envelope — nothing is spent, nothing is
+    // granted, and the deny still names the original grant request.
     const retry = await workerGate.authorizeCall(shellCall("c2", COMMAND));
     expect(retry.effect).toBe("deny");
-    if (retry.effect !== "deny") throw new Error("expected declined deny");
-    expect(retry.reason).toContain("declined");
+    if (retry.effect !== "deny") throw new Error("expected headless deny");
+    expect(extractRequestId(retry.reason)).toBe(requestId);
+    expect(store.peek(requestId)?.status).toBe("pending");
   });
 
   test("send_input text answers the ask but grants nothing", () => {
@@ -228,7 +224,7 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     store.expireSession(session.id, "test teardown");
   });
 
-  test("concurrent identical retries allow exactly once", async () => {
+  test("concurrent identical executions allow exactly once", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "worker-grant-race-"));
     const parentGate = makeParentGate(cwd, true);
     const store = new WorkerGrantStore();
@@ -243,13 +239,17 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     expect(await parentGate.evaluate(shellCall("parent-1", COMMAND))).toEqual({
       allowed: true,
     });
+    expect(await workerGate.authorizeCall(shellCall("c2", COMMAND))).toEqual({
+      effect: "allow",
+    });
+    expect(store.peek(requestId)?.status).toBe("pending");
 
     // Two in-flight copies of the exact call (fresh call ids, same args):
     // without serialization both pass precheck before either consumes and
-    // the envelope allows twice.
+    // the envelope allows twice. Exactly-once is enforced at execution.
     const [retryA, retryB] = await Promise.all([
-      workerGate.authorizeCall(shellCall("c2", COMMAND)),
-      workerGate.authorizeCall(shellCall("c3", COMMAND)),
+      workerGate.executionVerdict(shellCall("c2", COMMAND)),
+      workerGate.executionVerdict(shellCall("c3", COMMAND)),
     ]);
     const effects = [retryA.effect, retryB.effect].sort();
     expect(effects).toEqual(["allow", "deny"]);
@@ -291,6 +291,103 @@ describe("worker grant-request flow: deny → parent replay grant → one retry"
     expect(await workerGate.authorizeCall(shellCall("c3", COMMAND))).toEqual({
       effect: "allow",
     });
-    expect(store.peek(freshId)?.status).toBe("consumed");
+    expect(store.peek(freshId)?.status).toBe("pending");
+  });
+
+  test("KEEPER production two-stage: authorize allows, execution consumes, replay denied", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "worker-grant-two-stage-"));
+    const parentGate = makeParentGate(cwd, true);
+    const store = new WorkerGrantStore();
+    const workerGate = workerPermissionGate(parentGate, {
+      sessionId: "worker-1",
+      store,
+    });
+
+    const denied = await workerGate.authorizeCall(shellCall("c1", COMMAND));
+    if (denied.effect !== "deny") throw new Error("expected worker deny");
+    const requestId = extractRequestId(denied.reason);
+    expect(await parentGate.evaluate(shellCall("parent-1", COMMAND))).toEqual({
+      allowed: true,
+    });
+
+    // Stage 1 (reactor authorize hook): the granted retry authorizes but the
+    // envelope stays pending — nothing has executed yet.
+    const retry = await workerGate.authorizeCall(shellCall("c2", COMMAND));
+    expect(retry).toEqual({ effect: "allow" });
+    expect(store.peek(requestId)?.status).toBe("pending");
+
+    // Stage 2 (tool-runner middleware executionVerdict on the identical call):
+    // allows and consumes the single granted execution.
+    const executed = await workerGate.executionVerdict(
+      shellCall("c2", COMMAND),
+    );
+    expect(executed).toEqual({ effect: "allow" });
+    expect(store.peek(requestId)?.status).toBe("consumed");
+
+    // Exactly-once: a second execution of the same call fails closed, as does
+    // a second authorize.
+    const replayExecution = await workerGate.executionVerdict(
+      shellCall("c2", COMMAND),
+    );
+    expect(replayExecution.effect).toBe("deny");
+    if (replayExecution.effect !== "deny")
+      throw new Error("expected replay deny");
+    expect(replayExecution.reason).toContain("already consumed");
+    expect(replayExecution.reason).toContain(requestId);
+    const replayAuthorize = await workerGate.authorizeCall(
+      shellCall("c2", COMMAND),
+    );
+    expect(replayAuthorize.effect).toBe("deny");
+  });
+
+  test("KEEPER second session gets its own envelope: pending and consumed variants", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "worker-grant-sessions-"));
+    const store = new WorkerGrantStore();
+    const gateA = workerPermissionGate(makeParentGate(cwd, true), {
+      sessionId: "worker-A",
+      store,
+    });
+    const gateB = workerPermissionGate(makeParentGate(cwd, true), {
+      sessionId: "worker-B",
+      store,
+    });
+
+    // Pending variant: A's pending envelope must not veto B's own deny+ask.
+    const deniedA = await gateA.authorizeCall(shellCall("a1", COMMAND));
+    if (deniedA.effect !== "deny") throw new Error("expected A deny");
+    const idA = extractRequestId(deniedA.reason);
+    const deniedB = await gateB.authorizeCall(shellCall("b1", COMMAND));
+    if (deniedB.effect !== "deny") throw new Error("expected B deny");
+    const idB = extractRequestId(deniedB.reason);
+    expect(idB).not.toBe(idA);
+    expect(store.peek(idB)?.workerSessionId).toBe("worker-B");
+    expect(store.peek(idB)?.status).toBe("pending");
+
+    // Consumed variant: A completes its grant + two-stage retry; a fresh
+    // session's identical call still gets its own envelope, never A's veto.
+    const parentA = makeParentGate(cwd, true);
+    const gateA2 = workerPermissionGate(parentA, {
+      sessionId: "worker-A",
+      store,
+    });
+    expect(await parentA.evaluate(shellCall("parent-A", COMMAND))).toEqual({
+      allowed: true,
+    });
+    expect(await gateA2.authorizeCall(shellCall("a2", COMMAND))).toEqual({
+      effect: "allow",
+    });
+    expect(await gateA2.executionVerdict(shellCall("a2", COMMAND))).toEqual({
+      effect: "allow",
+    });
+    expect(store.peek(idA)?.status).toBe("consumed");
+    const gateC = workerPermissionGate(makeParentGate(cwd, true), {
+      sessionId: "worker-C",
+      store,
+    });
+    const deniedC = await gateC.authorizeCall(shellCall("c1", COMMAND));
+    if (deniedC.effect !== "deny") throw new Error("expected C deny");
+    const idC = extractRequestId(deniedC.reason);
+    expect(idC).not.toBe(idA);
+    expect(store.peek(idC)?.workerSessionId).toBe("worker-C");
   });
 });

@@ -4,7 +4,6 @@ import { WORKER_CANNOT_COMPLETE_APPROVAL } from "./decline-markers.js";
 import {
   WORKER_GRANT_TTL_MS,
   WorkerGrantStore,
-  buildRetryMessage,
   createDeniedCallEnvelope,
   fingerprintDeniedCall,
   formatWorkerDenyWithGrantId,
@@ -125,7 +124,7 @@ describe("WorkerGrantStore lifecycle", () => {
     expect(replay.blocker).toContain("already consumed");
   });
 
-  test("tampered session/cwd fail closed; tampered args fall through to the gate", () => {
+  test("tampered cwd fails closed; sibling session falls through to its own round", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
     store.consumeOnAllow({
@@ -147,17 +146,17 @@ describe("WorkerGrantStore lifecycle", () => {
     expect(cwdTamper.ok).toBe(false);
     if (cwdTamper.ok) throw new Error("expected blocker");
     expect(cwdTamper.blocker).toContain(CWD);
-    // Same fingerprint, different session: must replay from the owning session.
-    const sessionTamper = store.precheck({
+    // Same fingerprint, another session: never vetoed by this envelope — the
+    // sibling falls through to its own gate round and mints its own envelope
+    // there instead of riding this session's grant.
+    const sessionFallthrough = store.precheck({
       sessionId: "worker-2",
       canonicalTool: "run_shell",
       args: { ...ARGS },
       cwd: CWD,
       now: 1_000_002,
     });
-    expect(sessionTamper.ok).toBe(false);
-    if (sessionTamper.ok) throw new Error("expected blocker");
-    expect(sessionTamper.blocker).toContain("worker-1");
+    expect(sessionFallthrough).toEqual({ ok: true });
     // Different fingerprint (tampered args or tool): not this envelope — the
     // gate denies downstream with a fresh deny since no grant covers it.
     for (const identity of [
@@ -181,7 +180,7 @@ describe("WorkerGrantStore lifecycle", () => {
     expect(envelope.status).toBe("consumed");
   });
 
-  test("cross-session replay of a pending envelope fails closed", () => {
+  test("another session's envelope never vetoes this session's round", () => {
     const store = new WorkerGrantStore();
     store.register(createDeniedCallEnvelope(descriptor()));
     const result = store.precheck({
@@ -191,9 +190,7 @@ describe("WorkerGrantStore lifecycle", () => {
       cwd: CWD,
       now: 1_000_001,
     });
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected blocker");
-    expect(result.blocker).toContain("worker-1");
+    expect(result).toEqual({ ok: true });
   });
 
   test("expiry yields a fresh gate round, never a blackhole", () => {
@@ -272,25 +269,6 @@ describe("WorkerGrantStore lifecycle", () => {
     expect(envelope.questionId).toBeUndefined();
   });
 
-  test("decline fails closed; headless declineAllForSession covers the session", () => {
-    const store = new WorkerGrantStore();
-    const envelope = store.register(createDeniedCallEnvelope(descriptor()));
-    expect(store.decline(envelope.requestId, "operator said no")).toBe(true);
-    expect(store.decline(envelope.requestId, "again")).toBe(false);
-    const result = store.precheck({
-      sessionId: "worker-1",
-      canonicalTool: "run_shell",
-      args: { ...ARGS },
-      cwd: CWD,
-    });
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected blocker");
-    expect(result.blocker).toContain("declined");
-
-    store.register(createDeniedCallEnvelope(descriptor({ callId: "call-9" })));
-    expect(store.declineAllForSession("worker-1", "headless")).toBe(1);
-  });
-
   test("interrupt invalidation tombstones pending envelopes", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
@@ -318,7 +296,7 @@ describe("WorkerGrantStore lifecycle", () => {
     );
     expect(envelope.questionId).toBe("ask-7");
     expect(envelope.status).toBe("pending");
-    expect(store.byQuestion("ask-7")).toBe(envelope);
+    expect(store.peek(envelope.requestId)).toBe(envelope);
     expect(
       store.attachToAsk("worker-9", "ask-8", undefined, 1_000_001),
     ).toBeUndefined();
@@ -351,7 +329,7 @@ describe("WorkerGrantStore lifecycle", () => {
       ).toBe(envelopeB);
       expect(envelopeB.questionId).toBe("ask-B");
       expect(envelopeA.questionId).toBeUndefined();
-      expect(store.byQuestion("ask-B")).toBe(envelopeB);
+      expect(store.peek(envelopeB.requestId)?.questionId).toBe("ask-B");
     });
 
     test("unnamed ask keeps the legacy first-pending bind", () => {
@@ -370,7 +348,6 @@ describe("WorkerGrantStore lifecycle", () => {
       ).toBeUndefined();
       expect(envelopeA.questionId).toBeUndefined();
       expect(envelopeB.questionId).toBeUndefined();
-      expect(store.byQuestion("ask-x")).toBeUndefined();
     });
 
     test("cross-session id fails closed with no fallback", () => {
@@ -404,9 +381,11 @@ describe("WorkerGrantStore lifecycle", () => {
       cwd: CWD,
       now: 1_000_001,
     });
-    expect(
-      store.auditTrail(envelope.requestId).map((event) => event.event),
-    ).toEqual(["denied", "asked", "consumed"]);
+    expect(envelope.audit.map((event) => event.event)).toEqual([
+      "denied",
+      "asked",
+      "consumed",
+    ]);
   });
 
   test("no text API: state moves only on typed identities, never prose", () => {
@@ -432,18 +411,6 @@ describe("WorkerGrantStore lifecycle", () => {
         now: 1_000_001,
       }),
     ).toEqual({ ok: true });
-  });
-});
-
-describe("buildRetryMessage", () => {
-  test("carries exact args + questionId ref from the envelope", () => {
-    const store = new WorkerGrantStore();
-    const envelope = store.register(createDeniedCallEnvelope(descriptor()));
-    store.attachToAsk("worker-1", "ask-3", undefined, 1_000_001);
-    const message = buildRetryMessage(envelope);
-    expect(message).toContain(envelope.requestId);
-    expect(message).toContain("ask-3");
-    expect(message).toContain(JSON.stringify(ARGS));
   });
 });
 
