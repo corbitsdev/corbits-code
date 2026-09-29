@@ -2,35 +2,10 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { withMockedModule } from "../testkit/mock-module.js";
-import { type ResolvedMCPServerConfig } from "../mcp/exa.js";
-import type { MCPConnectOptions, MCPTool } from "../mcp/client.js";
-import { createPermissionGate } from "../permission/gate.js";
+import { installMcpConnectMock, mcpTestPermissionGate } from "../testkit/mcp-connect-mock.js";
 import type { MCPServerState } from "./tools.js";
 
 const dirs: string[] = [];
-const closedClients: string[] = [];
-const closedGenerations: number[] = [];
-let connectGeneration = 0;
-let connectOptions: MCPConnectOptions[] = [];
-let releaseDeferredConnect: (() => void) | undefined;
-let connectMode: "success" | "deferred" | "auth-pending" | "failure" =
-  "success";
-// One-shot transient dial failures for reconnect tests; consumed by the mock
-// before the connectMode branch so a fixed number of redials can fail first.
-let failNextConnects = 0;
-// Persistent redial failure message while connectMode is "failure".
-let connectFailureError = "redial refused";
-// When true the mock offers an auth URL (interactive needs-auth) before the
-// connectMode branch runs, so a redial can pend on the operator.
-let emitNeedsAuth = false;
-// Names that never settle until the connect AbortSignal fires.
-const hangNames = new Set<string>();
-// Reconnect tests repoint this to simulate a server whose tool set drifted
-// between generations; the default matches the original static payload.
-let connectedTools: MCPTool[] = [
-  { name: "list", description: "List", inputSchema: {} },
-];
 
 function tempCwd(): string {
   const dir = mkdtempSync(join(tmpdir(), "corbits-mcp-disconnect-"));
@@ -38,97 +13,21 @@ function tempCwd(): string {
   return dir;
 }
 
-await withMockedModule(
+const mock = await installMcpConnectMock(
   import.meta.resolve("../mcp/client.js"),
-  (real: typeof import("../mcp/client.js")) => ({
-    ...real,
-    connectMCPServer: async (
-      config: ResolvedMCPServerConfig,
-      options: MCPConnectOptions = {},
-    ) => {
-      connectOptions.push(options);
-      const generation = ++connectGeneration;
-      if (emitNeedsAuth) {
-        options.onAuthURL?.(config.name, "https://auth.example.test/approve");
-      }
-      if (failNextConnects > 0) {
-        failNextConnects -= 1;
-        return {
-          ok: false as const,
-          serverName: config.name,
-          error: "redial refused",
-        };
-      }
-      if (connectMode === "failure") {
-        return {
-          ok: false as const,
-          serverName: config.name,
-          error: connectFailureError,
-        };
-      }
-      if (connectMode === "deferred" || hangNames.has(config.name)) {
-        await new Promise<void>((resolve) => {
-          releaseDeferredConnect = resolve;
-          const onAbort = (): void => resolve();
-          if (options.signal?.aborted === true) onAbort();
-          else
-            options.signal?.addEventListener("abort", onAbort, { once: true });
-        });
-        if (options.signal?.aborted === true) {
-          return {
-            ok: false as const,
-            serverName: config.name,
-            error: "aborted",
-          };
-        }
-      }
-      if (connectMode === "auth-pending") {
-        return {
-          ok: false as const,
-          serverName: config.name,
-          error: "timed out waiting for the browser",
-          authPending: true,
-        };
-      }
-      let closed = false;
-      const close = async () => {
-        if (closed) return;
-        closed = true;
-        closedClients.push(config.name);
-        closedGenerations.push(generation);
-      };
-      // HTTP keeps `signal` on the live transport; abort after connect must
-      // tear the client down the way Streamable HTTP does.
-      if (options.signal !== undefined) {
-        const tearDown = (): void => {
-          void close();
-        };
-        if (options.signal.aborted) tearDown();
-        else options.signal.addEventListener("abort", tearDown, { once: true });
-      }
-      return {
-        ok: true as const,
-        client: {
-          serverName: config.name,
-          tools: connectedTools,
-          call: async () => "ok",
-          close,
-        },
-      };
-    },
-  }),
+  {
+    failureError: "redial refused",
+    initialTools: [{ name: "list", description: "List", inputSchema: {} }],
+    abortableDeferred: true,
+    teardownOnAbort: true,
+  },
 );
 
 const { createAgentToolset } = await import("./tools.js");
 const { resolveMcpServers } = await import("../config/index.js");
 
 function permissionGate() {
-  return createPermissionGate({
-    approvals: [],
-    interactive: false,
-    skipPermissions: true,
-    reactorGated: false,
-  });
+  return mcpTestPermissionGate();
 }
 
 async function makeToolset() {
@@ -177,22 +76,12 @@ afterEach(() => {
 });
 
 beforeEach(() => {
-  closedClients.length = 0;
-  closedGenerations.length = 0;
-  connectGeneration = 0;
-  connectOptions = [];
-  releaseDeferredConnect = undefined;
-  connectMode = "success";
-  failNextConnects = 0;
-  connectFailureError = "redial refused";
-  emitNeedsAuth = false;
-  hangNames.clear();
-  connectedTools = [{ name: "list", description: "List", inputSchema: {} }];
+  mock.reset();
 });
 
 async function waitForConnectStart(timeoutMs = 1000): Promise<void> {
   const start = Date.now();
-  while (connectOptions.length === 0) {
+  while (mock.connectOptions.length === 0) {
     if (Date.now() - start > timeoutMs) {
       throw new Error("timed out waiting for MCP connect to start");
     }
@@ -238,7 +127,7 @@ describe("disconnectMCPServer", () => {
           .some((d) => d.name.startsWith("mcp__acme__")),
       ).toBe(false);
       expect(unregistrations).toBeGreaterThan(0);
-      expect(closedClients).toEqual(["acme"]);
+      expect(mock.closedClients).toEqual(["acme"]);
       expect(toolset.hasMCPServer("acme")).toBe(false);
       expect(states.map((s) => s.state)).toContain("disconnected");
       expect(states.some((s) => s.state === "failed")).toBe(false);
@@ -286,7 +175,7 @@ describe("disconnectMCPServer", () => {
 
       // The server redeployed mid-session: same tool name, new schema, plus a
       // new tool. Reconnect must mount exactly the drifted set.
-      connectedTools = [
+      mock.connectedTools = [
         {
           name: "list",
           description: "List v2",
@@ -310,7 +199,7 @@ describe("disconnectMCPServer", () => {
       expect(list?.inputSchema).toEqual({ type: "object", required: ["q"] });
 
       // The stale generation's client was closed and the drift was announced.
-      expect(closedGenerations).toContain(1);
+      expect(mock.closedGenerations).toContain(1);
       expect(acmeNames(announced.at(-1) ?? [])).toEqual([
         "mcp__acme__list",
         "mcp__acme__search",
@@ -347,7 +236,7 @@ describe("disconnectMCPServer", () => {
   });
 
   test("disable during in-flight aborts without failed status or tools", async () => {
-    connectMode = "deferred";
+    mock.mode = "deferred";
     const toolset = await makeToolset();
     const states: MCPServerState[] = [];
     try {
@@ -371,7 +260,7 @@ describe("disconnectMCPServer", () => {
       ).toBe(false);
       expect(toolset.hasMCPServer("acme")).toBe(false);
     } finally {
-      releaseDeferredConnect?.();
+      mock.releaseDeferredConnect?.();
       await toolset.dispose();
     }
   });
@@ -399,7 +288,7 @@ describe("disconnectMCPServer", () => {
     const states: MCPServerState[] = [];
     try {
       await toolset.connectMCPServer(acme, callbacks(states));
-      expect(connectOptions).toHaveLength(1);
+      expect(mock.connectOptions).toHaveLength(1);
 
       const disconnecting = toolset.disconnectMCPServer(
         "acme",
@@ -413,8 +302,8 @@ describe("disconnectMCPServer", () => {
         toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
       ).toContain("mcp__acme__list");
       expect(states.some((s) => s.state === "failed")).toBe(false);
-      expect(closedGenerations).toContain(1);
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.closedGenerations).toContain(1);
+      expect(mock.connectOptions).toHaveLength(2);
     } finally {
       await toolset.dispose();
     }
@@ -465,7 +354,7 @@ describe("setMcpServersSource", () => {
   test("an auth-pending connect result reaches onStatus marked as such", async () => {
     const toolset = await makeToolset();
     const states: MCPServerState[] = [];
-    connectMode = "auth-pending";
+    mock.mode = "auth-pending";
     try {
       await toolset.connectMCPServer(acme, callbacks(states));
       const failed = states.filter((s) => s.state === "failed");
@@ -493,7 +382,7 @@ const { mcpReconnectDelayMs } = await import("./tools.js");
 // transport by invoking the onDisconnect hook the real client wires to
 // transport.onclose.
 function killTransport(): void {
-  connectOptions.at(-1)?.onDisconnect?.();
+  mock.connectOptions.at(-1)?.onDisconnect?.();
 }
 
 function acmeToolNames(
@@ -531,7 +420,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
     const states: MCPServerState[] = [];
     try {
       await toolset.connectMCPServer(acme, callbacks(states));
-      expect(connectOptions).toHaveLength(1);
+      expect(mock.connectOptions).toHaveLength(1);
 
       killTransport();
       killTransport();
@@ -574,7 +463,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
       );
       expect(result.isError).toBe(true);
       expect(result.content).toBe(MCP_RECONNECTING_TOOL_ERROR);
-      expect(connectOptions).toHaveLength(1);
+      expect(mock.connectOptions).toHaveLength(1);
     } finally {
       await toolset.dispose();
     }
@@ -592,7 +481,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
       await advanceUntil(() =>
         states.some((s) => s.state === "connected" && states.indexOf(s) > 1),
       );
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.connectOptions).toHaveLength(2);
       expect(states.at(-1)).toEqual({
         name: "acme",
         state: "connected",
@@ -625,11 +514,11 @@ describe("unintentional disconnect and automatic reconnect", () => {
       expect(states.at(-1)?.state).toBe("reconnecting");
 
       // Two redials fail transiently before the third succeeds.
-      failNextConnects = 2;
+      mock.failNextConnects = 2;
       await advanceUntil(() =>
         states.some((s) => s.state === "connected" && states.indexOf(s) > 1),
       );
-      expect(connectOptions).toHaveLength(4);
+      expect(mock.connectOptions).toHaveLength(4);
 
       const afterDeath = states.slice(2);
       expect(afterDeath.some((s) => s.state === "failed")).toBe(false);
@@ -660,12 +549,12 @@ describe("unintentional disconnect and automatic reconnect", () => {
     try {
       await toolset.connectMCPServer(acme, callbacks(states));
       killTransport();
-      connectMode = "failure";
-      connectFailureError = "spawn acme ENOENT";
+      mock.mode = "failure";
+      mock.failureError = "spawn acme ENOENT";
 
       await advanceUntil(() => states.some((s) => s.state === "failed"));
       // Exactly one redial ran; the loop stopped instead of retrying forever.
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.connectOptions).toHaveLength(2);
       expect(states.at(-1)).toEqual({
         name: "acme",
         state: "failed",
@@ -675,7 +564,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
       expect(toolset.hasMCPServer("acme")).toBe(false);
 
       await advanceAndFlush(120_000);
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.connectOptions).toHaveLength(2);
     } finally {
       jest.useRealTimers();
       await toolset.dispose();
@@ -689,11 +578,12 @@ describe("unintentional disconnect and automatic reconnect", () => {
     try {
       await toolset.connectMCPServer(acme, callbacks(states, [], true));
       // The redial offers an auth URL, then pends on the operator.
-      emitNeedsAuth = true;
-      connectMode = "deferred";
+      // A redial can pend on the operator before the mode branch runs.
+      mock.authURL = "https://auth.example.test/approve";
+      mock.mode = "deferred";
       killTransport();
       await advanceUntil(() => states.some((s) => s.state === "needs-auth"));
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.connectOptions).toHaveLength(2);
       expect(states.some((s) => s.state === "failed")).toBe(false);
 
       // The row is bare-stubbed meanwhile: calls fail fast, never dispatch.
@@ -705,7 +595,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
       expect(pendResult.content).toBe(MCP_RECONNECTING_TOOL_ERROR);
 
       // The operator authorizes; the live set mounts over the stubs.
-      releaseDeferredConnect?.();
+      mock.releaseDeferredConnect?.();
       await advanceUntil(() =>
         states.some((s) => s.state === "connected" && states.indexOf(s) > 1),
       );
@@ -748,7 +638,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
       await toolset.disconnectMCPServer("acme", callbacks(states));
       await advanceAndFlush(60_000);
 
-      expect(connectOptions).toHaveLength(1);
+      expect(mock.connectOptions).toHaveLength(1);
       expect(states.at(-1)).toEqual({ name: "acme", state: "disconnected" });
       expect(acmeToolNames(toolset)).toEqual([]);
       expect(toolset.hasMCPServer("acme")).toBe(false);
@@ -765,7 +655,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
     try {
       await toolset.connectMCPServer(acme, callbacks(states));
       killTransport();
-      connectMode = "auth-pending";
+      mock.mode = "auth-pending";
 
       await advanceUntil(() =>
         states.some(
@@ -775,13 +665,13 @@ describe("unintentional disconnect and automatic reconnect", () => {
             s.authPending === true,
         ),
       );
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.connectOptions).toHaveLength(2);
       expect(states.at(-1)?.state).toBe("failed");
       expect(acmeToolNames(toolset)).toEqual([]);
       expect(toolset.hasMCPServer("acme")).toBe(false);
 
       await advanceAndFlush(120_000);
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.connectOptions).toHaveLength(2);
     } finally {
       jest.useRealTimers();
       await toolset.dispose();
@@ -798,7 +688,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
       expect(states.at(-1)?.state).toBe("reconnecting");
 
       await toolset.retryMCPServer(acme, callbacks(states));
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.connectOptions).toHaveLength(2);
       expect(states.at(-1)).toEqual({
         name: "acme",
         state: "connected",
@@ -807,8 +697,8 @@ describe("unintentional disconnect and automatic reconnect", () => {
       expect(acmeToolNames(toolset)).toEqual(["mcp__acme__list"]);
 
       await advanceAndFlush(120_000);
-      expect(connectOptions).toHaveLength(2);
-      expect(closedGenerations).toContain(1);
+      expect(mock.connectOptions).toHaveLength(2);
+      expect(mock.closedGenerations).toContain(1);
     } finally {
       jest.useRealTimers();
       await toolset.dispose();
@@ -822,13 +712,13 @@ describe("unintentional disconnect and automatic reconnect", () => {
     try {
       await toolset.connectMCPServer(acme, callbacks(states));
       killTransport();
-      connectMode = "auth-pending";
+      mock.mode = "auth-pending";
       await advanceUntil(() => states.some((s) => s.state === "failed"));
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.connectOptions).toHaveLength(2);
 
-      connectMode = "success";
+      mock.mode = "success";
       await toolset.retryMCPServer(acme, callbacks(states));
-      expect(connectOptions).toHaveLength(3);
+      expect(mock.connectOptions).toHaveLength(3);
       expect(states.at(-1)).toEqual({
         name: "acme",
         state: "connected",
@@ -837,7 +727,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
       expect(acmeToolNames(toolset)).toEqual(["mcp__acme__list"]);
 
       await advanceAndFlush(120_000);
-      expect(connectOptions).toHaveLength(3);
+      expect(mock.connectOptions).toHaveLength(3);
     } finally {
       jest.useRealTimers();
       await toolset.dispose();
@@ -850,21 +740,21 @@ describe("unintentional disconnect and automatic reconnect", () => {
     jest.useFakeTimers();
     try {
       await toolset.connectMCPServer(acme, callbacks(states));
-      expect(connectOptions).toHaveLength(1);
-      connectMode = "deferred";
+      expect(mock.connectOptions).toHaveLength(1);
+      mock.mode = "deferred";
       killTransport();
       expect(states.at(-1)?.state).toBe("reconnecting");
       await advanceAndFlush(1500);
       // The backoff fired and the replacement dial is hanging in the mock.
-      expect(connectOptions).toHaveLength(2);
+      expect(mock.connectOptions).toHaveLength(2);
 
       const retrying = toolset.retryMCPServer(acme, callbacks(states));
       await flushMicrotasks();
       // The stale attempt was aborted; release the retry's own dial.
-      releaseDeferredConnect?.();
+      mock.releaseDeferredConnect?.();
       await retrying;
 
-      expect(connectOptions).toHaveLength(3);
+      expect(mock.connectOptions).toHaveLength(3);
       expect(states.at(-1)).toEqual({
         name: "acme",
         state: "connected",
@@ -874,9 +764,9 @@ describe("unintentional disconnect and automatic reconnect", () => {
       expect(states.some((s) => s.state === "failed")).toBe(false);
 
       await advanceAndFlush(120_000);
-      expect(connectOptions).toHaveLength(3);
+      expect(mock.connectOptions).toHaveLength(3);
     } finally {
-      releaseDeferredConnect?.();
+      mock.releaseDeferredConnect?.();
       jest.useRealTimers();
       await toolset.dispose();
     }
@@ -885,7 +775,7 @@ describe("unintentional disconnect and automatic reconnect", () => {
 
 describe("MCP handshake bounds", () => {
   test("a hung connect fails within the handshake abort bound", async () => {
-    connectMode = "deferred";
+    mock.mode = "deferred";
     const toolset = await makeToolset();
     const states: MCPServerState[] = [];
     try {
@@ -898,13 +788,13 @@ describe("MCP handshake bounds", () => {
       expect(Date.now() - started).toBeLessThan(500);
       expect(states.some((s) => s.state === "failed")).toBe(true);
     } finally {
-      releaseDeferredConnect?.();
+      mock.releaseDeferredConnect?.();
       await toolset.dispose();
     }
   });
 
   test("a hung sibling does not abort a server that already connected", async () => {
-    hangNames.add("lin");
+    mock.hangNames.add("lin");
     const toolset = await createAgentToolset({
       cwd: tempCwd(),
       permissionGate: permissionGate(),
@@ -920,7 +810,7 @@ describe("MCP handshake bounds", () => {
       expect(
         toolset.dynamicRunner.currentDefinitions().map((d) => d.name),
       ).toContain("mcp__acme__list");
-      expect(closedClients).not.toContain("acme");
+      expect(mock.closedClients).not.toContain("acme");
       expect(
         states.some((s) => s.name === "acme" && s.state === "connected"),
       ).toBe(true);
@@ -934,7 +824,7 @@ describe("MCP handshake bounds", () => {
   });
 
   test("tool_search retries while a handshake is still in flight", async () => {
-    connectMode = "deferred";
+    mock.mode = "deferred";
     const toolset = await makeToolset();
     const states: MCPServerState[] = [];
     try {
@@ -956,10 +846,10 @@ describe("MCP handshake bounds", () => {
       expect(result.content).not.toMatch(/different keywords/i);
       expect(result.content).not.toContain("mcp__acme__list");
 
-      releaseDeferredConnect?.();
+      mock.releaseDeferredConnect?.();
       await connecting;
     } finally {
-      releaseDeferredConnect?.();
+      mock.releaseDeferredConnect?.();
       await toolset.dispose();
     }
   });
