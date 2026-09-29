@@ -20,6 +20,7 @@ import type { WorkflowCoordinator } from "../workflows/coordinator.js";
 import {
   compactionContinuationAction,
   createCompactionGovernor,
+  foldNonConvergedNotice,
   type CompactionGovernor,
   type HandoffArming,
   type ManualCompactArming,
@@ -457,6 +458,8 @@ function applyManageTasksToolCall(
 // (inference., tool., reactor., fork.).
 export const CHAT_TASKS_CHANGED_EVENT = "custom.chat.tasks.changed";
 export const CHAT_TOOLS_ACTIVATE_EVENT = "custom.chat.tools.activate";
+export const COMPACTION_FOLD_NONCONVERGED_EVENT =
+  "custom.compaction.fold_nonconverged";
 export const CREDENTIAL_RECOVERY_INTERCHANGE_TYPE =
   "system.credential.refresh" as const;
 export const ChatTasksChangedDataSchema = type({
@@ -464,6 +467,9 @@ export const ChatTasksChangedDataSchema = type({
 });
 export const ChatToolsActivateDataSchema = type({
   names: "string[]",
+});
+export const CompactionFoldNonConvergedDataSchema = type({
+  notice: "string",
 });
 
 export interface ChatDirectorOptions {
@@ -1273,7 +1279,15 @@ class ChatDirectorImpl extends DefaultDirector {
     const cycled = state.lastCycleSource?.sourceId;
     if (cycled !== undefined && cycled !== "") this.currentSourceId = cycled;
     if (onTurnBoundary(event)) {
+      const wasNonConverged = this.compaction.foldNonConverged;
       this.compaction.noteInferenceDone(event, turns);
+      if (this.compaction.foldNonConverged && !wasNonConverged) {
+        this.pendingEmits.push(
+          capabilities.emit(COMPACTION_FOLD_NONCONVERGED_EVENT, {
+            notice: foldNonConvergedNotice(),
+          }),
+        );
+      }
     }
 
     if (

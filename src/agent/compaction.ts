@@ -103,6 +103,11 @@ export function compactFloorNoopNotice(instructions: string): string {
     : "Nothing to compact yet.";
 }
 
+/** Operator-facing notice after a fold whose post-compact occupancy is still over threshold. */
+export function foldNonConvergedNotice(): string {
+  return "Context fold did not reduce occupancy below the compact threshold. Further automatic folds are paused until usage drops.";
+}
+
 /** Run-record `provider:model` (or slash form) as a LastCycleSource. */
 export function lastCycleSourceFromRunModel(
   model: string | undefined,

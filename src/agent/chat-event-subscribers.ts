@@ -10,14 +10,17 @@ import { type } from "arktype";
 import {
   CHAT_TASKS_CHANGED_EVENT,
   CHAT_TOOLS_ACTIVATE_EVENT,
+  COMPACTION_FOLD_NONCONVERGED_EVENT,
   ChatTasksChangedDataSchema,
   ChatToolsActivateDataSchema,
+  CompactionFoldNonConvergedDataSchema,
 } from "./director.js";
 import type { Task } from "./tasks.js";
 
 export interface ChatDirectorEventHandlers {
   onTasksChanged: (tasks: Task[]) => void;
   onToolsActivate: (names: string[]) => void;
+  onFoldNonConverged?: (notice: string) => void;
 }
 
 export type ChatDirectorEventDebugLog = (
@@ -56,6 +59,18 @@ export function handleChatDirectorEvent(
       return true;
     }
     handlers.onToolsActivate(parsed.names);
+    return true;
+  }
+  if (event.type === COMPACTION_FOLD_NONCONVERGED_EVENT) {
+    const parsed = CompactionFoldNonConvergedDataSchema(event.data);
+    if (parsed instanceof type.errors) {
+      logDebug(
+        "chat fold-nonconverged event dropped invalid payload: {error}",
+        { error: parsed.summary },
+      );
+      return true;
+    }
+    handlers.onFoldNonConverged?.(parsed.notice);
     return true;
   }
   return false;

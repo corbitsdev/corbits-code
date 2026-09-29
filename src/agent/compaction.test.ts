@@ -10,8 +10,13 @@ import {
   COMPACTION_CONTINUATION_EVENT,
   OPERATOR_COMPACT_REASON,
   createCompactionGovernor,
+  foldNonConvergedNotice,
   stickyExtraInstructionsFromRecords,
 } from "./compaction.js";
+import {
+  COMPACTION_FOLD_NONCONVERGED_EVENT,
+  createChatDirector,
+} from "./director.js";
 import {
   compactionWideResumeDeltaFor,
   compactionThresholdFor,
@@ -157,7 +162,10 @@ describe("compaction governor", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
 
-    governor.noteInferenceDone(inferenceDone(overThreshold), turnsOfLength(1, 1));
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold),
+      turnsOfLength(1, 1),
+    );
     expect(
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
@@ -705,7 +713,10 @@ describe("compaction governor", () => {
 
   test("manual compact no-ops below the compactor floor", () => {
     const governor = createCompactionGovernor(undefined);
-    governor.noteInferenceDone(inferenceDone(overThreshold), turnsOfLength(1, 1));
+    governor.noteInferenceDone(
+      inferenceDone(overThreshold),
+      turnsOfLength(1, 1),
+    );
     expect(governor.requestManual("focus on tests")).toBe("noop");
     expect(governor.extraInstructions).toBeUndefined();
     expect(
@@ -842,6 +853,103 @@ describe("post-compact above-threshold latch (CL-9006)", () => {
       governor.interceptActions(toolDone(), inferAction, capabilities),
     ).toBeNull();
     expect(governor.foldNonConverged).toBe(true);
+  });
+
+  test("foldNonConvergedNotice names the still-over fold for the operator", () => {
+    expect(foldNonConvergedNotice()).toMatch(/did not reduce occupancy/i);
+    expect(foldNonConvergedNotice()).toMatch(/paused/i);
+  });
+
+  test("ChatDirector emits the non-convergence notice once after a still-over fold", async () => {
+    const director = createChatDirector("sys", [], {});
+    const caps: ReactorCapabilities = {
+      infer: () => ({ type: "infer" }),
+      executeTools: () => ({ type: "execute_tools", calls: [] }),
+      suspend: (gate) => ({ type: "suspend", gate }),
+      fork: (mode, forkId) => ({ type: "fork", mode, forkId }),
+      emit: (eventType, data) => ({ type: "emit", eventType, data }),
+      reply: (content: string) => ({ type: "reply", content }),
+      checkpoint: (message = "") => ({ type: "checkpoint", message }),
+      compact: (compactor, reason) => ({ type: "compact", compactor, reason }),
+      wait: () => ({ type: "wait" }),
+      done: () => ({ type: "done" }),
+    };
+    const manyTurns = {
+      turns: Array.from({ length: 8 }, () => ({
+        role: "assistant" as const,
+        content: [],
+        model: "test-model",
+        timestamp: 0,
+      })),
+      activeForks: [],
+      pendingOperations: [],
+      activeGates: [],
+      tokenUsage: usage(overThreshold),
+      lastCycleUsage: null,
+      lastCycleSource: null,
+      sessionId: "test-session",
+    };
+    const done = (input: number): ReactorInboundEvent =>
+      ({
+        type: "inference.done",
+        turn: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_call",
+              id: "call-1",
+              name: "read_file",
+              arguments: { path: "x.ts" },
+            },
+          ],
+          model: "test-model",
+          timestamp: 0,
+        },
+        usage: usage(input),
+        source: {
+          sourceId: "test",
+          provider: "openai",
+          model: "test-model",
+        },
+      }) as ReactorInboundEvent;
+    const toolDoneEvent = {
+      type: "tool.done",
+      result: { callId: "call-1", content: "ok", isError: false },
+    } as ReactorInboundEvent;
+
+    await director.decide(done(overThreshold), manyTurns as never, caps);
+    await director.decide(toolDoneEvent, manyTurns as never, caps);
+    const post = await director.decide(
+      done(overThreshold),
+      manyTurns as never,
+      caps,
+    );
+    const arr = Array.isArray(post) ? post : [post];
+    const notices = arr.filter(
+      (a) =>
+        a.type === "emit" &&
+        "eventType" in a &&
+        a.eventType === COMPACTION_FOLD_NONCONVERGED_EVENT,
+    );
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      data: { notice: foldNonConvergedNotice() },
+    });
+
+    const again = await director.decide(
+      done(overThreshold + 1),
+      manyTurns as never,
+      caps,
+    );
+    const againArr = Array.isArray(again) ? again : [again];
+    expect(
+      againArr.filter(
+        (a) =>
+          a.type === "emit" &&
+          "eventType" in a &&
+          a.eventType === COMPACTION_FOLD_NONCONVERGED_EVENT,
+      ),
+    ).toHaveLength(0);
   });
 
   test("the consecutive-compact cap holds across tool-call occupancy", () => {
@@ -1207,7 +1315,9 @@ describe("handoff arming (/handoff)", () => {
     {
       title: "noop then cancelManual does not wipe extras from a prior fold",
       fire: "idle",
-      midRequests: [{ turns: turnsOfLength(1, 1), text: "wipe this", result: "noop" }],
+      midRequests: [
+        { turns: turnsOfLength(1, 1), text: "wipe this", result: "noop" },
+      ],
     },
     {
       title:

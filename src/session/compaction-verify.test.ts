@@ -943,6 +943,7 @@ describe("completeness gate plus verify repair", () => {
       textTurn("user", "follow-up after first fold"),
       textTurn("assistant", "progress note after first fold"),
     ];
+    await archiveTurns(archive, first.output);
     await archiveTurns(archive, followUp);
     turns = [...first.output, ...followUp];
 

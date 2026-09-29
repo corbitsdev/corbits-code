@@ -360,6 +360,7 @@ export async function createRunLifecycle(
       {
         onTasksChanged: (tasks) => services.emitter.emit("tasks", tasks),
         onToolsActivate: (names) => activateAndCommitWire(names),
+        onFoldNonConverged: (notice) => state.systemNotice?.(notice),
       },
       (message, fields) => tuiLogger.debug(message, fields),
     );

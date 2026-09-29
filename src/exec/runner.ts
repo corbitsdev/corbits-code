@@ -1105,6 +1105,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
             });
           },
           onToolsActivate: (names) => promoteAndCommitWire(names),
+          onFoldNonConverged: (notice) => {
+            logger.warn(notice);
+          },
         },
         (message, fields) => logger.debug(message, fields),
       );

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CHAT_TASKS_CHANGED_EVENT,
   CHAT_TOOLS_ACTIVATE_EVENT,
+  COMPACTION_FOLD_NONCONVERGED_EVENT,
 } from "./director.js";
 import { handleChatDirectorEvent } from "./chat-event-subscribers.js";
 import type { Task } from "./tasks.js";
@@ -117,6 +118,30 @@ describe("handleChatDirectorEvent", () => {
     );
     expect(handled).toBe(false);
     expect(dispatched).toBe(false);
+    expect(log.calls).toEqual([]);
+  });
+
+  test("dispatches a fold-nonconverged notice", () => {
+    const seen: string[] = [];
+    const log = makeLog();
+    const handled = handleChatDirectorEvent(
+      {
+        type: COMPACTION_FOLD_NONCONVERGED_EVENT,
+        data: { notice: "Context fold did not reduce occupancy." },
+      },
+      {
+        onTasksChanged: () => {
+          throw new Error("unexpected tasks-changed dispatch");
+        },
+        onToolsActivate: () => {
+          throw new Error("unexpected tools-activate dispatch");
+        },
+        onFoldNonConverged: (notice) => seen.push(notice),
+      },
+      log.log,
+    );
+    expect(handled).toBe(true);
+    expect(seen).toEqual(["Context fold did not reduce occupancy."]);
     expect(log.calls).toEqual([]);
   });
 });

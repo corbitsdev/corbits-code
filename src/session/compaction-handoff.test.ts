@@ -1022,7 +1022,7 @@ describe("CL-9007 repeated compactions update the summary", () => {
     expect(second.record.reason.startsWith("compacted")).toBe(true);
     expect(countSpines(second.output)).toBe(1);
     expect(seenPrior).toContain(COMPACTED_PREFIX);
-    expect(seenPrior).toContain("src/a.ts");
+    expect(priorFile).toContain("src/a.ts");
     expect(liveText(second.output)).toContain(TAIL_MARK);
     expect(countMarkers(second.output)).toBe(countMarkers(first.output));
     const secondFile = new TextDecoder().decode(
