@@ -801,7 +801,7 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
     expect(result.record.reason).toBe("no compaction needed");
   });
 
-  test("failing summarizer keeps prior context; a later success writes one handoff", async () => {
+  test("failing summarizer folds with a statistics-only stub; a later success writes one handoff", async () => {
     const source: InferenceSource = {
       id: "test",
       provider: "openai",
@@ -825,10 +825,14 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
     });
     const turns = grow([], 16, "fail");
     const result1 = await compactor.apply(turns, mockStrategyCtx);
-    expect(result1.output).toBe(turns);
-    expect(result1.record.reason).toBe("summarize failed");
-    expect(firstText(defined(result1.output[0]))).not.toContain(
-      COMPACTED_PREFIX,
+    expect(result1.output).not.toBe(turns);
+    expect(result1.record.reason).toContain("statistics-only stub");
+    expect(result1.record.decisions.summarizeFailed).toBe(1);
+    expect(result1.record.decisions.summarizeFailureKind).toBe("failed");
+    expect(compactedTurns(result1.output)).toHaveLength(1);
+    const stubHandoff = defined(defined(result1.blobs)[0]);
+    expect(new TextDecoder().decode(stubHandoff.bytes)).toContain(
+      "Turns compacted:",
     );
 
     const result2 = await compactor.apply(
@@ -839,8 +843,11 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
     // CL-8744: the narrative lives in the fat handoff file, not the prompt.
     // The live output carries only the thin spine plus its pointer.
     expect(allText(result2.output)).not.toContain("UNIQUE_SUCCESS_SUMMARY");
-    const handoffBlob = defined(defined(result2.blobs)[0]);
-    expect(handoffBlob.contentType).toBe("text/markdown");
+    const handoffBlob = defined(
+      defined(result2.blobs).find(
+        (blob) => blob.contentType === "text/markdown",
+      ),
+    );
     expect(new TextDecoder().decode(handoffBlob.bytes)).toContain(
       "UNIQUE_SUCCESS_SUMMARY",
     );
@@ -848,6 +855,51 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
       `Handoff: tool-output:///${handoffBlob.key}`,
     );
     expect(hasConsecutiveSameRole(result2.output)).toBe(false);
+  });
+
+  test("empty summarizer output folds with a statistics-only stub", async () => {
+    const source: InferenceSource = {
+      id: "test",
+      provider: "openai",
+      model: "test-model",
+      baseURL: "http://localhost:1",
+      credentialId: "test",
+    };
+    const notices: string[] = [];
+    const summarize = createModelSummarizer({
+      getSource: () => source,
+      complete: async () => "",
+      onFailure: (text) => notices.push(text),
+    });
+    const result = await smallCompactor({
+      keepRecentTurns: 2,
+      summaryMaxChars: 500,
+      summarize,
+    }).apply(grow([], 16, "empty"), mockStrategyCtx);
+    expect(result.record.decisions.summarizeFailed).toBe(1);
+    expect(result.record.decisions.summarizeFailureKind).toBe("empty");
+    expect(result.record.reason).toContain("statistics-only stub: empty");
+    expect(compactedTurns(result.output)).toHaveLength(1);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("statistics-only stub");
+    expect(notices[0]).toContain("empty");
+  });
+
+  test("an aborted summarizer keeps prior context instead of stubbing", async () => {
+    const err = new Error("aborted by lifecycle");
+    err.name = "AbortError";
+    const turns = grow([], 16, "abort");
+    const result = await smallCompactor({
+      keepRecentTurns: 2,
+      summaryMaxChars: 500,
+      summarize: async () => {
+        throw err;
+      },
+    }).apply(turns, mockStrategyCtx);
+    expect(result.output).toBe(turns);
+    expect(result.record.reason).toBe("summarize failed");
+    expect(result.record.decisions.summarizeFailed).toBe(1);
+    expect(result.record.decisions.summarizedTurnCount).toBeUndefined();
   });
 });
 

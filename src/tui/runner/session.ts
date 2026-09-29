@@ -599,7 +599,7 @@ export async function assembleTUISession(
     resolveLiveSessionSources(state.config, state.sessionId);
 
   // Compaction summarizer: structured handoff via the live model. Failure
-  // keeps prior context rather than substituting a stats stub. Workflow state
+  // substitutes a statistics-only stub and tells the operator. Workflow state
   // is read at compaction time so a pass mid-/build or mid-/plan still names
   // the active step. The archive, when mounted, supplies the unclipped excerpt.
   // CL-8220: abort-aware compaction lifecycle. The summary call is the only

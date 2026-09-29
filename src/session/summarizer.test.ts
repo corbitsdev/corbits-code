@@ -103,11 +103,16 @@ test("model summarizer throws on failure instead of substituting a stats stub", 
 });
 
 test("model summarizer throws when the model returns empty text", async () => {
+  const notices: string[] = [];
   const summarize = createModelSummarizer({
     getSource: () => source,
     complete: async () => "",
+    onFailure: (text) => notices.push(text),
   });
   await expect(summarize(turns())).rejects.toThrow("empty text");
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain("statistics-only stub");
+  expect(notices[0]).toContain("empty");
 });
 
 test("model summarizer feeds archive payloads into the prompt instead of clipped turns", async () => {
@@ -261,6 +266,8 @@ test("a second 401 fails: retry budget is spent once", async () => {
   expect(calls).toBe(2);
   expect(refreshes).toBe(1);
   expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain("statistics-only stub");
+  expect(notices[0]).toContain("auth");
   expect(notices[0]).toContain("401");
 });
 
@@ -356,6 +363,8 @@ test("final failure throws, notices once, and reports telemetry", async () => {
   await expect(summarize(turns())).rejects.toThrow("500");
   expect(calls).toBe(2);
   expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain("statistics-only stub");
+  expect(notices[0]).toContain("provider");
   expect(notices[0]).toContain("500");
   expect(events).toHaveLength(1);
   expect(events[0]?.event).toBe("summarizer_failure");

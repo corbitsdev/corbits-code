@@ -695,6 +695,36 @@ test("compaction fires only when turns were actually folded away", async () => {
   expect(captured[0]?.properties.turns_before).toBe(60);
 });
 
+test("compaction does not fire when the summarizer fell back to a stub", async () => {
+  const { telemetry, events } = harness();
+  const { createModelSummarizer } = await import("../session/summarizer.js");
+  const compactor = createSessionPruningCompactor({
+    summarize: createModelSummarizer({
+      getSource: () =>
+        ({
+          id: "test",
+          provider: "openai",
+          model: "test-model",
+          credentialId: "test",
+        }) as never,
+      complete: async () => {
+        throw new Error("model unreachable");
+      },
+    }),
+    telemetry,
+    compactionShape: { tailBudgetTokens: 1 },
+  });
+
+  const longHistory = Array.from({ length: 60 }, (_, i) => ({
+    role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+    content: [{ type: "text" as const, text: `turn ${i}` }],
+    timestamp: i,
+  }));
+  await compactor.apply(longHistory, {} as never);
+
+  expect(await events()).toEqual([]);
+});
+
 // ---------------------------------------------------------------------------
 // The allowlist itself: unknown events and unknown keys never reach the wire
 // ---------------------------------------------------------------------------

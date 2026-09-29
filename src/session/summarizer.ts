@@ -4,9 +4,9 @@
 // replaces older turns with a summary. A deterministic stats blob ("Turns: N,
 // Tools called: ...") loses everything that matters for resuming work, so this
 // module produces a structured, workflow-aware narrative via a one-shot
-// inference call against the session's own model. Failure is fatal to that
-// compact cycle: the caller retains the prior context instead of substituting
-// a statistics-only stub.
+// inference call against the session's own model. Empty output or a failed
+// call throws so the compact cycle can substitute a statistics-only stub and
+// tell the operator, instead of logging the fold as a successful reduction.
 
 import { type } from "arktype";
 import { runInference, type Dependencies } from "@intx/inference";
@@ -388,7 +388,9 @@ function inferenceErrorCause(error: unknown): InferenceError | undefined {
   return parsed instanceof type.errors ? undefined : parsed;
 }
 
-function classifySummarizerFailure(error: unknown): SummarizerFailureClass {
+export function classifySummarizerFailure(
+  error: unknown,
+): SummarizerFailureClass {
   const cause = inferenceErrorCause(error);
   if (cause !== undefined) {
     if (cause.category === "aborted") return "aborted";
@@ -425,13 +427,15 @@ function failureNotice(
   error: Error,
 ): string {
   const firstLine = error.message.split("\n", 1)[0]?.trim() ?? "";
-  const reason =
-    firstLine.length > 0
+  const detail =
+    firstLine.length > 0 && firstLine !== failureClass
       ? firstLine.length > 140
         ? `${firstLine.slice(0, 140)}...`
         : firstLine
-      : failureClass;
-  return `Compaction summary failed — keeping prior context (${reason})`;
+      : undefined;
+  const kind =
+    detail !== undefined ? `${failureClass}: ${detail}` : failureClass;
+  return `Compaction summary failed — using a statistics-only stub (${kind})`;
 }
 
 export interface ModelSummarizerOptions {
@@ -467,8 +471,8 @@ export interface ModelSummarizerOptions {
 /**
  * Build a `summarize(turns, ctx)` function suitable for `CompactorConfig`.
  * Produces a structured, workflow-aware summary via the model. Empty output
- * or a failed call throws so the compact cycle can keep the prior context
- * instead of replacing it with a statistics-only stub.
+ * or a failed call throws so the compact cycle can substitute a
+ * statistics-only stub and surface that fallback to the operator.
  */
 export function createModelSummarizer(
   options: ModelSummarizerOptions,

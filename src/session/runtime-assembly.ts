@@ -475,8 +475,13 @@ export function createSessionPruningCompactor(
       // summarizedTurnCount is only set on the branch that actually folded
       // turns away. The other branch is a no-op (or image aging alone), and
       // reporting it as compaction would drag the duration and turn-count
-      // averages toward the runs where nothing happened.
-      if (result.record.decisions.summarizedTurnCount !== undefined) {
+      // averages toward the runs where nothing happened. A statistics-only
+      // stub fold is not a successful LLM reduction: the operator notice
+      // owns that path, and emitting the success event would relabel it.
+      if (
+        result.record.decisions.summarizedTurnCount !== undefined &&
+        result.record.decisions.summarizeFailed !== 1
+      ) {
         telemetry.capture("compaction", {
           mode: "llm",
           duration_ms: Date.now() - startedAt,

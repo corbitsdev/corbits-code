@@ -16,7 +16,11 @@ import type {
 } from "@intx/types/runtime";
 import { ageImageBlocks } from "./attachment-store.js";
 import { buildHandoffFold, COMPACTED_PREFIX } from "./compaction-handoff.js";
-import type { SummaryContext } from "./summarizer.js";
+import {
+  classifySummarizerFailure,
+  type SummarizerFailureClass,
+  type SummaryContext,
+} from "./summarizer.js";
 import {
   extractContinuationFacts,
   verifyOrRepair,
@@ -1188,33 +1192,47 @@ export function createPruningCompactor(
           ? operatorCtx
           : { ...operatorCtx, priorSummary: priorSummaryForFold };
       let summary: string;
+      let summarizeFallback: SummarizerFailureClass | undefined;
+      const stubSummary = (): string =>
+        buildTurnSummary(
+          summarizedTurns,
+          cfg.summaryMaxChars,
+          anchorTurns.length,
+        );
       try {
         summary =
           cfg.summarize !== undefined
             ? await cfg.summarize(summarizedTurns, summaryCtx)
-            : buildTurnSummary(
-                summarizedTurns,
-                cfg.summaryMaxChars,
-                anchorTurns.length,
-              );
-      } catch {
-        return {
-          output: turns,
-          record: {
-            strategy: this.name,
-            version: this.version,
-            parameters: {
-              keepRecentTurns: cfg.keepRecentTurns,
-              compactionShape: shape,
-              ...extraInstructionParameter(cfg),
+            : stubSummary();
+      } catch (error) {
+        const failureClass = classifySummarizerFailure(error);
+        // A lifecycle abort is operator intent, not a lossy fallback: keep the
+        // prior context so the wrapCompactor race cannot land a stub fold.
+        if (failureClass === "aborted") {
+          return {
+            output: turns,
+            record: {
+              strategy: this.name,
+              version: this.version,
+              parameters: {
+                keepRecentTurns: cfg.keepRecentTurns,
+                compactionShape: shape,
+                ...extraInstructionParameter(cfg),
+              },
+              reason: "summarize failed",
+              decisions: {
+                summarizeFailed: 1,
+                agedImageCount: aged.agedImageCount,
+              },
             },
-            reason: "summarize failed",
-            decisions: {
-              summarizeFailed: 1,
-              agedImageCount: aged.agedImageCount,
-            },
-          },
-        };
+          };
+        }
+        summarizeFallback = failureClass;
+        summary = stubSummary();
+      }
+      if (summary.trim().length === 0) {
+        summarizeFallback = summarizeFallback ?? "empty";
+        summary = stubSummary();
       }
       if (summary.trim().length === 0) {
         return {
@@ -1337,7 +1355,11 @@ export function createPruningCompactor(
             compactionShape: shape,
             ...extraInstructionParameter(cfg),
           },
-          reason: `compacted ${summarizedTurns.length} turns, anchored ${anchorTurns.length}, keeping ${tailTurns.length} tail`,
+          reason: `compacted ${summarizedTurns.length} turns, anchored ${anchorTurns.length}, keeping ${tailTurns.length} tail${
+            summarizeFallback !== undefined
+              ? ` (statistics-only stub: ${summarizeFallback})`
+              : ""
+          }`,
           decisions: {
             summarizedTurnCount: summarizedTurns.length,
             anchorTurnCount: anchorTurns.length,
@@ -1352,6 +1374,12 @@ export function createPruningCompactor(
             agedImageCount: aged.agedImageCount,
             supersededReadCount: supersededReads.size,
             repeatedErrorCount: repeatedErrors.size,
+            ...(summarizeFallback !== undefined
+              ? {
+                  summarizeFailed: 1,
+                  summarizeFailureKind: summarizeFallback,
+                }
+              : {}),
             ...verifyDecisions,
           },
         },

@@ -32,6 +32,7 @@ import {
 import type { SubAgentSourcesConfig } from "./runtime-assembly.js";
 import type { Settings } from "../config/settings.js";
 import type { Telemetry } from "../telemetry/index.js";
+import { createModelSummarizer } from "./summarizer.js";
 import { generateSessionId, initSessionDir, sessionDir } from "./index.js";
 import type { PluginModule } from "../plugins/loader.js";
 
@@ -560,6 +561,61 @@ describe("createSessionPruningCompactor", () => {
     expect(discarded.output).toEqual(folded.output);
     expect(folds).toHaveLength(1);
     expect(captured.map((entry) => entry.event)).toEqual(["compaction"]);
+  });
+});
+
+describe("createSessionPruningCompactor stub fallback", () => {
+  test("a summarizer stub fallback folds without success telemetry or onFolded", async () => {
+    const captured: { event: string }[] = [];
+    const folds: { turnsBefore: number; turnsAfter: number }[] = [];
+    const telemetry: Telemetry = {
+      enabled: true,
+      installationId: "test",
+      capture: (event) => {
+        captured.push({ event });
+      },
+      captureIntentional: () => false,
+      flush: async () => undefined,
+      discard: () => undefined,
+    };
+    const notices: string[] = [];
+    const summarize = createModelSummarizer({
+      getSource: () =>
+        ({
+          id: "test",
+          provider: "openai",
+          model: "test-model",
+          baseURL: "http://localhost:1",
+          credentialId: "test",
+        }) as never,
+      complete: async () => {
+        throw new Error("model unreachable");
+      },
+      onFailure: (text) => notices.push(text),
+    });
+    const compactor = createSessionPruningCompactor({
+      summarize,
+      telemetry,
+      onFolded: (info) => folds.push(info),
+      compactionShape: { tailBudgetTokens: 1 },
+    });
+    const now = Date.now();
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: [{ type: "text", text: `t${i}` }],
+      timestamp: now,
+    }));
+    const result = await compactor.apply(many as never, {
+      state: {} as never,
+      trigger: "test",
+    });
+    expect(result.record.decisions.summarizeFailed).toBe(1);
+    expect(result.record.reason).toContain("statistics-only stub");
+    expect(folds).toEqual([]);
+    expect(captured).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("statistics-only stub");
+    expect(notices[0]).toContain("failed");
   });
 });
 
