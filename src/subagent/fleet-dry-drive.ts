@@ -123,7 +123,9 @@ export interface MailboxWorkerDigest {
   status: string;
   description?: string;
   summary?: string;
+  findings?: string;
   blockers?: string;
+  report?: string;
   report_uri?: string;
   error?: string;
   error_uri?: string;
@@ -209,6 +211,16 @@ function clipDigestSection(text: string): string {
   return `${text.slice(0, MAILBOX_DIGEST_SECTION_CHARS - 1).trimEnd()}…`;
 }
 
+function mailboxReportSpillNotice(text: string, uri: string): string {
+  return truncationNotice({
+    maxChars: MAILBOX_DIGEST_SECTION_CHARS,
+    remaining: Math.max(0, text.length - MAILBOX_DIGEST_SECTION_CHARS),
+    fullLength: text.length,
+    contentType: "text/plain",
+    uri,
+  }).trim();
+}
+
 export async function spillWorkerField(
   text: string | undefined,
   agentId: string,
@@ -261,12 +273,22 @@ export async function digestCollectedReport(
     parsed !== undefined && parsed.summary.length > 0
       ? clipDigestSection(parsed.summary)
       : undefined;
+  const findings =
+    parsed !== undefined && summary === undefined && parsed.findings.length > 0
+      ? clipDigestSection(parsed.findings)
+      : undefined;
   const blockers =
     parsed !== undefined
       ? clipDigestSection(
           parsed.blockers.length > 0 ? parsed.blockers : "None.",
         )
       : undefined;
+  const reportInline =
+    report.report === undefined
+      ? undefined
+      : reportUri !== undefined
+        ? mailboxReportSpillNotice(report.report, reportUri)
+        : await clipField(report.report, report.agent_id, "report");
   return {
     agent_id: report.agent_id,
     status: report.status,
@@ -274,7 +296,9 @@ export async function digestCollectedReport(
       ? { description: report.description }
       : {}),
     ...(summary !== undefined ? { summary } : {}),
+    ...(findings !== undefined ? { findings } : {}),
     ...(blockers !== undefined ? { blockers } : {}),
+    ...(reportInline !== undefined ? { report: reportInline } : {}),
     ...(reportUri !== undefined ? { report_uri: reportUri } : {}),
     ...(report.error !== undefined
       ? { error: clipDigestSection(report.error) }

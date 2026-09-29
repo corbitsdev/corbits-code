@@ -30,6 +30,11 @@ export function mailboxMailWakeLine(): string {
   return `${MAILBOX_MAIL_WAKE_PREFIX} — occupancy delivered these worker reports (do not call wait_agents for these agent_ids):`;
 }
 
+/** Names report_uri with truncation-notice language so the parent may fetch it. */
+export function mailboxMailReportUriHint(): string {
+  return "report_uri names a spilled full report — use read_file with that URI (offset/limit supported) to see the rest.";
+}
+
 /**
  * Whether inbound text is occupancy's mailbox mail. Internal runtime→agent
  * traffic — the fleet board already owns worker status and the payload is
@@ -79,12 +84,16 @@ export function occupancyShouldYieldWait(
   return false;
 }
 
-export function buildMailboxMailPrompt<T extends { agent_id: string }>(
-  reports: readonly T[],
-): string {
-  return [mailboxMailWakeLine(), JSON.stringify(dedupeByAgentId(reports))].join(
-    "\n",
-  );
+export function buildMailboxMailPrompt<
+  T extends { agent_id: string; report_uri?: string },
+>(reports: readonly T[]): string {
+  const unique = dedupeByAgentId(reports);
+  const lines = [mailboxMailWakeLine()];
+  if (unique.some((report) => report.report_uri !== undefined)) {
+    lines.push(mailboxMailReportUriHint());
+  }
+  lines.push(JSON.stringify(unique));
+  return lines.join("\n");
 }
 
 function hasDeliverableMailboxMail(

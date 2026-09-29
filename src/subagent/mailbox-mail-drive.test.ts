@@ -5,6 +5,7 @@ import {
   driveMailboxMail,
   latchMailboxMailDrive,
   MAILBOX_MAIL_WAKE_PREFIX,
+  mailboxMailReportUriHint,
   mailboxMailWakeLine,
   occupancyShouldYieldWait,
 } from "./mailbox-mail-drive.js";
@@ -12,6 +13,7 @@ import { createSubAgentSessionStore } from "./session-store.js";
 import {
   digestCollectedReports,
   fleetDrySpillKey,
+  FLEET_DRY_REPORT_CHARS,
   type FleetDryMailboxRecord,
 } from "./fleet-dry-drive.js";
 import {
@@ -43,10 +45,12 @@ function mailboxReportsFromPrompt(prompt: string): Record<string, unknown>[] {
   const line = mailboxMailWakeLine();
   const start = prompt.indexOf(line);
   expect(start).toBeGreaterThanOrEqual(0);
-  const jsonStart = start + line.length + 1;
-  const jsonEnd = prompt.indexOf("\n", jsonStart);
+  const rest = prompt.slice(start + line.length);
+  const jsonStart = rest.indexOf("[");
+  expect(jsonStart).toBeGreaterThanOrEqual(0);
+  const jsonEnd = rest.indexOf("\n", jsonStart);
   return JSON.parse(
-    prompt.slice(jsonStart, jsonEnd === -1 ? undefined : jsonEnd),
+    rest.slice(jsonStart, jsonEnd === -1 ? undefined : jsonEnd),
   ) as Record<string, unknown>[];
 }
 
@@ -102,6 +106,23 @@ describe("buildMailboxMailPrompt", () => {
     expect(prompt).toContain("shipped");
     expect(prompt).toContain(mailboxMailWakeLine());
     expect(prompt).not.toContain("already collected");
+    expect(prompt).not.toContain(mailboxMailReportUriHint());
+  });
+
+  test("names report_uri with a read_file truncation notice", () => {
+    const uri = `tool-output:///${fleetDrySpillKey("worker-1", "report")}`;
+    const prompt = buildMailboxMailPrompt([
+      {
+        agent_id: "worker-1",
+        status: "done",
+        report_uri: uri,
+      },
+    ]);
+    expect(prompt).toContain(mailboxMailReportUriHint());
+    expect(prompt).toContain(
+      "use read_file with that URI (offset/limit supported)",
+    );
+    expect(prompt).toContain(uri);
   });
 
   test("does not paste a duplicate agent_id", () => {
@@ -132,20 +153,74 @@ describe("digestCollectedReports", () => {
       ],
       store.writeBlob,
     );
-    expect(digest).toEqual({
-      agent_id: "worker-1",
-      status: "done",
-      description: "lane",
-      summary: "Shipped the digest.",
-      blockers: "Need a follow-up.",
-      report_uri: `tool-output:///${fleetDrySpillKey("worker-1", "report")}`,
-    });
+    const reportUri = `tool-output:///${fleetDrySpillKey("worker-1", "report")}`;
+    expect(digest?.summary).toBe("Shipped the digest.");
+    expect(digest?.blockers).toBe("Need a follow-up.");
+    expect(digest?.report_uri).toBe(reportUri);
+    expect(digest?.report).toContain("[output truncated");
+    expect(digest?.report).toContain(reportUri);
+    expect(digest?.report).toContain(
+      "use read_file with that URI (offset/limit supported)",
+    );
+    expect(digest?.report).not.toContain("SECRET_FINDINGS_BODY");
     expect(
       new TextDecoder().decode(
         store.blobs.get(fleetDrySpillKey("worker-1", "report"))?.bytes ??
           new Uint8Array(),
       ),
     ).toBe(ENVELOPE_REPORT);
+  });
+
+  test("empty Summary still surfaces Findings", async () => {
+    const store = fakeBlobStore();
+    const report = [
+      "## Summary",
+      "",
+      "## Findings",
+      "SECRET_EMPTY_SUMMARY_FINDINGS",
+      "",
+      "## Blockers",
+      "None.",
+      "",
+      "## Paths",
+      "src/subagent/fleet-dry-drive.ts",
+    ].join("\n");
+    const [digest] = await digestCollectedReports(
+      [{ agent_id: "empty-sum", status: "done", report }],
+      store.writeBlob,
+    );
+    expect(digest?.summary).toBeUndefined();
+    expect(digest?.findings).toBe("SECRET_EMPTY_SUMMARY_FINDINGS");
+    expect(digest?.blockers).toBe("None.");
+    expect(digest?.report_uri).toBe(
+      `tool-output:///${fleetDrySpillKey("empty-sum", "report")}`,
+    );
+  });
+
+  test("writeBlob failure inlines a truncated report with NOT retrievable", async () => {
+    const original = `head-${"x".repeat(FLEET_DRY_REPORT_CHARS)}SECRET_FINDINGS_TAIL`;
+    const [digest] = await digestCollectedReports(
+      [{ agent_id: "boom", status: "done", report: original }],
+      async () => {
+        throw new Error("disk full");
+      },
+    );
+    expect(digest?.report_uri).toBeUndefined();
+    expect(digest?.report?.length).toBeLessThanOrEqual(FLEET_DRY_REPORT_CHARS);
+    expect(digest?.report).toContain("[output truncated");
+    expect(digest?.report).toContain("NOT retrievable");
+    expect(digest?.report).not.toContain("tool-output:///");
+    expect(digest?.report).not.toContain("SECRET_FINDINGS_TAIL");
+  });
+
+  test("missing writeBlob inlines the report instead of dropping Findings", async () => {
+    const [digest] = await digestCollectedReports([
+      { agent_id: "no-blob", status: "done", report: ENVELOPE_REPORT },
+    ]);
+    expect(digest?.report_uri).toBeUndefined();
+    expect(digest?.report).toBe(ENVELOPE_REPORT);
+    expect(digest?.report).toContain("SECRET_FINDINGS_BODY");
+    expect(digest?.summary).toBe("Shipped the digest.");
   });
 });
 
@@ -205,18 +280,20 @@ describe("driveMailboxMail", () => {
     });
     expect(driven).toBe(true);
     const parsed = mailboxReportsFromPrompt(sent[0] ?? "");
-    expect(parsed).toEqual([
-      {
-        agent_id: "done",
-        status: "done",
-        description: "lane",
-        summary: "Shipped the digest.",
-        blockers: "Need a follow-up.",
-        report_uri: `tool-output:///${fleetDrySpillKey("done", "report")}`,
-      },
-    ]);
+    expect(parsed[0]?.agent_id).toBe("done");
+    expect(parsed[0]?.status).toBe("done");
+    expect(parsed[0]?.description).toBe("lane");
+    expect(parsed[0]?.summary).toBe("Shipped the digest.");
+    expect(parsed[0]?.blockers).toBe("Need a follow-up.");
+    expect(parsed[0]?.report_uri).toBe(
+      `tool-output:///${fleetDrySpillKey("done", "report")}`,
+    );
+    expect(String(parsed[0]?.report)).toContain("[output truncated");
+    expect(String(parsed[0]?.report)).toContain(
+      "use read_file with that URI (offset/limit supported)",
+    );
+    expect(sent[0]).toContain(mailboxMailReportUriHint());
     expect(sent[0]).not.toContain("SECRET_FINDINGS_BODY");
-    expect(sent[0]).not.toContain('"report":');
     expect(
       new TextDecoder().decode(
         store.blobs.get(fleetDrySpillKey("done", "report"))?.bytes ??
