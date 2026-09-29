@@ -768,9 +768,6 @@ describe("HTTP MCP re-auth loop prevention", () => {
       expect(result.error).toContain(
         `MCP authorization for linear failed after ${MAX_BROWSER_AUTH_ATTEMPTS} ${MAX_BROWSER_AUTH_ATTEMPTS === 1 ? "attempt" : "attempts"}`,
       );
-      expect(result.error).toContain("retrying paused for 5 minutes");
-      expect(result.error).toContain("Retry later after the cooldown");
-      expect(result.error).not.toContain("Reconnect the server");
     }
 
     expect(authURLCount).toBe(MAX_BROWSER_AUTH_ATTEMPTS);

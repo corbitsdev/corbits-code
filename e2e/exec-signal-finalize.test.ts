@@ -47,7 +47,6 @@ describe("integration — signaled exec process finalizes run.json", () => {
         const state = JSON.parse(raw) as RunState;
 
         expect(state.status).toBe("failed");
-        expect(state.status).not.toBe("running");
         expect(state.finishedAt).toBeGreaterThan(0);
         expect(state.error).toBe(`terminated by ${signal}`);
         expect(state.task).toBe("headless exec signal task");
