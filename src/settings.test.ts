@@ -44,6 +44,19 @@ const firepass: Settings = {
   },
 };
 
+// Writes a JSON settings fixture under dir and returns its path. The parent
+// directory is created on demand so callers can target .corbits subpaths.
+async function writeSettings(
+  dir: string,
+  settings: unknown,
+  relpath = "settings.json",
+): Promise<string> {
+  const path = join(dir, relpath);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(settings));
+  return path;
+}
+
 const twoProviders: Settings = {
   defaultProvider: "a",
   providers: {
@@ -504,19 +517,15 @@ describe("healOpenCodeGoProviders", () => {
 describe("loaders", () => {
   test("loadSettings heals Go-by-URL providers onto disk", async () => {
     await withTempDir("ic-settings-", async (dir) => {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({
-          providers: {
-            "go/personal": {
-              baseURL: "https://opencode.ai/zen/go",
-              apiKey: "sk-go",
-              models: ["kimi-k2.7-code"],
-            },
+      const path = await writeSettings(dir, {
+        providers: {
+          "go/personal": {
+            baseURL: "https://opencode.ai/zen/go",
+            apiKey: "sk-go",
+            models: ["kimi-k2.7-code"],
           },
-        }),
-      );
+        },
+      });
       const loaded = await loadSettings(path);
       expect(loaded?.providers["go/personal"]?.opencodeGo).toBe(true);
       expect(loaded?.providers["go/personal"]?.baseURL).toBe(
@@ -534,7 +543,6 @@ describe("loaders", () => {
   test("loadSettings does not rewrite disk when heal is a no-op", async () => {
     const { readFile, stat } = await import("node:fs/promises");
     await withTempDir("ic-settings-", async (dir) => {
-      const path = join(dir, "settings.json");
       const alreadyPinned = {
         providers: {
           "opencode-go": {
@@ -545,7 +553,7 @@ describe("loaders", () => {
           },
         },
       };
-      await writeFile(path, JSON.stringify(alreadyPinned));
+      const path = await writeSettings(dir, alreadyPinned);
       const before = await readFile(path, "utf8");
       const beforeStat = await stat(path);
       // Ensure mtime resolution has room to move if a write sneaks in.
@@ -563,24 +571,20 @@ describe("loaders", () => {
     await withTempDir("ic-settings-", async (dir) => {
       const stderr = captureStderr();
       try {
-        const path = join(dir, "settings.json");
-        await writeFile(
-          path,
-          JSON.stringify({
-            providers: {
-              "go/personal": {
-                baseURL: "https://opencode.ai/zen/go",
-                apiKey: "sk-go",
-                models: ["kimi-k2.7-code"],
-              },
-              zen: {
-                baseURL: "https://opencode.ai/zen/v1",
-                apiKey: "sk-zen",
-                models: ["claude-sonnet-4-5"],
-              },
+        const path = await writeSettings(dir, {
+          providers: {
+            "go/personal": {
+              baseURL: "https://opencode.ai/zen/go",
+              apiKey: "sk-go",
+              models: ["kimi-k2.7-code"],
             },
-          }),
-        );
+            zen: {
+              baseURL: "https://opencode.ai/zen/v1",
+              apiKey: "sk-zen",
+              models: ["claude-sonnet-4-5"],
+            },
+          },
+        });
         await loadSettings(path);
         const notice = stderr
           .output()
@@ -599,20 +603,16 @@ describe("loaders", () => {
     await withTempDir("ic-settings-", async (dir) => {
       const stderr = captureStderr();
       try {
-        const path = join(dir, "settings.json");
-        await writeFile(
-          path,
-          JSON.stringify({
-            providers: {
-              "opencode-go": {
-                baseURL: OPENCODE_GO_BASE_URL,
-                apiKey: "sk-go",
-                models: ["kimi-k2.7-code"],
-                opencodeGo: true,
-              },
+        const path = await writeSettings(dir, {
+          providers: {
+            "opencode-go": {
+              baseURL: OPENCODE_GO_BASE_URL,
+              apiKey: "sk-go",
+              models: ["kimi-k2.7-code"],
+              opencodeGo: true,
             },
-          }),
-        );
+          },
+        });
         await loadSettings(path);
         expect(stderr.output()).not.toContain("healed OpenCode Go providers");
       } finally {
@@ -624,19 +624,15 @@ describe("loaders", () => {
   test("loadSettings keeps in-memory heal when disk save fails", async () => {
     await withTempDir("ic-settings-", async (dir) => {
       try {
-        const path = join(dir, "settings.json");
-        await writeFile(
-          path,
-          JSON.stringify({
-            providers: {
-              "go/personal": {
-                baseURL: "https://opencode.ai/zen/go",
-                apiKey: "sk-go",
-                models: ["kimi-k2.7-code"],
-              },
+        const path = await writeSettings(dir, {
+          providers: {
+            "go/personal": {
+              baseURL: "https://opencode.ai/zen/go",
+              apiKey: "sk-go",
+              models: ["kimi-k2.7-code"],
             },
-          }),
-        );
+          },
+        });
         // Read-only dir: heal save (temp write + rename) fails; load must not throw.
         await chmod(dir, 0o555);
         const loaded = await loadSettings(path);
@@ -658,11 +654,7 @@ describe("loaders", () => {
 
   test("loadSettings throws on an invalid schema", async () => {
     await withTempDir("ic-settings-", async (dir) => {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({ providers: { x: { models: [] } } }),
-      );
+      const path = await writeSettings(dir, { providers: { x: { models: [] } } });
       await expect(loadSettings(path)).rejects.toThrow(
         /Invalid settings schema/,
       );
@@ -671,11 +663,10 @@ describe("loaders", () => {
 
   test("loadSettings keeps local selection recovery out of the strict loader", async () => {
     await withTempDir("ic-settings-", async (dir) => {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" }),
-      );
+      const path = await writeSettings(dir, {
+        provider: "codex/work",
+        model: "gpt-5.1-codex",
+      });
       await expect(loadSettings(path)).rejects.toThrow(
         /Invalid settings schema/,
       );
@@ -689,11 +680,10 @@ describe("loaders", () => {
     "loadSettingsRecoveringClobberedOAuthSelection recovers an exact OAuth selection with %s",
     async (_name, providerNames) => {
       await withTempDir("ic-settings-", async (dir) => {
-        const path = join(dir, "settings.json");
-        await writeFile(
-          path,
-          JSON.stringify({ provider: "codex/work", model: "gpt-5.1-codex" }),
-        );
+        const path = await writeSettings(dir, {
+          provider: "codex/work",
+          model: "gpt-5.1-codex",
+        });
         const projected = Object.fromEntries(
           providerNames.map((name) => [
             name,
@@ -731,11 +721,10 @@ describe("loaders", () => {
 
   test("loadSettingsRecoveringClobberedOAuthSelection recovers a non-catalog OAuth model when the auth profile exists", async () => {
     await withTempDir("ic-settings-", async (dir) => {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({ provider: "codex/work", model: "gpt-special-custom" }),
-      );
+      const path = await writeSettings(dir, {
+        provider: "codex/work",
+        model: "gpt-special-custom",
+      });
       const recovered = await loadSettingsRecoveringClobberedOAuthSelection(
         path,
         {
@@ -814,20 +803,16 @@ describe("loaders", () => {
 
   test("loadSettings preserves provider-level bifrostVirtualKey", async () => {
     await withTempDir("ic-settings-", async (dir) => {
-      const path = join(dir, "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({
-          providers: {
-            bf: {
-              baseURL: "http://b:8080/v1",
-              apiKey: "k",
-              models: ["m"],
-              bifrostVirtualKey: true,
-            },
+      const path = await writeSettings(dir, {
+        providers: {
+          bf: {
+            baseURL: "http://b:8080/v1",
+            apiKey: "k",
+            models: ["m"],
+            bifrostVirtualKey: true,
           },
-        }),
-      );
+        },
+      });
       const loaded = await loadSettings(path);
       expect(loaded?.providers.bf?.bifrostVirtualKey).toBe(true);
     });
@@ -835,17 +820,16 @@ describe("loaders", () => {
 
   test("loadLocalSettings fails open on credentials and unknown keys", async () => {
     await withTempDir("ic-settings-", async (dir) => {
-      await mkdir(join(dir, ".corbits"), { recursive: true });
-      const path = join(dir, ".corbits", "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({
+      const path = await writeSettings(
+        dir,
+        {
           provider: "a",
           model: "m1",
           apiKey: "leak",
           providers: {},
           weird: true,
-        }),
+        },
+        join(".corbits", "settings.json"),
       );
       // Must not throw — app starts with known keys applied.
       const loaded = await loadLocalSettings(path);
@@ -886,15 +870,12 @@ describe("loaders", () => {
       expect(await loadLocalSettingsWriteBase(path)).toEqual({});
 
       // Partial fail-open: cleaned known fields are the base.
-      await writeFile(
-        path,
-        JSON.stringify({
-          provider: "a",
-          model: "m1",
-          apiKey: "leak",
-          weird: true,
-        }),
-      );
+      await writeSettings(dir, {
+        provider: "a",
+        model: "m1",
+        apiKey: "leak",
+        weird: true,
+      });
       expect(await loadLocalSettingsWriteBase(path)).toEqual({
         provider: "a",
         model: "m1",
@@ -927,7 +908,7 @@ describe("loaders", () => {
       await writeFile(path, "{ not json");
       expect(await loadGlobalSettingsWriteBase(path)).toBeNull();
 
-      await writeFile(path, JSON.stringify({ providers: "wrong-shape" }));
+      await writeSettings(dir, { providers: "wrong-shape" });
       expect(await loadGlobalSettingsWriteBase(path)).toBeNull();
     });
   });
@@ -1002,12 +983,10 @@ describe("persistSkipPermissionsDefault", () => {
 describe("sessionMode", () => {
   test("loadSettings drops legacy single sessionMode", async () => {
     await withTempDir("ic-settings-", async (dir) => {
-      const path = join(dir, ".corbits", "settings.json");
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(
-        path,
-        JSON.stringify({ ...firepass, sessionMode: "single" }, null, 2) + "\n",
-        "utf8",
+      const path = await writeSettings(
+        dir,
+        { ...firepass, sessionMode: "single" },
+        join(".corbits", "settings.json"),
       );
       // CL-5814: "single" still loads without error, then is stripped.
       expect(await loadSettings(path)).toEqual(firepass);
@@ -1017,12 +996,10 @@ describe("sessionMode", () => {
 
 test("loadSettings tolerates a legacy maxConcurrentSubAgents key", async () => {
   await withTempDir("ic-settings-", async (dir) => {
-    const path = join(dir, ".corbits", "settings.json");
-    await mkdir(join(dir, ".corbits"), { recursive: true });
-    await writeFile(
-      path,
-      JSON.stringify({ ...firepass, maxConcurrentSubAgents: 6 }, null, 2),
-      "utf8",
+    const path = await writeSettings(
+      dir,
+      { ...firepass, maxConcurrentSubAgents: 6 },
+      join(".corbits", "settings.json"),
     );
     expect(await loadSettings(path)).toEqual(firepass);
   });
@@ -1116,11 +1093,10 @@ describe("saveLocalSettings", () => {
 
   test("loadLocalSettings fails open on invalid reasoningEffort", async () => {
     await withTempDir("ic-settings-", async (dir) => {
-      await mkdir(join(dir, ".corbits"), { recursive: true });
-      const path = join(dir, ".corbits", "settings.json");
-      await writeFile(
-        path,
-        JSON.stringify({ model: "m", reasoningEffort: "legendary" }),
+      const path = await writeSettings(
+        dir,
+        { model: "m", reasoningEffort: "legendary" },
+        join(".corbits", "settings.json"),
       );
       // Fail open: keep model, drop invalid effort, surface diagnostic.
       expect(await loadLocalSettings(path)).toEqual({ model: "m" });

@@ -34,7 +34,11 @@ import {
   clearSourceCredentials,
   peekSourceCredentialSecret,
 } from "./config/source-credentials.js";
-import type { Config, UnconfiguredConfig } from "./config/index.js";
+import type {
+  Config,
+  LoadConfigOptions,
+  UnconfiguredConfig,
+} from "./config/index.js";
 import {
   mergeProviderIntoSettings,
   type ResolvedProvider,
@@ -135,6 +139,25 @@ async function writeGlobalSettings(
   return path;
 }
 
+// Mechanical preamble for the common loadConfig test shape: write the default
+// global fixture into the cwd, append --cwd, load, and assert the result is
+// configured. `extras` extend the load options (e.g. { home }). Returns the
+// configured Config only; tests that need the settings path or a custom
+// fixture afterwards keep the explicit writeGlobalSettings/loadConfig form.
+async function loadFor(
+  cwd: string,
+  argv: readonly string[],
+  extras?: Pick<LoadConfigOptions, "home" | "pricing">,
+): Promise<Config> {
+  const globalPath = await writeGlobalSettings(cwd);
+  const config = await loadConfig([...argv, "--cwd", cwd], {
+    globalSettingsPath: globalPath,
+    ...extras,
+  });
+  assertConfigured(config);
+  return config;
+}
+
 // A cwd with no per-repo settings file, so local resolution is inert.
 async function emptyCwd(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "ic-config-"));
@@ -198,10 +221,7 @@ describe("loadConfig", () => {
     expect(resolveMcpServers(undefined, undefined)).toEqual([BUILTIN_EXA_MCP]);
 
     const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd);
-    const config = await loadConfig(["--cwd", cwd, "hello"], {
-      globalSettingsPath: globalPath,
-    });
+    const config = await loadFor(cwd, ["hello"]);
     assertConfigured(config);
     expect(config.mcpServers).toEqual([BUILTIN_EXA_MCP]);
     expect(config.mcpServersSource).toBe("none");
@@ -497,11 +517,7 @@ describe("loadConfig", () => {
     { argv: ["exec", "ship it"], expected: { task: "ship it" } },
   ] as const)("parses %j as exec", async ({ argv, expected }) => {
     const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd);
-    const config = await loadConfig([...argv, "--cwd", cwd], {
-      globalSettingsPath: globalPath,
-    });
-    assertConfigured(config);
+    const config = await loadFor(cwd, argv);
     expect(config.command).toBe("exec");
     expect(config).toMatchObject(expected);
     if (!("director" in expected)) {
@@ -541,12 +557,7 @@ describe("loadConfig", () => {
     { argv: ["continue", "--list"] },
   ] as const)("$argv opens the session picker", async ({ argv }) => {
     const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd);
-    const config = await loadConfig([...argv, "--cwd", cwd], {
-      globalSettingsPath: globalPath,
-      home: await tempHome(),
-    });
-    assertConfigured(config);
+    const config = await loadFor(cwd, argv, { home: await tempHome() });
     expect(config.command).toBe("tui");
     expect(config.resumeMode).toBe("pick");
     expect(config.resumePicker).toBe(true);
@@ -556,7 +567,6 @@ describe("loadConfig", () => {
   test("resume <id> reopens a known session and skips the initial task", async () => {
     const cwd = await emptyCwd();
     const home = await tempHome();
-    const globalPath = await writeGlobalSettings(cwd);
     const sessionId = generateSessionId();
     await initSessionDir(cwd, sessionId, home);
     await saveState(
@@ -571,11 +581,7 @@ describe("loadConfig", () => {
       },
       home,
     );
-    const config = await loadConfig(["resume", sessionId, "--cwd", cwd], {
-      globalSettingsPath: globalPath,
-      home,
-    });
-    assertConfigured(config);
+    const config = await loadFor(cwd, ["resume", sessionId], { home });
     expect(config.resumeMode).toBe("id");
     expect(config.sessionId).toBe(sessionId);
     expect(config.skipInitialTask).toBe(true);
@@ -585,7 +591,6 @@ describe("loadConfig", () => {
   test("resume <id> among failed siblings stays silent and reopens the target", async () => {
     const cwd = await emptyCwd();
     const home = await tempHome();
-    const globalPath = await writeGlobalSettings(cwd);
     const targetId = generateSessionId();
     for (let i = 0; i < 6; i++) {
       const id = i === 0 ? targetId : generateSessionId();
@@ -607,10 +612,7 @@ describe("loadConfig", () => {
 
     let config: Awaited<ReturnType<typeof loadConfig>> | undefined;
     const logged = await withFileLogSink(async () => {
-      config = await loadConfig(["resume", targetId, "--cwd", cwd], {
-        globalSettingsPath: globalPath,
-        home,
-      });
+      config = await loadFor(cwd, ["resume", targetId], { home });
     });
     const loaded = defined(config, "config");
     assertConfigured(loaded);
@@ -622,31 +624,27 @@ describe("loadConfig", () => {
 
   test("-p is the exec one-shot path in either flag order", async () => {
     const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd);
     const model = "accounts/fireworks/routers/kimi-k2p6-turbo";
-    const viaExec = await loadConfig(["exec", "--cwd", cwd, "do the thing"], {
-      globalSettingsPath: globalPath,
-    });
-    const viaP = await loadConfig(["-p", "--cwd", cwd, "do the thing"], {
-      globalSettingsPath: globalPath,
-    });
-    const providerFirst = await loadConfig(
-      ["-p", "--provider", "fireworks", "--cwd", cwd, "hello"],
-      { globalSettingsPath: globalPath },
-    );
-    const modelFirst = await loadConfig(
-      ["--model", model, "-p", "--cwd", cwd, "hello"],
-      { globalSettingsPath: globalPath },
-    );
-    const directorFirst = await loadConfig(
-      ["--director", "skywalker", "-p", "--cwd", cwd, "ship it"],
-      { globalSettingsPath: globalPath },
-    );
-    assertConfigured(viaExec);
-    assertConfigured(viaP);
-    assertConfigured(providerFirst);
-    assertConfigured(modelFirst);
-    assertConfigured(directorFirst);
+    const viaExec = await loadFor(cwd, ["exec", "do the thing"]);
+    const viaP = await loadFor(cwd, ["-p", "do the thing"]);
+    const providerFirst = await loadFor(cwd, [
+      "-p",
+      "--provider",
+      "fireworks",
+      "hello",
+    ]);
+    const modelFirst = await loadFor(cwd, [
+      "--model",
+      model,
+      "-p",
+      "hello",
+    ]);
+    const directorFirst = await loadFor(cwd, [
+      "--director",
+      "skywalker",
+      "-p",
+      "ship it",
+    ]);
     expect(viaP.command).toBe("exec");
     expect(viaP.task).toBe(viaExec.task);
     expect(viaP.providerName).toBe(viaExec.providerName);
@@ -665,7 +663,6 @@ describe("loadConfig", () => {
   test("exec --resume and -p --resume send the new prompt on that session", async () => {
     const cwd = await emptyCwd();
     const home = await tempHome();
-    const globalPath = await writeGlobalSettings(cwd);
     const sessionId = generateSessionId();
     await initSessionDir(cwd, sessionId, home);
     await saveState(
@@ -680,21 +677,21 @@ describe("loadConfig", () => {
       },
       home,
     );
-    const viaExec = await loadConfig(
-      ["exec", "--resume", sessionId, "--cwd", cwd, "follow up"],
-      { globalSettingsPath: globalPath, home },
+    const viaExec = await loadFor(
+      cwd,
+      ["exec", "--resume", sessionId, "follow up"],
+      { home },
     );
-    const viaP = await loadConfig(
-      ["-p", "--resume", sessionId, "--cwd", cwd, "follow up from p"],
-      { globalSettingsPath: globalPath, home },
+    const viaP = await loadFor(
+      cwd,
+      ["-p", "--resume", sessionId, "follow up from p"],
+      { home },
     );
-    const flagOrder = await loadConfig(
-      ["--resume", sessionId, "-p", "--cwd", cwd, "flag order"],
-      { globalSettingsPath: globalPath, home },
+    const flagOrder = await loadFor(
+      cwd,
+      ["--resume", sessionId, "-p", "flag order"],
+      { home },
     );
-    assertConfigured(viaExec);
-    assertConfigured(viaP);
-    assertConfigured(flagOrder);
     expect(viaExec.command).toBe("exec");
     expect(viaExec.resumeMode).toBe("id");
     expect(viaExec.sessionId).toBe(sessionId);
@@ -753,7 +750,6 @@ describe("loadConfig", () => {
   test("a headless follow-up reopens the same context store and keeps prior turns", async () => {
     const cwd = await emptyCwd();
     const home = await tempHome();
-    const globalPath = await writeGlobalSettings(cwd);
     const sessionId = generateSessionId();
     await initSessionDir(cwd, sessionId, home);
     await saveState(
@@ -795,11 +791,11 @@ describe("loadConfig", () => {
     });
     await first.commit({ message: "cycle" });
 
-    const config = await loadConfig(
-      ["exec", "--resume", sessionId, "--cwd", cwd, "second prompt"],
-      { globalSettingsPath: globalPath, home },
+    const config = await loadFor(
+      cwd,
+      ["exec", "--resume", sessionId, "second prompt"],
+      { home },
     );
-    assertConfigured(config);
     expect(config.command).toBe("exec");
     expect(config.sessionId).toBe(sessionId);
     expect(config.task).toBe("second prompt");
@@ -835,7 +831,6 @@ describe("loadConfig", () => {
   test("plain corbits always creates fresh state even when a previous session exists", async () => {
     const cwd = await emptyCwd();
     const home = await tempHome();
-    const globalPath = await writeGlobalSettings(cwd);
     const subdir = join(cwd, "nested");
     await mkdir(subdir);
     const previousId = generateSessionId();
@@ -852,20 +847,14 @@ describe("loadConfig", () => {
       home,
     );
 
-    const first = await loadConfig(["--cwd", cwd], {
-      globalSettingsPath: globalPath,
-      home,
-    });
-    const second = await loadConfig(["--cwd", cwd], {
-      globalSettingsPath: globalPath,
-      home,
-    });
+    const first = await loadFor(cwd, [], { home });
+    const second = await loadFor(cwd, [], { home });
+    // A different cwd against the same machine-wide global fixture, which
+    // loadFor has already written into the parent cwd.
     const nested = await loadConfig(["--cwd", subdir], {
-      globalSettingsPath: globalPath,
+      globalSettingsPath: join(cwd, "global.json"),
       home,
     });
-    assertConfigured(first);
-    assertConfigured(second);
     assertConfigured(nested);
     expect(first.resumeMode).toBeUndefined();
     expect(second.resumeMode).toBeUndefined();
@@ -1142,7 +1131,6 @@ describe("loadConfig", () => {
 
   test("--profile flag surfaces profile name and model from project profile.json", async () => {
     const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd);
     await mkdir(join(cwd, ".corbits"), { recursive: true });
     await writeFile(
       join(cwd, ".corbits", "profile.json"),
@@ -1151,35 +1139,26 @@ describe("loadConfig", () => {
         systemPromptExtensions: ["ext1"],
       }),
     );
-    const config = await loadConfig(["--cwd", cwd, "task"], {
-      globalSettingsPath: globalPath,
-    });
-    assertConfigured(config);
+    const config = await loadFor(cwd, ["task"]);
     expect(config.model).toBe("profile-model");
     expect(config.systemPromptExtensions).toEqual(["ext1"]);
   });
 
   test("--model flag overrides profile model", async () => {
     const cwd = await emptyCwd();
-    const globalPath = await writeGlobalSettings(cwd);
     await mkdir(join(cwd, ".corbits"), { recursive: true });
     await writeFile(
       join(cwd, ".corbits", "profile.json"),
       JSON.stringify({ model: "profile-model" }),
     );
-    const config = await loadConfig(
+    const config = await loadFor(
+      cwd,
       [
-        "--cwd",
-        cwd,
         "--model",
         "accounts/fireworks/routers/kimi-k2p6-turbo",
         "task",
       ],
-      {
-        globalSettingsPath: globalPath,
-      },
     );
-    assertConfigured(config);
     expect(config.model).toBe("accounts/fireworks/routers/kimi-k2p6-turbo");
   });
 
