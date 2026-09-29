@@ -535,6 +535,11 @@ const askDirectorDefinition: ToolDefinition = {
         type: "string",
         description: "The question for the spawning director (non-empty).",
       },
+      grant_request_id: {
+        type: "string",
+        description:
+          "Grant request id quoted from the deny reason; binds this ask to its own denial.",
+      },
     },
     required: ["question"],
   },
@@ -859,6 +864,7 @@ async function runSubAgentInner(
             try {
               return await handleAskDirector({
                 question: rawArgs.question,
+                grantRequestId: rawArgs.grant_request_id,
                 state: askDirectorState,
                 port,
                 signal,

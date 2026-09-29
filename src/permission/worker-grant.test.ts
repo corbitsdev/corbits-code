@@ -328,6 +328,71 @@ describe("WorkerGrantStore lifecycle", () => {
     ]);
   });
 
+  describe("two-denies correlation", () => {
+    function twoDenies() {
+      const store = new WorkerGrantStore();
+      const envelopeA = store.register(
+        createDeniedCallEnvelope(
+          descriptor({ callId: "call-A", args: { command: "npm test" } }),
+        ),
+      );
+      const envelopeB = store.register(
+        createDeniedCallEnvelope(
+          descriptor({ callId: "call-B", args: { command: "npm run lint" } }),
+        ),
+      );
+      return { store, envelopeA, envelopeB };
+    }
+
+    test("named ask binds its exact denial, not the first pending", () => {
+      const { store, envelopeA, envelopeB } = twoDenies();
+      expect(
+        store.attachToAsk("worker-1", "ask-B", envelopeB.requestId, 1_000_001),
+      ).toBe(envelopeB);
+      expect(envelopeB.questionId).toBe("ask-B");
+      expect(envelopeA.questionId).toBeUndefined();
+      expect(store.byQuestion("ask-B")).toBe(envelopeB);
+    });
+
+    test("unnamed ask keeps the legacy first-pending bind", () => {
+      const { store, envelopeA, envelopeB } = twoDenies();
+      expect(store.attachToAsk("worker-1", "ask-x", undefined, 1_000_001)).toBe(
+        envelopeA,
+      );
+      expect(envelopeA.questionId).toBe("ask-x");
+      expect(envelopeB.questionId).toBeUndefined();
+    });
+
+    test("bogus id fails closed with no fallback to another denial", () => {
+      const { store, envelopeA, envelopeB } = twoDenies();
+      expect(
+        store.attachToAsk("worker-1", "ask-x", "not-a-real-id", 1_000_001),
+      ).toBeUndefined();
+      expect(envelopeA.questionId).toBeUndefined();
+      expect(envelopeB.questionId).toBeUndefined();
+      expect(store.byQuestion("ask-x")).toBeUndefined();
+    });
+
+    test("cross-session id fails closed with no fallback", () => {
+      const { store, envelopeA, envelopeB } = twoDenies();
+      const other = store.register(
+        createDeniedCallEnvelope(
+          descriptor({
+            callId: "call-other",
+            args: { command: "npm run build" },
+            workerSessionId: "worker-9",
+          }),
+        ),
+      );
+      expect(
+        store.attachToAsk("worker-1", "ask-x", other.requestId, 1_000_001),
+      ).toBeUndefined();
+      expect(envelopeA.questionId).toBeUndefined();
+      expect(envelopeB.questionId).toBeUndefined();
+      expect(other.questionId).toBeUndefined();
+    });
+  });
+
   test("audit trail orders deny → ask → consume", () => {
     const store = new WorkerGrantStore();
     const envelope = store.register(createDeniedCallEnvelope(descriptor()));
