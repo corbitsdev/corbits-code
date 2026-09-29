@@ -870,8 +870,7 @@ describe("readFileGuardPlugin", () => {
       neverAbort(),
     );
     expect(result.isError).toBe(true);
-    const abs = join(dir, "my report.pdf");
-    expect(String(result.content)).toContain(`pdftotext '${abs}' -`);
+    expect(String(result.content)).toContain(`pdftotext 'my report.pdf' -`);
   });
 });
 
