@@ -8,7 +8,7 @@ import {
   installMcpConnectMock,
   linearHttpMcpServer,
   mcpTestPermissionGate,
-} from "../testkit/mcp-connect-mock.js";
+} from "../../testkit/mcp-connect-mock.js";
 import { createExaMCPServerConfig } from "../mcp/exa.js";
 import {
   createGlobalSettingsWriter,

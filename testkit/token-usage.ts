@@ -1,7 +1,7 @@
 import type { TokenUsage } from "@intx/types/runtime";
 
-import { createFaremeter } from "../cost/faremeter.js";
-import type { PricingCache } from "../cost/pricing-fetcher.js";
+import { createFaremeter } from "../src/cost/faremeter.js";
+import type { PricingCache } from "../src/cost/pricing-fetcher.js";
 
 /** A usage record with only input/output tokens set. */
 export function tokenUsage(input: number, output: number): TokenUsage {

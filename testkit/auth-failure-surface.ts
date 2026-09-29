@@ -1,5 +1,5 @@
-import { errorMessage } from "../agent/error-message.js";
-import { formatSubAgentSpawnAuthFailureMessage } from "../subagent/inference-auth-failure.js";
+import { errorMessage } from "../src/agent/error-message.js";
+import { formatSubAgentSpawnAuthFailureMessage } from "../src/subagent/inference-auth-failure.js";
 
 /**
  * Serializes every diagnostic projection a caught auth failure can take: the

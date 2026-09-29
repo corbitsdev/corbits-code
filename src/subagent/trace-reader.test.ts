@@ -12,7 +12,7 @@ import {
   MAX_TRACE_TOTAL_CHARS,
   MAX_TRACE_TURN_WINDOW,
 } from "./trace-reader.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 function tempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "trace-reader-"));

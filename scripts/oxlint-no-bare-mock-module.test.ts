@@ -72,7 +72,7 @@ test("oxlint is clean when a *.test.ts file only uses withMockedModule", async (
   await withFixture(
     "oxlint-mock-module-clean-",
     "clean.test.ts",
-    `import { withMockedModule } from "../src/testkit/mock-module.ts";
+    `import { withMockedModule } from "../testkit/mock-module.ts";
 await withMockedModule("./example.js", () => ({}));
 `,
     async (file) => {

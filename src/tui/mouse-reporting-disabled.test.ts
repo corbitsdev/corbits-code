@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { Harness } from "./harness.js";
-import { withMockedModule } from "../testkit/mock-module.js";
+import { withMockedModule } from "../../testkit/mock-module.js";
 
 interface CapturedRendererOptions {
   readonly useMouse?: boolean;

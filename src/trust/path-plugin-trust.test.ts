@@ -9,7 +9,7 @@ import {
   loadPluginsFromPaths,
   type ExpandPluginPathSkip,
 } from "../plugins/loader.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import {
   isPathPluginTrusted,
   loadPathTrust,

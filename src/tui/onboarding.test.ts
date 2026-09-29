@@ -9,8 +9,8 @@ import type {
   SubmitOpts,
 } from "./provider/types.js";
 import type { WelcomeConfig } from "./welcome.js";
-import { withMockedModule } from "../testkit/mock-module.js";
-import { createTempDirs } from "../testkit/temporary-dirs.js";
+import { withMockedModule } from "../../testkit/mock-module.js";
+import { createTempDirs } from "../../testkit/temporary-dirs.js";
 
 let testHome = "";
 let setup: (config: ProviderSetupConfig) => Promise<void> = async () =>

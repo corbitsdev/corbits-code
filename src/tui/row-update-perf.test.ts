@@ -17,7 +17,7 @@ import {
 } from "./shell/transcript";
 import { toolResultRow } from "./mcp-view";
 import { withTestRenderer } from "./harness";
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import type { AppShell } from "./shell/internals.js";
 import type { StreamRow } from "./stream.js";
 

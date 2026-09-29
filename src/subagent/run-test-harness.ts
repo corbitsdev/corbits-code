@@ -7,7 +7,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import { testPermissionGate } from "./fleet-test-harness.js";
 import type { RunSubAgentParams } from "./types.js";
 

@@ -1,6 +1,6 @@
-import type { MCPConnectOptions, MCPTool } from "../mcp/client.js";
-import type { ResolvedMCPServerConfig } from "../mcp/exa.js";
-import { createPermissionGate } from "../permission/gate.js";
+import type { MCPConnectOptions, MCPTool } from "../src/mcp/client.js";
+import type { ResolvedMCPServerConfig } from "../src/mcp/exa.js";
+import { createPermissionGate } from "../src/permission/gate.js";
 import { withMockedModule } from "./mock-module.js";
 
 /**
@@ -156,7 +156,7 @@ export async function installMcpConnectMock(
 
   await withMockedModule(
     clientModulePath,
-    (real: typeof import("../mcp/client.js")) => ({
+    (real: typeof import("../src/mcp/client.js")) => ({
       ...real,
       connectMCPServer: async (
         config: ResolvedMCPServerConfig,

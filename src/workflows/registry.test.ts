@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import "../testkit/workflows.js";
+import "../../testkit/workflows.js";
 import { WORKFLOWS, findWorkflow } from "./index.js";
 import { isValidWorkflowName } from "./types.js";
 

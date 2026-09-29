@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { PROMPT_KEY_BINDINGS } from "./prompt-input";
 import { withTestRenderer, type Harness } from "./harness";
 import {

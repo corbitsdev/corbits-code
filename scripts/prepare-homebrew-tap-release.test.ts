@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { initTemporaryGitRepo } from "../src/testkit/temporary-git-repo.js";
+import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
 
 const execFileAsync = promisify(execFile);
 const script = join(import.meta.dir, "prepare-homebrew-tap-release.sh");

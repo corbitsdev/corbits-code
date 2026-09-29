@@ -13,7 +13,7 @@ import {
   mockMcpOAuthProviderModule,
   mockMcpTransportModule,
   type MockAuthProvider,
-} from "../testkit/mcp-sdk-mock.js";
+} from "../../testkit/mcp-sdk-mock.js";
 
 interface MockState {
   finishAuthCalls: number;

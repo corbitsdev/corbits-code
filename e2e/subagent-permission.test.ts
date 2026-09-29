@@ -15,7 +15,7 @@ import {
   WORKER_CANNOT_COMPLETE_APPROVAL,
 } from "../src/permission/decline-markers.js";
 import { runSubAgent, type RunSubAgentParams } from "../src/subagent/run.js";
-import { withMockedModuleDuring } from "../src/testkit/mock-module.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import { mcpClientToAgentTools } from "../src/mcp/plugin.js";
 import type { MCPClient } from "../src/mcp/client.js";
 import { getSubAgentIdentity } from "../src/subagent/identity-context.js";

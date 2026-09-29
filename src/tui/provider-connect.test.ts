@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { createHarness, type Harness } from "./harness.js";
 import { connectProviderInline } from "./provider/connect.js";
 import { loadSettings } from "../config/settings.js";

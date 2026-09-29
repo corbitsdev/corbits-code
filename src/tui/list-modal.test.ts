@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { createHarness, type Harness } from "./harness.js";
 import { runListModal, type ListModalConfig } from "./list-modal.js";
 

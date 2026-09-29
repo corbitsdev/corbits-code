@@ -6,7 +6,7 @@ import {
   billingIdentityFromSource,
   createSessionCostAccumulator,
 } from "./session-cost.js";
-import { recastAtLiveModel, tokenUsage } from "../testkit/token-usage.js";
+import { recastAtLiveModel, tokenUsage } from "../../testkit/token-usage.js";
 
 const CODEX_USAGE = tokenUsage(100_000, 20_000);
 const METERED_USAGE = tokenUsage(1_000, 500);

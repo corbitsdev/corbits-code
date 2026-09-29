@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { listWorktreeRoots, listWorktreeRootsSync } from "./worktree-roots.js";
-import { GIT_FATAL, captureStderr } from "../testkit/capture-stderr.js";
+import { GIT_FATAL, captureStderr } from "../../testkit/capture-stderr.js";
 
 let restoreStderr: (() => void) | undefined;
 

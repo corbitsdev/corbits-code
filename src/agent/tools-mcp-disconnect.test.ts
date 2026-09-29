@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   installMcpConnectMock,
   mcpTestPermissionGate,
-} from "../testkit/mcp-connect-mock.js";
+} from "../../testkit/mcp-connect-mock.js";
 import type { MCPServerState } from "./tools.js";
 
 const dirs: string[] = [];

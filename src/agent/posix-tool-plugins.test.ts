@@ -16,7 +16,7 @@ import {
 import { verifyPlugin } from "../plugins/verify-plugin.js";
 import { editFileLineRangePlugin } from "../plugins/edit-file-line-range-plugin.js";
 import { lineRangeEditCall } from "../plugins/test-helpers.js";
-import { withTempDir } from "../testkit/temporary-dirs.js";
+import { withTempDir } from "../../testkit/temporary-dirs.js";
 
 type ToolHandlerLike = (
   call: ToolCall,

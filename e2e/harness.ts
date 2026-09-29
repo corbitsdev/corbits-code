@@ -22,7 +22,7 @@ import {
   createPermissionGate,
   type PermissionGate,
 } from "../src/permission/gate.js";
-import { initTemporaryGitRepo } from "../src/testkit/temporary-git-repo.js";
+import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
 import {
   closeIntegrationSession,
   openIntegrationSession,

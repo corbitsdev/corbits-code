@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { ConversationTurn } from "@intx/types/runtime";
 import { createPruningCompactor, buildTurnSummary } from "./compactor.js";
 import { assertWellFormedToolSequence } from "@intx/inference";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 // The runtime puts a tool_call on an assistant turn and its tool_result on the
 // FOLLOWING user turn, so the two halves of a pair can land on opposite sides of

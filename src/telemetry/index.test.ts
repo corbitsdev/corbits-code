@@ -10,7 +10,7 @@ import {
 } from "./index.js";
 import { ensureTelemetrySettings } from "../config/settings.js";
 import type { Settings } from "../config/settings.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 function settingsWith(installationId?: string, enabled?: boolean): Settings {
   return {

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 import { OAuthProviderScopeError } from "../auth/oauth-scope-check.js";
 import { resetGoModelDiscoveryForTests } from "../provider/model-catalogs.js";

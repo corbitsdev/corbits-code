@@ -3,7 +3,7 @@ import { deflateSync } from "node:zlib";
 import { unlink } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import {
   findDuplicateAttachment,
   findImagePathMentions,

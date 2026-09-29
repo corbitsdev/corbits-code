@@ -1,4 +1,4 @@
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";

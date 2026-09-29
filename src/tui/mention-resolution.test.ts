@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { resolveAtMentions } from "./mention-resolution.js";
-import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
+import { initTemporaryGitRepo } from "../../testkit/temporary-git-repo.js";
 
 const execFileAsync = promisify(execFile);
 

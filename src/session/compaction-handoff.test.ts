@@ -4,7 +4,7 @@ import type {
   ReactorState,
   StrategyContext,
 } from "@intx/types/runtime";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { createPruningCompactor } from "./compactor.js";
 import {
   buildHandoffFold,

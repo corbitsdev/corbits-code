@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { withMockedModule } from "../testkit/mock-module.js";
+import { withMockedModule } from "../../testkit/mock-module.js";
 
 // Simulates the straggler write's real await point (e.g. cycleRecorder.dispose
 // during the terminal path) landing its writeFile after a later-issued

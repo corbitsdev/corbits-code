@@ -1,4 +1,4 @@
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { expect, test, describe } from "bun:test";
 import { mkdtemp, mkdir } from "node:fs/promises";
 import { join } from "node:path";

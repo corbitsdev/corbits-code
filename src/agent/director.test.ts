@@ -34,7 +34,7 @@ import {
   stubReactorCapabilities,
   stubReactorState,
   stubTextTurnEvent,
-} from "../testkit/reactor-stubs.js";
+} from "../../testkit/reactor-stubs.js";
 import {
   validateActions,
   type ExtendedInferenceOptions,

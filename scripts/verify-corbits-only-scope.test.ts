@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { initTemporaryGitRepo } from "../src/testkit/temporary-git-repo.js";
+import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
 
 const repoRoot = join(import.meta.dirname, "..");
 const scopeScript = join(repoRoot, "scripts/verify-corbits-only-scope.sh");

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Server } from "node:http";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import { startCallbackServer } from "./callback-server.js";
 
 const authorize = (

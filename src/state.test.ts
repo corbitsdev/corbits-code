@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { saveState, loadState, type RunState } from "./session/state.js";
 import { sessionDir } from "./session/index.js";
-import { withFileLogSink } from "./testkit/file-log-sink.js";
+import { withFileLogSink } from "../testkit/file-log-sink.js";
 
 const SESSION_ID = "test-session-001";
 

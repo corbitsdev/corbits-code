@@ -9,8 +9,8 @@ import { ripgrepPlugin } from "./ripgrep-plugin.js";
 import { MAX_RESULT_CHARS } from "./result-truncation-plugin.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import { createPermissionGate } from "../permission/gate.js";
-import { defined } from "../testkit/defined.js";
-import { withTempDir } from "../testkit/temporary-dirs.js";
+import { defined } from "../../testkit/defined.js";
+import { withTempDir } from "../../testkit/temporary-dirs.js";
 import type { SpawnRg } from "./rg-run.js";
 import { scriptedRgSpawn, stalledRgSpawn } from "./test-helpers.js";
 

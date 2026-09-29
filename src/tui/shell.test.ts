@@ -2,7 +2,7 @@
  * Integration: app shell product skin — sticky, queue/steer/interrupt.
  */
 import { describe, expect, test } from "bun:test";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner, scrollLease } from "./focus/index";
 import { withTestRenderer } from "./harness";

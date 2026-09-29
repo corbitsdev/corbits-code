@@ -27,7 +27,7 @@ import type {
   ApprovalOutcome,
   PermissionRequest,
 } from "../permission/types.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { attachSessionBridge, createRecordingPort } from "./runtime-bridge.js";
 import { withTestRenderer } from "./harness.js";
 import { createAppShell } from "./shell/index.js";

@@ -9,7 +9,7 @@ import { formatAgentsPanel } from "../tui/chrome-state.js";
 
 import type { ReactorEmittedEvent } from "@intx/inference";
 
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 function startCall(seq: number, callId: string, name: string) {
   return {

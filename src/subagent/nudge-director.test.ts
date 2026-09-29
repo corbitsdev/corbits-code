@@ -13,12 +13,12 @@ import {
 import { SubAgentDirector } from "./nudge-director.js";
 import type { AdmissionQueue } from "./admission.js";
 import { createTestCapabilities } from "./director-test-harness.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import {
   PASS_PLAN_ENVELOPE,
   REPORT_ENVELOPE,
   STUB_PLAN_ENVELOPE,
-} from "../testkit/report-envelope.js";
+} from "../../testkit/report-envelope.js";
 
 const state = { turns: [] } as unknown as ReactorState;
 const longState = {

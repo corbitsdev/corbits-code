@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import createWebProvider from "./index.js";
-import { defined } from "../../../../../src/testkit/defined.js";
+import { defined } from "../../../../../testkit/defined.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

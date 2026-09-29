@@ -6,7 +6,7 @@ import {
 import { createTelemetry, getSessionId } from "./index.js";
 import type { Settings } from "../config/settings.js";
 import type { Telemetry } from "./index.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 function fakeDeps(overrides: Partial<TelemetryToggleDeps> = {}): {
   deps: TelemetryToggleDeps;

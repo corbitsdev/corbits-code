@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { initTemporaryGitRepo } from "../src/testkit/temporary-git-repo.js";
+import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
 
 const SCRIPT = join(import.meta.dir, "../bin/git-push-scoped");
 

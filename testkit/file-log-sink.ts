@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { installFileLogSink } from "../../src/logging/sink.js";
+import { installFileLogSink } from "../src/logging/sink.js";
 
 /**
  * Installs a temp-file log sink, spies stdout/stderr around `fn`, asserts

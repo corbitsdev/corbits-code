@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { OAuthRefreshFailedError } from "@corbits/oauth-core";
 import { loadXaiProfile, saveXaiProfile } from "../../config/oauth-stores.js";
 import { isOAuthTokenEndpointError } from "../token-session-boundary.js";
-import { authFailureSurface } from "../../testkit/auth-failure-surface.js";
+import { authFailureSurface } from "../../../testkit/auth-failure-surface.js";
 import {
   createXaiTokenSession,
   getValidXaiToken,

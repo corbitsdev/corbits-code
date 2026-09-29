@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { loadDataOnlyCommands } from "./data-only-commands.js";
 import { loadDataOnlyPlugin } from "./data-only.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { stubCommandContext, usePluginDir } from "./test-fixtures.js";
 
 const { makePlugin } = usePluginDir();

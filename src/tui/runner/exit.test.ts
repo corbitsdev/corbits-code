@@ -16,17 +16,17 @@ import {
   type SubAgentSessionStore,
 } from "../../subagent/session-store.js";
 import type { ReactorInboundEvent } from "@intx/types/runtime";
-import { defined } from "../../testkit/defined.js";
+import { defined } from "../../../testkit/defined.js";
 import {
   stubReactorCapabilities,
   stubReactorState,
   stubTextTurnEvent,
-} from "../../testkit/reactor-stubs.js";
+} from "../../../testkit/reactor-stubs.js";
 import {
   withMockedHomedir,
   withMockedModuleDuring,
-} from "../../testkit/mock-module.js";
-import { createTempDirs } from "../../testkit/temporary-dirs.js";
+} from "../../../testkit/mock-module.js";
+import { createTempDirs } from "../../../testkit/temporary-dirs.js";
 import {
   createDeliveryGeneration,
   createSessionOperationQueue,

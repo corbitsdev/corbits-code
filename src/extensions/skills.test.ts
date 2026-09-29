@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 
 import { discoverSkills, resolveSkillBody } from "./skills.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 const fixtureCwd = join(import.meta.dirname, "../../fixtures/skill-workspace");
 const exampleAgentPlugin = join(

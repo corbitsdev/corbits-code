@@ -29,8 +29,8 @@ import { loadState } from "../session/state.js";
 import {
   withMockedHomedir,
   withMockedModuleDuring,
-} from "../testkit/mock-module.js";
-import { createTempDirs } from "../testkit/temporary-dirs.js";
+} from "../../testkit/mock-module.js";
+import { createTempDirs } from "../../testkit/temporary-dirs.js";
 import { createDynamicToolRunner } from "../tui/dynamic-tool-runner.js";
 import { formatCaughtError } from "./dispose.js";
 import {

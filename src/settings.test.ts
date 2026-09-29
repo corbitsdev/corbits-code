@@ -29,8 +29,8 @@ import {
   listFavoriteModels,
   normalizeMcpServers,
 } from "./config/settings.js";
-import { captureStderr } from "./testkit/capture-stderr.js";
-import { withTempDir } from "./testkit/temporary-dirs.js";
+import { captureStderr } from "../testkit/capture-stderr.js";
+import { withTempDir } from "../testkit/temporary-dirs.js";
 
 const firepass: Settings = {
   defaultProvider: "firepass",

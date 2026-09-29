@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import {
   ACTIVITY_STATES,
   LIVE_WORD_MS,

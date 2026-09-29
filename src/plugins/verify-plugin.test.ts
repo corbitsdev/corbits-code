@@ -11,7 +11,7 @@ import {
   neverAbort,
   pluginHandler,
 } from "./test-helpers.js";
-import { withTempDir } from "../testkit/temporary-dirs.js";
+import { withTempDir } from "../../testkit/temporary-dirs.js";
 
 // Terminal handlers the middleware verifies against.
 const writeCallHandler: ToolHandler = async (call) => {

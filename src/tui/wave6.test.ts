@@ -2,7 +2,7 @@
  * Wave 6: command palette, long-log windowing, chrome zones, keyboard copy.
  */
 import { describe, expect, test } from "bun:test";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { IDLE_TRANSCRIPT_FLOOR } from "./geometry/index";
 import { focusOwner } from "./focus/index";
 import { MAX_RETAINED_STREAM_ROWS } from "./long-log";

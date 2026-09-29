@@ -25,7 +25,7 @@ const guardSource = readFileSync(
 
 const GUARD_SCRIPT = "check:projects-dir-guard";
 const TEST_SUITE =
-  "bun test ./src ./e2e ./evals ./scripts --randomize --seed 424242";
+  "bun test ./src ./e2e ./evals ./scripts ./testkit --randomize --seed 424242";
 
 function expandToTestFiles(filters: string[]): string[] {
   const files: string[] = [];

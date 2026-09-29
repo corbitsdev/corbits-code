@@ -8,7 +8,7 @@ import {
   loadPluginsFromPaths,
   type ExpandPluginPathSkip,
 } from "./loader.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 test("a marketplace path expands to its declared member plugins", async () => {
   const mods = await loadPluginsFromPaths(

@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createCodexResponsesAdapter } from "./codex-responses.js";
 import type { InferenceEvent, LastCycleSource } from "@intx/types/runtime";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { ProtocolMismatchError } from "@intx/inference";
 
 const SOURCE: LastCycleSource = {

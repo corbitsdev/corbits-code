@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { gatherEnvironment, getGitBranch } from "./environment.js";
-import { GIT_FATAL, captureStderr } from "../testkit/capture-stderr.js";
-import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
+import { GIT_FATAL, captureStderr } from "../../testkit/capture-stderr.js";
+import { initTemporaryGitRepo } from "../../testkit/temporary-git-repo.js";
 
 const run = promisify(execFile);
 

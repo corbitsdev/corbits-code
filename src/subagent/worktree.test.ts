@@ -6,7 +6,7 @@ import {
   WorktreeError,
   type WorktreeExec,
 } from "./worktree.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 function recordingExec(
   responses: Record<string, { stdout?: string; error?: Error }>,

@@ -144,8 +144,8 @@ export async function mockMcpCallbackServerModule(
   hooks: McpCallbackServerMockHooks,
 ): Promise<void> {
   await withMockedModule(
-    import.meta.resolve("../mcp/callback-server.js"),
-    (real: typeof import("../mcp/callback-server.js")) => ({
+    import.meta.resolve("../src/mcp/callback-server.js"),
+    (real: typeof import("../src/mcp/callback-server.js")) => ({
       ...real,
       startCallbackServer: async () => {
         hooks.start?.();
@@ -165,8 +165,8 @@ export async function mockMcpOAuthProviderModule<O>(
   create: (options: O) => unknown,
 ): Promise<void> {
   await withMockedModule(
-    import.meta.resolve("../mcp/oauth-provider.js"),
-    (real: typeof import("../mcp/oauth-provider.js")) => ({
+    import.meta.resolve("../src/mcp/oauth-provider.js"),
+    (real: typeof import("../src/mcp/oauth-provider.js")) => ({
       ...real,
       createOAuthProvider: async (options: O) => create(options),
     }),

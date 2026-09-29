@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import type { Config } from "../../src/config/index.js";
 import { sessionDir } from "../../src/session/index.js";
-import { withMockedModuleDuring } from "../../src/testkit/mock-module.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 
 const cwd = process.cwd();
 const sessionId = process.env["SIGNAL_TEST_SESSION_ID"];

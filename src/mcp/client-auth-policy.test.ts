@@ -1,4 +1,4 @@
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
@@ -8,7 +8,7 @@ import {
   mockMcpOAuthProviderModule,
   mockMcpTransportModule,
   type MockTransportSelf,
-} from "../testkit/mcp-sdk-mock.js";
+} from "../../testkit/mcp-sdk-mock.js";
 
 let callbackStarts = 0;
 let callbackCloses = 0;

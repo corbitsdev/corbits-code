@@ -3,11 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import "../testkit/workflows.js";
+import "../../testkit/workflows.js";
 import { findWorkflow } from "./index.js";
 import { WorkflowRuntime } from "./runtime.js";
 import { loadWorkflowState, saveWorkflowState } from "./state.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 test("WorkflowRuntime resumes from workflow.json written mid sub-workflow chain", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "wf-runtime-persist-"));

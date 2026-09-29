@@ -10,8 +10,8 @@ import type {
   InboundMessage,
 } from "@intx/types/runtime";
 
-import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../permission/decline-markers.js";
-import type { PermissionGate } from "../permission/gate.js";
+import { APPROVAL_TIMEOUT_RESULT_TEXT } from "../src/permission/decline-markers.js";
+import type { PermissionGate } from "../src/permission/gate.js";
 
 export function shellApprovalSnapshot(command: string): ApprovalSnapshot {
   return {

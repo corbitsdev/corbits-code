@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ClipboardService, ClipboardWriteResult } from "@opentui/core";
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 
 import { createSystemClipboard } from "./system-clipboard.js";
 

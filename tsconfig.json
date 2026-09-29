@@ -16,6 +16,7 @@
   },
   "include": [
     "src/**/*.ts",
+    "testkit/**/*.ts",
     "packages/**/*.ts",
     "agents/**/*.ts",
     "e2e/**/*.ts",

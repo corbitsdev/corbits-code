@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { withMockedModule } from "../testkit/mock-module.js";
+import { withMockedModule } from "../../testkit/mock-module.js";
 import type { ResolvedMCPServerConfig } from "../mcp/exa.js";
 
 const calls: { toolName: string; args: Record<string, unknown> }[] = [];

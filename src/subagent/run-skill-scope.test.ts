@@ -13,7 +13,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import {
   workerSkillSearchDefinition,
   type CreateSkillSearchToolArgs,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { createSubAgentSessionStore } from "../src/subagent/index.js";
-import { withMockedModuleDuring } from "../src/testkit/mock-module.js";
+import { withMockedModuleDuring } from "../testkit/mock-module.js";
 import {
   fromHost,
   waitAgentsResults,

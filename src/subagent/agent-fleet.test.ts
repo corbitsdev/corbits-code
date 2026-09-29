@@ -27,7 +27,7 @@ import {
 import { forcedStopReport } from "./stop-policy.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 import { INTERVENTION_FILE } from "./intervention-log.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import {
   callFleetTool,
   callFleetToolRaw,

@@ -85,7 +85,7 @@ jobs:
 
   # The suite is sharded so the slowest slice, not the whole suite, sets the
   # wall clock. Four time-balanced shards split the same
-  # ./src ./e2e ./evals ./scripts union via bun's --shard=k/4, balanced by
+  # ./src ./e2e ./evals ./scripts ./testkit union via bun's --shard=k/4, balanced by
   # the checked-in per-file durations in scripts/ci-timings.json (--timings).
   # Every shard still goes through check:projects-dir-guard: the guard
   # forwards the path union plus the shard flags to the suite it wraps, so the
@@ -93,7 +93,7 @@ jobs:
   #
   # Timings refresh policy: regenerate scripts/ci-timings.json by running the
   # full union locally with --update-timings (same seeded flags as `test`):
-  #   bun run check:projects-dir-guard ./src ./e2e ./evals ./scripts \
+  #   bun run check:projects-dir-guard ./src ./e2e ./evals ./scripts ./testkit \
   #     --timings=./scripts/ci-timings.json --update-timings
   # Regen when the slowest shard's Test step skews more than ~20% above a
   # quarter of the one-process suite time (shards drifting apart means the
@@ -151,7 +151,7 @@ jobs:
       # `bun run test:paths <paths> --shard=k/4
       # --timings=./scripts/ci-timings.json`.
       - name: Test
-        run: bun run check:projects-dir-guard ./src ./e2e ./evals ./scripts --shard=${{ matrix.shard }} --timings=./scripts/ci-timings.json
+        run: bun run check:projects-dir-guard ./src ./e2e ./evals ./scripts ./testkit --shard=${{ matrix.shard }} --timings=./scripts/ci-timings.json
 
   # Cross-shard pollution detector: the shards above split the path union,
   # but the union is not the isolation domain — a mock.module leak across

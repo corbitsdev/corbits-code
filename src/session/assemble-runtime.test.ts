@@ -10,7 +10,7 @@ import type {
   ToolDefinition,
 } from "@intx/types/runtime";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import type { ChatDirector } from "../agent/director.js";
 import {
   createAdvertisedToolset,

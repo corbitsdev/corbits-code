@@ -9,7 +9,7 @@ import {
   schedulePricingMetadataRefresh,
 } from "./cost/pricing-metadata.js";
 import { cliCaughtExit, mainWithRunners } from "./index.js";
-import { defined } from "./testkit/defined.js";
+import { defined } from "../testkit/defined.js";
 
 const envVars = {
   // Unit tests must never export telemetry or write an installationId into

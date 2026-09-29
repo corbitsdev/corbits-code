@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentTool } from "@intx/agent";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { createDynamicToolRunner } from "./dynamic-tool-runner.js";
 import {
   DEFAULT_MCP_TOOL_TIMEOUT_MS,

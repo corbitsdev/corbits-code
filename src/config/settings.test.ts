@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { loadConfig } from "./index.js";
 import { resetPricingMetadataRefreshForTests } from "../cost/pricing-metadata.js";
 import { setProviderContextWindowOverrides } from "../provider/context-window.js";
-import { withMockedHomedir } from "../testkit/mock-module.js";
+import { withMockedHomedir } from "../../testkit/mock-module.js";
 
 afterEach(() => {
   setProviderContextWindowOverrides(undefined);

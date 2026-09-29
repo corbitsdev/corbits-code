@@ -18,7 +18,7 @@ import {
   type SubAgentSession,
 } from "./session-store.js";
 import { createAdmissionQueue } from "./admission.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { callFleetTool, callFleetToolRaw } from "./fleet-test-harness.js";
 
 const callTool = callFleetTool;

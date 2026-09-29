@@ -9,7 +9,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 import { createUseSkillTool } from "../agent/use-skill.js";
 import type { Settings } from "../config/settings.js";

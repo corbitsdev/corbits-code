@@ -11,7 +11,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 import { describe, expect, test } from "bun:test";
-import { defined } from "../src/testkit/defined.js";
+import { defined } from "../testkit/defined.js";
 
 const repoRoot = join(import.meta.dirname, "..");
 const vendorRoot = join(repoRoot, "vendor");

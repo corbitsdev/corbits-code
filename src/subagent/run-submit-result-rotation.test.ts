@@ -10,7 +10,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import {
   baseRunParams,
   captureRunHandles,

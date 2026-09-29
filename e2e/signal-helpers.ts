@@ -1,4 +1,4 @@
-import { createTempDirs } from "../src/testkit/temporary-dirs.js";
+import { createTempDirs } from "../testkit/temporary-dirs.js";
 
 /**
  * Reads a spawned fixture's stdout pipe until the first chunk containing

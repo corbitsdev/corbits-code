@@ -6,7 +6,7 @@ import { createRenderer } from "./agent/renderer.js";
 import { createFaremeter, formatCost } from "./cost/faremeter.js";
 import type { PricingCache } from "./cost/pricing-fetcher.js";
 import { testPricingCache } from "./cost/pricing-test-fixture.js";
-import { recastAtLiveModel, tokenUsage } from "./testkit/token-usage.js";
+import { recastAtLiveModel, tokenUsage } from "../testkit/token-usage.js";
 
 // Capture stdout/stderr writes during a test
 function captureOutput(): {

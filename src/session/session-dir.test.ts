@@ -13,7 +13,7 @@ import {
   migrateLegacySessionIfNeeded,
   sessionDir,
 } from "./index.js";
-import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
+import { initTemporaryGitRepo } from "../../testkit/temporary-git-repo.js";
 
 let cwd = "";
 let home = "";

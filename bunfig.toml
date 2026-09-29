@@ -1,5 +1,5 @@
 [test]
-preload = ["./src/testkit/preload.ts"]
+preload = ["./testkit/preload.ts"]
 pathIgnorePatterns = [
   "fixtures/**",
   "eval/tasks/**",

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import "../testkit/workflows.js";
+import "../../testkit/workflows.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { WorkflowCoordinator } from "./coordinator.js";
 import { WorkflowHost } from "./host.js";
 import { findWorkflow } from "./index.js";
 import { WorkflowRuntime } from "./runtime.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { flushWorkflowStateWrites, saveWorkflowState } from "./state.js";
 
 function tool(name: string): ToolDefinition {

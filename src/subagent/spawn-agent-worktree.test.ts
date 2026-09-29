@@ -9,8 +9,8 @@ import { createSpawnAgentTool, type AgentFleetDeps } from "./agent-fleet.js";
 import { isLiveWaitStatus, projectWaitStatus } from "./lifecycle.js";
 import type { RunSubAgentParams, RunSubAgentResult } from "./types.js";
 import type { Telemetry } from "../telemetry/index.js";
-import { initTemporaryGitRepo } from "../testkit/temporary-git-repo.js";
-import { defined } from "../testkit/defined.js";
+import { initTemporaryGitRepo } from "../../testkit/temporary-git-repo.js";
+import { defined } from "../../testkit/defined.js";
 import {
   callFleetToolRaw,
   createFleetDeps,

@@ -30,7 +30,7 @@ import {
   shellApprovalSnapshot as shellSnapshot,
   suspendedResult as suspension,
   userTextTurn,
-} from "../testkit/approval-resume-harness.js";
+} from "../../testkit/approval-resume-harness.js";
 
 function setup(args: {
   preTurns: ConversationTurn[];

@@ -8,8 +8,8 @@ import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
-import { defined } from "../testkit/defined.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
+import { defined } from "../../testkit/defined.js";
 import { INTERN_TOOLS } from "../agent/directors/tool-sets.js";
 import type { BackgroundShellRegistry } from "../shell/background-shell.js";
 import {

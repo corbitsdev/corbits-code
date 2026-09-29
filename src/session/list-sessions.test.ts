@@ -9,7 +9,7 @@ import {
   listSessions,
   sessionDir,
 } from "./index.js";
-import { withFileLogSink } from "../testkit/file-log-sink.js";
+import { withFileLogSink } from "../../testkit/file-log-sink.js";
 
 let cwd = "";
 let home = "";

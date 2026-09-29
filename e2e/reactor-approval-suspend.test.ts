@@ -15,7 +15,7 @@ import {
   runUntilSuspended,
   toolDoneEvents,
 } from "./integration-harness.js";
-import { defined } from "../src/testkit/defined.js";
+import { defined } from "../testkit/defined.js";
 
 const CURL_CALL = {
   name: "run_shell",

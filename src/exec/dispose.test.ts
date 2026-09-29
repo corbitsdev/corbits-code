@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createSubAgentSessionStore } from "../subagent/session-store.js";
-import { defined } from "../testkit/defined.js";
-import { expectRejectedSettle, settleOrTimeout } from "../testkit/settle.js";
+import { defined } from "../../testkit/defined.js";
+import { expectRejectedSettle, settleOrTimeout } from "../../testkit/settle.js";
 import { disposeExecRuntime, formatCaughtError } from "./dispose.js";
 
 describe("formatCaughtError", () => {

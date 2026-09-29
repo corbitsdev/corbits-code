@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import type { AuditStore, ContextStore } from "@intx/types/runtime";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
-import { defined } from "../testkit/defined.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
+import { defined } from "../../testkit/defined.js";
 import {
   baseRunParams,
   stubAgent,

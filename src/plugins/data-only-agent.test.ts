@@ -9,7 +9,7 @@ import type {
   InferenceLeg,
   InferenceSpec,
 } from "../agent/profile-types.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { usePluginDir } from "./test-fixtures.js";
 
 const { makePlugin } = usePluginDir();

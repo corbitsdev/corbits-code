@@ -27,12 +27,12 @@ import {
   subAgentToolName,
   SUBAGENT_DEADLINE_MARGIN_MS,
 } from "./index.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import {
   PASS_PLAN_ENVELOPE,
   REPORT_ENVELOPE as FULL_REPORT_ENVELOPE,
   STUB_PLAN_ENVELOPE,
-} from "../testkit/report-envelope.js";
+} from "../../testkit/report-envelope.js";
 
 describe("sub-agent teardown", () => {
   test("disposeSubAgentSession closes agent, awaits stream, and disposes posix tools once", async () => {

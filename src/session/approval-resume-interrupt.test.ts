@@ -34,7 +34,7 @@ import {
   firstDelivered,
   suspendedResult,
   userTextTurn,
-} from "../testkit/approval-resume-harness.js";
+} from "../../testkit/approval-resume-harness.js";
 
 const SUSPENDED = suspendedResult("corr-1", "curl -sS https://example.com");
 

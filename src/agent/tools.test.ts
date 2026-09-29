@@ -5,7 +5,7 @@ import { createPermissionGate } from "../permission/gate.js";
 import { createSubAgentSessionStore } from "../subagent/session-store.js";
 import type { PermissionGate } from "../permission/gate.js";
 import { mcpServerFingerprint } from "../trust/project-trust.js";
-import { withMockedModule } from "../testkit/mock-module.js";
+import { withMockedModule } from "../../testkit/mock-module.js";
 
 const mockDispose = mock(async () => undefined);
 

@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 
 import { generateSessionId, sessionDir } from "../src/session/index.js";
 import type { RunState } from "../src/session/state.js";
-import { createTempDirs } from "../src/testkit/temporary-dirs.js";
+import { createTempDirs } from "../testkit/temporary-dirs.js";
 
 const FIXTURE = join(
   import.meta.dirname,

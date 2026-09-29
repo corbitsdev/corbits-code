@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import {
   collectToolPlugins,
   isToolPluginActive,

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { defined } from "../testkit/defined.js";
-import { expectRejectedSettle, settleOrTimeout } from "../testkit/settle.js";
+import { defined } from "../../testkit/defined.js";
+import { expectRejectedSettle, settleOrTimeout } from "../../testkit/settle.js";
 import { createRuntimeShutdown } from "./runner/shutdown.js";
 
 describe("runtime shutdown", () => {

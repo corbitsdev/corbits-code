@@ -6,7 +6,7 @@ import {
   loadAgentContextExtensions,
   MAX_AGENTS_MD_BYTES,
 } from "./context-extensions.js";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 let dir: string;
 

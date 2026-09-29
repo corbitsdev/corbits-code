@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { rgbToHex, type CapturedSpan } from "@opentui/core";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 
 import { toolCallRow } from "./diff";
 import { withTestRenderer, type Harness } from "./harness";

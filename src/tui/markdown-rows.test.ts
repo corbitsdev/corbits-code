@@ -9,7 +9,7 @@ import {
   BoxRenderable,
   type CapturedSpan,
 } from "@opentui/core";
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { withTestRenderer, type Harness } from "./harness";
 import {
   appendStreamRow,

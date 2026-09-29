@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
-import { withMockedModuleDuring } from "../testkit/mock-module.js";
+import { withMockedModuleDuring } from "../../testkit/mock-module.js";
 import { FleetAuthorityError } from "./authority.js";
 import { runSubAgent } from "./run.js";
 import type { RunSubAgentParams } from "./types.js";

@@ -1,4 +1,4 @@
-import { defined } from "../testkit/defined.js";
+import { defined } from "../../testkit/defined.js";
 import { describe, test, expect } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
