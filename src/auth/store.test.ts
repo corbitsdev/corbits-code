@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type } from "arktype";
 
-import { withMockedModule } from "../../tests/helpers/mock-module.js";
+import { withMockedModule } from "../../testkit/mock-module.js";
 import type { BaseTokens } from "./store.js";
 
 let failingUnlinkPath: string | undefined;
