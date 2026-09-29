@@ -8,8 +8,11 @@
 import { isLiveWaitStatus } from "./lifecycle.js";
 import {
   collectUncollectedTerminals,
+  dedupeByAgentId,
+  digestCollectedReports,
+  occupancyDeliveringSet,
+  releaseOccupancyDelivering,
   settleOccupancySend,
-  type CollectedWorkerReport,
   type FleetDryBlobWriter,
   type FleetDryLane,
   type FleetDryMailbox,
@@ -30,7 +33,7 @@ export function mailboxMailWakeLine(): string {
 /**
  * Whether inbound text is occupancy's mailbox mail. Internal runtime→agent
  * traffic — the fleet board already owns worker status and the payload is
- * model-facing report JSON, so the transcript never paints it. The live event
+ * a model-facing digest, so the transcript never paints it. The live event
  * map recognises it by content; history hydration keys on the persisted
  * origin marker instead (see isPersistedOccupancyWakeText).
  */
@@ -62,33 +65,6 @@ export function isPersistedOccupancyWakeText(text: string): boolean {
   return isMailboxMailText(bare) || isFleetDryContinuationText(bare);
 }
 
-/**
- * Ids occupancy has snapshotted and handed to send, but not yet taken.
- * A second flush must not start another parent turn for the same reports.
- * Failed send clears the set so a later flush can retry. Weak-keyed so a
- * mailbox object can go away without a leak.
- */
-const deliveringByMailbox = new WeakMap<FleetDryMailbox, Set<string>>();
-
-function deliveringSet(mailbox: FleetDryMailbox): Set<string> {
-  let ids = deliveringByMailbox.get(mailbox);
-  if (ids === undefined) {
-    ids = new Set();
-    deliveringByMailbox.set(mailbox, ids);
-  }
-  return ids;
-}
-
-function releaseDelivering(
-  mailbox: FleetDryMailbox | undefined,
-  ids: readonly string[],
-): void {
-  if (mailbox === undefined) return;
-  const delivering = deliveringByMailbox.get(mailbox);
-  if (delivering === undefined) return;
-  for (const id of ids) delivering.delete(id);
-}
-
 export function occupancyShouldYieldWait(
   mailbox: FleetDryMailbox | undefined,
 ): boolean {
@@ -103,19 +79,21 @@ export function occupancyShouldYieldWait(
   return false;
 }
 
-export function buildMailboxMailPrompt(
-  reports: readonly CollectedWorkerReport[],
+export function buildMailboxMailPrompt<T extends { agent_id: string }>(
+  reports: readonly T[],
 ): string {
-  return [mailboxMailWakeLine(), JSON.stringify(reports)].join("\n");
+  return [mailboxMailWakeLine(), JSON.stringify(dedupeByAgentId(reports))].join(
+    "\n",
+  );
 }
 
 function hasDeliverableMailboxMail(
   mailbox: FleetDryMailbox | undefined,
 ): boolean {
   if (mailbox === undefined) return false;
-  const delivering = deliveringByMailbox.get(mailbox);
+  const delivering = occupancyDeliveringSet(mailbox);
   for (const id of mailbox.ids()) {
-    if (delivering?.has(id)) continue;
+    if (delivering.has(id)) continue;
     const record = mailbox.peek(id);
     if (record === undefined || record.collected === true) continue;
     if (isLiveWaitStatus(record.status)) continue;
@@ -152,33 +130,37 @@ async function driveMailboxMailAfterCollect(
 ): Promise<boolean> {
   const delivering =
     args.mailbox !== undefined
-      ? deliveringSet(args.mailbox)
+      ? occupancyDeliveringSet(args.mailbox)
       : new Set<string>();
   const reports = (
     await collectUncollectedTerminals(
       args.mailbox,
       args.lanes,
       false,
-      args.writeBlob,
+      undefined,
+      false,
     )
   ).filter((report) => !delivering.has(report.agent_id));
   if (reports.length === 0) return false;
   if (parentIsProcessing(args)) return false;
   const ids = reports.map((report) => report.agent_id);
   for (const id of ids) delivering.add(id);
-  const prompt = buildMailboxMailPrompt(reports);
   const takeReports = (): void => {
     for (const id of ids) {
       args.mailbox?.take(id);
     }
-    releaseDelivering(args.mailbox, ids);
+    releaseOccupancyDelivering(args.mailbox, ids);
   };
   const fail = (): boolean => {
-    releaseDelivering(args.mailbox, ids);
+    releaseOccupancyDelivering(args.mailbox, ids);
     args.onSendFailure?.();
     return false;
   };
+  let prompt: string;
   try {
+    prompt = buildMailboxMailPrompt(
+      await digestCollectedReports(reports, args.writeBlob),
+    );
     args.beginSystemContinuation(prompt);
   } catch {
     return fail();

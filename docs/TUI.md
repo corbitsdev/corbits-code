@@ -723,7 +723,9 @@ to idle — unless todo/doing tasks remain, in which case a system
 continuation starts before the fleet-0 event so the run stays busy and
 follow-ups wait one more turn. Occupancy wakes consume mailbox reports only
 after send settles as accepted; a failed or uncertain send idles the parent
-so a later flush can retry. The mail and that fleet-dry continuation
+so a later flush can retry. Mailbox mail is a Summary + Blockers digest with
+a blob pointer to the full report. Fleet-dry continuation lists
+already-collected IDs as id/status/description only. The mail and that fleet-dry continuation
 are runtime-to-agent traffic — the fleet board owns worker status — so
 neither paints a transcript row, and neither rehydrates as one.
 

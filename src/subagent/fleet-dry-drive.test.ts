@@ -12,6 +12,7 @@ import {
   shouldDriveOpenTasks,
   type FleetDryMailboxRecord,
 } from "./fleet-dry-drive.js";
+import { driveMailboxMail } from "./mailbox-mail-drive.js";
 import { createSubAgentSessionStore } from "./session-store.js";
 import {
   ACCEPTED_DELIVERY,
@@ -494,6 +495,107 @@ describe("driveOpenTasksAfterFleetDry", () => {
     expect(order).toEqual(["begin", "send"]);
     expect(sent[0]).toContain(FLEET_DRY_CONTINUATION_PREFIX);
     expect(sent[0]).toContain("w1");
+    expect(records.get("w1")?.collected).toBe(true);
+  });
+
+  test("already-collected IDs are id, status, and description only", async () => {
+    const records = recordsOf({
+      prior: {
+        status: "done",
+        report: "SECRET_PRIOR_REPORT",
+        description: "already mailed",
+        collected: true,
+      },
+      fresh: {
+        status: "done",
+        report: "fresh report",
+        description: "new lane",
+      },
+    });
+    const sent: string[] = [];
+    const driven = await driveOpenTasksAfterFleetDry({
+      previousRunning: 1,
+      running: 0,
+      openTasks: [openTask],
+      ...driveFixture(records, {
+        send: (prompt) => {
+          sent.push(prompt);
+          return ACCEPTED_DELIVERY;
+        },
+      }),
+    });
+    expect(driven).toBe(true);
+    const parsed = reportsJSONFromPrompt(sent[0] ?? "") as {
+      agent_id: string;
+      status: string;
+      description?: string;
+      report?: string;
+    }[];
+    expect(parsed).toEqual([
+      {
+        agent_id: "fresh",
+        status: "done",
+        description: "new lane",
+        report: "fresh report",
+      },
+      {
+        agent_id: "prior",
+        status: "done",
+        description: "already mailed",
+      },
+    ]);
+    expect(sent[0]).not.toContain("SECRET_PRIOR_REPORT");
+    expect(records.get("fresh")?.collected).toBe(true);
+    expect(records.get("prior")?.collected).toBe(true);
+  });
+
+  test("omits IDs mailbox mail is already delivering in the same window", async () => {
+    const records = recordsOf({
+      w1: {
+        status: "done",
+        report: "SECRET_MAILBOX_BODY",
+        description: "lane",
+      },
+    });
+    const mailbox = collectingMailbox(records);
+    let resolveSend: ((result: typeof ACCEPTED_DELIVERY) => void) | undefined;
+    let sendStarted: (() => void) | undefined;
+    const sendSeen = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
+    const mailboxDrive = driveMailboxMail({
+      parentProcessing: false,
+      mailbox,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: () => {
+        sendStarted?.();
+        return new Promise<typeof ACCEPTED_DELIVERY>((resolve) => {
+          resolveSend = resolve;
+        });
+      },
+    });
+    await sendSeen;
+    const drySent: string[] = [];
+    const dryDriven = await driveOpenTasksAfterFleetDry({
+      previousRunning: 1,
+      running: 0,
+      openTasks: [openTask],
+      parentProcessing: false,
+      mailbox,
+      lanes: [],
+      beginSystemContinuation: () => undefined,
+      send: (prompt) => {
+        drySent.push(prompt);
+        return ACCEPTED_DELIVERY;
+      },
+    });
+    expect(dryDriven).toBe(true);
+    expect(reportsJSONFromPrompt(drySent[0] ?? "")).toEqual([]);
+    expect(drySent[0]).not.toContain("SECRET_MAILBOX_BODY");
+    expect(records.get("w1")?.collected).not.toBe(true);
+    resolveSend?.(ACCEPTED_DELIVERY);
+    expect(await mailboxDrive).toBe(true);
     expect(records.get("w1")?.collected).toBe(true);
   });
 

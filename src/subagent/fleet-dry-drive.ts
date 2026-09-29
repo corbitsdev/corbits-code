@@ -10,9 +10,13 @@ import {
   truncateWithReservedNotice,
 } from "../plugins/result-truncation-plugin.js";
 import { isLiveWaitStatus, type WaitJSONStatus } from "./lifecycle.js";
+import { parseSubAgentReport } from "./report.js";
 
 /** Enough of a lane report for a parent continuation; traces stay on disk. */
 export const FLEET_DRY_REPORT_CHARS = 8_192;
+
+/** Summary/Blockers inline in mailbox digest; the blob holds the rest. */
+export const MAILBOX_DIGEST_SECTION_CHARS = 2_048;
 
 export const FLEET_DRY_CONTINUATION_PREFIX =
   "The fleet has gone dry. Remaining open tasks:";
@@ -45,6 +49,49 @@ export interface FleetDryMailbox {
   take(id: string): FleetDryMailboxRecord | undefined;
 }
 
+/**
+ * Ids occupancy has snapshotted and handed to send, but not yet taken.
+ * Shared by mailbox mail and fleet-dry so one parent window cannot paste the
+ * same agent twice. Failed send clears the set so a later flush can retry.
+ * Weak-keyed so a mailbox object can go away without a leak.
+ */
+const occupancyDeliveringByMailbox = new WeakMap<
+  FleetDryMailbox,
+  Set<string>
+>();
+
+export function occupancyDeliveringSet(mailbox: FleetDryMailbox): Set<string> {
+  let ids = occupancyDeliveringByMailbox.get(mailbox);
+  if (ids === undefined) {
+    ids = new Set();
+    occupancyDeliveringByMailbox.set(mailbox, ids);
+  }
+  return ids;
+}
+
+export function releaseOccupancyDelivering(
+  mailbox: FleetDryMailbox | undefined,
+  ids: readonly string[],
+): void {
+  if (mailbox === undefined) return;
+  const delivering = occupancyDeliveringByMailbox.get(mailbox);
+  if (delivering === undefined) return;
+  for (const id of ids) delivering.delete(id);
+}
+
+export function dedupeByAgentId<T extends { agent_id: string }>(
+  reports: readonly T[],
+): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const report of reports) {
+    if (seen.has(report.agent_id)) continue;
+    seen.add(report.agent_id);
+    out.push(report);
+  }
+  return out;
+}
+
 export interface FleetDryLane {
   readonly id: string;
   readonly description?: string;
@@ -65,6 +112,23 @@ export interface CollectedWorkerReport {
    * marker plus single-successor guidance in continue_with. Capped affordance:
    * at most one respawn with the same brief, never a retry loop.
    */
+  continuable?: true;
+  continue_with?: string;
+  stop_reason?: string;
+}
+
+/** Mailbox parent payload: envelope digest plus a blob pointer, not the full report. */
+export interface MailboxWorkerDigest {
+  agent_id: string;
+  status: string;
+  description?: string;
+  summary?: string;
+  blockers?: string;
+  report_uri?: string;
+  error?: string;
+  error_uri?: string;
+  hint?: string;
+  provider_failure?: true;
   continuable?: true;
   continue_with?: string;
   stop_reason?: string;
@@ -138,6 +202,137 @@ export function fleetDrySpillKey(
   field: "report" | "error",
 ): string {
   return `fleet-dry:${agentId}:${field}`;
+}
+
+function clipDigestSection(text: string): string {
+  if (text.length <= MAILBOX_DIGEST_SECTION_CHARS) return text;
+  return `${text.slice(0, MAILBOX_DIGEST_SECTION_CHARS - 1).trimEnd()}…`;
+}
+
+export async function spillWorkerField(
+  text: string | undefined,
+  agentId: string,
+  field: "report" | "error",
+  writeBlob?: FleetDryBlobWriter,
+): Promise<string | undefined> {
+  if (text === undefined || writeBlob === undefined) return undefined;
+  const key = fleetDrySpillKey(agentId, field);
+  try {
+    await writeBlob(key, new TextEncoder().encode(text), "text/plain");
+    return `tool-output:///${key}`;
+  } catch {
+    return undefined;
+  }
+}
+
+export function slimCollectedReport(
+  report: CollectedWorkerReport,
+): Pick<CollectedWorkerReport, "agent_id" | "status" | "description"> {
+  return {
+    agent_id: report.agent_id,
+    status: report.status,
+    ...(report.description !== undefined && report.description.length > 0
+      ? { description: report.description }
+      : {}),
+  };
+}
+
+export async function digestCollectedReport(
+  report: CollectedWorkerReport,
+  writeBlob?: FleetDryBlobWriter,
+): Promise<MailboxWorkerDigest> {
+  const parsed =
+    report.report !== undefined
+      ? parseSubAgentReport(report.report)
+      : undefined;
+  const reportUri = await spillWorkerField(
+    report.report,
+    report.agent_id,
+    "report",
+    writeBlob,
+  );
+  const errorUri = await spillWorkerField(
+    report.error,
+    report.agent_id,
+    "error",
+    writeBlob,
+  );
+  const summary =
+    parsed !== undefined && parsed.summary.length > 0
+      ? clipDigestSection(parsed.summary)
+      : undefined;
+  const blockers =
+    parsed !== undefined
+      ? clipDigestSection(
+          parsed.blockers.length > 0 ? parsed.blockers : "None.",
+        )
+      : undefined;
+  return {
+    agent_id: report.agent_id,
+    status: report.status,
+    ...(report.description !== undefined && report.description.length > 0
+      ? { description: report.description }
+      : {}),
+    ...(summary !== undefined ? { summary } : {}),
+    ...(blockers !== undefined ? { blockers } : {}),
+    ...(reportUri !== undefined ? { report_uri: reportUri } : {}),
+    ...(report.error !== undefined
+      ? { error: clipDigestSection(report.error) }
+      : {}),
+    ...(errorUri !== undefined ? { error_uri: errorUri } : {}),
+    ...(report.hint !== undefined ? { hint: report.hint } : {}),
+    ...(report.provider_failure === true ? { provider_failure: true } : {}),
+    ...(report.continuable === true
+      ? {
+          continuable: true as const,
+          ...(report.continue_with !== undefined
+            ? { continue_with: report.continue_with }
+            : {}),
+        }
+      : {}),
+    ...(report.stop_reason !== undefined
+      ? { stop_reason: report.stop_reason }
+      : {}),
+  };
+}
+
+export async function digestCollectedReports(
+  reports: readonly CollectedWorkerReport[],
+  writeBlob?: FleetDryBlobWriter,
+): Promise<MailboxWorkerDigest[]> {
+  const out: MailboxWorkerDigest[] = [];
+  for (const report of dedupeByAgentId(reports)) {
+    out.push(await digestCollectedReport(report, writeBlob));
+  }
+  return out;
+}
+
+export function collectAlreadyCollectedStubs(
+  mailbox: FleetDryMailbox | undefined,
+  lanes: readonly FleetDryLane[],
+): CollectedWorkerReport[] {
+  if (mailbox === undefined) return [];
+  const byId = new Map(lanes.map((lane) => [lane.id, lane]));
+  const stubs: CollectedWorkerReport[] = [];
+  const seen = new Set<string>();
+  for (const id of mailbox.ids()) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const peeked = mailbox.peek(id);
+    if (peeked === undefined || peeked.collected !== true) continue;
+    if (isLiveWaitStatus(peeked.status)) continue;
+    const description = peeked.description ?? byId.get(id)?.description;
+    stubs.push(
+      slimCollectedReport({
+        agent_id: id,
+        status: peeked.status,
+        ...(description !== undefined && description.length > 0
+          ? { description }
+          : {}),
+      }),
+    );
+  }
+  return stubs;
 }
 
 async function clipField(
@@ -244,11 +439,15 @@ export async function collectUncollectedTerminals(
   lanes: readonly FleetDryLane[],
   consume: boolean,
   writeBlob?: FleetDryBlobWriter,
+  clip = true,
 ): Promise<CollectedWorkerReport[]> {
   if (mailbox === undefined) return [];
   const byId = new Map(lanes.map((lane) => [lane.id, lane]));
   const reports: CollectedWorkerReport[] = [];
+  const seen = new Set<string>();
   for (const id of mailbox.ids()) {
+    if (seen.has(id)) continue;
+    seen.add(id);
     const peeked = mailbox.peek(id);
     if (peeked === undefined) continue;
     if (peeked.collected === true) continue;
@@ -257,7 +456,9 @@ export async function collectUncollectedTerminals(
       ? takeAndProjectMailboxRecord(mailbox, id, byId.get(id))
       : projectMailboxRecord(id, peeked, byId.get(id));
     if (projected === undefined) continue;
-    reports.push(await clipCollectedReport(projected, writeBlob));
+    reports.push(
+      clip ? await clipCollectedReport(projected, writeBlob) : projected,
+    );
   }
   return reports;
 }
@@ -277,7 +478,7 @@ export function buildFleetDryContinuationPrompt(
     taskLines,
     "",
     "Collected worker reports (already collected — do not call wait_agents for these agent_ids):",
-    JSON.stringify(reports),
+    JSON.stringify(dedupeByAgentId(reports)),
     "",
     "Continue the remaining work. Mark each task done or cancelled with manage_tasks",
     "when finished, or spawn_agent the next specialist. Do not end this turn while",
@@ -317,19 +518,35 @@ async function driveOpenTasksAfterFleetDrySpill(
   args: Parameters<typeof driveOpenTasksAfterFleetDry>[0],
   tasks: Task[],
 ): Promise<boolean> {
-  const reports = await collectUncollectedTerminals(
-    args.mailbox,
-    args.lanes,
-    false,
-    args.writeBlob,
+  const delivering =
+    args.mailbox !== undefined
+      ? occupancyDeliveringSet(args.mailbox)
+      : new Set<string>();
+  const uncollected = (
+    await collectUncollectedTerminals(
+      args.mailbox,
+      args.lanes,
+      false,
+      args.writeBlob,
+    )
+  ).filter((report) => !delivering.has(report.agent_id));
+  const uncollectedIds = new Set(uncollected.map((report) => report.agent_id));
+  const stubs = collectAlreadyCollectedStubs(args.mailbox, args.lanes).filter(
+    (stub) =>
+      !uncollectedIds.has(stub.agent_id) && !delivering.has(stub.agent_id),
   );
+  const reports = dedupeByAgentId([...uncollected, ...stubs]);
+  const takeIds = uncollected.map((report) => report.agent_id);
+  for (const id of takeIds) delivering.add(id);
   const prompt = buildFleetDryContinuationPrompt(tasks, reports);
   const takeReports = (): void => {
-    for (const report of reports) {
-      args.mailbox?.take(report.agent_id);
+    for (const id of takeIds) {
+      args.mailbox?.take(id);
     }
+    releaseOccupancyDelivering(args.mailbox, takeIds);
   };
   const fail = (): boolean => {
+    releaseOccupancyDelivering(args.mailbox, takeIds);
     args.onSendFailure?.();
     return false;
   };
