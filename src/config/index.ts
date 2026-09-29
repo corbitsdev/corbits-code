@@ -737,7 +737,7 @@ Flags:
                                --config selects another source
   --auto / --no-auto          auto mode on/off
   --help, -h                  show this help
-  --version, -V               print version
+  --version, -V               show version
 `;
 
 /**
@@ -754,8 +754,9 @@ export class CliHelpError extends Error {
 }
 
 /** Printed for `corbits --version` / `-V`. Matches `package.json` version. */
-export const CLI_VERSION_TEXT =
-  typeof pkg.version === "string" ? pkg.version : "0.0.0";
+export const CLI_VERSION_TEXT = `${COMMAND_NAME} v${
+  typeof pkg.version === "string" ? pkg.version : "0.0.0"
+}`;
 
 /**
  * Thrown when the operator asked for the CLI version. Entry points must print

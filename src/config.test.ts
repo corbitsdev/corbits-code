@@ -212,7 +212,8 @@ async function expectCliVersion(argv: readonly string[]): Promise<void> {
     const version = err as CliVersionError;
     expect(version.exitCode).toBe(0);
     expect(version.message).toBe(CLI_VERSION_TEXT);
-    expect(version.message).toBe(pkg.version);
+    expect(version.message).toContain(pkg.version);
+    expect(version.message).toBe(`corbits v${pkg.version}`);
   }
 }
 
