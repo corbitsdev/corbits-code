@@ -540,7 +540,7 @@ export function readFileGuardPlugin(
           return {
             callId: call.id,
             content: diagnoseBlockedFileInspection({
-              path: rawPath,
+              path: absolutePath,
               kind: "unreadable",
               extractorAvailable: false,
               canExecuteHostCommands: false,

@@ -1,4 +1,5 @@
 import { extname } from "node:path";
+import { shellQuote } from "../agent/tool-aliases.js";
 
 /** Host binary that extracts text from a PDF (poppler). */
 export const PDF_EXTRACTOR_BIN = "pdftotext";
@@ -122,6 +123,6 @@ export function diagnoseBlockedFileInspection(
 
   return {
     code: "extractor_ready",
-    message: `read_file cannot decode PDFs. ${extractor} is installed — run \`${extractor} ${path} -\` via bash.`,
+    message: `read_file cannot decode PDFs. ${extractor} is installed — run \`${extractor} ${shellQuote(path)} -\` via bash.`,
   };
 }

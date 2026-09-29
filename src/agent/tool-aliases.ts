@@ -141,7 +141,7 @@ export function withAuthzParityDefinitions<
 
 const SHELL_WRAPPERS = new Set(["bash", "sh", "zsh"]);
 
-function shellQuote(arg: string): string {
+export function shellQuote(arg: string): string {
   if (/^[A-Za-z0-9_\-./:=@%]+$/.test(arg)) return arg;
   return `'${arg.replace(/'/g, `'\\''`)}'`;
 }

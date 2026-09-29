@@ -179,6 +179,22 @@ describe("readFileBounded", () => {
     expect(content).not.toContain("brew install");
   });
 
+  test("UTF-8 .pdf without magic still reads as text", async () => {
+    const p = await fixture("utf8.pdf", "plain utf-8 notes\nsecond line");
+    const { content, isError } = await readFileBounded(
+      p,
+      0,
+      2000,
+      neverAbort(),
+      { whichExtractor: () => null, canExecuteHostCommands: () => false },
+    );
+    expect(isError).toBeUndefined();
+    expect(content).toContain("plain utf-8 notes");
+    expect(content).toContain("second line");
+    expect(content).not.toContain("not a valid PDF");
+    expect(content).not.toContain("malformed");
+  });
+
   test("a NUL deep in an otherwise-valid file does not discard streamed content", async () => {
     // Enough valid text (>64KB) to guarantee the NUL lands in a later chunk.
     const head = Array.from(
@@ -824,6 +840,38 @@ describe("readFileGuardPlugin", () => {
     expect(String(blockedResult.content)).toContain("Permission boundary");
     expect(String(blockedResult.content)).toContain("run_shell");
     expect(String(blockedResult.content)).not.toContain("brew install");
+  });
+
+  test("UTF-8 .pdf without magic still reads as text through the plugin", async () => {
+    await fixture("notes.pdf", "hello from a misnamed text file");
+    const result = await run({
+      id: "utf8-pdf",
+      name: "read_file",
+      arguments: { path: "notes.pdf" },
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("hello from a misnamed text file");
+    expect(String(result.content)).not.toContain("not a valid PDF");
+    expect(String(result.content)).not.toContain("malformed");
+  });
+
+  test("extractor_ready quotes a PDF path that contains spaces", async () => {
+    await fixture("my report.pdf", Buffer.from("%PDF-1.4\n"));
+    const plugin = readFileGuardPlugin(dir, {
+      whichExtractor: () => "/usr/bin/pdftotext",
+      canExecuteHostCommands: () => true,
+    });
+    const result = await defined(plugin.middleware)(fallback)(
+      {
+        id: "quoted-pdf",
+        name: "read_file",
+        arguments: { path: "my report.pdf" },
+      },
+      neverAbort(),
+    );
+    expect(result.isError).toBe(true);
+    const abs = join(dir, "my report.pdf");
+    expect(String(result.content)).toContain(`pdftotext '${abs}' -`);
   });
 });
 

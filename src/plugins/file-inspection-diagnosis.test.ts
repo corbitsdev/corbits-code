@@ -22,6 +22,9 @@ describe("PDF sniffing", () => {
     expect(
       inspectionKindFromFirstChunk("report.pdf", Buffer.from("not-a-pdf\0")),
     ).toBe("pdf-malformed");
+  });
+
+  test("plain UTF-8 named .pdf without magic is not an inspection block", () => {
     expect(
       inspectionKindFromFirstChunk("report.pdf", Buffer.from("plain text")),
     ).toBeUndefined();
@@ -92,6 +95,18 @@ describe("diagnoseBlockedFileInspection", () => {
     expect(result.code).toBe("extractor_ready");
     expect(result.message).toContain("bash");
     expect(result.message).toContain(`${PDF_EXTRACTOR_BIN} ${PATH} -`);
+  });
+
+  test("extractor_ready quotes a path that would break a pasted bash command", () => {
+    const spaced = "/tmp/my report.pdf";
+    const result = diagnoseBlockedFileInspection({
+      path: spaced,
+      kind: "pdf",
+      extractorAvailable: true,
+      canExecuteHostCommands: true,
+    });
+    expect(result.code).toBe("extractor_ready");
+    expect(result.message).toContain(`${PDF_EXTRACTOR_BIN} '${spaced}' -`);
   });
 
   test("malformed PDF is not blamed on tooling or permission", () => {
