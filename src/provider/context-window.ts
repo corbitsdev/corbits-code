@@ -105,7 +105,7 @@ function heuristicWindow(model: string): number {
 }
 
 // Model identity is `provider:model` (model-catalog.ts), and `provider` may
-// itself be a custom account name (`xai/thegreataxios`) rather than the
+// itself be a custom account name (`xai/alice`) rather than the
 // canonical provider models.dev publishes under (`xai`). Try, in order: the
 // full identity as given, the bare model id, and `canonicalProvider/model` —
 // so a custom-named provider still exact-matches the registry instead of

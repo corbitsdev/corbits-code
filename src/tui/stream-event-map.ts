@@ -131,7 +131,7 @@ export interface StreamMapContext {
    */
   errorRollbackArmed: boolean;
   /**
-   * Live catalog provider id (e.g. `xai/thegreataxios`). Harness
+   * Live catalog provider id (e.g. `xai/alice`). Harness
    * `inference.error` events omit providerId; the session stamps this so
    * transcript formatting can reuse known-provider remappers.
    */

@@ -40,7 +40,7 @@ type CacheTtlIdentity = {
 };
 
 // Canonical provider segment of a `provider/model` string: the account or
-// adapter name before the first "/" (custom names like `xai/thegreataxios`
+// adapter name before the first "/" (custom names like `xai/alice`
 // carry the provider there), else the head before ":".
 function canonicalSegment(model: string): string {
   const lower = model.toLowerCase();

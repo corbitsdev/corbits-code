@@ -24,7 +24,7 @@ export interface InferenceErrorLike {
   retryAfterMs?: number;
   /** Optional request base/url when known — used to scope Go error reclassification. */
   requestURL?: string;
-  /** Provider catalog id when known (e.g. opencode-go, codex/abk-labs). */
+  /** Provider catalog id when known (e.g. opencode-go, codex/acme-labs). */
   providerId?: string;
   /** Explicit OpenCode Go provider flag when known. */
   opencodeGo?: boolean;

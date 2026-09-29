@@ -338,7 +338,7 @@ export interface WorkspaceLabelInput {
 }
 
 /**
- * `~/abklabs/corbits-code (main)`, shortened from the left so the branch — the
+ * `~/acme/corbits-code (main)`, shortened from the left so the branch — the
  * part that changes and the part a mistake is expensive in — always survives.
  */
 export function composeWorkspaceLabel(input: WorkspaceLabelInput): string {
