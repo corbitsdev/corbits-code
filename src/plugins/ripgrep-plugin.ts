@@ -14,6 +14,10 @@ import {
   type RgLimits,
   type SpawnRg,
 } from "./rg-run.js";
+import {
+  formatUnboundedSearchMessage,
+  isUnboundedRootSearch,
+} from "./tool-time-budget.js";
 import { createExtraDeniedPathMatcher } from "./secret-guard-plugin.js";
 
 // A grep over a large tree with the pure-TypeScript walker enumerates the whole
@@ -221,6 +225,21 @@ export function ripgrepPlugin(
       if (call.name === "search_files") {
         const pattern = str(call.arguments.pattern);
         if (pattern === undefined) return next(call, signal);
+        // Unbounded workspace-root walks hang until the shell-guard budget
+        // fires, and a timeout reads as a false negative. Refuse up front
+        // with scope guidance instead of starting a walk that cannot finish
+        // in budget.
+        const rawPath =
+          typeof call.arguments.path === "string"
+            ? call.arguments.path
+            : undefined;
+        if (isUnboundedRootSearch({ path: rawPath, pattern, cwd })) {
+          return {
+            callId: call.id,
+            content: formatUnboundedSearchMessage("search_files", pattern),
+            isError: true,
+          };
+        }
         const path = str(call.arguments.path) ?? cwd;
         const maxResults =
           num(call.arguments.max_results) ?? DEFAULT_SEARCH_MAX;

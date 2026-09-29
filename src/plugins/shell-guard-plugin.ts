@@ -10,13 +10,14 @@ import {
 import {
   formatSearchTimeoutMessage,
   TIMEOUT_PREFIX,
+  type ScopedSearchTool,
 } from "./tool-time-budget.js";
 import {
   BUDGET_EXPIRED,
   budgetExpiry,
   withTimeout,
 } from "../util/budget-race.js";
-import type { ToolDefinition } from "@intx/types/runtime";
+import type { ToolDefinition, ToolResult } from "@intx/types/runtime";
 import {
   assertShellCwdUsable,
   isShellCwdWithinSession,
@@ -160,6 +161,42 @@ export function advertiseShellGuardTimeout(
 // Search tools that can walk large trees; cap them even when the agent forgets.
 const SEARCH_TOOL_TIMEOUT_MS = 10_000;
 const SEARCH_TOOLS = new Set(["grep", "search_files"]);
+
+// Timeout outcome mapping for scoped search tools, extracted pure so the
+// fail-closed behavior is unit-testable without waiting out the budget: a
+// budget expiry or an abort torn down by the budget is always an explicit
+// error carrying the timeout notice — a timeout never reads as empty
+// results, and genuine empty successes pass through untouched.
+export function mapSearchBudgetOutcome(
+  callId: string,
+  tool: ScopedSearchTool,
+  outcome: ToolResult | typeof BUDGET_EXPIRED,
+  signals: { budgetAborted: boolean; parentAborted: boolean },
+): ToolResult {
+  if (outcome === BUDGET_EXPIRED) {
+    const content = signals.parentAborted
+      ? `${tool} aborted`
+      : formatSearchTimeoutMessage(tool);
+    return { callId, content, isError: true };
+  }
+  if (
+    outcome.isError === true &&
+    typeof outcome.content === "string" &&
+    outcome.content.includes(TIMEOUT_PREFIX)
+  ) {
+    return outcome;
+  }
+  if (
+    signals.budgetAborted &&
+    !signals.parentAborted &&
+    outcome.isError === true &&
+    typeof outcome.content === "string" &&
+    /abort/i.test(outcome.content)
+  ) {
+    return { callId, content: formatSearchTimeoutMessage(tool), isError: true };
+  }
+  return outcome;
+}
 
 interface RunShellArgs {
   command: string;
@@ -716,42 +753,15 @@ export function shellGuardPlugin(
             budgetExpiry(budget.signal),
           ]);
 
-          if (outcome === BUDGET_EXPIRED) {
-            const content = signal.aborted
-              ? `${call.name} aborted`
-              : formatSearchTimeoutMessage(
-                  call.name as "grep" | "search_files",
-                );
-            return { callId: call.id, content, isError: true };
-          }
-
-          if (
-            outcome.isError === true &&
-            typeof outcome.content === "string" &&
-            outcome.content.includes(TIMEOUT_PREFIX)
-          ) {
-            return outcome;
-          }
-
-          // The base tool honored the abort and returned a generic abort error;
-          // surface a clearer timeout message when the budget, not the parent,
-          // triggered it.
-          if (
-            budget.signal.aborted &&
-            !signal.aborted &&
-            outcome.isError === true &&
-            typeof outcome.content === "string" &&
-            /abort/i.test(outcome.content)
-          ) {
-            return {
-              callId: call.id,
-              content: formatSearchTimeoutMessage(
-                call.name as "grep" | "search_files",
-              ),
-              isError: true,
-            };
-          }
-          return outcome;
+          return mapSearchBudgetOutcome(
+            call.id,
+            call.name as "grep" | "search_files",
+            outcome,
+            {
+              budgetAborted: budget.signal.aborted,
+              parentAborted: signal.aborted,
+            },
+          );
         } finally {
           budget.dispose();
         }

@@ -1,5 +1,7 @@
 /** Corbits Code-local timeout copy for search/read guards. Do not patch interchange. */
 
+import { resolve as resolvePath } from "node:path";
+
 export type ScopedSearchTool = "grep" | "search_files";
 
 export const TIMEOUT_PREFIX = "[timed out before completing]";
@@ -23,6 +25,46 @@ export function formatSearchTimeoutMessage(
   const trimmed = partialResult?.trim();
   if (trimmed === undefined || trimmed.length === 0) return notice;
   return `${trimmed}\n\n${notice}`;
+}
+
+// A search_files pattern that walks the whole tree: recursive descent or a
+// bare star with no literal constraint. Tighter globs (`*.ts`, `*config*`)
+// still match a bounded name space and stay allowed at the root.
+export function isUnboundedSearchGlob(pattern: string): boolean {
+  return pattern === "*" || pattern.includes("**");
+}
+
+// The raw path argument resolved against the session root: omitted, empty,
+// ".", and the root itself all land on the workspace root. Non-filesystem
+// targets (archive:///, tool-output:///) resolve elsewhere and never match.
+export function isWorkspaceRootSearch(
+  path: string | undefined,
+  cwd: string,
+): boolean {
+  const candidate = path !== undefined && path.length > 0 ? path : ".";
+  return resolvePath(cwd, candidate) === resolvePath(cwd);
+}
+
+export function isUnboundedRootSearch(args: {
+  path: string | undefined;
+  pattern: string;
+  cwd: string;
+}): boolean {
+  return (
+    isWorkspaceRootSearch(args.path, args.cwd) &&
+    isUnboundedSearchGlob(args.pattern)
+  );
+}
+
+export function formatUnboundedSearchMessage(
+  tool: ScopedSearchTool,
+  pattern: string,
+): string {
+  return (
+    `${tool} refused an unbounded workspace-root walk for pattern "${pattern}" — ` +
+    `${scopedSearchRetryHints(tool)}. ` +
+    `This is not the same as "no matches".`
+  );
 }
 
 export function formatToolExecutionTimeoutMessage(
