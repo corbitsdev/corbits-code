@@ -9,10 +9,11 @@
 //     markers, files/commands, verification, dead ends, next actions, plus a
 //     verbatim exact-facts appendix), persisted as a context-store blob by the
 //     reactor under one STABLE key that every fold overwrites;
-//   - a thin spine that stays in the live prompt: goal one-liner, top
-//     constraints/decisions, a cumulative evidence echo, activated tools, and
-//     an explicit pointer (tool-output:/// URI) so the agent can re-read the
-//     full file when a detail is missing.
+//   - a thin spine that stays in the live prompt: goal one-liner (cut at a
+//     token boundary, never mid-token), standing output-format tokens uncut,
+//     top constraints/decisions, a cumulative evidence echo, activated tools,
+//     and an explicit pointer (tool-output:/// URI) so the agent can re-read
+//     the full operator ask and output contract when a detail is missing.
 //
 // Everything the file carries is copied verbatim out of the folded turns —
 // never paraphrased — so exact-required facts (paths, commands, counts, user
@@ -44,6 +45,7 @@ export const HANDOFF_LATEST_KEY = "compaction-handoff-latest.md";
 
 const HANDOFF_TOOLS_LINE_PREFIX =
   "Tools still activated and callable directly (no tool_search needed): ";
+const HANDOFF_OUTPUT_LINE_PREFIX = "Output: ";
 
 // Structured handoff artifact: the fat file's sections. Every entry is a
 // verbatim excerpt from the folded turns (or carried verbatim from a prior
@@ -94,8 +96,30 @@ const VERIFICATION_SIGNAL = /test|check|lint|build|typecheck|verify/i;
 // the lines between.
 const EVIDENCE_TOKEN = /\[\[evidence:[^[\]\r\n]+\]\]/g;
 
+// Standing reply-contract tokens (FILES_DONE=..., SUMMARY=...). The spine
+// must keep these whole; a char slice is how they become FILES_DO.
+const OUTPUT_FORMAT_TOKEN = /\b[A-Z][A-Z0-9_]+=\S+/g;
+
 function oneLine(text: string, maxChars: number): string {
   return text.replace(/\s+/g, " ").trim().slice(0, maxChars);
+}
+
+function outputFormatTokens(text: string): string[] {
+  const found: string[] = [];
+  for (const match of text.matchAll(OUTPUT_FORMAT_TOKEN)) {
+    const token = match[0];
+    if (token !== undefined && !found.includes(token)) found.push(token);
+  }
+  return found;
+}
+
+function cutSpineGoal(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  if (line.length <= SPINE_GOAL_CHARS) return line;
+  const head = line.slice(0, SPINE_GOAL_CHARS);
+  const lastSpace = head.lastIndexOf(" ");
+  const kept = lastSpace > 0 ? head.slice(0, lastSpace) : "";
+  return kept.length > 0 ? `${kept}${SPINE_CUT_SENTINEL}` : SPINE_CUT_SENTINEL;
 }
 
 function cutSpineItem(text: string): string {
@@ -213,6 +237,14 @@ function parseSpineText(text: string): CarriedFacts {
     if (trimmed.startsWith("Goal: ")) {
       const goal = trimmed.slice("Goal: ".length).trim();
       if (goal.length > 0) carried.goal = goal;
+    } else if (trimmed.startsWith(HANDOFF_OUTPUT_LINE_PREFIX)) {
+      for (const token of outputFormatTokens(
+        trimmed.slice(HANDOFF_OUTPUT_LINE_PREFIX.length),
+      )) {
+        if (carried.goal === undefined) carried.goal = token;
+        else if (!carried.goal.includes(token))
+          carried.goal = `${carried.goal} ${token}`;
+      }
     } else if (trimmed.startsWith("Constraints: ")) {
       for (const constraint of trimmed
         .slice("Constraints: ".length)
@@ -691,7 +723,7 @@ export function extractHandoffArtifact(
   return {
     artifact: checked,
     spine: {
-      goal: extractedGoal,
+      goal: fileGoal,
       constraints: mergeUnique(
         carried.constraints,
         freshConstraints,
@@ -739,19 +771,20 @@ export function renderHandoffFile(
 }
 
 /**
- * Render the thin live spine. Goal, constraints/decisions, the cumulative
- * evidence echo, activated tools, and the explicit file pointer. Starts with
- * COMPACTED_PREFIX so the next fold treats it as a foldable handoff turn.
- * Counts, file lists, and next actions stay in the fat file.
+ * Render the thin live spine. Goal (token-boundary cut), standing output
+ * contract tokens uncut, constraints/decisions, the cumulative evidence echo,
+ * activated tools, and the explicit file pointer. Starts with COMPACTED_PREFIX
+ * so the next fold treats it as a foldable handoff turn. Counts, file lists,
+ * and next actions stay in the fat file.
  */
 export function renderHandoffSpine(
   spine: SpineFacts,
   pointerUri: string,
 ): string {
-  const lines = [
-    COMPACTED_PREFIX,
-    `Goal: ${oneLine(spine.goal, SPINE_GOAL_CHARS)}`,
-  ];
+  const lines = [COMPACTED_PREFIX, `Goal: ${cutSpineGoal(spine.goal)}`];
+  const output = outputFormatTokens(spine.goal);
+  if (output.length > 0)
+    lines.push(`${HANDOFF_OUTPUT_LINE_PREFIX}${output.join(" ")}`);
   if (spine.constraints.length > 0)
     lines.push(
       `Constraints: ${spine.constraints
@@ -774,7 +807,7 @@ export function renderHandoffSpine(
       `${HANDOFF_TOOLS_LINE_PREFIX}${spine.activatedTools.join(", ")}`,
     );
   lines.push(
-    `Handoff: ${pointerUri} — re-read with read_file (offset/limit) for full detail: decisions, verification, dead ends, next actions.`,
+    `Handoff: ${pointerUri} — re-read with read_file (offset/limit) for the full operator ask, output contract, decisions, verification, dead ends, next actions.`,
   );
   return lines.join("\n");
 }

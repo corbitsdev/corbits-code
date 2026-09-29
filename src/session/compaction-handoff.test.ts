@@ -354,6 +354,31 @@ describe("renderHandoffSpine", () => {
     expect(rendered.split("\n").length).toBeLessThanOrEqual(10);
   });
 
+  test("does not mid-token truncate a standing output contract", () => {
+    const token = "FILES_DONE=src/session/compaction-handoff.ts";
+    const splitAt = "FILES_DO".length;
+    const prefix = `${"W".repeat(160 - splitAt - 1)} `;
+    const goal = `${prefix}${token}`;
+    const midToken = goal.slice(0, 160);
+    expect(midToken.endsWith("FILES_DO")).toBe(true);
+    expect(midToken.includes("FILES_DONE")).toBe(false);
+
+    const rendered = renderHandoffSpine(
+      {
+        goal,
+        constraints: [],
+        decisions: [],
+        evidenceMarkers: [],
+        activatedTools: [],
+      },
+      handoffBlobUri(HANDOFF_LATEST_KEY),
+    );
+    expect(rendered).not.toContain(midToken);
+    expect(rendered).toContain(token);
+    expect(rendered).toMatch(/re-read/);
+    expect(rendered).toMatch(/operator ask|output contract/);
+  });
+
   test("leaves 79- and 80-char items unmarked and marks 81 with an ellipsis", () => {
     const unmarked79 = `Must never write to ${"a".repeat(59)}`;
     const unmarked80 = `Must never write to ${"a".repeat(60)}`;
@@ -572,6 +597,36 @@ describe("iterative folding", () => {
     expect(second.artifact.constraints).toEqual(
       expect.arrayContaining([complete, sibling]),
     );
+  });
+
+  test("a fold-then-continue keeps the standing output contract uncut", () => {
+    const token = "FILES_DONE=src/a.ts";
+    const goal = `${"W".repeat(151)} ${token}`;
+    const midToken = goal.replace(/\s+/g, " ").trim().slice(0, 160);
+    expect(midToken.endsWith("FILES_DO")).toBe(true);
+
+    const first = buildHandoffFold([userTurn(goal)], "narrative");
+    expect(first.spineText).not.toContain(midToken);
+    expect(first.spineText).toContain(token);
+    const file = new TextDecoder().decode(first.blob.bytes);
+    expect(file).toContain(token);
+    expect(first.artifact.goal).toContain(token);
+
+    const second = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+      { priorFileText: file },
+    );
+    expect(second.spineText).not.toContain(midToken);
+    expect(second.spineText).toContain(token);
+    expect(second.artifact.goal).toContain(token);
+
+    const withoutFile = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    expect(withoutFile.spineText).not.toContain(midToken);
+    expect(withoutFile.spineText).toContain(token);
   });
 
   test("a truncated spine fragment collapses into the full prior-file constraint", () => {
