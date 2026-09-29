@@ -105,9 +105,7 @@ export function authzParityDefinitions(
     for (const [alias, aliasEngine] of Object.entries(ALIAS_TO_ENGINE)) {
       if (aliasEngine !== engine) continue;
       if (alias === "update_plan") continue;
-      if (seen.has(alias)) continue;
-      seen.add(alias);
-      out.push({ ...def, name: alias });
+      push({ ...def, name: alias });
     }
   }
   return out;
