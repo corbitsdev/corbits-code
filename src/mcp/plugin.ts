@@ -12,13 +12,14 @@ import {
   type SpillBlobWriter,
 } from "../plugins/result-truncation-plugin.js";
 import type { CompactionArchive } from "../session/compaction-archive.js";
-import type {
-  MCPClient,
-  MCPContentBlock,
-  MCPToolResultEnvelope,
+import {
+  unwrapToolContent,
+  type MCPClient,
+  type MCPContentBlock,
+  type MCPToolResultEnvelope,
 } from "./client.js";
+import { applyMcpResultProjection } from "./result-projection.js";
 import { mcpToolName } from "./tool-name.js";
-import { unwrapToolContent } from "./client.js";
 
 export const MCP_RECONNECTING_TOOL_ERROR =
   "MCP server is reconnecting; retry the call once it reports connected.";
@@ -138,10 +139,6 @@ export function mcpClientTools(
                   unknown
                 >);
           const isError = envelope.isError === true;
-          const serializedStructured =
-            scrubbedStructured === undefined
-              ? undefined
-              : serializeStructuredContent(scrubbedStructured);
           const archive = getEvidenceArchive?.();
           let archivedFullEnvelope = false;
           if (archive !== undefined) {
@@ -163,13 +160,33 @@ export function mcpClientTools(
               // Archive write must not fail a successful tool result.
             }
           }
-          const flattened = unwrapToolContent(authorizedBlocks);
+          const projected = isError
+            ? {
+                blocks: authorizedBlocks,
+                ...(scrubbedStructured !== undefined
+                  ? { structuredContent: scrubbedStructured }
+                  : {}),
+              }
+            : applyMcpResultProjection({
+                serverName: client.serverName,
+                toolName: tool.name,
+                args: call.arguments,
+                blocks: authorizedBlocks,
+                ...(scrubbedStructured !== undefined
+                  ? { structuredContent: scrubbedStructured }
+                  : {}),
+              });
+          const serializedStructured =
+            projected.structuredContent === undefined
+              ? undefined
+              : serializeStructuredContent(projected.structuredContent);
+          const flattened = unwrapToolContent(projected.blocks);
           const baseContent =
             flattened !== ""
               ? flattened
               : serializedStructured !== undefined
                 ? `${MCP_STRUCTURED_CONTENT_MARKER}\n${serializedStructured.serialized}`
-                : scrubbedStructured !== undefined
+                : projected.structuredContent !== undefined
                   ? `${MCP_STRUCTURED_CONTENT_MARKER}\n[structured content unavailable]`
                   : isError
                     ? `MCP tool ${client.serverName}/${tool.name} reported an error with empty content.`

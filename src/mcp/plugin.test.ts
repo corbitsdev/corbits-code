@@ -669,6 +669,134 @@ describe("mcpClientToAgentTools", () => {
   });
 });
 
+describe("mcpClientToAgentTools Linear result projection", () => {
+  const fullIssue = {
+    id: "issue-uuid",
+    identifier: "CL-9495",
+    url: "https://linear.app/corbits/issue/CL-9495",
+    title: "Project MCP results",
+    status: "In Progress",
+    description: "# long body that must not echo",
+  };
+
+  function linearClient(
+    toolName: string,
+    envelope: ScriptedMcpEnvelope,
+  ): MCPClient {
+    const client: MCPClient = {
+      serverName: "linear",
+      tools: [
+        {
+          name: toolName,
+          description: toolName,
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+      call: async () => "",
+      callBlocks: async () => envelope.blocks,
+      close: async () => undefined,
+    };
+    Object.assign(client, {
+      callResult: async () => envelope,
+    });
+    return client;
+  }
+
+  async function runLinear(
+    toolName: string,
+    envelope: ScriptedMcpEnvelope,
+    args: Record<string, unknown> = {},
+    spillOptions?: Parameters<typeof mcpClientToAgentTools>[2],
+  ) {
+    const [tool] = mcpClientToAgentTools(
+      linearClient(toolName, envelope),
+      skipGate(),
+      spillOptions,
+    );
+    if (tool?.kind !== "full") throw new Error("expected full tool");
+    return tool.handler(
+      { id: "c-linear", name: `mcp__linear__${toolName}`, arguments: args },
+      new AbortController().signal,
+    );
+  }
+
+  test("save_issue returns id url status title and not the body just sent", async () => {
+    const result = await runLinear("save_issue", {
+      blocks: [{ type: "text", text: JSON.stringify(fullIssue) }],
+    });
+    const parsed = JSON.parse(String(result.content)) as Record<
+      string,
+      unknown
+    >;
+    expect(parsed).toEqual({
+      id: "issue-uuid",
+      identifier: "CL-9495",
+      url: "https://linear.app/corbits/issue/CL-9495",
+      status: "In Progress",
+      title: "Project MCP results",
+    });
+    expect(String(result.content)).not.toContain("long body");
+  });
+
+  test("list_issues is short by default and expands when fields asks", async () => {
+    const envelope: ScriptedMcpEnvelope = {
+      blocks: [
+        {
+          type: "text",
+          text: JSON.stringify({ issues: [fullIssue], hasNextPage: false }),
+        },
+      ],
+    };
+    const shortResult = await runLinear("list_issues", envelope, {});
+    const shortParsed = JSON.parse(String(shortResult.content)) as {
+      issues: Record<string, unknown>[];
+      hasNextPage: boolean;
+    };
+    expect(shortParsed.hasNextPage).toBe(false);
+    expect(shortParsed.issues[0]).toEqual({
+      id: "issue-uuid",
+      identifier: "CL-9495",
+      url: "https://linear.app/corbits/issue/CL-9495",
+      status: "In Progress",
+      title: "Project MCP results",
+    });
+    expect(String(shortResult.content)).not.toContain("long body");
+
+    const expanded = await runLinear("list_issues", envelope, {
+      fields: ["id", "description"],
+    });
+    expect(JSON.parse(String(expanded.content))).toEqual({
+      issues: [
+        {
+          id: "issue-uuid",
+          description: "# long body that must not echo",
+        },
+      ],
+      hasNextPage: false,
+    });
+  });
+
+  test("archives the full entity and returns the projection to the model", async () => {
+    const { archive } = memoryEvidenceArchive();
+    const result = await runLinear(
+      "save_issue",
+      {
+        blocks: [{ type: "text", text: JSON.stringify(fullIssue) }],
+        structuredContent: fullIssue,
+      },
+      {},
+      { getEvidenceArchive: () => archive },
+    );
+    expect(String(result.content)).not.toContain("long body");
+    const [occurrence] = await archive.listOccurrences();
+    if (occurrence === undefined) throw new Error("missing archive occurrence");
+    const payload = await archive.readAuthorizedPayload(
+      occurrence.occurrenceId,
+    );
+    expect(payload).toContain("long body");
+  });
+});
+
 function makeFakeClient(serverName: string, toolNames: string[]): MCPClient {
   return {
     serverName,

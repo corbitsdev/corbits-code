@@ -226,6 +226,12 @@ command, and no credentials in the config (Linear authorizes over OAuth):
 
 Because only `url` is set, `type` defaults to `http`.
 
+Write tools (`save_issue`, `save_comment`, `save_issue_label`) return `id`,
+`url`, `status`, and `title` (plus `identifier` when Linear sends it) — not the
+body just written. List tools (`list_issues`, `list_comments`, …) use the same
+short field set per row unless the call passes `fields`, which expands each row
+to those keys, or `fields: "all"` / `["*"]` for the full payload.
+
 ### Authorization on first run
 
 The first time Corbits Code connects to an http server that requires auth, the TUI
