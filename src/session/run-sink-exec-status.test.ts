@@ -3,54 +3,57 @@ import { describe, expect, test } from "bun:test";
 import { createRunSink, resolveExecRunStatus } from "./run-sink.js";
 
 describe("resolveExecRunStatus", () => {
-  test("maps successful send to done even when sink is cancelled (no reactor.done)", () => {
-    expect(
-      resolveExecRunStatus({
+  // Truth table over the three inputs. The load-bearing rows: a completed
+  // send finishes the run even if the sink never saw reactor.done, and a
+  // real run error beats both send completion and sink status.
+  test.each([
+    {
+      name: "successful send maps to done even when sink is cancelled (no reactor.done)",
+      input: {
         sendCompleted: true,
-        sinkStatus: "cancelled",
+        sinkStatus: "cancelled" as const,
         runError: undefined,
-      }),
-    ).toBe("done");
-  });
-
-  test("maps real run error to failed even after send completes", () => {
-    expect(
-      resolveExecRunStatus({
+      },
+      expected: "done",
+    },
+    {
+      name: "real run error maps to failed even after send completes",
+      input: {
         sendCompleted: true,
-        sinkStatus: "cancelled",
+        sinkStatus: "cancelled" as const,
         runError: "boom",
-      }),
-    ).toBe("failed");
-  });
-
-  test("maps sink failed to failed", () => {
-    expect(
-      resolveExecRunStatus({
+      },
+      expected: "failed",
+    },
+    {
+      name: "sink failed maps to failed",
+      input: {
         sendCompleted: false,
-        sinkStatus: "failed",
+        sinkStatus: "failed" as const,
         runError: undefined,
-      }),
-    ).toBe("failed");
-  });
-
-  test("maps incomplete send without sink done to cancelled", () => {
-    expect(
-      resolveExecRunStatus({
+      },
+      expected: "failed",
+    },
+    {
+      name: "incomplete send without sink done maps to cancelled",
+      input: {
         sendCompleted: false,
-        sinkStatus: "cancelled",
+        sinkStatus: "cancelled" as const,
         runError: undefined,
-      }),
-    ).toBe("cancelled");
-  });
-
-  test("maps sink done without sendCompleted to done", () => {
-    expect(
-      resolveExecRunStatus({
+      },
+      expected: "cancelled",
+    },
+    {
+      name: "sink done without sendCompleted maps to done",
+      input: {
         sendCompleted: false,
-        sinkStatus: "done",
+        sinkStatus: "done" as const,
         runError: undefined,
-      }),
-    ).toBe("done");
+      },
+      expected: "done",
+    },
+  ])("$name", ({ input, expected }) => {
+    expect(resolveExecRunStatus(input)).toBe(expected);
   });
 });
 

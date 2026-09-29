@@ -149,6 +149,19 @@ describe("normalizeInferenceErrorForRetry", () => {
     raw: { error: { message: "Too Many Requests" } },
   };
 
+  // Live Codex usage-limit 429 body: plan metadata plus a reset ETA the
+  // normalizer converts to retryAfterMs.
+  const CODEX_USAGE_LIMIT_BODY = {
+    detail: {
+      error: {
+        code: "usage_limit_reached",
+        message: "You have reached your usage limit. Try again later.",
+        plan_type: "workspace_member",
+        resets_in_seconds: 3435,
+      },
+    },
+  };
+
   test.each([
     { requestURL: "https://opencode.ai/zen/go/v1/chat/completions" },
     { providerId: "opencode-go" },
@@ -196,21 +209,11 @@ describe("normalizeInferenceErrorForRetry", () => {
   });
 
   test("maps Codex usage_limit_reached detail.error body to quota_exhausted with reset ETA", () => {
-    const liveBody = {
-      detail: {
-        error: {
-          code: "usage_limit_reached",
-          message: "You have reached your usage limit. Try again later.",
-          plan_type: "workspace_member",
-          resets_in_seconds: 3435,
-        },
-      },
-    };
     const normalized = normalizeInferenceErrorForRetry({
       category: "quota_exhausted",
       message: "Too Many Requests",
       statusCode: 429,
-      raw: liveBody,
+      raw: CODEX_USAGE_LIMIT_BODY,
       providerId: "codex/abk-labs",
     });
     expect(normalized.category).toBe("quota_exhausted");
@@ -597,16 +600,7 @@ describe("normalizeInferenceErrorForRetry", () => {
       message: "Too Many Requests",
       statusCode: 429,
       providerId: "codex/abk-labs",
-      raw: {
-        detail: {
-          error: {
-            code: "usage_limit_reached",
-            message: "You have reached your usage limit. Try again later.",
-            plan_type: "workspace_member",
-            resets_in_seconds: 3435,
-          },
-        },
-      },
+      raw: CODEX_USAGE_LIMIT_BODY,
     });
     expect(normalized.category).toBe("quota_exhausted");
     expect(normalized.retryAfterMs).toBe(3_435_000);
