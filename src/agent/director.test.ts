@@ -337,22 +337,9 @@ describe("ChatDirector inference-error recovery (CL-6910)", () => {
     expect(third.some((a) => a.type === "reply")).toBe(true);
   });
 
-  test("an unrelated aborted error (not internal-recovery) is not recovered by the director", async () => {
-    const director = createChatDirector("system", [], {
-      provider: providerlessPolicy,
-    });
-    const capabilities = makeCapabilities();
-
-    const actions = actionsArray(
-      await director.decide(
-        inferenceErrorEvent("aborted", { origin: "user-stop" }),
-        mockState,
-        capabilities,
-      ),
-    );
-    expect(actions.some((a) => a.type === "infer")).toBe(false);
-  });
-
+  // user-stop origin: the "does not auto-recover user-stop aborted inference
+  // errors" test in chatDirector compaction pins this classification (and the
+  // absence of the recovery checkpoint) at the long-state layer.
   test("inference-recovery budget resets at the next turn boundary", async () => {
     const director = createChatDirector("system", [], {
       provider: providerlessPolicy,
@@ -1732,26 +1719,8 @@ describe("chatDirector compaction", () => {
   });
 
   // CL-6910: `timeout`/`retryable` are owned entirely by the harness's own
-  // retry policy, which already retries and exhausts them before an
-  // `inference.error` of one of those categories ever reaches the director.
-  // The director re-issuing another `infer()` here used to multiply with
-  // the harness's own attempts (up to 9 identical full-context sends per
-  // turn); it now falls through to the base director's terminal
-  // checkpoint + reply instead of recovering.
-  test("does not re-issue inference for a timeout already exhausted by the harness", async () => {
-    const director = chatDirector("");
-    const timeout = {
-      type: "inference.error",
-      error: { category: "timeout", message: "request timed out" },
-    } as unknown as ReactorInboundEvent;
-
-    const actions = actionsArray(
-      await director.decide(timeout, longState, stubReactorCapabilities),
-    );
-    expect(actions.some((action) => action.type === "infer")).toBe(false);
-    expect(actions.some((action) => action.type === "reply")).toBe(true);
-  });
-
+  // retry policy; the CL-6910 describe above pins the no-reissue contract
+  // per category. Here the abort and overflow paths carry the unique legs.
   test("recovers an internally aborted inference but keeps explicit abort terminal", async () => {
     const director = chatDirector("Corbits operating prompt");
     const internalAbort = {
