@@ -67,10 +67,10 @@ import {
   type ReasoningEffort,
 } from "../provider/reasoning-effort.js";
 import type { AgentProfile, CapabilityFilter } from "../agent/profiles.js";
-import { currentProfileSnapshotRevision } from "../agent/profiles.js";
 import {
   DEFAULT_KNOWN_ENGINES,
   formatCapabilityUnavailable,
+  leafTierAlternatives,
   preflightCapabilities,
   rerouteAlternatives,
   type CapabilityUnavailable,
@@ -746,6 +746,7 @@ export function tierGateRequiresTools(
       return {
         code: "missing_tool",
         tool: engine,
+        alternatives: leafTierAlternatives(),
         detail: `"${engine}" mounts on Tier 3 leaf workers only, never on ${tier} directors`,
       };
     }
@@ -1035,9 +1036,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const doNot =
         rawDoNot?.map((d) => d.trim()).filter((d) => d.length > 0) ?? [];
       const reportFocus = rawReportFocus?.trim();
-      const requiresToolsRaw =
-        rawRequiresTools?.map((t) => t.trim()).filter((t) => t.length > 0) ??
-        [];
 
       let provider: SubAgentProvider = resolveDep(deps.provider);
       const parentEffort = provider.reasoningEffort;
@@ -1126,8 +1124,23 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
 
       // CL-9476: fail closed before any session, telemetry, or worktree exists.
       // A rejection returns here — no auto re-dispatch, no successor, no retry.
+      // The tier below is the single derivation shared by the tier gate and
+      // the run mount: run.ts mounts the leaf reporting channel exactly when
+      // tier is "leaf", so gating on any other value would let a requirement
+      // pass here and die as a stale snapshot at mount (or vice versa).
+      const dispatchTier: SubagentTier = resolved.orchestrator
+        ? (resolved.orchestratorTier ?? resolved.pkg?.tier ?? "orchestrator")
+        : "leaf";
       let requiresTools: readonly string[] | undefined;
-      let snapshotRevision: number | undefined;
+      const rawEntries = rawRequiresTools ?? [];
+      const blankEntry = rawEntries.find((t) => t.trim().length === 0);
+      if (blankEntry !== undefined) {
+        return fleetResult(
+          call.id,
+          `Error: spawn_agent requires_tools entries must be non-empty tool names — got a blank entry. Correct requires_tools to canonical tool names and re-dispatch.`,
+        );
+      }
+      const requiresToolsRaw = rawEntries.map((t) => t.trim());
       if (requiresToolsRaw.length > 0) {
         const preflight = preflightCapabilities({
           required: requiresToolsRaw,
@@ -1150,9 +1163,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         // Tier-gated mounts (fleet verbs, the Tier 3 leaf reporting channel)
         // reject here as missing_tool when the dispatch tier can never mount
         // them — pre-spawn, never surviving to the mount-time stale echo.
-        const dispatchTier: SubagentTier = resolved.orchestrator
-          ? (resolved.orchestratorTier ?? resolved.pkg?.tier ?? "orchestrator")
-          : "leaf";
         const gated = tierGateRequiresTools(preflight.canonical, dispatchTier);
         if (gated !== undefined) {
           return fleetResult(
@@ -1160,7 +1170,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             formatCapabilityUnavailable(gated, resolved.agentLabel),
           );
         }
-        snapshotRevision = currentProfileSnapshotRevision();
       }
 
       const orchestrator = resolved.orchestrator;
@@ -1208,7 +1217,6 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         retained: true,
         provider: provider.providerName,
         ...(requiresTools !== undefined ? { requiresTools } : {}),
-        ...(snapshotRevision !== undefined ? { snapshotRevision } : {}),
         ...(deps.parentSessionId !== undefined
           ? { parentSessionId: deps.parentSessionId }
           : {}),
@@ -1540,11 +1548,14 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             ...(deps.deadlineMs !== undefined
               ? { deadlineMs: deps.deadlineMs }
               : {}),
-            ...(resolved.pkg !== undefined
-              ? { tier: resolved.pkg.tier }
-              : orchestrator
-                ? {}
-                : { tier: "leaf" }),
+            // Single tier derivation (dispatchTier above): the tier gate and
+            // the mount agree by construction, so a gated requirement can
+            // never die as a stale snapshot at mount, or vice versa. An
+            // orchestrator dispatch without a resolved package carries no
+            // tier — run.ts fails closed on fleet mounts from there.
+            ...(resolved.pkg !== undefined || !orchestrator
+              ? { tier: dispatchTier }
+              : {}),
             ...(resolved.pkg?.reportContract?.outputType !== undefined
               ? { reportType: resolved.pkg.reportContract.outputType }
               : {}),

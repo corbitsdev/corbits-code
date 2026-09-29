@@ -6,6 +6,7 @@ import {
   tierGateRequiresTools,
   type AgentFleetDeps,
 } from "./agent-fleet.js";
+import { formatCapabilityUnavailable } from "./capability-preflight.js";
 import { unlimitedAdmissionQueue } from "./admission.js";
 import { createPermissionGate } from "../permission/gate.js";
 import { NOOP_TELEMETRY, type TelemetryEvent } from "../telemetry/index.js";
@@ -157,7 +158,7 @@ describe("spawn_agent requires_tools preflight", () => {
     };
     const session = deps.sessions.get(body.agent_id);
     expect(session?.requiresTools).toEqual(["read_file"]);
-    expect(typeof session?.snapshotRevision).toBe("number");
+    expect("snapshotRevision" in (session ?? {})).toBe(false);
     expect(seenRequires).toEqual(["read_file"]);
     expect(telemetry).toContain("subagent_start");
   });
@@ -196,7 +197,7 @@ describe("spawn_agent requires_tools preflight", () => {
     const body = JSON.parse(result.content) as { agent_id: string };
     const session = deps.sessions.get(body.agent_id);
     expect(session?.requiresTools).toBeUndefined();
-    expect(session?.snapshotRevision).toBeUndefined();
+    expect("snapshotRevision" in (session ?? {})).toBe(false);
   });
 
   test("manage_tasks survives dispatch under a narrow allowlist and stamps canonically", async () => {
@@ -268,6 +269,62 @@ describe("spawn_agent requires_tools preflight", () => {
     expect(deps.sessions.list()).toEqual([]);
     expect(telemetry).toEqual([]);
   });
+
+  test("leaf requires_tools=[submit_result] passes preflight under a narrow allowlist (leaf reporting channel)", async () => {
+    const telemetry: TelemetryEvent[] = [];
+    let runCalled = false;
+    let seenRequires: readonly string[] | undefined;
+    let seenTier: unknown;
+    const deps = makeDeps(async (params) => {
+      runCalled = true;
+      seenRequires = params.requiresTools;
+      seenTier = params.tier;
+      return { report: "done" };
+    }, telemetry);
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callSpawn(spawn, {
+      description: "leaf report job",
+      prompt: "read a file and report",
+      agent: "read-only-worker",
+      requires_tools: ["submit_result"],
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(runCalled).toBe(true);
+    const body = JSON.parse(result.content) as { agent_id: string };
+    expect(deps.sessions.get(body.agent_id)?.requiresTools).toEqual([
+      "submit_result",
+    ]);
+    expect(seenRequires).toEqual(["submit_result"]);
+    expect(seenTier).toBe("leaf");
+  });
+
+  test("whitespace-only requires_tools rejects fail-closed with no session, telemetry, or run", async () => {
+    for (const requiresTools of [["   "], ["read_file", "  "]]) {
+      const telemetry: TelemetryEvent[] = [];
+      let runCalled = false;
+      const deps = makeDeps(async () => {
+        runCalled = true;
+        return { report: "done" };
+      }, telemetry);
+      const spawn = createSpawnAgentTool(deps);
+
+      const result = await callSpawn(spawn, {
+        description: "blank job",
+        prompt: "do it",
+        agent: "read-only-worker",
+        requires_tools: requiresTools,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content.startsWith("Error:")).toBe(true);
+      expect(result.content).toContain("non-empty tool names");
+      expect(runCalled).toBe(false);
+      expect(deps.sessions.list()).toEqual([]);
+      expect(telemetry).toEqual([]);
+    }
+  });
 });
 
 describe("tierGateRequiresTools", () => {
@@ -303,6 +360,24 @@ describe("tierGateRequiresTools", () => {
       expect(gated?.tool).toBe(engine);
       expect(gated?.detail).toContain("Tier 3 leaf workers only");
     }
+  });
+
+  test("tier-gated leaf channel names Tier 3 leaves instead of claiming no director mounts it", () => {
+    const gated = tierGateRequiresTools(["submit_result"], "orchestrator");
+    expect(gated?.alternatives ?? []).toEqual([
+      "bruckheimer",
+      "builder",
+      "counsel",
+    ]);
+    const message = formatCapabilityUnavailable(
+      gated ?? { code: "missing_tool", tool: "submit_result" },
+      "test-orchestrator",
+    );
+    expect(message).toContain("Tier 3 leaf workers only");
+    expect(message).toContain(
+      "Re-dispatch to one of (bruckheimer, builder, counsel)",
+    );
+    expect(message).not.toContain("No spawnable director mounts");
   });
 
   test("leaf requiring the leaf reporting channel passes", () => {

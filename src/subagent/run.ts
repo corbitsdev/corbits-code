@@ -1017,6 +1017,7 @@ async function runSubAgentInner(
             {
               code: "stale_snapshot",
               tool: mountedCheck.missing[0] ?? "unknown",
+              tools: mountedCheck.missing,
             },
             params.directorId ?? params.description,
           ),

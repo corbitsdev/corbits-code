@@ -90,6 +90,28 @@ describe("runSubAgent requires_tools mount echo", () => {
     expect(message).not.toContain('continuable": true');
   }, 15_000);
 
+  test("two stamped tools dropped by the filter are both named in the stale_snapshot error", async () => {
+    const cwd = await tmpCwd();
+    const error = await withFailingInference(async (baseURL) => {
+      try {
+        await runSubAgent({
+          ...baseParams(cwd, baseURL),
+          capabilities: { mode: "allow", tools: ["read_file"] },
+          requiresTools: ["run_shell", "write_file"],
+        });
+      } catch (err) {
+        return err;
+      }
+      throw new Error("runSubAgent did not throw");
+    });
+
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain("stale_snapshot");
+    expect(message).toContain("run_shell");
+    expect(message).toContain("write_file");
+  }, 15_000);
+
   test("stamped tool present in the mount passes through to inference", async () => {
     const cwd = await tmpCwd();
     const error = await withFailingInference(async (baseURL) => {

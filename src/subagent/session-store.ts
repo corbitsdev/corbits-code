@@ -156,8 +156,6 @@ export interface SubAgentSession {
    * stale snapshot when one went missing in between.
    */
   requiresTools?: readonly string[];
-  /** Profile snapshot revision the dispatch preflight verified against. */
-  snapshotRevision?: number;
 }
 
 export interface StartSessionInput {
@@ -176,8 +174,6 @@ export interface StartSessionInput {
   provider?: string;
   /** Canonical tool names this worker hard-required at dispatch (CL-9476). */
   requiresTools?: readonly string[];
-  /** Profile snapshot revision the dispatch preflight verified against. */
-  snapshotRevision?: number;
 }
 
 export interface SubAgentSessionStoreOptions {
@@ -1312,9 +1308,6 @@ export function createSubAgentSessionStore(
         ...(input.requiresTools !== undefined
           ? { requiresTools: [...input.requiresTools] }
           : {}),
-        ...(input.snapshotRevision !== undefined
-          ? { snapshotRevision: input.snapshotRevision }
-          : {}),
       };
       sessions.set(id, session);
       bumpRevision(id);
@@ -2337,9 +2330,6 @@ function cloneSession(
     ...(session.provider !== undefined ? { provider: session.provider } : {}),
     ...(session.requiresTools !== undefined
       ? { requiresTools: [...session.requiresTools] }
-      : {}),
-    ...(session.snapshotRevision !== undefined
-      ? { snapshotRevision: session.snapshotRevision }
       : {}),
   };
 }

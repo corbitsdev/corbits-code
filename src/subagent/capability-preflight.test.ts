@@ -4,6 +4,7 @@ import {
   checkMountedRequiresTools,
   DEFAULT_KNOWN_ENGINES,
   formatCapabilityUnavailable,
+  leafTierAlternatives,
   preflightCapabilities,
   rerouteAlternatives,
   type CapabilityUnavailable,
@@ -100,6 +101,29 @@ describe("preflightCapabilities", () => {
       rerouteAlternatives("run_shell"),
     );
     expect(rerouteAlternatives("run_shell").length).toBeGreaterThan(0);
+  });
+
+  test("reroute alternatives sort before the cap of 3 (read_file has 19 mounting directors)", () => {
+    const alternatives = rerouteAlternatives("read_file");
+    expect(alternatives).toEqual(["bruckheimer", "builder", "counsel"]);
+    expect(alternatives).toEqual([...alternatives].sort());
+  });
+
+  test("leaf reporting channel passes preflight under a narrow allowlist omitting post-filter mounts", () => {
+    for (const engine of ["submit_result", "ask_director"]) {
+      expect(preflight([engine], ALLOW_READ_ONLY)).toEqual({
+        ok: true,
+        canonical: [engine],
+      });
+    }
+  });
+
+  test("leafTierAlternatives names sorted Tier 3 leaf directors, never skywalker", () => {
+    const alternatives = leafTierAlternatives();
+    expect(alternatives.length).toBeGreaterThan(0);
+    expect(alternatives.length).toBeLessThanOrEqual(3);
+    expect(alternatives).toEqual([...alternatives].sort());
+    expect(alternatives).not.toContain("skywalker");
   });
 });
 
@@ -212,6 +236,20 @@ describe("formatCapabilityUnavailable", () => {
       "test-worker",
     );
     expect(message).toContain('Did you mean "run_shell"?');
+  });
+
+  test("stale_snapshot message names every missing tool, not just the first", () => {
+    const message = formatCapabilityUnavailable(
+      {
+        code: "stale_snapshot",
+        tool: "run_shell",
+        tools: ["run_shell", "write_file"],
+      },
+      "test-worker",
+    );
+    expect(message).toContain("stale_snapshot");
+    expect(message).toContain("run_shell");
+    expect(message).toContain("write_file");
   });
 });
 

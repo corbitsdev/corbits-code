@@ -52,6 +52,8 @@ export interface CapabilityUnavailable {
   code: CapabilityUnavailableCode;
   /** Canonical tool id (or the raw entry for unknown). */
   tool: string;
+  /** Every missing tool, for the multi-missing stale_snapshot echo. */
+  tools?: readonly string[];
   /** Nearest known name, for the unknown_tool typo guard. */
   suggestion?: string;
   /** Spawnable directors that mount the tool, for reroute hints. */
@@ -114,13 +116,21 @@ export const DEFAULT_KNOWN_ENGINES: readonly string[] =
 
 /**
  * Engines mounted outside the capability filter (run.ts appends manage_tasks
- * after filtering), so a requires_tools entry for them passes preflight even
- * when the dispatch filter is a narrow allowlist. The update_plan alias
- * canonicalizes here, so it rides the same exemption — and the mount-time
- * echo in run.ts runs after ALL appends, so the stamped entry always matches
- * the live mount.
+ * after filtering, and mounts the Tier 3 leaf reporting channel
+ * submit_result/ask_director whenever tier is "leaf"), so a requires_tools
+ * entry for them passes preflight even when the dispatch filter is a narrow
+ * allowlist. The update_plan alias canonicalizes here, so it rides the same
+ * exemption — and the mount-time echo in run.ts runs after ALL appends, so
+ * the stamped entry always matches the live mount. Fail-closed: the tier gate
+ * in agent-fleet.ts still rejects submit_result/ask_director on non-leaf
+ * tiers after this exemption, so the bypass never mounts them where run.ts
+ * would not.
  */
-const POST_FILTER_MOUNTED_ENGINES: readonly string[] = ["manage_tasks"];
+const POST_FILTER_MOUNTED_ENGINES: readonly string[] = [
+  "manage_tasks",
+  "submit_result",
+  "ask_director",
+];
 
 /** Alias spellings accepted in requires_tools, for typo suggestions. */
 const SUGGESTION_CANDIDATES: readonly string[] = [
@@ -169,7 +179,9 @@ function nearestToolName(raw: string): string | undefined {
 /**
  * Spawnable directors (closed set minus primary skywalker) whose mounted
  * tool set includes `canonical` — derived from packageToCapabilities over
- * DIRECTOR_REGISTRY, so the hint tracks the envelopes. Capped for messages.
+ * DIRECTOR_REGISTRY, so the hint tracks the envelopes. Sorted before the cap
+ * so the three named are the first alphabetically, not the first in registry
+ * insertion order.
  */
 export function rerouteAlternatives(canonical: string): readonly string[] {
   const want = canonicalToolName(canonical);
@@ -186,9 +198,23 @@ export function rerouteAlternatives(canonical: string): readonly string[] {
     } else if (!capabilities.tools.some((t) => canonicalToolName(t) === want)) {
       out.push(pkg.id);
     }
-    if (out.length >= 3) break;
   }
-  return out.sort();
+  return out.sort().slice(0, 3);
+}
+
+/**
+ * Tier-3 leaf directors (closed set, skywalker excluded) for the tier-gate
+ * hint when requires_tools names the leaf reporting channel on a non-leaf
+ * tier. submit_result/ask_director mount post-filter, so no envelope mentions
+ * them and rerouteAlternatives would report none — this names the directors
+ * that actually mount them instead of the allowlist-miss fallback.
+ */
+export function leafTierAlternatives(): readonly string[] {
+  return Object.values(DIRECTOR_REGISTRY)
+    .filter((pkg) => pkg.id !== "skywalker" && pkg.tier === "leaf")
+    .map((pkg) => pkg.id)
+    .sort()
+    .slice(0, 3);
 }
 
 export function preflightCapabilities(
@@ -313,11 +339,13 @@ export function formatCapabilityUnavailable(
         `Error: worker "${agentLabel}" requires tool "${unavailable.tool}" but this dispatch cannot verify its runtime engine (not in the dispatch's known-engine set). ` +
         `Re-dispatch without requires_tools=["${unavailable.tool}"] or drop the requirement.`
       );
-    case "stale_snapshot":
+    case "stale_snapshot": {
+      const missing = unavailable.tools ?? [unavailable.tool];
       return (
-        `Error: stale_snapshot setup_error (non-continuable) — worker "${agentLabel}" was dispatched requiring "${unavailable.tool}" but the live mount no longer provides it. ` +
+        `Error: stale_snapshot setup_error (non-continuable) — worker "${agentLabel}" was dispatched requiring "${missing.join('", "')}" but the live mount no longer provides ${missing.length === 1 ? "it" : "them"}. ` +
         `Re-dispatch the worker deliberately with a fresh brief instead of retrying in place.`
       );
+    }
     case "unknown_tool": {
       const hint =
         unavailable.suggestion !== undefined
