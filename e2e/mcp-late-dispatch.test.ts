@@ -251,115 +251,89 @@ describe("integration — late MCP dispatch", () => {
     },
   );
 
-  test.serial(
-    "tool_search promotion preserves optional MCP arguments",
-    async () => {
-      let receivedArgs: Record<string, unknown> | undefined;
-      await withSession(async (session) => {
-        const tools = lateMcpTools((toolName, args) => {
-          if (toolName === "list_issues") {
-            receivedArgs = args;
-          }
-        });
-        expect(tools).toHaveLength(1);
-        expect(tools[0]?.kind).toBe("full");
-        const expectedSchema = structuredClone(LATE_MCP_SCHEMA);
-        session.toolset.dynamicRunner.addTools(tools);
-        promoteDynamicTools(session);
-        promotionScript(session, { limit: 1, team: "eng" });
-
-        const { events } = await runUntilDone(session, "list one linear issue");
-        const published = publishedTool(await requestBodies(session));
-
-        expect(published?.input_schema.properties).toEqual(
-          expectedSchema.properties,
-        );
-        expect(Object.hasOwn(published?.input_schema ?? {}, "required")).toBe(
-          false,
-        );
-        expect(receivedArgs).toEqual({ limit: 1, team: "eng" });
-        expect(toolDoneContents(events)).toContain("ISSUE-1");
-      });
+  // One matrix over the promotion wire contract: schema source (default
+  // optional-arg schema vs a required-arg schema), the args the model calls
+  // with, and the published shape those imply.
+  const promotionCases: {
+    name: string;
+    schema: MCPClient["tools"][number]["inputSchema"] | undefined;
+    call: Record<string, unknown>;
+  }[] = [
+    {
+      name: "preserves optional MCP arguments",
+      schema: undefined,
+      call: { limit: 1, team: "eng" },
     },
-  );
-
-  test.serial(
-    "tool_search promotion does not inject omitted optional MCP arguments",
-    async () => {
-      let receivedArgs: Record<string, unknown> | undefined;
-      await withSession(async (session) => {
-        const tools = lateMcpTools((toolName, args) => {
-          if (toolName === "list_issues") {
-            receivedArgs = args;
-          }
-        });
-        expect(tools).toHaveLength(1);
-        expect(tools[0]?.kind).toBe("full");
-        const expectedSchema = structuredClone(LATE_MCP_SCHEMA);
-        session.toolset.dynamicRunner.addTools(tools);
-        promoteDynamicTools(session);
-        promotionScript(session, { limit: 1 });
-
-        const { events } = await runUntilDone(session, "list one linear issue");
-        const published = publishedTool(await requestBodies(session));
-
-        expect(published?.input_schema.properties).toEqual(
-          expectedSchema.properties,
-        );
-        expect(Object.hasOwn(published?.input_schema ?? {}, "required")).toBe(
-          false,
-        );
-        expect(receivedArgs).toEqual({ limit: 1 });
-        expect(toolDoneContents(events)).toContain("ISSUE-1");
-      });
+    {
+      name: "does not inject omitted optional MCP arguments",
+      schema: undefined,
+      call: { limit: 1 },
     },
-  );
-
-  test.serial(
-    "tool_search promotion preserves required and optional MCP arguments",
-    async () => {
-      let receivedArgs: Record<string, unknown> | undefined;
-      const schema = {
-        type: "object" as const,
+    {
+      name: "preserves required and optional MCP arguments",
+      schema: {
+        type: "object",
         properties: {
           limit: { type: "integer" },
           team: { type: "string" },
           customView: { type: "string" },
         },
         required: ["limit"],
-      };
+      },
+      call: { limit: 1, team: "eng", customView: "mine" },
+    },
+  ];
 
+  test.serial.each(promotionCases)(
+    "tool_search promotion $name",
+    async ({ schema, call }) => {
+      let receivedArgs: Record<string, unknown> | undefined;
       await withSession(async (session) => {
-        session.toolset.dynamicRunner.addTools(
-          mcpClientTools(
-            linearClient({
-              inputSchema: schema,
-              call: async (toolName, args) => {
-                if (toolName === "list_issues") {
-                  receivedArgs = args;
-                }
-                return "ISSUE-1";
-              },
-            }),
-          ),
-        );
-        const expectedSchema = structuredClone(schema);
+        if (schema === undefined) {
+          const tools = lateMcpTools((toolName, args) => {
+            if (toolName === "list_issues") {
+              receivedArgs = args;
+            }
+          });
+          expect(tools).toHaveLength(1);
+          expect(tools[0]?.kind).toBe("full");
+          session.toolset.dynamicRunner.addTools(tools);
+        } else {
+          session.toolset.dynamicRunner.addTools(
+            mcpClientTools(
+              linearClient({
+                inputSchema: schema,
+                call: async (toolName, args) => {
+                  if (toolName === "list_issues") {
+                    receivedArgs = args;
+                  }
+                  return "ISSUE-1";
+                },
+              }),
+            ),
+          );
+        }
+        const expectedSchema = structuredClone(schema ?? LATE_MCP_SCHEMA);
         promoteDynamicTools(session);
-        promotionScript(session, {
-          limit: 1,
-          team: "eng",
-          customView: "mine",
-        });
+        promotionScript(session, call);
 
-        const { events } = await runUntilDone(session, "list one linear issue");
+        const { events } = await runUntilDone(
+          session,
+          "list one linear issue",
+        );
         const published = publishedTool(await requestBodies(session));
 
-        expect(published?.input_schema).toEqual(expectedSchema);
-        expect(receivedArgs).toEqual({
-          limit: 1,
-          team: "eng",
-          customView: "mine",
-        });
+        if (schema === undefined) {
+          expect(published?.input_schema.properties).toEqual(
+            expectedSchema.properties,
+          );
+          expect(Object.hasOwn(published?.input_schema ?? {}, "required")).toBe(
+            false,
+          );
+        } else {
+          expect(published?.input_schema).toEqual(expectedSchema);
+        }
+        expect(receivedArgs).toEqual(call);
         expect(toolDoneContents(events)).toContain("ISSUE-1");
       });
     },
