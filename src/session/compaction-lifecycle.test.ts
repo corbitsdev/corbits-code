@@ -246,9 +246,6 @@ describe("createCompactionLifecycle", () => {
         }) as never,
       getSignal: () => lifecycle.getSignal(),
       telemetry,
-      onFailure: (text) => {
-        notices.push(text);
-      },
       complete: (_promptTurns, _source, signal) =>
         new Promise<string>((_resolve, reject) => {
           signal.addEventListener(
@@ -297,8 +294,7 @@ describe("createCompactionLifecycle", () => {
     expect(telemetryEvents).toEqual([]);
   });
 
-  test("a genuine summarizer failure still notifies and emits telemetry", async () => {
-    const notices: string[] = [];
+  test("a genuine summarizer failure still emits telemetry", async () => {
     const captured: {
       event: string;
       properties?: Record<string, unknown> | undefined;
@@ -322,16 +318,11 @@ describe("createCompactionLifecycle", () => {
           credentialId: "test",
         }) as never,
       telemetry,
-      onFailure: (text) => {
-        notices.push(text);
-      },
       complete: async () => {
         throw new Error("model unreachable");
       },
     });
     await expect(summarize(turns(5))).rejects.toThrow("model unreachable");
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("Compaction summary failed");
     const failures = captured.filter((e) => e.event === "summarizer_failure");
     expect(failures).toHaveLength(1);
     expect(failures[0]?.properties?.["error_kind"]).toBe("failed");

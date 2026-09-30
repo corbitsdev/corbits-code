@@ -602,7 +602,8 @@ export async function assembleTUISession(
     resolveLiveSessionSources(state.config, state.sessionId);
 
   // Compaction summarizer: structured handoff via the live model. Failure
-  // substitutes a statistics-only stub and tells the operator. Workflow state
+  // substitutes a statistics-only stub; the pruning wrapper tells the operator
+  // only after that fold commits. Workflow state
   // is read at compaction time so a pass mid-/build or mid-/plan still names
   // the active step. The archive, when mounted, supplies the unclipped excerpt.
   // CL-8220: abort-aware compaction lifecycle. The summary call is the only
@@ -635,7 +636,6 @@ export async function assembleTUISession(
       if (state.currentAgent !== undefined)
         setAgentSourceUnlessClosed(state.currentAgent, fresh);
     },
-    onFailure: (text) => state.systemNotice?.(text),
   });
   const summaryContext = (): SummaryContext | undefined => {
     const status = workflowHost.status();
@@ -711,6 +711,8 @@ export async function assembleTUISession(
           // still completes underneath must not report telemetry or side
           // effects for work that never landed.
           isAborted: () => compactionLifecycle.getSignal().aborted,
+          // Stub notice waits until the fold commits (verify abort stays silent).
+          onFailure: (text) => state.systemNotice?.(text),
           // Main-session folds only — exec runner and subagents stay silent.
           onFolded: (info) => {
             // Fold restarts the cached prefix — drop idle execute-promoted
@@ -727,7 +729,7 @@ export async function assembleTUISession(
                 void state.persistRunSnapshot?.("running");
               },
             });
-            emitter.emit("compaction", info);
+            if (!info.stub) emitter.emit("compaction", info);
           },
         }),
       ),

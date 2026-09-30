@@ -5,8 +5,9 @@
 // Tools called: ...") loses everything that matters for resuming work, so this
 // module produces a structured, workflow-aware narrative via a one-shot
 // inference call against the session's own model. Empty output or a failed
-// call throws so the compact cycle can substitute a statistics-only stub and
-// tell the operator, instead of logging the fold as a successful reduction.
+// call throws so the compact cycle can substitute a statistics-only stub.
+// The operator notice for that fallback is owned by the session pruning
+// wrapper, which fires it only after the fold actually commits.
 
 import { type } from "arktype";
 import { runInference, type Dependencies } from "@intx/inference";
@@ -420,9 +421,11 @@ export function classifySummarizerFailure(
   return "failed";
 }
 
-// One-line operator notice for a final failure. The reason named is the
-// provider's own first line when short enough to be useful, else the class.
-function failureNotice(
+// One-line operator notice for a stub fold that actually committed. The
+// reason named is the provider's own first line when short enough to be
+// useful, else the class. Callers must not fire this until the fold lands:
+// verify abort keeps prior context, so claiming a stub was used would lie.
+export function summarizerStubFallbackNotice(
   failureClass: SummarizerFailureClass,
   error: Error,
 ): string {
@@ -461,8 +464,6 @@ export interface ModelSummarizerOptions {
    * mean this process holds a token another already rotated.
    */
   refreshAuth?: (() => Promise<void>) | undefined;
-  /** Fires once per failed `summarize` call, after the retry budget is spent. */
-  onFailure?: ((text: string) => void) | undefined;
   telemetry?: Telemetry | undefined;
   /** Primary sessions pass the evidence archive so the prompt is not a clipped stub. */
   getArchive?: () => SummaryExcerptArchive | undefined;
@@ -472,7 +473,9 @@ export interface ModelSummarizerOptions {
  * Build a `summarize(turns, ctx)` function suitable for `CompactorConfig`.
  * Produces a structured, workflow-aware summary via the model. Empty output
  * or a failed call throws so the compact cycle can substitute a
- * statistics-only stub and surface that fallback to the operator.
+ * statistics-only stub. The operator-visible fallback notice is owned by
+ * the session pruning wrapper, which fires it only after that stub fold
+ * actually commits.
  */
 export function createModelSummarizer(
   options: ModelSummarizerOptions,
@@ -555,11 +558,9 @@ export function createModelSummarizer(
         // A lifecycle abort (interrupt/rotation mid-compact) is operator
         // intent, not a summarizer failure: the wrapCompactor race already
         // returns its no-op fold and the lifecycle emits its own
-        // "interrupted" notice, so a second failure-framed notice plus a
-        // summarizer_failure telemetry event would be noise — and the
-        // "failed" framing actively misleads. Stay silent here and just
-        // rethrow so the race resolves as an abort. Aborts observed while
-        // this attempt's signal is live-but-unaborted keep the notice.
+        // "interrupted" notice, so a summarizer_failure telemetry event
+        // would be noise — and a "failed" framing actively misleads. Stay
+        // silent here and just rethrow so the race resolves as an abort.
         if (failureClass === "aborted" && signal.aborted) throw err;
         const source = options.getSource();
         telemetry.capture("summarizer_failure", {
@@ -568,7 +569,6 @@ export function createModelSummarizer(
           error_kind: failureClass,
           duration_ms: Date.now() - startedAt,
         });
-        options.onFailure?.(failureNotice(failureClass, err));
         throw err;
       }
     }

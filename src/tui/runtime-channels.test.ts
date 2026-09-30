@@ -275,7 +275,7 @@ describe("compaction channel", () => {
       emitter.emit("compaction", { turnsBefore: 42, turnsAfter: 8 });
       const painted = await frame();
       // the fold reports both turn counts on one line
-      expect(painted).toMatch(/compact/i);
+      expect(painted).toMatch(/context compacted/i);
       expect(painted).toMatch(/42[^\n]*8/);
       expect(host.shell.streamLog).toEqual([]);
     } finally {
@@ -287,7 +287,7 @@ describe("compaction channel", () => {
     const { host, emitter, frame, cleanup } = await mountHeadless();
     try {
       emitter.emit("compaction", { turnsBefore: 42 });
-      expect(await frame()).not.toMatch(/compact/i);
+      expect(await frame()).not.toMatch(/context compacted/i);
       expect(host.shell.streamLog).toEqual([]);
     } finally {
       cleanup();

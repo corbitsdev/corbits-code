@@ -567,9 +567,10 @@ describe("createSessionPruningCompactor", () => {
 });
 
 describe("createSessionPruningCompactor stub fallback", () => {
-  test("a summarizer stub fallback folds without success telemetry or onFolded", async () => {
+  test("a summarizer stub fallback folds without success telemetry and still runs onFolded", async () => {
     const captured: { event: string }[] = [];
-    const folds: { turnsBefore: number; turnsAfter: number }[] = [];
+    const folds: { turnsBefore: number; turnsAfter: number; stub: boolean }[] =
+      [];
     const telemetry: Telemetry = {
       enabled: true,
       installationId: "test",
@@ -593,12 +594,12 @@ describe("createSessionPruningCompactor stub fallback", () => {
       complete: async () => {
         throw new Error("model unreachable");
       },
-      onFailure: (text) => notices.push(text),
     });
     const compactor = createSessionPruningCompactor({
       summarize,
       telemetry,
       onFolded: (info) => folds.push(info),
+      onFailure: (text) => notices.push(text),
       compactionShape: { tailBudgetTokens: 1 },
     });
     const now = Date.now();
@@ -613,11 +614,123 @@ describe("createSessionPruningCompactor stub fallback", () => {
     });
     expect(result.record.decisions.summarizeFailed).toBe(1);
     expect(result.record.reason).toContain("statistics-only stub");
-    expect(folds).toEqual([]);
+    expect(folds).toEqual([
+      { turnsBefore: 8, turnsAfter: result.output.length, stub: true },
+    ]);
     expect(captured).toEqual([]);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toContain("statistics-only stub");
     expect(notices[0]).toContain("failed");
+    expect(notices[0]).toContain("model unreachable");
+  });
+
+  test("verify abort after a failed summary keeps prior context and fires no stub notice", async () => {
+    const notices: string[] = [];
+    const folds: { stub: boolean }[] = [];
+    const summarize = createModelSummarizer({
+      getSource: () =>
+        ({
+          id: "test",
+          provider: "openai",
+          model: "test-model",
+          baseURL: "http://localhost:1",
+          credentialId: "test",
+        }) as never,
+      complete: async () => {
+        throw new Error("model unreachable");
+      },
+    });
+    const now = Date.now();
+    const turns = [
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: "Migrate the auth module to opaque tokens",
+          },
+        ],
+        timestamp: now,
+      },
+      {
+        role: "assistant" as const,
+        content: [
+          {
+            type: "tool_call" as const,
+            id: "c1",
+            name: "run_shell",
+            arguments: { command: "bun test auth" },
+          },
+        ],
+        timestamp: now,
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "tool_result" as const,
+            callId: "c1",
+            isError: true,
+            content: [
+              { type: "text" as const, text: "token refresh assertion failed" },
+            ],
+          },
+        ],
+        timestamp: now,
+      },
+      {
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: "Working through the failure" },
+        ],
+        timestamp: now,
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: "Confirm there are no errors remaining in auth",
+          },
+        ],
+        timestamp: now,
+      },
+      {
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: "Continuing the auth work now" },
+        ],
+        timestamp: now,
+      },
+      {
+        role: "user" as const,
+        content: [
+          {
+            type: "text" as const,
+            text: "There are no errors remaining in the suite",
+          },
+        ],
+        timestamp: now,
+      },
+      {
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: "I will keep going from here" },
+        ],
+        timestamp: now,
+      },
+    ];
+    const result = await createSessionPruningCompactor({
+      summarize,
+      onFolded: (info) => folds.push(info),
+      onFailure: (text) => notices.push(text),
+      compactionShape: { tailBudgetTokens: 1 },
+    }).apply(turns as never, { state: {} as never, trigger: "test" });
+    expect(result.output).toBe(turns);
+    expect(result.record.reason).toBe("verify failed — keeping prior context");
+    expect(result.record.decisions.summarizedTurnCount).toBeUndefined();
+    expect(folds).toEqual([]);
+    expect(notices).toEqual([]);
   });
 });
 

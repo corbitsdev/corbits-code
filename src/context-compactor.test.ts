@@ -848,11 +848,9 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
       baseURL: "http://localhost:1",
       credentialId: "test",
     };
-    const notices: string[] = [];
     const summarize = createModelSummarizer({
       getSource: () => source,
       complete: async () => "",
-      onFailure: (text) => notices.push(text),
     });
     const result = await smallCompactor({
       summaryMaxChars: 500,
@@ -862,9 +860,6 @@ describe("createPruningCompactor — consolidated handoff (CL-7521)", () => {
     expect(result.record.decisions.summarizeFailureKind).toBe("empty");
     expect(result.record.reason).toContain("statistics-only stub: empty");
     expect(compactedTurns(result.output)).toHaveLength(1);
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toContain("statistics-only stub");
-    expect(notices[0]).toContain("empty");
   });
 
   test("an aborted summarizer keeps prior context instead of stubbing", async () => {

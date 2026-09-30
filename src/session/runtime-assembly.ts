@@ -58,7 +58,11 @@ import {
   createPruningCompactor,
   type CompactionShape,
 } from "./compactor.js";
-import type { SummaryContext } from "./summarizer.js";
+import {
+  classifySummarizerFailure,
+  summarizerStubFallbackNotice,
+  type SummaryContext,
+} from "./summarizer.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { COMPACTION_ABORTED_REASON } from "./compaction-lifecycle.js";
 
@@ -418,7 +422,17 @@ export interface SessionPruningCompactorArgs {
   readPriorHandoff?: () => Promise<string | undefined>;
   telemetry?: Telemetry;
   /** Fires only when turns were actually folded away — not on no-ops. */
-  onFolded?: (info: { turnsBefore: number; turnsAfter: number }) => void;
+  onFolded?: (info: {
+    turnsBefore: number;
+    turnsAfter: number;
+    /** True when the fold used a statistics-only stub, not an LLM summary. */
+    stub: boolean;
+  }) => void;
+  /**
+   * Operator-visible notice for a statistics-only stub that actually replaced
+   * turns. Verify abort (keeping prior context) does not fire this.
+   */
+  onFailure?: (text: string) => void;
   /**
    * True when the lifecycle has discarded (or will discard) the in-flight
    * compact — e.g. bound to the session compaction lifecycle's signal. A
@@ -434,10 +448,39 @@ export interface SessionPruningCompactorArgs {
   compactionShape?: Partial<CompactionShape>;
 }
 
+function stubFallbackNoticeFromError(error: unknown): string | undefined {
+  const err = error instanceof Error ? error : new Error(String(error));
+  const kind = classifySummarizerFailure(err);
+  if (kind === "aborted") return undefined;
+  return summarizerStubFallbackNotice(kind, err);
+}
+
+function stubFallbackNoticeFromRecord(
+  pending: string | undefined,
+  kind: unknown,
+): string {
+  if (pending !== undefined) return pending;
+  const label = typeof kind === "string" && kind.length > 0 ? kind : "failed";
+  return `Compaction summary failed — using a statistics-only stub (${label})`;
+}
+
 /** Shared pruning-compactor defaults for the main session agent. */
 export function createSessionPruningCompactor(
   args: SessionPruningCompactorArgs,
 ): Compactor {
+  let pendingStubNotice: string | undefined;
+  const innerSummarize = args.summarize;
+  const summarize =
+    innerSummarize === undefined
+      ? undefined
+      : async (turns: ConversationTurn[], ctx?: SummaryContext) => {
+          try {
+            return await innerSummarize(turns, ctx);
+          } catch (error) {
+            pendingStubNotice = stubFallbackNoticeFromError(error);
+            throw error;
+          }
+        };
   const compactor = createPruningCompactor({
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
     // CL-9489 budgeted-tail shape: explicit defaults (same object the record
@@ -447,7 +490,7 @@ export function createSessionPruningCompactor(
       ...DEFAULT_TAIL_COMPACTION_SHAPE,
       ...args.compactionShape,
     },
-    ...(args.summarize !== undefined ? { summarize: args.summarize } : {}),
+    ...(summarize !== undefined ? { summarize } : {}),
     ...(args.summaryContext ? { summaryContext: args.summaryContext } : {}),
     ...(args.readPriorHandoff !== undefined
       ? { readPriorHandoff: args.readPriorHandoff }
@@ -457,6 +500,7 @@ export function createSessionPruningCompactor(
   return {
     ...compactor,
     async apply(turns, ctx) {
+      pendingStubNotice = undefined;
       const turnsBefore = turns.length;
       const startedAt = Date.now();
       const result = await compactor.apply(turns, ctx);
@@ -473,21 +517,33 @@ export function createSessionPruningCompactor(
       // summarizedTurnCount is only set on the branch that actually folded
       // turns away. The other branch is a no-op (or image aging alone), and
       // reporting it as compaction would drag the duration and turn-count
-      // averages toward the runs where nothing happened. A statistics-only
-      // stub fold is not a successful LLM reduction: the operator notice
-      // owns that path, and emitting the success event would relabel it.
-      if (
-        result.record.decisions.summarizedTurnCount !== undefined &&
-        result.record.decisions.summarizeFailed !== 1
-      ) {
-        telemetry.capture("compaction", {
-          mode: "llm",
-          duration_ms: Date.now() - startedAt,
-          turns_before: turnsBefore,
-          turns_after: result.output.length,
-        });
-        args.onFolded?.({ turnsBefore, turnsAfter: result.output.length });
+      // averages toward the runs where nothing happened.
+      if (result.record.decisions.summarizedTurnCount === undefined) {
+        return result;
       }
+      const stub = result.record.decisions.summarizeFailed === 1;
+      // Stub folds still break the cached prefix, so prune still runs.
+      // Success telemetry and the TUI fold flash must not relabel a stub.
+      args.onFolded?.({
+        turnsBefore,
+        turnsAfter: result.output.length,
+        stub,
+      });
+      if (stub) {
+        args.onFailure?.(
+          stubFallbackNoticeFromRecord(
+            pendingStubNotice,
+            result.record.decisions.summarizeFailureKind,
+          ),
+        );
+        return result;
+      }
+      telemetry.capture("compaction", {
+        mode: "llm",
+        duration_ms: Date.now() - startedAt,
+        turns_before: turnsBefore,
+        turns_after: result.output.length,
+      });
       return result;
     },
   };

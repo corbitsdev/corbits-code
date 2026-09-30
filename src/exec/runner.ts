@@ -943,6 +943,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
               currentStorage?.readBlob.bind(currentStorage),
             ),
           telemetry: liveTelemetry,
+          // Operator-visible once a statistics-only stub actually replaces turns.
+          onFailure: (text) => {
+            stderr.write(`${text}\n`);
+          },
           onFolded: () => {
             // Fold restarts the cached prefix — drop idle execute-promoted
             // schemas rather than carrying them forever, and persist so a
