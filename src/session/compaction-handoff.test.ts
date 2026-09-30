@@ -773,6 +773,34 @@ describe("iterative folding", () => {
     expect(withoutFile.artifact.goal).not.toContain(`${token} ${token}`);
   });
 
+  test("two without-file re-folds of a start-at-0 token ending with ellipsis keep one Output token", () => {
+    const token = `FILES_DONE=${"src/session/compaction-handoff.ts/".repeat(8)}end...`;
+    expect(token.length).toBeGreaterThan(160);
+    expect(token.endsWith("...")).toBe(true);
+    const goal = `${token} trailing prose after the standing token`;
+    const first = buildHandoffFold([userTurn(goal)], "narrative");
+    expect(first.artifact.goal).toBe(goal);
+    expect(first.spineText).toContain(`Output: ${token}`);
+
+    const withoutFile = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    const again = buildHandoffFold(
+      [spineTurn(withoutFile.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+
+    for (const fold of [withoutFile, again]) {
+      expect(
+        fold.spineText.split("\n").find((line) => line.startsWith("Output: ")),
+      ).toBe(`Output: ${token}`);
+      expect(fold.artifact.goal).toBe(token);
+      expect(fold.artifact.goal).not.toContain(`${token} ${token}`);
+      expect(fold.artifact.goal).not.toContain(`${token}... ${token}`);
+    }
+  });
+
   test("without-file re-fold of a start-at-0 comma-joined FILES_DONE keeps one token", () => {
     const token = `FILES_DONE=${Array.from({ length: 20 }, (_, i) => `src/session/file${i}.ts`).join(",")}`;
     expect(token.length).toBeGreaterThan(160);

@@ -156,11 +156,9 @@ function mergeStandingOutputToken(
   // cutSpineGoal glues "..." onto a start-at-0 token longer than the cap.
   // outputFormatTokenRe (\S+) eats that sentinel, so Goal's harvested token
   // is token+"..." and never equals the Output token. Strip the glued
-  // sentinel and keep the standing token once.
-  if (
-    goal.endsWith(SPINE_CUT_SENTINEL) &&
-    !token.endsWith(SPINE_CUT_SENTINEL)
-  ) {
+  // sentinel and keep the standing token once, including when the standing
+  // token already ends with "...".
+  if (goal.endsWith(SPINE_CUT_SENTINEL)) {
     const prefix = goal.slice(0, -SPINE_CUT_SENTINEL.length);
     if (
       hasStandingOutputToken(prefix, token) ||
