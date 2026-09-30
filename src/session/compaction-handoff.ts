@@ -127,10 +127,37 @@ function capGoal(text: string, maxChars: number): string {
     if (start < end && tokenEnd > end) end = tokenEnd;
   }
   let capped = line.slice(0, end);
+  const present = new Set(outputFormatTokens(capped));
   for (const token of tokens) {
-    if (!capped.includes(token)) capped = `${capped} ${token}`;
+    if (present.has(token)) continue;
+    capped = `${capped} ${token}`;
+    present.add(token);
   }
   return capped;
+}
+
+function hasStandingOutputToken(goal: string, token: string): boolean {
+  return outputFormatTokens(goal).includes(token);
+}
+
+function trailingEllipsisIsStandingToken(goal: string): boolean {
+  if (!goal.endsWith(SPINE_CUT_SENTINEL)) return false;
+  return outputFormatTokens(goal).some(
+    (token) => token.endsWith(SPINE_CUT_SENTINEL) && goal.endsWith(token),
+  );
+}
+
+function mergeStandingOutputToken(
+  goal: string | undefined,
+  token: string,
+): string {
+  if (goal === undefined || goal.length === 0) return token;
+  if (hasStandingOutputToken(goal, token)) return goal;
+  const prefix =
+    goal.endsWith(SPINE_CUT_SENTINEL) && !trailingEllipsisIsStandingToken(goal)
+      ? goal.slice(0, -SPINE_CUT_SENTINEL.length)
+      : goal;
+  return `${prefix} ${token}`;
 }
 
 function cutSpineGoal(text: string): string {
@@ -271,17 +298,17 @@ function parseSpineText(text: string): CarriedFacts {
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (trimmed.startsWith("Goal: ")) {
-      let goal = trimmed.slice("Goal: ".length).trim();
-      if (goal.endsWith(SPINE_CUT_SENTINEL))
-        goal = goal.slice(0, -SPINE_CUT_SENTINEL.length);
+      // Keep operator-authored trailing "..." (Fix the tests...,
+      // FILES_DONE=src/foo...). The spine cut sentinel is stripped only when
+      // mergeStandingOutputToken restores an Output token onto a truncated
+      // Goal prefix.
+      const goal = trimmed.slice("Goal: ".length).trim();
       if (goal.length > 0) carried.goal = goal;
     } else if (trimmed.startsWith(HANDOFF_OUTPUT_LINE_PREFIX)) {
       for (const token of outputFormatTokens(
         trimmed.slice(HANDOFF_OUTPUT_LINE_PREFIX.length),
       )) {
-        if (carried.goal === undefined) carried.goal = token;
-        else if (!carried.goal.includes(token))
-          carried.goal = `${carried.goal} ${token}`;
+        carried.goal = mergeStandingOutputToken(carried.goal, token);
       }
     } else if (trimmed.startsWith("Constraints: ")) {
       for (const constraint of trimmed

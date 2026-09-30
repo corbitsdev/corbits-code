@@ -292,6 +292,26 @@ describe("extractHandoffArtifact", () => {
     expect(rendered).toContain(token);
     expect(rendered).toContain(`Output: ${token}`);
   });
+
+  test("harvests a later standing token that is a substring of an in-window token", () => {
+    const inWindow = "FILES_DONE=src/a.ts.bak";
+    const later = "FILES_DONE=src/a.ts";
+    const prefix = `${"W".repeat(500 - inWindow.length - 1)} `;
+    const goal = `${prefix}${inWindow} ${later}`;
+    const window = goal.replace(/\s+/g, " ").trim().slice(0, 500);
+    expect(window.endsWith(inWindow)).toBe(true);
+    expect(window.includes(later)).toBe(true);
+    expect(window.includes(`${later} `)).toBe(false);
+
+    const { artifact, spine } = extractHandoffArtifact(
+      [userTurn(goal)],
+      "narrative",
+    );
+    expect(artifact.goal).toBe(goal.replace(/\s+/g, " ").trim());
+    expect(artifact.goal.endsWith(` ${later}`)).toBe(true);
+    expect(spine.goal).toContain(inWindow);
+    expect(spine.goal.endsWith(` ${later}`)).toBe(true);
+  });
 });
 
 describe("recoverEvidenceMarkers", () => {
@@ -696,6 +716,37 @@ describe("iterative folding", () => {
     expect(again.artifact.goal).toBe(goal);
     expect(again.artifact.goal).not.toContain("...");
     expect(again.spineText).toContain(token);
+  });
+
+  test("without-file re-fold keeps an operator Goal that ends with ellipsis", () => {
+    const goal = "Fix the tests...";
+    const first = buildHandoffFold([userTurn(goal)], "narrative");
+    expect(first.spineText).toContain(`Goal: ${goal}`);
+    expect(first.artifact.goal).toBe(goal);
+
+    const withoutFile = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    expect(withoutFile.artifact.goal).toBe(goal);
+    expect(withoutFile.spineText).toContain(`Goal: ${goal}`);
+  });
+
+  test("without-file re-fold keeps FILES_DONE=src/foo... as one token", () => {
+    const token = "FILES_DONE=src/foo...";
+    const first = buildHandoffFold([userTurn(token)], "narrative");
+    expect(first.spineText).toContain(`Goal: ${token}`);
+    expect(first.spineText).toContain(`Output: ${token}`);
+    expect(first.artifact.goal).toBe(token);
+
+    const withoutFile = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    expect(withoutFile.artifact.goal).toBe(token);
+    expect(withoutFile.spineText).toContain(`Goal: ${token}`);
+    expect(withoutFile.spineText).toContain(`Output: ${token}`);
+    expect(withoutFile.artifact.goal).not.toContain(`${token} ${token}`);
   });
 
   test("a truncated spine fragment collapses into the full prior-file constraint", () => {
