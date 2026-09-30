@@ -922,9 +922,12 @@ async function recordFreshHandoffOutput(
   archive: CompactionArchive,
   input: readonly ConversationTurn[],
   output: readonly ConversationTurn[],
+  isAborted?: () => boolean,
 ): Promise<void> {
+  if (isAborted?.() === true) return;
   const fresh = uncoveredContentUnits(output, input);
   for (const unit of fresh) {
+    if (isAborted?.() === true) return;
     if (unit.kind !== "text" || unit.role !== "user") continue;
     const text = unit.text ?? "";
     if (text.length === 0) continue;
@@ -946,11 +949,14 @@ async function recordFreshHandoffOutput(
  * Synthetic handoff spines (and pre-format fat summaries) are adopted into
  * the archive as user_message so a later fold may change the live spine.
  * After the fold certifies, the new spine is recorded so the next fold can
- * drop it even when the summarizer does not echo it verbatim.
+ * drop it even when the summarizer does not echo it verbatim. `isAborted`
+ * skips that record: the TUI wrapCompactor race can discard a certified
+ * stub, and a handoff for a fold that never landed is a phantom.
  */
 export function wrapCompactorWithCompletenessGate(
   inner: Compactor,
   archive: CompactionArchive,
+  opts?: { isAborted?: () => boolean },
 ): Compactor {
   return {
     name: inner.name,
@@ -982,7 +988,15 @@ export function wrapCompactorWithCompletenessGate(
       if (certificate.status !== "complete") {
         return incompleteIdentity(inner, turns);
       }
-      await recordFreshHandoffOutput(archive, turns, proposed.output);
+      if (opts?.isAborted?.() === true) {
+        return proposed;
+      }
+      await recordFreshHandoffOutput(
+        archive,
+        turns,
+        proposed.output,
+        opts?.isAborted,
+      );
       return proposed;
     },
   };

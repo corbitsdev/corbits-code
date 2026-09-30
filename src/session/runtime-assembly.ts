@@ -444,7 +444,7 @@ export interface SessionPruningCompactorArgs {
   /**
    * Wraps the inner pruning apply before fold-commit side effects.
    * assembleChatAgent passes the completeness gate here so a discarded
-   * fold never notices or prunes.
+   * fold never notices, prunes, or records a phantom compaction-handoff.
    */
   wrapPruning?: (pruning: Compactor) => Compactor;
 

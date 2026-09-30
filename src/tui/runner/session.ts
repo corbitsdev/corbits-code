@@ -697,6 +697,7 @@ export async function assembleTUISession(
         ? state.liveDefaultSource
         : state.liveSource.id,
     anthropicCachePrompt: () => config.anthropicCachePrompt,
+    isCompactionAborted: () => compactionLifecycle.getSignal().aborted,
     getCompactor: (wrapPruning) =>
       compactionLifecycle.wrapCompactor(
         createSessionPruningCompactor({

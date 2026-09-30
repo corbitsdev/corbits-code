@@ -556,6 +556,12 @@ export interface ChatAgentWiring {
    * side effects (stub notice, onFolded prune) run only after a fold lands.
    */
   getCompactor: (wrapPruning?: (pruning: Compactor) => Compactor) => Compactor;
+  /**
+   * Bound to the TUI compaction lifecycle abort signal. The completeness
+   * gate runs inside wrapCompactor's race, so a discarded certified stub
+   * must not persist a compaction-handoff for a fold that never landed.
+   */
+  isCompactionAborted?: () => boolean;
   /** Experimental Anthropic prompt shrink. Default off when omitted. */
   anthropicCachePrompt?: () => boolean;
   /**
@@ -786,7 +792,13 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
           primaryArchive === undefined
             ? undefined
             : (pruning) =>
-                wrapCompactorWithCompletenessGate(pruning, primaryArchive),
+                wrapCompactorWithCompletenessGate(
+                  pruning,
+                  primaryArchive,
+                  wiring.isCompactionAborted === undefined
+                    ? undefined
+                    : { isAborted: wiring.isCompactionAborted },
+                ),
         ),
       },
     });
