@@ -153,6 +153,21 @@ function mergeStandingOutputToken(
 ): string {
   if (goal === undefined || goal.length === 0) return token;
   if (hasStandingOutputToken(goal, token)) return goal;
+  // cutSpineGoal glues "..." onto a start-at-0 token longer than the cap.
+  // outputFormatTokenRe (\S+) eats that sentinel, so Goal's harvested token
+  // is token+"..." and never equals the Output token. Strip the glued
+  // sentinel and keep the standing token once.
+  if (
+    goal.endsWith(SPINE_CUT_SENTINEL) &&
+    !token.endsWith(SPINE_CUT_SENTINEL)
+  ) {
+    const prefix = goal.slice(0, -SPINE_CUT_SENTINEL.length);
+    if (
+      hasStandingOutputToken(prefix, token) ||
+      outputFormatTokens(goal).includes(`${token}${SPINE_CUT_SENTINEL}`)
+    )
+      return prefix;
+  }
   const prefix =
     goal.endsWith(SPINE_CUT_SENTINEL) && !trailingEllipsisIsStandingToken(goal)
       ? goal.slice(0, -SPINE_CUT_SENTINEL.length)
@@ -163,6 +178,13 @@ function mergeStandingOutputToken(
 function cutSpineGoal(text: string): string {
   const line = text.replace(/\s+/g, " ").trim();
   if (line.length <= SPINE_GOAL_CHARS) return line;
+  // A prior spine cut already ended with the sentinel and sits at the cap.
+  // Recutting a 159-char spaceless prefix plus "..." eats the first dot and
+  // glues another sentinel, growing "..." into "....".
+  if (line.endsWith(SPINE_CUT_SENTINEL)) {
+    const without = line.slice(0, -SPINE_CUT_SENTINEL.length);
+    if (without.length <= SPINE_GOAL_CHARS) return line;
+  }
   let cap = SPINE_GOAL_CHARS;
   for (const match of line.matchAll(outputFormatTokenRe())) {
     const start = match.index ?? 0;

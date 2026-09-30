@@ -749,6 +749,74 @@ describe("iterative folding", () => {
     expect(withoutFile.artifact.goal).not.toContain(`${token} ${token}`);
   });
 
+  test("without-file re-fold of a start-at-0 FILES_DONE longer than 160 keeps one token", () => {
+    const token = `FILES_DONE=${"src/session/compaction-handoff.ts/".repeat(8)}end.ts`;
+    expect(token.length).toBeGreaterThan(160);
+    const goal = `${token} trailing prose after the standing token`;
+    const first = buildHandoffFold([userTurn(goal)], "narrative");
+    expect(first.artifact.goal).toBe(goal);
+    expect(first.spineText).toContain(`Goal: ${token}...`);
+    expect(first.spineText).toContain(`Output: ${token}`);
+
+    const withoutFile = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    expect(withoutFile.artifact.goal).toBe(token);
+    expect(withoutFile.spineText).toContain(`Output: ${token}`);
+    expect(
+      withoutFile.spineText
+        .split("\n")
+        .find((line) => line.startsWith("Output: ")),
+    ).toBe(`Output: ${token}`);
+    expect(withoutFile.artifact.goal).not.toContain(`${token}... ${token}`);
+    expect(withoutFile.artifact.goal).not.toContain(`${token} ${token}`);
+  });
+
+  test("without-file re-fold of a start-at-0 comma-joined FILES_DONE keeps one token", () => {
+    const token = `FILES_DONE=${Array.from({ length: 20 }, (_, i) => `src/session/file${i}.ts`).join(",")}`;
+    expect(token.length).toBeGreaterThan(160);
+    const goal = `${token} trailing prose after the standing token`;
+    const first = buildHandoffFold([userTurn(goal)], "narrative");
+    expect(first.artifact.goal).toBe(goal);
+
+    const withoutFile = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    expect(withoutFile.artifact.goal).toBe(token);
+    expect(
+      withoutFile.spineText
+        .split("\n")
+        .find((line) => line.startsWith("Output: ")),
+    ).toBe(`Output: ${token}`);
+    expect(withoutFile.artifact.goal).not.toContain(`${token}... ${token}`);
+    expect(withoutFile.artifact.goal).not.toContain(`${token} ${token}`);
+  });
+
+  test("two without-file re-folds of a 159-char spaceless prefix do not grow a fourth dot", () => {
+    const prefix = "A".repeat(159);
+    const goal = `${prefix} extra words beyond the spine cap`;
+    const first = buildHandoffFold([userTurn(goal)], "narrative");
+    expect(first.spineText).toContain(`Goal: ${prefix}...`);
+    expect(first.artifact.goal).toBe(goal);
+
+    const withoutFile = buildHandoffFold(
+      [spineTurn(first.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    const again = buildHandoffFold(
+      [spineTurn(withoutFile.spineText), userTurn("Continue.")],
+      "narrative",
+    );
+    expect(withoutFile.spineText).toContain(`Goal: ${prefix}...`);
+    expect(again.spineText).toContain(`Goal: ${prefix}...`);
+    expect(withoutFile.spineText).not.toContain(`${prefix}....`);
+    expect(again.spineText).not.toContain(`${prefix}....`);
+    expect(withoutFile.artifact.goal).not.toContain("....");
+    expect(again.artifact.goal).not.toContain("....");
+  });
+
   test("a truncated spine fragment collapses into the full prior-file constraint", () => {
     const full = `Must never ship without ${"x".repeat(80)}`;
     const first = buildHandoffFold([userTurn(full)], "narrative");
