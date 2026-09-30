@@ -557,11 +557,11 @@ export interface ChatAgentWiring {
    */
   getCompactor: (wrapPruning?: (pruning: Compactor) => Compactor) => Compactor;
   /**
-   * Bound to the TUI compaction lifecycle abort signal. The completeness
-   * gate runs inside wrapCompactor's race, so a discarded certified stub
-   * must not persist a compaction-handoff for a fold that never landed.
+   * Bound to the TUI compaction lifecycle abort signal. Captured at
+   * completeness-gate apply start so onBuilt reset() cannot un-abort an
+   * in-flight fold that wrapCompactor already discarded.
    */
-  isCompactionAborted?: () => boolean;
+  getCompactionAbortSignal?: () => AbortSignal;
   /** Experimental Anthropic prompt shrink. Default off when omitted. */
   anthropicCachePrompt?: () => boolean;
   /**
@@ -795,9 +795,9 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
                 wrapCompactorWithCompletenessGate(
                   pruning,
                   primaryArchive,
-                  wiring.isCompactionAborted === undefined
+                  wiring.getCompactionAbortSignal === undefined
                     ? undefined
-                    : { isAborted: wiring.isCompactionAborted },
+                    : { getSignal: wiring.getCompactionAbortSignal },
                 ),
         ),
       },

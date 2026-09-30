@@ -442,6 +442,12 @@ export interface SessionPruningCompactorArgs {
    */
   isAborted?: () => boolean;
   /**
+   * Captured at apply start. Prefer this over a live `isAborted` that
+   * re-reads getSignal(): onBuilt reset() replaces the controller, and a
+   * discarded in-flight fold must still look aborted.
+   */
+  getSignal?: () => AbortSignal;
+  /**
    * Wraps the inner pruning apply before fold-commit side effects.
    * assembleChatAgent passes the completeness gate here so a discarded
    * fold never notices, prunes, or records a phantom compaction-handoff.
@@ -513,15 +519,15 @@ export function createSessionPruningCompactor(
       pendingStubNotice = undefined;
       const turnsBefore = turns.length;
       const startedAt = Date.now();
+      const abortSignal = args.getSignal?.();
+      const isAborted = () =>
+        abortSignal?.aborted === true || args.isAborted?.() === true;
       const result = await compactor.apply(turns, ctx);
       // A discarded compact reports nothing. When the lifecycle abort wins
       // the outer race, this inner run may still complete with a genuine
       // fold — but the reactor threw that output away, so emitting telemetry
       // or onFolded would describe work that never landed (phantom fold).
-      if (
-        args.isAborted?.() === true ||
-        result.record.reason === COMPACTION_ABORTED_REASON
-      ) {
+      if (isAborted() || result.record.reason === COMPACTION_ABORTED_REASON) {
         return result;
       }
       // summarizedTurnCount is only set on the branch that actually folded

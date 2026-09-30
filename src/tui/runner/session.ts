@@ -697,7 +697,7 @@ export async function assembleTUISession(
         ? state.liveDefaultSource
         : state.liveSource.id,
     anthropicCachePrompt: () => config.anthropicCachePrompt,
-    isCompactionAborted: () => compactionLifecycle.getSignal().aborted,
+    getCompactionAbortSignal: () => compactionLifecycle.getSignal(),
     getCompactor: (wrapPruning) =>
       compactionLifecycle.wrapCompactor(
         createSessionPruningCompactor({
@@ -710,8 +710,9 @@ export async function assembleTUISession(
             ),
           // The outer abort race discards this run's output — a fold that
           // still completes underneath must not report telemetry or side
-          // effects for work that never landed.
-          isAborted: () => compactionLifecycle.getSignal().aborted,
+          // effects for work that never landed. Capture the signal at apply
+          // start: onBuilt reset() replaces the live controller.
+          getSignal: () => compactionLifecycle.getSignal(),
           // Stub notice waits until the fold commits (verify abort and
           // completeness-gate discard stay silent).
           onFailure: (text) => state.systemNotice?.(text),

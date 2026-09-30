@@ -952,16 +952,21 @@ async function recordFreshHandoffOutput(
  * drop it even when the summarizer does not echo it verbatim. `isAborted`
  * skips that record: the TUI wrapCompactor race can discard a certified
  * stub, and a handoff for a fold that never landed is a phantom.
+ * `getSignal` is captured at apply start so onBuilt `reset()` cannot
+ * un-abort an in-flight fold that wrapCompactor already discarded.
  */
 export function wrapCompactorWithCompletenessGate(
   inner: Compactor,
   archive: CompactionArchive,
-  opts?: { isAborted?: () => boolean },
+  opts?: { isAborted?: () => boolean; getSignal?: () => AbortSignal },
 ): Compactor {
   return {
     name: inner.name,
     version: inner.version,
     async apply(turns: ConversationTurn[], ctx: StrategyContext) {
+      const abortSignal = opts?.getSignal?.();
+      const isAborted = () =>
+        abortSignal?.aborted === true || opts?.isAborted?.() === true;
       await archive.awaitPendingWrites();
       const proposed = await inner.apply(turns, ctx);
       const units = uncoveredContentUnits(turns, proposed.output);
@@ -988,14 +993,14 @@ export function wrapCompactorWithCompletenessGate(
       if (certificate.status !== "complete") {
         return incompleteIdentity(inner, turns);
       }
-      if (opts?.isAborted?.() === true) {
+      if (isAborted()) {
         return proposed;
       }
       await recordFreshHandoffOutput(
         archive,
         turns,
         proposed.output,
-        opts?.isAborted,
+        isAborted,
       );
       return proposed;
     },

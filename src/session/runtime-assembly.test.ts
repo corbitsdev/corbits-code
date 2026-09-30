@@ -985,6 +985,111 @@ describe("createSessionPruningCompactor stub fallback", () => {
     );
     expect(handoffs).toEqual([]);
   });
+
+  test("abort then reset during certifyRange does not record a phantom handoff", async () => {
+    const notices: string[] = [];
+    const folds: { stub: boolean }[] = [];
+    const summarize = createModelSummarizer({
+      getSource: () =>
+        ({
+          id: "test",
+          provider: "openai",
+          model: "test-model",
+          baseURL: "http://localhost:1",
+          credentialId: "test",
+        }) as never,
+      complete: async () => {
+        throw new Error("model unreachable");
+      },
+    });
+    const dir = await mkdtemp(join(tmpdir(), "compaction-gate-abort-reset-"));
+    const blobs = new Map<string, Uint8Array>();
+    const archive = createCompactionArchive({
+      sessionId: "sess-gate-abort-reset",
+      contextDir: dir,
+      writeBlob: async (key, bytes) => {
+        blobs.set(key, bytes);
+      },
+      readBlob: async (key) => {
+        const bytes = blobs.get(key);
+        if (bytes === undefined) throw new Error(`missing ${key}`);
+        return bytes;
+      },
+    });
+    const now = Date.now();
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: [{ type: "text" as const, text: `t${i}` }],
+      timestamp: now,
+    }));
+    for (const turn of many) {
+      const block = turn.content[0];
+      if (block?.type !== "text") continue;
+      await archive.recordAuthorizedPayload({
+        kind: turn.role === "assistant" ? "assistant_text" : "user_message",
+        payload: block.text,
+      });
+    }
+    const lifecycle = createCompactionLifecycle();
+    const getSignal = () => lifecycle.getSignal();
+    const isAborted = () => lifecycle.getSignal().aborted;
+    let releaseGated: () => void = () => undefined;
+    const gatedFinished = new Promise<void>((resolve) => {
+      releaseGated = resolve;
+    });
+    const abortingArchive = {
+      ...archive,
+      certifyRange: async (ids: readonly string[]) => {
+        const certificate = await archive.certifyRange(ids);
+        lifecycle.abortCompaction("operator interrupt");
+        // onBuilt reset() mints a fresh controller; the in-flight apply
+        // must still treat this compact as aborted.
+        lifecycle.reset();
+        return certificate;
+      },
+    };
+    const wrapped = lifecycle.wrapCompactor(
+      createSessionPruningCompactor({
+        summarize,
+        onFolded: (info) => folds.push(info),
+        onFailure: (text) => notices.push(text),
+        getSignal,
+        isAborted,
+        compactionShape: { tailBudgetTokens: 1 },
+        wrapPruning: (pruning) => {
+          const gated = wrapCompactorWithCompletenessGate(
+            pruning,
+            abortingArchive,
+            { getSignal, isAborted },
+          );
+          return {
+            name: gated.name,
+            version: gated.version,
+            apply: async (turns, ctx) => {
+              try {
+                return await gated.apply(turns, ctx);
+              } finally {
+                releaseGated();
+              }
+            },
+          };
+        },
+      }),
+    );
+    const result = await wrapped.apply(many as never, {
+      state: {} as never,
+      trigger: "test",
+    });
+    await gatedFinished;
+    expect(result.output).toBe(many);
+    expect(result.record.reason).toBe(COMPACTION_ABORTED_REASON);
+    expect(folds).toEqual([]);
+    expect(notices).toEqual([]);
+    const handoffs = (await archive.listOccurrences()).filter(
+      (occurrence) => occurrence.provenance === "compaction-handoff",
+    );
+    expect(handoffs).toEqual([]);
+  });
 });
 
 describe("buildCompactionContinuationMessage", () => {
