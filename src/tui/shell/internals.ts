@@ -422,6 +422,13 @@ export interface AppShell {
    */
   streamLogBase: number;
   /**
+   * Older history exists on disk but was not loaded into this window.
+   * Independent of `streamLogBase`: a truncated resume that still fits
+   * the retention cap splices nothing, so the first retained row stays at
+   * absolute 0, but the dropped-rows marker still has to paint.
+   */
+  unloadedHistory: boolean;
+  /**
    * Distinct writers in the visible transcript. Rows carry a name and icon only
    * once this holds more than one, so identity appears where it disambiguates.
    */
@@ -514,6 +521,8 @@ export interface AppShell {
   parentStreamLog: StreamRow[] | null;
   /** Absolute base for `parentStreamLog`, saved/restored across observe (see `streamLogBase`). */
   parentStreamLogBase: number | null;
+  /** Saved `unloadedHistory` for the parent snapshot while observing. */
+  parentUnloadedHistory: boolean | null;
   /**
    * Readline kill ring backing Ctrl+Y/Alt+Y. Ctrl+K/U/W and Alt+D feed it;
    * the text widget itself has no concept of a kill ring (see

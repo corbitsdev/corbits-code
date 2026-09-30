@@ -62,7 +62,11 @@ import {
   resolveMarkGrid,
   versionBadgeVisible,
 } from "../landing.js";
-import { evictedRowsNotice, trimRetainedLog } from "../long-log.js";
+import {
+  evictedRowsNotice,
+  trimRetainedLog,
+  unloadedHistoryNotice,
+} from "../long-log.js";
 import { destroySubtree } from "../teardown.js";
 import {
   badgeCount,
@@ -1076,26 +1080,38 @@ export function appendStreamRow(shell: AppShell, row: StreamRow): void {
 /**
  * Paint the dropped-rows notice when older history exists on disk but the
  * loaded window hydrated to at most the retention cap, so trim never ran.
+ *
+ * Does not bump `streamLogBase`. That field is the splice offset of
+ * `streamLog[0]`; faking it to 1 leaves the first retained row unreachable
+ * at absolute 0 and makes the notice claim one painted row was evicted.
  */
 export function noteUnloadedHistory(shell: AppShell): void {
   if (shell.observe !== null && shell.parentStreamLog !== null) {
-    if (
-      (shell.parentStreamLogBase ?? 0) === 0 &&
-      shell.parentStreamLog.length > 0
-    ) {
-      shell.parentStreamLogBase = 1;
+    if (shell.parentStreamLog.length > 0) {
+      shell.parentUnloadedHistory = true;
     }
     return;
   }
-  if (shell.streamLogBase > 0 || shell.streamLog.length === 0) return;
-  shell.streamLogBase = 1;
+  if (shell.streamLog.length === 0) return;
+  shell.unloadedHistory = true;
+  paintDroppedHistoryMarker(shell);
+}
+
+function droppedHistoryNotice(shell: AppShell): string {
+  return shell.streamLogBase > 0
+    ? evictedRowsNotice(shell.streamLogBase)
+    : unloadedHistoryNotice();
+}
+
+function paintDroppedHistoryMarker(shell: AppShell): void {
+  const content = droppedHistoryNotice(shell);
   const marker = transcriptMarker(shell);
   if (marker instanceof TextRenderable) {
-    marker.content = evictedRowsNotice(shell.streamLogBase);
+    marker.content = content;
     return;
   }
   const node = new TextRenderable(shell.renderer as CliRenderer, {
-    content: evictedRowsNotice(shell.streamLogBase),
+    content,
     fg: UI.textDim,
   });
   evictionMarkers.add(node);
@@ -1183,17 +1199,7 @@ function paintAppendStreamRow(shell: AppShell, row: StreamRow): void {
       shell.transcript.remove(evicted);
       destroySubtree(evicted);
     }
-    const marker = transcriptMarker(shell);
-    if (marker instanceof TextRenderable) {
-      marker.content = evictedRowsNotice(shell.streamLogBase);
-    } else {
-      const node = new TextRenderable(shell.renderer as CliRenderer, {
-        content: evictedRowsNotice(shell.streamLogBase),
-        fg: UI.textDim,
-      });
-      evictionMarkers.add(node);
-      shell.transcript.add(node, 1);
-    }
+    paintDroppedHistoryMarker(shell);
   }
 
   const index = shell.streamLog.length - 1;
@@ -1251,6 +1257,7 @@ export function clearTranscript(shell: AppShell): void {
     shell.observe = null;
     shell.parentStreamLog = null;
     shell.parentStreamLogBase = null;
+    shell.parentUnloadedHistory = null;
     let guard = 4;
     while (guard-- > 0 && focusOwner(shell.focus) === "observe") {
       shell.focus = popFocus(shell.focus);
@@ -1264,9 +1271,11 @@ export function clearTranscript(shell: AppShell): void {
   }
   shell.streamLog.length = 0;
   shell.streamLogBase = 0;
+  shell.unloadedHistory = false;
   shell.lineCount = 0;
   shell.parentStreamLog = null;
   shell.parentStreamLogBase = null;
+  shell.parentUnloadedHistory = null;
   repaintTranscriptWindow(shell);
   paintChrome(shell);
 }
@@ -1350,9 +1359,11 @@ export function repaintTranscriptWindow(shell: AppShell): void {
 
   // Rows evicted by the retention cap are gone for good, not just scrolled
   // past — say so, or the boundary reads as the true start of history.
-  if (shell.streamLogBase > 0) {
+  // Truncated resume can also leave older history on disk without splicing
+  // any painted row; that path must not fake `streamLogBase`.
+  if (shell.streamLogBase > 0 || shell.unloadedHistory) {
     const marker = new TextRenderable(shell.renderer as CliRenderer, {
-      content: evictedRowsNotice(shell.streamLogBase),
+      content: droppedHistoryNotice(shell),
       fg: UI.textDim,
     });
     evictionMarkers.add(marker);

@@ -29,6 +29,7 @@ export function enterSubagentObserve(
   const seedLines = session.lines.slice();
   shell.parentStreamLog = shell.streamLog.slice();
   shell.parentStreamLogBase = shell.streamLogBase;
+  shell.parentUnloadedHistory = shell.unloadedHistory;
   shell.observe = {
     sessionId: session.sessionId,
     agentId: session.agentId,
@@ -40,6 +41,7 @@ export function enterSubagentObserve(
   // of how far the parent's retention cap has already trimmed.
   shell.streamLog = seedLines;
   shell.streamLogBase = 0;
+  shell.unloadedHistory = false;
   shell.lineCount = shell.streamLog.length;
   repaintTranscriptWindow(shell);
 
@@ -72,8 +74,10 @@ export function leaveSubagentObserve(shell: AppShell): void {
   if (shell.parentStreamLog) {
     shell.streamLog = shell.parentStreamLog;
     shell.streamLogBase = shell.parentStreamLogBase ?? 0;
+    shell.unloadedHistory = shell.parentUnloadedHistory ?? false;
     shell.parentStreamLog = null;
     shell.parentStreamLogBase = null;
+    shell.parentUnloadedHistory = null;
   }
   shell.lineCount = shell.streamLog.length;
   repaintTranscriptWindow(shell);

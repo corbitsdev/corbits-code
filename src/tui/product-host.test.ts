@@ -4,8 +4,9 @@
  */
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
-import type { KeyEvent } from "@opentui/core";
+import { TextRenderable, type KeyEvent } from "@opentui/core";
 import type { ConversationTurn } from "@intx/types/runtime";
+import { defined } from "../../testkit/defined.js";
 import { createHarness, type Harness } from "./harness.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import {
@@ -19,7 +20,10 @@ import { hydrateHistoryRows } from "./history-hydrate.js";
 import { MAX_RETAINED_STREAM_ROWS } from "./long-log.js";
 import { turnsToContentBlocks } from "./turns-to-blocks.js";
 import { enterSubagentObserve } from "./shell/observe.js";
-import { transcriptMarker } from "./shell/transcript.js";
+import { toggleRowExpandedAt } from "./shell/chrome.js";
+import { streamRowAt, transcriptMarker } from "./shell/transcript.js";
+import { isCollapsibleRow } from "./stream.js";
+import type { AppShell } from "./shell/internals.js";
 
 function makeFakeSessionPort(): {
   readonly sends: string[];
@@ -137,6 +141,13 @@ function spawnResultTurn(id: string): ConversationTurn {
       },
     ],
   } as unknown as ConversationTurn;
+}
+
+function markerNotice(shell: AppShell): string {
+  const marker = transcriptMarker(shell);
+  expect(marker).toBeInstanceOf(TextRenderable);
+  const content = (marker as TextRenderable).content;
+  return typeof content === "string" ? content : String(content);
 }
 
 describe("mountProductHost", () => {
@@ -402,8 +413,62 @@ describe("mountProductHost", () => {
       const blocks = turnsToContentBlocks(turns);
       emitter.emit("history.hydrate", { blocks, truncated: true });
       expect(host.shell.streamLog.length).toBe(MAX_RETAINED_STREAM_ROWS);
-      expect(host.shell.streamLogBase).toBeGreaterThan(0);
+      expect(host.shell.streamLogBase).toBe(0);
+      expect(streamRowAt(host.shell, 0)).toEqual(
+        defined(host.shell.streamLog[0]),
+      );
       expect(transcriptMarker(host.shell)).toBeDefined();
+      expect(markerNotice(host.shell)).not.toMatch(/\b1 earlier row\b/);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("truncated hydrate keeps the first retained tool row clickable", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      emitter.emit("history.hydrate", {
+        blocks: [
+          {
+            type: "tool_call",
+            name: "edit_file",
+            arguments: JSON.stringify({
+              path: "src/x.ts",
+              old_string: "const a = 1",
+              new_string: "const a = 2",
+            }),
+            callId: "e1",
+          },
+        ],
+        truncated: true,
+      });
+      const first = defined(streamRowAt(host.shell, 0));
+      expect(first).toEqual(defined(host.shell.streamLog[0]));
+      expect(isCollapsibleRow(first)).toBe(true);
+      expect(host.shell.streamLogBase).toBe(0);
+      expect(toggleRowExpandedAt(host.shell, 0)).toBe(true);
+      expect(streamRowAt(host.shell, 0)?.expanded).toBe(true);
+      expect(markerNotice(host.shell)).not.toMatch(/\b1 earlier row\b/);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("truncated hydrate in observe mode does not fake parentStreamLogBase", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      enterSubagentObserve(host.shell, {
+        sessionId: "child-trunc",
+        agentId: "explorer",
+        description: "observe truncated hydrate",
+        lines: [],
+      });
+      emitter.emit("history.hydrate", {
+        blocks: [{ type: "user", content: "kept parent" }],
+        truncated: true,
+      });
+      expect(host.shell.parentStreamLogBase).toBe(0);
+      expect(host.shell.parentUnloadedHistory).toBe(true);
     } finally {
       host.dispose();
     }

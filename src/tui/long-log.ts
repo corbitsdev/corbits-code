@@ -36,7 +36,19 @@ export function trimRetainedLog<T>(log: T[], base: number): number {
  * Notice painted above the oldest retained row once the cap has evicted
  * anything. Unlike the pre-CL-5551 collapse marker it replaces, scrolling
  * never reveals more — these rows are gone, not merely out of the window.
+ *
+ * `evicted` is the count of painted rows actually spliced from the log. Do
+ * not invent a count of 1 to mean "older history exists on disk."
  */
 export function evictedRowsNotice(evicted: number): string {
   return ` … ${evicted} earlier row${evicted === 1 ? "" : "s"} dropped (past the retention limit)`;
+}
+
+/**
+ * Notice when older history exists on disk but no painted row was spliced.
+ * Resume can load a truncated tail that still fits the cap; the marker
+ * must still say this is not the start of history, without a fake count.
+ */
+export function unloadedHistoryNotice(): string {
+  return " … earlier rows not loaded (past the retention limit)";
 }
