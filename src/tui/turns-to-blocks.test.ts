@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import type { ConversationTurn } from "@intx/types/runtime";
 import { buildMailboxMailPrompt } from "../subagent/mailbox-mail-drive.js";
 import {
-  RESUME_TRANSCRIPT_BLOCK_LIMIT,
+  RESUME_TRANSCRIPT_TURN_LIMIT,
   turnsToContentBlocks,
 } from "./turns-to-blocks.js";
 import { MAX_RETAINED_STREAM_ROWS } from "./long-log.js";
@@ -119,9 +119,9 @@ describe("turnsToContentBlocks marks occupancy wakes with system origin", () => 
   });
 });
 
-describe("RESUME_TRANSCRIPT_BLOCK_LIMIT", () => {
-  test("matches the retained stream tail, not a larger pre-slice", () => {
-    expect(RESUME_TRANSCRIPT_BLOCK_LIMIT).toBe(MAX_RETAINED_STREAM_ROWS);
+describe("RESUME_TRANSCRIPT_TURN_LIMIT", () => {
+  test("is a turn window large enough to fill the retained row cap after pair fold", () => {
+    expect(RESUME_TRANSCRIPT_TURN_LIMIT).toBe(MAX_RETAINED_STREAM_ROWS * 2 + 1);
   });
 });
 

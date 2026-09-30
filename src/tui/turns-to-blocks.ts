@@ -210,13 +210,12 @@ function finalizeResumeToolBlocks(
   return out;
 }
 
-// Resume paints into the same retained log live turns use, so the disk/block
-// window is the retention cap rather than a larger pre-slice.
-export const RESUME_TRANSCRIPT_BLOCK_LIMIT = MAX_RETAINED_STREAM_ROWS;
-
-interface TurnsToContentBlocksOptions {
-  maxBlocks?: number;
-}
+// Resume paints into the same retained log live turns use. The disk window is
+// in turns, not content-blocks: a tool call and its result fold to one row, so
+// a 1:1 block cap under-fills the 600-row tail. Two turns per row plus one
+// extra means a pair-heavy session can still fill the cap, and a full 600-row
+// text tail still overflows when older segments exist.
+export const RESUME_TRANSCRIPT_TURN_LIMIT = MAX_RETAINED_STREAM_ROWS * 2 + 1;
 
 function turnToContentBlocks(turn: ConversationTurn): ContentBlockData[] {
   const out: ContentBlockData[] = [];
@@ -287,33 +286,11 @@ function turnToContentBlocks(turn: ConversationTurn): ContentBlockData[] {
 /** Best-effort transcript hydration when resuming a TUI session. */
 export function turnsToContentBlocks(
   turns: ConversationTurn[],
-  options: TurnsToContentBlocksOptions = {},
 ): ContentBlockData[] {
-  const maxBlocks = options.maxBlocks ?? Infinity;
-
-  // Collect turn-blocks newest-first (backward iteration with early exit so a
-  // deep session only processes recent turns), then flatten oldest-first.
-  // Building forward with unshift would be O(n²) — each unshift shifts every
-  // accumulated element.
-  const collected: ContentBlockData[][] = [];
-  let total = 0;
-  for (let i = turns.length - 1; i >= 0; i--) {
-    const turn = turns[i];
-    if (turn == null) continue;
-    const blocks = turnToContentBlocks(turn);
-    if (blocks.length === 0) continue;
-    collected.push(blocks);
-    total += blocks.length;
-    if (total >= maxBlocks) break;
-  }
-
   const out: ContentBlockData[] = [];
-  for (let i = collected.length - 1; i >= 0; i--) {
-    const group = collected[i];
-    if (group == null) continue;
-    out.push(...group);
+  for (const turn of turns) {
+    out.push(...turnToContentBlocks(turn));
   }
-  if (out.length > maxBlocks) out.splice(0, out.length - maxBlocks);
 
   // Collapse present tool calls into view blocks when args are still available.
   for (let i = 0; i < out.length; i++) {

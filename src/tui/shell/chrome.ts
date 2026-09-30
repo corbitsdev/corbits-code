@@ -1074,6 +1074,35 @@ export function appendStreamRow(shell: AppShell, row: StreamRow): void {
 }
 
 /**
+ * Paint the dropped-rows notice when older history exists on disk but the
+ * loaded window hydrated to at most the retention cap, so trim never ran.
+ */
+export function noteUnloadedHistory(shell: AppShell): void {
+  if (shell.observe !== null && shell.parentStreamLog !== null) {
+    if (
+      (shell.parentStreamLogBase ?? 0) === 0 &&
+      shell.parentStreamLog.length > 0
+    ) {
+      shell.parentStreamLogBase = 1;
+    }
+    return;
+  }
+  if (shell.streamLogBase > 0 || shell.streamLog.length === 0) return;
+  shell.streamLogBase = 1;
+  const marker = transcriptMarker(shell);
+  if (marker instanceof TextRenderable) {
+    marker.content = evictedRowsNotice(shell.streamLogBase);
+    return;
+  }
+  const node = new TextRenderable(shell.renderer as CliRenderer, {
+    content: evictedRowsNotice(shell.streamLogBase),
+    fg: UI.textDim,
+  });
+  evictionMarkers.add(node);
+  shell.transcript.add(node, 1);
+}
+
+/**
  * Append a child stream row while observing a subagent.
  * Host-pushed live events (not only fixture seed lines). No-op when not observing.
  * @returns true when the row was applied to the observe view

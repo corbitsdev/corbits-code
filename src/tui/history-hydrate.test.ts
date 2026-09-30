@@ -7,6 +7,7 @@ import {
   EMPTY_VIEW_DETAIL,
   hydrateHistoryRows,
   MISSING_ERROR_DETAIL,
+  parseHistoryHydratePayload,
   rowFromHistoryBlock,
   type HistoryBlock,
 } from "./history-hydrate.js";
@@ -409,5 +410,68 @@ describe("resume pipeline end to end (turns-to-blocks into hydrate)", () => {
     expect(blocks).toMatchObject([{ type: "user", origin: "system" }]);
     const rows = hydrateHistoryRows(JSON.parse(JSON.stringify(blocks)));
     expect(rows).toEqual([]);
+  });
+
+  test("spawn_agent pairs fold to one row each, including a pair at the old 600-block splice", () => {
+    const turns: ConversationTurn[] = [];
+    for (let i = 0; i < 400; i++) {
+      turns.push({
+        role: "assistant",
+        model: "test",
+        timestamp: i,
+        content: [
+          {
+            type: "tool_call",
+            id: `c${i}`,
+            name: "spawn_agent",
+            arguments: { description: `job-${i}` },
+          },
+        ],
+      } as unknown as ConversationTurn);
+      turns.push({
+        role: "assistant",
+        model: "test",
+        timestamp: i,
+        content: [
+          {
+            type: "tool_result",
+            callId: `c${i}`,
+            content: `done c${i}`,
+            isError: false,
+          },
+        ],
+      } as unknown as ConversationTurn);
+    }
+    turns.push({
+      role: "user",
+      content: [{ type: "text", text: "trailing" }],
+      timestamp: 400,
+    } as unknown as ConversationTurn);
+    const blocks = turnsToContentBlocks(turns);
+    expect(blocks.length).toBe(801);
+    const rows = hydrateHistoryRows(blocks);
+    expect(rows.length).toBe(401);
+    expect(rows[0]?.pending).not.toBe(true);
+    expect(rows[0]?.text).toBe("done c0");
+    expect(rows[399]?.text).toBe("done c399");
+    expect(rows[400]).toEqual({ role: "user", text: "trailing" });
+  });
+});
+
+describe("parseHistoryHydratePayload", () => {
+  test("keeps a raw block array and treats a wrapper as truncated only when flagged", () => {
+    const blocks = [{ type: "user", content: "hi" }];
+    expect(parseHistoryHydratePayload(blocks)).toEqual({
+      blocks,
+      truncated: false,
+    });
+    expect(parseHistoryHydratePayload({ blocks, truncated: true })).toEqual({
+      blocks,
+      truncated: true,
+    });
+    expect(parseHistoryHydratePayload({ blocks })).toEqual({
+      blocks,
+      truncated: false,
+    });
   });
 });

@@ -203,6 +203,31 @@ export function hydrateHistoryRows(blocks: unknown): StreamRow[] {
   return rows;
 }
 
+/**
+ * Resume hydrate events are either a raw block array (tests, load errors) or
+ * `{ blocks, truncated }` when loadRecentTurns left older segments unread.
+ */
+export function parseHistoryHydratePayload(payload: unknown): {
+  blocks: unknown;
+  truncated: boolean;
+} {
+  if (
+    Array.isArray(payload) ||
+    payload === null ||
+    typeof payload !== "object"
+  ) {
+    return { blocks: payload, truncated: false };
+  }
+  const record = payload as Record<string, unknown>;
+  if (!("blocks" in record)) {
+    return { blocks: payload, truncated: false };
+  }
+  return {
+    blocks: record.blocks,
+    truncated: record.truncated === true,
+  };
+}
+
 /** Argument payload of a tool_call block, wherever the block carries it. */
 function callArguments(block: HistoryBlock): string | undefined {
   if (block.content !== undefined) return block.content;

@@ -44,7 +44,7 @@ import {
 import { isCodexProviderName } from "../../config/codex-providers.js";
 import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
 import {
-  RESUME_TRANSCRIPT_BLOCK_LIMIT,
+  RESUME_TRANSCRIPT_TURN_LIMIT,
   turnsToContentBlocks,
 } from "../turns-to-blocks.js";
 import { setPluginNeedsAttention, setStatusFlash } from "../shell/chrome.js";
@@ -501,16 +501,15 @@ export function wirePostStartup(
   // Hydrate a resumed session's transcript after first paint. Reading history and
   // mapping it to content blocks is pure I/O with no bearing on the shell, so the
   // App renders empty immediately and fills in the past turns once they are ready.
-  // Only the retained transcript tail is read from disk — a long session's
-  // full history is not needed just to paint a display that itself caps how
-  // much it keeps. Agent conversation state still loads in full via
-  // ContextStore.load(); this path is display-only.
-  void loadRecentTurns(state.workdir, RESUME_TRANSCRIPT_BLOCK_LIMIT)
-    .then((turns) => {
-      const blocks = turnsToContentBlocks(turns, {
-        maxBlocks: RESUME_TRANSCRIPT_BLOCK_LIMIT,
-      });
-      const tasks = hydrateTasksFromTurns(turns);
+  // The disk window is in turns, sized so a tool-pair-heavy tail can still fill
+  // the retained row cap after call+result fold to one row. Mapping does not
+  // splice content-blocks; the host caps in rows via retention eviction. Agent
+  // conversation state still loads in full via ContextStore.load(); this path
+  // is display-only.
+  void loadRecentTurns(state.workdir, RESUME_TRANSCRIPT_TURN_LIMIT)
+    .then((recent) => {
+      const blocks = turnsToContentBlocks(recent.turns);
+      const tasks = hydrateTasksFromTurns(recent.turns);
       // Restored tasks go to the panel only. They are live state, not something
       // that happened in the conversation, so putting them in scrollback as well
       // renders the same list twice on one screen.
@@ -520,7 +519,12 @@ export function wirePostStartup(
         services.directorHolder.instance?.restoreTasks(tasks);
         services.emitter.emit("tasks", tasks);
       }
-      if (blocks.length > 0) services.emitter.emit("history.hydrate", blocks);
+      if (blocks.length > 0) {
+        services.emitter.emit("history.hydrate", {
+          blocks,
+          truncated: recent.truncated,
+        });
+      }
     })
     .catch((err: unknown) => {
       // Resume still works without painted history, but a silent empty

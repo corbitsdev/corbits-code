@@ -288,6 +288,17 @@ async function unlinkExtraSegmentsFrom(
 }
 
 /**
+ * Display-only tail of the turn history. Older segments are unread when
+ * `truncated` is set — callers that paint a bounded transcript can still
+ * notice that more history exists even if the loaded window hydrates to
+ * exactly the retention cap.
+ */
+export type RecentTurns = {
+  readonly turns: ConversationTurn[];
+  readonly truncated: boolean;
+};
+
+/**
  * Read only the tail of the turn history needed to satisfy `minTurns`, walking
  * segments from newest to oldest and stopping as soon as enough turns have
  * accumulated. Older segments are never read. This is for display-only resume
@@ -302,12 +313,13 @@ async function unlinkExtraSegmentsFrom(
 export async function loadRecentTurns(
   dir: string,
   minTurns: number,
-): Promise<ConversationTurn[]> {
+): Promise<RecentTurns> {
   const segments = await listSegmentFiles(dir, TURNS_FILE);
-  if (segments.length === 0) return [];
+  if (segments.length === 0) return { turns: [], truncated: false };
 
   const collectedNewestFirst: ConversationTurn[][] = [];
   let total = 0;
+  let truncated = false;
   for (let i = segments.length - 1; i >= 0; i--) {
     const name = segments[i];
     if (name === undefined) continue;
@@ -325,7 +337,10 @@ export async function loadRecentTurns(
     );
     collectedNewestFirst.push(turns);
     total += turns.length;
-    if (total >= minTurns) break;
+    if (total >= minTurns) {
+      truncated = i > 0;
+      break;
+    }
   }
 
   const turns: ConversationTurn[] = [];
@@ -333,7 +348,7 @@ export async function loadRecentTurns(
     const chunk = collectedNewestFirst[i];
     if (chunk !== undefined) turns.push(...chunk);
   }
-  return turns;
+  return { turns, truncated };
 }
 
 /**

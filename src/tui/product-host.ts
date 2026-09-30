@@ -43,6 +43,7 @@ import {
   appendObserveStreamRow,
   appendStreamRow,
   clearTranscript,
+  noteUnloadedHistory,
   paintChrome,
   setChromeZones,
   setHeader,
@@ -64,7 +65,10 @@ import {
 } from "./shell/palette.js";
 import { surfaceSystemNotice } from "./shell/prompt.js";
 import type { DeliverySettle, QueueKind } from "./delivery-queue.js";
-import { hydrateHistoryRows } from "./history-hydrate.js";
+import {
+  hydrateHistoryRows,
+  parseHistoryHydratePayload,
+} from "./history-hydrate.js";
 import type { StreamRow } from "./stream.js";
 
 import type { PendingImageAttachment } from "./image-attachments.js";
@@ -539,11 +543,13 @@ export async function mountProductHost(
     throw err;
   }
 
-  function onHistory(blocks: unknown): void {
+  function onHistory(payload: unknown): void {
     if (disposed) return;
+    const { blocks, truncated } = parseHistoryHydratePayload(payload);
     for (const row of hydrateHistoryRows(blocks)) {
       appendStreamRow(shell, row);
     }
+    if (truncated) noteUnloadedHistory(shell);
   }
 
   function onTitle(title: unknown): void {

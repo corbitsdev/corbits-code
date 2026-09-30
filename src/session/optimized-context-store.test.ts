@@ -369,7 +369,8 @@ describe("loadRecentTurns", () => {
     );
 
     const loaded = await loadRecentTurns(dir, 2);
-    expect(turnTexts(loaded)).toEqual(["d", "e"]);
+    expect(turnTexts(loaded.turns)).toEqual(["d", "e"]);
+    expect(loaded.truncated).toBe(true);
   });
 
   test("walks back into older segments when the window exceeds the newest one", async () => {
@@ -388,12 +389,27 @@ describe("loadRecentTurns", () => {
     // window of 4, so the walk continues into segment 0 (2 turns) whole —
     // reads are segment-granular, not turn-exact.
     const loaded = await loadRecentTurns(dir, 4);
-    expect(turnTexts(loaded)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b", "c", "d", "e"]);
+    expect(loaded.truncated).toBe(false);
   });
 
   test("returns an empty list when no segments exist", async () => {
     const dir = tempDir();
-    expect(await loadRecentTurns(dir, 10)).toEqual([]);
+    expect(await loadRecentTurns(dir, 10)).toEqual({
+      turns: [],
+      truncated: false,
+    });
+  });
+
+  test("a single segment that fills the window is not truncated", async () => {
+    const dir = tempDir();
+    fs.writeFileSync(
+      path.join(dir, TURNS_FILE),
+      jsonl([turn("a"), turn("b"), turn("c")]),
+    );
+    const loaded = await loadRecentTurns(dir, 2);
+    expect(turnTexts(loaded.turns)).toEqual(["a", "b", "c"]);
+    expect(loaded.truncated).toBe(false);
   });
 
   test("reactor load skips mid-file garbage in an extra segment", async () => {

@@ -5,6 +5,7 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, test } from "bun:test";
 import type { KeyEvent } from "@opentui/core";
+import type { ConversationTurn } from "@intx/types/runtime";
 import { createHarness, type Harness } from "./harness.js";
 import { acceptOverlaySelection } from "./shell/overlay-host.js";
 import {
@@ -16,6 +17,7 @@ import { mountProductHost, type ProductHostConfig } from "./product-host.js";
 import { buildModelsFirstCatalog, modelOptionId } from "./model-catalog.js";
 import { hydrateHistoryRows } from "./history-hydrate.js";
 import { MAX_RETAINED_STREAM_ROWS } from "./long-log.js";
+import { turnsToContentBlocks } from "./turns-to-blocks.js";
 import { enterSubagentObserve } from "./shell/observe.js";
 import { transcriptMarker } from "./shell/transcript.js";
 
@@ -95,6 +97,46 @@ function composedKey(glyph: string): KeyEvent {
     meta: false,
     option: false,
   } as KeyEvent;
+}
+
+function userTextTurn(text: string): ConversationTurn {
+  return {
+    role: "user",
+    content: [{ type: "text", text }],
+    timestamp: 0,
+  } as unknown as ConversationTurn;
+}
+
+function spawnCallTurn(id: string): ConversationTurn {
+  return {
+    role: "assistant",
+    model: "test",
+    timestamp: 0,
+    content: [
+      {
+        type: "tool_call",
+        id,
+        name: "spawn_agent",
+        arguments: { description: `job-${id}` },
+      },
+    ],
+  } as unknown as ConversationTurn;
+}
+
+function spawnResultTurn(id: string): ConversationTurn {
+  return {
+    role: "assistant",
+    model: "test",
+    timestamp: 0,
+    content: [
+      {
+        type: "tool_result",
+        callId: id,
+        content: `done ${id}`,
+        isError: false,
+      },
+    ],
+  } as unknown as ConversationTurn;
 }
 
 describe("mountProductHost", () => {
@@ -255,6 +297,113 @@ describe("mountProductHost", () => {
       );
       expect(host.shell.streamLogBase).toBe(0);
       expect(transcriptMarker(host.shell)).toBeUndefined();
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("resume pipeline of long text history paints the eviction marker", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      const total = MAX_RETAINED_STREAM_ROWS + 200;
+      const turns = Array.from({ length: total }, (_, i) =>
+        userTextTurn(`row-${i}`),
+      );
+      const blocks = turnsToContentBlocks(turns);
+      emitter.emit("history.hydrate", blocks);
+      expect(host.shell.streamLog.length).toBe(MAX_RETAINED_STREAM_ROWS);
+      expect(host.shell.streamLogBase).toBe(200);
+      expect(host.shell.streamLog[0]).toEqual({
+        role: "user",
+        text: "row-200",
+      });
+      expect(transcriptMarker(host.shell)).toBeDefined();
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("resume pipeline of tool pairs fills the retained row cap", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      const pairCount = MAX_RETAINED_STREAM_ROWS + 200;
+      const turns: ConversationTurn[] = [];
+      for (let i = 0; i < pairCount; i++) {
+        turns.push(spawnCallTurn(`p${i}`), spawnResultTurn(`p${i}`));
+      }
+      const blocks = turnsToContentBlocks(turns);
+      emitter.emit("history.hydrate", blocks);
+      expect(host.shell.streamLog.length).toBe(MAX_RETAINED_STREAM_ROWS);
+      expect(host.shell.streamLogBase).toBe(200);
+      const first = host.shell.streamLog[0];
+      expect(first?.pending).not.toBe(true);
+      expect(first?.text).toBe("done p200");
+      const last = host.shell.streamLog[host.shell.streamLog.length - 1];
+      expect(last?.pending).not.toBe(true);
+      expect(last?.text).toBe(`done p${pairCount - 1}`);
+      expect(transcriptMarker(host.shell)).toBeDefined();
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("resume pipeline keeps a pair merged when it straddles the old block splice", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      const turns: ConversationTurn[] = [];
+      for (let i = 0; i < 400; i++) {
+        turns.push(spawnCallTurn(`c${i}`), spawnResultTurn(`c${i}`));
+      }
+      turns.push(userTextTurn("trailing"));
+      const blocks = turnsToContentBlocks(turns);
+      emitter.emit("history.hydrate", { blocks, truncated: false });
+      expect(host.shell.streamLog.length).toBe(401);
+      expect(host.shell.streamLog[0]?.pending).not.toBe(true);
+      expect(host.shell.streamLog[0]?.text).toBe("done c0");
+      expect(host.shell.streamLog[host.shell.streamLog.length - 1]).toEqual({
+        role: "user",
+        text: "trailing",
+      });
+      expect(host.shell.streamLogBase).toBe(0);
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("resume pipeline keeps a pair merged across the retained row cap", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      const turns = [
+        ...Array.from({ length: 605 }, (_, i) => userTextTurn(`row-${i}`)),
+        spawnCallTurn("cut-1"),
+        spawnResultTurn("cut-1"),
+      ];
+      const blocks = turnsToContentBlocks(turns);
+      emitter.emit("history.hydrate", blocks);
+      const allRows = hydrateHistoryRows(blocks);
+      const expected = allRows.slice(-MAX_RETAINED_STREAM_ROWS);
+      expect(host.shell.streamLog).toEqual(expected);
+      const last = host.shell.streamLog[host.shell.streamLog.length - 1];
+      expect(last?.pending).not.toBe(true);
+      expect(last?.text).toBe("done cut-1");
+      expect(host.shell.streamLogBase).toBeGreaterThan(0);
+      expect(transcriptMarker(host.shell)).toBeDefined();
+    } finally {
+      host.dispose();
+    }
+  });
+
+  test("truncated load of an exact-cap tail still paints the eviction marker", async () => {
+    const { host, emitter } = await mountHeadless();
+    try {
+      const turns = Array.from({ length: MAX_RETAINED_STREAM_ROWS }, (_, i) =>
+        userTextTurn(`kept-${i}`),
+      );
+      const blocks = turnsToContentBlocks(turns);
+      emitter.emit("history.hydrate", { blocks, truncated: true });
+      expect(host.shell.streamLog.length).toBe(MAX_RETAINED_STREAM_ROWS);
+      expect(host.shell.streamLogBase).toBeGreaterThan(0);
+      expect(transcriptMarker(host.shell)).toBeDefined();
     } finally {
       host.dispose();
     }
