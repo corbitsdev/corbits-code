@@ -1,7 +1,11 @@
 import { describe, test, expect } from "bun:test";
 import type { ConversationTurn } from "@intx/types/runtime";
 import { buildMailboxMailPrompt } from "../subagent/mailbox-mail-drive.js";
-import { turnsToContentBlocks } from "./turns-to-blocks.js";
+import {
+  RESUME_TRANSCRIPT_BLOCK_LIMIT,
+  turnsToContentBlocks,
+} from "./turns-to-blocks.js";
+import { MAX_RETAINED_STREAM_ROWS } from "./long-log.js";
 import { hydrateTasksFromTurns } from "../agent/director.js";
 
 function manageTasksTurn(
@@ -112,6 +116,12 @@ describe("turnsToContentBlocks marks occupancy wakes with system origin", () => 
     const blocks = turnsToContentBlocks([userTurn("mailbox mail")]);
     expect(blocks).toMatchObject([{ type: "user" }]);
     expect("origin" in (blocks[0] as object)).toBe(false);
+  });
+});
+
+describe("RESUME_TRANSCRIPT_BLOCK_LIMIT", () => {
+  test("matches the retained stream tail, not a larger pre-slice", () => {
+    expect(RESUME_TRANSCRIPT_BLOCK_LIMIT).toBe(MAX_RETAINED_STREAM_ROWS);
   });
 });
 

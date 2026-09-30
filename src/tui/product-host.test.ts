@@ -17,6 +17,7 @@ import { buildModelsFirstCatalog, modelOptionId } from "./model-catalog.js";
 import { hydrateHistoryRows } from "./history-hydrate.js";
 import { MAX_RETAINED_STREAM_ROWS } from "./long-log.js";
 import { enterSubagentObserve } from "./shell/observe.js";
+import { transcriptMarker } from "./shell/transcript.js";
 
 function makeFakeSessionPort(): {
   readonly sends: string[];
@@ -146,9 +147,9 @@ describe("mountProductHost", () => {
         role: "assistant",
         text: `row-${total - 1}`,
       });
-      // Pre-sliced to the cap, so the append loop never trips retention
-      // eviction: no churn, no dropped-rows marker on resume.
-      expect(host.shell.streamLogBase).toBe(0);
+      const dropped = total - MAX_RETAINED_STREAM_ROWS;
+      expect(host.shell.streamLogBase).toBe(dropped);
+      expect(transcriptMarker(host.shell)).toBeDefined();
     } finally {
       host.dispose();
     }
@@ -173,6 +174,7 @@ describe("mountProductHost", () => {
         text: `small-${total - 1}`,
       });
       expect(host.shell.streamLogBase).toBe(0);
+      expect(transcriptMarker(host.shell)).toBeUndefined();
     } finally {
       host.dispose();
     }
@@ -200,12 +202,12 @@ describe("mountProductHost", () => {
         },
       ];
       emitter.emit("history.hydrate", blocks);
-      // Folding merges the pair inside hydration, so the row-level slice keeps
-      // and drops whole merged rows: 605 texts + 1 merged row → newest 600.
-      // A block-level slice would split the pair and paint 599 rows instead.
-      const expected = hydrateHistoryRows(blocks).slice(
-        -MAX_RETAINED_STREAM_ROWS,
-      );
+      // Folding merges the pair inside hydration, so retention evicts whole
+      // merged rows: 605 texts + 1 merged row → newest 600. A block-level
+      // slice would split the pair and paint 599 rows instead.
+      const allRows = hydrateHistoryRows(blocks);
+      const expected = allRows.slice(-MAX_RETAINED_STREAM_ROWS);
+      const dropped = allRows.length - expected.length;
       expect(expected.length).toBe(MAX_RETAINED_STREAM_ROWS);
       expect(host.shell.streamLog).toEqual(expected);
       expect(host.shell.streamLog[0]).toEqual({
@@ -215,7 +217,9 @@ describe("mountProductHost", () => {
       const last = host.shell.streamLog[host.shell.streamLog.length - 1];
       expect(last?.pending).not.toBe(true);
       expect(last?.text).toBe("done cut-1");
-      expect(host.shell.streamLogBase).toBe(0);
+      expect(dropped).toBeGreaterThan(0);
+      expect(host.shell.streamLogBase).toBe(dropped);
+      expect(transcriptMarker(host.shell)).toBeDefined();
     } finally {
       host.dispose();
     }
@@ -246,7 +250,11 @@ describe("mountProductHost", () => {
       );
       expect(host.shell.parentStreamLog).toEqual(expected);
       expect(host.shell.parentStreamLog?.length).toBe(MAX_RETAINED_STREAM_ROWS);
-      expect(host.shell.parentStreamLogBase).toBe(0);
+      expect(host.shell.parentStreamLogBase).toBe(
+        total - MAX_RETAINED_STREAM_ROWS,
+      );
+      expect(host.shell.streamLogBase).toBe(0);
+      expect(transcriptMarker(host.shell)).toBeUndefined();
     } finally {
       host.dispose();
     }

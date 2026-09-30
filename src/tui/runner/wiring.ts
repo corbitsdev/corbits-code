@@ -501,9 +501,10 @@ export function wirePostStartup(
   // Hydrate a resumed session's transcript after first paint. Reading history and
   // mapping it to content blocks is pure I/O with no bearing on the shell, so the
   // App renders empty immediately and fills in the past turns once they are ready.
-  // Only the tail needed to fill RESUME_TRANSCRIPT_BLOCK_LIMIT blocks is read from
-  // disk — a long session's full history is not needed just to paint a transcript
-  // that itself caps how much it displays.
+  // Only the retained transcript tail is read from disk — a long session's
+  // full history is not needed just to paint a display that itself caps how
+  // much it keeps. Agent conversation state still loads in full via
+  // ContextStore.load(); this path is display-only.
   void loadRecentTurns(state.workdir, RESUME_TRANSCRIPT_BLOCK_LIMIT)
     .then((turns) => {
       const blocks = turnsToContentBlocks(turns, {

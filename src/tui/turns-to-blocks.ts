@@ -4,6 +4,7 @@ import type {
 } from "@intx/types/runtime";
 
 import { isPersistedOccupancyWakeText } from "../subagent/mailbox-mail-drive.js";
+import { MAX_RETAINED_STREAM_ROWS } from "./long-log.js";
 import { validateView } from "./view/validate.js";
 import type { ViewNode } from "./view/spec.js";
 
@@ -209,7 +210,9 @@ function finalizeResumeToolBlocks(
   return out;
 }
 
-export const RESUME_TRANSCRIPT_BLOCK_LIMIT = 2000;
+// Resume paints into the same retained log live turns use, so the disk/block
+// window is the retention cap rather than a larger pre-slice.
+export const RESUME_TRANSCRIPT_BLOCK_LIMIT = MAX_RETAINED_STREAM_ROWS;
 
 interface TurnsToContentBlocksOptions {
   maxBlocks?: number;
