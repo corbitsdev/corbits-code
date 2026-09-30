@@ -697,7 +697,7 @@ export async function assembleTUISession(
         ? state.liveDefaultSource
         : state.liveSource.id,
     anthropicCachePrompt: () => config.anthropicCachePrompt,
-    getCompactor: () =>
+    getCompactor: (wrapPruning) =>
       compactionLifecycle.wrapCompactor(
         createSessionPruningCompactor({
           summarize: compactionSummarize,
@@ -711,7 +711,8 @@ export async function assembleTUISession(
           // still completes underneath must not report telemetry or side
           // effects for work that never landed.
           isAborted: () => compactionLifecycle.getSignal().aborted,
-          // Stub notice waits until the fold commits (verify abort stays silent).
+          // Stub notice waits until the fold commits (verify abort and
+          // completeness-gate discard stay silent).
           onFailure: (text) => state.systemNotice?.(text),
           // Main-session folds only — exec runner and subagents stay silent.
           onFolded: (info) => {
@@ -731,6 +732,7 @@ export async function assembleTUISession(
             });
             if (!info.stub) emitter.emit("compaction", info);
           },
+          ...(wrapPruning !== undefined ? { wrapPruning } : {}),
         }),
       ),
     getCacheWriteSeed: () =>

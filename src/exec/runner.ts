@@ -931,7 +931,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
       getDefaultSource: () =>
         liveDefaultSource.length > 0 ? liveDefaultSource : liveSource.id,
       anthropicCachePrompt: () => config.anthropicCachePrompt,
-      getCompactor: () =>
+      getCompactor: (wrapPruning) =>
         createSessionPruningCompactor({
           summarize: summarizeForCompaction,
           summaryContext: () => {
@@ -965,6 +965,7 @@ export async function runExec(config: Config): Promise<ExecResult> {
               },
             });
           },
+          ...(wrapPruning !== undefined ? { wrapPruning } : {}),
         }),
       getCacheWriteSeed: () =>
         resumeCacheWriteSeed({

@@ -550,8 +550,12 @@ export interface ChatAgentWiring {
   inferenceDeps: Awaited<ReturnType<typeof createInferenceDependencies>>;
   getSources: () => InferenceSource[];
   getDefaultSource: () => string;
-  /** Read at each build so a compaction-mode toggle is visible on rebuild. */
-  getCompactor: () => Compactor;
+  /**
+   * Read at each build so a compaction-mode toggle is visible on rebuild.
+   * assemble passes the completeness gate as `wrapPruning` so fold-commit
+   * side effects (stub notice, onFolded prune) run only after a fold lands.
+   */
+  getCompactor: (wrapPruning?: (pruning: Compactor) => Compactor) => Compactor;
   /** Experimental Anthropic prompt shrink. Default off when omitted. */
   anthropicCachePrompt?: () => boolean;
   /**
@@ -778,13 +782,12 @@ export function assembleChatAgent(wiring: ChatAgentWiring): AssembledChatAgent {
         defaultId: `${ID_PREFIX}/chat`,
       }),
       compactors: {
-        "pruning-compactor":
+        "pruning-compactor": wiring.getCompactor(
           primaryArchive === undefined
-            ? wiring.getCompactor()
-            : wrapCompactorWithCompletenessGate(
-                wiring.getCompactor(),
-                primaryArchive,
-              ),
+            ? undefined
+            : (pruning) =>
+                wrapCompactorWithCompletenessGate(pruning, primaryArchive),
+        ),
       },
     });
     const seed = wiring.getCacheWriteSeed?.();

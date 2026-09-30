@@ -348,26 +348,23 @@ export async function openIntegrationSession(
     ...(opts.compactionCompletion !== undefined && primaryArchive !== undefined
       ? {
           compactors: {
-            "pruning-compactor": wrapCompactorWithCompletenessGate(
-              createSessionPruningCompactor({
-                // Absent compactionShape falls back to the shared production
-                // default inside createSessionPruningCompactor.
-                ...(opts.compactionShape !== undefined
-                  ? { compactionShape: opts.compactionShape }
-                  : {}),
-                summarize: createModelSummarizer({
-                  getSource: () => INTEGRATION_SOURCE,
-                  deps: harness.deps,
-                  complete: opts.compactionCompletion,
-                  getArchive: () => evidenceArchiveHolder.current,
-                }),
-                readPriorHandoff: () =>
-                  tryReadPriorHandoffFile((key) =>
-                    storageForAgent.readBlob(key),
-                  ),
+            "pruning-compactor": createSessionPruningCompactor({
+              // Absent compactionShape falls back to the shared production
+              // default inside createSessionPruningCompactor.
+              ...(opts.compactionShape !== undefined
+                ? { compactionShape: opts.compactionShape }
+                : {}),
+              summarize: createModelSummarizer({
+                getSource: () => INTEGRATION_SOURCE,
+                deps: harness.deps,
+                complete: opts.compactionCompletion,
+                getArchive: () => evidenceArchiveHolder.current,
               }),
-              primaryArchive,
-            ),
+              readPriorHandoff: () =>
+                tryReadPriorHandoffFile((key) => storageForAgent.readBlob(key)),
+              wrapPruning: (pruning) =>
+                wrapCompactorWithCompletenessGate(pruning, primaryArchive),
+            }),
           },
         }
       : {}),

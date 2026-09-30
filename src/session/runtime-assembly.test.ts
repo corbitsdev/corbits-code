@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getLogger } from "@intx/log";
-import type { ToolCall } from "@intx/types/runtime";
+import type { ConversationTurn, ToolCall } from "@intx/types/runtime";
 
 import { LOG_NAMESPACE_ROOT } from "../branding.js";
 import * as permissionStore from "../permission/store.js";
@@ -33,6 +33,10 @@ import type { SubAgentSourcesConfig } from "./runtime-assembly.js";
 import type { Settings } from "../config/settings.js";
 import type { Telemetry } from "../telemetry/index.js";
 import { createModelSummarizer } from "./summarizer.js";
+import {
+  createCompactionArchive,
+  wrapCompactorWithCompletenessGate,
+} from "./compaction-archive.js";
 import { generateSessionId, initSessionDir, sessionDir } from "./index.js";
 import type { PluginModule } from "../plugins/loader.js";
 
@@ -731,6 +735,147 @@ describe("createSessionPruningCompactor stub fallback", () => {
     expect(result.record.decisions.summarizedTurnCount).toBeUndefined();
     expect(folds).toEqual([]);
     expect(notices).toEqual([]);
+  });
+
+  test("completeness-gate discard after a stub fold fires no notice or onFolded", async () => {
+    const notices: string[] = [];
+    const folds: { stub: boolean }[] = [];
+    const captured: { event: string }[] = [];
+    const telemetry: Telemetry = {
+      enabled: true,
+      installationId: "test",
+      capture: (event) => {
+        captured.push({ event });
+      },
+      captureIntentional: () => false,
+      flush: async () => undefined,
+      discard: () => undefined,
+    };
+    const summarize = createModelSummarizer({
+      getSource: () =>
+        ({
+          id: "test",
+          provider: "openai",
+          model: "test-model",
+          baseURL: "http://localhost:1",
+          credentialId: "test",
+        }) as never,
+      complete: async () => {
+        throw new Error("model unreachable");
+      },
+    });
+    const dir = await mkdtemp(join(tmpdir(), "compaction-gate-stub-"));
+    const blobs = new Map<string, Uint8Array>();
+    const archive = createCompactionArchive({
+      sessionId: "sess-gate-stub",
+      contextDir: dir,
+      writeBlob: async (key, bytes) => {
+        blobs.set(key, bytes);
+      },
+      readBlob: async (key) => {
+        const bytes = blobs.get(key);
+        if (bytes === undefined) throw new Error(`missing ${key}`);
+        return bytes;
+      },
+    });
+    const now = Date.now();
+    const many: ConversationTurn[] = Array.from({ length: 8 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: [{ type: "text", text: `t${i}` }],
+      timestamp: now,
+    }));
+    const result = await createSessionPruningCompactor({
+      summarize,
+      telemetry,
+      onFolded: (info) => folds.push(info),
+      onFailure: (text) => notices.push(text),
+      compactionShape: { tailBudgetTokens: 1 },
+      wrapPruning: (pruning) =>
+        wrapCompactorWithCompletenessGate(pruning, archive),
+    }).apply(many, { state: {} as never, trigger: "test" });
+    expect(result.output).toBe(many);
+    expect(result.record.reason).toBe("incomplete-evidence-archive");
+    expect(result.record.decisions.summarizedTurnCount).toBeUndefined();
+    expect(folds).toEqual([]);
+    expect(notices).toEqual([]);
+    expect(captured).toEqual([]);
+  });
+
+  test("a committed stub fold still notices and prunes", async () => {
+    const notices: string[] = [];
+    const folds: { turnsBefore: number; turnsAfter: number; stub: boolean }[] =
+      [];
+    const captured: { event: string }[] = [];
+    const telemetry: Telemetry = {
+      enabled: true,
+      installationId: "test",
+      capture: (event) => {
+        captured.push({ event });
+      },
+      captureIntentional: () => false,
+      flush: async () => undefined,
+      discard: () => undefined,
+    };
+    const summarize = createModelSummarizer({
+      getSource: () =>
+        ({
+          id: "test",
+          provider: "openai",
+          model: "test-model",
+          baseURL: "http://localhost:1",
+          credentialId: "test",
+        }) as never,
+      complete: async () => {
+        throw new Error("model unreachable");
+      },
+    });
+    const dir = await mkdtemp(join(tmpdir(), "compaction-gate-stub-ok-"));
+    const blobs = new Map<string, Uint8Array>();
+    const archive = createCompactionArchive({
+      sessionId: "sess-gate-stub-ok",
+      contextDir: dir,
+      writeBlob: async (key, bytes) => {
+        blobs.set(key, bytes);
+      },
+      readBlob: async (key) => {
+        const bytes = blobs.get(key);
+        if (bytes === undefined) throw new Error(`missing ${key}`);
+        return bytes;
+      },
+    });
+    const now = Date.now();
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: [{ type: "text" as const, text: `t${i}` }],
+      timestamp: now,
+    }));
+    for (const turn of many) {
+      const block = turn.content[0];
+      if (block?.type !== "text") continue;
+      await archive.recordAuthorizedPayload({
+        kind: turn.role === "assistant" ? "assistant_text" : "user_message",
+        payload: block.text,
+      });
+    }
+    const result = await createSessionPruningCompactor({
+      summarize,
+      telemetry,
+      onFolded: (info) => folds.push(info),
+      onFailure: (text) => notices.push(text),
+      compactionShape: { tailBudgetTokens: 1 },
+      wrapPruning: (pruning) =>
+        wrapCompactorWithCompletenessGate(pruning, archive),
+    }).apply(many as never, { state: {} as never, trigger: "test" });
+    expect(result.record.decisions.summarizeFailed).toBe(1);
+    expect(result.record.reason).toContain("statistics-only stub");
+    expect(result.output).not.toBe(many);
+    expect(folds).toEqual([
+      { turnsBefore: 8, turnsAfter: result.output.length, stub: true },
+    ]);
+    expect(captured).toEqual([]);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("statistics-only stub");
+    expect(notices[0]).toContain("failed");
   });
 });
 

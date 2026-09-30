@@ -430,7 +430,8 @@ export interface SessionPruningCompactorArgs {
   }) => void;
   /**
    * Operator-visible notice for a statistics-only stub that actually replaced
-   * turns. Verify abort (keeping prior context) does not fire this.
+   * turns. Verify abort and completeness-gate discard (keeping prior context)
+   * do not fire this.
    */
   onFailure?: (text: string) => void;
   /**
@@ -440,6 +441,13 @@ export interface SessionPruningCompactorArgs {
    * no onFolded side effects for work that never landed.
    */
   isAborted?: () => boolean;
+  /**
+   * Wraps the inner pruning apply before fold-commit side effects.
+   * assembleChatAgent passes the completeness gate here so a discarded
+   * fold never notices or prunes.
+   */
+  wrapPruning?: (pruning: Compactor) => Compactor;
+
   /**
    * CL-9489 budgeted-tail shape override. Absent means the shared production
    * default (DEFAULT_TAIL_COMPACTION_SHAPE); tests pin a tiny budget so small
@@ -481,7 +489,7 @@ export function createSessionPruningCompactor(
             throw error;
           }
         };
-  const compactor = createPruningCompactor({
+  const pruning = createPruningCompactor({
     summaryMaxChars: SESSION_COMPACTOR_SUMMARY_MAX_CHARS,
     // CL-9489 budgeted-tail shape: explicit defaults (same object the record
     // carries under parameters.compactionShape). Zero recent turns stay whole
@@ -496,6 +504,8 @@ export function createSessionPruningCompactor(
       ? { readPriorHandoff: args.readPriorHandoff }
       : {}),
   });
+  const compactor = args.wrapPruning?.(pruning) ?? pruning;
+
   const telemetry = args.telemetry ?? NOOP_TELEMETRY;
   return {
     ...compactor,
