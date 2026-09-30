@@ -5,6 +5,7 @@ import {
   driveMailboxMail,
   latchMailboxMailDrive,
   MAILBOX_MAIL_WAKE_PREFIX,
+  mailboxMailErrorUriHint,
   mailboxMailReportUriHint,
   mailboxMailWakeLine,
   occupancyShouldYieldWait,
@@ -14,6 +15,7 @@ import {
   digestCollectedReports,
   fleetDrySpillKey,
   FLEET_DRY_REPORT_CHARS,
+  MAILBOX_DIGEST_SECTION_CHARS,
   type FleetDryMailboxRecord,
 } from "./fleet-dry-drive.js";
 import {
@@ -125,6 +127,22 @@ describe("buildMailboxMailPrompt", () => {
     expect(prompt).toContain(uri);
   });
 
+  test("names error_uri with a read_file truncation notice", () => {
+    const uri = `tool-output:///${fleetDrySpillKey("worker-1", "error")}`;
+    const prompt = buildMailboxMailPrompt([
+      {
+        agent_id: "worker-1",
+        status: "failed",
+        error_uri: uri,
+      },
+    ]);
+    expect(prompt).toContain(mailboxMailErrorUriHint());
+    expect(prompt).toContain(
+      "use read_file with that URI (offset/limit supported)",
+    );
+    expect(prompt).toContain(uri);
+  });
+
   test("does not paste a duplicate agent_id", () => {
     const prompt = buildMailboxMailPrompt([
       { agent_id: "w1", status: "done" },
@@ -163,6 +181,10 @@ describe("digestCollectedReports", () => {
       "use read_file with that URI (offset/limit supported)",
     );
     expect(digest?.report).not.toContain("SECRET_FINDINGS_BODY");
+    expect(digest?.report).toContain(
+      `${ENVELOPE_REPORT.length.toLocaleString()} more chars omitted here`,
+    );
+    expect(digest?.report).not.toMatch(/— 0 more chars omitted/);
     expect(
       new TextDecoder().decode(
         store.blobs.get(fleetDrySpillKey("worker-1", "report"))?.bytes ??
@@ -221,6 +243,63 @@ describe("digestCollectedReports", () => {
     expect(digest?.report).toBe(ENVELOPE_REPORT);
     expect(digest?.report).toContain("SECRET_FINDINGS_BODY");
     expect(digest?.summary).toBe("Shipped the digest.");
+  });
+
+  test("spill notice remaining is the omitted body when no prefix is kept", async () => {
+    const store = fakeBlobStore();
+    const short = "short spilled body";
+    const [digest] = await digestCollectedReports(
+      [{ agent_id: "short", status: "done", report: short }],
+      store.writeBlob,
+    );
+    expect(short.length).toBeLessThan(MAILBOX_DIGEST_SECTION_CHARS);
+    expect(digest?.report).toContain(
+      `${short.length.toLocaleString()} more chars omitted here`,
+    );
+    expect(digest?.report).not.toMatch(/— 0 more chars omitted/);
+    expect(digest?.report).not.toContain(short);
+    expect(digest?.report_uri).toBe(
+      `tool-output:///${fleetDrySpillKey("short", "report")}`,
+    );
+  });
+
+  test("oversized spilled report remaining is the full body, not length minus the digest cap", async () => {
+    const store = fakeBlobStore();
+    const original = "x".repeat(MAILBOX_DIGEST_SECTION_CHARS + 80);
+    const [digest] = await digestCollectedReports(
+      [{ agent_id: "long", status: "done", report: original }],
+      store.writeBlob,
+    );
+    expect(digest?.report).toContain(
+      `${original.length.toLocaleString()} more chars omitted here`,
+    );
+    expect(digest?.report).not.toContain(
+      `${(original.length - MAILBOX_DIGEST_SECTION_CHARS).toLocaleString()} more chars omitted here`,
+    );
+  });
+
+  test("spilled error names error_uri with truncation-notice language", async () => {
+    const store = fakeBlobStore();
+    const error = "provider boom";
+    const [digest] = await digestCollectedReports(
+      [{ agent_id: "fail", status: "failed", error }],
+      store.writeBlob,
+    );
+    const errorUri = `tool-output:///${fleetDrySpillKey("fail", "error")}`;
+    expect(digest?.error_uri).toBe(errorUri);
+    expect(digest?.error).toContain("[output truncated");
+    expect(digest?.error).toContain(errorUri);
+    expect(digest?.error).toContain(
+      `${error.length.toLocaleString()} more chars omitted here`,
+    );
+    expect(digest?.error).not.toMatch(/— 0 more chars omitted/);
+    expect(digest?.error).not.toContain("provider boom");
+    expect(
+      new TextDecoder().decode(
+        store.blobs.get(fleetDrySpillKey("fail", "error"))?.bytes ??
+          new Uint8Array(),
+      ),
+    ).toBe(error);
   });
 });
 

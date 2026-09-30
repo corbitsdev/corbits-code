@@ -211,10 +211,13 @@ function clipDigestSection(text: string): string {
   return `${text.slice(0, MAILBOX_DIGEST_SECTION_CHARS - 1).trimEnd()}…`;
 }
 
-function mailboxReportSpillNotice(text: string, uri: string): string {
+function mailboxSpillNotice(text: string, uri: string): string {
+  // Digest inlines the notice only, so remaining is the omitted body — not
+  // length minus a 2048-char prefix that was never kept. A short spill that
+  // claimed "0 more chars omitted" looks complete and the parent skips read_file.
   return truncationNotice({
     maxChars: MAILBOX_DIGEST_SECTION_CHARS,
-    remaining: Math.max(0, text.length - MAILBOX_DIGEST_SECTION_CHARS),
+    remaining: text.length,
     fullLength: text.length,
     contentType: "text/plain",
     uri,
@@ -287,8 +290,14 @@ export async function digestCollectedReport(
     report.report === undefined
       ? undefined
       : reportUri !== undefined
-        ? mailboxReportSpillNotice(report.report, reportUri)
+        ? mailboxSpillNotice(report.report, reportUri)
         : await clipField(report.report, report.agent_id, "report");
+  const errorInline =
+    report.error === undefined
+      ? undefined
+      : errorUri !== undefined
+        ? mailboxSpillNotice(report.error, errorUri)
+        : clipDigestSection(report.error);
   return {
     agent_id: report.agent_id,
     status: report.status,
@@ -300,9 +309,7 @@ export async function digestCollectedReport(
     ...(blockers !== undefined ? { blockers } : {}),
     ...(reportInline !== undefined ? { report: reportInline } : {}),
     ...(reportUri !== undefined ? { report_uri: reportUri } : {}),
-    ...(report.error !== undefined
-      ? { error: clipDigestSection(report.error) }
-      : {}),
+    ...(errorInline !== undefined ? { error: errorInline } : {}),
     ...(errorUri !== undefined ? { error_uri: errorUri } : {}),
     ...(report.hint !== undefined ? { hint: report.hint } : {}),
     ...(report.provider_failure === true ? { provider_failure: true } : {}),

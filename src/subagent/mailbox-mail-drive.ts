@@ -35,6 +35,11 @@ export function mailboxMailReportUriHint(): string {
   return "report_uri names a spilled full report — use read_file with that URI (offset/limit supported) to see the rest.";
 }
 
+/** Names error_uri with truncation-notice language so the parent may fetch it. */
+export function mailboxMailErrorUriHint(): string {
+  return "error_uri names a spilled full error — use read_file with that URI (offset/limit supported) to see the rest.";
+}
+
 /**
  * Whether inbound text is occupancy's mailbox mail. Internal runtime→agent
  * traffic — the fleet board already owns worker status and the payload is
@@ -85,12 +90,15 @@ export function occupancyShouldYieldWait(
 }
 
 export function buildMailboxMailPrompt<
-  T extends { agent_id: string; report_uri?: string },
+  T extends { agent_id: string; report_uri?: string; error_uri?: string },
 >(reports: readonly T[]): string {
   const unique = dedupeByAgentId(reports);
   const lines = [mailboxMailWakeLine()];
   if (unique.some((report) => report.report_uri !== undefined)) {
     lines.push(mailboxMailReportUriHint());
+  }
+  if (unique.some((report) => report.error_uri !== undefined)) {
+    lines.push(mailboxMailErrorUriHint());
   }
   lines.push(JSON.stringify(unique));
   return lines.join("\n");
