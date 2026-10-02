@@ -21,6 +21,7 @@ import type { MCPClient } from "../src/mcp/client.js";
 import { getSubAgentIdentity } from "../src/subagent/identity-context.js";
 import { createSubAgentSessionStore } from "../src/subagent/session-store.js";
 import { workerPermissionGate } from "../src/permission/reactor-authorize.js";
+import { getProcessWorkerGrantStore } from "../src/permission/worker-grant.js";
 import { gateAgentTools } from "../src/plugins/permission-plugin.js";
 
 const report =
@@ -69,6 +70,12 @@ async function withWorker(
       }),
   };
   try {
+    // Every probe reuses worker id "worker" in a fresh tmpdir, but denied-call
+    // grant envelopes live in a process-shared store keyed by that session id.
+    // A prior probe's pending envelope (same tool + empty args, other cwd)
+    // would veto this probe's call via the retry-from-another-directory
+    // blocker, so each probe starts from a clean store.
+    getProcessWorkerGrantStore().clear();
     await withMockedModuleDuring(
       import.meta.resolve("../src/session/assemble-runtime.js"),
       (real: typeof import("../src/session/assemble-runtime.js")) => ({

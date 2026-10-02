@@ -315,10 +315,14 @@ function filteredNames(
   tools: AgentTool[],
   capabilities: CapabilityFilter | undefined,
   requiresTools?: readonly string[],
+  inheritedMcpTools?: readonly string[],
 ): string[] {
-  return applyCapabilityFilter(tools, capabilities, requiresTools).map(
-    (tool) => tool.definition.name,
-  );
+  return applyCapabilityFilter(
+    tools,
+    capabilities,
+    requiresTools,
+    inheritedMcpTools,
+  ).map((tool) => tool.definition.name);
 }
 
 describe("applyCapabilityFilter on-demand MCP mounting", () => {
@@ -393,5 +397,36 @@ describe("applyCapabilityFilter on-demand MCP mounting", () => {
 
   test("full mount with no requires_tools mounts no MCP tools", () => {
     expect(filteredNames(tools, undefined)).toEqual(["read_file", "run_shell"]);
+  });
+
+  test("full mount retains the inherited MCP set without a stamp", () => {
+    expect(
+      filteredNames(tools, undefined, undefined, [
+        "mcp__linear__list_teams",
+        "mcp__linear__create_issue",
+      ]),
+    ).toEqual([
+      "read_file",
+      "run_shell",
+      "mcp__linear__list_teams",
+      "mcp__linear__create_issue",
+    ]);
+  });
+
+  test("full mount drops an mcp__ name outside the inherited set", () => {
+    expect(
+      filteredNames(tools, undefined, undefined, ["mcp__linear__list_teams"]),
+    ).toEqual(["read_file", "run_shell", "mcp__linear__list_teams"]);
+  });
+
+  test("full mount with a stamp mounts only the stamped inherited tool", () => {
+    expect(
+      filteredNames(
+        tools,
+        undefined,
+        ["mcp__linear__list_teams"],
+        ["mcp__linear__list_teams", "mcp__linear__create_issue"],
+      ),
+    ).toEqual(["read_file", "run_shell", "mcp__linear__list_teams"]);
   });
 });

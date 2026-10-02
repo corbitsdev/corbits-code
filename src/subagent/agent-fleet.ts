@@ -1118,10 +1118,12 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const requiresToolsRaw = rawEntries.map((t) => t.trim());
       if (requiresToolsRaw.length > 0) {
         // Live inherited-MCP set: the worker mount carries a requested live
-        // tool on demand (run.ts retains only requested inherited MCP
-        // tools), so preflight validates `mcp__*` requirements against this
-        // set instead of the built-in catalog. Gating through the worker
-        // gate keeps the names to what this dispatch may actually mount.
+        // tool on demand (run.ts retains stamped inherited MCP tools, and
+        // retains the inherited set unstamped only when no narrower
+        // constraint applies), so preflight validates `mcp__*` requirements
+        // against this set instead of the built-in catalog. Gating through
+        // the worker gate keeps the names to what this dispatch may
+        // actually mount.
         const availableMcpTools = (
           deps.inheritMcpTools?.(deps.permissionGate) ?? []
         )

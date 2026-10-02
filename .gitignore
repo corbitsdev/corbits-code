@@ -30,3 +30,7 @@ subagents/
 
 # Working notes and design spikes — local only, never committed
 docs/plans/
+
+# Scratch repro tests — never committed
+__repro/
+**/__repro/
