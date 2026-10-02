@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { stringTool, type AgentTool } from "@intx/agent";
 import {
   createFleetMailbox,
   createSpawnAgentTool,
@@ -36,6 +37,13 @@ const READ_ONLY_PROFILE: AgentProfile = {
 const FULL_MOUNT_PROFILE: AgentProfile = {
   id: "full-worker",
   systemPromptRole: "You do anything.",
+};
+
+// BUILD_TOOLS-like envelope: built-ins only, no MCP names.
+const BUILD_LIKE_PROFILE: AgentProfile = {
+  id: "build-worker",
+  systemPromptRole: "You build.",
+  capabilities: { mode: "allow", tools: ["read_file", "run_shell"] },
 };
 
 function makeDeps(
@@ -298,6 +306,156 @@ describe("spawn_agent requires_tools preflight", () => {
     ]);
     expect(seenRequires).toEqual(["submit_result"]);
     expect(seenTier).toBe("leaf");
+  });
+
+  test("mounted mcp__linear__ tool passes dispatch preflight under a built-ins-only allowlist", async () => {
+    const telemetry: TelemetryEvent[] = [];
+    let runCalled = false;
+    let seenRequires: readonly string[] | undefined;
+    const linearTool: AgentTool = stringTool({
+      definition: {
+        name: "mcp__linear__list_teams",
+        description: "Inherited Linear tool",
+        inputSchema: {},
+      },
+      handler: async () => "teams",
+    });
+    const base = makeDeps(async (params) => {
+      runCalled = true;
+      seenRequires = params.requiresTools;
+      return { report: "done" };
+    }, telemetry);
+    const deps: AgentFleetDeps = {
+      ...base,
+      profiles: [BUILD_LIKE_PROFILE],
+      inheritMcpTools: () => [linearTool],
+    };
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callSpawn(spawn, {
+      description: "linear job",
+      prompt: "list teams",
+      agent: "build-worker",
+      requires_tools: ["mcp__linear__list_teams"],
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(runCalled).toBe(true);
+    const body = JSON.parse(result.content) as { agent_id: string };
+    expect(deps.sessions.get(body.agent_id)?.requiresTools).toEqual([
+      "mcp__linear__list_teams",
+    ]);
+    expect(seenRequires).toEqual(["mcp__linear__list_teams"]);
+  });
+
+  test("unmounted mcp__linear__ tool rejects dispatch preflight as unknown_tool with no run", async () => {
+    const telemetry: TelemetryEvent[] = [];
+    let runCalled = false;
+    const base = makeDeps(async () => {
+      runCalled = true;
+      return { report: "done" };
+    }, telemetry);
+    const deps: AgentFleetDeps = {
+      ...base,
+      profiles: [BUILD_LIKE_PROFILE],
+    };
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callSpawn(spawn, {
+      description: "linear job",
+      prompt: "list teams",
+      agent: "build-worker",
+      requires_tools: ["mcp__linear__list_teams"],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('unknown tool "mcp__linear__list_teams"');
+    expect(result.content).not.toContain("Did you mean");
+    expect(runCalled).toBe(false);
+    expect(deps.sessions.list()).toEqual([]);
+    expect(telemetry).toEqual([]);
+  });
+
+  test("requires_tools stamps only the requested live tool, never the inherited set", async () => {
+    const telemetry: TelemetryEvent[] = [];
+    let runCalled = false;
+    let seenRequires: readonly string[] | undefined;
+    const mcpTool = (name: string): AgentTool =>
+      stringTool({
+        definition: {
+          name,
+          description: `Inherited ${name}`,
+          inputSchema: {},
+        },
+        handler: async () => name,
+      });
+    const base = makeDeps(async (params) => {
+      runCalled = true;
+      seenRequires = params.requiresTools;
+      return { report: "done" };
+    }, telemetry);
+    const deps: AgentFleetDeps = {
+      ...base,
+      profiles: [BUILD_LIKE_PROFILE],
+      inheritMcpTools: () => [
+        mcpTool("mcp__linear__list_teams"),
+        mcpTool("mcp__linear__create_issue"),
+      ],
+    };
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callSpawn(spawn, {
+      description: "linear job",
+      prompt: "list teams",
+      agent: "build-worker",
+      requires_tools: ["mcp__linear__list_teams"],
+    });
+
+    // On-demand: dispatch stamps exactly the requested live tool — the
+    // inherited sibling mounts only under its own stamp (run.ts drops it).
+    expect(result.isError).not.toBe(true);
+    expect(runCalled).toBe(true);
+    expect(seenRequires).toEqual(["mcp__linear__list_teams"]);
+  });
+
+  test("requires_tools naming a live and an unmounted mcp__ tool rejects the unmounted one with no run", async () => {
+    const telemetry: TelemetryEvent[] = [];
+    let runCalled = false;
+    const base = makeDeps(async () => {
+      runCalled = true;
+      return { report: "done" };
+    }, telemetry);
+    const deps: AgentFleetDeps = {
+      ...base,
+      profiles: [BUILD_LIKE_PROFILE],
+      inheritMcpTools: () => [
+        stringTool({
+          definition: {
+            name: "mcp__linear__list_teams",
+            description: "Inherited Linear tool",
+            inputSchema: {},
+          },
+          handler: async () => "teams",
+        }),
+      ],
+    };
+    const spawn = createSpawnAgentTool(deps);
+
+    const result = await callSpawn(spawn, {
+      description: "linear job",
+      prompt: "list teams and file",
+      agent: "build-worker",
+      requires_tools: ["mcp__linear__list_teams", "mcp__linear__create_issue"],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'unknown tool "mcp__linear__create_issue"',
+    );
+    expect(result.content).not.toContain("Did you mean");
+    expect(runCalled).toBe(false);
+    expect(deps.sessions.list()).toEqual([]);
+    expect(telemetry).toEqual([]);
   });
 
   test("whitespace-only requires_tools rejects fail-closed with no session, telemetry, or run", async () => {

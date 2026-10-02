@@ -127,6 +127,8 @@ import {
   type InterventionSink,
 } from "./intervention-log.js";
 import { takeAndProjectMailboxRecord } from "./fleet-dry-drive.js";
+import { canonicalToolName } from "../agent/canonical-tool-name.js";
+import { isMcpToolName } from "../mcp/tool-name.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "subagent", "agent-fleet"]);
 
@@ -1115,12 +1117,23 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       }
       const requiresToolsRaw = rawEntries.map((t) => t.trim());
       if (requiresToolsRaw.length > 0) {
+        // Live inherited-MCP set: the worker mount carries a requested live
+        // tool on demand (run.ts retains only requested inherited MCP
+        // tools), so preflight validates `mcp__*` requirements against this
+        // set instead of the built-in catalog. Gating through the worker
+        // gate keeps the names to what this dispatch may actually mount.
+        const availableMcpTools = (
+          deps.inheritMcpTools?.(deps.permissionGate) ?? []
+        )
+          .map((tool) => canonicalToolName(tool.definition.name))
+          .filter((name) => isMcpToolName(name));
         const preflight = preflightCapabilities({
           required: requiresToolsRaw,
           ...(resolved.capabilities !== undefined
             ? { resolvedFilter: resolved.capabilities }
             : {}),
           knownEngines: DEFAULT_KNOWN_ENGINES,
+          availableMcpTools,
           agentLabel: resolved.agentLabel,
         });
         if (!preflight.ok) {

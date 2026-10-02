@@ -25,6 +25,7 @@ import {
   packageToCapabilities,
 } from "../agent/directors/registry.js";
 import type { CapabilityFilter } from "../agent/profile-types.js";
+import { isMcpToolName } from "../mcp/tool-name.js";
 
 export type CapabilityUnavailableCode =
   | "missing_tool"
@@ -44,6 +45,16 @@ export interface PreflightCapabilitiesInput {
    * test-only seam for simulating an incomplete runtime.
    */
   knownEngines: readonly string[];
+  /**
+   * Canonical ids of the live inherited-MCP tools the parent session mounted
+   * (`mcp__<server>__<tool>`). An `mcp__*` requirement present here passes the
+   * known-engine and allowlist checks — the worker mount carries it on
+   * demand (run.ts retains only requested inherited MCP tools), so presence
+   * here proves the worker mounts it. An `mcp__*` name absent
+   * from this set still rejects as `unknown_tool`. Fail-closed: availability
+   * is never inferred from the name shape alone.
+   */
+  availableMcpTools?: readonly string[] | undefined;
   /** Worker label for messages (director id or profile id). */
   agentLabel: string;
 }
@@ -162,6 +173,10 @@ function levenshtein(a: string, b: string): number {
 }
 
 function nearestToolName(raw: string): string | undefined {
+  // MCP names (`mcp__<server>__<tool>`) live outside the built-in catalog —
+  // a typo hint against built-ins would mislead, so MCP-shaped input never
+  // gets a suggestion.
+  if (isMcpToolName(raw.trim())) return undefined;
   const lower = raw.toLowerCase();
   let best: string | undefined;
   let bestDistance = Number.MAX_SAFE_INTEGER;
@@ -221,6 +236,9 @@ export function preflightCapabilities(
 ): CapabilityPreflightResult {
   const { resolvedFilter, knownEngines } = input;
   const known = new Set(knownEngines.map((name) => canonicalToolName(name)));
+  const liveMcp = new Set(
+    (input.availableMcpTools ?? []).map((name) => canonicalToolName(name)),
+  );
   const allow =
     resolvedFilter?.mode === "allow"
       ? new Set(resolvedFilter.tools.map((name) => canonicalToolName(name)))
@@ -239,7 +257,12 @@ export function preflightCapabilities(
       return { ok: false, unavailable: { code: "unknown_tool", tool: raw } };
     }
     const engine = canonicalToolName(trimmed);
-    if (!catalog.has(engine)) {
+    // A live inherited-MCP tool passes the catalog check: presence in the
+    // live set proves the worker mounts it on demand (run.ts retains only
+    // requested inherited MCP tools). Shape alone proves nothing — an
+    // `mcp__*` name outside the live set still rejects below.
+    const isLiveMcp = isMcpToolName(engine) && liveMcp.has(engine);
+    if (!catalog.has(engine) && !isLiveMcp) {
       const suggestion = nearestToolName(trimmed);
       return {
         ok: false,
@@ -250,13 +273,13 @@ export function preflightCapabilities(
         },
       };
     }
-    if (!known.has(engine)) {
+    if (!isLiveMcp && !known.has(engine)) {
       return {
         ok: false,
         unavailable: { code: "missing_binary", tool: engine },
       };
     }
-    if (!postFilter.has(engine)) {
+    if (!postFilter.has(engine) && !isLiveMcp) {
       if (allow !== undefined && !allow.has(engine)) {
         return {
           ok: false,
@@ -277,6 +300,18 @@ export function preflightCapabilities(
           },
         };
       }
+    } else if (isLiveMcp && deny !== undefined && deny.has(engine)) {
+      // An explicit exclude naming a live MCP tool still withholds it —
+      // run.ts strips named tools in exclude mode, so the mount would drop
+      // it and the requirement must reject here, not as a stale snapshot.
+      return {
+        ok: false,
+        unavailable: {
+          code: "permission_static",
+          tool: engine,
+          alternatives: rerouteAlternatives(engine),
+        },
+      };
     }
     if (!seen.has(engine)) {
       seen.add(engine);

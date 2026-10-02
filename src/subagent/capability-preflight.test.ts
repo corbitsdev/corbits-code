@@ -25,14 +25,23 @@ function preflight(
   required: readonly string[],
   resolvedFilter?: CapabilityFilter,
   knownEngines: readonly string[] = DEFAULT_KNOWN_ENGINES,
+  availableMcpTools: readonly string[] = [],
 ) {
   return preflightCapabilities({
     required,
     ...(resolvedFilter !== undefined ? { resolvedFilter } : {}),
     knownEngines,
+    availableMcpTools,
     agentLabel: "test-worker",
   });
 }
+
+// A BUILD_TOOLS-like allowlist: built-ins only, no MCP names — the shape
+// that used to strip inherited Linear tools at both layers.
+const ALLOW_BUILD_NO_MCP: CapabilityFilter = {
+  mode: "allow",
+  tools: ["read_file", "run_shell"],
+};
 
 describe("preflightCapabilities", () => {
   test("allow filter mounting the tool passes and returns canonical names", () => {
@@ -124,6 +133,72 @@ describe("preflightCapabilities", () => {
     expect(alternatives.length).toBeLessThanOrEqual(3);
     expect(alternatives).toEqual([...alternatives].sort());
     expect(alternatives).not.toContain("dispatch");
+  });
+
+  test("mounted mcp__linear__ tool passes preflight under a built-ins-only allowlist", () => {
+    const result = preflight(
+      ["mcp__linear__list_teams"],
+      ALLOW_BUILD_NO_MCP,
+      DEFAULT_KNOWN_ENGINES,
+      ["mcp__linear__list_teams"],
+    );
+    expect(result).toEqual({
+      ok: true,
+      canonical: ["mcp__linear__list_teams"],
+    });
+  });
+
+  test("unmounted mcp__linear__ tool rejects unknown_tool when no server is mounted", () => {
+    const result = preflight(["mcp__linear__list_teams"], ALLOW_BUILD_NO_MCP);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("unknown_tool");
+    expect(result.unavailable.tool).toBe("mcp__linear__list_teams");
+    expect(result.unavailable.suggestion).toBeUndefined();
+  });
+
+  test("mcp__ tool from an unmounted server rejects even when other servers are mounted", () => {
+    const result = preflight(
+      ["mcp__nope__frobnicate"],
+      ALLOW_BUILD_NO_MCP,
+      DEFAULT_KNOWN_ENGINES,
+      ["mcp__linear__list_teams"],
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("unknown_tool");
+    expect(result.unavailable.suggestion).toBeUndefined();
+  });
+
+  test("preflight grants only the named requirement, never sibling live tools", () => {
+    const result = preflight(
+      ["mcp__linear__list_teams"],
+      ALLOW_BUILD_NO_MCP,
+      DEFAULT_KNOWN_ENGINES,
+      ["mcp__linear__list_teams", "mcp__linear__create_issue"],
+    );
+    // On-demand: the stamp covers exactly the requested tool — the live
+    // sibling is not implied and mounts only under its own stamp.
+    expect(result).toEqual({
+      ok: true,
+      canonical: ["mcp__linear__list_teams"],
+    });
+  });
+
+  test("explicit exclude naming a live MCP tool rejects permission_static", () => {
+    const result = preflightCapabilities({
+      required: ["mcp__linear__list_teams"],
+      resolvedFilter: {
+        mode: "exclude",
+        tools: ["mcp__linear__list_teams"],
+      },
+      knownEngines: DEFAULT_KNOWN_ENGINES,
+      availableMcpTools: ["mcp__linear__list_teams"],
+      agentLabel: "test-worker",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected rejection");
+    expect(result.unavailable.code).toBe("permission_static");
   });
 });
 
