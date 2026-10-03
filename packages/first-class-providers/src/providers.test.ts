@@ -11,6 +11,7 @@ describe("FIRST_CLASS_PROVIDERS", () => {
     expect(FIRST_CLASS_PROVIDERS.map((p) => p.id)).toEqual([
       "openai",
       "xai",
+      "meta",
       "opencode-go",
       "zen",
       "zai",

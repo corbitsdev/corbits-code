@@ -90,7 +90,7 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
   },
   {
     id: "meta",
-    label: "Meta Muse",
+    label: "Meta",
     auth: "oauth",
     oauth: "meta",
   },

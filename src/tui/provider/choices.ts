@@ -108,7 +108,7 @@ export const OAUTH_SURFACES: Record<
   meta: {
     baseURL: META_BASE_URL,
     models: META_DEFAULT_MODELS,
-    hint: "Meta Muse subscription (device flow — open the URL and enter the code)",
+    hint: "Meta subscription (device flow — open the URL and enter the code)",
     providerName: metaProviderName,
   },
 };
