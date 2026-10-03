@@ -28,6 +28,7 @@ import {
 } from "../../provider/model-catalogs.js";
 import { isZenProviderId } from "../../../packages/zen/src/index.js";
 import { resolveSideMargin } from "../geometry/zones.js";
+import { createSystemClipboard } from "../system-clipboard.js";
 import {
   residualIdFromSelection,
   residualListFromCatalog,
@@ -107,10 +108,14 @@ export async function runProviderSetup(
 
   const choices = providerChoices();
   const initialRows = providerChoiceRows(choices);
+  // The Meta device flow auto-copies its verification URI. Tests inject a
+  // recording port; production writes through the renderer's system clipboard.
+  const clipboard = config.clipboard ?? createSystemClipboard(renderer);
   const state: SetupState = {
     config,
     renderer,
     externalRenderer,
+    clipboard,
     choices,
     existingProviderNames: config.existingProviderNames ?? [],
     values: {
@@ -145,6 +150,8 @@ export async function runProviderSetup(
     loginAbort: null,
     loginHandle: null,
     loginTimer: null,
+    statusFlash: null,
+    statusFlashTimer: null,
     deviceCode: null,
     loginCancelled: false,
     loginAttempt: 0,
@@ -172,7 +179,7 @@ export async function runProviderSetup(
 
   if (config.initialProviderId !== undefined) {
     const preselected = state.choices.find(
-      (c) => c.id === config.initialProviderId,
+      (c) => c.rowId === config.initialProviderId,
     );
     if (preselected !== undefined) {
       state.choice = preselected;
