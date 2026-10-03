@@ -69,7 +69,14 @@ import {
   stopRamp,
   teardownSurface,
 } from "./surface.js";
-import { stepsFor, type ProviderField, type SetupStep } from "./steps.js";
+import {
+  nextSamplingStepIndex,
+  previousSamplingStepIndex,
+  stepsFor,
+  topPAfterTemperatureAdvance,
+  type ProviderField,
+  type SetupStep,
+} from "./steps.js";
 import type {
   ProviderPreset,
   ProviderSetupConfig,
@@ -308,6 +315,10 @@ export async function runProviderSetup(
     state.submitting = true;
     state.submitPhase = "testing";
     clearError();
+    state.values.topP = topPAfterTemperatureAdvance(
+      state.values.temperature,
+      state.values.topP,
+    );
     surface.paint();
     stopRamp(state);
     state.rampTimer = setInterval(() => surface.paintStatus(), RAMP_TICK_MS);
@@ -449,7 +460,17 @@ export async function runProviderSetup(
     if (!stepReady(field, state.values[field])) return;
 
     if (state.stepIndex < steps().length - 1) {
-      state.stepIndex += 1;
+      if (field === "temperature") {
+        state.values.topP = topPAfterTemperatureAdvance(
+          state.values.temperature,
+          state.values.topP,
+        );
+      }
+      state.stepIndex = nextSamplingStepIndex(
+        steps(),
+        state.stepIndex,
+        state.values.temperature,
+      );
       clearError();
       if (isListStep()) enterModelList();
       showStep();
@@ -466,7 +487,11 @@ export async function runProviderSetup(
     }
     if (isGoModelListStep()) discovery.abandonGoPrefetch();
     if (isZenModelListStep()) discovery.abandonZenPrefetch();
-    state.stepIndex -= 1;
+    state.stepIndex = previousSamplingStepIndex(
+      steps(),
+      state.stepIndex,
+      state.values.temperature,
+    );
     clearError();
     if (currentStep() === "provider") enterProviderList();
     else if (isListStep()) enterModelList();

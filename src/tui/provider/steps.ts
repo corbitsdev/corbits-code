@@ -132,3 +132,46 @@ export function stepsFor(choice: ProviderChoice | null): readonly SetupStep[] {
   if (isOllamaProviderId(choice.id)) return OLLAMA_STEPS;
   return choice.oauth !== null ? OAUTH_STEPS : PRESET_STEPS;
 }
+
+// Inference options XOR temperature and topP on the wire. The wizard still
+// lists both steps so either can be filled; skip/clear is navigation, not
+// a range check (stepReady stays range-only).
+export function skipTopPWhenTemperatureSet(temperature: string): boolean {
+  return temperature.trim().length > 0;
+}
+
+export function nextSamplingStepIndex(
+  steps: readonly SetupStep[],
+  currentIndex: number,
+  temperature: string,
+): number {
+  const next = currentIndex + 1;
+  if (
+    skipTopPWhenTemperatureSet(temperature) &&
+    steps[currentIndex] === "temperature" &&
+    steps[next] === "topP"
+  ) {
+    return next + 1;
+  }
+  return next;
+}
+
+export function previousSamplingStepIndex(
+  steps: readonly SetupStep[],
+  currentIndex: number,
+  temperature: string,
+): number {
+  if (currentIndex <= 0) return 0;
+  const prev = currentIndex - 1;
+  if (skipTopPWhenTemperatureSet(temperature) && steps[prev] === "topP") {
+    return Math.max(0, prev - 1);
+  }
+  return prev;
+}
+
+export function topPAfterTemperatureAdvance(
+  temperature: string,
+  topP: string,
+): string {
+  return skipTopPWhenTemperatureSet(temperature) ? "" : topP;
+}
