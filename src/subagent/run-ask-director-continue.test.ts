@@ -179,7 +179,7 @@ describe("runSubAgent ask_director compact-continue wiring", () => {
                       description: "ask-director continue wiring",
                       prompt: "hold for ask_director",
                       persist: true,
-                      tier: "leaf",
+                      tier: "worker",
                       askDirectorPort: {
                         register: () =>
                           new Promise<string>((resolve) => {

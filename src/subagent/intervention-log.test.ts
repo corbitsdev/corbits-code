@@ -30,7 +30,7 @@ describe("intervention log", () => {
     const sink = createInterventionLog(
       dir,
       {
-        role: "leaf",
+        role: "worker",
         provider: "xai",
         model: "grok-4.6",
         family: "grok",
@@ -67,7 +67,7 @@ describe("intervention log", () => {
 
   test("appends in order, one JSON object per line", async () => {
     const dir = await mkdtemp(join(tmpdir(), "intervention-log-"));
-    const sink = createInterventionLog(dir, { role: "leaf" });
+    const sink = createInterventionLog(dir, { role: "worker" });
     sink({ id: "report-forced", class: "nudge" });
     sink({ id: "turn-budget", class: "stop" });
     await flush();
@@ -78,7 +78,7 @@ describe("intervention log", () => {
 
   test("preserves an optional coalesced count on the record", async () => {
     const dir = await mkdtemp(join(tmpdir(), "intervention-log-"));
-    const sink = createInterventionLog(dir, { role: "leaf" });
+    const sink = createInterventionLog(dir, { role: "worker" });
     sink({ id: "tool-failure-recovery", class: "nudge", count: 3 });
     await flush();
 
@@ -90,7 +90,7 @@ describe("intervention log", () => {
     const sink = createInterventionLog(
       join(tmpdir(), "intervention-log-missing-dir-xyz"),
       {
-        role: "leaf",
+        role: "worker",
       },
     );
     expect(() => {

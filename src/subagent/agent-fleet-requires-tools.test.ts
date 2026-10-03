@@ -270,7 +270,7 @@ describe("spawn_agent requires_tools preflight", () => {
     expect(result.isError).toBe(true);
     expect(result.content.startsWith("Error:")).toBe(true);
     expect(result.content).toContain("spawn_agent");
-    expect(result.content).toContain("Tier 3 leaf");
+    expect(result.content).toContain("Workers cannot mount fleet verb");
     expect(result.content).toMatch(/Re-dispatch|drop the requirement/);
     expect(result.content).not.toContain("stale_snapshot");
     expect(runCalled).toBe(false);
@@ -305,7 +305,7 @@ describe("spawn_agent requires_tools preflight", () => {
       "submit_result",
     ]);
     expect(seenRequires).toEqual(["submit_result"]);
-    expect(seenTier).toBe("leaf");
+    expect(seenTier).toBe("worker");
   });
 
   test("mounted mcp__linear__ tool passes dispatch preflight under a built-ins-only allowlist", async () => {
@@ -487,28 +487,25 @@ describe("spawn_agent requires_tools preflight", () => {
 
 describe("tierGateRequiresTools", () => {
   test("leaf requiring a fleet verb rejects as missing_tool naming the leaf restriction", () => {
-    const gated = tierGateRequiresTools(["spawn_agent"], "leaf");
+    const gated = tierGateRequiresTools(["spawn_agent"], "worker");
     expect(gated?.code).toBe("missing_tool");
     expect(gated?.tool).toBe("spawn_agent");
-    expect(gated?.detail).toContain("Tier 3 leaf");
+    expect(gated?.detail).toContain("Workers cannot mount fleet verb");
   });
 
   test("orchestrator requiring a fleet verb passes", () => {
     expect(
       tierGateRequiresTools(["spawn_agent"], "orchestrator"),
     ).toBeUndefined();
-    expect(
-      tierGateRequiresTools(["spawn_agent"], "nested-orchestrator"),
-    ).toBeUndefined();
+    expect(tierGateRequiresTools(["spawn_agent"], "worker")?.code).toBe(
+      "missing_tool",
+    );
   });
 
-  test("nested-orchestrator requiring fleet discovery rejects pre-spawn", () => {
-    const gated = tierGateRequiresTools(
-      ["search_agents"],
-      "nested-orchestrator",
-    );
+  test("worker requiring fleet discovery rejects pre-spawn", () => {
+    const gated = tierGateRequiresTools(["search_agents"], "worker");
     expect(gated?.code).toBe("missing_tool");
-    expect(gated?.detail).toContain("Tier 2");
+    expect(gated?.detail).toContain("Workers cannot mount fleet verb");
   });
 
   test("non-leaf requiring the leaf reporting channel rejects pre-spawn", () => {
@@ -516,7 +513,7 @@ describe("tierGateRequiresTools", () => {
       const gated = tierGateRequiresTools([engine], "orchestrator");
       expect(gated?.code).toBe("missing_tool");
       expect(gated?.tool).toBe(engine);
-      expect(gated?.detail).toContain("Tier 3 leaf workers only");
+      expect(gated?.detail).toContain("workers only");
     }
   });
 
@@ -527,7 +524,7 @@ describe("tierGateRequiresTools", () => {
       gated ?? { code: "missing_tool", tool: "submit_result" },
       "test-orchestrator",
     );
-    expect(message).toContain("Tier 3 leaf workers only");
+    expect(message).toContain("workers only");
     expect(message).toContain(
       "Re-dispatch to one of (artist, coder, designer)",
     );
@@ -536,16 +533,12 @@ describe("tierGateRequiresTools", () => {
 
   test("leaf requiring the leaf reporting channel passes", () => {
     expect(
-      tierGateRequiresTools(["submit_result", "ask_director"], "leaf"),
+      tierGateRequiresTools(["submit_result", "ask_director"], "worker"),
     ).toBeUndefined();
   });
 
   test("ordinary tools pass on every tier", () => {
-    for (const tier of [
-      "leaf",
-      "orchestrator",
-      "nested-orchestrator",
-    ] as const) {
+    for (const tier of ["worker", "orchestrator", "worker"] as const) {
       expect(
         tierGateRequiresTools(["read_file", "manage_tasks"], tier),
       ).toBeUndefined();

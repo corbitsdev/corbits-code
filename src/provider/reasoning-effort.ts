@@ -264,8 +264,8 @@ export function resolveSessionEffort(
 /** Product default effort by agent role (before model clamping). */
 export const ROLE_DEFAULT_EFFORT = {
   orchestrator: "high",
-  leaf: "medium",
-} as const satisfies Record<"orchestrator" | "leaf", ReasoningEffort>;
+  worker: "medium",
+} as const satisfies Record<"orchestrator" | "worker", ReasoningEffort>;
 
 /**
  * Nearest supported effort to `desired` by position on the canonical ladder.
@@ -365,7 +365,7 @@ export function resolveEffortForRole(
     opts.roleDefault ??
     (opts.orchestrator
       ? ROLE_DEFAULT_EFFORT.orchestrator
-      : ROLE_DEFAULT_EFFORT.leaf);
+      : ROLE_DEFAULT_EFFORT.worker);
   return pickEffortFromCascade({
     ...(opts.pin !== undefined ? { pin: opts.pin } : {}),
     roleDefault,

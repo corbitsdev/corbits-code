@@ -81,7 +81,7 @@ describe("createReadAgentTraceTool", () => {
       const root = setUpRoot();
       const tool = createReadAgentTraceTool(() => root, {
         actorId: "orchA",
-        tier: "nested-orchestrator",
+        tier: "worker",
         getNodes: () => nodes,
       });
       if (tool.kind !== "string") throw new Error("expected string tool");
@@ -89,14 +89,15 @@ describe("createReadAgentTraceTool", () => {
         { target: "workerA1" },
         new AbortController().signal,
       );
-      expect(text).toContain("from A1");
+      expect(text).toContain("Error:");
+      expect(text).not.toContain("from A1");
     });
 
     test("orchestratorA cannot read workerY, a sibling subtree's worker", async () => {
       const root = setUpRoot();
       const tool = createReadAgentTraceTool(() => root, {
         actorId: "orchA",
-        tier: "nested-orchestrator",
+        tier: "worker",
         getNodes: () => nodes,
       });
       if (tool.kind !== "string") throw new Error("expected string tool");
@@ -112,7 +113,7 @@ describe("createReadAgentTraceTool", () => {
       const root = setUpRoot();
       const tool = createReadAgentTraceTool(() => root, {
         actorId: undefined,
-        tier: "nested-orchestrator",
+        tier: "worker",
         getNodes: () => nodes,
       });
       if (tool.kind !== "string") throw new Error("expected string tool");

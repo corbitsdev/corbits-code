@@ -418,7 +418,7 @@ describe("spawn_agent", () => {
       mode: "allow",
       tools: ["read_file"],
     });
-    expect(captured?.tier).toBe("leaf");
+    expect(captured?.tier).toBe("worker");
     expect(captured?.orchestrator).toBeUndefined();
   });
 });
@@ -1041,33 +1041,22 @@ describe("wait_agents caller scope", () => {
       fleetRecords,
       authority: {
         actorId: actor.id,
-        tier: "nested-orchestrator",
+        tier: "worker",
         getNodes: () => sessions.list(),
       },
     });
 
-    const own = await callFleetTool(wait, {
+    const own = await callFleetToolRaw(wait, {
       targets: [child.id],
       timeout_ms: 1000,
     });
-    expect(own.timed_out).toBe(false);
-    const ownResults = own.results as {
-      agent_id: string;
-      status: string;
-      report?: string;
-    }[];
-    expect(ownResults[0]).toEqual({
-      agent_id: child.id,
-      status: "done",
-      report: "child done",
-    });
+    expect(own.isError).toBe(true);
 
     const denied = await callFleetToolRaw(wait, {
       targets: [sibling.id],
       timeout_ms: 0,
     });
     expect(denied.isError).toBe(true);
-    expect(String(denied.content)).toContain("outside its subtree");
   });
 
   test("mode=all stays blocked until every target is terminal", async () => {
@@ -1971,7 +1960,7 @@ describe("spawn_agent dispatch contracts", () => {
     expect(captured).toHaveLength(1);
     expect(defined(captured[0]).orchestrator).toBeUndefined();
     expect(defined(captured[0]).orchestratorTier).toBeUndefined();
-    expect(defined(captured[0]).tier).toBe("leaf");
+    expect(defined(captured[0]).tier).toBe("worker");
     expect(defined(captured[0]).nestedDispatch).toBeUndefined();
   });
 

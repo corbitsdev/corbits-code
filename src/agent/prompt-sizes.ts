@@ -127,7 +127,7 @@ export function canonicalToolNamesForDirector(
               ),
           );
   names.push(manageTasksDefinition.name);
-  if (pkg.tier === "leaf") {
+  if (pkg.tier === "worker") {
     names.push("submit_result", "ask_director");
   }
   if (pkg.spawn.maySpawn) {

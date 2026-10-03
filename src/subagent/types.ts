@@ -202,7 +202,7 @@ export type RunSubAgentParams = {
    * (agent-fleet.ts) from the closed DirectorPackage.tier. Required whenever
    * orchestrator is true:
    * runSubAgent fails closed (denies fleet tools) when orchestrator is true
-   * and this is undefined or "leaf" — an unrecognized or unresolved tier
+   * and this is undefined or "worker" — an unrecognized or unresolved tier
    * must never mount a fleet verb. See src/subagent/authority.ts.
    */
   orchestratorTier?: SubagentTier;
@@ -219,7 +219,7 @@ export type RunSubAgentParams = {
    * Resolved director tier, independent of `orchestratorTier` (which
    * is only ever set when `orchestrator` is true). Set by agent-fleet.ts from
    * `DirectorPackage.tier`. runSubAgent mounts `submit_result` only when this
-   * is `"leaf"` — the existing tier machinery (authority.ts / directors/types.ts)
+   * is `"worker"` — the existing tier machinery (authority.ts / directors/types.ts)
    * gates it, not a new mechanism.
    */
   tier?: SubagentTier;

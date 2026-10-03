@@ -21,7 +21,7 @@ export const coderPackage: DirectorPackage = {
     "Implementation specialist — minimal safe diffs, root-cause fixes, tests",
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
-  tier: "leaf",
+  tier: "worker",
   modelRole: "implement",
   systemPrompt: `You are CoderDirector (Coder), a specialist in Corbits Code.
 

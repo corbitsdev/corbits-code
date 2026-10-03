@@ -20,7 +20,7 @@ export const designerPackage: DirectorPackage = {
     "UI/UX designer — owns DESIGN.md, impeccable style design laws, tokens, and interface polish",
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
-  tier: "leaf",
+  tier: "worker",
   modelRole: "implement",
   systemPrompt: `You are DesignerDirector (Designer), a specialist in Corbits Code.
 

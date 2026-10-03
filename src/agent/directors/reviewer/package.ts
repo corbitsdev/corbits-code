@@ -21,7 +21,7 @@ export const reviewerPackage: DirectorPackage = {
     "Code quality and defect reviewer — evidence-based findings with temp test verification",
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
-  tier: "leaf",
+  tier: "worker",
   modelRole: "review",
   systemPrompt: `You are ReviewerDirector (Reviewer), a specialist in Corbits Code.
 

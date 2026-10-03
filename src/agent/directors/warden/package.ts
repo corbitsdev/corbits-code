@@ -18,7 +18,7 @@ export const wardenPackage: DirectorPackage = {
   description: "Permission and trust review worker",
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
-  tier: "leaf",
+  tier: "worker",
   modelRole: "review",
   systemPrompt: `You are WardenDirector (Warden), a specialist in Corbits Code.
 

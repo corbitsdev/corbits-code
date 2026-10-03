@@ -70,6 +70,6 @@ policy (route to follow-up tickets), building a new harness, fleet
 orchestration, architecture essays without measurements.`,
   tools: { allow: REVIEW_TOOLS },
   spawn: { maySpawn: false },
-  tier: "leaf",
+  tier: "worker",
   modelRole: "test",
 };

@@ -127,7 +127,7 @@ export const DEFAULT_KNOWN_ENGINES: readonly string[] =
 /**
  * Engines mounted outside the capability filter (run.ts appends manage_tasks
  * after filtering, and mounts the Tier 3 leaf reporting channel
- * submit_result/ask_director whenever tier is "leaf"), so a requires_tools
+ * submit_result/ask_director whenever tier is "worker"), so a requires_tools
  * entry for them passes preflight even when the dispatch filter is a narrow
  * allowlist. The update_plan alias canonicalizes here, so it rides the same
  * exemption — and the mount-time echo in run.ts runs after ALL appends, so
@@ -225,7 +225,7 @@ export function rerouteAlternatives(canonical: string): readonly string[] {
  */
 export function leafTierAlternatives(): readonly string[] {
   return Object.values(DIRECTOR_REGISTRY)
-    .filter((pkg) => pkg.id !== "dispatch" && pkg.tier === "leaf")
+    .filter((pkg) => pkg.id !== "dispatch" && pkg.tier === "worker")
     .map((pkg) => pkg.id)
     .sort()
     .slice(0, 3);

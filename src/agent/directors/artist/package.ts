@@ -19,7 +19,7 @@ export const artistPackage: DirectorPackage = {
     "Visual asset specialist — SVGs, visual diagrams, and generative graphic prompts",
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
-  tier: "leaf",
+  tier: "worker",
   modelRole: "implement",
   systemPrompt: `You are ArtistDirector (Artist), a specialist in Corbits Code.
 

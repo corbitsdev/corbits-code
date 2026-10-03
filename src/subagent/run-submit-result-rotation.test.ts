@@ -73,7 +73,7 @@ describe("submit_result token rotation on steering", () => {
             description: "token rotation probe",
             prompt: "hold for steering",
             persist: true,
-            tier: "leaf",
+            tier: "worker",
             onAgentReady: handles.onAgentReady,
           }),
         );

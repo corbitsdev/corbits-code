@@ -65,7 +65,7 @@ export interface InterventionRecord {
   /** Stable id of the intervention, e.g. "stalled", "report-forced". */
   id: string;
   class: InterventionClass;
-  /** "leaf" | "orchestrator" — which side of a dispatch fired it. */
+  /** "worker" | "orchestrator" — which side of a dispatch fired it. */
   role: string;
   provider?: string;
   model?: string;

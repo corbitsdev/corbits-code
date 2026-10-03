@@ -20,7 +20,7 @@ export const plannerPackage: DirectorPackage = {
     "Planning specialist — PRD.md, SOLUTION_SCOPE.md, and BUILD_PLAN.md authoring",
   tools: { allow: BUILD_TOOLS },
   spawn: { maySpawn: false },
-  tier: "leaf",
+  tier: "worker",
   modelRole: "plan",
   systemPrompt: `You are PlannerDirector (Planner), a specialist in Corbits Code.
 

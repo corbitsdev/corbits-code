@@ -716,13 +716,13 @@ export function tierGateRequiresTools(
   for (const engine of canonical) {
     if (
       (engine === "submit_result" || engine === "ask_director") &&
-      tier !== "leaf"
+      tier !== "worker"
     ) {
       return {
         code: "missing_tool",
         tool: engine,
         alternatives: leafTierAlternatives(),
-        detail: `"${engine}" mounts on Tier 3 leaf workers only, never on ${tier} directors`,
+        detail: `"${engine}" mounts on workers only, never on ${tier} directors`,
       };
     }
     try {
@@ -1101,11 +1101,11 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       // A rejection returns here — no auto re-dispatch, no successor, no retry.
       // The tier below is the single derivation shared by the tier gate and
       // the run mount: run.ts mounts the leaf reporting channel exactly when
-      // tier is "leaf", so gating on any other value would let a requirement
+      // tier is "worker", so gating on any other value would let a requirement
       // pass here and die as a stale snapshot at mount (or vice versa).
       const dispatchTier: SubagentTier = resolved.orchestrator
         ? (resolved.orchestratorTier ?? resolved.pkg?.tier ?? "orchestrator")
-        : "leaf";
+        : "worker";
       let requiresTools: readonly string[] | undefined;
       const rawEntries = rawRequiresTools ?? [];
       const blankEntry = rawEntries.find((t) => t.trim().length === 0);

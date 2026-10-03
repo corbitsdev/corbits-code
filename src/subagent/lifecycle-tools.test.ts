@@ -1070,16 +1070,16 @@ describe("send_input", () => {
       sessions,
       authority: {
         actorId: nested.id,
-        tier: "nested-orchestrator",
+        tier: "worker",
         getNodes: () => sessions.list(),
       },
     });
 
-    const ok = await callTool(sendInput, {
+    const ok = await callFleetToolRaw(sendInput, {
       target: child.id,
       message: "continue",
     });
-    expect(ok.status).toBe("running");
+    expect(ok.isError).toBe(true);
 
     const denied = await callFleetToolRaw(sendInput, {
       target: sibling.id,
@@ -1100,7 +1100,7 @@ describe("send_input", () => {
       sessions,
       authority: {
         actorId: undefined,
-        tier: "nested-orchestrator",
+        tier: "worker",
         getNodes: () => sessions.list(),
       },
     });
@@ -1120,7 +1120,7 @@ describe("nested lifecycle authority", () => {
   ) {
     return {
       actorId,
-      tier: "nested-orchestrator" as const,
+      tier: "worker" as const,
       getNodes: () => sessions.list(),
     };
   }
@@ -1169,8 +1169,8 @@ describe("nested lifecycle authority", () => {
       allowedStatus: "running",
     },
   ])(
-    "$tool denies a sibling and allows a descendant",
-    async ({ tool, retained, arm, allowedStatus }) => {
+    "$tool denies both a descendant and a sibling",
+    async ({ tool, retained, arm }) => {
       const { sessions, nested, child, sibling, fleetRecords } = nestedSetup(
         retained ?? false,
       );
@@ -1188,8 +1188,8 @@ describe("nested lifecycle authority", () => {
           ? { target: child.id, message: "more" }
           : { target: child.id };
 
-      const allowed = await callTool(agentTool, callArgs);
-      expect(allowed.status).toBe(allowedStatus);
+      const deniedChild = await callFleetToolRaw(agentTool, callArgs);
+      expect(deniedChild.isError).toBe(true);
 
       const denied = await callFleetToolRaw(agentTool, {
         ...callArgs,

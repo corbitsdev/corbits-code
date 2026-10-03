@@ -26,17 +26,12 @@ export type TaskIntent =
   | "general";
 
 /**
- * Fleet authority tier (CL-6941). Runtime-enforced at the tool-mount point in
- * subagent/run.ts and by subagent/authority.ts — never by prompt wording.
+ * Fleet authority (runtime-enforced at the tool-mount point).
  *
- * - "orchestrator": Tier 1, primary (dispatch). Full fleet control over the
- *   whole tree.
- * - "nested-orchestrator": Tier 2, scoped to its own subtree (no closed
- *   director uses this tier today). May manage only its own descendants,
- *   never siblings or ancestors.
- * - "leaf": Tier 3 worker. No fleet verbs at all.
+ * Dispatch is the only orchestrator. Everyone else is a specialist worker.
+ * There is no nested orchestrator and no "leaf" role.
  */
-export type SubagentTier = "orchestrator" | "nested-orchestrator" | "leaf";
+export type SubagentTier = "orchestrator" | "worker";
 
 /** Static model-role tag used by resolveEffortForRole / defaultEffortForDirector. */
 export type ModelRole =

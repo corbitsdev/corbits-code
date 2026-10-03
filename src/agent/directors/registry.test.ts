@@ -120,11 +120,11 @@ describe("director registry", () => {
     expect(profiles.map((p) => p.id)).not.toContain("dispatch");
   });
 
-  test("coder is a leaf with no spawn", () => {
+  test("coder is a worker with no spawn", () => {
     const c = DIRECTOR_REGISTRY.coder;
     expect(c.spawn.maySpawn).toBe(false);
     expect(c.spawn.allowlist).toBeUndefined();
-    expect(c.tier).toBe("leaf");
+    expect(c.tier).toBe("worker");
     expect(packageToProfile(c).orchestrator).toBe(false);
   });
 
@@ -163,23 +163,23 @@ describe("director registry", () => {
   test("tier agrees with spawn.maySpawn for every director", () => {
     for (const id of DIRECTOR_IDS) {
       const pkg = DIRECTOR_REGISTRY[id];
-      expect(pkg.tier !== "leaf").toBe(pkg.spawn.maySpawn);
+      expect(pkg.tier === "orchestrator").toBe(pkg.spawn.maySpawn);
       expect(tierForDirectorId(id)).toBe(pkg.tier);
     }
     expect(DIRECTOR_REGISTRY.dispatch.tier).toBe("orchestrator");
   });
 
-  test("prober is a measure-only leaf", () => {
+  test("prober is a measure-only worker", () => {
     const r = resolveDirector({ agentId: "prober" });
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.package.id).toBe("prober");
-      expect(r.package.tier).toBe("leaf");
+      expect(r.package.tier).toBe("worker");
       expect(r.package.spawn.maySpawn).toBe(false);
       expect(r.package.modelRole).toBe("test");
     }
     expect(isDirectorId("prober")).toBe(true);
-    expect(tierForDirectorId("prober")).toBe("leaf");
+    expect(tierForDirectorId("prober")).toBe("worker");
   });
 
   test("every director profile declares matching agent id in system prompt", () => {

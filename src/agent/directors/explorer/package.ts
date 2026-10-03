@@ -35,6 +35,6 @@ FINISH BIAS: Prefer one thorough pass then report. Expand Findings, change appro
 OUT OF LANE: product writes, drive-by fixes, shipping features, review severity theater, orchestration, spawning specialists, fleet discovery, becoming Coder/Reviewer/orchestrator as primary.`,
   tools: { allow: READ_TOOLS },
   spawn: { maySpawn: false },
-  tier: "leaf",
+  tier: "worker",
   modelRole: "explore",
 };

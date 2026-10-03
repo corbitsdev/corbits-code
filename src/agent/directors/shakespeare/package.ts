@@ -75,6 +75,6 @@ DONE GATE: Stop when every success_criteria item from the brief is met OR explic
 OUT OF LANE: shipping product features, pure code review, orchestration, treating docs as optional, DESIGN.md ownership, becoming Coder or Reviewer as primary.`,
   tools: { allow: DOCS_TOOLS },
   spawn: { maySpawn: false },
-  tier: "leaf",
+  tier: "worker",
   modelRole: "docs",
 };

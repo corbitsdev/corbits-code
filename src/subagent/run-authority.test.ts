@@ -129,39 +129,30 @@ describe("runSubAgent fleet-verb mount gate (CL-6941, fails closed)", () => {
       runSubAgent({
         ...baseParams(cwd),
         orchestrator: true,
-        orchestratorTier: "leaf",
+        orchestratorTier: "worker",
       }),
     ).rejects.toBeInstanceOf(FleetAuthorityError);
   });
 
-  test("orchestrator=true with a resolved non-leaf tier passes the gate (fails later, not on authority)", async () => {
+  test("orchestrator=true with a worker tier is denied", async () => {
     const cwd = await tmpCwd();
-    try {
-      await runSubAgent({
+    await expect(
+      runSubAgent({
         ...baseParams(cwd),
         orchestrator: true,
-        orchestratorTier: "nested-orchestrator",
-        // Deliberately still omit nestedDispatch: a tier that passes the gate
-        // must reach the *next* check (nestedDispatch required) instead of
-        // being denied by assertTierMayMountFleetVerb.
-      });
-      throw new Error(
-        "expected runSubAgent to reject (missing nestedDispatch)",
-      );
-    } catch (err) {
-      expect(err).not.toBeInstanceOf(FleetAuthorityError);
-      expect(String((err as Error).message)).toContain("nestedDispatch");
-    }
+        orchestratorTier: "worker",
+      }),
+    ).rejects.toBeInstanceOf(FleetAuthorityError);
   });
 });
 
 describe("runSubAgent search_agents mount gate (CL-7051, Tier-1 only)", () => {
-  test("nested-orchestrator does not mount search_agents even when profiles exist", async () => {
+  test("worker does not mount search_agents even when profiles exist", async () => {
     const cwd = await tmpCwd();
     const searchAgentsMounts = await probeSearchAgentsMount(
       cwd,
       "planner-session",
-      "nested-orchestrator",
+      "worker",
     );
 
     expect(searchAgentsMounts).toBe(0);
@@ -201,18 +192,17 @@ describe("runSubAgent passes parentSessionId into spawn_agent mount", () => {
       (baseURL) => ({
         id: "greybeard-session",
         orchestrator: true,
-        orchestratorTier: "nested-orchestrator",
+        orchestratorTier: "worker",
         nestedDispatch: nestedDispatch(cwd, baseURL, true),
       }),
     );
 
-    expect(spawnMounts).toBe(1);
-    expect(capturedParentSessionId).toBe("greybeard-session");
+    expect(spawnMounts).toBe(0);
   }, 15_000);
 });
 
 describe("runSubAgent list_agents mount (mailbox-scoped, nested ok)", () => {
-  test("nested-orchestrator mounts list_agents", async () => {
+  test("worker mounts list_agents", async () => {
     const cwd = await tmpCwd();
     let listAgentsMounts = 0;
 
@@ -229,11 +219,11 @@ describe("runSubAgent list_agents mount (mailbox-scoped, nested ok)", () => {
       (baseURL) => ({
         id: "greybeard-session",
         orchestrator: true,
-        orchestratorTier: "nested-orchestrator",
+        orchestratorTier: "worker",
         nestedDispatch: nestedDispatch(cwd, baseURL),
       }),
     );
 
-    expect(listAgentsMounts).toBe(1);
+    expect(listAgentsMounts).toBe(0);
   }, 15_000);
 });

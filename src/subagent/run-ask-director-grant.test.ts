@@ -119,7 +119,7 @@ describe("runSubAgent ask_director grant_request_id threading", () => {
               description: "ask_director grant threading",
               prompt: "hold for ask_director",
               persist: true,
-              tier: "leaf",
+              tier: "worker",
               askDirectorPort: {
                 register: (input) => {
                   registered.push({ ...input });

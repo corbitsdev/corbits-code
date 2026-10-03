@@ -755,7 +755,7 @@ test.serial(
             ...params,
             persist: true,
             orchestrator: true,
-            orchestratorTier: "nested-orchestrator",
+            orchestratorTier: "worker",
             onAgentReady: (value) => {
               handles = value;
             },
@@ -874,7 +874,7 @@ for (const mode of [
       let asks = 0;
       await withWorker(
         async ({ harness, params, audit }) => {
-          params.tier = "leaf";
+          params.tier = "worker";
           harness.scenario.replyOnce("openai", {
             toolCalls: [
               {
@@ -920,7 +920,7 @@ test.serial(
     let asks = 0;
     await withWorker(
       async ({ harness, params, audit }) => {
-        params.tier = "leaf";
+        params.tier = "worker";
         let registered: { question: string; questionId: string } | undefined;
         params.askDirectorPort = {
           register: async (input) => {
@@ -1011,7 +1011,7 @@ test.serial(
               ...params,
               persist: true,
               orchestrator: true,
-              orchestratorTier: "nested-orchestrator",
+              orchestratorTier: "worker",
               onAgentReady: (value) => {
                 handles = value;
               },

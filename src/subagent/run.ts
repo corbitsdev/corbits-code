@@ -687,7 +687,7 @@ async function runSubAgentInner(
   const permissionGate = workerPermissionGate(params.permissionGate, {
     sessionId: () => workerGrantSessionId,
   });
-  let turnToken = params.tier === "leaf" ? generateSessionId() : undefined;
+  let turnToken = params.tier === "worker" ? generateSessionId() : undefined;
   const submitResultState = createSubmitResultState();
   const askDirectorState = createAskDirectorState();
   const compactContinue = createDeferredContinuation();
@@ -907,7 +907,7 @@ async function runSubAgentInner(
 
     // Typed reporting channel, Tier 3 leaves only. Gated by the existing
     // tier machinery — never invent a parallel check.
-    if (params.tier === "leaf") {
+    if (params.tier === "worker") {
       if (turnToken === undefined) {
         throw new Error("leaf dispatch is missing a turn token");
       }
@@ -972,10 +972,10 @@ async function runSubAgentInner(
     // only (CL-7051) — nested directors keep spawn allowlists.
     if (params.orchestrator === true) {
       // Tier enforcement at the mount point, not the prompt, fails closed:
-      // an unresolved tier defaults to "leaf" rather than skipping the check,
+      // an unresolved tier defaults to "worker" rather than skipping the check,
       // so an AgentProfile outside the closed director set cannot mount
       // spawn_agent/search_agents just by setting orchestrator: true.
-      const tier = params.orchestratorTier ?? "leaf";
+      const tier = params.orchestratorTier ?? "worker";
       const mayDiscoverFleet = tier === "orchestrator";
       for (const verb of [
         ...(mayDiscoverFleet ? (["search_agents"] as const) : []),
@@ -1367,7 +1367,7 @@ async function runSubAgentInner(
     // One record per stop/nudge, with its measured value beside its
     // threshold, written into this leaf's own trace dir.
     interventions = createInterventionLog(workdir, {
-      role: params.orchestrator === true ? "orchestrator" : "leaf",
+      role: params.orchestrator === true ? "orchestrator" : "worker",
       provider: params.provider.providerName,
       model: params.provider.model,
       family: modelFamilyPolicy.family,
