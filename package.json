@@ -87,6 +87,7 @@
   },
   "dependencies": {
     "@corbits/codex-provider": "0.1.1",
+    "@corbits/meta-provider": "file:../corbits-muse-provider",
     "@corbits/oauth-core": "0.2.0",
     "@corbits/openai-responses": "0.2.1",
     "@corbits/xai-provider": "0.1.2",

@@ -17,6 +17,7 @@ export interface CredentialDirDescriptor {
 export const credentialFileDescriptors: CredentialFileDescriptor[] = [
   { settingsDirName: SETTINGS_DIR_NAME, filename: "codex-auth.json" },
   { settingsDirName: SETTINGS_DIR_NAME, filename: "xai-auth.json" },
+  { settingsDirName: SETTINGS_DIR_NAME, filename: "meta-auth.json" },
 ];
 
 export const credentialDirDescriptors: CredentialDirDescriptor[] = [

@@ -4,6 +4,7 @@ import {
   buildBifrostSource,
   buildCodexSource,
   buildGoSource,
+  buildMetaSource,
   buildZenSource,
   buildAnthropicSource,
   buildOpenAISource,
@@ -112,6 +113,16 @@ export function buildInferenceSourceForRef(
     return buildXaiSource({
       id: ref.provider,
       profile: entry.xaiProfile,
+      apiKey: entry.apiKey ?? "",
+      model: ref.model,
+      sessionId: ctx.sessionId,
+      ...(effort !== undefined ? { reasoningEffort: effort } : {}),
+    });
+  }
+  if (entry?.metaProfile !== undefined) {
+    return buildMetaSource({
+      id: ref.provider,
+      profile: entry.metaProfile,
       apiKey: entry.apiKey ?? "",
       model: ref.model,
       sessionId: ctx.sessionId,

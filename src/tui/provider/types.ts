@@ -13,6 +13,7 @@ import type {
 import type { FirstClassOAuthProvider } from "../../../packages/first-class-providers/src/index.js";
 import type { CodexTokens } from "../../auth/codex/store.js";
 import type { AuthProfile } from "../../auth/store.js";
+import type { MetaOAuthTokens } from "../../auth/meta/store.js";
 import type { XaiTokens } from "../../auth/xai/store.js";
 import type {
   discoverOllamaModels as discoverOllamaModelsRequest,
@@ -75,7 +76,7 @@ export type SubmitPhase = "testing" | "saving";
 
 export interface OAuthResult {
   readonly kind: OAuthKind;
-  readonly tokens: CodexTokens | XaiTokens;
+  readonly tokens: CodexTokens | XaiTokens | MetaOAuthTokens;
   readonly commit: () => Promise<void>;
   /** Settings/catalog name the stored profile projects to. */
   readonly providerName: string;
@@ -107,7 +108,7 @@ export type ProviderSetupSubmit = (
 export interface OAuthLoginStart {
   readonly authorizeUrl: string;
   readonly completed: Promise<{
-    readonly profile: AuthProfile<CodexTokens | XaiTokens>;
+    readonly profile: AuthProfile<CodexTokens | XaiTokens | MetaOAuthTokens>;
     readonly commit: () => Promise<void>;
   }>;
   readonly cancel: () => void;
@@ -117,6 +118,12 @@ export type OAuthLoginStarter = (input: {
   readonly kind: OAuthKind;
   readonly profile: string;
   readonly signal: AbortSignal;
+  /** Device-flow only: called when the verification URI + user code are ready. */
+  readonly notify?: (event: {
+    readonly type: "device_code";
+    readonly verificationUri: string;
+    readonly userCode: string;
+  }) => void;
 }) => Promise<OAuthLoginStart>;
 
 /** Fetches the names of already-authorized profiles for a provider kind. */
@@ -179,6 +186,13 @@ export interface SetupState {
   loginHandle: OAuthLoginStart | null;
   loginTimer: ReturnType<typeof setTimeout> | null;
   // Lets the provider step report an abandoned sign-in instead of a silent list.
+  /** Device-flow code shown to the operator (Meta): verification URI + user code. */
+  deviceCode: {
+    verificationUri: string;
+    userCode: string;
+  } | null;
+  // Carried back to the provider step so an abandoned sign-in says so there
+  // rather than dropping the operator on a silent list.
   loginCancelled: boolean;
   // Bumped per start/abandon so a late resolution never moves the screen.
   loginAttempt: number;

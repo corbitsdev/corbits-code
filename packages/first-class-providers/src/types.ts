@@ -5,7 +5,7 @@ export type FirstClassAuthKind =
   | "chooser"
   | "custom";
 
-export type FirstClassOAuthProvider = "codex" | "xai";
+export type FirstClassOAuthProvider = "codex" | "xai" | "meta";
 
 export type FirstClassBillingProduct = "subscription" | "credits";
 

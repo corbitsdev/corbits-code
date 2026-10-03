@@ -14,7 +14,12 @@ import {
   CODEX_DEFAULT_MODELS,
 } from "../../auth/codex/constants.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../../auth/xai/constants.js";
+import {
+  META_BASE_URL,
+  META_DEFAULT_MODELS,
+} from "../../auth/meta/constants.js";
 import { codexProviderName } from "../../config/codex-providers.js";
+import { metaProviderName } from "../../config/meta-providers.js";
 import { xaiProviderName } from "../../config/xai-providers.js";
 import {
   selectableGoModelIds,
@@ -99,6 +104,12 @@ export const OAUTH_SURFACES: Record<
     models: XAI_DEFAULT_MODELS,
     hint: "SuperGrok or X Premium+ subscription",
     providerName: xaiProviderName,
+  },
+  meta: {
+    baseURL: META_BASE_URL,
+    models: META_DEFAULT_MODELS,
+    hint: "Meta Muse subscription (device flow — open the URL and enter the code)",
+    providerName: metaProviderName,
   },
 };
 

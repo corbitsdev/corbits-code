@@ -150,6 +150,34 @@ describe("source credential provenance", () => {
     ).toEqual({ "x-grok-user-id": "user-a" });
   });
 
+  test("Meta profile routes to the meta-responses provider with OAuth provenance", () => {
+    const source = buildInferenceSourceForRef(
+      { provider: "meta/work", model: "muse-spark-1.3" },
+      {
+        sessionId: "sess-oauth",
+        catalog: [
+          {
+            name: "meta/work",
+            baseURL: "https://api.meta.ai/v1",
+            apiKey: "LLM|minted-key",
+            models: ["muse-spark-1.3"],
+            metaProfile: "work",
+          },
+        ],
+      },
+      undefined,
+    );
+
+    if (source === null) throw new Error("expected Meta source");
+    expect(source.provider).toBe("meta");
+    expect(source.baseURL).toBe("https://api.meta.ai/v1");
+    expect(readSourceCredentialRecord(source.credentialId).provenance).toEqual({
+      kind: "oauth",
+      provider: "meta",
+      profile: "work",
+    });
+  });
+
   test("namespaced API-key rows are not inferred as OAuth", () => {
     const source = buildInferenceSourceForRef(
       { provider: "codex/shadow", model: "relay-model" },

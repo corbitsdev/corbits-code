@@ -67,6 +67,7 @@ describe("mergeOAuthCatalog legacy bare-row dedupe (CL-5606)", () => {
       resolved,
       [codexDefault],
       [],
+      [],
     );
     expect(merged.map((p) => p.name)).toEqual(["codex/default"]);
   });
@@ -77,6 +78,7 @@ describe("mergeOAuthCatalog legacy bare-row dedupe (CL-5606)", () => {
       resolved,
       [],
       [xaiWork],
+      [],
     );
     expect(merged.map((p) => p.name)).toEqual(["xai/work"]);
   });
@@ -87,6 +89,7 @@ describe("mergeOAuthCatalog legacy bare-row dedupe (CL-5606)", () => {
     const merged = mergeOAuthCatalog(
       settingsWith({ codex: codexEntry() }),
       resolved,
+      [],
       [],
       [],
     );
@@ -106,6 +109,7 @@ describe("mergeOAuthCatalog legacy bare-row dedupe (CL-5606)", () => {
       resolved,
       [codexDefault],
       [],
+      [],
     );
     expect(merged.map((p) => p.name)).toEqual(["openai", "codex/default"]);
   });
@@ -121,6 +125,7 @@ describe("mergeOAuthCatalog legacy bare-row dedupe (CL-5606)", () => {
       }),
       resolved,
       [codexDefault],
+      [],
       [],
     );
     expect(merged.map((p) => p.name)).toEqual(["codex", "codex/default"]);
@@ -195,6 +200,7 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
       resolved,
       [liveMine],
       [],
+      [],
     );
     const rows = merged.filter((p) => p.name === "codex/mine");
     expect(rows).toHaveLength(1);
@@ -206,6 +212,7 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
     const merged = mergeOAuthCatalog(
       settingsWith({ "codex/mine": handNamed() }),
       resolved,
+      [],
       [],
       [],
     );
@@ -221,7 +228,13 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
       apiKey: "live-token",
       model: "gpt-5.1-codex-max",
     };
-    const merged = mergeOAuthCatalog(null, resolvedCodexMine, [liveMine], []);
+    const merged = mergeOAuthCatalog(
+      null,
+      resolvedCodexMine,
+      [liveMine],
+      [],
+      [],
+    );
     const rows = merged.filter((p) => p.name === "codex/mine");
     expect(rows).toHaveLength(1);
     expect(rows[0]?.codexProfile).toBe("mine");
@@ -235,7 +248,13 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
       apiKey: "live-token",
       model: "gpt-5.1-codex-max",
     };
-    const merged = mergeOAuthCatalog(null, resolvedCodexMine, [liveMine], []);
+    const merged = mergeOAuthCatalog(
+      null,
+      resolvedCodexMine,
+      [liveMine],
+      [],
+      [],
+    );
     const persisted = providerCatalogToSettings(merged, undefined);
     expect(JSON.stringify(persisted)).not.toContain("live-token");
   });
@@ -251,6 +270,7 @@ describe("CL-6728: OAuth projections do not overwrite hand-named provider entrie
       }),
       resolved,
       [liveMine],
+      [],
       [],
     );
     const rows = merged.filter((p) => p.name === "codex/mine");

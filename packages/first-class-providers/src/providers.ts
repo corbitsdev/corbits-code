@@ -89,6 +89,12 @@ export const FIRST_CLASS_PROVIDERS: readonly FirstClassProviderDef[] = [
     oauth: "xai",
   },
   {
+    id: "meta",
+    label: "Meta Muse",
+    auth: "oauth",
+    oauth: "meta",
+  },
+  {
     id: OPENCODE_GO_PROVIDER_ID,
     label: OPENCODE_GO_DISPLAY_NAME,
     auth: "api-key",

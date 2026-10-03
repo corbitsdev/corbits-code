@@ -8,6 +8,7 @@ import {
   type SourceCredentialRecord,
 } from "../config/source-credentials.js";
 import { getValidCodexToken } from "./codex/session.js";
+import { getValidMetaToken } from "./meta/session.js";
 import { getValidXaiToken } from "./xai/session.js";
 
 export type OAuthCredentialProvenance = Extract<
@@ -26,6 +27,10 @@ async function resolveOAuthCredentialMaterial(
         ? { headers: { "chatgpt-account-id": fresh.accountId } }
         : {}),
     };
+  }
+  if (provenance.provider === "meta") {
+    const fresh = await getValidMetaToken(provenance.profile);
+    return { secret: fresh.access };
   }
 
   const fresh = await getValidXaiToken(provenance.profile);
