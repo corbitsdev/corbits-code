@@ -88,6 +88,7 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.79",
     "@corbits/codex-provider": "0.1.2",
+    "@corbits/meta-provider": "github:corbitsdev/corbits-meta-provider#8c153bf",
     "@corbits/oauth-core": "0.3.0",
     "@corbits/openai-responses": "0.2.1",
     "@corbits/xai-provider": "0.1.2",

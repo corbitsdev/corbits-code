@@ -20,13 +20,19 @@ import {
   CODEX_BASE_URL,
   CODEX_DEFAULT_MODELS,
 } from "../auth/codex/constants.js";
+import { META_BASE_URL, META_DEFAULT_MODELS } from "../auth/meta/constants.js";
 import type { CodexProfile } from "../auth/codex/store.js";
+import type { MetaProfile } from "../auth/meta/store.js";
 import type { XaiProfile } from "../auth/xai/store.js";
 import { XAI_BASE_URL, XAI_DEFAULT_MODELS } from "../auth/xai/constants.js";
 import {
   codexProfilesToCatalogEntries,
   codexProviderName,
 } from "../config/codex-providers.js";
+import {
+  metaProfilesToCatalogEntries,
+  metaProviderName,
+} from "../config/meta-providers.js";
 import {
   xaiProfilesToCatalogEntries,
   xaiProviderName,
@@ -118,6 +124,22 @@ describe("provider identity divergence", () => {
     expect(entry?.baseURL).toBe(XAI_OAUTH_PROXY_BASE_URL);
     expect(entry?.models).toEqual([...XAI_DEFAULT_MODELS]);
     expect(entry?.defaultModel).toBe(XAI_DEFAULT_MODELS[0]);
+  });
+
+  test("Meta OAuth projection and surfaces track the packaged fallback", () => {
+    expect(OAUTH_SURFACES.meta.baseURL).toBe(META_BASE_URL);
+    expect([...OAUTH_SURFACES.meta.models]).toEqual([...META_DEFAULT_MODELS]);
+    expect(OAUTH_SURFACES.meta.providerName("probe")).toBe(
+      metaProviderName("probe"),
+    );
+    const profile = {
+      name: "probe",
+      tokens: { access: "probe", refresh: "probe", expiresAt: 0 },
+    } as MetaProfile;
+    const [entry] = metaProfilesToCatalogEntries([profile]);
+    expect(entry?.baseURL).toBe(META_BASE_URL);
+    expect(entry?.models).toEqual([...META_DEFAULT_MODELS]);
+    expect(entry?.defaultModel).toBe(META_DEFAULT_MODELS[0]);
   });
 
   test("Zen registry entry tracks the packaged seed catalog", () => {

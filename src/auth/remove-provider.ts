@@ -1,9 +1,11 @@
 import { codexProfileFromProviderName } from "../config/codex-providers.js";
 import {
   removeCodexProfile,
+  removeMetaProfile,
   removeXaiProfile,
 } from "../config/oauth-stores.js";
 import type { ProviderCatalogEntry } from "../config/index.js";
+import { metaProfileFromProviderName } from "../config/meta-providers.js";
 import { xaiProfileFromProviderName } from "../config/xai-providers.js";
 
 /**
@@ -26,7 +28,7 @@ export interface OAuthStoreTarget {
 export function oauthStoreForProvider(
   provider: Pick<
     ProviderCatalogEntry,
-    "name" | "codexProfile" | "xaiProfile"
+    "name" | "codexProfile" | "xaiProfile" | "metaProfile"
   > | null,
 ): OAuthStoreTarget | null {
   if (provider === null) return null;
@@ -46,6 +48,14 @@ export function oauthStoreForProvider(
     xaiProfile.length > 0
   ) {
     return { profile: xaiProfile, removeProfile: removeXaiProfile };
+  }
+  const metaProfile = metaProfileFromProviderName(providerName);
+  if (
+    metaProfile !== undefined &&
+    metaProfile === provider.metaProfile &&
+    metaProfile.length > 0
+  ) {
+    return { profile: metaProfile, removeProfile: removeMetaProfile };
   }
   return null;
 }

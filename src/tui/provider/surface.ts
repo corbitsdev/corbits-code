@@ -351,10 +351,18 @@ export function createSurface(
     const show = isLoginStep() && !state.submitting;
     loginBox.visible = show;
     const width = Math.max(20, (renderer.width || 80) - margin * 2);
-    const lines: string[] =
-      !show || state.loginURL === null
-        ? []
-        : ["open this url to authorize:", ...wrapLines(state.loginURL, width)];
+    const device = state.deviceCode;
+    const lines: string[] = !show
+      ? []
+      : device !== null
+        ? [
+            "authorize on this device:",
+            ...wrapLines(device.verificationUri, width),
+            `enter code: ${device.userCode}`,
+          ]
+        : state.loginURL !== null && state.loginURL.length > 0
+          ? ["open this url to authorize:", ...wrapLines(state.loginURL, width)]
+          : [];
     loginSlots.forEach((slot, i) => {
       const line = lines[i];
       if (line === undefined) {
@@ -364,7 +372,7 @@ export function createSurface(
       }
       slot.visible = true;
       slot.content = line;
-      // The url is the one thing to act on here, so it reads above chrome.
+      // The url/code is the one thing to act on here, so it reads above chrome.
       slot.fg = i === 0 ? UI.textDim : UI.inFlightBright;
     });
   };
@@ -447,10 +455,17 @@ export function createSurface(
         return;
       }
       const ramp = rampFor({ phase: "working", nowMs: Date.now() });
-      statusLine.content = rampLine(ramp, LOGIN_WAITING_LABEL);
+      statusLine.content = rampLine(
+        ramp,
+        state.deviceCode !== null
+          ? "waiting for device approval"
+          : LOGIN_WAITING_LABEL,
+      );
       statusLine.fg = ramp.fg;
       guidance.content =
-        "the browser should have opened — paste the url if not";
+        state.deviceCode !== null
+          ? "open the url, enter the code, and approve in your Meta account"
+          : "the browser should have opened — paste the url if not";
       guidance.fg = UI.textDim;
       return;
     }

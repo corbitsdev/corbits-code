@@ -145,6 +145,7 @@ export async function runProviderSetup(
     loginAbort: null,
     loginHandle: null,
     loginTimer: null,
+    deviceCode: null,
     loginCancelled: false,
     loginAttempt: 0,
     oauthProfileError: null,
