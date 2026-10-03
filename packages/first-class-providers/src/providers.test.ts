@@ -100,6 +100,26 @@ describe("FIRST_CLASS_PROVIDERS", () => {
     }
   });
 
+  test("Meta is a chooser with Sign In and API key paths", () => {
+    const meta = firstClassProviderById("meta");
+    expect(meta?.auth).toBe("chooser");
+    expect(meta?.paths?.map((p) => p.id)).toEqual(["signin", "api"]);
+
+    const signin = meta?.paths?.find((p) => p.id === "signin");
+    expect(signin?.auth).toBe("oauth");
+    expect(signin?.oauth).toBe("meta");
+    expect(signin?.providerId).toBe("meta");
+
+    const api = meta?.paths?.find((p) => p.id === "api");
+    expect(api?.auth).toBe("api-key");
+    expect(api?.providerId).toBe("meta");
+    expect(api?.baseURL).toBe("https://api.meta.ai/v1");
+    expect(api?.defaultModel).toBe("muse-spark-1.3");
+    expect((api?.models ?? []).length).toBeGreaterThan(0);
+    expect(api?.models).toContain(api?.defaultModel);
+    expect(api?.authHint).toContain("LLM|");
+  });
+
   test("API-key providers ship baseURL, models, and defaultModel", () => {
     for (const def of FIRST_CLASS_PROVIDERS) {
       if (def.auth !== "api-key") continue;

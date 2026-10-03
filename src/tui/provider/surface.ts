@@ -87,6 +87,10 @@ export function teardownSurface(
 ): void {
   stopRamp(state);
   login.abandonLogin();
+  if (state.statusFlashTimer !== null) {
+    clearTimeout(state.statusFlashTimer);
+    state.statusFlashTimer = null;
+  }
   discovery.abandonOllamaDiscovery();
   discovery.abandonGoPrefetch();
   discovery.abandonZenPrefetch();
@@ -457,9 +461,11 @@ export function createSurface(
       const ramp = rampFor({ phase: "working", nowMs: Date.now() });
       statusLine.content = rampLine(
         ramp,
-        state.deviceCode !== null
-          ? "waiting for device approval"
-          : LOGIN_WAITING_LABEL,
+        state.statusFlash !== null
+          ? state.statusFlash
+          : state.deviceCode !== null
+            ? "waiting for device approval"
+            : LOGIN_WAITING_LABEL,
       );
       statusLine.fg = ramp.fg;
       guidance.content =

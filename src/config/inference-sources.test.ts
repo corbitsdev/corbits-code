@@ -178,6 +178,57 @@ describe("source credential provenance", () => {
     });
   });
 
+  test("Meta API-key rows route to the meta-responses adapter, never chat completions", () => {
+    const source = buildInferenceSourceForRef(
+      { provider: "meta", model: "muse-spark-1.3" },
+      {
+        sessionId: "sess-meta-key",
+        catalog: [
+          {
+            name: "meta",
+            baseURL: "https://api.meta.ai/v1",
+            apiKey: "LLM|plain-key",
+            models: ["muse-spark-1.3"],
+          },
+        ],
+      },
+      undefined,
+    );
+
+    if (source === null) throw new Error("expected Meta API-key source");
+    expect(source.provider).toBe("meta");
+    expect(source.baseURL).toBe("https://api.meta.ai/v1");
+    expect(source.credentialId).toBe("meta");
+    expect(readSourceCredentialRecord(source.credentialId).provenance).toEqual({
+      kind: "api-key",
+    });
+  });
+
+  test("a namespaced Meta API-key row routes to the meta-responses adapter", () => {
+    const source = buildInferenceSourceForRef(
+      { provider: "meta/personal", model: "muse-spark-1.2" },
+      {
+        sessionId: "sess-meta-slug",
+        catalog: [
+          {
+            name: "meta/personal",
+            baseURL: "https://api.meta.ai/v1",
+            apiKey: "LLM|plain-key",
+            models: ["muse-spark-1.2"],
+          },
+        ],
+      },
+      undefined,
+    );
+
+    if (source === null) throw new Error("expected Meta API-key source");
+    expect(source.provider).toBe("meta");
+    expect(source.baseURL).toBe("https://api.meta.ai/v1");
+    expect(readSourceCredentialRecord(source.credentialId).provenance).toEqual({
+      kind: "api-key",
+    });
+  });
+
   test("namespaced API-key rows are not inferred as OAuth", () => {
     const source = buildInferenceSourceForRef(
       { provider: "codex/shadow", model: "relay-model" },

@@ -15,6 +15,7 @@ import type { CodexTokens } from "../../auth/codex/store.js";
 import type { AuthProfile } from "../../auth/store.js";
 import type { MetaOAuthTokens } from "../../auth/meta/store.js";
 import type { XaiTokens } from "../../auth/xai/store.js";
+import type { ClipboardPort } from "../copy-path.js";
 import type {
   discoverOllamaModels as discoverOllamaModelsRequest,
   OllamaDiscoveryState,
@@ -34,7 +35,14 @@ export type OAuthKind = FirstClassOAuthProvider;
  * except the key; the custom row carries nothing and opens the manual form.
  */
 export interface ProviderChoice {
+  /** Catalog/settings kind this choice resolves to (e.g. "meta" for both Meta paths). */
   readonly id: string;
+  /**
+   * Pick-list row id. Defaults to `id`; a chooser whose paths both resolve to
+   * the same catalog kind (Meta Sign In vs Meta API key, both `meta`) must
+   * give the second row a distinct row id so it is reachable with arrows.
+   */
+  readonly rowId: string;
   readonly label: string;
   readonly baseURL: string;
   readonly models: readonly string[];
@@ -137,6 +145,11 @@ export interface ProviderSetupConfig {
   readonly showTelemetryNotice: boolean;
   /** Renderer factory override for headless mounting in tests. */
   readonly createRenderer?: () => Promise<CliRenderer>;
+  /**
+   * Clipboard port for the Meta device flow. Defaults to a system clipboard
+   * over the renderer (or a recording stub in tests).
+   */
+  readonly clipboard?: ClipboardPort;
   /** Login driver override so tests need neither a browser nor a port. */
   readonly startLogin?: OAuthLoginStarter;
   /** Profile lister override so tests need no auth-store files on disk. */
@@ -162,6 +175,7 @@ export interface SetupState {
   readonly config: ProviderSetupConfig;
   readonly renderer: CliRenderer;
   readonly externalRenderer: boolean;
+  readonly clipboard: ClipboardPort;
   readonly choices: readonly ProviderChoice[];
   readonly existingProviderNames: readonly string[];
   readonly values: ProviderFormValues;
@@ -186,6 +200,9 @@ export interface SetupState {
   loginHandle: OAuthLoginStart | null;
   loginTimer: ReturnType<typeof setTimeout> | null;
   // Lets the provider step report an abandoned sign-in instead of a silent list.
+  /** Transient status flash (e.g. the Meta device-flow clipboard result). */
+  statusFlash: string | null;
+  statusFlashTimer: ReturnType<typeof setTimeout> | null;
   /** Device-flow code shown to the operator (Meta): verification URI + user code. */
   deviceCode: {
     verificationUri: string;

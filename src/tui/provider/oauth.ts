@@ -9,6 +9,8 @@ import {
   OAUTH_SURFACES,
   resolveApiKeyInstanceName,
 } from "./choices.js";
+import { writeClipboard } from "../copy-path.js";
+import { RUNTIME_FLASH_MS } from "../runtime-notices.js";
 import { OAUTH_PROFILE_HINT } from "./form.js";
 import { RAMP_TICK_MS, stopRamp } from "./surface.js";
 import type {
@@ -254,6 +256,24 @@ export function createLoginFlow(
             verificationUri: event.verificationUri,
             userCode: event.userCode,
           };
+          // The URL is already on the clipboard when the device-code box
+          // paints "open the url, enter the code" — the operator only has to
+          // paste. A failed write flashes so it is never silently missing.
+          const flash = (message: string): void => {
+            state.statusFlash = message;
+            if (state.statusFlashTimer !== null)
+              clearTimeout(state.statusFlashTimer);
+            state.statusFlashTimer = setTimeout(() => {
+              if (state.statusFlash === message) state.statusFlash = null;
+              state.statusFlashTimer = null;
+              surface.paintStatus();
+            }, RUNTIME_FLASH_MS);
+            surface.paintStatus();
+          };
+          writeClipboard(state.clipboard, event.verificationUri, {
+            onSuccess: () => flash("verification link copied to clipboard"),
+            onFailure: () => flash("copy failed — copy the url above"),
+          });
           surface.paint();
         },
       })

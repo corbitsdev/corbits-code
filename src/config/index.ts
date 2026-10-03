@@ -462,6 +462,32 @@ export function buildMetaSource(fields: {
   };
 }
 
+// Build the InferenceSource for a Meta Model API key (the Meta chooser's
+// "API key" path, a hand-named meta/<slug>, or a bare `meta` settings row).
+// The endpoint speaks the Responses protocol, so the source rides the same
+// "meta" adapter as the OAuth profiles — only the credential provenance
+// differs: a plain key is api-key provenance, never an OAuth profile.
+export function buildMetaApiKeySource(fields: {
+  id: string;
+  apiKey?: string;
+  model: string;
+  sessionId: string;
+  reasoningEffort?: ReasoningEffort;
+}): InferenceSource {
+  const providerOptions: Record<string, unknown> = {};
+  if (fields.reasoningEffort !== undefined)
+    providerOptions[META_REASONING_EFFORT_OPTION] = fields.reasoningEffort;
+  registerSourceSecret(fields.id, fields.apiKey);
+  return {
+    id: fields.id,
+    provider: META_PROVIDER,
+    baseURL: META_BASE_URL,
+    credentialId: fields.id,
+    model: fields.model,
+    defaults: { maxTokens: SOURCE_MAX_TOKENS, providerOptions },
+  };
+}
+
 // Build the InferenceSource for a Bifrost virtual-key provider. Routes to the
 // "bifrost" adapter (a thin openai-compatible wrapper) which injects the
 // x-bf-vk sentinel header.
