@@ -696,6 +696,10 @@ export async function runExec(config: Config): Promise<ExecResult> {
       onPendingProjectGrants: (text) => {
         stderr.write(`${text}\n`);
       },
+      // Dozens of unconfirmed probes (e.g. git worktree grants) would bury
+      // exec output: cap at a count summary plus the first examples. Grants
+      // stay gated — this only shortens the notice, on stderr (never stdout).
+      pendingGrantsPreviewLimit: 5,
       interactive,
       // Headless operator surface: the gate denies without an operator before
       // ever reaching requestApproval, so the explicit denial lives here —

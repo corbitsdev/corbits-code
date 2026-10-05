@@ -181,16 +181,39 @@ export async function loadPendingProjectApprovals(
   return onDisk.filter((approval) => !isProjectGrantTrusted(trust, approval));
 }
 
-/** Operator-facing rendering of unconfirmed project-file entries. */
-export function formatPendingProjectApprovals(pending: Approval[]): string {
+/**
+ * Operator-facing rendering of unconfirmed project-file entries. The default
+ * lists every entry (interactive surface, where the operator reviews the full
+ * file). Pass maxExamples to cap a headless surface (exec stderr) at a one-line
+ * count summary plus the first entries — probes stay visible without burying
+ * the run output, and the full list stays available interactively.
+ */
+export function formatPendingProjectApprovals(
+  pending: Approval[],
+  options?: { maxExamples?: number },
+): string {
   if (pending.length === 0) return "";
-  const lines = pending.map(
-    (approval) =>
-      `  - ${approval.tool}: "${approval.pattern}"${approval.providerModel ? ` (only with ${approval.providerModel})` : ""}`,
-  );
+  const maxExamples = options?.maxExamples;
+  const formatEntry = (approval: Approval): string =>
+    `  - ${approval.tool}: "${approval.pattern}"${approval.providerModel ? ` (only with ${approval.providerModel})` : ""}`;
+  if (
+    maxExamples === undefined ||
+    maxExamples < 0 ||
+    pending.length <= maxExamples
+  ) {
+    const lines = pending.map(formatEntry);
+    return [
+      "This directory contains a project approvals file with entries you have not confirmed:",
+      ...lines,
+      "Nothing from this file is applied until you confirm each entry.",
+    ].join("\n");
+  }
+  const shown = pending.slice(0, maxExamples);
+  const remaining = pending.length - shown.length;
   return [
-    "This directory contains a project approvals file with entries you have not confirmed:",
-    ...lines,
+    `Project approvals file has ${pending.length} unconfirmed entries (none applied):`,
+    ...shown.map(formatEntry),
+    `  ... and ${remaining} more — review the full list in interactive mode.`,
     "Nothing from this file is applied until you confirm each entry.",
   ].join("\n");
 }

@@ -139,7 +139,10 @@ export async function loadSeededApprovals(
   cwd: string,
   sessionId: string,
   home?: string,
-  opts?: { onPendingProjectGrants?: ((text: string) => void) | undefined },
+  opts?: {
+    onPendingProjectGrants?: ((text: string) => void) | undefined;
+    pendingGrantsPreviewLimit?: number | undefined;
+  },
 ): Promise<Approval[]> {
   // One-time migration: purge persisted update_plan keys (dropped at load by
   // normalizeSeededApprovals but never rewritten) so removing the normalizer
@@ -168,7 +171,14 @@ export async function loadSeededApprovals(
   // First encounter with an unconfirmed project approvals file: show the
   // operator what it would grant. The entries stay out of the seeded set
   // (loadProjectApprovals gates them) — this notice is the only trace.
-  const pendingNotice = formatPendingProjectApprovals(pendingProjectApprovals);
+  // Headless callers pass pendingGrantsPreviewLimit for a capped summary;
+  // the interactive surface omits it and keeps the full list.
+  const pendingNotice = formatPendingProjectApprovals(
+    pendingProjectApprovals,
+    opts?.pendingGrantsPreviewLimit === undefined
+      ? undefined
+      : { maxExamples: opts.pendingGrantsPreviewLimit },
+  );
   if (pendingNotice !== "") {
     persistLogger.warn("Unconfirmed project approvals in {cwd}", { cwd });
     try {

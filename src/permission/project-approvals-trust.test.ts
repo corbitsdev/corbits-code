@@ -309,4 +309,74 @@ describe("CL-7782: project approvals require grant trust", () => {
     // auto-allows — but the operator is asked only once.
     expect(asked).toEqual(["run_shell:npm test"]);
   });
+
+  test("CL-9891: exec notice caps examples with a count summary while the grants stay gated", async () => {
+    const entries = Array.from({ length: 8 }, (_, i) => ({
+      tool: "run_shell",
+      pattern: `git worktree list --porcelain-${i}`,
+    }));
+
+    // Interactive default keeps the full list for TUI review.
+    const full = formatPendingProjectApprovals(entries);
+    for (const entry of entries) {
+      expect(full).toContain(entry.pattern);
+    }
+
+    // Capped headless notice: one summary line plus the first five.
+    const capped = formatPendingProjectApprovals(entries, { maxExamples: 5 });
+    expect(capped).toContain("8 unconfirmed");
+    expect(capped).toContain("none applied");
+    for (const entry of entries.slice(0, 5)) {
+      expect(capped).toContain(entry.pattern);
+    }
+    for (const entry of entries.slice(5)) {
+      expect(capped).not.toContain(entry.pattern);
+    }
+    expect(capped).toContain("and 3 more");
+    expect(capped).toContain(
+      "Nothing from this file is applied until you confirm each entry.",
+    );
+
+    // The seeding path stays gated under the cap: nothing lands in approvals,
+    // the notice still fires, and the gate still asks instead of auto-allowing.
+    const base = await mkdtemp(join(tmpdir(), "cl-9891-capped-"));
+    const home = join(base, "home");
+    const cwd = join(base, "repo");
+    await plantProjectApprovals(cwd, entries);
+    const notices: string[] = [];
+    const seeded = await loadSeededApprovals(cwd, generateSessionId(), home, {
+      onPendingProjectGrants: (text) => {
+        notices.push(text);
+      },
+      pendingGrantsPreviewLimit: 5,
+    });
+    expect(seeded).toEqual([]);
+    expect(notices).toHaveLength(1);
+    const notice = notices[0] ?? "";
+    expect(notice).toContain("8 unconfirmed");
+    expect(notice).toContain("and 3 more");
+
+    const asked: string[] = [];
+    const gate = createPermissionGate({
+      cwd,
+      interactive: true,
+      skipPermissions: false,
+      reactorGated: false,
+      requestApproval: async (request: PermissionRequest) => {
+        asked.push(`${request.tool}:${request.subject}`);
+        return { allow: true };
+      },
+      approvals: seeded,
+    });
+    expect(
+      (
+        await gate.evaluate({
+          id: "probe",
+          name: "run_shell",
+          arguments: { command: "git worktree list --porcelain-0" },
+        })
+      ).allowed,
+    ).toBe(true);
+    expect(asked).toEqual(["run_shell:git worktree list --porcelain-0"]);
+  });
 });

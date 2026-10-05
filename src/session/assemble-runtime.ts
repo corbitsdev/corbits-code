@@ -273,6 +273,12 @@ export interface SessionGateArgs {
    * Entries stay gated regardless of delivery.
    */
   onPendingProjectGrants?: ((text: string) => void) | undefined;
+  /**
+   * Cap on unconfirmed-grant examples in the pending notice. Exec passes a
+   * small limit so dozens of probes collapse to a summary; the TUI omits it
+   * and keeps the full list. Gating is unaffected either way.
+   */
+  pendingGrantsPreviewLimit?: number | undefined;
   interactive: boolean;
   /**
    * Headless operator surface (see PermissionGateOptions.onHeadlessDeny):
@@ -305,7 +311,10 @@ export async function assembleSessionGate(
     args.cwd,
     args.sessionId,
     undefined,
-    { onPendingProjectGrants: args.onPendingProjectGrants },
+    {
+      onPendingProjectGrants: args.onPendingProjectGrants,
+      pendingGrantsPreviewLimit: args.pendingGrantsPreviewLimit,
+    },
   );
   const gate = createPermissionGate({
     approvals: seededApprovals,
