@@ -1,5 +1,5 @@
 import type { AgentProfile, CapabilityFilter } from "../profile-types.js";
-import { artistPackage } from "./artist/package.js";
+import { artistPackage } from "@corbits/agent-artist";
 import { coderPackage } from "./coder/package.js";
 import { designerPackage } from "./designer/package.js";
 import { dispatchPackage } from "./dispatch/package.js";
