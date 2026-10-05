@@ -348,6 +348,34 @@ describe("formatAgentsPanel", () => {
     ]);
   });
 
+  test("a done-mapped shutdown lane paints done, not cancelled", () => {
+    // CL-9924: close_agent after a completed report projects strip status
+    // "done" (via projectStripStatus on the stored shutdown lifecycle); the
+    // terminal row must paint that as " · done", never " · cancelled".
+    const rows = formatAgentsPanel(
+      [
+        {
+          agentId: "a",
+          description: "reported then closed",
+          status: "done",
+          currentToolStartedAt: null,
+          finishedAt: NOW - 1_000,
+        },
+      ],
+      undefined,
+      NOW,
+    );
+    expect(rows).toEqual([
+      {
+        label: "● a  reported then closed",
+        tail: " · done",
+        stalled: false,
+        kind: "lane",
+        status: "done",
+      },
+    ]);
+  });
+
   test("linger expires — terminal rows drop after the window", () => {
     expect(
       formatAgentsPanel(
