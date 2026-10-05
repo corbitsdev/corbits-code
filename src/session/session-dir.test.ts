@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
@@ -89,6 +89,15 @@ test("concurrent initSessionDir does not throw on latest symlink race", async ()
     expect(dir).toBe(sessionDir(cwd, ids[i] as string, home));
     expect(existsSync(join(dir, "context"))).toBe(true);
   }
+  // The winning `latest` symlink must resolve to one of the raced ids.
+  const projectRoot = dirname(dirs[0] as string);
+  const latestTarget = await readlink(join(projectRoot, "latest"));
+  expect(ids).toContain(latestTarget);
+  // No temp-symlink strays (`latest.<pid>.<rand>.tmp`) may be left behind.
+  const entries = await readdir(projectRoot);
+  expect(
+    entries.filter((e) => e.startsWith("latest.") && e.endsWith(".tmp")),
+  ).toEqual([]);
 });
 
 test("migrateLegacySessionIfNeeded does not migrate main-repo .agent-state from a worktree cwd", async () => {
