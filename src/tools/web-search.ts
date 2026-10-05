@@ -165,8 +165,9 @@ export function createWebSearchTool(provider?: WebProvider): AgentTool {
       if (parsed instanceof type.errors) {
         return "Error: web_search requires a non-empty query.";
       }
-      // A selected kind:"web" plugin backs the tool; the keyless hosted MCP
-      // backends below are the always-on fallback when none is selected.
+      // A selected kind:"web" plugin backs the tool (query only; the other
+      // search options are ignored on the provider path); with none
+      // selected the tools fall back to core backends.
       if (provider !== undefined) {
         try {
           return formatWebResults(await provider.search(parsed.query, signal));

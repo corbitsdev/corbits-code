@@ -273,9 +273,14 @@ export function createWebFetchTool(
       const parsed = parseWebFetchArgs(rawArgs);
       if (!parsed.ok) return parsed.error;
       // A selected kind:"web" plugin backs the tool; the in-process native
-      // fetch below is the always-on fallback when none is selected.
+      // fetch below is the fallback to core backends when none is selected.
+      // The provider path takes query/url only: format/timeout options are
+      // ignored there (core fallback honors them). The SSRF guard runs on
+      // both paths so a blocked URL never reaches the provider.
       if (options?.provider !== undefined) {
         const provider = options.provider;
+        const ssrf = await checkUrlForSsrf(parsed.url);
+        if (!ssrf.ok) return `Error: ${ssrf.reason}`;
         try {
           return await provider.fetch(parsed.url, signal);
         } catch (err) {

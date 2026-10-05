@@ -97,7 +97,7 @@ describe("resolveWebProviderFromPlugins", () => {
     expect(active?.provider.name).toBe("exa");
   });
 
-  test("returns undefined (falls back to local) when the factory throws", async () => {
+  test("returns undefined (falls back to core backends) when the factory throws", async () => {
     const candidates: WebPluginCandidate[] = [
       {
         id: "exa",

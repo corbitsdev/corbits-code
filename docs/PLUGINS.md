@@ -238,7 +238,10 @@ resolution, provider-backed tools, tool-name branding, `/plugins` UI, and add-by
 first kind-selector surface; other kinds share the same discovery and settings
 shape. When a web plugin is selected its `WebProvider` backs `web_search`/`web_fetch`
 (injected via `createAgentToolset({ webProvider })`); with none selected the
-always-on core backends serve the tools.
+always-on core backends serve the tools. The provider path takes query/url
+only: `web_search` forwards just the query (numResults/type/livecrawl/
+contextMaxCharacters are ignored) and `web_fetch` forwards just the URL
+(format/timeout are ignored); the SSRF guard still runs before delegating.
 
 ### Command plugins and enable gating
 

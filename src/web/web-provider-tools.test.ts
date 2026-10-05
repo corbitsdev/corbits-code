@@ -121,6 +121,30 @@ describe("createWebFetchTool with a web provider", () => {
     expect(result).toContain("Error");
     expect(calls.fetches).toEqual([]);
   });
+
+  test("a loopback URL never reaches the provider", async () => {
+    const { provider, calls } = stubProvider();
+    const tool = createWebFetchTool({ provider });
+    if (tool.kind !== "string") throw new Error("expected a string tool");
+    const result = await tool.handler(
+      { url: "http://127.0.0.1/" },
+      neverAbortedSignal,
+    );
+    expect(result).toContain("Error");
+    expect(calls.fetches).toEqual([]);
+  });
+
+  test("a file URL never reaches the provider", async () => {
+    const { provider, calls } = stubProvider();
+    const tool = createWebFetchTool({ provider });
+    if (tool.kind !== "string") throw new Error("expected a string tool");
+    const result = await tool.handler(
+      { url: "file:///etc/passwd" },
+      neverAbortedSignal,
+    );
+    expect(result).toContain("Error");
+    expect(calls.fetches).toEqual([]);
+  });
 });
 
 describe("createAgentToolset with webProvider", () => {

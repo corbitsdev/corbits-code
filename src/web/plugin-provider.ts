@@ -27,7 +27,7 @@ export function collectWebPlugins(
 
 // Pick the active web plugin: an explicit `web` override wins; otherwise the
 // single enabled web plugin is used. Returns undefined when none applies, in
-// which case web_search/web_fetch are not registered (web is plugin-only).
+// which case web_search/web_fetch fall back to core backends.
 export function selectWebPlugin(
   candidates: WebPluginCandidate[],
   pluginConfig: Record<string, PluginConfig>,
@@ -54,8 +54,8 @@ export interface ActiveWebProvider {
 }
 
 // Build the active web provider from the discovered candidates and stored
-// config. On failure logs to stderr and returns undefined so the run proceeds
-// with web tools disabled rather than crashing.
+// config. On failure logs to stderr and returns undefined so the run falls
+// back to core backends rather than crashing.
 export async function resolveWebProviderFromPlugins(args: {
   candidates: WebPluginCandidate[];
   pluginConfig: Record<string, PluginConfig>;
@@ -75,7 +75,7 @@ export async function resolveWebProviderFromPlugins(args: {
       !args.candidates.some((c) => c.id === args.webOverride)
     ) {
       process.stderr.write(
-        `web-provider: settings.web "${args.webOverride}" matches no discovered web plugin; web tools disabled.\n`,
+        `web-provider: settings.web "${args.webOverride}" matches no discovered web plugin; falling back to core backends.\n`,
       );
     }
     return undefined;
@@ -87,7 +87,7 @@ export async function resolveWebProviderFromPlugins(args: {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(
-      `web-provider: failed to start plugin "${selected.id}", web tools disabled: ${scrubSecrets(message)}\n`,
+      `web-provider: failed to start plugin "${selected.id}", falling back to core backends: ${scrubSecrets(message)}\n`,
     );
     return undefined;
   }
