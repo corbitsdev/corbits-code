@@ -1814,8 +1814,10 @@ export function resolveInferenceWithPolicy(
 }
 
 // CL-9880: named inference profile lookup. Director id wins; modelRole is the
-// fallback key. Returns undefined when neither key is present. `decide` is
-// accepted on the shape but deliberately never read here (reserved no-op).
+// fallback key. Returns undefined when neither key is present. Profiles apply
+// to built-in directors/intents only — custom AgentProfile ids ignore this
+// table by design. `decide` is accepted on the shape but deliberately never
+// read here (reserved no-op).
 export function resolveInferenceProfile(
   settings: Settings | undefined,
   input: { directorId: string; modelRole?: string },
