@@ -355,6 +355,9 @@ export async function assembleTUISession(
     ...(localSettingsForEnv?.pinnedTools !== undefined
       ? { pinnedTools: localSettingsForEnv.pinnedTools }
       : {}),
+    ...(config.settings?.decideEnabled === true
+      ? { decideEnabled: true as const }
+      : {}),
     toolWatchdog: liveToolWatchdog,
     getBlobReader: () => liveAgent(state).blobReader,
     getBlobWriter: () => state.currentStorage?.writeBlob,

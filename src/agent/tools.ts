@@ -103,6 +103,7 @@ import {
   createWebSearchTool,
   disposeWebSearchClients,
 } from "../tools/web-search.js";
+import { createDecideTool } from "../tools/decide.js";
 import { createApplyPatchTool } from "./apply-patch-tool.js";
 import { createUseSkillTool } from "./use-skill.js";
 import { searchSkillCatalog } from "./skill-search.js";
@@ -293,6 +294,12 @@ export interface AgentToolsetArgs {
    * default (tool_search mounted, index over the live registry).
    */
   toolSearchAllow?: readonly string[];
+  /**
+   * Opt-in typed-decision tool (Jev/System One). Off by default; set from
+   * settings.decideEnabled until the CL-9880 profile decide flag lands.
+   * Mounted but unadvertised: the model discovers it via tool_search.
+   */
+  decideEnabled?: boolean;
 }
 
 // Per-server connection state surfaced to the TUI.
@@ -677,6 +684,7 @@ export async function createAgentToolset(
       ? createExaMCPWebFetchTool({ connect: waitForBuiltinExaConnection })
       : createWebFetchTool(),
     createWebSearchTool(),
+    ...(args.decideEnabled === true ? [createDecideTool()] : []),
     ...orchestratorTools,
     stringTool({
       definition: manageTasksDefinition,

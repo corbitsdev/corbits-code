@@ -441,6 +441,7 @@ test("loadSettings cannot silently drop a known optional key", async () => {
       favoriteModels: [{ provider: "p", model: "m" }],
       dangerouslySkipPermissions: true,
       anthropicCachePrompt: true,
+      decideEnabled: true,
       theme: "dark" as const,
     };
     await writeFile(globalPath, JSON.stringify(fixture));

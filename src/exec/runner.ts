@@ -755,6 +755,9 @@ export async function runExec(config: Config): Promise<ExecResult> {
       ...(localSettingsForMode?.pinnedTools !== undefined
         ? { pinnedTools: localSettingsForMode.pinnedTools }
         : {}),
+      ...(config.settings?.decideEnabled === true
+        ? { decideEnabled: true as const }
+        : {}),
       getBlobWriter: () => currentStorage?.writeBlob,
       getEvidenceArchive: () => evidenceArchiveHolder.current,
       getContextDir: () => workdir,

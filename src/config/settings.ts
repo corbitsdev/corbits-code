@@ -203,6 +203,11 @@ export interface Settings {
   // results on the outgoing prompt only. Default off: sessions do not depend
   // on that shrink.
   anthropicCachePrompt?: boolean;
+  // Typed-decision tool (Jev/System One). Off by default: when true the
+  // primary session mounts the `decide` tool and workers may mount it too.
+  // The CL-9880 profile decide flag does not exist yet; this boolean is the
+  // gate until it lands.
+  decideEnabled?: boolean;
   // Terminal palette selection (CL-8993). "auto" (default when unset) follows
   // the terminal/OS detection chain; "light"/"dark" pin the palette.
   theme?: "auto" | "light" | "dark";
@@ -727,6 +732,7 @@ const SettingsSchema = type({
   "showPromptCost?": "boolean",
   "dangerouslySkipPermissions?": "boolean",
   "anthropicCachePrompt?": "boolean",
+  "decideEnabled?": "boolean",
   "theme?": "'auto' | 'light' | 'dark'",
 });
 
@@ -932,6 +938,7 @@ export const GLOBAL_SETTINGS_OPTIONAL_KEYS = [
   "favoriteModels",
   "dangerouslySkipPermissions",
   "anthropicCachePrompt",
+  "decideEnabled",
   "theme",
 ] as const satisfies readonly (keyof OptionalSettingsFields)[];
 
@@ -1104,6 +1111,8 @@ function normalizeParsedSettings(path: string, parsed: unknown): Settings {
       s.anthropicCachePrompt !== undefined
         ? Boolean(s.anthropicCachePrompt)
         : undefined,
+    decideEnabled:
+      s.decideEnabled !== undefined ? Boolean(s.decideEnabled) : undefined,
     theme:
       s.theme === "light" || s.theme === "dark" || s.theme === "auto"
         ? s.theme

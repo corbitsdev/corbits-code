@@ -50,6 +50,7 @@ import { advertiseShellGuardTimeout } from "../plugins/shell-guard-plugin.js";
 import { advertiseEditFileLineRange } from "../plugins/edit-file-line-range.js";
 import { createWebFetchTool } from "../tools/web-fetch.js";
 import { createWebSearchTool } from "../tools/web-search.js";
+import { createDecideTool } from "../tools/decide.js";
 import { buildCorePosixToolPlugins } from "../agent/posix-tool-plugins.js";
 import {
   wrapAgentToolsWithResultTruncation,
@@ -858,6 +859,14 @@ async function runSubAgentInner(
         params.attachedSkills,
       ),
     ];
+
+    // Typed-decision tool (Jev/System One). Mounted before the capability
+    // filter so worker allowlists keep it like any other named tool; the
+    // worker tool_search index reads the live mount list, so no index change
+    // is needed. Gated by settings until the CL-9880 profile decide flag lands.
+    if (params.settings?.decideEnabled === true) {
+      tools = [...tools, createDecideTool()];
+    }
 
     tools = applyCapabilityFilter(
       tools,
