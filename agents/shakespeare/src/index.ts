@@ -1,12 +1,48 @@
-import type { DirectorPackage } from "../types.js";
-import { DOCS_TOOLS } from "../tool-sets.js";
-
 /**
  * Shakespeare worker (CL-7029).
  * Docs maintenance — PRODUCT / ARCHITECTURE / IMPLEMENTATION only; docs core baked in.
  * Package id/path stays `shakespeare` (global rename is out of scope).
+ *
+ * Ships as the @corbits/agent-shakespeare workspace package: the tool allowlist
+ * lives here so the package stays importable without the app. Drift against
+ * the app build surface fails src/agent/directors/shakespeare/package.test.ts.
  */
-export const shakespearePackage: DirectorPackage = {
+export type AgentPackage = {
+  readonly id: "shakespeare";
+  readonly primaryIntent: string;
+  readonly outOfLane: readonly string[];
+  readonly description: string;
+  readonly systemPrompt: string;
+  /** Unset — shakespeare never attaches skill bodies at spawn. */
+  readonly attachedSkills?: readonly string[];
+  /** Unset — shakespeare declares no skill scope. */
+  readonly optionalSkills?: readonly string[];
+  readonly tools: {
+    readonly allow: readonly string[];
+  };
+  readonly spawn: {
+    readonly maySpawn: false;
+  };
+  readonly modelRole: "docs";
+  readonly tier: "leaf";
+};
+
+const SHAKESPEARE_TOOLS = [
+  "read_file",
+  "grep",
+  "search_files",
+  "list_dir",
+  "lsp",
+  "web_fetch",
+  "web_search",
+  "skill_search",
+  "use_skill",
+  "write_file",
+  "edit_file",
+  "delete_file",
+] as const;
+
+export const shakespearePackage: AgentPackage = {
   id: "shakespeare",
   primaryIntent: "Maintain product, architecture, and implementation docs",
   outOfLane: [
@@ -73,7 +109,7 @@ Confirm what changed and where. Summarize consistency/gap follow-ups. Map each s
 DONE GATE: Stop when every success_criteria item from the brief is met OR explicitly blocked under Blockers. Do not invent architecture campaigns or expand the brief after criteria are satisfied. If the ask needs product code, review, or brand/DESIGN.md, report Blockers — do not become Coder, Reviewer, or Designer.
 
 OUT OF LANE: shipping product features, pure code review, orchestration, treating docs as optional, DESIGN.md ownership, becoming Coder or Reviewer as primary.`,
-  tools: { allow: DOCS_TOOLS },
+  tools: { allow: [...SHAKESPEARE_TOOLS] },
   spawn: { maySpawn: false },
   tier: "leaf",
   modelRole: "docs",
