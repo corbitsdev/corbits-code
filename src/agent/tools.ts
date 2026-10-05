@@ -628,7 +628,11 @@ export async function createAgentToolset(
         createSpawnAgentTool(fleetDeps),
         createListAgentsTool({ sessions: fleetSessions, fleetRecords }),
         createCloseAgentTool({ sessions: fleetSessions, fleetRecords }),
-        createResumeAgentTool({ sessions: fleetSessions, fleetRecords }),
+        createResumeAgentTool({
+          sessions: fleetSessions,
+          fleetRecords,
+          waitAgentsMounted: args.mountWaitAgents === true,
+        }),
         createInterruptAgentTool({ sessions: fleetSessions, fleetRecords }),
         createSendInputTool({ sessions: fleetSessions, fleetRecords }),
       );

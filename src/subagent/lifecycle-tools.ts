@@ -71,7 +71,7 @@ const ResumeAgentArgs = type({
 export const resumeAgentToolDefinition: ToolDefinition = {
   name: "resume_agent",
   description:
-    "Send the next turn to a completed or interrupted worker, keeping its context. Returns at once; collect the reply as usual.",
+    "Send the next turn to a completed or interrupted worker, keeping its context. Returns at once; collect the reply as usual. Does not return prior report — collect it first. Starts next turn only.",
   inputSchema: {
     type: "object",
     properties: {
@@ -137,9 +137,15 @@ export type InterruptAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetMailboxHandle;
 };
 
-/** resume_agent registers the next turn on the wait mailbox so wait_agents can collect. */
+/**
+ * resume_agent registers the next turn on the wait mailbox so wait_agents can
+ * collect. waitAgentsMounted is true where wait_agents is mounted (exec
+ * primary) and only changes the uncollected-result guard wording; TUI and
+ * nested surfaces pass false so the error points at mailbox mail instead.
+ */
 export type ResumeAgentToolDeps = LifecycleToolDeps & {
   fleetRecords: FleetMailboxHandle;
+  waitAgentsMounted?: boolean;
 };
 
 /**
@@ -337,9 +343,13 @@ export function createResumeAgentTool(deps: ResumeAgentToolDeps): AgentTool {
         );
       }
       if (deps.fleetRecords.hasUncollectedTerminal(target)) {
+        const collect =
+          deps.waitAgentsMounted === false
+            ? "Idle until mailbox mail for this agent_id arrives and read it before resuming."
+            : "Call wait_agents for this agent_id first.";
         return lifecycleResult(
           call.id,
-          `Error: cannot resume "${target}" before its prior result is collected. Call wait_agents for this agent_id first.`,
+          `Error: cannot resume "${target}" before its prior result is collected. ${collect}`,
         );
       }
       const outcome = deps.sessions.resumeOne(target, message, {

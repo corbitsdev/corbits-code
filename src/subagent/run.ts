@@ -1087,6 +1087,8 @@ async function runSubAgentInner(
           sessions: fleetSessions,
           fleetRecords,
           authority: lifecycleAuthority,
+          // Nested workers never mount wait_agents — mailbox mail is the collect path.
+          waitAgentsMounted: false,
         }),
         createInterruptAgentTool({
           sessions: fleetSessions,

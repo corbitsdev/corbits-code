@@ -625,7 +625,7 @@ export const MAX_WAIT_TIMEOUT_MS = 300_000;
 export const waitAgentsToolDefinition: ToolDefinition = {
   name: "wait_agents",
   description:
-    "Block until targets finish, fail, or ask (awaiting_director), or timeout_ms. mode any (default) or all. Timeout is not an error; workers keep running. Answer awaiting_director with send_input. failed+continuable:true may be respawned once.",
+    "Block until targets finish, fail, or ask (awaiting_director), or timeout_ms. mode any (default) or all. Timeout is not an error; workers keep running. Answer awaiting_director with send_input. failed+continuable:true may be respawned once. Mounted on exec-primary surfaces only; TUI and nested workers collect via mailbox mail.",
   inputSchema: {
     type: "object",
     properties: {

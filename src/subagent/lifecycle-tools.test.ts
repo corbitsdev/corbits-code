@@ -325,6 +325,50 @@ describe("resume_agent", () => {
     });
   });
 
+  test("uncollected-result guard wording branches on wait_agents mount", async () => {
+    const setupGuard = () => {
+      const sessions = createSubAgentSessionStore();
+      const fleetRecords = createFleetMailbox(sessions);
+      const worker = startSession(sessions, {
+        description: "worker",
+        retained: true,
+      });
+      sessions.registerFollowup(worker.id, async () => "second report");
+      sessions.complete(worker.id, "first report");
+      fleetRecords.register(worker.id);
+      return { sessions, fleetRecords, worker };
+    };
+
+    const mounted = setupGuard();
+    const mountedResult = await callFleetToolRaw(
+      createResumeAgentTool({
+        sessions: mounted.sessions,
+        fleetRecords: mounted.fleetRecords,
+      }),
+      { target: mounted.worker.id, message: "next" },
+    );
+    expect(mountedResult.isError).toBe(true);
+    expect(String(mountedResult.content)).toContain(
+      "Call wait_agents for this agent_id first.",
+    );
+
+    const unmounted = setupGuard();
+    const unmountedResult = await callFleetToolRaw(
+      createResumeAgentTool({
+        sessions: unmounted.sessions,
+        fleetRecords: unmounted.fleetRecords,
+        waitAgentsMounted: false,
+      }),
+      { target: unmounted.worker.id, message: "next" },
+    );
+    expect(unmountedResult.isError).toBe(true);
+    expect(String(unmountedResult.content)).toContain(
+      "prior result is collected",
+    );
+    expect(String(unmountedResult.content)).toContain("mailbox mail");
+    expect(String(unmountedResult.content)).not.toContain("wait_agents");
+  });
+
   test("does not demand wait_agents for a worker with a pending ask", async () => {
     const sessions = createSubAgentSessionStore();
     const fleetRecords = createFleetMailbox(sessions);
