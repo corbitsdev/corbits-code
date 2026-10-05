@@ -29,17 +29,48 @@ function isPrivateIPv6(ip: string): boolean {
   if (normalized.startsWith("fe80:")) return true; // link-local
   if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true; // unique local
   if (normalized.startsWith("::ffff:")) {
-    // IPv4-mapped IPv6; re-check the embedded v4 address.
+    // IPv4-mapped IPv6; re-check the embedded v4 address. WHATWG URL
+    // parsing renders the tail hex ("::ffff:7f00:1") rather than dotted
+    // ("::ffff:127.0.0.1"), so decode either form.
     const mapped = normalized.slice("::ffff:".length);
-    if (isIP(mapped) === 4) return isPrivateIPv4(mapped);
+    if (mapped.includes(".")) {
+      if (isIP(mapped) === 4) return isPrivateIPv4(mapped);
+    } else {
+      const decoded = mappedTailToIPv4(mapped);
+      if (decoded !== undefined) return isPrivateIPv4(decoded);
+    }
   }
   return false;
 }
 
+// Decodes the hex tail of a "::ffff:" mapped address (one or two groups,
+// the low 32 bits) back to dotted IPv4. Returns undefined when the tail is
+// not plain hex, leaving the caller to fall through.
+function mappedTailToIPv4(tail: string): string | undefined {
+  const groups = tail.split(":");
+  if (groups.length < 1 || groups.length > 2) return undefined;
+  if (
+    groups.some(
+      (g) => g.length === 0 || g.length > 4 || !/^[0-9a-f]+$/.test(g),
+    )
+  )
+    return undefined;
+  const hi = groups.length === 2 ? parseInt(groups[0] as string, 16) : 0;
+  const lo = parseInt(groups[groups.length - 1] as string, 16);
+  return `${(hi >>> 8) & 255}.${hi & 255}.${(lo >>> 8) & 255}.${lo & 255}`;
+}
+
 export function isPrivateAddress(ip: string): boolean {
-  const version = isIP(ip);
-  if (version === 4) return isPrivateIPv4(ip);
-  if (version === 6) return isPrivateIPv6(ip);
+  // URL.hostname keeps IPv6 brackets ("[::1]"), which isIP rejects; strip
+  // them so bracketed literals classify directly instead of falling through
+  // to the DNS fail-closed path.
+  const host =
+    ip.length >= 2 && ip.startsWith("[") && ip.endsWith("]")
+      ? ip.slice(1, -1)
+      : ip;
+  const version = isIP(host);
+  if (version === 4) return isPrivateIPv4(host);
+  if (version === 6) return isPrivateIPv6(host);
   return true; // not a literal IP; caller must resolve first
 }
 
@@ -88,9 +119,18 @@ export async function checkUrlForSsrf(
     return { ok: false, reason: "Requests to localhost are not allowed." };
   }
 
-  const literalVersion = isIP(hostname);
+  // URL.hostname preserves IPv6 brackets ("[::1]"); strip them before isIP
+  // so bracketed literals classify as private directly, not via DNS
+  // fail-closed. The refusal message keeps the original hostname.
+  const literalHost =
+    hostname.length >= 2 &&
+    hostname.startsWith("[") &&
+    hostname.endsWith("]")
+      ? hostname.slice(1, -1)
+      : hostname;
+  const literalVersion = isIP(literalHost);
   if (literalVersion !== 0) {
-    if (isPrivateAddress(hostname)) {
+    if (isPrivateAddress(literalHost)) {
       return {
         ok: false,
         reason: `Requests to private/loopback/link-local address ${hostname} are not allowed.`,

@@ -277,6 +277,9 @@ export function createWebFetchTool(
       // The provider path takes query/url only: format/timeout options are
       // ignored there (core fallback honors them). The SSRF guard runs on
       // both paths so a blocked URL never reaches the provider.
+      // provider.fetch is opaque: unlike runWebFetch below (manual redirects
+      // with a per-hop SSRF re-check), server-side redirects inside the
+      // provider are provider trust — it receives the pre-checked URL only.
       if (options?.provider !== undefined) {
         const provider = options.provider;
         const ssrf = await checkUrlForSsrf(parsed.url);

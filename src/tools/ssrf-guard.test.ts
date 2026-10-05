@@ -33,6 +33,18 @@ describe("checkUrlForSsrf", () => {
       expect((await checkUrlForSsrf(url)).ok).toBe(false);
     }
   });
+  test("bracketed IPv6 loopback refuses as a private address, not a DNS error", async () => {
+    expect(isPrivateAddress("[::1]")).toBe(true);
+    expect(isPrivateAddress("[::ffff:127.0.0.1]")).toBe(true);
+    for (const url of ["http://[::1]/", "http://[::ffff:127.0.0.1]/"]) {
+      const result = await checkUrlForSsrf(url);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toMatch(/private\/loopback\/link-local/);
+        expect(result.reason).not.toMatch(/Could not resolve/);
+      }
+    }
+  });
   test("allows the eval fixture URL exactly when EVAL_HTTP_URL is set", async () => {
     const prior = process.env.EVAL_HTTP_URL;
     process.env.EVAL_HTTP_URL = "http://127.0.0.1:54321/";

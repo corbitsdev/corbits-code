@@ -242,6 +242,9 @@ always-on core backends serve the tools. The provider path takes query/url
 only: `web_search` forwards just the query (numResults/type/livecrawl/
 contextMaxCharacters are ignored) and `web_fetch` forwards just the URL
 (format/timeout are ignored); the SSRF guard still runs before delegating.
+`WebProvider.fetch` receives the pre-checked URL; server-side redirects
+inside the provider are provider trust (no per-hop re-check, unlike the
+core `runWebFetch` fallback, which re-checks every redirect hop).
 
 ### Command plugins and enable gating
 
