@@ -23,9 +23,12 @@ type WireMessage = {
 };
 
 function ephemeralSuffixLength(options: ExtendedInferenceOptions): number {
+  // Ephemeral turns are appended as the request suffix (see reactor.ts), so
+  // every entry counts — including system-role turns, which the Anthropic
+  // wire adapter hoists out of the message list rather than leaving in place.
   const turns = options.ephemeralTurns;
   if (turns === undefined) return 0;
-  return turns.filter((turn) => turn.role !== "system").length;
+  return turns.length;
 }
 
 function isWireBlock(block: unknown): block is WireBlock {
