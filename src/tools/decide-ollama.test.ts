@@ -141,6 +141,103 @@ describe("createOllamaSystemOneEvaluator (stub fetch)", () => {
       expect(result.reason).toBe("network");
     }
   });
+
+  test("score out-of-range maps to fallback parse-error", async () => {
+    const fetchFn = (async () =>
+      jsonResponse({
+        answers: { quality: { score: 7 } },
+      })) as unknown as typeof fetch;
+    const evaluate = createOllamaSystemOneEvaluator({
+      rootURL: "http://127.0.0.1:11434",
+      model: "clef-flash",
+      fetchFn,
+    });
+    const result = await evaluate({
+      state: {},
+      questions: [
+        {
+          id: "quality",
+          type: "score",
+          instructions: "Rate it.",
+          criteria: ["bad", "ok", "good"],
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fallback).toBe(true);
+      expect(result.reason).toBe("parse-error");
+      expect(result.detail).toContain("out-of-range score");
+    }
+  });
+
+  test("noul out-of-range maps to fallback parse-error", async () => {
+    const fetchFn = (async () =>
+      jsonResponse({
+        answers: { proceed: { noul: 1.5 } },
+      })) as unknown as typeof fetch;
+    const evaluate = createOllamaSystemOneEvaluator({
+      rootURL: "http://127.0.0.1:11434",
+      model: "clef-flash",
+      fetchFn,
+    });
+    const result = await evaluate({
+      state: {},
+      questions: [
+        { id: "proceed", type: "noul", instructions: "Should we proceed?" },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fallback).toBe(true);
+      expect(result.reason).toBe("parse-error");
+      expect(result.detail).toContain("out-of-range noul");
+    }
+  });
+
+  test("single POST body/headers shape maps boolean to noul", async () => {
+    let calls = 0;
+    let seenUrl = "";
+    let seenMethod = "";
+    let seenHeaders: unknown;
+    let seenBody: Record<string, unknown> = {};
+    const fetchFn = (async (url: unknown, init?: RequestInit) => {
+      calls += 1;
+      seenUrl = String(url);
+      seenMethod = String(init?.method);
+      seenHeaders = init?.headers;
+      seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return jsonResponse({
+        answers: { proceed: { boolean: true } },
+      });
+    }) as unknown as typeof fetch;
+    const evaluate = createOllamaSystemOneEvaluator({
+      rootURL: "http://127.0.0.1:11434/",
+      model: "clef-flash",
+      fetchFn,
+    });
+    const result = await evaluate({
+      state: { task: "route this" },
+      questions: [
+        { id: "proceed", type: "boolean", instructions: "Should we proceed?" },
+      ],
+    });
+    expect(calls).toBe(1);
+    expect(seenUrl).toBe("http://127.0.0.1:11434/v1/systemone");
+    expect(seenMethod).toBe("POST");
+    expect(seenHeaders).toEqual({ "Content-Type": "application/json" });
+    expect(Object.keys(seenBody).sort()).toEqual([
+      "model",
+      "questions",
+      "state",
+    ]);
+    expect(seenBody.model).toBe("clef-flash");
+    expect(seenBody.state).toEqual({ task: "route this" });
+    expect(seenBody.questions).toEqual({
+      proceed: { type: "noul", instructions: "Should we proceed?" },
+    });
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe("createOllamaSystemOneEvaluator (live, opt-in)", () => {
