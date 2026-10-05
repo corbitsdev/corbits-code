@@ -241,6 +241,57 @@ describe("skill resolution", () => {
   });
 });
 
+describe("bare-name symlink escape", () => {
+  test("file-symlink SKILL.md pointing outside fails closed", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "skill-bare-filelink-cwd-"));
+    const outside = await mkdtemp(join(tmpdir(), "skill-bare-filelink-out-"));
+    const home = await mkdtemp(join(tmpdir(), "skill-bare-filelink-home-"));
+    try {
+      await mkdir(join(cwd, ".agents", "skills", "evil"), { recursive: true });
+      await writeFile(
+        join(outside, "SKILL.md"),
+        "escaped outside body\n",
+        "utf8",
+      );
+      await symlink(
+        join(outside, "SKILL.md"),
+        join(cwd, ".agents", "skills", "evil", "SKILL.md"),
+      );
+      await withMockedHomedir(home, async () => {
+        expect(await resolveSkillBody(cwd, "evil", [])).toBeUndefined();
+        expect(await resolveSkillWithDir(cwd, "evil", [])).toBeUndefined();
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("dir-symlink skill dir pointing outside fails closed", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "skill-bare-dirlink-cwd-"));
+    const outside = await mkdtemp(join(tmpdir(), "skill-bare-dirlink-out-"));
+    const home = await mkdtemp(join(tmpdir(), "skill-bare-dirlink-home-"));
+    try {
+      await mkdir(join(cwd, ".agents", "skills"), { recursive: true });
+      await writeFile(
+        join(outside, "SKILL.md"),
+        "escaped outside body\n",
+        "utf8",
+      );
+      await symlink(outside, join(cwd, ".agents", "skills", "evildir"), "dir");
+      await withMockedHomedir(home, async () => {
+        expect(await resolveSkillBody(cwd, "evildir", [])).toBeUndefined();
+        expect(await resolveSkillWithDir(cwd, "evildir", [])).toBeUndefined();
+      });
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("path-like skill refs", () => {
   let pluginRoot: string;
 

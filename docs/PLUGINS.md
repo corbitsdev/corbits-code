@@ -280,6 +280,7 @@ shape.
     plugin root (`pluginRoot`), with lexical containment plus a realpath check so
     a symlink under the root cannot escape. Absolute paths, bare `.` / `..`, and
     escapes outside the root are rejected (skill miss, not a crash).
+- `spawn_agent` accepts a `skills[]` param unioned with the package allowlist, scoping the worker's `skill_search` / `use_skill`.
 - An agent plugin is wired in only when `settings.plugins[id].enabled` is true
   (same gating as command plugins — no consent needed, since profiles are
   configuration data, not in-process code).

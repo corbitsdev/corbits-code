@@ -200,7 +200,25 @@ export async function resolveSkillWithDir(
     options?.pluginDirsOnly !== true,
   )) {
     const dir = join(base, name);
-    const body = await bodyFromSkillPath(join(dir, "SKILL.md"));
+    const skillMd = join(dir, "SKILL.md");
+    // Symlink escape bar (mirrors resolvePathLikeSkill): realpath both sides
+    // so a skill dir or SKILL.md symlinked outside the winning base fails
+    // closed instead of returning outside content.
+    let realSkill: string;
+    let realBase: string;
+    try {
+      [realSkill, realBase] = await Promise.all([
+        realpath(skillMd),
+        realpath(base),
+      ]);
+    } catch {
+      // Missing base or skill → not resolvable here.
+      continue;
+    }
+    if (!pathIsInsideOrEqual(realSkill, realBase)) continue;
+    const body = await bodyFromSkillPath(realSkill);
+    // Return the lexical dir (unchanged public semantics): containment of the
+    // realpath'd SKILL.md in the realpath'd base already failed closed above.
     if (body !== undefined) return { body, dir };
   }
   return undefined;
