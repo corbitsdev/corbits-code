@@ -2,7 +2,7 @@ import type { EnvironmentInfo } from "./environment.js";
 import type { SkillSummary } from "../extensions/skills.js";
 import type { SessionMode } from "../config/session-mode.js";
 import type { ToolAvailability } from "./tool-search.js";
-import { createDispatchSystemPrompt } from "./directors/dispatch/package.js";
+import { createDispatchSystemPrompt } from "@corbits/agent-dispatch";
 import {
   buildWorkerContract,
   buildWorkerToolNames,

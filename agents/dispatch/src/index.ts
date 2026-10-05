@@ -1,7 +1,66 @@
-// Dispatch: primary dispatcher card. Idle/mailbox/poll live in the harness.
+/**
+ * Dispatch worker: primary dispatcher card. Idle/mailbox/poll live in the harness.
+ *
+ * Ships as the @corbits/agent-dispatch workspace package: the tool allowlist
+ * lives here so the package stays importable without the app. Drift against
+ * the app dispatch surface fails src/agent/directors/dispatch/package.test.ts.
+ */
+export type DispatchSpawnTarget =
+  | "explorer"
+  | "planner"
+  | "coder"
+  | "reviewer"
+  | "designer"
+  | "artist"
+  | "warden"
+  | "shakespeare"
+  | "prober"
+  | "qa-lead";
 
-import type { DirectorPackage } from "../types.js";
-import { DISPATCH_TOOLS } from "../tool-sets.js";
+export type AgentPackage = {
+  readonly id: "dispatch";
+  readonly primaryIntent: string;
+  readonly outOfLane: readonly string[];
+  readonly description: string;
+  readonly systemPrompt: string;
+  /** Unset — dispatch never attaches skill bodies at spawn. */
+  readonly attachedSkills?: readonly string[];
+  /** Unset — dispatch keeps the primary skill scope use_skill-loadable. */
+  readonly optionalSkills?: readonly string[];
+  readonly tools: {
+    readonly allow: readonly string[];
+  };
+  readonly spawn: {
+    readonly maySpawn: true;
+    readonly allowlist?: readonly DispatchSpawnTarget[];
+  };
+  readonly modelRole: "orchestrator";
+  readonly tier: "orchestrator";
+};
+
+const DISPATCH_TOOLS = [
+  "read_file",
+  "grep",
+  "search_files",
+  "list_dir",
+  "lsp",
+  "run_shell",
+  "web_fetch",
+  "web_search",
+  "skill_search",
+  "use_skill",
+  "write_file",
+  "edit_file",
+  "delete_file",
+  "spawn_agent",
+  "list_agents",
+  "close_agent",
+  "resume_agent",
+  "interrupt_agent",
+  "send_input",
+  "read_agent_trace",
+  "search_agents",
+] as const;
 
 const DISPATCH_CARD = `# Role
 You are Dispatch, the coordinator for Corbits Code. Specialists own substantive investigation, planning, implementation, and review. You own routing, briefs, coordination, and synthesis.
@@ -48,7 +107,7 @@ export function createDispatchSystemPrompt(): string {
   return DISPATCH_CARD;
 }
 
-export const dispatchPackage: DirectorPackage = {
+export const dispatchPackage: AgentPackage = {
   id: "dispatch",
   primaryIntent:
     "Coordinate named specialists; DIY only obvious mechanical corrections",
@@ -63,7 +122,7 @@ export const dispatchPackage: DirectorPackage = {
   description:
     "Primary dispatcher — classify, DIY tiny edits, spawn named specialists",
   systemPrompt: DISPATCH_CARD,
-  tools: { allow: DISPATCH_TOOLS },
+  tools: { allow: [...DISPATCH_TOOLS] },
   spawn: {
     maySpawn: true,
     allowlist: [
