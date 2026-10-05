@@ -94,7 +94,6 @@
     "@intx/authz": "workspace:*",
     "@intx/crypto": "0.3.0",
     "@intx/harness": "workspace:*",
-    "@intx/hub-sessions": "0.3.0",
     "@intx/inference": "workspace:*",
     "@intx/log": "workspace:*",
     "@intx/mail-memory": "0.3.0",

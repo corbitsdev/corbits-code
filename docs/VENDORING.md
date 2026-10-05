@@ -77,6 +77,12 @@ signingKey })` (local disk + keypair, no hub, no database) is present in
   tarball already carries it (its `subscribeAgentEvents(agent,
 opts.onEvent)` wiring). Root `dependencies` pins `0.3.0`.
 
+CL-9021 later dropped the `@intx/hub-sessions` root pin: no first-party
+tree imports it (the only references are the inert
+`vendor/intx-workflow-host/` provenance files), so the published-tarball
+coverage above stands as fallback, not as an installed dependency.
+`scripts/check-no-hub-sessions.test.ts` locks the removal.
+
 Everything vendored in this pass sits at the same upstream commit
 `1ad010463a6bce6034cded3e078b14db482882a8` as the existing trees; no
 vendored tree mixes pins.
