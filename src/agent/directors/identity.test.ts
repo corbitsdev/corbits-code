@@ -38,11 +38,8 @@ describe("packageAllowedSkillNames", () => {
     ]);
   });
 
-  test("designer optionalSkills include better-ui and emil-design-eng", () => {
-    expect(packageAllowedSkillNames(DIRECTOR_REGISTRY.designer)).toEqual([
-      "emil-design-eng",
-      "better-ui",
-    ]);
+  test("designer with no skill fields is fail-closed", () => {
+    expect(packageAllowedSkillNames(DIRECTOR_REGISTRY.designer)).toEqual([]);
   });
 
   test("unions attached then optional without duplicating when configured", () => {

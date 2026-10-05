@@ -130,11 +130,9 @@ describe("director registry", () => {
     expect(packageToProfile(c).optionalSkills).toEqual(["typescript"]);
   });
 
-  test("designer optionalSkills are names only", () => {
-    expect(DIRECTOR_REGISTRY.designer.optionalSkills).toEqual([
-      "emil-design-eng",
-      "better-ui",
-    ]);
+  test("designer does not ship third-party skill names", () => {
+    expect(DIRECTOR_REGISTRY.designer.optionalSkills).toBeUndefined();
+    expect(DIRECTOR_REGISTRY.designer.attachedSkills).toBeUndefined();
   });
 
   test("dispatch is the only maySpawn:true closed director", () => {
