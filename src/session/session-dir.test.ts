@@ -82,6 +82,15 @@ test("listSessions finds legacy sessions and migrates them", async () => {
   expect(existsSync(legacy)).toBe(false);
 });
 
+test("concurrent initSessionDir does not throw on latest symlink race", async () => {
+  const ids = Array.from({ length: 16 }, () => generateSessionId());
+  const dirs = await Promise.all(ids.map((id) => initSessionDir(cwd, id, home)));
+  for (const [i, dir] of dirs.entries()) {
+    expect(dir).toBe(sessionDir(cwd, ids[i] as string, home));
+    expect(existsSync(join(dir, "context"))).toBe(true);
+  }
+});
+
 test("migrateLegacySessionIfNeeded does not migrate main-repo .agent-state from a worktree cwd", async () => {
   const main = join(cwd, "main");
   await mkdir(main, { recursive: true });

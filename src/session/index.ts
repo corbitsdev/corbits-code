@@ -22,15 +22,6 @@ import { LOG_NAMESPACE_ROOT } from "../branding.js";
 
 const log = getLogger([LOG_NAMESPACE_ROOT, "session"]);
 
-function isENOENT(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code?: unknown }).code === "ENOENT"
-  );
-}
-
 // ---------------------------------------------------------------------------
 // UUIDv7 generator (no external dependencies)
 // ---------------------------------------------------------------------------
@@ -179,19 +170,25 @@ export async function initSessionDir(
   const dir = await migrateLegacySessionIfNeeded(cwd, sessionId, home);
   await mkdir(join(dir, "context"), { recursive: true });
 
-  // Update the `latest` symlink to point to this session.
-  const linkPath = latestSymlinkPath(cwd, home);
-  await mkdir(dirname(linkPath), { recursive: true });
-
-  // Remove existing symlink first, then create new one.
-  await unlink(linkPath).catch((err: unknown) => {
-    if (isENOENT(err)) return;
-    log.debug("failed to replace latest symlink at {path}: {error}", {
-      path: linkPath,
+  // Best-effort `latest` symlink update. A temp symlink plus atomic rename
+  // keeps concurrent inits from racing on EEXIST; failures here must never
+  // abort session creation, so every error is swallowed below.
+  try {
+    const linkPath = latestSymlinkPath(cwd, home);
+    await mkdir(dirname(linkPath), { recursive: true });
+    const tmpPath = `${linkPath}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
+    try {
+      await symlink(sessionId, tmpPath);
+      await rename(tmpPath, linkPath);
+    } catch (err: unknown) {
+      await unlink(tmpPath).catch(() => {});
+      throw err;
+    }
+  } catch (err: unknown) {
+    log.debug("failed to update latest symlink: {error}", {
       error: err instanceof Error ? err.message : String(err),
     });
-  });
-  await symlink(sessionId, linkPath);
+  }
 
   return dir;
 }
