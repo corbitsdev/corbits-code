@@ -41,6 +41,14 @@ function assistantTurn(text: string): ConversationTurn {
   };
 }
 
+function systemTurn(text: string): ConversationTurn {
+  return {
+    role: "system",
+    timestamp: 0,
+    content: [{ type: "text", text }],
+  };
+}
+
 type WireBlock = {
   cache_control?: unknown;
   text?: string;
@@ -119,6 +127,30 @@ describe("anthropic cache breakpoint with ephemeral turns", () => {
         (block) => block.cache_control !== undefined,
       ),
     ).toEqual([]);
+  });
+
+  test("system-role ephemeral is hoisted, so the breakpoint stays on q2 not q1", () => {
+    const persisted = [userTurn("q1"), assistantTurn("a1"), userTurn("q2")];
+    const sysEphemeral = systemTurn("sys-nudge");
+    const request = adapters
+      .resolve(sourceFor("anthropic"))
+      .buildRequest([...persisted, sysEphemeral], "test-model", {
+        ephemeralTurns: [sysEphemeral],
+      } as InferenceOptions);
+    const body = wireBody(request.body);
+
+    // Hoisted system turns never reach wire messages, so only q1/a1/q2
+    // remain and the breakpoint must sit on the last persisted user turn.
+    expect(body.messages).toHaveLength(3);
+    expect(
+      body.messages[0]?.content.filter(
+        (block) => block.cache_control !== undefined,
+      ),
+    ).toEqual([]);
+    expect(
+      body.messages[2]?.content[body.messages[2].content.length - 1]
+        ?.cache_control,
+    ).toEqual({ type: "ephemeral" });
   });
 
   test("without ephemeral turns the request is byte-identical to the base adapter", () => {
