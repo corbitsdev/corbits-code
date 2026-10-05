@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { realpath } from "node:fs/promises";
 import { readdir, readFile } from "node:fs/promises";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
 
 const SKILL_RELATIVE_DIRS = [
@@ -50,6 +50,14 @@ function skillBaseDirs(
     userBases.push(userPath);
   }
   return [...pluginBases, ...projectBases, ...userBases];
+}
+
+// User-global skill base dirs (`~/.corbits/skills`, …). Project-local skill
+// dirs resolve under the session cwd (already inside the workspace); these
+// home-based dirs live outside it, so read-only file tools need them as
+// trusted roots to open sibling files (see assembleSessionGate).
+export function userSkillBaseDirs(home: string = homedir()): string[] {
+  return SKILL_RELATIVE_DIRS.map((rel) => join(home, rel));
 }
 
 function parseSkillRef(ref: string): string {
@@ -120,15 +128,25 @@ async function bodyFromSkillPath(path: string): Promise<string | undefined> {
 }
 
 /**
+ * A resolved skill: the SKILL.md body (frontmatter stripped) plus the skill
+ * directory that won, so callers can point the model at sibling files
+ * (e.g. brand-guidelines.md) living next to SKILL.md.
+ */
+export interface ResolvedSkill {
+  body: string;
+  dir: string;
+}
+
+/**
  * Resolve a path-like skill ref against `pluginRoot`. Absolute refs and
  * escapes outside the root are rejected. Accepts a SKILL.md file path or a
  * directory that contains SKILL.md. When the candidate exists, both sides are
  * realpath'd so a symlink under the root cannot escape to outside content.
  */
-async function resolvePathLikeSkillBody(
+async function resolvePathLikeSkill(
   pluginRoot: string,
   ref: string,
-): Promise<string | undefined> {
+): Promise<ResolvedSkill | undefined> {
   if (isAbsolute(ref)) return undefined;
   const root = resolve(pluginRoot);
   const resolved = resolve(root, ref);
@@ -146,7 +164,9 @@ async function resolvePathLikeSkillBody(
       realpath(root),
     ]);
     if (!pathIsInsideOrEqual(realSkill, realRoot)) return undefined;
-    return bodyFromSkillPath(realSkill);
+    const body = await bodyFromSkillPath(realSkill);
+    if (body === undefined) return undefined;
+    return { body, dir: dirname(realSkill) };
   } catch {
     // Missing path (or unreadable root) → not a resolvable skill.
     return undefined;
@@ -160,29 +180,40 @@ async function resolvePathLikeSkillBody(
 // project-local then user-global fallbacks). Path-like refs (`./skills/style`,
 // `skills/foo`) resolve only under `options.pluginRoot` with containment
 // checks; absolute and escape paths fail.
-export async function resolveSkillBody(
+export async function resolveSkillWithDir(
   cwd: string,
   ref: string,
   pluginDirs: string[] = [],
   options?: ResolveSkillBodyOptions,
-): Promise<string | undefined> {
+): Promise<ResolvedSkill | undefined> {
   const name = parseSkillRef(ref);
   // Bare `.` / `..` are not skill names and must not fall through to directory search.
   if (name === "." || name === "..") return undefined;
   if (isPathLikeSkillRef(name)) {
     const pluginRoot = options?.pluginRoot;
     if (pluginRoot === undefined) return undefined;
-    return resolvePathLikeSkillBody(pluginRoot, name);
+    return resolvePathLikeSkill(pluginRoot, name);
   }
   for (const base of skillBaseDirs(
     cwd,
     pluginDirs,
     options?.pluginDirsOnly !== true,
   )) {
-    const body = await bodyFromSkillPath(join(base, name, "SKILL.md"));
-    if (body !== undefined) return body;
+    const dir = join(base, name);
+    const body = await bodyFromSkillPath(join(dir, "SKILL.md"));
+    if (body !== undefined) return { body, dir };
   }
   return undefined;
+}
+
+export async function resolveSkillBody(
+  cwd: string,
+  ref: string,
+  pluginDirs: string[] = [],
+  options?: ResolveSkillBodyOptions,
+): Promise<string | undefined> {
+  const resolved = await resolveSkillWithDir(cwd, ref, pluginDirs, options);
+  return resolved?.body;
 }
 
 // Discover every available skill (name + one-line description). Deduped by name:

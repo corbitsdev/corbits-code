@@ -558,6 +558,7 @@ const SpawnAgentArgs = type({
   "do_not?": "string[]",
   "report_focus?": "string",
   "requires_tools?": "string[]",
+  "skills?": "string[]",
 });
 
 export const spawnAgentToolDefinition: ToolDefinition = {
@@ -609,6 +610,12 @@ export const spawnAgentToolDefinition: ToolDefinition = {
         items: { type: "string" },
         description:
           "Hard tool requirements (canonical names). Preflight fails closed when missing.",
+      },
+      skills: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Extra skill names for this worker only; unioned with package allowlist.",
       },
     },
     required: ["description", "prompt"],
@@ -1013,6 +1020,7 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         do_not: rawDoNot,
         report_focus: rawReportFocus,
         requires_tools: rawRequiresTools,
+        skills: rawSkills,
       } = parsed;
       const description = rawDesc.trim();
       const prompt = rawPrompt.trim();
@@ -1032,6 +1040,10 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
       const doNot =
         rawDoNot?.map((d) => d.trim()).filter((d) => d.length > 0) ?? [];
       const reportFocus = rawReportFocus?.trim();
+      // Per-spawn skill handoff: extra skill names for this worker only.
+      // Arktype guarantees strings; blank entries are ignored, never an error.
+      const spawnSkills =
+        rawSkills?.map((s) => s.trim()).filter((s) => s.length > 0) ?? [];
 
       let provider: SubAgentProvider = resolveDep(deps.provider);
       const parentEffort = provider.reasoningEffort;
@@ -1488,12 +1500,19 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
             modelRole: laneModelRole,
           });
 
-          const allowedSkillNames =
+          const baseAllowedSkillNames =
             packageAllowedSkillNames(resolved.pkg) ??
             skillNamesFromFields(
               resolved.attachedSkills,
               resolved.optionalSkills,
             );
+          // Per-spawn skill handoff: `skills` names are for this worker
+          // only, unioned with the package allowlist (order-preserving,
+          // first-wins). Empty spawn list keeps the package scope as-is.
+          const allowedSkillNames =
+            spawnSkills.length > 0
+              ? skillNamesFromFields(baseAllowedSkillNames, spawnSkills)
+              : baseAllowedSkillNames;
           const attachedSkills =
             resolved.pkg?.attachedSkills ?? resolved.attachedSkills;
           const params: RunSubAgentParams = {

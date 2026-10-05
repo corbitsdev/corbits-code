@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 
-import { discoverSkills, resolveSkillBody } from "./skills.js";
+import {
+  discoverSkills,
+  resolveSkillBody,
+  resolveSkillWithDir,
+} from "./skills.js";
 import { defined } from "../../testkit/defined.js";
 import { withMockedHomedir } from "../../testkit/mock-module.js";
 
@@ -186,6 +190,25 @@ describe("skill resolution", () => {
   test("returns undefined for an unknown skill", async () => {
     expect(
       await resolveSkillBody(fixtureCwd, "does-not-exist-xyz", pluginDirs),
+    ).toBeUndefined();
+  });
+
+  test("resolveSkillWithDir returns the body plus the winning skill directory", async () => {
+    const resolved = await resolveSkillWithDir(
+      fixtureCwd,
+      "scribe",
+      pluginDirs,
+    );
+    expect(resolved).toBeDefined();
+    expect(defined(resolved, "resolved skill").body).toContain("Scribe");
+    expect(defined(resolved, "resolved skill").dir).toBe(
+      join(exampleAgentPlugin, "skills", "scribe"),
+    );
+  });
+
+  test("resolveSkillWithDir returns undefined for an unknown skill", async () => {
+    expect(
+      await resolveSkillWithDir(fixtureCwd, "does-not-exist-xyz", pluginDirs),
     ).toBeUndefined();
   });
 

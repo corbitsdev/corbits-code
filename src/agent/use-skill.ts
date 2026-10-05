@@ -3,7 +3,7 @@ import type { AgentTool } from "@intx/agent";
 import type { ToolDefinition } from "@intx/types/runtime";
 import { type } from "arktype";
 
-import { resolveSkillBody } from "../extensions/skills.js";
+import { resolveSkillWithDir } from "../extensions/skills.js";
 import { NOOP_TELEMETRY, type Telemetry } from "../telemetry/index.js";
 import { captureSkillUsed } from "../telemetry/product-events.js";
 
@@ -72,8 +72,11 @@ export function createUseSkillTool(
       if (loaded.has(name)) return alreadyInContextMessage(name);
       loaded.add(name);
       let body: string | undefined;
+      let dir: string | undefined;
       try {
-        body = await resolveSkillBody(cwd, name, skillDirs);
+        const resolved = await resolveSkillWithDir(cwd, name, skillDirs);
+        body = resolved?.body;
+        dir = resolved?.dir;
       } catch (err) {
         loaded.delete(name);
         throw err;
@@ -86,7 +89,11 @@ export function createUseSkillTool(
       // name never leaves the process: first-party `corbits-skills` names
       // are reported by name, everything else as `custom`.
       captureSkillUsed(telemetry, name);
-      return `Skill "${name}" — follow these instructions for this task:\n\n${body}`;
+      const footer =
+        dir !== undefined
+          ? `\n\nSkill directory: ${dir}. Sibling files (e.g. brand-guidelines.md) can be read with read_file relative to that dir.`
+          : "";
+      return `Skill "${name}" — follow these instructions for this task:\n\n${body}${footer}`;
     },
   });
 }

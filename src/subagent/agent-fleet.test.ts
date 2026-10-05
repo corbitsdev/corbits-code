@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -452,6 +452,103 @@ describe("spawn_agent", () => {
     expect(captured?.directorId).toBe("designer");
     expect(captured?.systemPromptRole).toBe("You are the plugin designer.");
     expect(captured?.allowedSkillNames).toEqual(["better-ui"]);
+  });
+
+  test("spawn skills[] unions with the package allowlist; omitted stays fail-closed", async () => {
+    const fixture = await mkdtemp(join(tmpdir(), "corbits-spawn-skills-"));
+    const skillDir = join(fixture, ".agents", "skills", "custom");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(
+      join(skillDir, "SKILL.md"),
+      "---\nname: custom\ndescription: Custom lane.\n---\nCustom body.\n",
+    );
+
+    const captured: RunSubAgentParams[] = [];
+    const deps = createFleetDeps(
+      async (params) => {
+        captured.push(params);
+        return { report: "done" };
+      },
+      {
+        profiles: [
+          {
+            id: "bare-worker",
+            systemPromptRole: "You are a bare worker with no package skills.",
+          },
+        ],
+      },
+    );
+    const spawn = createSpawnAgentTool(deps);
+
+    // Package has no skill fields: spawn skills alone open the allowlist,
+    // and blank entries are ignored, never an error.
+    const withSkills = await callFleetTool(spawn, {
+      description: "skilled job",
+      prompt: "do it",
+      agent: "bare-worker",
+      skills: ["custom", "  ", ""],
+    });
+    expect(withSkills.status).toBe("running");
+    expect(captured[0]?.allowedSkillNames).toEqual(["custom"]);
+
+    // The dispatched allowlist is what gates use_skill: the spawned worker
+    // loads the custom skill through it.
+    const { createUseSkillTool } = await import("../agent/use-skill.js");
+    const callUseSkill = (
+      tool: ReturnType<typeof createUseSkillTool>,
+      args: Record<string, unknown>,
+    ): Promise<string> => {
+      if (tool.kind !== "string") throw new Error("expected string tool");
+      return tool.handler(args, new AbortController().signal);
+    };
+    const skilled = createUseSkillTool(
+      fixture,
+      [],
+      undefined,
+      captured[0]?.allowedSkillNames,
+    );
+    expect(await callUseSkill(skilled, { name: "custom" })).toContain(
+      "Custom body.",
+    );
+
+    // Without the spawn handoff the same package stays fail-closed.
+    const withoutSkills = await callFleetTool(spawn, {
+      description: "bare job",
+      prompt: "do it",
+      agent: "bare-worker",
+    });
+    expect(withoutSkills.status).toBe("running");
+    expect(captured[1]?.allowedSkillNames).toEqual([]);
+    const bare = createUseSkillTool(
+      fixture,
+      [],
+      undefined,
+      captured[1]?.allowedSkillNames,
+    );
+    expect(await callUseSkill(bare, { name: "custom" })).toBe(
+      'No skill named "custom" is available.',
+    );
+  });
+
+  test("spawn skills[] unions with a closed package allowlist", async () => {
+    const captured: RunSubAgentParams[] = [];
+    const deps = createFleetDeps(async (params) => {
+      captured.push(params);
+      return { report: "done" };
+    });
+    const spawn = createSpawnAgentTool(deps);
+
+    // coder declares optionalSkills ["typescript"]: the spawn list unions,
+    // it does not replace.
+    const result = await callFleetTool(spawn, {
+      description: "coded job",
+      prompt: "implement it",
+      agent: "coder",
+      success_criteria: ["it ships"],
+      skills: ["custom"],
+    });
+    expect(result.status).toBe("running");
+    expect(captured[0]?.allowedSkillNames).toEqual(["typescript", "custom"]);
   });
 });
 

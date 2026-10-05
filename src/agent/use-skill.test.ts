@@ -57,11 +57,11 @@ describe("createUseSkillTool already-in-context", () => {
       import.meta.resolve("../extensions/skills.js"),
       (real: typeof import("../extensions/skills.js")) => ({
         ...real,
-        resolveSkillBody: async (
-          ...args: Parameters<typeof real.resolveSkillBody>
+        resolveSkillWithDir: async (
+          ...args: Parameters<typeof real.resolveSkillWithDir>
         ) => {
           resolveCalls += 1;
-          return real.resolveSkillBody(...args);
+          return real.resolveSkillWithDir(...args);
         },
       }),
       async () => {
@@ -102,12 +102,12 @@ describe("createUseSkillTool already-in-context", () => {
       import.meta.resolve("../extensions/skills.js"),
       (real: typeof import("../extensions/skills.js")) => ({
         ...real,
-        resolveSkillBody: async (
-          ...args: Parameters<typeof real.resolveSkillBody>
+        resolveSkillWithDir: async (
+          ...args: Parameters<typeof real.resolveSkillWithDir>
         ) => {
           resolveCalls += 1;
           await Promise.resolve();
-          return real.resolveSkillBody(...args);
+          return real.resolveSkillWithDir(...args);
         },
       }),
       async () => {
@@ -142,5 +142,27 @@ describe("createUseSkillTool already-in-context", () => {
     const out = await call(tool, { name: "git-worktrees" });
     expect(out).toContain("Create worktree recipe.");
     expect(out).toContain('Skill "git-worktrees"');
+  });
+});
+
+describe("createUseSkillTool skill directory footer", () => {
+  test("loaded body appends the skill dir plus a sibling-file hint", async () => {
+    const cwd = await fixtureWithHiddenSkill();
+    const tool = createUseSkillTool(cwd);
+    const out = await call(tool, { name: "git-worktrees" });
+    expect(out).toContain("Create worktree recipe.");
+    expect(out).toContain(
+      `Skill directory: ${join(cwd, ".agents", "skills", "git-worktrees")}.`,
+    );
+    expect(out).toContain("brand-guidelines.md");
+    expect(out).toContain("read_file");
+  });
+
+  test("unknown skill has no footer", async () => {
+    const cwd = await fixtureWithHiddenSkill();
+    const tool = createUseSkillTool(cwd);
+    const out = await call(tool, { name: "nope-missing" });
+    expect(out).toBe('No skill named "nope-missing" is available.');
+    expect(out).not.toContain("Skill directory:");
   });
 });

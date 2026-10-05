@@ -107,6 +107,7 @@ import {
 } from "../permission/gate.js";
 import type { Approval, RequestApproval } from "../permission/types.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
+import { userSkillBaseDirs } from "../extensions/skills.js";
 import { userPluginsRoot } from "../plugins/uninstall.js";
 import { createApprovalLog } from "../permission/approval-log.js";
 import { sessionDir } from "./index.js";
@@ -312,7 +313,11 @@ export async function assembleSessionGate(
     telemetry: args.telemetry,
     cwd: args.cwd,
     rootsProvider: createWorktreeRootsProvider(args.cwd),
-    trustedPluginRoots: () => [userPluginsRoot()],
+    // User-global skill dirs live outside the workspace, so sibling reads
+    // (read_file/grep/search_files/list_dir of files next to a loaded
+    // SKILL.md) need them as trusted roots. Trusted roots are read-only by
+    // construction — writes/deletes under them stay hard escape denies.
+    trustedPluginRoots: () => [userPluginsRoot(), ...userSkillBaseDirs()],
     providerName: args.providerName,
     model: args.model,
     requestApproval: args.requestApproval,
