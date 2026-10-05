@@ -98,6 +98,20 @@ describe("resolveInferenceProfile (CL-9880)", () => {
       }),
     ).toBe(false);
   });
+
+  test("settings schema rejects empty provider/model strings", () => {
+    const base = {
+      providers: {
+        primary: { baseURL: "https://x.example/v1", models: ["m"] },
+      },
+    };
+    expect(
+      isSettings({ ...base, inferenceProfiles: { coder: { model: "" } } }),
+    ).toBe(false);
+    expect(
+      isSettings({ ...base, inferenceProfiles: { coder: { provider: "" } } }),
+    ).toBe(false);
+  });
 });
 
 describe("applyInferenceProfile (CL-9880)", () => {

@@ -1103,6 +1103,15 @@ export function createSpawnAgentTool(deps: AgentFleetDeps): AgentTool {
         if (providerSettings === undefined) {
           return `Error: ${label} resolved to provider "${resolved.provider}" which is not configured.`;
         }
+        // Fail closed on unknown models (mirror isLegViable): an empty models
+        // list accepts anything (unrestricted gateway), otherwise the model
+        // must be listed by the provider.
+        if (
+          providerSettings.models.length > 0 &&
+          !providerSettings.models.includes(resolved.model)
+        ) {
+          return `Error: ${label} resolved to model "${resolved.model}" which provider "${resolved.provider}" does not expose (available: ${providerSettings.models.join(", ")}).`;
+        }
         provider = {
           providerName: resolved.provider,
           baseURL: providerSettings.baseURL,

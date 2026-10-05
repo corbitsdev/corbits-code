@@ -693,8 +693,8 @@ const ModelRefSchema = type({
 // CL-9880: named inference profiles. Non-empty provider/model strings only;
 // reasoningEffort reuses the canonical ladder; `decide` is a reserved no-op.
 const InferenceProfileSchema = type({
-  "provider?": "string",
-  "model?": "string",
+  "provider?": "string>0",
+  "model?": "string>0",
   "reasoningEffort?": type.enumerated(...REASONING_EFFORTS),
   "decide?": "boolean",
 });

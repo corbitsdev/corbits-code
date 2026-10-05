@@ -202,4 +202,32 @@ describe("named inference profiles at spawn (CL-9880)", () => {
     expect(result.isError).toBe(true);
     expect(started).toBe(false);
   });
+
+  test("unknown model in a named profile fails closed before starting", async () => {
+    let started = false;
+    const deps = createFleetDeps(
+      async () => {
+        started = true;
+        return { report: "done" };
+      },
+      {
+        settings: {
+          providers: { primary },
+          inferenceProfiles: {
+            coder: { model: "no-such-model" },
+          },
+        },
+        catalog: [primary],
+      },
+    );
+    deps.provider = parentProvider();
+    const result = await callFleetToolRaw(createSpawnAgentTool(deps), {
+      agent: "coder",
+      description: "build",
+      prompt: "build the thing",
+      success_criteria: ["done"],
+    });
+    expect(result.isError).toBe(true);
+    expect(started).toBe(false);
+  });
 });
