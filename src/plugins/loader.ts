@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { type } from "arktype";
 
 import type { WorkflowPlugin } from "../workflows/types.js";
+import type { InterceptHookRegistration } from "./intercept-hooks.js";
 import { SETTINGS_DIR_NAME } from "../branding.js";
 import type { CommandPlugin } from "../tui/commands/registry.js";
 import { pathIsInsideOrEqual } from "../util/path-contain.js";
@@ -52,6 +53,12 @@ export interface PluginModule {
   // A tool plugin factory: (options: unknown) => ToolPlugin | Promise<ToolPlugin>.
   // Typed as unknown so this module doesn't pull in the tools-posix type graph.
   createToolPlugin?: unknown;
+  // CL-9888 in-process intercept hooks (beforePrompt/beforeModel/afterTool).
+  // Collected by collectInterceptHooks and composed after
+  // secret-guard/permission, so a denied call never reaches a hook. No
+  // manifest kind required: any trusted (non-metadata-only) module may
+  // export them.
+  interceptHooks?: InterceptHookRegistration;
   /** Discovery origin; used for project-trust gating. */
   origin?: PluginOrigin;
   /** Absolute path used for path-bound trust (plugin directory or file). */

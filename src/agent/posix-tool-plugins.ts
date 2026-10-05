@@ -27,6 +27,13 @@ import {
   type ReadFileGuardPluginOptions,
 } from "../plugins/read-file-guard-plugin.js";
 import type { PermissionGate } from "../permission/gate.js";
+import {
+  hasInterceptHooks,
+  interceptHookPlugin,
+  normalizeInterceptHooks,
+  type InterceptHookRegistration,
+  type InterceptHookRegistry,
+} from "../plugins/intercept-hooks.js";
 import { createWorktreeRootsProvider } from "../permission/worktree-roots.js";
 import type { CompactionArchive } from "../session/compaction-archive.js";
 import type { ShellOutputFeedMap } from "../session/shell-output-feed.js";
@@ -59,6 +66,16 @@ export interface CorePosixToolPluginsArgs {
    * only — the default settings file stays covered either way.
    */
   secretGuardExtraDeniedPaths?: readonly string[];
+  // CL-9888 in-process intercept hooks (beforeModel/afterTool stages;
+  // beforePrompt is a prompt-assembly pure function, not middleware).
+  // Composed immediately after secret-guard/permission: a denied call
+  // short-circuits at the gate above this layer and never reaches a hook,
+  // so plugins can narrow or annotate allowed calls but never revive a
+  // denied one. Hook-mutated calls still pass the downstream guards below.
+  interceptHooks?: InterceptHookRegistration | InterceptHookRegistry;
+  // Warning sink for hook failures (hooks never throw into the run).
+  // Defaults to stderr; interactive callers pass a diagnostics-backed sink.
+  onInterceptHookWarning?: (msg: string) => void;
 }
 
 // Middleware order matches docs/ARCHITECTURE.md: path escape through truncation,
@@ -99,6 +116,8 @@ export function buildCorePosixToolPlugins(
     getShellOutputFeeds,
     getEvidenceArchive,
     secretGuardExtraDeniedPaths,
+    interceptHooks,
+    onInterceptHookWarning,
   } = args;
   // Pre-gate sandboxes honor yolo mode so outside-workspace path tools and shell
   // cwd are not hard-denied after the gate already auto-allows. Pass a live
@@ -144,6 +163,17 @@ export function buildCorePosixToolPlugins(
         : undefined,
     ),
     permissionPlugin(permissionGate),
+    ...(interceptHooks !== undefined &&
+    hasInterceptHooks(normalizeInterceptHooks(interceptHooks))
+      ? [
+          interceptHookPlugin(
+            interceptHooks,
+            onInterceptHookWarning !== undefined
+              ? { onWarning: onInterceptHookWarning }
+              : undefined,
+          ),
+        ]
+      : []),
     shellGuardPlugin(cwd, shellTimeout, shellEnv, {
       allowOutsideCwd: allowOutside,
       ...(getBackgroundShellRegistry !== undefined
