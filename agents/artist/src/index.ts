@@ -1,12 +1,49 @@
-import type { DirectorPackage } from "../types.js";
-import { BUILD_TOOLS } from "../tool-sets.js";
-
 /**
  * Artist worker: visual asset specialist.
  * Hand-crafts SVGs, visual diagrams (Mermaid, ASCII art), and structured
  * generative graphic prompts for image generation models.
+ *
+ * Ships as the @corbits/agent-artist workspace package: the tool allowlist
+ * lives here so the package stays importable without the app. Drift against
+ * the app build surface fails src/agent/directors/artist/package.test.ts.
  */
-export const artistPackage: DirectorPackage = {
+export type AgentPackage = {
+  readonly id: "artist";
+  readonly primaryIntent: string;
+  readonly outOfLane: readonly string[];
+  readonly description: string;
+  readonly systemPrompt: string;
+  /** Unset — artist never attaches skill bodies at spawn. */
+  readonly attachedSkills?: readonly string[];
+  /** Unset — artist declares no skill scope. */
+  readonly optionalSkills?: readonly string[];
+  readonly tools: {
+    readonly allow: readonly string[];
+  };
+  readonly spawn: {
+    readonly maySpawn: false;
+  };
+  readonly modelRole: "implement";
+  readonly tier: "leaf";
+};
+
+const ARTIST_TOOLS = [
+  "read_file",
+  "grep",
+  "search_files",
+  "list_dir",
+  "lsp",
+  "run_shell",
+  "web_fetch",
+  "web_search",
+  "skill_search",
+  "use_skill",
+  "write_file",
+  "edit_file",
+  "delete_file",
+] as const;
+
+export const artistPackage: AgentPackage = {
   id: "artist",
   primaryIntent:
     "Author hand-crafted SVGs, visual diagrams, and generative graphic prompts",
@@ -17,10 +54,6 @@ export const artistPackage: DirectorPackage = {
   ],
   description:
     "Visual asset specialist — SVGs, visual diagrams, and generative graphic prompts",
-  tools: { allow: BUILD_TOOLS },
-  spawn: { maySpawn: false },
-  tier: "leaf",
-  modelRole: "implement",
   systemPrompt: `You are ArtistDirector (Artist), a specialist in Corbits Code.
 
 PRIMARY INTENT: create visual assets — clean vector SVGs, technical and architectural diagrams, and structured generative image prompts.
@@ -49,4 +82,8 @@ Workflow:
 4. Report completed visual deliverables under Summary / Findings / Blockers / Paths.
 
 OUT OF LANE: non-visual code implementation, backend logic, code defect review, fleet orchestration.`,
+  tools: { allow: [...ARTIST_TOOLS] },
+  spawn: { maySpawn: false },
+  tier: "leaf",
+  modelRole: "implement",
 };
